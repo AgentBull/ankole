@@ -1,5 +1,16 @@
 import { existsSync } from 'node:fs'
-import type { RuntimeFabricEnvelope } from '../fabric/fabric'
+import { create } from '@bufbuild/protobuf'
+import {
+  AgentComputerWorkerCapacitySchema,
+  AgentComputerWorkerHeartbeatSchema,
+  AgentComputerWorkerReadySchema,
+  createEnvelope,
+  DurabilityClass,
+  envelopeHeader,
+  jsonBytes,
+  Lane,
+  type Envelope
+} from '../fabric/envelope_proto'
 import {
   BUILTIN_SKILLS_ROOT,
   WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT,
@@ -70,10 +81,11 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
  * Enforces the Agent Computer deployment invariant at process startup.
  *
  * Mounting TS source into the image is allowed, but the worker itself must run
- * in the Linux Docker image that provides bubblewrap, browser/Python tools, the
- * native kernel, and the `/workspace` filesystem contract. This turns
+ * in the Linux Docker image that provides bubblewrap, Chromium/Python runtime
+ * dependencies, the native kernel, and the `/workspace` filesystem contract. This turns
  * host-Bun/non-Linux execution from an accidental partial mode into a startup
- * error.
+ * error. Chromium is image-owned only for the internal rendered web_fetch
+ * fallback; it is not a model-visible browser surface.
  */
 function assertContainerRuntime(containerMarkerPath: string): void {
   if (process.platform !== 'linux') {
@@ -138,31 +150,25 @@ export function parseRuntimeFabricURL(value: string): Pick<WorkerConfig, 'endpoi
  * Runtime and version are observability metadata. They are not used as
  * feature negotiation because the worker pool is homogeneous by image.
  */
-export function workerReadyEnvelope(
-  config: WorkerConfig,
-  availableTurnSlots = config.maxConcurrentTurns
-): RuntimeFabricEnvelope {
+export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = config.maxConcurrentTurns): Envelope {
   const available = clampAvailableSlots(config, availableTurnSlots)
 
-  return {
-    protocol_version: 1,
-    message_id: `worker-ready-${crypto.randomUUID()}`,
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
+  return createEnvelope({
+    ...envelopeHeader(`worker-ready-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
     body: {
-      type: 'worker_ready',
-      worker_ready: {
-        worker_id: config.workerID,
-        incarnation_id: config.incarnationID,
+      case: 'workerReady',
+      value: create(AgentComputerWorkerReadySchema, {
+        workerId: config.workerID,
+        incarnationId: config.incarnationID,
         runtime: 'bun',
         version: '0.1.0',
-        capacity_json: {
+        capacityJson: jsonBytes({
           max_turns: config.maxConcurrentTurns,
           available_turn_slots: available
-        }
-      }
+        })
+      })
     }
-  }
+  })
 }
 
 /**
@@ -175,24 +181,21 @@ export function workerHeartbeatEnvelope(
   config: WorkerConfig,
   monotonicMs = Math.floor(performance.now()),
   activeTurns = 0
-): RuntimeFabricEnvelope {
-  return {
-    protocol_version: 1,
-    message_id: `worker-heartbeat-${crypto.randomUUID()}`,
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
+): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
     body: {
-      type: 'worker_heartbeat',
-      worker_heartbeat: {
-        worker_id: config.workerID,
-        incarnation_id: config.incarnationID,
-        monotonic_ms: monotonicMs,
-        load_json: {
+      case: 'workerHeartbeat',
+      value: create(AgentComputerWorkerHeartbeatSchema, {
+        workerId: config.workerID,
+        incarnationId: config.incarnationID,
+        monotonicMs: BigInt(monotonicMs),
+        loadJson: jsonBytes({
           active_turns: activeTurns
-        }
-      }
+        })
+      })
     }
-  }
+  })
 }
 
 /**
@@ -205,30 +208,27 @@ export function workerCapacityEnvelope(
   config: WorkerConfig,
   availableTurnSlots = config.maxConcurrentTurns,
   activeTurns = 0
-): RuntimeFabricEnvelope {
+): Envelope {
   const available = clampAvailableSlots(config, availableTurnSlots)
 
-  return {
-    protocol_version: 1,
-    message_id: `worker-capacity-${crypto.randomUUID()}`,
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
+  return createEnvelope({
+    ...envelopeHeader(`worker-capacity-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
     body: {
-      type: 'worker_capacity',
-      worker_capacity: {
-        worker_id: config.workerID,
-        incarnation_id: config.incarnationID,
-        available_turn_slots: available,
-        capacity_json: {
+      case: 'workerCapacity',
+      value: create(AgentComputerWorkerCapacitySchema, {
+        workerId: config.workerID,
+        incarnationId: config.incarnationID,
+        availableTurnSlots: available,
+        capacityJson: jsonBytes({
           max_turns: config.maxConcurrentTurns,
           available_turn_slots: available
-        },
-        load_json: {
+        }),
+        loadJson: jsonBytes({
           active_turns: activeTurns
-        }
-      }
+        })
+      })
     }
-  }
+  })
 }
 
 /**

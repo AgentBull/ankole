@@ -353,12 +353,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
              )
 
     assert_receive {:actor_lane, envelope}
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     Process.put({__MODULE__, input.id}, turn_ref)
 
@@ -402,13 +400,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
       turn_ref = Process.get({__MODULE__, actor_event_id})
 
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(%{
-                 "turn_completed" => %{
-                   "turn" => turn_ref,
-                   "final_response_id" => "resp_#{complete.id}",
-                   "outcome" => "loop_finished"
-                 }
-               })
+               ActorRuntime.handle_turn_completed(
+                 turn_completed_payload(turn_ref, "resp_#{complete.id}", "loop_finished")
+               )
     end
 
     complete

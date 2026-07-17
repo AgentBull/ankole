@@ -1,9 +1,12 @@
 defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
   @moduledoc false
 
-  alias Ankole.{AuthZ, Logging, Principals}
+  alias Ankole.{AuthZ, Logging, Repo}
+  alias Ankole.AuthZ.Store, as: AuthZStore
+  alias Ankole.IdentityProviders.Directory
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Plugins.SlackAdapter.{Config, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.Config
   alias SlackOpenAPI.{Event, OIDC, Pagination}
 
   @spec identity_consumer(String.t(), map()) :: map()
@@ -47,30 +50,29 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) do
-    with {:ok, user_id} <- user_id(user),
-         {:ok, observed} <-
-           Principals.upsert_platform_subject_human(
-             %{
-               provider: provider_id,
-               external_id: user_id,
-               uid: user_id,
-               display_name: display_name(user),
-               avatar_url: avatar_url(user),
-               email: profile_value(user, "email") || MapHelpers.optional_text(user, "email"),
-               job_title: profile_value(user, "title"),
-               mobile: normalized_mobile(user),
-               metadata:
-                 MapHelpers.compact_metadata_map(%{
-                   "team_id" => MapHelpers.optional_text(user, "team_id"),
-                   "is_bot" => Map.get(user, "is_bot"),
-                   "deleted" => Map.get(user, "deleted"),
-                   "tz" => MapHelpers.optional_text(user, "tz")
-                 })
-             }
-             |> MapHelpers.compact_map()
-           ),
-         {:ok, _sync} <- maybe_sync_usergroups(provider_id, observed.principal.uid, opts) do
-      {:ok, observed}
+    with {:ok, user_id} <- user_id(user) do
+      Directory.upsert_user(
+        provider_id,
+        %{
+          provider: provider_id,
+          external_id: user_id,
+          uid: user_id,
+          display_name: display_name(user),
+          avatar_url: avatar_url(user),
+          email: profile_value(user, "email") || MapHelpers.optional_text(user, "email"),
+          job_title: profile_value(user, "title"),
+          mobile: normalized_mobile(user),
+          metadata:
+            MapHelpers.compact_metadata_map(%{
+              "team_id" => MapHelpers.optional_text(user, "team_id"),
+              "is_bot" => Map.get(user, "is_bot"),
+              "deleted" => Map.get(user, "deleted"),
+              "tz" => MapHelpers.optional_text(user, "tz")
+            })
+        }
+        |> MapHelpers.compact_map(),
+        Keyword.take(opts, [:group_external_ids, :directory_group_index])
+      )
     end
   end
 
@@ -130,7 +132,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
             case upsert_user(provider_id, user,
                    directory_group_index: directory_group_index,
-                   usergroup_ids: Map.get(user_index, user_id, [])
+                   group_external_ids: Map.get(user_index, user_id, [])
                  ) do
               {:ok, _observed} -> {:cont, {:ok, count + 1}}
               {:error, reason} -> {:halt, {:error, reason}}
@@ -180,45 +182,23 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     group = get_in(event.content || %{}, ["subteam"]) || %{}
 
     with {:ok, external_id} <- usergroup_id(group),
-         {:ok, directory_group} <- existing_usergroup(consumer.provider_id, external_id) do
+         {:ok, _existing_group} <- Directory.fetch_group(consumer.provider_id, external_id) do
       if disabled_usergroup?(group) do
         with {:ok, result} <-
-               AuthZ.replace_static_group_members(directory_group.id, :directory, []),
-             :ok <-
-               upsert_group_binding(
-                 consumer.provider_id,
-                 external_id,
-                 group,
-                 directory_group.id,
-                 "disabled"
-               ) do
+               Directory.disable_group(consumer.provider_id, usergroup_struct(group, external_id)) do
           {:ok, %{status: :usergroup_disabled, removed_memberships: result.removed_memberships}}
         end
       else
         with {:ok, directory_group} <-
-               AuthZ.update_principal_group(directory_group, %{
-                 display_name: usergroup_display_name(group, external_id),
-                 metadata: group_metadata(consumer.provider_id, external_id, group)
-               }),
+               Directory.ensure_group(consumer.provider_id, usergroup_struct(group, external_id)),
              {:ok, members} <- complete_group_members(Config.client(consumer.config), group),
-             {:ok, uids, skipped} <- resolve_known_members(consumer.provider_id, members),
              {:ok, result} <-
-               AuthZ.replace_static_group_members(directory_group.id, :directory, uids),
-             :ok <-
-               upsert_group_binding(
-                 consumer.provider_id,
-                 external_id,
-                 group,
-                 directory_group.id,
-                 "active"
-               ) do
-          maybe_log_skipped_members(external_id, skipped)
-
+               Directory.replace_group_members(consumer.provider_id, directory_group.id, members) do
           {:ok,
            %{
              status: :usergroup_updated,
              removed_memberships: result.removed_memberships,
-             skipped_unknown_users: skipped
+             skipped_unknown_users: result.skipped_unknown_members
            }}
         end
       end
@@ -232,7 +212,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     content = event.content || %{}
     external_id = Map.get(content, "subteam_id")
 
-    with {:ok, directory_group} <- existing_usergroup(consumer.provider_id, external_id) do
+    with {:ok, directory_group} <- Directory.fetch_group(consumer.provider_id, external_id) do
       added = MapHelpers.fetch_list(content, "added_users")
       removed = MapHelpers.fetch_list(content, "removed_users")
 
@@ -241,11 +221,8 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
                SlackOpenAPI.get(Config.client(consumer.config), "usergroups.users.list",
                  query: [usergroup: external_id]
                ),
-             {:ok, uids, skipped} <- resolve_known_members(consumer.provider_id, users),
              {:ok, result} <-
-               AuthZ.replace_static_group_members(directory_group.id, :directory, uids) do
-          maybe_log_skipped_members(external_id, skipped)
-
+               Directory.replace_group_members(consumer.provider_id, directory_group.id, users) do
           {:ok,
            %{status: :usergroup_members_replaced, removed_memberships: result.removed_memberships}}
         end
@@ -263,78 +240,24 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp ensure_usergroup_group(provider_id, group) do
     with {:ok, external_id} <- usergroup_id(group) do
-      result =
-        case AuthZ.external_group_ids(provider_id, :directory_department, external_id) do
-          [group_id | _rest] -> AuthZ.get_principal_group(group_id)
-          [] -> fetch_or_create_group(provider_id, external_id, group)
-        end
-
-      with {:ok, directory_group} <- result,
-           {:ok, directory_group} <-
-             AuthZ.update_principal_group(directory_group, %{
-               display_name: usergroup_display_name(group, external_id),
-               metadata: group_metadata(provider_id, external_id, group)
-             }),
-           :ok <-
-             upsert_group_binding(provider_id, external_id, group, directory_group.id, "active") do
-        {:ok, directory_group}
-      end
+      Directory.ensure_group(provider_id, usergroup_struct(group, external_id))
     end
   end
 
-  defp fetch_or_create_group(provider_id, external_id, group) do
-    attrs = %{
-      name: "#{provider_id}:usergroup:#{String.downcase(external_id)}",
+  defp usergroup_struct(group, external_id) do
+    %Directory.Group{
+      external_id: external_id,
+      kind: "usergroup",
       display_name: usergroup_display_name(group, external_id),
-      domain: :directory,
-      metadata: group_metadata(provider_id, external_id, group)
-    }
-
-    case AuthZ.get_principal_group(attrs.name) do
-      {:ok, directory_group} -> {:ok, directory_group}
-      {:error, :not_found} -> AuthZ.create_principal_group(attrs)
-    end
-  end
-
-  defp upsert_group_binding(provider_id, external_id, group, group_id, status) do
-    case AuthZ.upsert_external_binding(%{
-           provider: provider_id,
-           external_kind: :directory_department,
-           external_id: external_id,
-           group_id: group_id,
-           metadata:
-             MapHelpers.compact_metadata_map(%{
-               "provider" => provider_id,
-               "externalID" => external_id,
-               "name" => usergroup_display_name(group, external_id),
-               "status" => status,
-               "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
-               "external_directory" => %{
-                 "provider" => provider_id,
-                 "kind" => "usergroup",
-                 "external_id" => external_id
-               }
-             })
-         }) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp group_metadata(provider_id, external_id, group) do
-    %{
-      "external_directory" => %{
-        "provider" => provider_id,
-        "kind" => "usergroup",
-        "external_id" => external_id
-      },
-      "slack" =>
-        MapHelpers.compact_metadata_map(%{
-          "handle" => MapHelpers.optional_text(group, "handle"),
-          "name" => MapHelpers.optional_text(group, "name"),
-          "user_count" => user_count(group),
-          "date_delete" => Map.get(group, "date_delete")
-        })
+      provider_metadata: %{
+        "slack" =>
+          MapHelpers.compact_metadata_map(%{
+            "handle" => MapHelpers.optional_text(group, "handle"),
+            "name" => MapHelpers.optional_text(group, "name"),
+            "user_count" => user_count(group),
+            "date_delete" => Map.get(group, "date_delete")
+          })
+      }
     }
   end
 
@@ -352,24 +275,10 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     end
   end
 
-  defp maybe_sync_usergroups(provider_id, principal_uid, opts) do
-    case Keyword.fetch(opts, :usergroup_ids) do
-      {:ok, ids} when is_list(ids) ->
-        AuthZ.sync_external_directory_group_memberships(
-          provider_id,
-          principal_uid,
-          ids,
-          Keyword.take(opts, [:directory_group_index])
-        )
-
-      :error ->
-        {:ok, :memberships_untouched}
-    end
-  end
-
   defp apply_member_delta(provider_id, group_id, added, removed) do
-    with {:ok, added_uids, skipped_added} <- resolve_known_members(provider_id, added),
-         {:ok, removed_uids, skipped_removed} <- resolve_known_members(provider_id, removed),
+    with {:ok, added_uids, skipped_added} <- Directory.resolve_known_members(provider_id, added),
+         {:ok, removed_uids, skipped_removed} <-
+           Directory.resolve_known_members(provider_id, removed),
          :ok <- add_members(group_id, added_uids),
          :ok <- remove_members(group_id, removed_uids) do
       skipped = skipped_added + skipped_removed
@@ -386,7 +295,9 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp add_members(group_id, uids) do
     Enum.reduce_while(uids, :ok, fn uid, :ok ->
-      case AuthZ.add_principal_to_group(uid, group_id) do
+      case Repo.transact(fn repo ->
+             AuthZStore.add_synced_group_member(repo, group_id, :directory, uid)
+           end) do
         {:ok, _membership} -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -395,36 +306,15 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp remove_members(group_id, uids) do
     Enum.reduce_while(uids, :ok, fn uid, :ok ->
-      case AuthZ.remove_principal_from_group(uid, group_id) do
+      case Repo.transact(fn repo ->
+             AuthZStore.remove_synced_group_member(repo, group_id, :directory, uid)
+           end) do
         {:ok, :deleted} -> {:cont, :ok}
         {:error, :not_found} -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
-
-  defp resolve_known_members(provider_id, ids) do
-    Enum.reduce_while(ids, {:ok, [], 0}, fn id, {:ok, uids, skipped} ->
-      case Principals.resolve_platform_subject_uid(provider_id, id) do
-        {:ok, uid} -> {:cont, {:ok, [uid | uids], skipped}}
-        {:error, :not_found} -> {:cont, {:ok, uids, skipped + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, uids, skipped} -> {:ok, Enum.reverse(uids), skipped}
-      error -> error
-    end
-  end
-
-  defp existing_usergroup(provider_id, external_id) when is_binary(external_id) do
-    case AuthZ.external_group_ids(provider_id, :directory_department, external_id) do
-      [group_id | _rest] -> AuthZ.get_principal_group(group_id)
-      [] -> {:error, :not_found}
-    end
-  end
-
-  defp existing_usergroup(_provider_id, _external_id), do: {:error, :not_found}
 
   defp hydrate_user(config, user, opts) do
     if is_binary(Map.get(config, "botToken")) do
@@ -555,16 +445,6 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   defp count_mismatch?(count, values) when is_integer(count), do: count != length(values)
   defp count_mismatch?(_count, _values), do: false
-
-  defp maybe_log_skipped_members(_external_id, 0), do: :ok
-
-  defp maybe_log_skipped_members(external_id, count),
-    do:
-      Logging.warning(
-        "slack_adapter.identity_provider.unknown_usergroup_members",
-        "Slack usergroup skipped unknown users",
-        %{external_id: external_id, count: count}
-      )
 
   defp required_opt(opts, key) do
     case Keyword.get(opts, key) do

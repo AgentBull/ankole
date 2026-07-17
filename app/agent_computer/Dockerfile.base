@@ -59,7 +59,6 @@ RUN sed -i \
     ripgrep \
     rsync \
     tini \
-    tmux \
     tree \
     unzip \
     util-linux \
@@ -78,7 +77,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 RUN set -eux; \
   installed=0; \
   for attempt in 1 2 3; do \
-    if bun add -g @openai/codex@0.144.0; then installed=1; break; fi; \
+    if bun add -g @openai/codex@0.144.5; then installed=1; break; fi; \
     rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
@@ -86,7 +85,7 @@ RUN set -eux; \
   rm -f /usr/local/bin/codex; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
   chmod +x /usr/local/bin/codex; \
-  codex --version
+  test "$(codex --version)" = "codex-cli 0.144.5"
 
 RUN apt-get -o Acquire::Retries=5 update \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \

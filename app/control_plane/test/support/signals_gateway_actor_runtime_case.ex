@@ -12,11 +12,13 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
@@ -43,6 +45,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
       alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIGateway.StatefulResponses, warn: false
+      alias Ankole.RuntimeFabric.V1, as: FabricProto, warn: false
       alias Ankole.AIAgent.ModelProfiles, warn: false
       alias Ankole.AIGateway.Schemas.Conversation, warn: false
       alias Ankole.AIGateway.Schemas.Message, warn: false
@@ -70,7 +73,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def admit_worker(route, overrides \\ %{}) do
-    ActorRuntime.admit_worker_ready(
+    fields =
       Map.merge(
         %{
           worker_id: "worker-" <> route,
@@ -80,10 +83,153 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
           capacity: %{"available_turn_slots" => 4}
         },
         overrides
-      ),
-      %{authenticated?: true, transport_route: route}
-    )
+      )
+
+    {capacity, fields} = Map.pop(fields, :capacity)
+    {load, fields} = Map.pop(fields, :load)
+
+    auth = %{authenticated?: true, transport_route: route}
+
+    admitted =
+      ActorRuntime.admit_worker_ready(
+        struct!(
+          FabricProto.AgentComputerWorkerReady,
+          Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
+        ),
+        auth
+      )
+
+    # The ready message carries no load; a worker reports it through the
+    # capacity update that follows admission.
+    with {:ok, worker} when load != nil <- admitted do
+      ActorRuntime.handle_worker_capacity(
+        %FabricProto.AgentComputerWorkerCapacity{
+          worker_id: worker.worker_id,
+          incarnation_id: worker.incarnation_id,
+          capacity_json: Torque.encode!(capacity || %{}),
+          load_json: Torque.encode!(load)
+        },
+        auth
+      )
+    end
   end
+
+  @doc """
+  Normalizes a domain, generated, or wire-map turn fence into the proto struct.
+  """
+  def turn_proto_ref(%TurnRef{} = turn_ref), do: TurnRef.to_proto(turn_ref)
+  def turn_proto_ref(%FabricProto.ActorTurnRef{} = turn_ref), do: turn_ref
+
+  def turn_proto_ref(%{} = turn_ref) do
+    {:ok, domain_ref} = TurnRef.from_wire(turn_ref)
+    TurnRef.to_proto(domain_ref)
+  end
+
+  def turn_accepted_payload(turn_ref) do
+    %FabricProto.TurnAccepted{turn: turn_proto_ref(turn_ref)}
+  end
+
+  def turn_completed_payload(turn_ref, final_response_id, outcome \\ "loop_finished") do
+    %FabricProto.TurnCompleted{
+      turn: turn_proto_ref(turn_ref),
+      final_response_id: final_response_id,
+      outcome: turn_completion_outcome(outcome)
+    }
+  end
+
+  def turn_noop_completed_payload(turn_ref, reason \\ "") do
+    %FabricProto.TurnNoopCompleted{turn: turn_proto_ref(turn_ref), reason: reason}
+  end
+
+  def turn_error_payload(turn_ref, code, message \\ "", details \\ nil) do
+    %FabricProto.TurnError{
+      turn: turn_proto_ref(turn_ref),
+      code: code,
+      message: message,
+      details_json: if(details, do: Torque.encode!(details), else: "")
+    }
+  end
+
+  def worker_progress_payload(turn_ref, kind, opts \\ []) do
+    %FabricProto.WorkerProgress{
+      turn: turn_proto_ref(turn_ref),
+      kind: kind,
+      summary: Keyword.get(opts, :summary, ""),
+      refs_json:
+        case Keyword.get(opts, :refs) do
+          nil -> ""
+          refs -> Torque.encode!(refs)
+        end
+    }
+  end
+
+  defp turn_completion_outcome("loop_finished"), do: :TURN_COMPLETION_OUTCOME_LOOP_FINISHED
+
+  defp turn_completion_outcome("iteration_exhausted"),
+    do: :TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED
+
+  defp turn_completion_outcome(outcome) when is_atom(outcome), do: outcome
+
+  @doc """
+  Unwraps one expected body payload from a captured envelope struct.
+  """
+  def envelope_body!(%FabricProto.Envelope{body: {type, payload}}, type), do: payload
+
+  def envelope_body_type(%FabricProto.Envelope{body: {type, _payload}}), do: type
+
+  def turn_start_payload!(envelope), do: envelope_body!(envelope, :turn_start)
+
+  def decoded_request_context(%FabricProto.TurnStart{request_context_json: bytes}),
+    do: decoded_json_bytes(bytes)
+
+  def decoded_hosted_tools(%FabricProto.TurnStart{hosted_tools_json: bytes}),
+    do: decoded_json_bytes(bytes)
+
+  def decoded_json_bytes(bytes) when bytes in [nil, ""], do: nil
+  def decoded_json_bytes(bytes) when is_binary(bytes), do: Torque.decode!(bytes)
+
+  @doc """
+  Encodes an envelope struct into the protobuf bytes the router delivers.
+  """
+  def encode_fabric_envelope(%FabricProto.Envelope{} = envelope),
+    do: Ankole.Kernel.RuntimeFabric.encode_envelope(envelope)
+
+  @doc """
+  Builds a worker-originated RPC request struct with a JSON payload map.
+  """
+  def rpc_request(request_id, method, payload) when is_map(payload) do
+    %FabricProto.RPCRequest{
+      request_id: request_id,
+      method: method,
+      payload_json: Torque.encode!(payload)
+    }
+  end
+
+  def rpc_response_payload!(envelope),
+    do: decoded_json_bytes(envelope_body!(envelope, :rpc_response).payload_json) || %{}
+
+  def rpc_error_payload!(envelope) do
+    error = envelope_body!(envelope, :rpc_error)
+
+    %{
+      "request_id" => error.request_id,
+      "code" => error.code,
+      "message" => error.message,
+      "details_json" => decoded_json_bytes(error.details_json) || %{}
+    }
+  end
+
+  @doc """
+  Converts any turn fence representation into the RPC payload wire map.
+  """
+  def turn_wire_ref(%TurnRef{} = turn_ref), do: TurnRef.to_wire(turn_ref)
+
+  def turn_wire_ref(%FabricProto.ActorTurnRef{} = turn_ref) do
+    {:ok, domain_ref} = TurnRef.from_proto(turn_ref)
+    TurnRef.to_wire(domain_ref)
+  end
+
+  def turn_wire_ref(%{} = turn_ref), do: turn_ref
 
   def agent_fixture(attrs \\ %{}) do
     %{principal: agent} = fixture = Ankole.PrincipalsFixtures.agent_fixture(attrs)
@@ -322,20 +468,19 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def worker_ready_envelope do
-    %{
-      "protocol_version" => 1,
-      "message_id" => "worker-ready-test",
-      "lane" => "LANE_CONTROL",
-      "durability" => "CONTROL_EPHEMERAL",
-      "body" => %{
-        "type" => "worker_ready",
-        "worker_ready" => %{
-          "worker_id" => "worker-a",
-          "incarnation_id" => "incarnation-worker-a",
-          "runtime" => "bun",
-          "version" => "test"
-        }
-      }
+    %FabricProto.Envelope{
+      protocol_version: 1,
+      message_id: "worker-ready-test",
+      lane: :LANE_CONTROL,
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:worker_ready,
+         %FabricProto.AgentComputerWorkerReady{
+           worker_id: "worker-a",
+           incarnation_id: "incarnation-worker-a",
+           runtime: "bun",
+           version: "test"
+         }}
     }
   end
 
@@ -419,10 +564,17 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     })
   end
 
-  def start_aigateway_run_for_turn!(turn_ref, opts \\ []) do
-    agent_uid = get_in(turn_ref, ["actor", "agent_uid"])
-    session_id = get_in(turn_ref, ["actor", "session_id"])
-    actor_event_id = Map.fetch!(turn_ref, "actor_event_id")
+  def start_aigateway_run_for_turn!(turn_ref, opts \\ [])
+
+  def start_aigateway_run_for_turn!(%FabricProto.ActorTurnRef{} = turn_ref, opts) do
+    {:ok, domain_ref} = TurnRef.from_proto(turn_ref)
+    start_aigateway_run_for_turn!(domain_ref, opts)
+  end
+
+  def start_aigateway_run_for_turn!(%TurnRef{} = turn_ref, opts) do
+    agent_uid = turn_ref.agent_uid
+    session_id = turn_ref.session_id
+    actor_event_id = turn_ref.actor_event_id
     request_items = Keyword.get(opts, :request_items, [])
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
@@ -458,13 +610,13 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
     if Keyword.get(opts, :wait_for_mirror, false) do
       assert {:ok, %{status: :turn_completed}} =
-               ActorRuntime.handle_turn_completed(%{
-                 "turn_completed" => %{
-                   "turn" => turn_ref,
-                   "final_response_id" => "resp_#{committed.id}",
-                   "outcome" => Keyword.get(opts, :outcome, "loop_finished")
-                 }
-               })
+               ActorRuntime.handle_turn_completed(
+                 turn_completed_payload(
+                   turn_ref,
+                   "resp_#{committed.id}",
+                   Keyword.get(opts, :outcome, "loop_finished")
+                 )
+               )
 
       dispatch_final_reply_outbox!(committed.id)
       wait_for_final_mirror(committed.id)
@@ -527,12 +679,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   def ai_message_for_actor_event!(actor_event_id) do
-    Message
-    |> where(
-      [message],
-      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
-    )
-    |> Repo.one!()
+    ai_message_for_actor_event(actor_event_id) ||
+      raise "expected ai message for actor_event_id=#{actor_event_id}"
   end
 
   def wait_for_ai_message_status(actor_event_id, status, attempts \\ 100)
@@ -558,11 +706,19 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   defp ai_message_for_actor_event(actor_event_id) do
     Message
-    |> where(
-      [message],
-      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
-    )
-    |> Repo.one()
+    |> Repo.all()
+    |> Enum.filter(&(StatefulResponses.response_metadata(&1)["actor_event_id"] == actor_event_id))
+    |> case do
+      [] ->
+        nil
+
+      [message] ->
+        message
+
+      messages ->
+        raise "expected at most one ai message for actor_event_id=#{actor_event_id}, " <>
+                "got #{length(messages)}"
+    end
   end
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do

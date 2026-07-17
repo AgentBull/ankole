@@ -3,24 +3,24 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  discoverSkillNamesByExecutionProfile,
+  discoverSkillNames,
   extractLarkCommandExamples,
   findUnscopedExecutableLarkCommands,
-  larkSkillExecutionProfile,
   validateLarkCommandExample,
   type CommandRunner,
   type LarkCommandExample
 } from '../src/validation/lark-skill-examples'
 
 describe('Lark skill example validation', () => {
-  it('discovers validation targets from Skill execution profile metadata', async () => {
+  it('validates every Skill in the Lark Agent Plugin package', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ankole-lark-skills-'))
 
     try {
-      await writeSkill(root, 'custom-lark-skill', larkSkillExecutionProfile)
-      await writeSkill(root, 'ordinary-skill', 'ordinary-shell')
+      await writeSkill(root, 'lark-im')
+      await writeSkill(root, 'lark-oa')
+      await mkdir(join(root, 'not-a-skill'))
 
-      expect(await discoverSkillNamesByExecutionProfile(root, larkSkillExecutionProfile)).toEqual(['custom-lark-skill'])
+      expect(await discoverSkillNames(root)).toEqual(['lark-im', 'lark-oa'])
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -102,13 +102,10 @@ describe('Lark skill example validation', () => {
   })
 })
 
-async function writeSkill(root: string, name: string, executionProfile: string): Promise<void> {
+async function writeSkill(root: string, name: string): Promise<void> {
   const directory = join(root, name)
   await mkdir(directory)
-  await writeFile(
-    join(directory, 'SKILL.md'),
-    `---\nname: ${name}\ndescription: Test Skill.\nexecution_profile: ${executionProfile}\n---\n\n# Test\n`
-  )
+  await writeFile(join(directory, 'SKILL.md'), `---\nname: ${name}\ndescription: Test Skill.\n---\n\n# Test\n`)
 }
 
 function typedExample(): LarkCommandExample {

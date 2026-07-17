@@ -1,0 +1,351 @@
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Badge,
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  toast
+} from '@ankole/uikit'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { RiArrowLeftLine } from '@remixicon/react'
+import { useDeferredValue, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Link, useParams } from 'react-router'
+import {
+  ankoleWebAuthZGroupControllerAddMemberMutation,
+  ankoleWebAuthZGroupControllerIndexOptions,
+  ankoleWebAuthZGroupControllerRemoveMemberMutation,
+  ankoleWebPrincipalControllerGrantsOptions,
+  ankoleWebPrincipalControllerGroupsOptions,
+  ankoleWebPrincipalControllerIndexOptions,
+  ankoleWebPrincipalControllerShowOptions
+} from '../api/generated/@tanstack/react-query.gen'
+import type { PrincipalGroupItem, PrincipalItem } from '../api/generated/types.gen'
+import { requestErrorMessage } from '../../common/request-errors'
+import { ErrorBlock } from '../console-primitives'
+import { ConfirmDeleteButton, ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { matchesResourceSearch } from '../state/resource-search'
+import { PermissionGrantsSection } from './permission-grant-editor'
+
+export function PrincipalsListPage() {
+  const { t } = useTranslation()
+  const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
+  const rows = (principals.data?.principals ?? []).filter(principal =>
+    matchesResourceSearch(deferredQuery, principal.uid, principal.display_name, principal.type, principal.status)
+  )
+
+  return (
+    <ResourceListPage
+      title={t('console.principals.title')}
+      description={t('console.principals.description')}
+      columns={[
+        t('console.principals.principal'),
+        t('console.principals.uid'),
+        t('console.principals.type'),
+        t('console.principals.status')
+      ]}
+      isLoading={principals.isLoading}
+      isEmpty={rows.length === 0}
+      emptyTitle={t('console.principals.empty_title')}
+      emptyDescription={t('console.principals.empty_description')}
+      error={principals.error}
+      isFiltered={Boolean(query.trim())}
+      toolbar={
+        <ResourceSearch
+          label={t('console.principals.search')}
+          placeholder={t('console.principals.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+        />
+      }>
+      {rows.map(principal => (
+        <TableRow key={principal.uid}>
+          <TableCell>
+            <Link
+              className="flex items-center gap-2 text-foreground hover:text-primary hover:underline"
+              to={encodeURIComponent(principal.uid)}>
+              <PrincipalAvatar principal={principal} />
+              <span className="truncate">{principal.display_name ?? principal.uid}</span>
+            </Link>
+          </TableCell>
+          <TableCell className="font-mono text-xs">{principal.uid}</TableCell>
+          <TableCell>
+            <Badge variant="secondary">{t(`console.principals.type_${principal.type}`)}</Badge>
+          </TableCell>
+          <TableCell>
+            <StatusIndicator tone={principal.status === 'active' ? 'positive' : 'neutral'}>
+              {t(`console.status.${principal.status}`)}
+            </StatusIndicator>
+          </TableCell>
+          <TableCell className="w-12" />
+        </TableRow>
+      ))}
+    </ResourceListPage>
+  )
+}
+
+export function PrincipalDetailPage() {
+  const { t } = useTranslation()
+  const params = useParams()
+  const uid = params.uid ? decodeURIComponent(params.uid) : ''
+  const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
+  const loadedPrincipal = principal.data?.principal
+
+  return (
+    <div className="mx-auto grid max-w-4xl gap-6">
+      <div className="grid gap-3">
+        <Link
+          to="/access/principals"
+          className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <RiArrowLeftLine className="size-4" aria-hidden />
+          {t('common.back')}
+        </Link>
+        <div className="flex flex-wrap items-center gap-4 border-b border-border pb-5">
+          {loadedPrincipal ? <PrincipalAvatar principal={loadedPrincipal} size="lg" /> : null}
+          <div className="grid min-w-0 gap-1">
+            <h2 className="truncate text-2xl font-semibold tracking-normal text-foreground">
+              {loadedPrincipal?.display_name ?? uid}
+            </h2>
+            <p className="truncate font-mono text-xs text-muted-foreground">{uid}</p>
+          </div>
+          {loadedPrincipal ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary">{t(`console.principals.type_${loadedPrincipal.type}`)}</Badge>
+              <StatusIndicator tone={loadedPrincipal.status === 'active' ? 'positive' : 'neutral'}>
+                {t(`console.status.${loadedPrincipal.status}`)}
+              </StatusIndicator>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <ErrorBlock error={principal.error} />
+      {loadedPrincipal ? (
+        <div className="grid gap-10">
+          <PrincipalGroupsSection principal={loadedPrincipal} />
+          <PrincipalGrantsSection principal={loadedPrincipal} />
+        </div>
+      ) : principal.isLoading ? (
+        <div className="grid gap-2">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-4/5" />
+          <Skeleton className="h-8 w-2/3" />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Static operator-domain groups this principal belongs to, with join/leave. */
+function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const groups = useQuery(ankoleWebPrincipalControllerGroupsOptions({ path: { uid: principal.uid } }))
+  const memberships = groups.data?.principal_groups ?? []
+
+  const addMember = useMutation({
+    ...ankoleWebAuthZGroupControllerAddMemberMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.principals.group_added', { id: variables.path.name }))
+      void queryClient.invalidateQueries()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const removeMember = useMutation({
+    ...ankoleWebAuthZGroupControllerRemoveMemberMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.principals.group_removed', { id: variables.path.name }))
+      void queryClient.invalidateQueries()
+    },
+    // The server refuses removing the last admin member (409); toast its reason.
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+
+  return (
+    <section className="grid gap-4">
+      <div className="grid gap-1">
+        <h3 className="text-lg font-semibold tracking-normal">{t('console.principals.groups_section_title')}</h3>
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          {t('console.principals.groups_section_description')}
+        </p>
+      </div>
+      <AddToGroupPicker
+        memberships={memberships}
+        pending={addMember.isPending}
+        onAdd={name => addMember.mutate({ path: { name, principal_uid: principal.uid } })}
+      />
+      <ErrorBlock error={groups.error} />
+      {!groups.error && !groups.isLoading && memberships.length === 0 ? (
+        <p className="border border-border bg-card p-6 text-sm text-muted-foreground">
+          {t('console.principals.groups_empty')}
+        </p>
+      ) : !groups.error ? (
+        <div className="overflow-x-auto border border-border bg-card">
+          <Table className="min-w-[560px]" aria-busy={groups.isLoading}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('console.principals.group')}</TableHead>
+                <TableHead>{t('console.principals.kind')}</TableHead>
+                <TableHead className="w-0 text-right">
+                  <span className="sr-only">{t('console.actions')}</span>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {groups.isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={3}>
+                    <div className="grid gap-2">
+                      <Skeleton className="h-6 w-full" />
+                      <Skeleton className="h-6 w-4/5" />
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                memberships.map(group => {
+                  const canRemove = group.domain === 'operator' && group.kind === 'static'
+                  return (
+                    <TableRow key={group.id}>
+                      <TableCell>
+                        <Link
+                          className="font-mono text-xs text-foreground hover:text-primary hover:underline"
+                          to={`/access/groups/${encodeURIComponent(group.name)}`}>
+                          {group.name}
+                        </Link>
+                        <span className="ml-2 text-sm text-muted-foreground">{group.display_name}</span>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <Badge variant="secondary">{t(`console.principal_groups.kind_${group.kind}`)}</Badge>
+                          {group.built_in ? (
+                            <Badge variant="info">{t('console.principal_groups.built_in')}</Badge>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="w-12 text-right">
+                        {canRemove ? (
+                          <ConfirmDeleteButton
+                            pending={removeMember.isPending}
+                            confirm={{
+                              title: t('console.principals.remove_group_title'),
+                              description: t('console.principals.remove_group_description', { id: group.name }),
+                              confirmLabel: t('console.principals.remove_group')
+                            }}
+                            onConfirm={() =>
+                              removeMember.mutate({ path: { name: group.name, principal_uid: principal.uid } })
+                            }
+                          />
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/** Direct grants attached to this principal. */
+function PrincipalGrantsSection({ principal }: { principal: PrincipalItem }) {
+  const { t } = useTranslation()
+  const grants = useQuery(ankoleWebPrincipalControllerGrantsOptions({ path: { uid: principal.uid } }))
+
+  return (
+    <PermissionGrantsSection
+      title={t('console.principals.grants_section_title')}
+      description={t('console.principals.grants_section_description')}
+      addLabel={t('console.principals.add_grant')}
+      addTo={`/access/principals/${encodeURIComponent(principal.uid)}/grants/new`}
+      empty={t('console.principals.grants_empty')}
+      error={grants.error}
+      grants={grants.data?.permission_grants ?? []}
+      isLoading={grants.isLoading}
+    />
+  )
+}
+
+/** Combobox of operator-domain static groups the principal has not joined yet. */
+function AddToGroupPicker({
+  memberships,
+  onAdd,
+  pending
+}: {
+  memberships: PrincipalGroupItem[]
+  onAdd: (name: string) => void
+  pending: boolean
+}) {
+  const { t } = useTranslation()
+  const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
+  const [inputValue, setInputValue] = useState('')
+  const memberNames = new Set(memberships.map(group => group.name))
+  const candidates = (groups.data?.principal_groups ?? []).filter(
+    group => group.domain === 'operator' && group.kind === 'static' && !memberNames.has(group.name)
+  )
+  const normalized = inputValue.trim().toLowerCase()
+  const visible = normalized
+    ? candidates.filter(group => `${group.display_name}\n${group.name}`.toLowerCase().includes(normalized))
+    : candidates
+
+  return (
+    <Combobox<PrincipalGroupItem>
+      items={visible}
+      value={null}
+      inputValue={inputValue}
+      itemToStringLabel={group => group.display_name}
+      itemToStringValue={group => group.name}
+      isItemEqualToValue={(group, current) => group.name === current.name}
+      onInputValueChange={setInputValue}
+      onValueChange={group => {
+        if (group) {
+          onAdd(group.name)
+          setInputValue('')
+        }
+      }}>
+      <ComboboxInput
+        aria-label={t('console.principals.add_to_group')}
+        placeholder={t('console.principals.add_to_group_placeholder')}
+        disabled={pending}
+        className="w-full max-w-md"
+      />
+      <ComboboxContent>
+        <ComboboxList>
+          <ComboboxEmpty>{t('console.principals.add_to_group_empty')}</ComboboxEmpty>
+          {visible.map(group => (
+            <ComboboxItem key={group.id} value={group}>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate">{group.display_name}</span>
+                <span className="truncate font-mono text-xs text-muted-foreground">{group.name}</span>
+              </span>
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  )
+}
+
+function PrincipalAvatar({ principal, size = 'sm' }: { principal: PrincipalItem; size?: 'sm' | 'lg' }) {
+  return (
+    <Avatar size={size}>
+      {principal.avatar_url ? <AvatarImage src={principal.avatar_url} alt="" /> : null}
+      <AvatarFallback>{(principal.display_name ?? principal.uid).slice(0, 1).toUpperCase()}</AvatarFallback>
+    </Avatar>
+  )
+}

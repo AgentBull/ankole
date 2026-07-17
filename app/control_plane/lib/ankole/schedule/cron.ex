@@ -34,7 +34,7 @@ defmodule Ankole.Schedule.Cron do
            :ok <- Store.reject_deleted(schedule),
            {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
            {:ok, schedule} <- schedule |> CronSchedule.changeset(attrs) |> repo.update(),
-           {:ok, _events} <- Store.cancel_future_cron_events(repo, schedule, now),
+           {:ok, _events} <- Store.cancel_recurring_cron_events(repo, schedule, now),
            {:ok, schedule} <- maybe_arm_active_cron_in_tx(repo, schedule, now, opts) do
         {:ok, schedule}
       else
@@ -56,7 +56,7 @@ defmodule Ankole.Schedule.Cron do
              schedule
              |> CronSchedule.changeset(%{status: "paused", next_fire_at: nil})
              |> repo.update(),
-           {:ok, _events} <- Store.cancel_future_cron_events(repo, schedule, now) do
+           {:ok, _events} <- Store.cancel_recurring_cron_events(repo, schedule, now) do
         {:ok, schedule}
       else
         nil -> {:error, :cron_schedule_not_found}
@@ -99,7 +99,7 @@ defmodule Ankole.Schedule.Cron do
              schedule
              |> CronSchedule.changeset(%{status: "deleted", next_fire_at: nil})
              |> repo.update(),
-           {:ok, _events} <- Store.cancel_future_cron_events(repo, schedule, now) do
+           {:ok, _events} <- Store.cancel_pending_cron_events(repo, schedule, now) do
         {:ok, schedule}
       else
         nil -> {:error, :cron_schedule_not_found}
@@ -181,12 +181,15 @@ defmodule Ankole.Schedule.Cron do
     Store.insert_event_and_wake_in_tx(repo, attrs, opts)
   end
 
-  @spec validate_fire_schedule_active(CronSchedule.t(), ScheduledEvent.t()) ::
+  @spec validate_fire_schedule(CronSchedule.t(), ScheduledEvent.t()) ::
           :ok | {:cancel, :cron_schedule_not_active}
-  def validate_fire_schedule_active(%CronSchedule{status: "active"}, _event), do: :ok
-
-  def validate_fire_schedule_active(%CronSchedule{}, _event),
-    do: {:cancel, :cron_schedule_not_active}
+  def validate_fire_schedule(%CronSchedule{status: status}, %ScheduledEvent{} = event) do
+    case {event_trigger(event), status} do
+      {"scheduled", "active"} -> :ok
+      {"manual", status} when status in ["active", "paused", "failed"] -> :ok
+      {_trigger, _status} -> {:cancel, :cron_schedule_not_active}
+    end
+  end
 
   @spec advance_after_fire(
           module(),
@@ -197,11 +200,11 @@ defmodule Ankole.Schedule.Cron do
         ) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def advance_after_fire(repo, %CronSchedule{} = schedule, %ScheduledEvent{} = event, now, opts) do
-    case get_in(event.wake_payload || %{}, ["trigger"]) do
+    case event_trigger(event) do
       "manual" ->
         {:ok, schedule}
 
-      _trigger ->
+      "scheduled" ->
         with {:ok, next_fire_at} <-
                Planner.next_fire_after(schedule.schedule, schedule.timezone, now),
              {:ok, schedule} <-
@@ -215,6 +218,10 @@ defmodule Ankole.Schedule.Cron do
           {:ok, schedule}
         end
     end
+  end
+
+  defp event_trigger(%ScheduledEvent{} = event) do
+    get_in(event.wake_payload || %{}, ["trigger"]) || "scheduled"
   end
 
   defp insert_cron_schedule_in_tx(repo, attrs, now, opts) do

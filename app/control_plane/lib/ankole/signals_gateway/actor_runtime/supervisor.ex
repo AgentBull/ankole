@@ -11,9 +11,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   use Supervisor
 
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerSubagentConfig
-  alias Ankole.SubagentDelegations.Config, as: SubagentDelegationsConfig
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
   @doc """
@@ -29,21 +28,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Supervisor do
   def init(opts) do
     WorkerAuthKey.ensure!()
     :ok = AgentConfig.ensure_registered()
-    :ok = WorkerBrowserConfig.ensure_registered()
-    :ok = WorkerSubagentConfig.ensure_registered()
-    :ok = SubagentDelegationsConfig.ensure_registered()
+    :ok = WorkerWebFetchConfig.ensure_registered()
+    :ok = BackgroundAgentJobWorkerConfig.ensure_registered()
     :ok = Ankole.Security.SSRFFilter.ensure_registered()
     :ok = Ankole.Brain.ensure_registered()
     :ok = Ankole.IdentityProviders.Config.ensure_registered()
 
-    # The transport broker, directory, and dynamic supervisor are the core path:
-    # without them no actor turn can be sent or routed. Runtime wakeups and
-    # deadline reconciliation are owned by `Ankole.RuntimeEvents.Supervisor`.
+    # Start every inbound consumer before the socket-owning broker. Domain work
+    # runs in the dispatcher, supervised RPC tasks, or per-actor controllers;
+    # the broker never calls back into a lane while it owns the ROUTER process.
     children = [
       Ankole.SignalsGateway.ActorRuntime.FileTransferLane,
-      broker_child(opts),
+      {Task.Supervisor, name: Ankole.SignalsGateway.ActorRuntime.InboundTaskSupervisor},
       Ankole.SignalsGateway.ActorRuntime.ActorDirectory,
-      Ankole.SignalsGateway.ActorRuntime.SessionSupervisor
+      Ankole.SignalsGateway.ActorRuntime.SessionSupervisor,
+      Ankole.SignalsGateway.ActorRuntime.InboundDispatcher,
+      broker_child(opts)
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

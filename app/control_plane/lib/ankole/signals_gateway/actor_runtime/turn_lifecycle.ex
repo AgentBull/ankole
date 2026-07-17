@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   import Ecto.Query, warn: false
   import Ankole.SignalsGateway.ActorRuntime.Common
 
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -21,12 +22,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.BackgroundAgentJobs
+
+  require Ankole.BackgroundAgentJobs
 
   @live_activation_statuses ~w(starting active draining)
-  @activation_progress_lease_seconds 300
-  @worker_turn_error_dead_letter_attempts 3
-  @worker_turn_error_retry_base_seconds 2
-  @worker_turn_error_retry_max_seconds 60
+  @activation_progress_lease_seconds 2_100
+  @activation_lease_grace_seconds 120
+  @worker_turn_error_dead_letter_attempts 5
+  @worker_turn_error_retry_base_seconds 5
+  @worker_turn_error_retry_max_seconds 120
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -35,7 +40,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   This is the control-plane side of the local actor loop. Normal text turns
   ensure an AIGateway conversation exists. Non-conversation work such as a
-  subagent delegation passes `conversation: :none` and still receives the same
+  BackgroundAgentJob passes `conversation: :none` and still receives the same
   activation, lease, delivery, and revision fences.
 
   A caller may provide `admit_in_tx: (repo -> :ok | {:error, term()})` when its
@@ -205,11 +210,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   difference between "worker received the turn" and "worker finished durable
   response processing".
   """
-  @spec handle_turn_accepted(map()) :: {:ok, [ActorEventDelivery.t()]} | {:error, term()}
-  def handle_turn_accepted(envelope) when is_map(envelope) do
-    payload = unwrap_body(envelope, "turn_accepted")
-
-    with {:ok, turn_ref} <- TurnRef.from_request(payload) do
+  @spec handle_turn_accepted(FabricProto.TurnAccepted.t()) ::
+          {:ok, [ActorEventDelivery.t()]} | {:error, term()}
+  def handle_turn_accepted(%FabricProto.TurnAccepted{} = payload) do
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
       accepted_actor_event_id = turn_ref.actor_event_id
       now = DateTime.utc_now(:microsecond)
 
@@ -238,12 +242,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   lease keepalive, not durable output, so it never changes the activation
   revision or commits transcript state.
   """
-  @spec handle_worker_progress(map(), keyword()) ::
+  @spec handle_worker_progress(FabricProto.WorkerProgress.t(), keyword()) ::
           {:ok, ActorSessionActivation.t()} | {:error, term()}
-  def handle_worker_progress(envelope, opts \\ []) when is_map(envelope) do
-    payload = unwrap_body(envelope, "worker_progress")
-
-    with {:ok, turn_ref} <- TurnRef.from_request(payload) do
+  def handle_worker_progress(%FabricProto.WorkerProgress{} = payload, opts \\ []) do
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
       now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
       lease_seconds = Keyword.get(opts, :lease_seconds, @activation_progress_lease_seconds)
 
@@ -264,11 +266,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp forward_reply_presentation(payload, turn_ref, opts) do
-    refs = map_value(payload, "refs_json")
-    event = map_value(refs, "presentation_event")
+  defp forward_reply_presentation(%FabricProto.WorkerProgress{} = payload, turn_ref, opts) do
+    refs = decode_json_bytes(payload.refs_json)
+    event = if is_map(refs), do: Map.get(refs, "presentation_event")
 
-    if map_text(payload, "kind") == "reply_presentation" and is_map(event) do
+    if payload.kind == "reply_presentation" and is_map(event) do
       callback = Keyword.get(opts, :presentation_event_fun, &AIReplyPreview.presentation_event/2)
       callback.(turn_ref.actor_event_id, event)
     end
@@ -283,12 +285,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   provider-visible output, such as ambient silence. Normal text turns complete
   through an explicit `turn_completed` carrying the adopted Response id.
   """
-  @spec handle_turn_noop_completed(map()) :: {:ok, map()} | {:error, term()}
-  def handle_turn_noop_completed(envelope) when is_map(envelope) do
-    payload = unwrap_body(envelope, "turn_noop_completed")
-
-    with {:ok, turn_ref} <- TurnRef.from_request(payload) do
-      reason = map_text(payload, "reason") || "noop_completed"
+  @spec handle_turn_noop_completed(FabricProto.TurnNoopCompleted.t()) ::
+          {:ok, map()} | {:error, term()}
+  def handle_turn_noop_completed(%FabricProto.TurnNoopCompleted{} = payload) do
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
+      reason = presence(payload.reason) || "noop_completed"
       now = DateTime.utc_now(:microsecond)
 
       Repo.transact(fn repo ->
@@ -316,7 +317,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
                  {deleted_count, superseded_count} <-
                    cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
                  :ok <-
-                   Ankole.SubagentDelegations.Lifecycle.finalize_worker_turn_in_tx(
+                   Ankole.BackgroundAgentJobs.Lifecycle.finalize_worker_turn_in_tx(
                      repo,
                      turn_ref,
                      now
@@ -359,11 +360,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   dead-letter threshold. Runtime fences are superseded and the activation is
   failed so late replies from the failed attempt cannot match a later retry.
   """
-  @spec handle_turn_error(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle_turn_error(envelope, opts \\ []) when is_map(envelope) do
-    payload = unwrap_body(envelope, "turn_error")
-
-    with {:ok, turn_ref} <- TurnRef.from_request(payload) do
+  @spec handle_turn_error(FabricProto.TurnError.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def handle_turn_error(%FabricProto.TurnError{} = payload, opts \\ []) do
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
       reason = turn_error_reason(payload)
       now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
       compensate_in_tx = Keyword.get(opts, :compensate_turn_error_in_tx)
@@ -374,7 +374,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
              :ok <- activation_accepts_progress(activation, turn_ref, now),
              {:ok, deliveries} <- live_deliveries_for_turn_ref(repo, turn_ref),
              {:ok, event} <- maybe_mark_overflow_retry(repo, event, reason),
-             dead_letter? = dead_letter_after_turn_error?(deliveries, reason),
+             dead_letter? = dead_letter_after_turn_error?(event, deliveries, reason),
              {superseded_count, _rows} <- supersede_live_deliveries(repo, turn_ref, now, reason),
              {:ok, event} <- maybe_mark_event_dead_letter(repo, event, dead_letter?, now),
              {:ok, event} <-
@@ -784,18 +784,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          "activation_uid" => activation.activation_uid,
          "agent_uid" => activation.agent_uid,
          "session_id" => activation.session_id,
-         "lease_expires_at" => RuntimeEvents.encode_datetime(activation.lease_expires_at)
+         "lease_expires_at" => RuntimeEvents.encode_datetime(activation.lease_expires_at),
+         "due_at" => RuntimeEvents.encode_datetime(activation_deadline_at(activation))
        }}
     end)
   end
 
   defp notify_activation_deadline({:ok, %ActorSessionActivation{} = activation}, repo) do
-    with :ok <- RuntimeEvents.notify_activation_deadline(repo, activation) do
+    with :ok <-
+           RuntimeEvents.notify_activation_deadline(
+             repo,
+             activation,
+             activation_deadline_at(activation)
+           ) do
       {:ok, activation}
     end
   end
 
   defp notify_activation_deadline({:error, _reason} = error, _repo), do: error
+
+  defp activation_deadline_at(%ActorSessionActivation{} = activation),
+    do: DateTime.add(activation.lease_expires_at, @activation_lease_grace_seconds, :second)
 
   defp notify_actor_event_ready({:ok, %ActorEvent{} = event}, repo) do
     with :ok <-
@@ -981,10 +990,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> repo.update()
   end
 
-  defp dead_letter_after_turn_error?(deliveries, reason),
-    do:
-      not retryable_turn_error?(reason) and
-        max_delivery_attempt_no(deliveries) >= @worker_turn_error_dead_letter_attempts
+  # A durable Job owns the retry budget for its wake events: recoverable worker
+  # errors keep the event open until `BackgroundAgentJobs` exhausts the job
+  # attempts, fails the Job, and wakes the owner. The delivery-attempt
+  # dead-letter threshold only bounds ordinary actor events.
+  defp dead_letter_after_turn_error?(
+         %ActorEvent{session_id: session_id},
+         _deliveries,
+         reason
+       )
+       when BackgroundAgentJobs.is_job_session_id(session_id) do
+    not recoverable_turn_error?(reason)
+  end
+
+  defp dead_letter_after_turn_error?(%ActorEvent{}, deliveries, reason) do
+    not recoverable_turn_error?(reason) or
+      max_delivery_attempt_no(deliveries) >= @worker_turn_error_dead_letter_attempts
+  end
+
+  defp recoverable_turn_error?(reason),
+    do: retryable_turn_error?(reason) or overflow_turn_error?(reason)
 
   defp maybe_mark_event_dead_letter(repo, %ActorEvent{} = event, true, now) do
     Actors.mark_event_dead_letter_in_tx(repo, event, now)
@@ -1047,12 +1072,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp turn_error_reason(payload) do
+  defp turn_error_reason(%FabricProto.TurnError{} = payload) do
     %{
-      "code" => map_text(payload, "code") || "worker_turn_error",
-      "message" => map_text(payload, "message") || "worker turn failed",
-      "details_json" => fetch_map(payload, "details_json") || %{}
+      "code" => presence(payload.code) || "worker_turn_error",
+      "message" => presence(payload.message) || "worker turn failed",
+      "details_json" => decode_json_bytes(payload.details_json) || %{}
     }
+  end
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
   end
 
   defp compensate_turn_error_in_tx(nil, _repo, %ActorEvent{}, _reason, _now), do: {:ok, nil}

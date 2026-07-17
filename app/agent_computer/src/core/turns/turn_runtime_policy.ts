@@ -7,7 +7,7 @@ export type AgentRuntimePolicy = {
   inactivityTimeoutMs: number
 }
 
-const textTurnDefaultInactivityTimeoutMs = ms('30m')
+const textTurnDefaultInactivityTimeoutMs = ms('35m')
 
 export function agentRuntimePolicyFromTurnStart(turnStart: TurnStart): AgentRuntimePolicy {
   const rawPolicy = turnStart.request_context?.ai_agent

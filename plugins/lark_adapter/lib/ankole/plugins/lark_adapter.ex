@@ -14,7 +14,6 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.Outbox
   alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
-  alias Ankole.Plugins.LarkAdapter.SkillEnablement
 
   @impl true
   def plugin_id, do: "lark-adapter"
@@ -46,8 +45,7 @@ defmodule Ankole.Plugins.LarkAdapter do
 
   @impl true
   def adapter_declarations do
-    # The plugin exposes separate signal, Skill, and identity contracts because
-    # each host subsystem owns a different lifecycle and projection.
+    # Signal and identity contracts have separate host-owned lifecycles.
     [
       %{
         contract_id: "signals_gateway.adapter",
@@ -82,12 +80,6 @@ defmodule Ankole.Plugins.LarkAdapter do
           "divider",
           "card"
         ]
-      },
-      %{
-        contract_id: "ai_agent.library.skill_enablement_provider",
-        id: "lark-cli-bot",
-        plugin_id: plugin_id(),
-        module: SkillEnablement
       },
       %{
         contract_id: "principals.identity_provider",

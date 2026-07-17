@@ -289,7 +289,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   end
 
   describe "directory membership ownership" do
-    test "missing usergroup_ids preserves memberships while explicit empty clears them" do
+    test "missing group_external_ids preserves memberships while explicit empty clears them" do
       assert {:ok, group} =
                AuthZ.create_principal_group(%{
                  name: "slack-main:usergroup:s1",
@@ -309,7 +309,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       user = %{"id" => "U1", "name" => "Ada", "profile" => %{"email" => "ada@example.com"}}
 
       assert {:ok, observed} =
-               IdentityProvider.upsert_user("slack-main", user, usergroup_ids: ["S1"])
+               IdentityProvider.upsert_user("slack-main", user, group_external_ids: ["S1"])
 
       assert Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
 
@@ -319,7 +319,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
 
       assert {:ok, _observed} =
-               IdentityProvider.upsert_user("slack-main", user, usergroup_ids: [])
+               IdentityProvider.upsert_user("slack-main", user, group_external_ids: [])
 
       refute Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
     end

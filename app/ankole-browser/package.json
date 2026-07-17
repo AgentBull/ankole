@@ -1,0 +1,31 @@
+{
+  "name": "@ankole/browser",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "ankole-browser": "./dist/cli/main.js",
+    "ankole-browserd": "./dist/daemon/main.js"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "scripts": {
+    "build": "bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=node --outdir dist --external playwright-core",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "bun run fmt:check && bun run type-check",
+    "test": "bun test test",
+    "test:integration": "ANKOLE_BROWSER_INTEGRATION=1 bun test test/integration"
+  },
+  "dependencies": {
+    "playwright-core": "1.61.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

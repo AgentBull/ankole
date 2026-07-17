@@ -19,9 +19,11 @@ The current shared surface is:
   helpers, phone normalization, and other host-neutral primitives.
 - `authz/` - snapshot-only authorization evaluation, CEL condition validation,
   and resource-pattern validation and matching.
-- `runtime_fabric/` - RuntimeFabric v1 envelope codec and validation, including
-  JSON-shaped host maps, protobuf bytes, lanes, durability classes, correlation
-  rules, and turn/control/progress/RPC body semantics.
+- `runtime_fabric/` - RuntimeFabric v1 envelope protocol validation over
+  host-encoded protobuf bytes, including lanes, durability classes, correlation
+  rules, and turn/control/progress/RPC body semantics. `envelope.proto` under
+  `proto/` is the only structural declaration; each host derives its codec from
+  it (prost-build in Rust, protox in Elixir, protoc-gen-es in TypeScript).
 - `runtime_fabric/transport/` - Rust-owned ZeroMQ ROUTER/DEALER transport split
   across auth, config, router, dealer, and framing modules, including ZAP/PLAIN
   worker authentication, mandatory route sends, bounded socket options, route
@@ -59,9 +61,9 @@ Host runtimes provide complete inputs:
 
 - AuthZ receives explicit snapshots. It never loads principals, grants, groups,
   or request context from PostgreSQL.
-- RuntimeFabric receives JSON-shaped envelope maps. The kernel validates and
-  encodes them, but durable replay and commit authority stay in the control
-  plane.
+- RuntimeFabric receives protobuf envelope bytes produced by the host's
+  generated codec. The kernel validates them on every send and receive path,
+  but durable replay and commit authority stay in the control plane.
 - Worker-file frames are live transport bytes. File and skill semantics stay in
   the host runtime and durable stores.
 - UniversalAIClient receives provider endpoint/header/transport specs plus the

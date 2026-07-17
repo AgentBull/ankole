@@ -16,6 +16,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -23,6 +24,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs.Turns
 
   @max_running_per_agent 3
+  @max_execution_attempts 5
   @max_event_payload_bytes 16_384
   @truncation_suffix "...[truncated]"
   @terminal_statuses Job.terminal_statuses()
@@ -212,7 +214,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     unapplied? =
       ActorEvent
       |> where([event], event.agent_uid == ^job.agent_uid)
-      |> where([event], event.session_id == ^"job:#{job.id}")
+      |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
       |> where([event], event.type == "command.steer")
       |> where([event], event.input_state == "open")
       |> where([event], is_nil(event.completed_at))
@@ -286,7 +288,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp lock_runtime_prefix_in_tx(repo, job_id, agent_uid, _turn_ref, _route) do
-    actor_key = %{agent_uid: agent_uid, session_id: "job:#{job_id}"}
+    actor_key = %{agent_uid: agent_uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
 
     with :ok <- WorkerPool.lock_actor_assignment_in_tx(repo, actor_key) do
       case live_assignment_snapshot(repo, actor_key) do
@@ -346,7 +348,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       case RuntimeEvents.notify_actor_session_ready(
              repo,
              agent_uid,
-             "job:#{job_id}",
+             BackgroundAgentJobs.job_session_id(job_id),
              now
            ) do
         :ok -> {:cont, :ok}
@@ -362,29 +364,33 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           :ok | {:error, term()}
   def finalize_worker_turn_in_tx(
         repo,
-        %TurnRef{agent_uid: agent_uid, session_id: "job:" <> job_id},
+        %TurnRef{agent_uid: agent_uid, session_id: session_id},
         %DateTime{} = now
       ) do
-    case Queries.get_for_agent(repo, job_id, agent_uid, []) do
-      %Job{status: status} = job
-      when status in @terminal_statuses or status == "waiting_on_user" ->
-        with :ok <- release_worker_assignment(repo, job),
-             :ok <- nudge_queued_after_slot_release(repo, job, now) do
-          :ok
-        end
-
-      %Job{} ->
+    case BackgroundAgentJobs.parse_job_session_id(session_id) do
+      :error ->
         :ok
 
-      nil ->
-        WorkerPool.release_assignment_for_actor_in_tx(repo, %{
-          agent_uid: agent_uid,
-          session_id: "job:#{job_id}"
-        })
+      {:ok, job_id} ->
+        case Queries.get_for_agent(repo, job_id, agent_uid, []) do
+          %Job{status: status} = job
+          when status in @terminal_statuses or status == "waiting_on_user" ->
+            with :ok <- release_worker_assignment(repo, job),
+                 :ok <- nudge_queued_after_slot_release(repo, job, now) do
+              :ok
+            end
+
+          %Job{} ->
+            :ok
+
+          nil ->
+            WorkerPool.release_assignment_for_actor_in_tx(repo, %{
+              agent_uid: agent_uid,
+              session_id: session_id
+            })
+        end
     end
   end
-
-  def finalize_worker_turn_in_tx(_repo, %TurnRef{}, %DateTime{}), do: :ok
 
   defp maybe_nudge_queued_after_status_commit(_repo, %Job{}, _now, %TurnRef{}),
     do: :ok
@@ -411,14 +417,14 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   defp release_worker_assignment(repo, job) do
     WorkerPool.release_assignment_for_actor_in_tx(repo, %{
       agent_uid: job.agent_uid,
-      session_id: "job:#{job.id}"
+      session_id: BackgroundAgentJobs.job_session_id(job.id)
     })
   end
 
   defp live_worker_assignment?(repo, job) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.agent_uid == ^job.agent_uid)
-    |> where([assignment], assignment.session_id == ^"job:#{job.id}")
+    |> where([assignment], assignment.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
     |> where([assignment], assignment.status in ["assigned", "draining"])
     |> repo.exists?()
   end
@@ -428,7 +434,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
        do: {:error, {:background_agent_job_terminal, job}}
 
   defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt)
-       when attempts >= 3,
+       when attempts >= @max_execution_attempts,
        do: {:error, :background_agent_job_attempts_exhausted}
 
   defp claim_attempt(_repo, %Job{attempts: attempts}, expected_attempt)
@@ -497,7 +503,12 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     |> join(:inner, [row], assignment in ActorSessionWorkerAssignment,
       on:
         assignment.agent_uid == row.agent_uid and
-          assignment.session_id == fragment("'job:' || ?", row.id) and
+          assignment.session_id ==
+            fragment(
+              "? || ?",
+              type(^BackgroundAgentJobs.job_session_prefix(), :string),
+              row.id
+            ) and
           assignment.status in ["assigned", "draining"]
     )
     |> where([row, _assignment], row.codex_account_id == ^account_id)

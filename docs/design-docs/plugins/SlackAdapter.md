@@ -1,13 +1,13 @@
 # Slack Adapter
 
-The Slack plugin connects one Slack app to Ankole through two independent
+The Slack Control Plane Plugin connects one Slack app to Ankole through two independent
 host-owned contracts:
 
 - chat ingress and provider-visible output through SignalsGateway;
 - optional login and directory synchronization through Principals.
 
 The two contracts may use credentials from the same Slack app, but they have
-separate configuration and save boundaries. The plugin is trusted first-party
+separate configuration and save boundaries. The Control Plane Plugin is trusted first-party
 Elixir code running in the control plane. Agent Computer never talks to Slack
 directly.
 
@@ -18,7 +18,7 @@ For the shared boundaries, see `docs/design-docs/Plugins.md`,
 
 The public names are:
 
-- plugin id: `slack-adapter`;
+- Control Plane Plugin id: `slack-adapter`;
 - SignalsGateway adapter id: `slack`;
 - identity-provider adapter id: `slack`;
 - chat configuration pattern: `signals_gateway.slack.bindings.<id>`;
@@ -30,7 +30,7 @@ that connect several workspaces must give each workspace a distinct namespace.
 The namespace participates in Principal resolution and must not be changed as
 an incidental display-name edit.
 
-## Plugin Declaration
+## Control Plane Plugin Declaration
 
 `Ankole.Plugins.SlackAdapter` declares both contracts. The
 `signals_gateway.adapter` declaration exposes:
@@ -59,7 +59,7 @@ Its outbound capabilities are:
 
 The `principals.identity_provider` declaration exposes OIDC authorization and
 code exchange, full directory synchronization, and realtime directory
-synchronization. These declarations reference host-owned contracts. The plugin
+synchronization. These declarations reference host-owned contracts. The Control Plane Plugin
 does not own gateway rows, actor events, Principal rows, AuthZ grants, or the
 identity-provider registry.
 
@@ -105,7 +105,7 @@ library structs and live connection state must not cross into PostgreSQL.
 
 ## Socket Mode Runtime
 
-Only Socket Mode is supported for event ingress. The plugin does not expose an
+Only Socket Mode is supported for event ingress. The Control Plane Plugin does not expose an
 HTTP Events API endpoint, slash-command endpoint, or request-signature surface.
 
 The runtime derives a connection key from the first 16 hexadecimal characters
@@ -199,7 +199,7 @@ calls:
 - delete: `chat.delete`;
 - reactions: `reactions.add` and `reactions.remove`;
 - files: external upload URL, byte upload, and upload completion;
-- cards: Block Kit blocks rendered by the plugin.
+- cards: Block Kit blocks rendered by the Control Plane Plugin.
 
 Ordinary Markdown is converted conservatively into Slack `mrkdwn`. Unsupported
 Markdown constructs are emitted as readable text rather than approximated with
@@ -243,10 +243,10 @@ partial list as complete.
   idempotency, and outbox state.
 - Principals and AuthZ own subjects, external groups, memberships, and grants.
 - AppConfigure owns encrypted operator-managed configuration.
-- The plugin owns provider normalization and supervised connection state.
+- The Control Plane Plugin owns provider normalization and supervised connection state.
 - Agent Computer receives accepted actor work and never receives Slack tokens.
 
-After a control-plane restart, plugin discovery restores the supervised
+After a control-plane restart, Control Plane Plugin discovery restores the supervised
 children, connection reconciliation recreates Socket Mode owners, startup jobs
 refresh channel projection, and PostgreSQL-backed gateway and identity state
 continues from committed rows.
@@ -271,7 +271,7 @@ adapter.
 The repository verifies the adapter at three levels:
 
 - `libs/slack_openapi/test/` for Web API, pagination, OIDC, and Socket Mode;
-- control-plane plugin tests for declaration, normalization, outbox, directory,
+- Control Plane Plugin tests for declaration, normalization, outbox, directory,
   and routing behavior;
 - dedicated fake-provider E2E suites for transport, main chat flow, and
   lifecycle/directory behavior.

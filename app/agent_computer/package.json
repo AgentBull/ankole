@@ -8,6 +8,8 @@
     "dev": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; mount TS source into the container for edit/run feedback.\" >&2; exit 1'",
     "start": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; use the control-plane Docker worker e2e or docker run.\" >&2; exit 1'",
     "build": "bun build src/main.ts --target bun --outdir dist",
+    "gen:proto": "bun scripts/gen-proto.ts",
+    "gen:proto:check": "bun scripts/gen-proto.ts --check",
     "gen:rpc-contract": "bun scripts/gen-rpc-contract.ts",
     "type-check": "tsgo -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
@@ -18,13 +20,20 @@
     "test:integration": "cd ../.. && bun run kit agent-computer-test --suite integration"
   },
   "dependencies": {
+    "@ankole/browser": "workspace:*",
     "@ankole/kernel": "workspace:*",
+    "@bufbuild/protobuf": "2.12.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@pleisto/active-support": "^1.6.0",
     "openai": "^6.46.0",
     "pino": "^10.1.0",
+    "smol-toml": "1.7.0",
+    "yaml": "2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@bufbuild/buf": "1.71.0",
+    "@bufbuild/protoc-gen-es": "2.12.1",
     "@types/bun": "latest"
   }
 }

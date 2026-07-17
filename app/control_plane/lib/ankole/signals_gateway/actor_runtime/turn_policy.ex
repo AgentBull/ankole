@@ -25,7 +25,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
              runtime_policy,
              Keyword.get(opts, :request_context, %{})
            )
-       }}
+       }
+       |> maybe_put(:hosted_tools, hosted_tools(actor_key.agent_uid))}
     end
   end
 
@@ -54,6 +55,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
 
       {:error, reason} ->
         {:error, {:model_profile_unavailable, profile, reason}}
+    end
+  end
+
+  defp hosted_tools(agent_uid) do
+    case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
+      {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
+      {:error, _reason} -> nil
     end
   end
 

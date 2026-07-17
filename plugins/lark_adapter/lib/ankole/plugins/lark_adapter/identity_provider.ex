@@ -4,12 +4,12 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
 
   alias Ankole.AuthZ
+  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Directory
+  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
-  alias Ankole.Plugins.LarkAdapter.MapHelpers
-  alias Ankole.IdentityProviders
-  alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Principals
+  alias Ankole.Plugins.MapHelpers
   alias FeishuOpenAPI.Auth
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
@@ -75,36 +75,29 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   def upsert_user(provider_id, user, opts \\ []) when is_binary(provider_id) and is_map(user) do
     with {:ok, user_id} <- user_id(user) do
       department_ids = fetch_list(user, "department_ids")
-      directory_sync_opts = Keyword.take(opts, [:directory_group_index])
 
-      with {:ok, observed} <-
-             Principals.upsert_platform_subject_human(%{
-               provider: provider_id,
-               external_id: user_id,
-               uid: user_id,
-               display_name: display_name(user),
-               avatar_url: avatar_url(user),
-               email: enterprise_email(user) || optional_text(user, "email"),
-               mobile: normalized_mobile(user),
-               job_title: optional_text(user, "job_title"),
-               metadata:
-                 compact_metadata_map(%{
-                   "open_id" => optional_text(user, "open_id"),
-                   "union_id" => optional_text(user, "union_id"),
-                   "tenant_key" => optional_text(user, "tenant_key"),
-                   "employee_no" => optional_text(user, "employee_no"),
-                   "department_ids" => department_ids
-                 })
-             }),
-           {:ok, _sync} <-
-             AuthZ.sync_external_directory_group_memberships(
-               provider_id,
-               observed.principal.uid,
-               department_ids,
-               directory_sync_opts
-             ) do
-        {:ok, observed}
-      end
+      Directory.upsert_user(
+        provider_id,
+        %{
+          provider: provider_id,
+          external_id: user_id,
+          uid: user_id,
+          display_name: display_name(user),
+          avatar_url: avatar_url(user),
+          email: enterprise_email(user) || optional_text(user, "email"),
+          mobile: normalized_mobile(user),
+          job_title: optional_text(user, "job_title"),
+          metadata:
+            compact_metadata_map(%{
+              "open_id" => optional_text(user, "open_id"),
+              "union_id" => optional_text(user, "union_id"),
+              "tenant_key" => optional_text(user, "tenant_key"),
+              "employee_no" => optional_text(user, "employee_no"),
+              "department_ids" => department_ids
+            })
+        },
+        [group_external_ids: department_ids] ++ Keyword.take(opts, [:directory_group_index])
+      )
     end
   end
 
@@ -287,94 +280,27 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   defp ensure_department_group(provider_id, department) when is_map(department) do
-    with {:ok, department_id} <- department_id(department) do
-      case AuthZ.external_group_ids(provider_id, :directory_department, department_id) do
-        [] ->
-          create_department_group(provider_id, department_id, department)
-
-        [group_id | _rest] ->
-          upsert_department_binding(provider_id, department_id, department, group_id)
-      end
-    end
-  end
-
-  defp create_department_group(provider_id, department_id, department) do
-    attrs = department_group_attrs(provider_id, department_id, department)
-
-    with {:ok, group} <- fetch_or_create_department_group(attrs),
-         :ok <- upsert_department_binding(provider_id, department_id, department, group.id) do
+    with {:ok, department_id} <- department_id(department),
+         {:ok, _group} <-
+           Directory.ensure_group(provider_id, %Directory.Group{
+             external_id: department_id,
+             kind: "department",
+             display_name: department_display_name(department, department_id),
+             parent_external_id: department_parent_id(department),
+             provider_metadata: %{
+               "lark" =>
+                 compact_metadata_map(%{
+                   "department_id" => department_id,
+                   "open_department_id" => optional_text(department, "open_department_id"),
+                   "parent_department_id" => optional_text(department, "parent_department_id"),
+                   "member_count" => MapHelpers.fetch_value(department, "member_count"),
+                   "primary_member_count" =>
+                     MapHelpers.fetch_value(department, "primary_member_count")
+                 })
+             }
+           }) do
       :ok
     end
-  end
-
-  defp upsert_department_binding(provider_id, department_id, department, group_id) do
-    case AuthZ.upsert_external_binding(%{
-           provider: provider_id,
-           external_kind: :directory_department,
-           external_id: department_id,
-           group_id: group_id,
-           metadata: binding_metadata(provider_id, department_id, department)
-         }) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp fetch_or_create_department_group(attrs) do
-    case AuthZ.get_principal_group(attrs.name) do
-      {:ok, group} -> {:ok, group}
-      {:error, :not_found} -> AuthZ.create_principal_group(attrs)
-    end
-  end
-
-  defp department_group_attrs(provider_id, department_id, department) do
-    parent_id = department_parent_id(department)
-
-    %{
-      name: department_group_name(provider_id, department_id),
-      display_name: department_display_name(department, department_id),
-      domain: :directory,
-      metadata: %{
-        "external_directory" =>
-          external_directory_metadata(provider_id, department_id, parent_id),
-        "lark" =>
-          compact_metadata_map(%{
-            "department_id" => department_id,
-            "open_department_id" => optional_text(department, "open_department_id"),
-            "parent_department_id" => optional_text(department, "parent_department_id"),
-            "member_count" => MapHelpers.fetch_value(department, "member_count"),
-            "primary_member_count" => MapHelpers.fetch_value(department, "primary_member_count")
-          })
-      }
-    }
-  end
-
-  defp binding_metadata(provider_id, department_id, department) do
-    parent_id = department_parent_id(department)
-
-    compact_metadata_map(%{
-      "provider" => provider_id,
-      "externalID" => department_id,
-      "name" => department_display_name(department, department_id),
-      "parentExternalID" => parent_id,
-      "status" => "active",
-      "syncedAt" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "external_directory" => external_directory_metadata(provider_id, department_id, parent_id)
-    })
-  end
-
-  defp external_directory_metadata(provider_id, department_id, parent_id) do
-    compact_metadata_map(%{
-      "provider" => provider_id,
-      "kind" => "department",
-      "external_id" => department_id,
-      "parentExternalID" => parent_id
-    })
-  end
-
-  defp department_group_name(provider_id, department_id) do
-    "#{provider_id}:department:#{department_id}"
-    |> String.downcase()
   end
 
   defp department_display_name(department, department_id) do

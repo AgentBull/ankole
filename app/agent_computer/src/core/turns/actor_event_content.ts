@@ -1,15 +1,10 @@
-import { readFile, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnModelRef } from '../../lanes/actor_lane'
+import { assertExistingPathWithin, workspacePhysicalRoots } from '../real-path-boundary'
 import { resolveWorkspacePath } from '../workspace-paths'
-import type { ContentPart, ImageContent, ModelConfig } from '../llm'
-import {
-  imageContentPartFromBuffer,
-  imageSummaryBlock,
-  modelImageAdaptation,
-  responseImageUnavailableText,
-  VISION_MAX_IMAGES_PER_TURN
-} from '../vision'
+import type { ContentPart, ModelConfig } from '../llm'
+import { imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText, type ModelImageSource } from '../vision'
 import { arrayPath, firstString, isRecord } from '@pleisto/active-support'
 import { actorEventText } from './actor_event_text'
 
@@ -57,16 +52,19 @@ export async function actorEventUserContent(
  * Provider references without an agent-computer path are ignored here because
  * the worker cannot fetch provider-owned blobs directly.
  */
-async function actorEventImageParts(payload: JSONObject | undefined, workspaceRoot: string): Promise<ImageContent[]> {
+async function actorEventImageParts(
+  payload: JSONObject | undefined,
+  workspaceRoot: string
+): Promise<ModelImageSource[]> {
   const attachments = [
     ...arrayPath(payload, ['data', 'entry', 'attachments']),
     ...arrayPath(payload, ['data', 'entry', 'reply_to', 'attachments'])
   ]
-  const paths = [...new Set(attachments.flatMap(visionEligibleAttachmentPath))].slice(0, VISION_MAX_IMAGES_PER_TURN)
-  const parts: ImageContent[] = []
+  const paths = [...new Set(attachments.flatMap(visionEligibleAttachmentPath))]
+  const parts: ModelImageSource[] = []
 
   for (const path of paths) {
-    const part = await imagePartFromWorkspacePath(path, workspaceRoot)
+    const part = await imageSourceFromWorkspacePath(path, workspaceRoot)
     if (part) parts.push(part)
   }
 
@@ -90,7 +88,10 @@ function visionEligibleAttachmentPath(value: unknown): string[] {
  * Missing or invalid files are ignored because attachment text still describes
  * the file; a single bad attachment should not drop the whole actor event.
  */
-async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): Promise<ImageContent | undefined> {
+async function imageSourceFromWorkspacePath(
+  path: string,
+  workspaceRoot: string
+): Promise<ModelImageSource | undefined> {
   let filePath: string
   try {
     filePath = workspaceFilePath(path, workspaceRoot)
@@ -102,8 +103,7 @@ async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): 
     const info = await stat(filePath)
     if (!info.isFile()) return undefined
 
-    const bytes = await readFile(filePath)
-    return imageContentPartFromBuffer(bytes)
+    return { type: 'image_file', path: filePath }
   } catch {
     return undefined
   }
@@ -114,5 +114,10 @@ async function imagePartFromWorkspacePath(path: string, workspaceRoot: string): 
  * workspace root.
  */
 function workspaceFilePath(path: string, workspaceRoot: string): string {
-  return resolveWorkspacePath(workspaceRoot, path, { errorMessage: 'image path escapes workspace root' })
+  const lexicalPath = resolveWorkspacePath(workspaceRoot, path, { errorMessage: 'image path escapes workspace root' })
+  return assertExistingPathWithin(
+    workspacePhysicalRoots(workspaceRoot),
+    lexicalPath,
+    'image path resolves outside workspace roots'
+  )
 }

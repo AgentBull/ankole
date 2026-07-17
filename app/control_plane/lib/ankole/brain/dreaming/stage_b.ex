@@ -1255,7 +1255,6 @@ defmodule Ankole.Brain.Dreaming.StageB do
         ids ->
           SignalEntry
           |> where([entry], entry.document_id in ^ids)
-          |> lock("FOR SHARE")
           |> select([entry], {entry.document_id, entry.content_hash})
           |> repo.all()
           |> Map.new()

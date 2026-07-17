@@ -30,6 +30,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
       subject: [in: :query, type: :string, required: false],
       key: [in: :query, type: :string, required: false],
       active: [in: :query, schema: %Schema{type: :boolean}, required: false],
+      min_messages: [in: :query, schema: %Schema{type: :integer, minimum: 1}, required: false],
       cursor: [in: :query, type: :string, required: false],
       limit: [
         in: :query,
@@ -81,12 +82,13 @@ defmodule AnkoleWeb.AIGatewayConversationController do
            ConsoleQueries.list_conversations(
              subject_uid: param(params, "subject"),
              conversation_key: param(params, "key"),
-             active: active_param(params),
+             active: boolean_param(params, "active"),
+             min_messages: integer_param(params, "min_messages", nil),
              cursor: param(params, "cursor"),
              limit: integer_param(params, "limit", 50)
            ) do
       json(conn, %{
-        conversations: Enum.map(page.conversations, &ConsoleQueries.console_projection/1),
+        conversations: ConsoleQueries.console_projections(page.conversations),
         next_cursor: page.next_cursor
       })
     else
@@ -138,12 +140,13 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   defp param_atom("subject"), do: :subject
   defp param_atom("key"), do: :key
   defp param_atom("active"), do: :active
+  defp param_atom("min_messages"), do: :min_messages
   defp param_atom("cursor"), do: :cursor
   defp param_atom("limit"), do: :limit
   defp param_atom("conversation_id"), do: :conversation_id
 
-  defp active_param(params) do
-    case param(params, "active") do
+  defp boolean_param(params, key) do
+    case param(params, key) do
       value when is_boolean(value) -> value
       _value -> nil
     end

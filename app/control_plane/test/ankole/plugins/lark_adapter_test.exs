@@ -79,11 +79,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  ]
                },
                %{
-                 contract_id: "ai_agent.library.skill_enablement_provider",
-                 id: "lark-cli-bot",
-                 module: Ankole.Plugins.LarkAdapter.SkillEnablement
-               },
-               %{
                  contract_id: "principals.identity_provider",
                  id: "lark",
                  config_key_pattern: "principals.identity_providers.lark.<id>",
@@ -142,10 +137,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert Enum.all?(patterns, & &1.encrypted)
 
-      assert [auto_enable] = LarkAdapter.app_config_definitions()
-      assert auto_enable.key == "skills.auto_enable_lark_skills_from_signal_binding"
-      assert auto_enable.default_value == true
-      refute auto_enable.encrypted
+      assert LarkAdapter.app_config_definitions() == []
     end
 
     test "chat and identity config validation applies design defaults" do
@@ -1154,7 +1146,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert group.id == first_group.id
 
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(member.uid, group.id)
+      assert {:ok, _membership} = add_im_group_member(group.id, member.uid)
 
       assert {:ok, grant} =
                AuthZ.upsert_permission_grant(%{
@@ -1222,7 +1214,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert group.id == first_group.id
 
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(member.uid, group.id)
+      assert {:ok, _membership} = add_im_group_member(group.id, member.uid)
 
       assert {:ok, [%{status: :all_left_members_cleared}]} =
                IMGroups.handle_im_event("im.chat.disbanded_v1", im_chat_event("oc_disband"), [
@@ -1306,7 +1298,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  im_context(agent.uid, "lark")
                )
 
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
+      assert {:ok, _membership} = add_im_group_member(group.id, observed.principal.uid)
 
       assert {:ok,
               [
@@ -1351,7 +1343,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  im_context(agent.uid, "lark")
                )
 
-      assert {:ok, _membership} = AuthZ.add_principal_to_group(observed.principal.uid, group.id)
+      assert {:ok, _membership} = add_im_group_member(group.id, observed.principal.uid)
 
       log =
         capture_log([level: :warning], fn ->

@@ -4,7 +4,7 @@ import { createTodoTool, TodoStore } from '../src/tools/todo/todo-tool'
 describe('todo reply presentation', () => {
   it('returns one full semantic plan snapshot after each write', async () => {
     const tool = createTodoTool(new TodoStore())
-    expect(tool.describeActivity?.(tool.schema.parse({}))).toBeNull()
+    expect(tool.describeActivity(tool.schema.parse({}))).toBeNull()
 
     const result = await tool.execute(
       'call-todo-1',

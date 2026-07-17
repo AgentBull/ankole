@@ -62,36 +62,6 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
     end
   end
 
-  describe "background lifecycle tool routing" do
-    test "extracts backgroundID from structured tool output JSON" do
-      request = %{
-        "messages" => [
-          %{
-            "role" => "tool",
-            "content" =>
-              ~s({"result":{"details":{"backgroundID":"bg_lifecycle_123","status":"running"}}})
-          }
-        ]
-      }
-
-      assert {:tool_call,
-              %{
-                name: "command",
-                arguments: %{
-                  "action" => "status",
-                  "backgroundID" => "bg_lifecycle_123"
-                }
-              }} = FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, request)
-    end
-
-    test "fails closed when a lifecycle follow-up is missing backgroundID" do
-      assert {:completion, "CHAOS_BACKGROUND_LIFECYCLE_MISSING_BACKGROUND_ID", []} =
-               FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, %{
-                 "messages" => [%{"role" => "tool", "content" => ~s({"ok":true})}]
-               })
-    end
-  end
-
   describe "schedule scenario classification" do
     test "classifies checkback tool follow-up before wakeup prose in older context" do
       request = %{
@@ -264,30 +234,6 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
     end
   end
 
-  describe "background lifecycle scenario actions" do
-    test "extracts wrapped background ids from command tool output" do
-      request = %{
-        "messages" => [
-          %{
-            "role" => "tool",
-            "tool_call_id" => "call_lark_chaos_background_lifecycle_start",
-            "content" =>
-              untrusted_tool_output("""
-              background_id=bg_e2e_123
-              status=running
-              """)
-          }
-        ]
-      }
-
-      assert {:tool_call,
-              %{
-                name: "command",
-                arguments: %{"action" => "status", "backgroundID" => "bg_e2e_123"}
-              }} = FakeOpenAIScenarios.action_for(:background_lifecycle_tool, 2, request)
-    end
-  end
-
   describe "installed skill scenario classification" do
     test "routes installed skill scenarios through skill_view tool calls" do
       assert {:tool_call,
@@ -321,16 +267,5 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
 
       assert FakeOpenAIScenarios.classify(request) == :installed_skill_tool
     end
-  end
-
-  defp untrusted_tool_output(text) do
-    nonce = "test-nonce"
-
-    """
-    <ankole_untrusted_tool_output nonce="#{nonce}">
-    #{String.trim(text)}
-    </ankole_untrusted_tool_output nonce="#{nonce}">
-    """
-    |> String.trim()
   end
 end

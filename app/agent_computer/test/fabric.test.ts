@@ -1,13 +1,23 @@
+import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
-import * as kernel from '../../kernel'
 import {
   connectRuntimeFabric,
   createRuntimeFabricHost,
   runtimeFabricFileProtocol,
   RuntimeFabricTransportError,
-  type RuntimeFabricEnvelope,
   type RuntimeFabricPhysicalTransport
 } from '../src/fabric/fabric'
+import {
+  AgentComputerWorkerReadySchema,
+  createEnvelope,
+  DurabilityClass,
+  encodeEnvelope,
+  envelopeHeader,
+  jsonBytes,
+  Lane,
+  type Envelope
+} from '../src/fabric/envelope_proto'
+import { Buffer } from 'node:buffer'
 
 describe('RuntimeFabric host adapter', () => {
   it('retries bounded native backpressure before reporting send success', async () => {
@@ -43,11 +53,11 @@ describe('RuntimeFabric host adapter', () => {
 
   it('classifies timeout and decodes a single envelope frame through the native codec', async () => {
     const transport = new TestRuntimeFabricTransport()
-    transport.receives.push(null, [kernel.runtimeFabricEncodeEnvelope(testEnvelope())])
+    transport.receives.push(null, [encodeEnvelope(testEnvelope())])
     const fabric = createRuntimeFabricHost(transport)
 
     expect(await fabric.receive(5)).toEqual({ kind: 'timeout' })
-    expect(await fabric.receive(5)).toMatchObject({ kind: 'envelope', envelope: testEnvelope() })
+    expect(await fabric.receive(5)).toEqual({ kind: 'envelope', envelope: testEnvelope() })
   })
 
   it('owns an idempotent dealer stop and rejects later transport operations', async () => {
@@ -131,7 +141,7 @@ describe('RuntimeFabric host adapter', () => {
 })
 
 class TestRuntimeFabricTransport implements RuntimeFabricPhysicalTransport {
-  readonly sentEnvelopes: RuntimeFabricEnvelope[] = []
+  readonly sentEnvelopes: Buffer[] = []
   readonly sentFileFrames: Buffer[][] = []
   readonly envelopeSendErrors: Error[] = []
   readonly fileSendErrors: Error[] = []
@@ -140,7 +150,7 @@ class TestRuntimeFabricTransport implements RuntimeFabricPhysicalTransport {
   fileSendAttempts = 0
   stopAttempts = 0
 
-  sendEnvelope(envelope: RuntimeFabricEnvelope): void {
+  sendEnvelope(envelope: Buffer): void {
     this.envelopeSendAttempts += 1
     const error = this.envelopeSendErrors.shift()
     if (error) throw error
@@ -165,21 +175,19 @@ class TestRuntimeFabricTransport implements RuntimeFabricPhysicalTransport {
   }
 }
 
-function testEnvelope(): RuntimeFabricEnvelope {
-  return {
-    protocol_version: 1,
-    message_id: 'worker-ready-test',
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
+function testEnvelope(): Envelope {
+  return createEnvelope({
+    ...envelopeHeader('worker-ready-test', Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    sentAtUnixMs: 0n,
     body: {
-      type: 'worker_ready',
-      worker_ready: {
-        worker_id: 'worker-a',
-        incarnation_id: '11111111-1111-4111-8111-111111111111',
+      case: 'workerReady',
+      value: create(AgentComputerWorkerReadySchema, {
+        workerId: 'worker-a',
+        incarnationId: '11111111-1111-4111-8111-111111111111',
         runtime: 'bun',
         version: 'test',
-        capacity_json: { available_turn_slots: 1 }
-      }
+        capacityJson: jsonBytes({ available_turn_slots: 1 })
+      })
     }
-  }
+  })
 }

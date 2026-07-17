@@ -26,6 +26,23 @@ Prefer the smallest correct change that follows the chosen direction, preserves 
 
 Working drafts may think out loud, but shareable documents must remove scaffolding, TODO theater, abandoned alternatives, and meta-writing.
 
+## Subtraction discipline
+
+Treat subtraction as a first-class design operation. Optimize for the smallest set of concepts and retained knowledge that still makes required behavior, ownership, and real contracts explicit; line count is not the objective. Before adding a concept, path, dependency, comment, test, or document, search for the existing owner and consider reuse, replacement, unification, or deletion. Confusion is a prompt to investigate an abstraction, not proof that the abstraction is wrong.
+
+Within the authorized task and affected ownership surface, a replacement is incomplete until the superseded code, tests, comments, documentation, configuration, completed TODOs, and links are removed. Keep an old form only for an evidenced current caller, persisted value, external contract, or explicit staged migration, and state its removal condition. Do not use cleanup as authority for unrelated edits.
+
+Prefer structure and naming over comments that narrate implementation, especially inside function bodies. Retain comments and prose only when they preserve non-local rationale, invariants, hazards, or operational constraints. Before finishing a retained change, ask both: what became obsolete, and what necessary knowledge or guarantee would further deletion destroy?
+
+## Design priorities
+
+Ankole follows the New Jersey approach in the Unix tradition: simplicity, correctness, consistency, then completeness. This ordering does not authorize incorrect behavior inside a declared contract. When simplicity wins, narrow the contract, reject the unsupported case explicitly, or retain a manual recovery path rather than silently producing a wrong result.
+
+1. **Simplicity.** Keep implementation and interface simple, with implementation simplicity taking priority. Prefer a small direct owner and a narrower contract over indirection, policy machinery, or a uniform interface whose implementation is harder to understand, operate, and remove.
+2. **Correctness.** Make every supported behavior correct in its observable effects and failure modes. If an uncommon case cannot be handled correctly without disproportionate complexity, do not pretend to support it; fail clearly or leave it outside the contract.
+3. **Consistency.** Keep consistency when it reduces the user or maintainer's mental model, but do not force different owners through one abstraction. A small explicit irregularity is better than a complex implementation or hidden semantic mismatch; interface uniformity has the lowest priority when it conflicts with a simple, correct owner.
+4. **Completeness.** Cover important and reasonably expected cases. If broader coverage remains simple, accept a local interface irregularity; if it complicates the implementation, leave the uncommon case unsupported and add it only when evidence makes that complexity part of the real product guarantee.
+
 ## Interaction and reasoning
 
 Take the time needed to reason correctly. Optional commentary is noise: use it only when a tool call requires it or the user explicitly asks for status, and do not use it to report progress, narrate state, or explain intermediate reasoning. Tasks that need no tools should be answered only in the final response.

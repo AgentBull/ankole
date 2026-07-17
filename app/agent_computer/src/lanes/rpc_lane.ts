@@ -1,7 +1,23 @@
+import { create } from '@bufbuild/protobuf'
 import type { ActorEventEnvelope, ActorTurnRef } from './actor_lane'
-import type { RuntimeFabricEnvelope } from '../fabric/fabric'
 import type { EnvelopeSender } from '../fabric/fabric'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import {
+  createEnvelope,
+  DurabilityClass,
+  envelopeHeader,
+  jsonBytes,
+  jsonObjectFromBytes,
+  Lane,
+  RPCErrorSchema,
+  RPCRequestSchema,
+  RPCResponseSchema,
+  safeNumberFromBigInt,
+  type Envelope,
+  type RPCErrorMessage,
+  type RPCRequestMessage,
+  type RPCResponseMessage
+} from '../fabric/envelope_proto'
+import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type { InstalledSkillObservation } from '../skills/types'
 
 /**
@@ -21,13 +37,14 @@ export const rpcMethods = {
   appConfigureResolve: 'app_configure.resolve',
   codexAccountResolve: 'codex.account.resolve',
   codexAccountAuthUpdate: 'codex.account.auth.update',
-  subagentDelegationCreate: 'subagent.delegation.create',
-  subagentDelegationGet: 'subagent.delegation.get',
-  subagentDelegationList: 'subagent.delegation.list',
-  subagentDelegationSteer: 'subagent.delegation.steer',
-  subagentDelegationStop: 'subagent.delegation.stop',
-  subagentDelegationTurnUpsert: 'subagent.delegation.turn.upsert',
-  subagentDelegationStatusUpdate: 'subagent.delegation.status.update',
+  agentPluginList: 'agent_plugin.list',
+  backgroundAgentJobCreate: 'background_agent_job.create',
+  backgroundAgentJobGet: 'background_agent_job.get',
+  backgroundAgentJobList: 'background_agent_job.list',
+  backgroundAgentJobSteer: 'background_agent_job.steer',
+  backgroundAgentJobStop: 'background_agent_job.stop',
+  backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
+  backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
   memorySearch: 'memory_search',
   memoryBrowse: 'memory_browse',
   memoryOpen: 'memory_open',
@@ -72,13 +89,14 @@ export const rpcOperationMeta = {
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
   [rpcMethods.codexAccountResolve]: { scope: 'turn', effect: 'read' },
   [rpcMethods.codexAccountAuthUpdate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationCreate]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationGet]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.subagentDelegationList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.subagentDelegationSteer]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationStop]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationTurnUpsert]: { scope: 'turn', effect: 'write' },
-  [rpcMethods.subagentDelegationStatusUpdate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.backgroundAgentJobList]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.backgroundAgentJobSteer]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobStop]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.memorySearch]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryBrowse]: { scope: 'turn', effect: 'read' },
   [rpcMethods.memoryOpen]: { scope: 'turn', effect: 'read' },
@@ -157,11 +175,25 @@ export function rpcRejectedMessage(label: string, response: RPCRejectedResponse)
   return `${label}: ${response.code} ${response.message ?? ''}`.trim()
 }
 
+/**
+ * Thrown when the control plane rejects an RPC operation. Carries the rejection
+ * frame so callers that map rejection codes onto domain errors keep typed
+ * access instead of parsing the message.
+ */
+export class RPCRejectedError extends Error {
+  constructor(
+    label: string,
+    readonly rejection: RPCRejectedResponse
+  ) {
+    super(rpcRejectedMessage(label, rejection))
+  }
+}
+
 export function assertRPCResponse<TResponse>(
   response: TResponse | RPCRejectedResponse,
   label: string
 ): asserts response is TResponse {
-  if (isRPCRejected(response)) throw new Error(rpcRejectedMessage(label, response))
+  if (isRPCRejected(response)) throw new RPCRejectedError(label, response)
 }
 
 /**
@@ -178,6 +210,7 @@ export type RuntimeSkillSummary = {
   description?: string
   default_enabled?: boolean
   source_kind?: 'builtin' | 'installed' | string
+  agent_plugin_id?: string
   relative_path?: string
   skill_root?: 'library' | 'internal' | string
   metadata?: JSONObject
@@ -275,19 +308,19 @@ export type ScheduleCronUpdateRequest = ScheduleCronTargetRequest & {
   updates: JSONObject
 }
 
-export type MemoryDelegationScope = {
+export type MemoryJobScope = {
   session_id: string
   signal_channel_id?: string
 }
 
 /**
  * Brain operations carry the actor event so the control plane can resolve the
- * current channel; subagent turns additionally pin their delegation scope.
+ * current channel; Job turns additionally pin their owner scope.
  */
 export type MemoryRPCRequestBase = TurnScopedRPCRequest & {
   actor_event: ActorEventEnvelope
-  delegation_id?: string
-  delegation_scope?: MemoryDelegationScope
+  job_id?: string
+  job_scope?: MemoryJobScope
 }
 
 export type MemorySearchRequest = MemoryRPCRequestBase & {
@@ -478,7 +511,7 @@ export type WorkerEnvResolveResponse = {
 }
 
 export type CodexAccountResolveRequest = TurnScopedRPCRequest & {
-  delegation_id: string
+  job_id: string
 }
 
 export type CodexAccountResolveResponse = {
@@ -489,7 +522,7 @@ export type CodexAccountResolveResponse = {
 }
 
 export type CodexAccountAuthUpdateRequest = TurnScopedRPCRequest & {
-  delegation_id: string
+  job_id: string
   auth_json: string
 }
 
@@ -498,69 +531,87 @@ export type CodexAccountAuthUpdateResponse = {
   account_id: string
 }
 
-export type SubagentDelegationStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
-export type SubagentDelegationRuntime = 'task_worker' | 'deep_research'
-export type DeepResearchMode = 'general' | 'forecast' | 'retrospect'
+export type AgentPluginCatalogSkill = {
+  catalog_name: string
+  codex_name: string
+}
 
-type SubagentDelegationCreateBase = TurnScopedRPCRequest & {
-  tool_call_id: string
+export type AgentPluginCatalogEntry = {
+  id: string
+  description: string
+  version: string
+  content_hash: string
+  skills: AgentPluginCatalogSkill[]
+}
+
+export type AgentPluginListRequest = TurnScopedRPCRequest
+
+export type AgentPluginListResponse = {
+  request_id: string
+  agent_uid: string
+  agent_plugins: AgentPluginCatalogEntry[]
+}
+
+export type BackgroundAgentJobStatus = 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+
+const backgroundAgentJobStatuses = new Set<BackgroundAgentJobStatus>([
+  'queued',
+  'running',
+  'waiting_on_user',
+  'succeeded',
+  'failed',
+  'stopped'
+])
+
+export type BackgroundAgentJobWorkspaceMount = {
+  id: string
+  source: string
+  access: 'read_only' | 'read_write'
+}
+
+type BackgroundAgentJobCreateBase = TurnScopedRPCRequest & {
+  source_tool_call_id: string
   title: string
   task: string
   background?: string
   notes?: string
-  workdir?: string
-  output_schema?: JSONObject
-  metadata?: JSONObject
+  agent_plugin_ids?: string[]
+  skill_names?: string[]
+  workspace_mounts?: BackgroundAgentJobWorkspaceMount[]
+  model?: string
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 }
 
-export type SubagentDelegationCreateRequest =
-  | (SubagentDelegationCreateBase & {
-      runtime?: 'task_worker'
-      mode?: never
-      source_delegation_id?: never
-      actual_outcome?: never
-    })
-  | (SubagentDelegationCreateBase & {
-      runtime: 'deep_research'
-      mode?: 'general' | 'forecast'
-      source_delegation_id?: never
-      actual_outcome?: never
-    })
-  | (SubagentDelegationCreateBase & {
-      runtime: 'deep_research'
-      mode: 'retrospect'
-      source_delegation_id: string
-      actual_outcome?: boolean
-    })
+export type BackgroundAgentJobCreateRequest = BackgroundAgentJobCreateBase
 
-type SubagentDelegationByIDRequest = TurnScopedRPCRequest & {
-  delegation_id: string
+type BackgroundAgentJobByIDRequest = TurnScopedRPCRequest & {
+  job_id: string
 }
 
-export type SubagentDelegationGetRequest = SubagentDelegationByIDRequest & {
+export type BackgroundAgentJobGetRequest = BackgroundAgentJobByIDRequest & {
   trajectory_limit?: number
   trajectory_cursor?: string
 }
 
-export type SubagentDelegationListRequest = TurnScopedRPCRequest
+export type BackgroundAgentJobListRequest = TurnScopedRPCRequest
 
-export type SubagentDelegationSteerRequest = SubagentDelegationByIDRequest & {
+export type BackgroundAgentJobSteerRequest = BackgroundAgentJobByIDRequest & {
   text?: string
   answers?: Record<string, string | string[]>
 }
 
-export type SubagentDelegationStopRequest = SubagentDelegationByIDRequest & {
+export type BackgroundAgentJobStopRequest = BackgroundAgentJobByIDRequest & {
   reason?: string
 }
 
-type SubagentDelegationResponseBase = {
+type BackgroundAgentJobResponseBase = {
   request_id: string
-  delegation_id: string
+  job_id: string
   agent_uid: string
-  session_id: string
-  actor_event_id?: string
-  tool_call_id?: string
-  status: SubagentDelegationStatus
+  owner_session_id: string
+  source_actor_event_id?: string
+  source_tool_call_id?: string
+  status: BackgroundAgentJobStatus
   runtime_thread_id?: string
   codex_account_id: string
   title: string
@@ -569,77 +620,146 @@ type SubagentDelegationResponseBase = {
   notes?: string
   reply_route: JSONObject
   attempts: number
-  workdir?: string
+  agent_plugin_ids: string[]
+  skill_names: string[]
+  workspace_mounts: BackgroundAgentJobWorkspaceMount[]
+  model?: string
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   queued_at?: string
   started_at?: string
   completed_at?: string
   result?: JSONObject
   error?: JSONObject
   metadata?: JSONObject
-  execution?: SubagentExecution
+  execution?: BackgroundAgentJobExecution
   attempt_history?: Array<{
     attempt: number
-    turn_statuses: SubagentTurnStatus[]
+    turn_statuses: BackgroundAgentJobTurnStatus[]
     summary?: string
   }>
-  result_ref?: JSONObject
+  result_ref?: BackgroundAgentJobResultRef
 }
 
-type SourceForecast = {
-  delegation_id: string
-  title: string
-  result: JSONObject
-  completed_at?: string
+export type BackgroundAgentJobResultRef = {
+  type: 'background_agent_job'
+  job_id: string
 }
 
-export type SubagentDelegationResponse =
-  | (SubagentDelegationResponseBase & {
-      runtime: 'task_worker'
-      mode?: never
-      source_delegation_id?: never
-      actual_outcome?: never
-      source_forecast?: never
-    })
-  | (SubagentDelegationResponseBase & {
-      runtime: 'deep_research'
-      mode: 'general' | 'forecast'
-      source_delegation_id?: never
-      actual_outcome?: never
-      source_forecast?: never
-    })
-  | (SubagentDelegationResponseBase & {
-      runtime: 'deep_research'
-      mode: 'retrospect'
-      source_delegation_id: string
-      actual_outcome?: boolean
-      source_forecast?: SourceForecast
-    })
+export type BackgroundAgentJobResponse = BackgroundAgentJobResponseBase
 
-export type SubagentDelegationSummary = {
-  delegation_id: string
+export function decodeBackgroundAgentJobResponse(value: unknown): BackgroundAgentJobResponse {
+  const job = jsonObject(value)
+  const requiredStrings = [
+    'request_id',
+    'job_id',
+    'agent_uid',
+    'owner_session_id',
+    'codex_account_id',
+    'title',
+    'task'
+  ] as const
+  for (const key of requiredStrings) {
+    if (!backgroundAgentJobString(job[key])) throw new Error(`BackgroundAgentJob response ${key} is required`)
+  }
+  if (!backgroundAgentJobStatuses.has(job.status as BackgroundAgentJobStatus)) {
+    throw new Error(`BackgroundAgentJob response has invalid status: ${String(job.status)}`)
+  }
+  if (!Number.isSafeInteger(job.attempts) || Number(job.attempts) < 0) {
+    throw new Error('BackgroundAgentJob response attempts must be a nonnegative integer')
+  }
+  if (!isBackgroundAgentJobObject(job.reply_route)) {
+    throw new Error('BackgroundAgentJob response reply_route must be an object')
+  }
+
+  const agentPluginIDs = decodeBackgroundAgentJobStringArray(job.agent_plugin_ids, 'agent_plugin_ids')
+  const skillNames = decodeBackgroundAgentJobStringArray(job.skill_names, 'skill_names')
+  const workspaceMounts = backgroundAgentJobArray(job.workspace_mounts, 'workspace_mounts').map((value, index) => {
+    const mount = jsonObject(value)
+    const id = backgroundAgentJobString(mount.id)
+    const source = backgroundAgentJobString(mount.source)
+    const access = mount.access
+    if (!id || !source || (access !== 'read_only' && access !== 'read_write')) {
+      throw new Error(`BackgroundAgentJob response workspace_mounts[${index}] is invalid`)
+    }
+    return { id, source, access: access as 'read_only' | 'read_write' }
+  })
+  assertUniqueBackgroundAgentJobStrings(agentPluginIDs, 'agent_plugin_ids')
+  assertUniqueBackgroundAgentJobStrings(skillNames, 'skill_names')
+  assertUniqueBackgroundAgentJobStrings(
+    workspaceMounts.map(mount => mount.id),
+    'workspace mount ids'
+  )
+
+  const reasoningEffort = job.reasoning_effort
+  if (
+    reasoningEffort !== undefined &&
+    !['minimal', 'low', 'medium', 'high', 'xhigh'].includes(String(reasoningEffort))
+  ) {
+    throw new Error(`BackgroundAgentJob response reasoning_effort is invalid: ${String(reasoningEffort)}`)
+  }
+  return {
+    ...(job as unknown as BackgroundAgentJobResponse),
+    agent_plugin_ids: agentPluginIDs,
+    skill_names: skillNames,
+    workspace_mounts: workspaceMounts,
+    ...(reasoningEffort
+      ? {
+          reasoning_effort: reasoningEffort as BackgroundAgentJobResponse['reasoning_effort']
+        }
+      : {})
+  }
+}
+
+function backgroundAgentJobArray(value: unknown, label: string): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`BackgroundAgentJob response ${label} must be an array`)
+  return value
+}
+
+function decodeBackgroundAgentJobStringArray(value: unknown, label: string): string[] {
+  return backgroundAgentJobArray(value, label).map((item, index) => {
+    if (typeof item !== 'string' || !item) {
+      throw new Error(`BackgroundAgentJob response ${label}[${index}] must be a nonempty string`)
+    }
+    return item
+  })
+}
+
+function assertUniqueBackgroundAgentJobStrings(values: string[], label: string): void {
+  if (new Set(values).size !== values.length) throw new Error(`BackgroundAgentJob response ${label} must be unique`)
+}
+
+function isBackgroundAgentJobObject(value: unknown): value is JSONObject {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function backgroundAgentJobString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined
+}
+
+export type BackgroundAgentJobSummary = {
+  job_id: string
   title: string
-  status: SubagentDelegationStatus
-  runtime: SubagentDelegationRuntime
-  mode?: DeepResearchMode
+  status: BackgroundAgentJobStatus
+  agent_plugin_ids: string[]
   attempts: number
   queued_at?: string
   started_at?: string
   completed_at?: string
 }
 
-export type SubagentDelegationListResponse = {
+export type BackgroundAgentJobListResponse = {
   request_id: string
-  delegations: SubagentDelegationSummary[]
+  jobs: BackgroundAgentJobSummary[]
 }
 
-export type SubagentTurnStatus = 'in_progress' | 'completed' | 'failed' | 'interrupted'
-export type SubagentTurnKind = 'agent' | 'compaction'
+export type BackgroundAgentJobTurnStatus = 'in_progress' | 'completed' | 'failed' | 'interrupted'
+export type BackgroundAgentJobTurnKind = 'agent' | 'compaction'
 
-export type SubagentTurnTrajectoryContentPart = JSONObject & {
+export type BackgroundAgentJobTurnTrajectoryContentPart = JSONObject & {
   type: string
 }
 
-export type SubagentTurnTrajectoryToolCall = JSONObject & {
+export type BackgroundAgentJobTurnTrajectoryToolCall = JSONObject & {
   id: string
   type: 'function'
   function: JSONObject & {
@@ -648,18 +768,18 @@ export type SubagentTurnTrajectoryToolCall = JSONObject & {
   }
 }
 
-export type SubagentTurnTrajectoryMessage =
+export type BackgroundAgentJobTurnTrajectoryMessage =
   | (JSONObject & {
       id?: string
       role: 'user' | 'developer'
-      content: string | SubagentTurnTrajectoryContentPart[]
+      content: string | BackgroundAgentJobTurnTrajectoryContentPart[]
       metadata?: JSONObject
     })
   | (JSONObject & {
       id?: string
       role: 'assistant'
       content: string
-      tool_calls?: SubagentTurnTrajectoryToolCall[]
+      tool_calls?: BackgroundAgentJobTurnTrajectoryToolCall[]
       metadata?: JSONObject
     })
   | (JSONObject & {
@@ -671,22 +791,25 @@ export type SubagentTurnTrajectoryMessage =
       metadata?: JSONObject
     })
 
-export type SubagentTurnTrajectoryMetadata = JSONObject & {
+export type BackgroundAgentJobTurnTrajectoryMetadata = JSONObject & {
   redacted?: boolean
   content_truncated?: boolean
-  max_bytes?: number
-  omitted_items?: number
-  omitted_messages?: number
 }
 
-export type SubagentTurnTrajectory = JSONObject & {
+export type BackgroundAgentJobTurnTrajectory = JSONObject & {
   format: 'ankole_chatml'
   version: 1
-  messages: SubagentTurnTrajectoryMessage[]
-  metadata?: SubagentTurnTrajectoryMetadata
+  messages: BackgroundAgentJobTurnTrajectoryMessage[]
+  metadata?: BackgroundAgentJobTurnTrajectoryMetadata
 }
 
-export type SubagentTurnUsageBreakdown = JSONObject & {
+export type BackgroundAgentJobTurnTrajectoryGroup = JSONObject & {
+  position: number
+  item_key: string
+  messages: BackgroundAgentJobTurnTrajectoryMessage[]
+}
+
+export type BackgroundAgentJobTurnUsageBreakdown = JSONObject & {
   total_tokens: number
   input_tokens: number
   cached_input_tokens: number
@@ -694,13 +817,13 @@ export type SubagentTurnUsageBreakdown = JSONObject & {
   reasoning_output_tokens: number
 }
 
-export type SubagentTurnUsage = JSONObject & {
-  thread_total: SubagentTurnUsageBreakdown
-  last_model_call: SubagentTurnUsageBreakdown
+export type BackgroundAgentJobTurnUsage = JSONObject & {
+  thread_total: BackgroundAgentJobTurnUsageBreakdown
+  last_model_call: BackgroundAgentJobTurnUsageBreakdown
   model_context_window?: number
 }
 
-export type SubagentTurnPlan = JSONObject & {
+export type BackgroundAgentJobTurnPlan = JSONObject & {
   explanation?: string
   steps: Array<
     JSONObject & {
@@ -710,54 +833,54 @@ export type SubagentTurnPlan = JSONObject & {
   >
 }
 
-export type SubagentTurnToolUsage = JSONObject & {
+export type BackgroundAgentJobTurnToolUsage = JSONObject & {
   name: string
   calls: number
 }
 
-export type SubagentTurnActiveItem = JSONObject & {
+export type BackgroundAgentJobTurnActiveItem = JSONObject & {
   id: string
   name: string
 }
 
-export type SubagentTurnProgress = JSONObject & {
+export type BackgroundAgentJobTurnProgress = JSONObject & {
   completed_items: number
   tool_calls: number
-  tools_used: SubagentTurnToolUsage[]
+  tools_used: BackgroundAgentJobTurnToolUsage[]
   files_changed: string[]
-  plan?: SubagentTurnPlan
-  active_item?: SubagentTurnActiveItem
+  plan?: BackgroundAgentJobTurnPlan
+  active_item?: BackgroundAgentJobTurnActiveItem
 }
 
-export type SubagentExecution = {
+export type BackgroundAgentJobExecution = {
   attempt: number
   current?: {
     runtime_turn_id: string
-    kind: SubagentTurnKind
-    status: SubagentTurnStatus
+    kind: BackgroundAgentJobTurnKind
+    status: BackgroundAgentJobTurnStatus
   }
   lead_turn_number: number
   threads: { total: number; child: number }
   turns: { lead: number; child: number; compaction: number; active: number }
-  progress: Omit<SubagentTurnProgress, 'active_item'> & {
+  progress: Omit<BackgroundAgentJobTurnProgress, 'active_item'> & {
     active_items: Array<{ scope: 'lead' | 'child'; name: string }>
   }
-  usage?: SubagentTurnUsage
-  trajectory_page: SubagentTurnTrajectory & { next_cursor?: string }
+  usage?: BackgroundAgentJobTurnUsage
+  trajectory_page: BackgroundAgentJobTurnTrajectory & { next_cursor?: string }
   updated_at: string
 }
 
-export type SubagentDelegationTurn = {
+export type BackgroundAgentJobTurn = {
   id?: string
   attempt: number
   runtime_thread_id: string
   runtime_turn_id: string
-  kind: SubagentTurnKind
-  status: SubagentTurnStatus
+  kind: BackgroundAgentJobTurnKind
+  status: BackgroundAgentJobTurnStatus
   revision: number
-  trajectory: SubagentTurnTrajectory
-  progress: SubagentTurnProgress
-  usage?: SubagentTurnUsage | null
+  trajectory: BackgroundAgentJobTurnTrajectory
+  progress: BackgroundAgentJobTurnProgress
+  usage?: BackgroundAgentJobTurnUsage | null
   error: JSONObject
   started_at: string
   completed_at?: string
@@ -765,31 +888,32 @@ export type SubagentDelegationTurn = {
   updated_at?: string
 }
 
-export type SubagentDelegationTurnUpsertRequest = TurnScopedRPCRequest & {
-  delegation_id: string
+export type BackgroundAgentJobTurnUpsertRequest = TurnScopedRPCRequest & {
+  job_id: string
   attempt: number
   runtime_thread_id: string
   runtime_turn_id: string
-  kind: SubagentTurnKind
-  status: SubagentTurnStatus
+  kind: BackgroundAgentJobTurnKind
+  status: BackgroundAgentJobTurnStatus
   revision: number
-  trajectory: SubagentTurnTrajectory
-  progress: SubagentTurnProgress
-  usage?: SubagentTurnUsage
+  trajectory: BackgroundAgentJobTurnTrajectory
+  trajectory_groups: BackgroundAgentJobTurnTrajectoryGroup[]
+  progress: BackgroundAgentJobTurnProgress
+  usage?: BackgroundAgentJobTurnUsage
   error?: JSONObject
   started_at: string
   completed_at?: string
 }
 
-export type SubagentDelegationTurnUpsertResponse = {
+export type BackgroundAgentJobTurnUpsertResponse = {
   request_id: string
-  delegation_id: string
-  turn: SubagentDelegationTurn
+  job_id: string
+  turn: BackgroundAgentJobTurn
 }
 
-export type SubagentDelegationStatusUpdateRequest = TurnScopedRPCRequest & {
-  delegation_id: string
-  status: SubagentDelegationStatus
+export type BackgroundAgentJobStatusUpdateRequest = TurnScopedRPCRequest & {
+  job_id: string
+  status: BackgroundAgentJobStatus
   runtime_thread_id?: string
   result?: JSONObject
   error?: JSONObject
@@ -828,33 +952,37 @@ export type RPCSchemaByMethod = {
     request: CodexAccountAuthUpdateRequest
     response: CodexAccountAuthUpdateResponse
   }
-  [rpcMethods.subagentDelegationCreate]: {
-    request: SubagentDelegationCreateRequest
-    response: SubagentDelegationResponse
+  [rpcMethods.agentPluginList]: {
+    request: AgentPluginListRequest
+    response: AgentPluginListResponse
   }
-  [rpcMethods.subagentDelegationGet]: {
-    request: SubagentDelegationGetRequest
-    response: SubagentDelegationResponse
+  [rpcMethods.backgroundAgentJobCreate]: {
+    request: BackgroundAgentJobCreateRequest
+    response: BackgroundAgentJobResponse
   }
-  [rpcMethods.subagentDelegationList]: {
-    request: SubagentDelegationListRequest
-    response: SubagentDelegationListResponse
+  [rpcMethods.backgroundAgentJobGet]: {
+    request: BackgroundAgentJobGetRequest
+    response: BackgroundAgentJobResponse
   }
-  [rpcMethods.subagentDelegationSteer]: {
-    request: SubagentDelegationSteerRequest
-    response: SubagentDelegationResponse
+  [rpcMethods.backgroundAgentJobList]: {
+    request: BackgroundAgentJobListRequest
+    response: BackgroundAgentJobListResponse
   }
-  [rpcMethods.subagentDelegationStop]: {
-    request: SubagentDelegationStopRequest
-    response: SubagentDelegationResponse
+  [rpcMethods.backgroundAgentJobSteer]: {
+    request: BackgroundAgentJobSteerRequest
+    response: BackgroundAgentJobResponse
   }
-  [rpcMethods.subagentDelegationTurnUpsert]: {
-    request: SubagentDelegationTurnUpsertRequest
-    response: SubagentDelegationTurnUpsertResponse
+  [rpcMethods.backgroundAgentJobStop]: {
+    request: BackgroundAgentJobStopRequest
+    response: BackgroundAgentJobResponse
   }
-  [rpcMethods.subagentDelegationStatusUpdate]: {
-    request: SubagentDelegationStatusUpdateRequest
-    response: SubagentDelegationResponse
+  [rpcMethods.backgroundAgentJobTurnUpsert]: {
+    request: BackgroundAgentJobTurnUpsertRequest
+    response: BackgroundAgentJobTurnUpsertResponse
+  }
+  [rpcMethods.backgroundAgentJobStatusUpdate]: {
+    request: BackgroundAgentJobStatusUpdateRequest
+    response: BackgroundAgentJobResponse
   }
   [rpcMethods.memorySearch]: { request: MemorySearchRequest; response: JSONObject }
   [rpcMethods.memoryBrowse]: { request: MemoryBrowseRequest; response: JSONObject }
@@ -885,13 +1013,13 @@ export type RPCSchemaByMethod = {
 }
 
 /**
- * Shape of an injected RPC caller that converts control-plane errors into
- * thrown tool failures. The worker only packages requests and never applies
- * local fallback behavior for these operations.
+ * Shape of the injected RPC caller every turn capability goes through. It
+ * generates request ids, converts control-plane rejections into thrown
+ * `RPCRejectedError`s, and never applies local fallback behavior.
  */
 export type RPCRequester = <M extends RPCMethod>(
   method: M,
-  payload: RPCSchemaByMethod[M]['request']
+  payload: Omit<RPCSchemaByMethod[M]['request'], 'request_id'>
 ) => Promise<RPCSchemaByMethod[M]['response']>
 
 export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
@@ -904,15 +1032,15 @@ export type MemoryRPCMethod = Extract<RPCMethod, `memory${string}`>
  */
 export type ScheduleRPCRequester = <M extends ScheduleRPCMethod>(
   method: M,
-  payload: RPCSchemaByMethod[M]['request']
+  payload: Omit<RPCSchemaByMethod[M]['request'], 'request_id'>
 ) => Promise<JSONObject>
 
 export type MemoryRPCRequester = <M extends MemoryRPCMethod>(
   method: M,
-  payload: RPCSchemaByMethod[M]['request']
+  payload: Omit<RPCSchemaByMethod[M]['request'], 'request_id'>
 ) => Promise<JSONObject>
 
-export const rpcTimeoutMs = 60_000
+const rpcTimeoutMs = 300_000
 
 type RPCWaiter = {
   resolve: (response: RPCResponse | RPCError) => void
@@ -921,41 +1049,33 @@ type RPCWaiter = {
 }
 
 /**
- * Wraps a worker-originated RPC request in the RuntimeFabric body shape.
+ * Converts a decoded RPC request message into the wire-frame DTO the worker
+ * dispatch and RPC payload contracts use.
  */
-export function rpcRequestEnvelopeBody(request: RPCRequest): {
-  type: 'rpc_request'
-  rpc_request: RPCRequest
-} {
+export function rpcRequestFromProto(request: RPCRequestMessage): RPCRequest {
   return {
-    type: 'rpc_request',
-    rpc_request: request
+    request_id: request.requestId,
+    method: request.method,
+    ...(request.deadlineUnixMs !== 0n
+      ? { deadline_unix_ms: safeNumberFromBigInt(request.deadlineUnixMs, 'rpc_request.deadline_unix_ms') }
+      : {}),
+    payload_json: jsonObjectFromBytes(request.payloadJson, 'rpc_request.payload_json')
   }
 }
 
-/**
- * Wraps a successful RPC response in the RuntimeFabric body shape.
- */
-export function rpcResponseEnvelopeBody(response: RPCResponse): {
-  type: 'rpc_response'
-  rpc_response: RPCResponse
-} {
+export function rpcResponseFromProto(response: RPCResponseMessage): RPCResponse {
   return {
-    type: 'rpc_response',
-    rpc_response: response
+    request_id: response.requestId,
+    payload_json: jsonObjectFromBytes(response.payloadJson, 'rpc_response.payload_json')
   }
 }
 
-/**
- * Wraps an RPC error in the RuntimeFabric body shape.
- */
-export function rpcErrorEnvelopeBody(error: RPCError): {
-  type: 'rpc_error'
-  rpc_error: RPCError
-} {
+export function rpcErrorFromProto(error: RPCErrorMessage): RPCError {
   return {
-    type: 'rpc_error',
-    rpc_error: error
+    request_id: error.requestId,
+    code: error.code,
+    ...(error.message ? { message: error.message } : {}),
+    details_json: jsonObjectFromBytes(error.detailsJson, 'rpc_error.details_json')
   }
 }
 
@@ -997,14 +1117,24 @@ export class RuntimeRPCClient {
     })
 
     try {
-      await this.sendEnvelope({
-        protocol_version: 1,
-        message_id: `rpc-request-${crypto.randomUUID()}`,
-        correlation_id: requestID,
-        lane: 'LANE_RPC',
-        durability: 'CONTROL_EPHEMERAL',
-        body: rpcRequestEnvelopeBody(request)
-      })
+      await this.sendEnvelope(
+        createEnvelope({
+          ...envelopeHeader(
+            `rpc-request-${crypto.randomUUID()}`,
+            Lane.RPC,
+            DurabilityClass.CONTROL_EPHEMERAL,
+            requestID
+          ),
+          body: {
+            case: 'rpcRequest',
+            value: create(RPCRequestSchema, {
+              requestId: request.request_id,
+              method: request.method,
+              payloadJson: jsonBytes(request.payload_json)
+            })
+          }
+        })
+      )
     } catch (error) {
       const waiter = this.waiters.get(requestID)
       if (waiter) {
@@ -1059,13 +1189,26 @@ function dispatchWorkerRPCRequest(request: RPCRequest): RPCResponse | RPCError {
 /**
  * Builds the RuntimeFabric envelope for an RPC reply.
  */
-function workerRPCReplyEnvelope(reply: RPCResponse | RPCError, requestID: string): RuntimeFabricEnvelope {
-  return {
-    protocol_version: 1,
-    message_id: `rpc-reply-${crypto.randomUUID()}`,
-    correlation_id: requestID,
-    lane: 'LANE_RPC',
-    durability: 'CONTROL_EPHEMERAL',
-    body: 'code' in reply ? rpcErrorEnvelopeBody(reply) : rpcResponseEnvelopeBody(reply)
-  }
+function workerRPCReplyEnvelope(reply: RPCResponse | RPCError, requestID: string): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(`rpc-reply-${crypto.randomUUID()}`, Lane.RPC, DurabilityClass.CONTROL_EPHEMERAL, requestID),
+    body:
+      'code' in reply
+        ? {
+            case: 'rpcError',
+            value: create(RPCErrorSchema, {
+              requestId: reply.request_id,
+              code: reply.code,
+              message: reply.message ?? '',
+              detailsJson: jsonBytes(reply.details_json)
+            })
+          }
+        : {
+            case: 'rpcResponse',
+            value: create(RPCResponseSchema, {
+              requestId: reply.request_id,
+              payloadJson: jsonBytes(reply.payload_json)
+            })
+          }
+  })
 }

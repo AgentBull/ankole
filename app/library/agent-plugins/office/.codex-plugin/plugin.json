@@ -1,0 +1,6 @@
+{
+  "name": "office",
+  "version": "1.0.0",
+  "description": "Create, edit, inspect, and validate local Word, Excel, and PowerPoint artifacts.",
+  "skills": "./skills/"
+}

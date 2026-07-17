@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
-  alias Ankole.SubagentDelegations
+  alias Ankole.BackgroundAgentJobs
 
   describe "exact runtime deadlines" do
     test "a new incarnation of the same worker releases accepted work immediately" do
@@ -32,9 +32,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert_receive {:actor_lane, _first_envelope}
 
       assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => first_turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_turn_ref))
 
       assert {:ok, replacement} =
                admit_worker(route, %{
@@ -56,10 +54,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert {:ok, %{turn_ref: second_turn_ref}} =
                process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
 
-      assert second_turn_ref["actor_event_id"] == input.id
-      assert second_turn_ref["actor_epoch"] == first_turn_ref["actor_epoch"] + 1
+      assert second_turn_ref.actor_event_id == input.id
+      assert second_turn_ref.actor_epoch == first_turn_ref.actor_epoch + 1
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["turn"] == second_turn_ref
+      assert turn_start_payload!(second_envelope).turn == turn_proto_ref(second_turn_ref)
     end
 
     test "stale worker deadline supersedes one worker's turn and retries through another worker" do
@@ -92,7 +90,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  lease_seconds: 300
                )
 
-      assert first_turn_ref["actor_event_id"] == input.id
+      assert first_turn_ref.actor_event_id == input.id
       assert_receive {:actor_lane, _first_envelope}
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
@@ -124,7 +122,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert {:ok, %{turn_ref: second_turn_ref}} =
                process_ready_events_once(now: DateTime.add(@base_time, 121, :second))
 
-      assert second_turn_ref["actor_event_id"] == input.id
+      assert second_turn_ref.actor_event_id == input.id
 
       assert Repo.get!(Message, stale_message.id).status == "error"
 
@@ -132,7 +130,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                "heartbeat_timeout"
 
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+      assert turn_start_payload!(second_envelope).turn.actor_event_id == input.id
 
       assert %ActorSessionActivation{
                assigned_worker_id: assigned_worker_id,
@@ -149,7 +147,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert current_actor_event_id == input.id
     end
 
-    test "stale worker releases a subagent turn for durable resume on another worker" do
+    test "stale worker releases a BackgroundAgentJob turn for durable resume on another worker" do
       %{principal: agent} = agent_fixture()
       stale_route = unique_route()
       live_route = unique_route()
@@ -159,21 +157,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, stale_worker} = admit_worker(stale_route)
 
-      assert {:ok, %{delegation: delegation}} =
-               SubagentDelegations.create_with_dispatch(%{
+      assert {:ok, %{job: job}} =
+               BackgroundAgentJobs.create_with_dispatch(%{
                  "agent_uid" => agent.uid,
-                 "session_id" => "parent-session-subagent-stale",
-                 "tool_call_id" => "tool-subagent-stale",
+                 "owner_session_id" => "owner-session-job-stale",
+                 "source_tool_call_id" => "tool-background-agent-job-stale",
                  "title" => "Resume after worker loss",
                  "task" => "Finish the durable delegated task.",
                  "reply_route" => %{
                    "binding_name" => "bot",
-                   "signal_channel_id" => "chat-subagent-stale"
+                   "signal_channel_id" => "chat-job-stale"
                  }
                })
 
-      actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
-      first_now = DateTime.add(delegation.queued_at, 1, :second)
+      actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+      first_now = DateTime.add(job.queued_at, 1, :second)
 
       Repo.update_all(
         from(worker in AgentComputerWorker, where: worker.worker_id == ^stale_worker.worker_id),
@@ -187,10 +185,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                )
 
       assert_receive {:actor_lane, first_envelope}
-      assert first_envelope["body"]["turn_start"]["request_context"]["attempts"] == 1
+      assert decoded_request_context(turn_start_payload!(first_envelope))["attempts"] == 1
 
-      assert {:ok, %{delegation: running}} =
-               SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+      assert {:ok, %{job: running}} =
+               BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                  "status" => "running",
                  "runtime_thread_id" => "thread-durable-resume"
                })
@@ -203,7 +201,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  stale_after_seconds: 60
                )
 
-      persisted = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
       assert persisted.status == "running"
       assert persisted.runtime_thread_id == "thread-durable-resume"
       refute persisted.completed_at
@@ -219,15 +217,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                )
 
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["request_context"]["attempts"] == 2
+      assert decoded_request_context(turn_start_payload!(second_envelope))["attempts"] == 2
 
-      retried = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      retried = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
       assert retried.status == "running"
       assert retried.attempts == 2
       assert retried.runtime_thread_id == "thread-durable-resume"
     end
 
-    test "a heartbeat-recovered worker resumes its subagent from the durable thread" do
+    test "a heartbeat-recovered worker resumes its BackgroundAgentJob from the durable thread" do
       %{principal: agent} = agent_fixture()
       route = unique_route()
 
@@ -236,21 +234,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, worker} = admit_worker(route)
 
-      assert {:ok, %{delegation: delegation}} =
-               SubagentDelegations.create_with_dispatch(%{
+      assert {:ok, %{job: job}} =
+               BackgroundAgentJobs.create_with_dispatch(%{
                  "agent_uid" => agent.uid,
-                 "session_id" => "parent-session-subagent-reconnected",
-                 "tool_call_id" => "tool-subagent-reconnected",
+                 "owner_session_id" => "owner-session-job-reconnected",
+                 "source_tool_call_id" => "tool-background-agent-job-reconnected",
                  "title" => "Resume after worker reconnect",
                  "task" => "Finish the durable delegated task after reconnecting.",
                  "reply_route" => %{
                    "binding_name" => "bot",
-                   "signal_channel_id" => "chat-subagent-reconnected"
+                   "signal_channel_id" => "chat-job-reconnected"
                  }
                })
 
-      actor_key = %{agent_uid: agent.uid, session_id: "subagent:#{delegation.id}"}
-      first_now = DateTime.add(delegation.queued_at, 1, :second)
+      actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+      first_now = DateTime.add(job.queued_at, 1, :second)
 
       Repo.update_all(
         from(stored in AgentComputerWorker, where: stored.worker_id == ^worker.worker_id),
@@ -264,15 +262,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                )
 
       assert_receive {:actor_lane, first_envelope}
-      assert first_envelope["body"]["turn_start"]["request_context"]["attempts"] == 1
+      assert decoded_request_context(turn_start_payload!(first_envelope))["attempts"] == 1
 
       assert {:ok, first_turn_ref} =
                Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-                 "turn" => first_envelope["body"]["turn_start"]["turn"]
+                 "turn" => turn_start_payload!(first_envelope).turn
                })
 
-      assert {:ok, %{delegation: running}} =
-               SubagentDelegations.commit_status_with_wakeup(delegation.id, agent.uid, %{
+      assert {:ok, %{job: running}} =
+               BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                  "status" => "running",
                  "runtime_thread_id" => "thread-same-worker-resume"
                })
@@ -287,10 +285,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, %AgentComputerWorker{status: "ready"}} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id,
-                   "load_json" => %{"active_turns" => 1}
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id,
+                   load_json: Torque.encode!(%{"active_turns" => 1})
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -302,18 +300,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                )
 
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["request_context"]["attempts"] == 2
+      assert decoded_request_context(turn_start_payload!(second_envelope))["attempts"] == 2
 
       assert {:error, :worker_not_assigned_to_turn} =
-               SubagentDelegations.commit_status_with_wakeup(
-                 delegation.id,
+               BackgroundAgentJobs.commit_status_with_wakeup(
+                 job.id,
                  agent.uid,
                  %{"status" => "succeeded", "result" => %{"summary" => "stale result"}},
                  turn_ref: first_turn_ref,
                  worker_route: route
                )
 
-      retried = SubagentDelegations.get_delegation_for_agent(delegation.id, agent.uid)
+      retried = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
       assert retried.status == "running"
       assert retried.attempts == 2
       assert retried.runtime_thread_id == "thread-same-worker-resume"

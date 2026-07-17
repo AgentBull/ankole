@@ -15,7 +15,7 @@
     "services:start": "bun run kit external-services start",
     "services:stop": "bun run kit external-services stop",
     "services:status": "bun run kit external-services status",
-    "dev": "bun run kit dev | bun run kit logs pretty",
+    "dev": "bun tools/devkit/src/main.ts dev | bun tools/devkit/src/main.ts logs pretty",
     "build": "turbo run build",
     "test": "turbo run test",
     "lint": "oxlint && turbo run lint",
@@ -54,9 +54,9 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "^7.0.2",
     "oxfmt": "^0.59.0",
-    "oxlint": "^1.74.0"
+    "oxlint": "^1.74.0",
+    "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.3.14"
 }

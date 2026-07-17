@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
   use GenServer
 
   alias Ankole.SignalsGateway.ActorRuntime
+  alias Ankole.SignalsGateway.ActorRuntime.ActorLane
   alias Ankole.SignalsGateway.ActorRuntime.ActorDirectory
   alias Ankole.SignalsGateway.ActorRuntime.SessionSupervisor
 
@@ -46,12 +47,35 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionController do
     end
   end
 
+  @doc """
+  Queues one authenticated worker turn envelope on its actor's serial process.
+
+  This is asynchronous so transport remains available while a domain callback
+  uses the RPC or worker-file lane. Messages forwarded by the one inbound
+  dispatcher retain their wire order for a given actor controller.
+  """
+  @spec dispatch_inbound(map(), String.t(), map()) :: :ok | {:error, term()}
+  def dispatch_inbound(actor_key, route, envelope)
+      when is_map(actor_key) and is_binary(route) and is_map(envelope) do
+    actor_key = normalize_actor_key(actor_key)
+
+    with {:ok, _pid} <- SessionSupervisor.ensure_session_controller(actor_key) do
+      GenServer.cast(ActorDirectory.via(actor_key), {:dispatch_inbound, route, envelope})
+    end
+  end
+
   @impl true
   def init(actor_key), do: {:ok, %{actor_key: actor_key}}
 
   @impl true
   def handle_call({:process_ready, opts}, _from, state) do
     {:reply, ActorRuntime.process_ready_event_for_actor(state.actor_key, opts), state}
+  end
+
+  @impl true
+  def handle_cast({:dispatch_inbound, route, envelope}, state) do
+    ActorLane.handle(envelope, route)
+    {:noreply, state}
   end
 
   # Accept both atom-keyed (internal) and string-keyed (decoded JSON) actor keys,

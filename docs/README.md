@@ -16,7 +16,7 @@ installation, and code must not invent one.
 
 An agent in Ankole is not a chat completion wrapper. It is a durable actor:
 it receives work items from chat platforms, webhooks, and schedules; it runs
-a tool loop against real environments (shell, files, browser); its
+a tool loop against real environments (shell, files, and web fetch); its
 conversation state lives in PostgreSQL and survives process crashes; and it
 can wake itself up later. Humans and agents are both Principals with
 permission grants, so authorization is a runtime concern, not a prompt
@@ -83,9 +83,9 @@ Seven pieces, one sentence each:
 - **RuntimeFabric** (Rust + ZeroMQ) is the live transport between the control
   plane and workers: turn envelopes, RPC, file bytes. It is never durable
   truth. Read `design-docs/RuntimeFabric.md`.
-- **Agent Computer** (Bun worker) executes tools: shell, files, browser, and
-  worker-local state for the current turn. It drives the model loop over
-  WebSocket but keeps no conversation state.
+- **Agent Computer** (Bun worker) executes the model loop, foreground shell and
+  file tools, enabled Skill capabilities, and rebuildable state for the current
+  turn. It drives the model loop over WebSocket but keeps no conversation state.
 - **PostgreSQL** holds every durable semantic fact and the references that own
   durable files. User artifacts and resumable runtime files live on the shared
   worker workspace; their lifecycle and authoritative status remain PostgreSQL
@@ -94,13 +94,16 @@ Seven pieces, one sentence each:
 Schedule (`design-docs/Schedule.md`) turns time into actor events. Principal
 and AuthZ (`design-docs/Principal.md`, `design-docs/AuthZ.md`) own identity
 and permissions. AppConfiguration (`design-docs/AppConfiguration.md`) splits
-boot env vars from operator-managed runtime settings. Plugins
-(`design-docs/Plugins.md`) are trusted first-party Elixir extensions, such as
-the Feishu and Slack adapters (`design-docs/plugins/FeishuAdapter.md`,
-`design-docs/plugins/SlackAdapter.md`). Subagent
-Delegation (`design-docs/SubagentDelegation.md`) turns long-running task-worker
-jobs into durable background work items that wake the parent session for
-delivery. Codex is the current task-worker implementation.
+boot env vars from operator-managed runtime settings. Control Plane Plugins
+(`design-docs/Plugins.md`) are trusted first-party Elixir/OTP extensions, such
+as the Feishu and Slack adapters (`design-docs/plugins/FeishuAdapter.md`,
+`design-docs/plugins/SlackAdapter.md`). Background Agent Job
+(`design-docs/BackgroundAgentJob.md`) turns long-running work into durable Jobs
+that wake their owner sessions for delivery. CodexRunner is the only current
+runner. A Job may select Agent Plugins, Ankole's standard Codex Plugin superset
+whose only extra package convention is the optional `workspace-template/`
+directory copied into a new private Job project. Global defaults and sparse
+per-Agent overrides are managed in the Console's Agent Library.
 
 ## Runtime Topology
 
@@ -129,7 +132,7 @@ API) for model calls.
                       +---------------------------------+
                       |  Agent Computer worker (Bun,    |
                       |  Docker): agent loop, tools,    |
-                      |  bubblewrap sandbox, browser,   |
+                      |  bubblewrap, rendered fetch,    |
                       |  Rust kernel (N-API): DEALER    |
                       +---------------------------------+
                              |
@@ -160,7 +163,7 @@ because one side is easier to edit or test.
 | --- | --- | --- |
 | **Elixir** (`app/control_plane`) | PostgreSQL semantics and migrations, supervision, setup/console/auth surfaces, Principal/AuthZ facades, AppConfigure, SignalsGateway-owned ActorRuntime scheduling, fences, and Agent Turn commit, AIGateway providers and the independent stateful Responses log, plugin registry | Push durable-state ownership into workers or the kernel |
 | **Rust kernel** (`app/kernel`) | Deterministic shared mechanisms where Elixir/Bun parity matters: crypto (AEAD, key derivation), UUIDv7, JWT, phone normalization, xxh3, zstd block codec, CEL evaluation for AuthZ and signal filters, protobuf envelope codec + validation, ZeroMQ socket ownership (ROUTER/DEALER/ZAP threads) | Touch PostgreSQL, own product lifecycle state, grow into a domain owner |
-| **Bun worker** (`app/agent_computer`) | The agent loop, tools, prompts, terminal/browser state, bubblewrap sandboxing, worker-local filesystem, the AIGateway client | Invent control-plane state; anything that must survive a restart goes through RPC or the AIGateway API and lands in PostgreSQL |
+| **Bun worker** (`app/agent_computer`) | The agent loop, tools, prompts, turn-local tool state, rendered `web_fetch`, bubblewrap sandboxing, worker-local filesystem, the AIGateway client | Invent control-plane state; anything that must survive a restart goes through RPC or the AIGateway API and lands in PostgreSQL |
 
 The kernel is compiled twice from one crate: as a Rustler NIF for Elixir
 (wrapped by `Ankole.Kernel` in `app/kernel/lib/ankole/kernel.ex`) and as an
@@ -177,9 +180,9 @@ canonical examples.
 | `app/kernel/` | Rust kernel crate. `src/common/` (crypto/ids/jwt/zstd), `src/authz/` (CEL), `src/runtime_fabric/` (protobuf + ZeroMQ), `proto/` (envelope schema), `src/nif_exports.rs` / `src/napi_exports.rs` (binding surfaces). |
 | `app/agent_computer/` | Bun worker. `src/main.ts` daemon, `src/core/` agent loop + turns, `src/tools/`, `src/prompts/`, RuntimeFabric lanes (`actor_lane.ts`, `rpc_lane.ts`, `lanes/file/`). Docker-only runtime. |
 | `app/webapps/` | Three Vite + React SPAs (`auth/`, `console/`, `setup/`) built into `app/control_plane/priv/static/assets/`. Generated OpenAPI client. |
-| `app/library/` | Built-in skills (`skills/nano-pdf`, `skills/jupyter-live-kernel`, `skills/powerpoint`) and agent starter templates (`templates/MISSION.md`, `templates/SOUL.md`). |
+| `app/library/` | Built-in Agent Plugins (`agent-plugins/lark`, `agent-plugins/office`, `agent-plugins/deep-research`), standalone Skills such as `skills/nano-pdf`, and agent starter templates (`templates/MISSION.md`, `templates/SOUL.md`). |
 | `app/locales/` | TOML message catalogs (`en-US.toml`, `zh-Hans-CN.toml`) consumed by both the Elixir I18n context and the SPAs. |
-| `plugins/` | Public first-party Elixir plugins: `lark_adapter` and `slack_adapter` (chat + identity providers), `china_market_ai_providers` (AIGateway providers). |
+| `plugins/` | Public first-party Elixir Control Plane Plugins: `lark_adapter` and `slack_adapter` (chat + identity providers), `china_market_ai_providers` (AIGateway providers). |
 | `internals/` | Private first-party material: `plugins/`, `skills/` (including MCP-backed skills), `helm-chart/`, extra worker Dockerfiles, internal test notes. |
 | `libs/` | `feishu_openapi` (Elixir Lark client), `slack_openapi` (Slack Web API, Socket Mode, OIDC), and `uikit` (shared React components, Tailwind 4). |
 | `tools/devkit/` | Workspace CLI: `bun kit ...` (external services via Docker Compose, codegen, analysis). |
@@ -313,8 +316,10 @@ and `agent_installed_skills`
 Worker->control-plane RPC methods are registered in
 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`:
 `ai_gateway.api_key_for.create_or_find_by_agent`,
-`agent_conversation.context.resolve`, `skills.overlay.resolve` / `.append` /
-`.replace`,
+`agent_conversation.context.resolve`, `app_configure.resolve`,
+`worker_env.resolve`, `skills.installed.replace`, and the
+`skills.overlay.*` family; `codex.account.*`, `agent_plugin.list`, and the
+`background_agent_job.*` family for ordinary Codex-backed Jobs;
 the `schedule.check_back_later.*` and `schedule.cron.*` families,
 and the Brain methods `memory_search`, `memory_browse`, `memory_open`,
 `memory_update`, and `memory_health_check`.
@@ -346,36 +351,39 @@ call and reports `iteration_exhausted`; otherwise it reports
 
 The model-visible tool surface is deliberately narrow (see
 `docs/TradeoffsAndKnownLimits.md` before widening it): `todo`
-(`src/tools/todo/todo-tool.ts`); the computer tools `command`,
-`interactive_terminal`, `read_file`, `patch`, and `reply_attachment`
-(`src/tools/computer/`); the asynchronous `subagent` delegation tool
-(`src/tools/subagent/`); the turn-ending `clarify` tool (`src/tools/clarify/`); the browser
-tools `browser_navigate`, `browser_snapshot`, `browser_find`, `browser_click`,
-`browser_open`, `browser_run`, and `browser_extract` (`src/tools/browser/`); the schedule
-tools `check_back_later` and `cron` (`src/tools/schedule/schedule-tools.ts`); and the
-Brain tools `memory_search`, `memory_browse`, `memory_open`, `memory_update`,
-and `memory_health_check`
+(`src/tools/todo/todo-tool.ts`); the foreground computer tools `command`,
+`read_file`, `patch`, and `reply_attachment` (`src/tools/computer/`); durable
+asynchronous work through `background_agent_job`
+(`src/tools/background-agent-job/`); the turn-ending `clarify` tool
+(`src/tools/clarify/`); `web_search` and `web_fetch` (`src/tools/web/`); the
+schedule tools `check_back_later` and `cron`
+(`src/tools/schedule/schedule-tools.ts`); the Brain tools `memory_search`,
+`memory_browse`, `memory_open`, `memory_update`, and `memory_health_check`
 (`src/tools/memory/`); and the skill tools `skill_view`, `skill_append`, and
-`skill_replace`
-(`src/tools/library/`). MCP-backed skills use the image-provided `mcporter` CLI
-through those existing shell surfaces; they do not add MCP tools to the native
-model tool registry. WorkerEnv supplies agent-scoped secrets to both main-agent
-commands and Codex subagent shells. The contract is documented in
-`design-docs/MCPBackedSkills.md`. Shell
-commands run inside bubblewrap — strong mode preferred, weak mode with a
-startup warning, never unsandboxed (`src/tools/computer/bubblewrap.ts`).
+`skill_replace` (`src/tools/library/`). When an enabled inline Skill declares
+MCP dependencies in `agents/openai.yaml`, the worker adds one allowlisted `mcp`
+tool with `list`, single-tool `describe`, and single-tool `call` actions. It
+uses the official SDK with ephemeral connections; WorkerEnv supplies HTTP
+bearer credentials and stdio environment in memory. The contract is documented
+in `design-docs/MCPBackedSkills.md`. Shell commands run inside bubblewrap —
+strong mode preferred, weak mode with a startup warning, never unsandboxed
+(`src/tools/computer/bubblewrap.ts`). `web_fetch` may use an internal rendered
+page fallback; that fallback does not create another model-visible computer
+capability or persistent state. See `design-docs/WebTools.md` for the web
+boundary.
 
 Tool runtime bounds are tool-owned, not one global worker timeout. The
-`command` tool defaults foreground runs to `180s`; background runs return a
-`backgroundId` and have no default command timeout unless the caller passes
-`timeout`. Running background commands stay tracked until exit, `kill`, or
-worker shutdown. `subagent(start)` creates a PostgreSQL-owned work item and
-returns immediately; a separate task-worker turn currently runs Codex and wakes
-the parent session on completion, failure, or a user-input request. Delegations have no
-wall-clock timeout and resume after worker loss, while individual Codex
-app-server requests keep `15s` (`initialize`), `30s` (`thread/start`), and `60s`
-(generic request) protocol budgets. See `docs/TradeoffsAndKnownLimits.md` for
-the accepted tradeoff.
+`command` tool is foreground-only and defaults to `180s`. Work that must remain
+interactive, survive the immediate exchange, or continue asynchronously belongs
+in `background_agent_job(start)`, which creates a PostgreSQL-owned
+BackgroundAgentJob and returns immediately. The same tool exposes
+`list`/`status`/`steer`/`stop`; CodexRunner wakes the owner session on
+completion, failure, or a user-input request. BackgroundAgentJobs have no
+global wall-clock timeout and resume after worker loss. There is no Job or
+Plugin timer; a higher-level workflow decides when to steer or stop. Codex
+app-server requests keep `15s` (`initialize`), `30s` (`thread/start`), and
+`60s` (generic request) protocol stall bounds. See
+`docs/TradeoffsAndKnownLimits.md` for the accepted tradeoff.
 
 The worker process is stateless by contract: it holds the WebSocket,
 tool-local state, and the current turn. Durable semantic state and file
@@ -429,20 +437,20 @@ ETS cache fronts reads. Environment variables are only for process bootstrap
 (`DATABASE_URL`, `SECRET_KEY_BASE`, fabric endpoint); anything an operator
 manages at runtime belongs here, not in env.
 
-### Plugins — trusted first-party Elixir extensions
+### Control Plane Plugins — trusted first-party Elixir extensions
 
 `Ankole.Plugins` (`lib/ankole/plugins/`). At boot, `Discovery` loads plugin
 sources from `plugins/` and `internals/plugins/` (override with
-`ANKOLE_PLUGIN_PATHS`). A plugin is a module implementing the
+`ANKOLE_PLUGIN_PATHS`). A Control Plane Plugin is a module implementing the
 `Ankole.Plugins.Plugin` behaviour: `plugin_id/0`, `api_version/0` (= 1), and
 optionally `display_name/0`, `description/0`, `app_config_definitions/0`,
 `app_config_patterns/0`, `setup_metadata/0`, `adapter_declarations/0`,
 `children/0`. The registry then validates specs, skips ids listed in the
-`plugins.disabled_ids` config, registers active plugins' config definitions,
+`plugins.disabled_ids` config, registers active Control Plane Plugins' config definitions,
 starts their supervised children, and indexes adapter declarations by
 contract id — `signals_gateway.adapter` for chat/provider adapters and
 `ai_gateway.provider` for model providers. There is no dynamic third-party
-loading, no marketplace, no hot activation. Plugins are trusted code shipped
+loading, no marketplace, no hot activation. Control Plane Plugins are trusted code shipped
 with the installation.
 
 `plugins/lark_adapter` is the reference adapter. It opens one long connection
@@ -632,12 +640,12 @@ effects must go through an RPC or the AIGateway API, not local files. Test
 inside the image: `bun run agent-computer:test`. Cross-boundary behavior
 belongs in `tools/e2e/suites/worker_computer_e2e_test.exs`.
 
-**Add a chat/signal provider adapter.** New Elixir plugin under `plugins/`
+**Add a chat/signal provider adapter.** Add a new Elixir Control Plane Plugin under `plugins/`
 implementing `Ankole.Plugins.Plugin`, declaring `signals_gateway.adapter`
 with your inbound and outbox modules, setup metadata, and config patterns
 for credentials. Inbound code normalizes provider events into
 `SignalsGateway.Ingress.emit_*` facts; the outbox module implements only the
-operations you can honestly support. Long connections run as plugin
+operations you can honestly support. Long connections run as Control Plane Plugin
 `children/0`. `plugins/lark_adapter` and `plugins/slack_adapter` are the
 references; their contracts live in `design-docs/SignalsGateway.md`,
 `design-docs/plugins/FeishuAdapter.md`, and
@@ -782,7 +790,7 @@ doc first, then the code.
    retrieval, dreaming, audit, snapshots, or model-facing tools. Use
    `operations/Brain.md` when deploying or operating it.
 5. `design-docs/RuntimeFabric.md`, `design-docs/Schedule.md`, and
-   `design-docs/SubagentDelegation.md` — transport, time, and durable background
+   `design-docs/BackgroundAgentJob.md` — transport, time, and durable background
    work, when you touch them.
 6. `design-docs/Principal.md`, `design-docs/AuthZ.md`,
    `design-docs/AppConfiguration.md`, `design-docs/Plugins.md`,
@@ -803,8 +811,9 @@ doc first, then the code.
 | `design-docs/SignalsGateway.md` | Ingress, mirrors, outbox, delivery, commands |
 | `design-docs/RuntimeFabric.md` | Envelopes, lanes, sockets, file transfer |
 | `design-docs/Schedule.md` | Checkbacks, cron, Oban wake edge |
-| `design-docs/SubagentDelegation.md` | Durable background work, Codex resume, steering, wakeups |
-| `design-docs/MCPBackedSkills.md` | MCP client ownership, skill packaging, WorkerEnv secrets, and the replaceable CLI boundary |
+| `design-docs/BackgroundAgentJob.md` | Durable background work, Codex resume, steering, wakeups |
+| `design-docs/MCPBackedSkills.md` | Native MCP client ownership, Skill declarations, allowlisting, ephemeral connections, and WorkerEnv secrets |
+| `design-docs/WebTools.md` | Provider web search/fetch and the private rendered-page fallback |
 | `design-docs/Principal.md`, `design-docs/AuthZ.md` | Identity, groups, grants, CEL |
 | `design-docs/AppConfiguration.md` | Config keys, scopes, encryption |
 | `design-docs/Plugins.md`, `design-docs/plugins/FeishuAdapter.md`, `design-docs/plugins/SlackAdapter.md` | Plugin contracts, the Lark and Slack adapters |

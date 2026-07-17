@@ -7,6 +7,69 @@ import { createModel } from '../../src/core/llm'
 import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
+  it('keeps a turn-declared hosted image tool beside local function tools on the Responses wire', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_hosted_image_turn',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'generated' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'draw a diagram' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000004',
+        conversationID: '44444444-4444-4444-4444-444444444444'
+      },
+      hostedTools: [{ type: 'image_generation' }],
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Look up facts',
+          schema: z.object({ q: z.string() }),
+          describeActivity: () => '测试查询',
+          execute: async () => ({
+            content: [{ type: 'text', text: 'unused' }],
+            details: {}
+          })
+        }
+      ]
+    })
+
+    expect(sentPayloads).toHaveLength(1)
+    expect(sentPayloads[0]!.tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'lookup' }),
+      { type: 'image_generation' }
+    ])
+  })
+
   it('feeds invalid tool arguments back as function_call_output instead of executing the tool', async () => {
     const sentPayloads: JSONObject[] = []
     const presentation: ReplyPresentationEvent[] = []
@@ -60,7 +123,12 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
                     {
                       type: 'message',
                       role: 'assistant',
-                      content: [{ type: 'output_text', text: 'I corrected the tool input.' }]
+                      content: [
+                        {
+                          type: 'output_text',
+                          text: 'I corrected the tool input.'
+                        }
+                      ]
                     }
                   ]
                 }
@@ -127,6 +195,102 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     })
   })
 
+  it('executes schema-valid arguments recovered by the bounded punctuation repair ladder', async () => {
+    const sentPayloads: JSONObject[] = []
+    const activities: string[] = []
+    let executedQuery: string | undefined
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_repaired_args_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_repaired_args',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        status: 'completed',
+                        id: 'fc_repaired_args',
+                        call_id: 'call_repaired_args',
+                        name: 'lookup',
+                        arguments: '{"q":"weather",'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_repaired_args',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'sunny' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'look up the weather' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000022',
+        conversationID: '22222222-2222-2222-2222-222222222223'
+      },
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Look up facts.',
+          schema: z.object({ q: z.string() }).strict(),
+          describeActivity: () => '测试查询',
+          execute: async (_callID, args) => {
+            executedQuery = (args as { q: string }).q
+            return {
+              content: [{ type: 'text' as const, text: 'sunny' }],
+              details: {}
+            }
+          }
+        }
+      ],
+      onActivity: description => {
+        if (description) activities.push(description)
+      }
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'sunny' }])
+    expect(executedQuery).toBe('weather')
+    expect(activities).toContain('tool_arguments_repaired:incomplete_container')
+  })
+
   it('does not execute tools without structured function_call items', async () => {
     const sentPayloads: JSONObject[] = []
     let toolExecutions = 0
@@ -178,6 +342,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          describeActivity: () => '测试查询',
           execute: async () => {
             toolExecutions += 1
             return {
@@ -268,6 +433,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           name: 'slow_tool',
           description: 'Slow tool',
           schema: z.object({}),
+          describeActivity: () => '测试慢工具',
           execute: async () => {
             events.push('tool_execute')
             return {
@@ -475,6 +641,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           executionMode: 'sequential',
           isReadOnly: false,
           isDestructive: true,
+          describeActivity: () => '测试写入',
           execute: async () => {
             events.push('write_second:start')
             events.push('write_second:end')
@@ -719,7 +886,10 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           },
           execute: async () => {
             executed.push('fallback')
-            return { content: [{ type: 'text', text: 'fallback' }], details: {} }
+            return {
+              content: [{ type: 'text', text: 'fallback' }],
+              details: {}
+            }
           }
         }
       ],
@@ -765,13 +935,21 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             name: 'duplicate',
             description: 'first',
             schema: z.object({}),
-            execute: async () => ({ content: [{ type: 'text', text: 'first' }], details: {} })
+            describeActivity: () => '测试重复工具',
+            execute: async () => ({
+              content: [{ type: 'text', text: 'first' }],
+              details: {}
+            })
           },
           {
             name: 'duplicate',
             description: 'second',
             schema: z.object({}),
-            execute: async () => ({ content: [{ type: 'text', text: 'second' }], details: {} })
+            describeActivity: () => '测试重复工具',
+            execute: async () => ({
+              content: [{ type: 'text', text: 'second' }],
+              details: {}
+            })
           }
         ]
       })

@@ -6,15 +6,13 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   import Ecto.Query, warn: false
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
-  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Binding
   alias FeishuOpenAPI.Client
 
-  @auto_enable_lark_skills_key "skills.auto_enable_lark_skills_from_signal_binding"
   @chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.lark\.[A-Za-z0-9_.:-]+\z/
   @domains ["feishu", "lark"]
@@ -26,24 +24,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @doc """
   Exact AppConfigure definitions contributed by the plugin.
   """
-  @spec app_config_definitions() :: [Definition.t()]
-  def app_config_definitions, do: [auto_enable_lark_skills_definition()]
-
-  @doc """
-  Controls whether an available Lark signal binding owns effective Lark Skill enablement.
-  """
-  @spec auto_enable_lark_skills_definition() :: Definition.t()
-  def auto_enable_lark_skills_definition do
-    AppConfigure.define(
-      key: @auto_enable_lark_skills_key,
-      scope: :global,
-      encrypted: false,
-      schema: Schema.boolean(),
-      default_value: true,
-      description:
-        "Automatically enable Lark skills for agents with an available Lark signal binding."
-    )
-  end
+  @spec app_config_definitions() :: []
+  def app_config_definitions, do: []
 
   @doc """
   AppConfigure key patterns contributed by the plugin.

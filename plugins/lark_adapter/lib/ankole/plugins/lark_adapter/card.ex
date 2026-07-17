@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   Rendering for provider-native and portable Lark card outbox payloads.
   """
 
-  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
 
   import MapHelpers, only: [fetch_value: 2, maybe_put_nonempty_map: 3]
 

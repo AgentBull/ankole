@@ -103,6 +103,11 @@ Workers own their mounted filesystem roots. The control plane does not need to
 mount worker NFS. When the control plane needs a file placed into, or read from,
 the worker-visible filesystem, it uses the worker file lane.
 
+The deployment still requires coherent shared storage when more than one worker
+or node may execute turns for the same installation. NFS or an equivalent shared
+filesystem must back the worker-visible shared roots; the worker file lane is a
+bounded transfer API, not a replacement for that deployment contract.
+
 ## Transport Ownership
 
 ZeroMQ sockets are thread-affine, so the native kernel owns socket threads:
@@ -113,16 +118,18 @@ ZeroMQ sockets are thread-affine, so the native kernel owns socket threads:
   enabled.
 
 Elixir and Bun do not manipulate ZeroMQ sockets directly. They send commands
-into the native socket thread and receive decoded events back through the host
-binding:
+into the native socket thread and receive validated envelope bytes back through
+the host binding:
 
 - Elixir uses `Ankole.Kernel.RuntimeFabric` and
   `Ankole.SignalsGateway.ActorRuntime.Transport.Broker`;
 - Bun uses one RuntimeFabric host adapter over the native
   `RuntimeFabricDealer`; the adapter owns bounded send retry, native-error
-  translation, protobuf decode, raw envelope-versus-worker-file
-  classification, and explicit dealer stop;
-- envelope encoding and decoding always pass through the Rust protobuf codec.
+  translation, generated-codec decode plus the kernel validation call, raw
+  envelope-versus-worker-file classification, and explicit dealer stop;
+- each host encodes and decodes envelopes with its codec generated from
+  `envelope.proto`; the kernel validates the bytes on every send and receive
+  path.
 
 The Bun adapter returns typed receive outcomes (`timeout`, `envelope`, or
 `worker_file`) and typed transport errors. The Rust N-API binding deliberately
@@ -138,7 +145,7 @@ Current socket defaults favor bounded behavior over hidden buffering:
 - `sndtimeo_ms` and `rcvtimeo_ms`: `1000`;
 - `linger_ms`: `0`;
 - receive poll interval: `10ms`;
-- host command timeout: `1000ms`.
+- host command timeout: `10000ms`.
 
 These are not product guarantees. They are operational defaults that keep
 shutdown, worker loss, and backpressure visible while the runtime is still
@@ -241,7 +248,20 @@ global worker key, and control-plane-owned durability.
 
 ## Envelope Invariants
 
-The native protobuf codec validates invariants before a message crosses into
+`envelope.proto` is the only structural declaration of the envelope. Every
+runtime derives its types and codec from that file mechanically: Rust through
+`prost-build` at compile time, Elixir through `protox` at compile time
+(`Ankole.Kernel.RuntimeFabric.Proto`), and TypeScript through
+`protoc-gen-es` into the committed
+`app/agent_computer/src/fabric/generated/` output (regenerated with
+`bun run gen:proto`; a sidecar hash keeps the committed output pinned to the
+proto, the buf configuration, and the pinned generator versions). A proto
+change therefore propagates to all three languages without hand-written
+mapping code.
+
+Structural encoding errors surface in the host that built the envelope, but
+the Rust kernel stays the single semantic checker: it validates these
+invariants on every send and receive path before bytes cross the wire or reach
 normal Elixir or Bun handlers:
 
 - `protocol_version` must be `1`;
@@ -254,9 +274,20 @@ normal Elixir or Bun handlers:
   payload channel;
 - `worker_progress.kind` is limited to control-plane-visible progress classes.
 
-This is why host code keeps a JSON-shaped envelope map even though the wire
-format is protobuf. Elixir and Bun can build ergonomic maps, but Rust is the
-single protocol checker for both runtimes.
+`*_json` bytes fields carry UTF-8 JSON text produced by the sending host's
+JSON serializer; empty bytes mean "absent". Hosts decode them at the lane
+boundary and treat invalid JSON as a producer bug rather than degrading.
+Generated messages stay at that boundary: the snake_case JSON DTOs (for
+example the `ActorTurnRef` fence carried inside RPC `payload_json`) remain the
+shape of RPC payload contracts and the core turn runtime.
+
+Cross-language conformance is anchored by golden fixtures under
+`app/kernel/proto/golden/`: the committed bytes are decoded read-only by the
+Rust, Elixir, and TypeScript suites, including a pre-`max_completion_tokens`
+fixture that proves additive fields keep older v1 bytes decodable across
+rolling deploys. Regenerate them with
+`cargo test --no-default-features regenerate_golden_envelope_fixtures -- --ignored`
+after an intentional protocol change.
 
 The protobuf lane values are transport-level lanes shared by the whole
 RuntimeFabric connection. They are lower-level than the product lane names and
@@ -397,10 +428,16 @@ Worker-to-control-plane methods are grouped by the PG-owned domain they expose:
 - `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
   AIGateway API key for the request's explicit `agent_uid`;
 - `app_configure.resolve`: resolves declared worker runtime settings;
-- `subagent.delegation.*`: creates, reads, steers, stops, journals, and commits
-  durable delegation work;
+- `background_agent_job.create/get/list/steer/stop`: exposes the model-facing
+  durable Job operations;
+- `background_agent_job.turn.upsert` and
+  `background_agent_job.status.update`: persist bounded execution projection
+  and lifecycle commits from the active CodexRunner Turn;
+- `agent_plugin.list`: returns the Agent's effectively enabled Agent Plugin
+  catalog for explicit selection by an ordinary Job; package behavior never becomes a
+  separate RuntimeFabric method family;
 - `codex.account.resolve` and `codex.account.auth.update`: resolve and persist
-  the frozen ChatGPT subscription account for an active delegation turn;
+  the frozen ChatGPT subscription account for an active Job Turn;
 - `memory_*` and `schedule.*`: operate the declared memory and scheduling
   surfaces.
 
@@ -433,8 +470,15 @@ application service layer.
 
 The worker's RPC client is in-process and request-id based. It sends
 `rpc_request` envelopes over the same `DEALER` socket and waits for the matching
-`rpc_response` or `rpc_error`. The current timeout is `60s`, which is a worker
+`rpc_response` or `rpc_error`. The current timeout is `300s`, which is a worker
 runtime budget, not a database transaction budget.
+
+## Hermes Floor And Transport Tradeoffs
+
+| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
+| --- | --- | --- | --- | --- |
+| Worker-to-control-plane RPC | `60s` | No equivalent internal RPC boundary | `300s` | A stuck control-plane call occupies a worker longer, but slow database, secret, catalog, and Job operations no longer fail a valid turn after one minute. |
+| Kernel host command | `1s` | No equivalent shared native transport command | `10s` | Shutdown and transport faults can surface up to nine seconds later; normal host scheduling jitter no longer looks like a kernel failure. |
 
 The control-plane RPC client is also request-id based. It sends `rpc_request`
 envelopes through the existing mandatory route send, stores a pending caller in
@@ -652,6 +696,15 @@ The current outbound path is:
 6. On send success, SignalsGateway mirrors the outbound entry with the same
    worker-visible attachment observation.
 
+Completed `image_generation_call` items from the current actor turn are the
+structured hosted-tool exception to steps 1-2. AIGateway already owns their
+bytes as Principal-scoped generated-image artifacts, so SignalsGateway
+materializes each distinct artifact under `user_files` while adopting the
+turn and sends it through the same attachment outbox path. The Agent Computer
+prompt tells the model that this delivery is automatic and that the call id is
+an image-edit reference, not a workspace path. This matches the ordinary
+attachment guarantee without requiring a synthetic `reply_attachment` call.
+
 Do not infer outbound attachments by scraping text for `/workspace/...` paths.
 The structured attachment field is the contract. The control plane validates
 `reply_attachment` tool outputs through the shared SignalsGateway
@@ -670,26 +723,29 @@ PG semantic rows written elsewhere. If a future file operation needs
 actor-scoped policy, that policy should be checked before issuing the file
 command rather than hidden inside the file lane.
 
-## Skills
+## Agent Library capabilities
 
-Builtin skills and agent-installed skills are both filesystem skills.
+Agent Plugins, built-in standalone Skills, and agent-installed standalone
+Skills are filesystem capabilities with control-plane enablement state.
 
-- Builtin skills live in the image/repo. They exist by default, but their
-  default enabled state comes from metadata.
-- Agent-installed skills live in the worker-visible installed-skills root.
-- PG stores domain semantics and file observations: registry, enablement,
-  display/category data, overlay data, observed XXH3 fingerprints, and
-  observation timestamps.
-- A trusted builtin Skill may declare an `execution_profile`. The Agent Library
-  matches that profile to an active plugin declaration under its own
-  `ai_agent.library.skill_enablement_provider` contract and combines the
-  provider's automatic/manual mode with the persisted enablement flag.
-- A builtin Skill with an execution profile but no active provider is disabled.
-  Agent-installed Skill metadata cannot opt into this projection.
-- The control plane does not discover agent-installed skills by mounting worker
-  NFS. Installed-skill registry rows are refreshed from explicit worker file
-  lane observations, not from control-plane directory scans. The worker remains
-  the reader of the actual installed skill files.
+- Agent Plugins live under `app/library/agent-plugins/`, use the standard Codex
+  manifest, and expose member Skills. Parent state and member Skill state are
+  resolved separately; a disabled parent gates its members without changing
+  their stored choices.
+- Built-in standalone Skills live under `app/library/skills/`. Their global
+  default comes from Skill metadata unless AppConfigure overrides it.
+- Agent-installed Skills live in the worker-visible installed-skills root and
+  inherit their observed source default unless an Agent override exists.
+- PostgreSQL stores sparse Agent Plugin overrides, nullable Skill overrides,
+  display and overlay data, observed XXH3 fingerprints, and observation
+  timestamps. Installation package bytes remain on the filesystem.
+- The control plane does not discover agent-installed Skills by mounting worker
+  storage. Registry rows are refreshed from explicit worker file-lane
+  observations; the worker remains the reader of the actual files.
+- RuntimeFabric returns only the Agent Plugin catalog effectively enabled for
+  the requesting Agent. A Job stores selected Plugin IDs and standalone Skill
+  names; Agent Computer resolves the current catalog before every execution or
+  resume.
 
 `skill_view` reads the base skill file from the filesystem and merges the
 database overlay when reading `SKILL.md`. `skill_append` keeps its external tool

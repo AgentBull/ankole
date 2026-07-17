@@ -1,22 +1,22 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
   @moduledoc """
-  Turn-fenced Codex account material for one active delegation worker.
+  Turn-fenced Codex account material for one active job worker.
   """
 
   alias Ankole.AIAgent.CodexAccounts
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SubagentDelegations
-  alias Ankole.SubagentDelegations.Schemas.Delegation
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
 
   @spec handle_resolve(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_resolve(%TurnRef{} = turn_ref, request, _route) do
     request_id = request_id(request, "resolve")
-    delegation_id = RPCWire.text(request, "delegation_id") || ""
+    job_id = RPCWire.text(request, "job_id") || ""
 
-    with {:ok, %Delegation{} = delegation} <- delegation_for_turn(turn_ref, delegation_id),
-         :ok <- require_subscription_account(delegation.codex_account_id),
-         {:ok, resolved} <- CodexAccounts.resolve_auth(delegation.codex_account_id) do
+    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, job_id),
+         :ok <- require_subscription_account(job.codex_account_id),
+         {:ok, resolved} <- CodexAccounts.resolve_auth(job.codex_account_id) do
       {:ok,
        %{
          "request_id" => request_id,
@@ -32,13 +32,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
   @spec handle_update_auth(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_update_auth(%TurnRef{} = turn_ref, request, _route) do
     request_id = request_id(request, "update")
-    delegation_id = RPCWire.text(request, "delegation_id") || ""
+    job_id = RPCWire.text(request, "job_id") || ""
     auth_json = RPCWire.text(request, "auth_json")
 
-    with {:ok, %Delegation{} = delegation} <- delegation_for_turn(turn_ref, delegation_id),
-         :ok <- require_subscription_account(delegation.codex_account_id),
+    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, job_id),
+         :ok <- require_subscription_account(job.codex_account_id),
          auth_json when is_binary(auth_json) <- auth_json,
-         {:ok, account} <- CodexAccounts.update_auth(delegation.codex_account_id, auth_json) do
+         {:ok, account} <- CodexAccounts.update_auth(job.codex_account_id, auth_json) do
       {:ok,
        %{
          "request_id" => request_id,
@@ -50,14 +50,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
     end
   end
 
-  defp delegation_for_turn(%TurnRef{} = turn_ref, delegation_id) do
-    with "subagent:" <> ^delegation_id <- turn_ref.session_id,
-         %Delegation{} = delegation <-
-           SubagentDelegations.get_delegation_for_agent(delegation_id, turn_ref.agent_uid) do
-      {:ok, delegation}
+  defp job_for_turn(%TurnRef{} = turn_ref, job_id) do
+    with {:ok, ^job_id} <- BackgroundAgentJobs.parse_job_session_id(turn_ref.session_id),
+         %Job{} = job <-
+           BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid) do
+      {:ok, job}
     else
-      nil -> {:error, :delegation_not_found}
-      _value -> {:error, :subagent_delegation_turn_mismatch}
+      nil -> {:error, :job_not_found}
+      _value -> {:error, :background_agent_job_turn_mismatch}
     end
   end
 

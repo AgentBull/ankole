@@ -401,12 +401,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert_receive {:actor_lane, active_envelope}
-      active_turn_ref = active_envelope["body"]["turn_start"]["turn"]
+      active_turn_ref = turn_start_payload!(active_envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => active_turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(active_turn_ref))
 
       {:ok, active_run} =
         StatefulResponses.start_response_run(%{
@@ -492,12 +490,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert_receive {:actor_lane, active_envelope}
-      active_turn_ref = active_envelope["body"]["turn_start"]["turn"]
+      active_turn_ref = turn_start_payload!(active_envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => active_turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(active_turn_ref))
 
       assert {:ok, %{actor_event: compress_event}} =
                emit_entry(
@@ -528,8 +524,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
 
       assert_receive {:actor_lane, stop_control}
-      assert stop_control["body"]["turn_control"]["command"] == "stop"
-      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] == active_input.id
+      assert envelope_body!(stop_control, :turn_control).command == "stop"
+      assert envelope_body!(stop_control, :turn_control).turn.actor_event_id == active_input.id
 
       assert is_nil(Repo.get!(ActorEvent, compress_event.id).completed_at)
       assert Repo.get!(ActorEvent, compress_event.id).input_state == "open"
@@ -595,14 +591,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert_receive {:actor_lane, first_envelope}
-      first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
+      first_turn_ref = turn_start_payload!(first_envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => first_turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(first_turn_ref))
 
       committed = complete_aigateway_turn!(first_turn_ref, "old answer")
       assert_turn_completed(first_turn_ref, committed)
@@ -624,7 +616,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       refute Repo.get_by(Message, conversation_id: first_conversation.id, status: "retracted")
 
       assert_receive {:actor_lane, next_envelope}
-      assert %{"payload_json" => payload} = next_envelope["body"]["turn_start"]["actor_event"]
+      payload = decoded_json_bytes(turn_start_payload!(next_envelope).actor_event.payload_json)
       assert get_in(payload, ["data", "command", "argsText"]) == "fresh task\nwith context"
     end
 
@@ -653,15 +645,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert_receive {:actor_lane, old_envelope}
-      old_start = old_envelope["body"]["turn_start"]
-      old_turn_ref = old_start["turn"]
+      old_start = turn_start_payload!(old_envelope)
+      old_turn_ref = old_start.turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => old_turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(old_turn_ref))
 
       old_run = start_aigateway_run_for_turn!(old_turn_ref)
       :ok = Events.subscribe(agent.uid, old_conversation.id)
@@ -687,19 +675,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       assert event.payload.error["stage"] == "actor_runtime_cancel"
 
       assert_receive {:actor_lane, stop_control}
-      assert stop_control["body"]["type"] == "turn_control"
-      assert stop_control["body"]["turn_control"]["command"] == "stop"
+      assert envelope_body_type(stop_control) == :turn_control
+      assert envelope_body!(stop_control, :turn_control).command == "stop"
 
-      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] ==
-               old_turn_ref["actor_event_id"]
+      assert envelope_body!(stop_control, :turn_control).turn.actor_event_id ==
+               old_turn_ref.actor_event_id
 
-      assert stop_control["body"]["turn_control"]["payload_json"]["reason"] == "command.new"
+      assert decoded_json_bytes(envelope_body!(stop_control, :turn_control).payload_json)[
+               "reason"
+             ] == "command.new"
 
       assert_receive {:actor_lane, new_envelope}
-      new_start = new_envelope["body"]["turn_start"]
+      new_start = turn_start_payload!(new_envelope)
 
-      assert %{"actor_event_id" => new_input_id, "payload_json" => payload} =
-               new_start["actor_event"]
+      assert %FabricProto.ActorEventEnvelope{
+               actor_event_id: new_input_id,
+               payload_json: payload_json
+             } =
+               new_start.actor_event
+
+      payload = decoded_json_bytes(payload_json)
 
       assert new_input_id == new_input.id
       assert get_in(payload, ["data", "command", "argsText"]) == "fresh active task"
@@ -769,7 +764,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
       assert next_conversation.id != old_conversation.id
 
       assert_receive {:actor_lane, next_envelope}
-      assert %{"payload_json" => payload} = next_envelope["body"]["turn_start"]["actor_event"]
+      payload = decoded_json_bytes(turn_start_payload!(next_envelope).actor_event.payload_json)
       assert get_in(payload, ["data", "command", "argsText"]) == "fresh task after worker returns"
     end
 
@@ -797,12 +792,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                )
 
       assert_receive {:actor_lane, old_envelope}
-      old_turn_ref = old_envelope["body"]["turn_start"]["turn"]
+      old_turn_ref = turn_start_payload!(old_envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => old_turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(old_turn_ref))
 
       old_run =
         start_aigateway_run_for_turn!(old_turn_ref,
@@ -832,14 +825,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
       assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
                ActorRuntime.handle_turn_error(
-                 %{
-                   "turn_error" => %{
-                     "turn" => old_turn_ref,
-                     "code" => "worker_turn_failed",
-                     "message" => "AIGateway socket closed before terminal",
-                     "details_json" => %{"retryable" => true}
-                   }
-                 },
+                 turn_error_payload(
+                   old_turn_ref,
+                   "worker_turn_failed",
+                   "AIGateway socket closed before terminal",
+                   %{"retryable" => true}
+                 ),
                  now: DateTime.add(@base_time, 2, :second)
                )
 
@@ -911,12 +902,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(%{
-               "turn_completed" => %{
-                 "turn" => turn_ref,
-                 "final_response_id" => "resp_#{message.id}",
-                 "outcome" => "loop_finished"
-               }
-             })
+             ActorRuntime.handle_turn_completed(
+               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
+             )
   end
 end

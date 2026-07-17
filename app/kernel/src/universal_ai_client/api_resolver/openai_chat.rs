@@ -292,8 +292,9 @@ impl ChatState {
 
         self.terminal = true;
         let mut events = Vec::new();
+        let completed = status == "completed";
 
-        if self.content_started {
+        if completed && self.content_started {
             let item_id = self
                 .message_item_id
                 .clone()
@@ -326,22 +327,24 @@ impl ChatState {
             ));
         }
 
-        for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
-            events.push(self.event(
-                "response.function_call_arguments.done",
-                json!({
-                    "item_id": call.id,
-                    "output_index": call.output_index,
-                    "arguments": call.arguments
-                }),
-            ));
-            events.push(self.event(
-                "response.output_item.done",
-                json!({
-                    "output_index": call.output_index,
-                    "item": chat_function_call_item(context, &call, "completed")
-                }),
-            ));
+        if completed {
+            for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
+                events.push(self.event(
+                    "response.function_call_arguments.done",
+                    json!({
+                        "item_id": call.id,
+                        "output_index": call.output_index,
+                        "arguments": call.arguments
+                    }),
+                ));
+                events.push(self.event(
+                    "response.output_item.done",
+                    json!({
+                        "output_index": call.output_index,
+                        "item": chat_function_call_item(context, &call, "completed")
+                    }),
+                ));
+            }
         }
 
         let event_type = terminal_event(status);
@@ -373,16 +376,17 @@ impl ChatState {
         incomplete_reason: Option<&str>,
         error: Option<&StreamError>,
     ) -> Value {
+        let item_status = response_item_status(status);
         let mut output = Vec::new();
         if self.content_started {
-            output.push(self.message_item("completed"));
+            output.push(self.message_item(item_status));
         }
         let mut calls = self.tool_calls.values().cloned().collect::<Vec<_>>();
         calls.sort_by_key(|call| call.output_index);
         output.extend(
             calls
                 .iter()
-                .map(|call| chat_function_call_item(context, call, "completed")),
+                .map(|call| chat_function_call_item(context, call, item_status)),
         );
 
         let created_at = self.created_at.unwrap_or_else(now_seconds);
@@ -427,6 +431,14 @@ impl ChatState {
         let sequence = self.sequence;
         self.sequence = self.sequence.saturating_add(1);
         sequence
+    }
+}
+
+pub(super) fn response_item_status(response_status: &str) -> &str {
+    match response_status {
+        "completed" => "completed",
+        "in_progress" => "in_progress",
+        _status => "incomplete",
     }
 }
 

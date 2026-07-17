@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
 
   test "caller metadata round-trips without colliding with response facts" do
@@ -130,14 +131,20 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     %{principal: other_subject} = human_fixture()
 
     {:ok, selected} = StatefulResponses.ensure_conversation(subject.uid, "selected")
-    {:ok, _subagent} = StatefulResponses.ensure_conversation(subject.uid, "subagent:ignored")
+
+    {:ok, _job} =
+      StatefulResponses.ensure_conversation(
+        subject.uid,
+        BackgroundAgentJobs.job_session_id("ignored")
+      )
+
     {:ok, _other} = StatefulResponses.ensure_conversation(other_subject.uid, "selected")
 
     assert [conversation] =
              AIGateway.list_active_conversations(Repo,
                subject_uid: subject.uid,
                conversation_key: "selected",
-               exclude_conversation_key_prefixes: ["subagent:"],
+               exclude_conversation_key_prefixes: [BackgroundAgentJobs.job_session_prefix()],
                limit: 10
              )
 

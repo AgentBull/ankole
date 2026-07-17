@@ -22,7 +22,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @fallback_design ""
   @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
   @yaml_block_end_regex ~r/^\S/
-  @execution_profile_pattern ~r/\A[a-z][a-z0-9_-]{0,63}\z/
 
   @doc """
   Reads every allowlisted builtin skill bundle from disk.
@@ -184,6 +183,22 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end)
   end
 
+  @doc false
+  @spec read_skill_source(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def read_skill_source(parent_root, root_label, relative_path)
+      when is_binary(parent_root) and is_binary(root_label) and is_binary(relative_path) do
+    do_read_skill_source(Path.expand(parent_root), root_label, relative_path)
+  end
+
+  @doc false
+  @spec read_skill_file_at(String.t(), String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def read_skill_file_at(parent_root, relative_path, file_path)
+      when is_binary(parent_root) and is_binary(relative_path) and is_binary(file_path) do
+    read_skill_file(Path.expand(parent_root), relative_path, file_path)
+  end
+
   @doc """
   Hashes the builtin catalog metadata source set.
   """
@@ -251,12 +266,27 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp read_skill_sources(%{root: root, missing: missing, label: label}) do
+  defp read_skill_sources(%{
+         root: root,
+         scan_root: scan_root,
+         relative_prefix: relative_prefix,
+         missing: missing,
+         label: label
+       }) do
     root = Path.expand(root)
+    scan_root = Path.expand(scan_root)
 
-    with {:ok, entries} <- list_skill_root(root, missing) do
+    with {:ok, entries} <- list_skill_root(scan_root, missing) do
       entries
-      |> Enum.map(&read_skill_source(root, label, &1))
+      |> Enum.map(fn entry ->
+        relative_path =
+          case relative_prefix do
+            "" -> entry
+            prefix -> Path.join(prefix, entry)
+          end
+
+        do_read_skill_source(root, label, relative_path)
+      end)
       |> collect_results()
       |> case do
         {:ok, sources} -> {:ok, Enum.sort_by(sources, & &1.name)}
@@ -288,7 +318,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end)
   end
 
-  defp read_skill_source(parent_root, root_label, relative_path) do
+  defp do_read_skill_source(parent_root, root_label, relative_path) do
     root = Path.join(parent_root, relative_path)
     skill_path = Path.join(root, @skill_file)
 
@@ -319,8 +349,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "disable_model_invocation" => metadata.disable_model_invocation,
              "long_running" => metadata.long_running
            }
-           |> maybe_put("category", metadata.category)
-           |> maybe_put("execution_profile", metadata.execution_profile),
+           |> maybe_put("category", metadata.category),
          source_hash: source_hash,
          relative_path: normalized_relative_path,
          files: files
@@ -363,8 +392,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
          {:ok, disable_model_invocation} <-
            yaml_boolean(frontmatter, "disable-model-invocation", false),
-         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false),
-         {:ok, execution_profile} <- execution_profile(frontmatter) do
+         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false) do
       {:ok,
        %{
          name: name,
@@ -373,8 +401,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
          disable_model_invocation: disable_model_invocation,
-         long_running: long_running,
-         execution_profile: execution_profile
+         long_running: long_running
        }}
     else
       {:error, _reason} = error -> error
@@ -421,19 +448,6 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       "TRUE" -> {:ok, true}
       "FALSE" -> {:ok, false}
       _value -> {:error, {:invalid_boolean, key}}
-    end
-  end
-
-  defp execution_profile(frontmatter) do
-    case yaml_scalar(frontmatter, "execution_profile") do
-      nil ->
-        {:ok, nil}
-
-      profile when is_binary(profile) ->
-        case Regex.match?(@execution_profile_pattern, profile) do
-          true -> {:ok, profile}
-          false -> {:error, {:invalid_execution_profile, profile}}
-        end
     end
   end
 
@@ -507,11 +521,28 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   defp stable_hash(parts) when is_list(parts), do: hash(Enum.join(parts, <<0>>))
 
   defp builtin_skill_roots do
-    roots = [%{label: "library", root: skills_root(), missing: :error}]
+    roots = [
+      %{
+        label: "library",
+        root: library_root(),
+        scan_root: skills_root(),
+        relative_prefix: "skills",
+        missing: :error
+      }
+    ]
 
     case internal_skills_root() do
       root when is_binary(root) and root != "" ->
-        roots ++ [%{label: "internal", root: root, missing: :empty}]
+        roots ++
+          [
+            %{
+              label: "internal",
+              root: root,
+              scan_root: root,
+              relative_prefix: "",
+              missing: :empty
+            }
+          ]
 
       _root ->
         roots

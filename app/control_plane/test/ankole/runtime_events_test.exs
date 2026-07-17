@@ -68,6 +68,28 @@ defmodule Ankole.RuntimeEventsTest do
     assert String.starts_with?(stale_channel, RuntimeEvents.worker_deadline_channel())
   end
 
+  test "activation deadlines use the grace-adjusted due time" do
+    lease_expires_at = ~U[2026-07-07 10:00:00.000000Z] |> DateTime.to_iso8601()
+    due_at = ~U[2026-07-07 10:02:00.000000Z] |> DateTime.to_iso8601()
+
+    assert [
+             %Event{
+               kind: :activation_deadline,
+               due_at: ~U[2026-07-07 10:02:00.000000Z],
+               payload: %{
+                 "activation_uid" => "activation-1",
+                 "lease_expires_at" => ^lease_expires_at,
+                 "due_at" => ^due_at
+               }
+             }
+           ] =
+             RuntimeEvents.expand(RuntimeEvents.activation_deadline_channel(), %{
+               "activation_uid" => "activation-1",
+               "lease_expires_at" => lease_expires_at,
+               "due_at" => due_at
+             })
+  end
+
   test "missing timer key fields preserve the old payload fallback key" do
     payload = %{"due_at" => DateTime.to_iso8601(~U[2026-07-07 10:00:00.000000Z])}
 

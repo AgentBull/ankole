@@ -20,9 +20,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+
+  require Ankole.BackgroundAgentJobs
 
   def process_new_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
@@ -105,7 +108,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   defp lock_session_before_retry_append(_repo, %ActorEvent{}), do: :ok
 
   @doc false
-  def process_subagent_stop(actor_key, %ActorEvent{type: "command.stop"} = input, opts) do
+  def process_background_agent_job_stop(
+        actor_key,
+        %ActorEvent{type: "command.stop"} = input,
+        opts
+      ) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -488,8 +495,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
         result = Map.put(result, :send_outcome, "sent_or_queued")
 
         case input.session_id do
-          "subagent:" <> _delegation_id ->
-            # A subagent worker still has to cross Codex turn/steer. Keep the
+          session_id when BackgroundAgentJobs.is_job_session_id(session_id) ->
+            # A BackgroundAgentJob worker still has to cross Codex turn/steer. Keep the
             # durable command open until that application is accepted and the
             # worker turn commits, so a failed attempt can replay it.
             {:ok, result}
@@ -755,7 +762,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     control_event_ids =
       result
       |> Map.get(:stop_controls, [])
-      |> Enum.map(&get_in(&1, [:turn_ref, "actor_event_id"]))
+      |> Enum.map(fn
+        %{turn_ref: %TurnRef{actor_event_id: actor_event_id}} -> actor_event_id
+        _control -> nil
+      end)
 
     result
     |> Map.get(:cancelled_actor_event_ids, [])
@@ -912,7 +922,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     %{
       route: delivery.transport_route || delivery.worker_id,
       reason: reason,
-      turn_ref: delivery |> TurnRef.from_delivery() |> TurnRef.to_wire()
+      turn_ref: TurnRef.from_delivery(delivery)
     }
   end
 

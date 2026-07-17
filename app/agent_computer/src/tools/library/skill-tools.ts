@@ -4,12 +4,7 @@ import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
-import type {
-  SkillOverlayAppendRequester,
-  SkillOverlayReplaceRequester,
-  SkillOverlayRequester
-} from '../../core/turns/turn_options'
+import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
   enabledSkillByName,
   resolveSkillFilesystemRoot,
@@ -43,24 +38,13 @@ interface SkillToolDetails {
   changed?: boolean
 }
 
-export const LONG_RUNNING_SKILL_ADDITION = [
-  '---',
-  'Ankole long-running skill discipline:',
-  'After clarifying the request, do not run the execution phase inline. Tell the user the work is moving to the background, including the intended artifact and report path.',
-  "Put durable artifacts under /workspace/user-files using this skill's own project layout. Start exactly one subagent delegation with a self-contained task containing the specification, project path, this skill file location, quality gates, and completion criteria.",
-  'Completion, failure, and questions wake the parent automatically; do not poll. Use check_back_later only for an intentional mid-task inspection of unusually long work.',
-  'When awakened, personally verify the artifacts and checks, then deliver only the user-facing files defined by the skill with reply_attachment. Keep working and verification artifacts internal. The delegation id can always be recovered with subagent(list).'
-].join('\n')
-
 export type { SkillFileRoots } from '../../skills/effective-skill'
 
 export interface CreateSkillToolsOptions {
-  turn?: ActorTurnRef
+  turn: ActorTurnRef
   enabledSkills?: Array<RuntimeSkillSummary | string>
   skillRoots?: SkillFileRoots
-  requestSkillOverlay?: SkillOverlayRequester
-  appendSkillOverlay?: SkillOverlayAppendRequester
-  replaceSkillOverlay?: SkillOverlayReplaceRequester
+  rpc: RPCRequester
 }
 
 /**
@@ -71,7 +55,7 @@ export interface CreateSkillToolsOptions {
  * `skill_append` appends to that DB overlay over RuntimeFabric and does not write
  * any workspace file. Assignment remains a control-plane concern.
  */
-export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions = {}): AgentTool<any>[] {
+export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions): AgentTool<any>[] {
   return [createSkillViewTool(opts), createSkillAppendTool(opts), createSkillReplaceTool(opts)]
 }
 
@@ -88,7 +72,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
   return {
     name: 'skill_view',
     description:
-      'Read an enabled skill file. Read referenced files only when needed. Resolve relative paths from the returned skill directory and use absolute paths for tool calls. This tool cannot enable disabled skills.',
+      'Read an enabled inline skill file. For a Skill marked long-running, this returns BackgroundAgentJob routing guidance instead of its operational body and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -101,6 +85,28 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const skillRoot = skillFilesystemRoot(skill, opts)
+      if (skill.metadata?.long_running === true) {
+        if (filePath !== 'SKILL.md') {
+          throw new Error(
+            `long-running Skill resources are available only inside a BackgroundAgentJob; create one with background_agent_job(start) and name ${params.name} in its task`
+          )
+        }
+        await safeSkillPath(skillRoot, 'SKILL.md')
+        return {
+          content: [
+            {
+              type: 'text',
+              text: wrapSkillContent(
+                params.name,
+                skillLocation(params.name, 'SKILL.md'),
+                skillRoot,
+                longRunningSkillDispatchContent(params.name)
+              )
+            }
+          ],
+          details: { name: params.name, path: filePath }
+        }
+      }
       const absolute = await safeSkillPath(skillRoot, filePath)
       const content = await readFile(absolute, 'utf8')
       const rendered =
@@ -131,13 +137,8 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
     isDestructive: false,
     describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
-      enabledSkill(params.name, opts)
-      if (!opts.turn || !opts.appendSkillOverlay) {
-        throw new Error('skill_append requires RuntimeFabric skill overlay RPC')
-      }
-
-      await opts.appendSkillOverlay({
-        request_id: `skill-overlay-append-${crypto.randomUUID()}`,
+      enabledInlineSkillForOverlay(params.name, opts)
+      await opts.rpc(rpcMethods.skillsOverlayAppend, {
         turn: opts.turn,
         skill_name: params.name,
         content: params.content
@@ -165,18 +166,12 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
     isDestructive: true,
     describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
-      enabledSkill(params.name, opts)
-      if (!opts.turn || !opts.requestSkillOverlay || !opts.replaceSkillOverlay) {
-        throw new Error('skill_replace requires RuntimeFabric skill overlay RPC')
-      }
-
-      const current = await opts.requestSkillOverlay({
-        request_id: `skill-overlay-resolve-${crypto.randomUUID()}`,
+      enabledInlineSkillForOverlay(params.name, opts)
+      const current = await opts.rpc(rpcMethods.skillsOverlayResolve, {
         turn: opts.turn,
         skill_name: params.name
       })
-      await opts.replaceSkillOverlay({
-        request_id: `skill-overlay-replace-${crypto.randomUUID()}`,
+      await opts.rpc(rpcMethods.skillsOverlayReplace, {
         turn: opts.turn,
         skill_name: params.name,
         content: params.content,
@@ -190,7 +185,7 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
 }
 
 /**
- * Composes the skill the model actually sees: the base SKILL.md body (frontmatter
+ * Composes the inline skill the model actually sees: the base SKILL.md body (frontmatter
  * dropped — see {@link stripSkillFrontmatter}) followed by this agent's overlay, under a
  * labeled `Agent-specific additions` separator so the model can tell base SOP from the
  * agent's own notes. When no overlay exists the base is returned as-is.
@@ -206,10 +201,21 @@ async function renderEffectiveSkill(
   const withOverlay = overlayContent
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
-  const skill = enabledSkill(name, opts)
-  const effectiveContent =
-    skill.metadata?.long_running === true ? `${withOverlay}\n\n${LONG_RUNNING_SKILL_ADDITION}` : withOverlay
-  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, effectiveContent)
+  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), directory, withOverlay)
+}
+
+/**
+ * Returns only main-agent routing guidance for a long-running Skill. Its full
+ * operational body, references, and overlay remain available to Codex when the
+ * BackgroundAgentJob runtime materializes the enabled Skill directory.
+ */
+function longRunningSkillDispatchContent(name: string): string {
+  return [
+    `The enabled ${name} Skill is a background-task capability.`,
+    'Do not execute it inline and do not try to read its operational body or referenced resources from the main agent.',
+    `Create a BackgroundAgentJob with background_agent_job(start). Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
+    'The Job receives the complete enabled Skill directory and can read its instructions and resources there.'
+  ].join('\n')
 }
 
 /**
@@ -236,6 +242,15 @@ async function safeSkillPath(skillRoot: string, filePath: string): Promise<strin
  */
 function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   return enabledSkillByName(name, opts.enabledSkills)
+}
+
+/** Rejects main-agent overlay writes for Skills whose complete contract belongs to a Job. */
+function enabledInlineSkillForOverlay(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
+  const skill = enabledSkill(name, opts)
+  if (skill.metadata?.long_running === true) {
+    throw new Error(`long-running Skill overlays are available only inside a BackgroundAgentJob: ${name}`)
+  }
+  return skill
 }
 
 /**

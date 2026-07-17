@@ -37,9 +37,27 @@ defmodule Ankole.Schedule.Store do
     end
   end
 
-  @spec cancel_future_cron_events(module(), CronSchedule.t(), DateTime.t()) ::
+  @spec cancel_recurring_cron_events(module(), CronSchedule.t(), DateTime.t()) ::
           {:ok, [ScheduledEvent.t()]} | {:error, term()}
-  def cancel_future_cron_events(repo, %CronSchedule{} = schedule, now) do
+  def cancel_recurring_cron_events(repo, %CronSchedule{} = schedule, now) do
+    events =
+      ScheduledEvent
+      |> where([event], event.kind == "cron_fire")
+      |> where([event], event.cron_schedule_id == ^schedule.id)
+      |> where([event], event.status == "scheduled")
+      |> where(
+        [event],
+        fragment("COALESCE(?->>'trigger', 'scheduled') = 'scheduled'", event.wake_payload)
+      )
+      |> lock("FOR UPDATE")
+      |> repo.all()
+
+    cancel_scheduled_events(repo, events, now, "cron_schedule_changed")
+  end
+
+  @spec cancel_pending_cron_events(module(), CronSchedule.t(), DateTime.t()) ::
+          {:ok, [ScheduledEvent.t()]} | {:error, term()}
+  def cancel_pending_cron_events(repo, %CronSchedule{} = schedule, now) do
     events =
       ScheduledEvent
       |> where([event], event.kind == "cron_fire")
@@ -48,7 +66,7 @@ defmodule Ankole.Schedule.Store do
       |> lock("FOR UPDATE")
       |> repo.all()
 
-    cancel_scheduled_events(repo, events, now, "cron_schedule_changed")
+    cancel_scheduled_events(repo, events, now, "cron_schedule_deleted")
   end
 
   @spec cancel_scheduled_events(module(), [ScheduledEvent.t()], DateTime.t(), String.t()) ::

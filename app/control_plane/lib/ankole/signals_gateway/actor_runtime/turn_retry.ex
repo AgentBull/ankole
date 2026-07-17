@@ -489,9 +489,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   end
 
   defp turn_ref(%ActorEventDelivery{} = delivery) do
-    delivery
-    |> TurnRef.from_delivery()
-    |> TurnRef.to_wire()
+    TurnRef.from_delivery(delivery)
   end
 
   defp current_actor_event_id([

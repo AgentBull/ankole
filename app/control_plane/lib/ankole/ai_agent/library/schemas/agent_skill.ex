@@ -2,9 +2,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
   @moduledoc """
   Per-agent skill registry row.
 
-  Both builtin and agent-installed skills are filesystem skill bundles. This
-  row records the agent-visible registry, enablement, prompt-facing semantics,
-  and the latest XXH3 file observation. File contents stay on disk.
+  Builtin and agent-installed skills are filesystem bundles. Agent Plugin
+  membership is independent metadata used for parent enablement and catalog
+  presentation; it does not change how a Skill is loaded.
   """
 
   use Ecto.Schema
@@ -30,8 +30,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
 
     field(:skill_name, :string)
     field(:source_kind, :string)
+    field(:agent_plugin_id, :string)
     field(:relative_path, :string)
-    field(:enabled, :boolean)
+    field(:enabled_override, :boolean)
     field(:default_enabled, :boolean)
     field(:description, :string)
     field(:metadata, :map, default: %{})
@@ -51,8 +52,9 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
       :agent_uid,
       :skill_name,
       :source_kind,
+      :agent_plugin_id,
       :relative_path,
-      :enabled,
+      :enabled_override,
       :default_enabled,
       :description,
       :metadata,
@@ -63,6 +65,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
       :agent_uid,
       :skill_name,
       :source_kind,
+      :agent_plugin_id,
       :relative_path,
       :description,
       :content_hash
@@ -74,13 +77,13 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
       :skill_name,
       :source_kind,
       :relative_path,
-      :enabled,
       :default_enabled,
       :description,
       :metadata,
       :content_hash
     ])
     |> validate_format(:skill_name, @skill_name_format)
+    |> validate_format(:agent_plugin_id, @skill_name_format)
     |> validate_inclusion(:source_kind, @source_kinds)
     |> validate_length(:description, min: 1, max: 1024)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
@@ -88,6 +91,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     |> unique_constraint([:agent_uid, :skill_name], name: :agent_skills_agent_skill_index)
     |> check_constraint(:skill_name, name: :agent_skills_skill_name_format)
     |> check_constraint(:source_kind, name: :agent_skills_source_kind_check)
+    |> check_constraint(:agent_plugin_id, name: :agent_skills_agent_plugin_id_format)
     |> check_constraint(:relative_path, name: :agent_skills_relative_path_present)
     |> check_constraint(:description, name: :agent_skills_description_present)
     |> check_constraint(:metadata, name: :agent_skills_metadata_object)

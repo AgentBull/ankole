@@ -1,6 +1,15 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
   use Ankole.AIGatewayCase
 
+  import Ankole.SignalsGateway.ActorRuntimeCase,
+    only: [
+      rpc_request: 3,
+      rpc_response_payload!: 1,
+      rpc_error_payload!: 1,
+      envelope_body_type: 1,
+      envelope_body!: 2
+    ]
+
   import Ecto.Query
 
   alias Ankole.AppConfigure
@@ -304,18 +313,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
+               rpc_request("worker-env-1", "worker_env.resolve", %{
                  "request_id" => "worker-env-1",
-                 "method" => "worker_env.resolve",
-                 "payload_json" => %{
-                   "request_id" => "worker-env-1",
-                   "agent_uid" => agent.uid
-                 }
-               },
+                 "agent_uid" => agent.uid
+               }),
                "trusted-worker-route"
              )
 
-    response = get_in(envelope, ["body", "rpc_response", "payload_json"])
+    response = rpc_response_payload!(envelope)
     assert response["request_id"] == "worker-env-1"
     assert response["agent_uid"] == agent.uid
     assert response["vars"][plain] == "plain-value"
@@ -325,31 +330,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
   test "RuntimeFabric worker_env.resolve rejects unknown agents and bad payloads" do
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
+               rpc_request("worker-env-missing-agent", "worker_env.resolve", %{
                  "request_id" => "worker-env-missing-agent",
-                 "method" => "worker_env.resolve",
-                 "payload_json" => %{
-                   "request_id" => "worker-env-missing-agent",
-                   "agent_uid" => "agent-missing"
-                 }
-               },
+                 "agent_uid" => "agent-missing"
+               }),
                "trusted-worker-route"
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
+    assert envelope_body_type(envelope) == :rpc_error
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "worker-env-invalid",
-                 "method" => "worker_env.resolve",
-                 "payload_json" => %{"request_id" => "worker-env-invalid"}
-               },
+               rpc_request("worker-env-invalid", "worker_env.resolve", %{
+                 "request_id" => "worker-env-invalid"
+               }),
                "trusted-worker-route"
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
-    assert get_in(envelope, ["body", "rpc_error", "code"]) == "missing_agent_uid"
+    assert envelope_body_type(envelope) == :rpc_error
+    assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
   end
 
   defp allow_cache_database_access do

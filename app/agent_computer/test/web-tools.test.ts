@@ -10,6 +10,19 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
 }
 
 describe('web tools', () => {
+  it('accepts non-empty search queries beyond the former 500-character ceiling', async () => {
+    const tools = await createWebTools({
+      aiGateway: {
+        baseURL: 'https://control.test/api/v1/ai-gateway',
+        fetch: async () => jsonResponse({})
+      }
+    })
+    const webSearch = tools.find(tool => tool.name === 'web_search')
+
+    expect(webSearch!.schema.parse({ query: 'q'.repeat(5_000) })).toEqual({ query: 'q'.repeat(5_000) })
+    expect(() => webSearch!.schema.parse({ query: '' })).toThrow()
+  })
+
   it('keeps the tool catalog stable and reports unavailable providers at execution time', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
@@ -51,7 +64,7 @@ describe('web tools', () => {
     )
   })
 
-  it('registers local browser web_fetch when provider-backed fetch is unavailable', async () => {
+  it('uses the rendered web_fetch fallback when provider-backed fetch is unavailable', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
@@ -63,13 +76,11 @@ describe('web tools', () => {
 
     const tools = await createWebTools({
       aiGateway: client,
-      localBrowser: {
-        agentUID: 'agent-1',
-        executionScopeID: 'conversation-1',
+      renderedFallback: {
         fetchURL: async ({ url }) => ({
           url,
           title: 'Local Example',
-          text: 'Local browser text',
+          text: 'Rendered fallback text',
           backend: 'chromium',
           adapter: 'chromium',
           session: 'web-fetch-conversation-1'
@@ -81,21 +92,21 @@ describe('web tools', () => {
 
     const webFetch = tools.find(tool => tool.name === 'web_fetch')
     const result = await webFetch!.execute('call-fetch', { urls: ['https://example.com'] })
-    expect(textOf(result)).toContain('Local browser text')
-    expect(textOf(result)).toContain('Source: local_browser')
+    expect(textOf(result)).toContain('Rendered fallback text')
+    expect(textOf(result)).toContain('Source: rendered_fallback')
+    expect(textOf(result)).not.toContain('browser')
+    expect(textOf(result)).not.toContain('Chromium')
+    expect(textOf(result)).not.toContain('CDP')
     expect(result.details).toMatchObject({
       success: true,
-      source: 'local_browser',
+      source: 'rendered_fallback',
       results: [
         {
           url: 'https://example.com',
           title: 'Local Example',
-          text: 'Local browser text',
+          text: 'Rendered fallback text',
           metadata: {
-            source: 'local_browser',
-            backend: 'chromium',
-            adapter: 'chromium',
-            session: 'web-fetch-conversation-1'
+            source: 'rendered_fallback'
           }
         }
       ]
@@ -178,7 +189,7 @@ describe('web tools', () => {
     )
   })
 
-  it('falls back to local browser web_fetch when AIGateway provider fetch fails', async () => {
+  it('uses rendered web_fetch fallback when AIGateway provider fetch fails', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async input => {
@@ -195,27 +206,25 @@ describe('web tools', () => {
 
     const tools = await createWebTools({
       aiGateway: client,
-      localBrowser: {
-        agentUID: 'agent-1',
-        executionScopeID: 'conversation-1',
-        fetchURL: async ({ url }) => ({ url, text: 'Recovered through local browser' })
+      renderedFallback: {
+        fetchURL: async ({ url }) => ({ url, text: 'Recovered through rendered fallback' })
       }
     })
     const webFetch = tools.find(tool => tool.name === 'web_fetch')
 
     const result = await webFetch!.execute('call-fetch', { urls: ['https://example.com'] })
 
-    expect(textOf(result)).toContain('Recovered through local browser')
-    expect(textOf(result)).toContain('Source: local_browser')
+    expect(textOf(result)).toContain('Recovered through rendered fallback')
+    expect(textOf(result)).toContain('Source: rendered_fallback')
     expect(result.details).toMatchObject({
       success: true,
-      source: 'local_browser',
+      source: 'rendered_fallback',
       fallback_from: 'aigateway',
       fallback_reason: 'AIGateway web tool request failed with HTTP 502: upstream_error: provider failed'
     })
   })
 
-  it('rejects private-network URLs in local web_fetch when SSRF filtering is on', async () => {
+  it('rejects private-network URLs in local web_fetch by default', async () => {
     const fetched: string[] = []
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
@@ -227,10 +236,7 @@ describe('web tools', () => {
 
     const tools = await createWebTools({
       aiGateway: client,
-      localBrowser: {
-        agentUID: 'agent-1',
-        executionScopeID: 'conversation-1',
-        ssrfFilter: true,
+      renderedFallback: {
         fetchURL: async ({ url }) => {
           fetched.push(url)
           return { url, text: 'Fetched public page' }
@@ -246,7 +252,7 @@ describe('web tools', () => {
     expect(fetched).toEqual(['https://example.com'])
     expect(result.details).toMatchObject({
       success: false,
-      source: 'local_browser',
+      source: 'rendered_fallback',
       results: [
         {
           url: 'https://192.168.1.20/console',
@@ -257,7 +263,7 @@ describe('web tools', () => {
     })
   })
 
-  it('keeps intranet URLs reachable and metadata blocked in local web_fetch by default', async () => {
+  it('keeps intranet URLs reachable only when SSRF filtering is explicitly disabled', async () => {
     const fetched: string[] = []
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
@@ -269,9 +275,8 @@ describe('web tools', () => {
 
     const tools = await createWebTools({
       aiGateway: client,
-      localBrowser: {
-        agentUID: 'agent-1',
-        executionScopeID: 'conversation-1',
+      renderedFallback: {
+        ssrfFilter: false,
         fetchURL: async ({ url }) => {
           fetched.push(url)
           return { url, text: 'Intranet page text' }
@@ -287,18 +292,18 @@ describe('web tools', () => {
     expect(fetched).toEqual(['https://192.168.1.20/console'])
     expect(result.details).toMatchObject({
       success: false,
-      source: 'local_browser',
+      source: 'rendered_fallback',
       results: [
         { url: 'https://192.168.1.20/console', text: 'Intranet page text' },
         {
           url: 'https://169.254.169.254/latest/meta-data/',
-          error: 'blocked browser navigation to cloud metadata endpoint'
+          error: 'blocked rendered fetch to cloud metadata endpoint'
         }
       ]
     })
   })
 
-  it('returns a clear local browser unavailable error for web_fetch', async () => {
+  it('returns a neutral rendered-fallback unavailable error for web_fetch', async () => {
     const client: AIGatewayHTTPClient = {
       baseURL: 'https://control.test/api/v1/ai-gateway',
       fetch: async () =>
@@ -309,13 +314,9 @@ describe('web tools', () => {
 
     const tools = await createWebTools({
       aiGateway: client,
-      localBrowser: {
-        agentUID: 'agent-1',
-        executionScopeID: 'conversation-1',
+      renderedFallback: {
         fetchURL: async () => {
-          throw new Error(
-            'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured'
-          )
+          throw new Error('browser daemon connection failed: connect ENOENT /run/ankole-browser/socket/browser.sock')
         }
       }
     })
@@ -323,17 +324,20 @@ describe('web tools', () => {
 
     const result = await webFetch!.execute('call-fetch', { urls: ['https://example.com'] })
 
-    expect(textOf(result)).toContain('local browser requires chromium-headless-shell')
-    expect(textOf(result)).toContain('Source: local_browser')
+    expect(textOf(result)).toContain('rendered fallback is temporarily unavailable')
+    expect(textOf(result)).toContain('Source: rendered_fallback')
+    expect(textOf(result)).not.toContain('browser')
+    expect(textOf(result)).not.toContain('/run/ankole-browser')
+    expect(textOf(result)).not.toContain('Chromium')
+    expect(textOf(result)).not.toContain('CDP')
     expect(result.details).toMatchObject({
       success: false,
-      source: 'local_browser',
+      source: 'rendered_fallback',
       results: [
         {
           url: 'https://example.com',
-          error:
-            'local browser requires chromium-headless-shell or another Chromium-compatible binary; no remote CDP override is configured',
-          metadata: { source: 'local_browser' }
+          error: 'rendered fallback is temporarily unavailable',
+          metadata: { source: 'rendered_fallback' }
         }
       ]
     })

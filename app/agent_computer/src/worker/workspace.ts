@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync
 } from 'node:fs'
@@ -18,8 +19,9 @@ import type { WorkerConfig } from './config'
  * Proves the container filesystem contract before the worker advertises ready.
  *
  * These checks catch bad mounts early: the turn loop assumes shared files and
- * configured skill roots are accessible once ready is sent. `task_worker` also
- * requires the Codex app server executable.
+ * configured skill roots are accessible once ready is sent.
+ * BackgroundAgentJob execution also requires the Codex app server and private
+ * browser data-plane runtime shipped in the worker image.
  */
 export function verifyWorkerFilesystem(config: WorkerConfig): void {
   assertDirectory(config.sharedFsRoot, 'ANKOLE_SHARED_FS_ROOT', true)
@@ -31,6 +33,23 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
     assertDirectory(config.internalSkillsRoot, 'ANKOLE_INTERNAL_SKILLS_ROOT', false)
   }
   assertExecutable('codex')
+  assertExecutable('ankole-browser', ['--help'])
+  assertExecutable(process.env.ANKOLE_BROWSER_NODE ?? '/opt/ankole-browser/node/bin/node')
+  assertFile(
+    process.env.ANKOLE_BROWSER_DAEMON_ENTRY ?? '/opt/ankole-browser/dist/daemon/main.js',
+    'ANKOLE_BROWSER_DAEMON_ENTRY',
+    false
+  )
+  assertFile(
+    process.env.ANKOLE_BROWSER_RUNNER ?? '/opt/ankole-browser/dist/runner/bootstrap.js',
+    'ANKOLE_BROWSER_RUNNER',
+    false
+  )
+  assertFile(
+    process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell',
+    'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE',
+    true
+  )
 }
 
 /**
@@ -85,13 +104,21 @@ function assertDirectory(path: string, label: string, writable: boolean): void {
 }
 
 /**
- * Verifies the Codex executable required by `task_worker`.
+ * Verifies the Codex executable required by CodexRunner.
  */
-function assertExecutable(command: string): void {
-  const result = spawnSync(command, ['--version'], { encoding: 'utf8' })
+function assertExecutable(command: string, args: string[] = ['--version']): void {
+  const result = spawnSync(command, args, { encoding: 'utf8' })
   if (result.status !== 0) {
     throw new Error(`${command} is required by the worker runtime`)
   }
+}
+
+function assertFile(path: string, label: string, executable: boolean): void {
+  const resolved = resolve(path)
+  if (!existsSync(resolved) || !statSync(resolved).isFile()) {
+    throw new Error(`${label} is not an accessible file: ${resolved}`)
+  }
+  accessSync(resolved, constants.R_OK | (executable ? constants.X_OK : 0))
 }
 
 /**

@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Logging
-  alias Ankole.Plugins.SlackAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias SlackOpenAPI.Client
 
   @chat_key_pattern ~r/\Asignals_gateway\.slack\.bindings\.[A-Za-z0-9_.:-]+\z/

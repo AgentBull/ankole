@@ -7,9 +7,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
   UID normalization path before it is used for authorization or durable writes.
   """
 
+  alias Ankole.Principals
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
-  alias Ankole.Principals
 
   @enforce_keys [
     :agent_uid,
@@ -109,6 +110,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRef do
       "actor_epoch" => turn_ref.actor_epoch,
       "actor_event_id" => turn_ref.actor_event_id,
       "revision" => turn_ref.revision
+    }
+  end
+
+  @doc """
+  Converts the generated RuntimeFabric envelope fence into the domain fence.
+
+  This is the envelope-boundary twin of `from_wire/1`, which keeps owning the
+  JSON map fence carried inside RPC `payload_json` contracts.
+  """
+  @spec from_proto(FabricProto.ActorTurnRef.t() | nil) :: {:ok, t()} | {:error, :invalid_turn_ref}
+  def from_proto(%FabricProto.ActorTurnRef{actor: %FabricProto.ActorKey{}} = turn_ref) do
+    from_wire(%{
+      "actor" => %{
+        "agent_uid" => turn_ref.actor.agent_uid,
+        "session_id" => turn_ref.actor.session_id
+      },
+      "activation_uid" => turn_ref.activation_uid,
+      "actor_epoch" => turn_ref.actor_epoch,
+      "actor_event_id" => turn_ref.actor_event_id,
+      "revision" => turn_ref.revision
+    })
+  end
+
+  def from_proto(_turn_ref), do: {:error, :invalid_turn_ref}
+
+  @spec to_proto(t()) :: FabricProto.ActorTurnRef.t()
+  def to_proto(%__MODULE__{} = turn_ref) do
+    %FabricProto.ActorTurnRef{
+      actor: %FabricProto.ActorKey{
+        agent_uid: turn_ref.agent_uid,
+        session_id: turn_ref.session_id
+      },
+      activation_uid: turn_ref.activation_uid,
+      actor_epoch: turn_ref.actor_epoch,
+      actor_event_id: turn_ref.actor_event_id,
+      revision: turn_ref.revision
     }
   end
 

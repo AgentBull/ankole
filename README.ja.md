@@ -31,7 +31,7 @@ Ankole が向いているのは、答えだけでなく責任者が必要な仕�
 - **複数の agent。** 1 つの Ankole 環境で、異なる mission、access、tools、memory、outbound identity を持つ複数の agent を動かせます。
 - **Session actors.** 長期実行単位は `actor_id = {agent_id, session_id}` です。Session は context、workspace state、steering、cancel、recovery が交わる場所です。
 - **自分の文脈。** Conversation、model turn、summary、signal projection、decision、correction、将来の domain record は自分の infrastructure に残ります。
-- **運用者による制御。** Access、configuration、plugin activation、actor lease、outbox side effect、audit surface は Ankole を運用する側が管理します。
+- **運用者による制御。** Access、configuration、Agent Library defaults、Control Plane Plugin activation、actor lease、outbox side effect、audit surface は Ankole を運用する側が管理します。
 
 ## プロダクト形態
 
@@ -73,13 +73,13 @@ flowchart TB
   end
 
   SG["SignalsGateway<br/>共同作業の入口 / delivery<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>設定 / plugins<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>設定 / Control Plane Plugins<br/>Control Plane"]
   Runtime["Actor Runtime<br/>長時間 session / recovery<br/>Control Plane"]
   Main["メイン agent<br/>model loop · tools · skills<br/>Agent Computer"]
   Brain["Brain<br/>長期記憶<br/>curated knowledge · recall<br/>dreaming · human oversight"]
-  Delegate["Subagent Delegation<br/>durable · resumable work<br/>Control Plane"]
+  Delegate["Background Agent Job<br/>durable · resumable work<br/>Control Plane"]
   AI["AIGateway<br/>外部 + agent 向け統一 AI API<br/>stateless request · stateful conversation"]
-  Task["Codex subagent<br/>skills 継承 · isolated work<br/>Agent Computer"]
+  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · standalone Skills<br/>Agent Computer"]
   Providers["AI providers<br/>LLM · embedding · rerank · web"]
 
   subgraph Storage["Durability boundary"]
@@ -95,8 +95,8 @@ flowchart TB
   Main -->|"agent AI call"| AI
   Main -->|"長期 context"| Brain
   Brain -->|"model capability"| AI
-  Main -->|"委任"| Delegate
-  Delegate -->|"isolated task"| Task
+  Main -->|"Job 作成"| Delegate
+  Delegate -->|"isolated execution"| Task
   AI --> Providers
 
   Runtime -.-> PG
@@ -113,7 +113,7 @@ flowchart TB
 - **AIGateway は統一された AI boundary。** OpenResponses-compatible な HTTP、SSE、WebSocket API が stateless request と Principal-scoped stateful conversation の両方を支えます。LLM、embedding、rerank、web search、web fetch は同じ provider routing surface で解決され、upstream credential は control plane の外に出ません。
 - **Actor は durable work と execution resource を分離します。** Actor Runtime が long-running session と recovery semantics を所有し、replaceable な Agent Computer worker が model loop、tools、skills、sandbox を実行します。
 - **Brain は long-term memory。** Curated current knowledge、source-chat recall、dreaming、human oversight を統合します。PostgreSQL row が truth であり、Markdown と injected context は projection です。
-- **Subagent は child process ではなく durable work。** Delegation は worker loss を越えて recover し、resume または user input 待ちができ、state transition で parent session を wake します。現在の task-worker implementation は Codex で、enabled skills と意図的に狭い platform-tool projection を受け取ります。
+- **Background Agent Job は child process ではなく durable work。** Job は worker loss を越えて recover し、resume または user input 待ちができ、state transition で owner session を wake します。Job が保持するのは選択された Agent Plugin IDs と standalone Skill 名だけです。CodexRunner は prepare ごとに現在の enabled catalog を解決し、意図的に狭い platform-tool projection を公開します。
 - **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared workspace がその state から参照される artifact と resumable file を保持します。RuntimeFabric は live transport のみで、shared Rust kernel が process 内 transport と AI data-plane primitives を提供します。
 
 ## 現状
@@ -124,7 +124,7 @@ Ankole は、完全なセルフホスト可能な AgentOS であり、production
 - **本物の IM 連携。** Lark/Feishu と Slack は第一級 provider として統合され、lifecycle、transport、main flow、real-LLM の end-to-end までカバーします。
 - **Brain。** curated knowledge、chat recall、dreaming（オフライン統合）、human review、recovery が 1 つの subsystem にまとまり、PostgreSQL の全文検索と vector 検索で支えられます。
 - **長時間 actor runtime。** Session は wake、checkpoint、stream progress、hibernate、context を保った recover が可能。steering と cancel は request/response ではなく live-control 操作です。
-- **運用 console。** Agents、providers、model profiles、identity、signals、workers、worker 環境、brain entries、delegations はすべて組み込み web console から管理できます。
+- **運用 console。** Agents、Agent Library の global defaults と Agent overrides、Control Plane Plugins、providers、model profiles、identity、signals、workers、worker 環境、brain entries、Background Agent Jobs は組み込み web console から管理できます。
 - **実条件向けテスト。** Unit suite に加え、Lark と Slack の main flow、transport、lifecycle、real-LLM、scheduling、worker computer、chaos recovery、concurrency/performance の専用 end-to-end suite。
 
 Ankole の public API には現時点で互換性契約がなく、リリース間で breaking change が発生します。
@@ -143,15 +143,15 @@ Ankole の public API には現時点で互換性契約がなく、リリース�
 
 このリポジトリは、現在アクティブな Ankole control-plane and runtime workspace です。
 
-- `app/control_plane` - Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric、PostgreSQL-owned durable state を担う Phoenix/OTP control plane。
+- `app/control_plane` - Principal/AuthZ、AppConfigure、setup、console、Control Plane Plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric、PostgreSQL-owned durable state を担う Phoenix/OTP control plane。
 - `app/kernel` - Elixir と Bun が読み込む shared Rust foundation。crypto、identifier、phone/JWT helpers、AuthZ evaluation、protobuf envelopes、ZeroMQ RuntimeFabric transport を担います。
 - `app/agent_computer` - local LLM loop、provider adapters、tools、skill loading、files、terminal state、worker daemon を担う Bun + TypeScript Agent Computer worker。
 - `app/webapps` - auth、setup、console surfaces を提供し、Phoenix static shell に build される Vite + React frontend applications。
-- `app/library` - built-in agent skills と `MISSION.md`、`SOUL.md` などの starter templates。
+- `app/library` - built-in standalone Skills、first-party Agent Plugins、`MISSION.md`、`SOUL.md` などの starter templates。
 - `app/locales` - control plane と browser surfaces が共有する TOML translation catalogs。
 - `libs/uikit` - Ankole webapps で共有する UI primitives。
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library。
-- `internals/plugins` - repo 内で管理する private first-party provider/plugin code。ただし public plugin boundary としては見せません。
+- `internals/plugins` - private release に compile される first-party Control Plane Plugin code。
 - `tools/devkit` - local services、app database helpers、code generation、analysis のための workspace automation。
 - `docs/design-docs` - principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、provider adapters の現在の design docs。
 

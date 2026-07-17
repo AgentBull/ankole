@@ -30,8 +30,8 @@ const RESERVED_WORKER_ENV_PREFIX = 'ANKOLE_'
 /**
  * Filters an operator env map down to injectable entries.
  *
- * Shared by the sandboxed command env and the tmux `-e` session env so both
- * shells apply one policy.
+ * Kept as a separate filter so tests and every shell-environment caller apply
+ * the same reserved-name policy.
  */
 export function injectableWorkerEnv(workerEnv: Record<string, string> | undefined): Array<[string, string]> {
   return Object.entries(workerEnv ?? {}).filter(

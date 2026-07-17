@@ -1,12 +1,25 @@
+import { create } from '@bufbuild/protobuf'
 import { isRecord } from '@pleisto/active-support'
-import type { RuntimeFabricEnvelope } from '../fabric/fabric'
+import {
+  ActorKeySchema,
+  ActorTurnRefSchema,
+  jsonObjectFromBytes,
+  safeNumberFromBigInt,
+  type ActorEventEnvelopeMessage,
+  type ActorTurnRefMessage,
+  type Envelope,
+  type TurnModelRefMessage
+} from '../fabric/envelope_proto'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /**
  * Durable turn fence echoed by every worker reply.
  *
  * The control plane compares these fields with database rows before accepting
- * durable output, which makes late replies from old workers harmless.
+ * durable output, which makes late replies from old workers harmless. This
+ * snake_case DTO is also the fence shape carried inside RPC `payload_json`
+ * contracts, so it stays a plain JSON object; the generated envelope message
+ * exists only at the fabric codec boundary.
  */
 export type ActorTurnRef = {
   actor: {
@@ -40,8 +53,11 @@ export type TurnStart = {
   turn: ActorTurnRef
   actor_event: ActorEventEnvelope
   model_ref?: TurnModelRef | null
+  hosted_tools?: TurnHostedTool[]
   request_context?: JSONObject
 }
+
+export type TurnHostedTool = { type: 'image_generation' }
 
 export type TurnSteerUpdate = {
   turn: ActorTurnRef
@@ -74,28 +90,25 @@ export type TurnModelRef = {
 /**
  * Extracts a turn-start payload and fails fast on wrong envelope types.
  */
-export function turnStartFromEnvelope(envelope: RuntimeFabricEnvelope): TurnStart {
-  if (envelope.body.type !== 'turn_start') {
-    throw new Error(`expected turn_start envelope, got ${envelope.body.type}`)
+export function turnStartFromEnvelope(envelope: Envelope): TurnStart {
+  if (envelope.body.case !== 'turnStart') {
+    throw new Error(`expected turn_start envelope, got ${envelope.body.case}`)
   }
 
-  const turnStart = envelope.body.turn_start
-  if (!isRecord(turnStart)) {
-    throw new Error('turn_start body is missing')
-  }
-
-  const raw = turnStart as Partial<TurnStart>
-  const actorEvent = raw.actor_event
-  if (!isRecord(actorEvent)) {
+  const turnStart = envelope.body.value
+  if (!turnStart.actorEvent) {
     throw new Error('turn_start.actor_event is required')
   }
-  const turn = turnRefFromRaw(raw.turn, 'turn_start.turn')
+
+  const hostedTools = turnHostedToolsFromBytes(turnStart.hostedToolsJson)
 
   return {
-    ...raw,
-    turn,
-    actor_event: actorEvent as ActorEventEnvelope
-  } as TurnStart
+    turn: actorTurnRefFromProto(turnStart.turn, 'turn_start.turn'),
+    actor_event: actorEventFromProto(turnStart.actorEvent),
+    model_ref: turnStart.modelRef ? turnModelRefFromProto(turnStart.modelRef) : undefined,
+    request_context: jsonObjectFromBytes(turnStart.requestContextJson, 'turn_start.request_context_json'),
+    ...(hostedTools ? { hosted_tools: hostedTools } : {})
+  }
 }
 
 /**
@@ -105,85 +118,124 @@ export function turnStartFromEnvelope(envelope: RuntimeFabricEnvelope): TurnStar
  * steering requires a turn fence so the worker can route it to one in-flight
  * execution.
  */
-export function mailboxUpdatedFromEnvelope(envelope: RuntimeFabricEnvelope): MailboxUpdated {
-  if (envelope.body.type !== 'mailbox_updated') {
-    throw new Error(`expected mailbox_updated envelope, got ${envelope.body.type}`)
+export function mailboxUpdatedFromEnvelope(envelope: Envelope): MailboxUpdated {
+  if (envelope.body.case !== 'mailboxUpdated') {
+    throw new Error(`expected mailbox_updated envelope, got ${envelope.body.case}`)
   }
 
-  const mailboxUpdated = envelope.body.mailbox_updated
-  if (!isRecord(mailboxUpdated)) {
-    throw new Error('mailbox_updated body is missing')
-  }
-
-  const raw = mailboxUpdated as Partial<MailboxUpdated>
-  const actorEvent = raw.actor_event
-  if (!isRecord(actorEvent)) {
+  const mailboxUpdated = envelope.body.value
+  if (!mailboxUpdated.actorEvent) {
     throw new Error('mailbox_updated.actor_event is required')
   }
 
   return {
-    ...raw,
-    actor_event: actorEvent as ActorEventEnvelope
-  } as MailboxUpdated
+    ...(mailboxUpdated.turn ? { turn: actorTurnRefFromProto(mailboxUpdated.turn, 'mailbox_updated.turn') } : {}),
+    actor_event: actorEventFromProto(mailboxUpdated.actorEvent),
+    ...(mailboxUpdated.reason ? { reason: mailboxUpdated.reason } : {})
+  }
 }
 
 /**
  * Extracts a control command for an active turn.
  */
-export function turnControlFromEnvelope(envelope: RuntimeFabricEnvelope): TurnControl {
-  if (envelope.body.type !== 'turn_control') {
-    throw new Error(`expected turn_control envelope, got ${envelope.body.type}`)
+export function turnControlFromEnvelope(envelope: Envelope): TurnControl {
+  if (envelope.body.case !== 'turnControl') {
+    throw new Error(`expected turn_control envelope, got ${envelope.body.case}`)
   }
 
-  const turnControl = envelope.body.turn_control
-  if (!isRecord(turnControl)) {
-    throw new Error('turn_control body is missing')
-  }
+  const turnControl = envelope.body.value
 
-  return turnControl as TurnControl
+  return {
+    ...(turnControl.turn ? { turn: actorTurnRefFromProto(turnControl.turn, 'turn_control.turn') } : {}),
+    ...(turnControl.command ? { command: turnControl.command } : {}),
+    payload_json: jsonObjectFromBytes(turnControl.payloadJson, 'turn_control.payload_json')
+  }
 }
 
 /**
- * Validates and normalizes the durable turn fence from untyped envelope JSON.
+ * Converts the domain turn fence into the generated envelope message.
  */
-function turnRefFromRaw(value: unknown, path: string): ActorTurnRef {
-  if (!isRecord(value)) {
-    throw new Error(`${path} is required`)
-  }
+export function actorTurnRefToProto(turn: ActorTurnRef): ActorTurnRefMessage {
+  return create(ActorTurnRefSchema, {
+    actor: create(ActorKeySchema, {
+      agentUid: turn.actor.agent_uid,
+      sessionId: turn.actor.session_id
+    }),
+    activationUid: turn.activation_uid,
+    actorEpoch: BigInt(turn.actor_epoch),
+    actorEventId: turn.actor_event_id,
+    revision: turn.revision
+  })
+}
 
-  const actor = value.actor
-  if (!isRecord(actor)) {
-    throw new Error(`${path}.actor is required`)
+/**
+ * Converts the generated turn fence into the domain DTO the runtime and RPC
+ * payload contracts use, checking the 64-bit epoch stays a safe JSON number.
+ */
+export function actorTurnRefFromProto(turn: ActorTurnRefMessage | undefined, path: string): ActorTurnRef {
+  if (!turn?.actor) {
+    throw new Error(`${path} is required`)
   }
 
   return {
     actor: {
-      agent_uid: requiredString(actor.agent_uid, `${path}.actor.agent_uid`),
-      session_id: requiredString(actor.session_id, `${path}.actor.session_id`)
+      agent_uid: requiredString(turn.actor.agentUid, `${path}.actor.agent_uid`),
+      session_id: requiredString(turn.actor.sessionId, `${path}.actor.session_id`)
     },
-    activation_uid: requiredString(value.activation_uid, `${path}.activation_uid`),
-    actor_epoch: requiredNumber(value.actor_epoch, `${path}.actor_epoch`),
-    actor_event_id: requiredString(value.actor_event_id, `${path}.actor_event_id`),
-    revision: requiredNumber(value.revision, `${path}.revision`)
+    activation_uid: requiredString(turn.activationUid, `${path}.activation_uid`),
+    actor_epoch: safeNumberFromBigInt(turn.actorEpoch, `${path}.actor_epoch`),
+    actor_event_id: requiredString(turn.actorEventId, `${path}.actor_event_id`),
+    revision: turn.revision
+  }
+}
+
+function actorEventFromProto(event: ActorEventEnvelopeMessage): ActorEventEnvelope {
+  return {
+    actor_event_id: event.actorEventId,
+    queue_sequence: safeNumberFromBigInt(event.queueSequence, 'actor_event.queue_sequence'),
+    type: event.type,
+    source_event_id: event.sourceEventId,
+    ...(event.bindingName ? { binding_name: event.bindingName } : {}),
+    ...(event.signalChannelId ? { signal_channel_id: event.signalChannelId } : {}),
+    ...(event.providerThreadId ? { provider_thread_id: event.providerThreadId } : {}),
+    ...(event.sourceEntryId ? { source_entry_id: event.sourceEntryId } : {}),
+    payload_json: jsonObjectFromBytes(event.payloadJson, 'actor_event.payload_json')
+  }
+}
+
+function turnModelRefFromProto(modelRef: TurnModelRefMessage): TurnModelRef {
+  return {
+    profile: modelRef.profile,
+    provider_id: modelRef.providerId,
+    model: modelRef.model,
+    ...(modelRef.providerKind ? { provider_kind: modelRef.providerKind } : {}),
+    ...(modelRef.inputModalities.length > 0 ? { input_modalities: modelRef.inputModalities } : {}),
+    ...(modelRef.maxCompletionTokens !== undefined ? { max_completion_tokens: modelRef.maxCompletionTokens } : {}),
+    ...(modelRef.visionFallbackModelRef
+      ? { vision_fallback_model_ref: turnModelRefFromProto(modelRef.visionFallbackModelRef) }
+      : {})
   }
 }
 
 /**
- * Reads a required non-empty string from untyped envelope JSON.
+ * Reads a required non-empty string from the decoded envelope.
  */
-function requiredString(value: unknown, path: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
+function requiredString(value: string, path: string): string {
+  if (value.trim() === '') {
     throw new Error(`${path} is required`)
   }
   return value
 }
 
-/**
- * Reads a required finite number from untyped envelope JSON.
- */
-function requiredNumber(value: unknown, path: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${path} is required`)
-  }
-  return value
+function turnHostedToolsFromBytes(bytes: Uint8Array): TurnHostedTool[] | undefined {
+  if (bytes.length === 0) return undefined
+  const value = JSON.parse(new TextDecoder().decode(bytes)) as unknown
+  if (!Array.isArray(value)) throw new Error('turn_start.hosted_tools must be an array')
+
+  return value.map((tool, index) => {
+    if (!isRecord(tool) || tool.type !== 'image_generation' || Object.keys(tool).length !== 1) {
+      throw new Error(`turn_start.hosted_tools[${index}] must declare only image_generation`)
+    }
+    return { type: 'image_generation' }
+  })
 }

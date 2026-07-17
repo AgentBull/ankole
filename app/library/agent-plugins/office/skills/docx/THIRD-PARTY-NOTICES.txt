@@ -1,0 +1,35 @@
+THIRD-PARTY NOTICES
+
+This Ankole Agent Plugin skill includes modified documentation from OfficeCLI.
+
+Upstream project: iOfficeAI/OfficeCLI
+Upstream URL: https://github.com/iOfficeAI/OfficeCLI
+Upstream tag: v1.0.129
+License: Apache License 2.0
+License URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/LICENSE
+Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/NOTICE
+
+Imported source files:
+- SKILL.md <= skills/officecli-docx/SKILL.md (upstream sha256: 46e666e72da9901dcb4eea6a2cb3587c41864fbdd5f56b752d1f7e087418d446)
+- references/academic-paper.md <= skills/officecli-academic-paper/SKILL.md (upstream sha256: dcdd8247f77704f9fe57f2a243b0759c56ab60e4cfdf21ad439e8da31ec9f6e5)
+
+Modifications:
+- Copied upstream SKILL.md content first, then changed Ankole-local frontmatter names so the skill name matches its installed directory.
+- Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
+- Converted scene-layer skills into local reference files where applicable.
+
+Upstream NOTICE:
+
+OfficeCLI
+Copyright 2026 OfficeCLI (https://OfficeCLI.AI)
+
+Created and maintained by goworm.
+
+This product is licensed under the Apache License, Version 2.0.
+You may obtain a copy of the License in the LICENSE file or at
+http://www.apache.org/licenses/LICENSE-2.0
+
+This NOTICE file is part of the required attribution under
+Section 4 of the Apache License, Version 2.0. Redistributions
+of this work, with or without modification, must retain this
+notice.

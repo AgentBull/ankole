@@ -14,7 +14,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth do
   """
 
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Plugins.Microsoft365Adapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias MicrosoftOpenAPI.BotOpenID
 
   @issuer "https://api.botframework.com"

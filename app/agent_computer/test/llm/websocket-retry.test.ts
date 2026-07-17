@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
@@ -67,7 +68,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(sentPayloads).toHaveLength(1)
   })
 
-  it('does not locally retry AIGateway WebSocket close after response.create was sent', async () => {
+  it('retries AIGateway WebSocket close after response.create was sent from the stable anchor', async () => {
     const sentPayloads: JSONObject[] = []
     let caught: unknown
     const model = createModel({
@@ -104,11 +105,14 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain('AIGateway WebSocket closed before response.completed')
     expect(classifyLLMError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
-    expect(isLocallyRetryableLLMError(caught)).toBe(false)
-    expect(sentPayloads).toHaveLength(1)
+    expect(isLocallyRetryableLLMError(caught)).toBe(true)
+    expect(sentPayloads).toHaveLength(3)
+    expect(sentPayloads.every(payload => payload.conversation === 'conv_bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')).toBe(
+      true
+    )
   })
 
-  it('does not locally retry AIGateway WebSocket error after response.create was sent', async () => {
+  it('retries AIGateway WebSocket errors after response.create was sent', async () => {
     const sentPayloads: JSONObject[] = []
     let caught: unknown
     const model = createModel({
@@ -145,8 +149,8 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain('AIGateway WebSocket transport error')
     expect(classifyLLMError(caught)).toMatchObject({ kind: 'timeout', retryable: true })
-    expect(isLocallyRetryableLLMError(caught)).toBe(false)
-    expect(sentPayloads).toHaveLength(1)
+    expect(isLocallyRetryableLLMError(caught)).toBe(true)
+    expect(sentPayloads).toHaveLength(3)
   })
 
   it('retries retryable AIGateway WebSocket open errors in the agent loop', async () => {
@@ -292,6 +296,143 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       store: true,
       conversation: 'conv_77777777-7777-7777-7777-777777777777'
     })
+  })
+
+  it('retries an upstream-closed partial call from the stable anchor without executing it', async () => {
+    const sentPayloads: JSONObject[] = []
+    let executions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+
+            if (sentPayloads.length === 1) {
+              return [
+                {
+                  type: 'response.incomplete',
+                  response: {
+                    id: 'resp_partial_call',
+                    status: 'incomplete',
+                    incomplete_details: { reason: 'upstream_stream_closed' },
+                    output: [
+                      {
+                        type: 'function_call',
+                        status: 'incomplete',
+                        id: 'fc_partial',
+                        call_id: 'call_partial',
+                        name: 'write_report',
+                        arguments: '{"path":"/tmp/repor'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_partial_retry',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'recovered without side effects' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 1,
+      messages: [{ role: 'user', content: 'write a report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000018',
+        previousResponseID: 'resp_stable_anchor'
+      },
+      tools: [
+        {
+          name: 'write_report',
+          description: 'Writes the report.',
+          schema: z.object({ path: z.string() }),
+          isReadOnly: false,
+          isDestructive: true,
+          describeActivity: () => '测试写入报告',
+          execute: async () => {
+            executions += 1
+            return { content: [{ type: 'text' as const, text: 'written' }], details: {} }
+          }
+        }
+      ]
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'recovered without side effects' }])
+    expect(executions).toBe(0)
+    expect(sentPayloads).toHaveLength(2)
+    expect(sentPayloads.map(payload => payload.previous_response_id)).toEqual([
+      'resp_stable_anchor',
+      'resp_stable_anchor'
+    ])
+    expect(classifyLLMError(new Error('AIGateway response incomplete reason=upstream_stream_closed'))).toMatchObject({
+      kind: 'timeout',
+      retryable: true
+    })
+  })
+
+  it('throws a non-retryable incomplete terminal instead of returning it as a normal answer', async () => {
+    let attempts = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => {
+            attempts += 1
+            return [
+              {
+                type: 'response.incomplete',
+                response: {
+                  id: 'resp_content_filter_terminal',
+                  status: 'incomplete',
+                  incomplete_details: { reason: 'content_filter' },
+                  output: []
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await expect(
+      runAgentLoop({
+        model,
+        maxModelIterations: 1,
+        messages: [{ role: 'user', content: 'unsafe request' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000019',
+          conversationID: '19191919-1919-1919-1919-191919191919'
+        }
+      })
+    ).rejects.toThrow('AIGateway response incomplete reason=content_filter')
+    expect(attempts).toBe(1)
   })
 
   it('preserves structured AIGateway WebSocket error details for overflow classification', async () => {

@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.Repo
   alias Ankole.SystemConfig
+  alias Ankole.TimeZone
 
   @daily_reset_time ~T[04:30:00]
   @session_lifecycle_binding_name "control-plane:session-lifecycle"
@@ -61,10 +62,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   defp daily_reset_boundary_at(%DateTime{} = now, opts) do
     with {:ok, timezone} <- daily_reset_timezone(opts),
          {:ok, reset_time} <- daily_reset_time(opts),
-         {:ok, local_now} <- shift_zone(now, timezone),
+         {:ok, local_now} <- TimeZone.shift(now, timezone),
          date <- daily_reset_date(local_now, reset_time),
-         {:ok, local_boundary} <- datetime_in_timezone(date, reset_time, timezone),
-         {:ok, boundary_at} <- DateTime.shift_zone(local_boundary, "Etc/UTC") do
+         {:ok, local_boundary} <- TimeZone.resolve_local(date, reset_time, timezone),
+         {:ok, boundary_at} <- TimeZone.shift(local_boundary, "Etc/UTC") do
       {:ok, boundary_at, timezone}
     end
   end
@@ -72,7 +73,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   defp daily_reset_timezone(opts) do
     case Keyword.fetch(opts, :timezone) do
       {:ok, timezone} when is_binary(timezone) ->
-        {:ok, normalize_timezone(timezone)}
+        TimeZone.validate(timezone)
 
       {:ok, _timezone} ->
         {:error, :invalid_timezone}
@@ -81,9 +82,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
         SystemConfig.timezone()
     end
   end
-
-  defp normalize_timezone("UTC"), do: "Etc/UTC"
-  defp normalize_timezone(timezone), do: timezone
 
   defp daily_reset_time(opts) do
     opts
@@ -96,28 +94,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   defp normalize_reset_time({hour, minute, second}), do: Time.new(hour, minute, second)
   defp normalize_reset_time(_value), do: {:error, :invalid_reset_time}
 
-  defp shift_zone(%DateTime{} = now, timezone) do
-    case DateTime.shift_zone(now, timezone) do
-      {:ok, local_now} -> {:ok, local_now}
-      {:error, reason} -> {:error, {:invalid_timezone, timezone, reason}}
-    end
-  end
-
   defp daily_reset_date(%DateTime{} = local_now, %Time{} = reset_time) do
     date = DateTime.to_date(local_now)
 
     case Time.compare(DateTime.to_time(local_now), reset_time) do
       :lt -> Date.add(date, -1)
       _comparison -> date
-    end
-  end
-
-  defp datetime_in_timezone(%Date{} = date, %Time{} = time, timezone) do
-    case DateTime.new(date, time, timezone) do
-      {:ok, datetime} -> {:ok, datetime}
-      {:ambiguous, first_datetime, _second_datetime} -> {:ok, first_datetime}
-      {:gap, _before_gap, after_gap} -> {:ok, after_gap}
-      {:error, reason} -> {:error, {:invalid_timezone, timezone, reason}}
     end
   end
 

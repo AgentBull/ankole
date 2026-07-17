@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import net from 'node:net'
@@ -204,7 +204,25 @@ async function cleanupManagedWorker(containerName: string): Promise<void> {
   const containerIDs = parseDockerContainerIDs(result.stdout)
   if (containerIDs.length === 0) return
 
-  await runChild('docker', buildManagedWorkerRmArgs(containerIDs))
+  const removal = await runChildCaptured('docker', buildManagedWorkerRmArgs(containerIDs))
+  if (removal.status !== 0) {
+    throw new Error(`failed to remove managed dev worker containers: ${removal.stderr || removal.stdout}`)
+  }
+}
+
+function cleanupManagedWorkerSync(containerName: string): void {
+  const result = spawnSync('docker', buildManagedWorkerPsArgs(containerName), { encoding: 'utf8' })
+  if (result.status !== 0) {
+    throw new Error(`failed to inspect managed dev worker containers: ${result.stderr || result.stdout}`)
+  }
+
+  const containerIDs = parseDockerContainerIDs(result.stdout)
+  if (containerIDs.length === 0) return
+
+  const removal = spawnSync('docker', buildManagedWorkerRmArgs(containerIDs), { encoding: 'utf8' })
+  if (removal.status !== 0) {
+    throw new Error(`failed to remove managed dev worker containers: ${removal.stderr || removal.stdout}`)
+  }
 }
 
 function ensureWorkspaceDirs(spec: WorkerBootstrapSpec): void {
@@ -225,13 +243,15 @@ function startControlPlane(env: NodeJS.ProcessEnv): ChildProcess {
   const mix = mixCommand(['phx.server'])
   return spawnAttached('control-plane', mix.command, mix.args, {
     cwd: appRootPath,
-    env
+    env,
+    detached: process.platform !== 'win32'
   })
 }
 
 function startWorker(spec: WorkerBootstrapSpec): ChildProcess {
   return spawnAttached('worker', 'docker', buildWorkerDockerArgs(spec, { repoRoot: repoRootPath }), {
-    cwd: repoRootPath
+    cwd: repoRootPath,
+    detached: process.platform !== 'win32'
   })
 }
 
@@ -278,12 +298,12 @@ function waitForFirstExit(children: Array<{ name: string; child: ChildProcess }>
 }
 
 async function stopChild(child: ChildProcess | undefined): Promise<void> {
-  if (!child || child.exitCode !== null) return
+  if (!child || child.exitCode !== null || child.signalCode !== null) return
 
-  if (!child.killed) child.kill('SIGTERM')
+  signalChild(child, 'SIGTERM')
   await new Promise<void>(resolve => {
     const timer = setTimeout(() => {
-      if (child.exitCode === null && !child.killed) child.kill('SIGKILL')
+      if (child.exitCode === null && child.signalCode === null) signalChild(child, 'SIGKILL')
       resolve()
     }, 5_000)
     child.once('exit', () => {
@@ -291,6 +311,17 @@ async function stopChild(child: ChildProcess | undefined): Promise<void> {
       resolve()
     })
   })
+}
+
+function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
+
+  try {
+    if (process.platform === 'win32') child.kill(signal)
+    else process.kill(-child.pid, signal)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
 }
 
 async function runDev(flags: {
@@ -333,9 +364,15 @@ async function runDev(flags: {
   let worker: ChildProcess | undefined
 
   const requestStop = () => {
+    if (stopRequested) return
     stopRequested = true
-    controlPlane?.kill('SIGTERM')
-    worker?.kill('SIGTERM')
+    try {
+      cleanupManagedWorkerSync(defaultContainerName)
+    } catch (error) {
+      console.error(`[dev] ${error instanceof Error ? error.message : String(error)}`)
+    }
+    if (controlPlane) signalChild(controlPlane, 'SIGTERM')
+    if (worker) signalChild(worker, 'SIGTERM')
   }
 
   process.once('SIGINT', requestStop)

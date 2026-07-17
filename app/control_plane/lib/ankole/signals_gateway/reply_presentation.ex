@@ -17,7 +17,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @action_types ~w(button form)
   @interaction_statuses ~w(pending answered superseded)
   @result_kinds ~w(table chart image artifact metrics)
-  @trigger_context_kinds ~w(subagent_failure)
+  @trigger_context_kinds ~w(background_agent_job_failure)
 
   @max_thought_chars 4_000
   @max_plan_items 24
@@ -139,14 +139,14 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   renderer context. The projection is deterministic and never model-authored.
   """
   @spec project_trigger(t(), String.t(), map()) :: t()
-  def project_trigger(presentation, "subagent.delegation.failed", payload)
+  def project_trigger(presentation, "background_agent_job.failed", payload)
       when is_map(payload) do
     presentation = normalize(presentation)
     data = value(payload, "data")
 
     trigger_context =
       normalize_trigger_context(%{
-        "kind" => "subagent_failure",
+        "kind" => "background_agent_job_failure",
         "title" => value(data, "title"),
         "summary" => value(data, "result_summary")
       })

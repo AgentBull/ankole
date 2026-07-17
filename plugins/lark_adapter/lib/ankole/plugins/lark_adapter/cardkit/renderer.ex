@@ -221,7 +221,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
          %{
            "trigger_context" =>
              %{
-               "kind" => "subagent_failure",
+               "kind" => "background_agent_job_failure",
                "title" => title
              } = trigger_context
          } = presentation
@@ -232,8 +232,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
       key =
         if is_binary(summary) and summary != "",
-          do: "subagent_failure_context",
-          else: "subagent_failure_context_without_summary"
+          do: "background_agent_job_failure_context",
+          else: "background_agent_job_failure_context_without_summary"
 
       bindings = %{
         title: escape_inline(title),

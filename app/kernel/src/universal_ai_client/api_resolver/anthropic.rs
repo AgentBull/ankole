@@ -327,30 +327,32 @@ impl AnthropicState {
 
         self.terminal = true;
         let mut events = Vec::new();
-        if self.text_started {
-            events.extend(self.finish_text_part());
-        }
-        for index in self.tool_calls.keys().copied().collect::<Vec<_>>() {
-            events.extend(self.finish_tool_call(index));
-        }
-        if let Some(item_id) = self.message_item_id.clone() {
-            events.push(self.event(
-                "response.output_item.done",
-                json!({
-                    "output_index": self.message_output_index.unwrap_or(0),
-                    "item": {
-                        "id": item_id,
-                        "type": "message",
-                        "status": "completed",
-                        "role": "assistant",
-                        "content": [{
-                            "type": "output_text",
-                            "text": self.text,
-                            "annotations": []
-                        }]
-                    }
-                }),
-            ));
+        if status == "completed" {
+            if self.text_started {
+                events.extend(self.finish_text_part());
+            }
+            for index in self.tool_calls.keys().copied().collect::<Vec<_>>() {
+                events.extend(self.finish_tool_call(index));
+            }
+            if let Some(item_id) = self.message_item_id.clone() {
+                events.push(self.event(
+                    "response.output_item.done",
+                    json!({
+                        "output_index": self.message_output_index.unwrap_or(0),
+                        "item": {
+                            "id": item_id,
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [{
+                                "type": "output_text",
+                                "text": self.text,
+                                "annotations": []
+                            }]
+                        }
+                    }),
+                ));
+            }
         }
         events.push(self.event(
             terminal_event(status),
@@ -378,12 +380,13 @@ impl AnthropicState {
         incomplete_reason: Option<&str>,
         error: Option<&StreamError>,
     ) -> Value {
+        let item_status = response_item_status(status);
         let mut output = Vec::new();
         if let Some(item_id) = &self.message_item_id {
             output.push(json!({
                 "id": item_id,
                 "type": "message",
-                "status": "completed",
+                "status": item_status,
                 "role": "assistant",
                 "content": [{
                     "type": "output_text",
@@ -397,7 +400,7 @@ impl AnthropicState {
         output.extend(
             calls
                 .iter()
-                .map(|call| function_call_item(call, "completed")),
+                .map(|call| function_call_item(call, item_status)),
         );
 
         complete_response_resource(

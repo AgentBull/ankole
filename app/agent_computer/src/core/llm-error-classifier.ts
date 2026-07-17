@@ -84,7 +84,15 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
   // succeed on a fresh connection.
   if (
     status === 408 ||
-    includesAny(code, ['timeout', 'timedout', 'etimedout', 'aborterror', 'und_err_socket']) ||
+    includesAny(code, [
+      'timeout',
+      'timedout',
+      'etimedout',
+      'aborterror',
+      'und_err_socket',
+      'upstream_stream_closed',
+      'closed_before_terminal'
+    ]) ||
     includesAny(message, [
       'timeout',
       'timed out',
@@ -105,6 +113,9 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
       'operation was aborted',
       'stream disconnected',
       'stream closed before completion',
+      'upstream_stream_closed',
+      'upstream stream closed',
+      'closed before terminal event',
       'stream_read_error',
       'terminated'
     ])

@@ -19,7 +19,8 @@ defmodule Ankole.Brain.RuntimeTest do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
   alias Ankole.SignalsGateway.Ingress
-  alias Ankole.SubagentDelegations.Schemas.Delegation
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
 
   test "conversation snapshot auto-creates the pinned memo and remains frozen" do
     %{principal: agent} = agent_fixture()
@@ -82,7 +83,7 @@ defmodule Ankole.Brain.RuntimeTest do
     assert refreshed["pinned_memo"]["resident_text"] == "Remember the durable preference"
   end
 
-  test "group snapshot uses channel_id identity and subagents inherit the parent conversation" do
+  test "group snapshot uses channel_id identity and Jobs inherit the owner conversation" do
     %{principal: agent} = agent_fixture()
     channel_id = "lark:group:brain-snapshot"
     {:ok, public_scope} = Scope.for_store(agent.uid, "public")
@@ -132,23 +133,28 @@ defmodule Ankole.Brain.RuntimeTest do
              "truncated" => false
            }
 
-    delegation =
-      %Delegation{}
-      |> Delegation.creation_changeset(%{
+    job =
+      %Job{}
+      |> Job.creation_changeset(%{
         agent_uid: agent.uid,
-        session_id: parent_session,
-        tool_call_id: "brain-subagent-tool-call",
+        owner_session_id: parent_session,
+        source_tool_call_id: "brain-background-agent-job-tool-call",
         title: "Brain inheritance",
         task: "Verify inherited Brain snapshot",
-        workdir: "/workspace",
-        runtime: "task_worker",
+        workspace_mounts: [
+          %{
+            "id" => "workspace",
+            "source" => "/workspace/user-files/background-agent-jobs/brain-test/workspace",
+            "access" => "read_write"
+          }
+        ],
         codex_account_id: "aigateway",
         reply_route: %{"signal_channel_id" => channel_id},
         attempts: 1,
         status: "running",
         result: %{},
         error: %{},
-        metadata: %{"brain_parent_conversation_id" => conversation.id}
+        metadata: %{"brain_owner_conversation_id" => conversation.id}
       })
       |> Repo.insert!()
 
@@ -169,15 +175,15 @@ defmodule Ankole.Brain.RuntimeTest do
 
     refute replacement.id == conversation.id
 
-    subagent_turn = turn_ref(agent.uid, "subagent:#{delegation.id}")
+    background_agent_job_turn = turn_ref(agent.uid, BackgroundAgentJobs.job_session_id(job.id))
 
     assert {:ok, %{conversation: inherited, scope: inherited_scope}} =
-             RuntimeContext.resolve(subagent_turn)
+             RuntimeContext.resolve(background_agent_job_turn)
 
     assert inherited.id == conversation.id
     assert inherited_scope.writable_store_key == "public"
     assert {:ok, ^parent_snapshot} = Snapshot.get_or_create(inherited)
-    assert AIGatewayLink.visible_signal_document_ids(subagent_turn) == []
+    assert AIGatewayLink.visible_signal_document_ids(background_agent_job_turn) == []
   end
 
   test "RPC derives owner store and author, and opens stable block pages" do

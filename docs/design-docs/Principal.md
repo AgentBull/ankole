@@ -166,6 +166,12 @@ Identity-provider sync, web login, inbound chat attribution, and future outbound
 lookup should converge on the same `provider + external_id` binding whenever
 the provider can supply a stable platform-level subject.
 
+The product bias is merge-first. When stable provider identity or normalized
+email indicates that observations describe the same person, Ankole should
+converge them onto one Principal rather than preserve duplicate subjects for
+the sake of avoiding every possible false merge. A wrong merge requires
+operator cleanup; some false-merge risk is an accepted cost of this policy.
+
 For Lark-style providers, `user_id` should be the canonical `external_id` when
 available. `open_id`, `union_id`, tenant keys, app ids, and raw provider fields
 can be stored in `metadata` or used as fallback evidence, but they should not
@@ -196,13 +202,15 @@ without emails creates email-less Principals that a later provider cannot
 claim, so mixed installations should run the email-bearing directory sync
 before enabling a second identity provider.
 
-A subject that is already bound keeps its Principal. If its update carries an
-email or mobile that a different Principal owns, that field is dropped from the
-update and a `principals.platform_subject.contact_conflict` warning names both
-Principal uids; subjects are never re-pointed automatically, and duplicate
-Principals that predate the conflict are an operator cleanup, not an automatic
-merge. Mobile is never a join key. Reusing a former employee's email for a new
-hire requires clearing the email on the old Principal first.
+A subject that is already bound keeps that binding during one ingest operation.
+If its update carries an email or mobile that a different Principal owns, the
+conflicting field is dropped and a
+`principals.platform_subject.contact_conflict` warning names both Principal
+uids; ingest must not silently rewrite accountable history. The intended
+follow-through for stable-subject or normalized-email duplicates is Principal
+convergence, not indefinite parallel identities. Mobile is never a join key.
+Reusing a former employee's email for a new hire requires clearing the email on
+the old Principal first.
 
 ### `channel_actor`
 
@@ -251,6 +259,11 @@ Principal API and converge on one `platform_subject` binding. A chat ingress
 path that can identify the human actor should persist or resolve that binding
 before yielding the normalized event to the agent runtime, so downstream records
 carry reliable attribution.
+
+Chat ingress and an Identity Provider remain independently configured surfaces.
+Ankole does not cross-validate their operator-supplied provider namespaces or
+app/realm values; configuration that points them at different identity spaces
+is an operator error rather than a new consistency subsystem.
 
 Provider ids are Ankole-local namespaces for configured external providers.
 They are not plugin ids, chat channel ids, bot app ids, or agent ids.
@@ -331,6 +344,8 @@ conditions, and malformed resource/action requests.
 - `agents.role` is required and must not be blank.
 - `agents.options` is a JSON object.
 - `platform_subject` is the preferred identity convergence point.
+- Principal resolution is merge-first and accepts some false-merge risk in
+  exchange for avoiding duplicate human subjects.
 - `channel_actor` is a channel-scoped fallback and must be verified before
   authorization-sensitive use.
 - Identity-provider sync and chat ingress must not create divergent Principals

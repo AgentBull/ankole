@@ -59,7 +59,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert checkback.source_actor_event_id == input.id
     assert checkback.origin_ai_message_id in Enum.map(messages, & &1.id)
     assert checkback.signal_channel_id == "lark:oc_chaos_schedule"
-    assert checkback.provider_thread_id == "lark:oc_chaos_schedule:om_checkback_tool_1"
+    assert is_nil(checkback.provider_thread_id)
     assert checkback.source_entry_id == "om_checkback_tool_1"
     assert checkback.wake_payload["reason"] == "Lark chaos checkback"
     assert checkback.wake_payload["check"] == "Confirm CHAOS_CHECKBACK_WAKE_OK"
@@ -128,12 +128,12 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert cron_schedule.schedule["every_ms"] == 60_000
     assert cron_schedule.payload == %{"task" => "CHAOS_CRON_WAKE_OK"}
     assert cron_schedule.delivery["signal_channel_id"] == "lark:oc_chaos_schedule"
-    assert cron_schedule.delivery["provider_thread_id"] == "lark:oc_chaos_schedule:om_cron_tool_1"
+    assert is_nil(cron_schedule.delivery["provider_thread_id"])
 
     cron_event = cron_event_for_schedule!(cron_schedule.id)
     assert cron_event.status == "scheduled"
     assert cron_event.signal_channel_id == "lark:oc_chaos_schedule"
-    assert cron_event.provider_thread_id == "lark:oc_chaos_schedule:om_cron_tool_1"
+    assert is_nil(cron_event.provider_thread_id)
     assert cron_event.wake_payload["payload"] == %{"task" => "CHAOS_CRON_WAKE_OK"}
 
     assert_actor_event_completed!(input.id)
@@ -316,232 +316,6 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     %{input: input, reply: reply}
   end
 
-  def run_background_command_tool_loop(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_background_command_1",
-               message_id: "om_background_command_1",
-               chat_id: "oc_chaos_background",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_BACKGROUND_COMMAND. Start a background command once, then reply exactly CHAOS_BACKGROUND_COMMAND_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 4_850, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_background_command_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
-
-    assert reply.text =~ "CHAOS_BACKGROUND_COMMAND_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    assert [command_result] = successful_tool_results(messages, "command")
-    assert is_binary(tool_detail(command_result, ["backgroundID"]))
-    assert tool_detail(command_result, ["status"]) in ["running", "exited"]
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
-  def run_interactive_terminal_tool_loop(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_interactive_terminal_1",
-               message_id: "om_interactive_terminal_1",
-               chat_id: "oc_chaos_terminal",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_INTERACTIVE_TERMINAL. Use interactive_terminal start/send/capture/kill, then reply exactly CHAOS_INTERACTIVE_TERMINAL_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 4_900, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_interactive_terminal_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(90_000))
-
-    assert reply.text =~ "CHAOS_INTERACTIVE_TERMINAL_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-
-    terminal_results =
-      messages
-      |> tool_results("interactive_terminal")
-      |> Enum.reject(&tool_result_error?/1)
-
-    assert Enum.map(terminal_results, &tool_detail(&1.arguments, ["action"])) ==
-             ~w(start send capture kill)
-
-    capture =
-      Enum.find(terminal_results, &(tool_detail(&1.arguments, ["action"]) == "capture"))
-
-    assert inspect(capture.result) =~ "CHAOS_INTERACTIVE_TERMINAL_SCREEN"
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
-  def run_browser_open_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_browser_open_1",
-               message_id: "om_browser_open_1",
-               chat_id: "oc_chaos_browser",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_BROWSER_OPEN. Use browser_open on https://example.com once, then reply exactly CHAOS_BROWSER_OPEN_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 4_950, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_browser_open_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(120_000))
-
-    assert reply.text =~ "CHAOS_BROWSER_OPEN_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    open_results = successful_tool_results(messages, "browser_open")
-
-    assert match?([_open_result], open_results),
-           "browser_open tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}"
-
-    [open_result] = open_results
-    assert tool_detail(open_result, ["exitCode"]) == 0
-
-    assert tool_detail(open_result, ["result", "ok"]) == true,
-           "browser_open successful result=#{inspect(open_result, limit: :infinity, printable_limit: 8_000)}"
-
-    assert normalize_url_for_assertion(tool_detail(open_result, ["result", "url"])) ==
-             "https://example.com"
-
-    screenshot_path = tool_detail(open_result, ["result", "screenshot_path"])
-
-    assert browser_screenshot_path?(screenshot_path) or
-             tool_detail(open_result, ["result", "screenshot_unsupported"]) == true
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
-  defp normalize_url_for_assertion(url) when is_binary(url), do: String.trim_trailing(url, "/")
-  defp normalize_url_for_assertion(url), do: url
-
-  defp browser_screenshot_path?(path) when is_binary(path) do
-    String.starts_with?(path, [
-      "/workspace/user-files/browser/",
-      "/workspace/temp/browser/"
-    ]) and String.ends_with?(path, ".png")
-  end
-
-  defp browser_screenshot_path?(_path), do: false
-
-  def run_browser_run_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_browser_run_1",
-               message_id: "om_browser_run_1",
-               chat_id: "oc_chaos_browser",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_BROWSER_RUN. Use browser_run once with a tiny Python script, then reply exactly CHAOS_BROWSER_RUN_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 5, :second), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_browser_run_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(120_000))
-
-    assert reply.text =~ "CHAOS_BROWSER_RUN_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    assert [run_result] = successful_tool_results(messages, "browser_run")
-    assert tool_detail(run_result, ["exitCode"]) == 0
-    assert tool_detail(run_result, ["result", "ok"]) == true
-    assert tool_detail(run_result, ["result", "stdout"]) =~ "CHAOS_BROWSER_RUN_SCRIPT_OK"
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
-  def run_browser_extract_tool_loop(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container
-      }) do
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_browser_extract_1",
-               message_id: "om_browser_extract_1",
-               chat_id: "oc_chaos_browser",
-               chat_type: "p2p",
-               text:
-                 "@_user_1 Run CHAOS_BROWSER_EXTRACT. Use browser_extract on https://example.com once, then reply exactly CHAOS_BROWSER_EXTRACT_OK.",
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 5_025, :millisecond), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_browser_extract_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, _message} =
-             wait_for_completed_final_reply(container, input.id, deadline(120_000))
-
-    assert reply.text =~ "CHAOS_BROWSER_EXTRACT_OK"
-
-    messages = ai_messages_for_actor_event(input.id)
-    assert [extract_result] = successful_tool_results(messages, "browser_extract")
-    assert tool_detail(extract_result, ["exitCode"]) == 0
-    assert tool_detail(extract_result, ["result", "ok"]) == true
-    assert inspect(tool_detail(extract_result, ["result"])) =~ "Example Domain"
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
-  end
-
   @doc """
   Runs `read_file` after a command-created file inside the Docker worker workspace.
   """
@@ -611,7 +385,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     messages = ai_messages_for_actor_event(input.id)
     assert command_tool_succeeded?(messages)
-    assert [patch_result] = successful_tool_results(messages, "patch")
+    assert [patch_result] = successful_tool_results(messages, "replace")
     assert inspect(patch_result) =~ "CHAOS_PATCH_NEW"
 
     read_results = successful_tool_results(messages, "read_file")

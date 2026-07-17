@@ -125,12 +125,60 @@ defmodule AnkoleWeb.Router do
          :decrypt_for_agent
 
     get "/principals", PrincipalController, :index
+    get "/principals/:uid", PrincipalController, :show
+    get "/principals/:uid/groups", PrincipalController, :groups
+    get "/principals/:uid/grants", PrincipalController, :grants
+
+    get "/principal-groups", AuthZGroupController, :index
+    post "/principal-groups", AuthZGroupController, :create
+
+    post "/principal-groups/computed-member-previews",
+         AuthZGroupController,
+         :preview_computed_members
+
+    get "/principal-groups/:name", AuthZGroupController, :show
+    patch "/principal-groups/:name", AuthZGroupController, :update
+    delete "/principal-groups/:name", AuthZGroupController, :delete
+    get "/principal-groups/:name/members", AuthZGroupController, :members
+    put "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :add_member
+    delete "/principal-groups/:name/members/:principal_uid", AuthZGroupController, :remove_member
+    get "/principal-groups/:name/grants", AuthZGroupController, :grants
+
+    post "/permission-grants", PermissionGrantController, :create
+    get "/permission-grants/:id", PermissionGrantController, :show
+    patch "/permission-grants/:id", PermissionGrantController, :update
+    delete "/permission-grants/:id", PermissionGrantController, :delete
 
     get "/agents", AgentController, :index
     post "/agents", AgentController, :create
     get "/agents/:agent_uid", AgentController, :show
     patch "/agents/:agent_uid", AgentController, :update
     delete "/agents/:agent_uid", AgentController, :delete
+
+    get "/agent-library/capabilities", AgentLibraryCapabilityController, :global_index
+
+    put "/agent-library/agent-plugins/:id",
+        AgentLibraryCapabilityController,
+        :put_global_agent_plugin
+
+    put "/agent-library/skills/:id",
+        AgentLibraryCapabilityController,
+        :put_global_skill
+
+    get "/agents/:agent_uid/library-capabilities",
+        AgentLibraryCapabilityController,
+        :agent_index
+
+    put "/agents/:agent_uid/library-capabilities/agent-plugins/:id",
+        AgentLibraryCapabilityController,
+        :put_agent_plugin_override
+
+    put "/agents/:agent_uid/library-capabilities/skills/:id",
+        AgentLibraryCapabilityController,
+        :put_agent_skill_override
+
+    get "/control-plane-plugins", ControlPlanePluginController, :index
+    put "/control-plane-plugins", ControlPlanePluginController, :update
 
     get "/agents/:agent_uid/library-documents", AgentLibraryController, :index
 
@@ -140,9 +188,9 @@ defmodule AnkoleWeb.Router do
 
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
-    get "/delegations", SubagentDelegationController, :index
-    get "/delegations/:delegation_id", SubagentDelegationController, :show
-    post "/delegations/:delegation_id/cancel", SubagentDelegationController, :cancel
+    get "/background-agent-jobs", BackgroundAgentJobController, :index
+    get "/background-agent-jobs/:job_id", BackgroundAgentJobController, :show
+    post "/background-agent-jobs/:job_id/cancel", BackgroundAgentJobController, :cancel
 
     get "/ai-gateway/conversations", AIGatewayConversationController, :index
 
@@ -218,6 +266,8 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/signal-bindings/:binding_name",
            SignalBindingController,
            :delete
+
+    get "/agents/:agent_uid/sessions", AgentSessionController, :index
 
     get "/agents/:agent_uid/sessions/:session_id/cron-schedules",
         ScheduleController,

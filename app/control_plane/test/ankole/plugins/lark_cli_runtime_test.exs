@@ -1,11 +1,21 @@
 defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.SignalsGateway.ActorRuntimeCase,
+    only: [
+      rpc_request: 3,
+      rpc_response_payload!: 1,
+      rpc_error_payload!: 1,
+      envelope_body_type: 1,
+      envelope_body!: 2
+    ]
+
   import Ankole.PrincipalsFixtures
 
   alias Ecto.Adapters.SQL
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.TokenStore
+  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -136,13 +146,30 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert :error = AppConfigure.get_by_key(config_key)
   end
 
-  test "worker env gives the trusted worker the binding app identity and tenant token" do
+  test "Lark Agent Plugin enablement gates the binding identity and tenant token" do
     %{principal: agent} = agent_fixture()
     config = lark_config("cli_worker")
     seed_tenant_token(config, "tenant-token")
 
     assert {:ok, %{binding: binding}} =
              Bindings.put_binding(agent.uid, "lark", "lark-main", binding_attrs(config))
+
+    assert {:ok, %{}} = RuntimeEnv.resolve_worker_env(binding)
+
+    assert {:ok, effective_env} = WorkerEnv.effective_env(agent.uid)
+    refute Map.has_key?(effective_env, "LARKSUITE_CLI_APP_ID")
+    refute Map.has_key?(effective_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
+
+    assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
+
+    assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
+    assert %{"skills" => lark_skills} = Enum.find(catalog, &(&1["id"] == "lark"))
+
+    assert Enum.map(lark_skills, &{&1["catalog_name"], &1["codex_name"]}) == [
+             {"lark-im", "lark:lark-im"},
+             {"lark-oa", "lark:lark-oa"},
+             {"lark-office-suite", "lark:lark-office-suite"}
+           ]
 
     assert {:ok, env} = RuntimeEnv.resolve_worker_env(binding)
     assert env["LARKSUITE_CLI_APP_ID"] == "cli_worker"
@@ -164,18 +191,14 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
+               rpc_request("lark-worker-env", "worker_env.resolve", %{
                  "request_id" => "lark-worker-env",
-                 "method" => "worker_env.resolve",
-                 "payload_json" => %{
-                   "request_id" => "lark-worker-env",
-                   "agent_uid" => agent.uid
-                 }
-               },
+                 "agent_uid" => agent.uid
+               }),
                "trusted-worker-route"
              )
 
-    rpc_vars = get_in(envelope, ["body", "rpc_response", "payload_json", "vars"])
+    rpc_vars = rpc_response_payload!(envelope)["vars"]
     assert rpc_vars["LARKSUITE_CLI_APP_ID"] == "cli_worker"
     refute Map.has_key?(rpc_vars, "LARKSUITE_CLI_APP_SECRET")
     assert rpc_vars["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "tenant-token"

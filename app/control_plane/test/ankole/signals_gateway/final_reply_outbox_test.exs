@@ -182,12 +182,12 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert reply_to_source_entry_id == event.source_entry_id
     end
 
-    test "turn completion preserves a failed subagent trigger in the durable presentation" do
+    test "turn completion preserves a failed BackgroundAgentJob trigger in the durable presentation" do
       %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
 
       event
       |> ActorEvent.changeset(%{
-        type: "subagent.delegation.failed",
+        type: "background_agent_job.failed",
         payload: %{
           "data" => %{
             "title" => "第二版 deep research",
@@ -211,7 +211,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                "我已修正配置并重新提交任务。"
 
       assert get_in(outbox.payload, ["reply_presentation", "trigger_context"]) == %{
-               "kind" => "subagent_failure",
+               "kind" => "background_agent_job_failure",
                "title" => "第二版 deep research",
                "summary" => "返回 JSON Schema 少声明了必填字段"
              }
@@ -630,12 +630,10 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              )
 
     assert_receive {:actor_lane, envelope}
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
              StatefulResponses.ensure_conversation(agent.uid, event.session_id)
@@ -652,13 +650,9 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(%{
-               "turn_completed" => %{
-                 "turn" => turn_ref,
-                 "final_response_id" => "resp_#{message.id}",
-                 "outcome" => "loop_finished"
-               }
-             })
+             ActorRuntime.handle_turn_completed(
+               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
+             )
   end
 
   defp assistant_content(text) do

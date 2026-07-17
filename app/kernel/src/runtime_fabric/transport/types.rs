@@ -4,7 +4,7 @@ pub enum RouterEvent {
         transport_route: String,
         authenticated_worker_id: Option<String>,
         authenticated_key_revision: Option<i64>,
-        envelope_json: String,
+        envelope_bytes: Vec<u8>,
     },
     FileFrame {
         transport_route: String,

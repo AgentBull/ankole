@@ -37,12 +37,33 @@ import type {
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateErrors,
   AnkoleWebAgentControllerUpdateResponses,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexData,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexErrors,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
   AnkoleWebAgentLibraryControllerIndexData,
   AnkoleWebAgentLibraryControllerIndexErrors,
   AnkoleWebAgentLibraryControllerIndexResponses,
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateErrors,
   AnkoleWebAgentLibraryControllerUpdateResponses,
+  AnkoleWebAgentSessionControllerIndexData,
+  AnkoleWebAgentSessionControllerIndexErrors,
+  AnkoleWebAgentSessionControllerIndexResponses,
   AnkoleWebAiGatewayControllerCompactResponseData,
   AnkoleWebAiGatewayControllerCompactResponseErrors,
   AnkoleWebAiGatewayControllerCompactResponseResponses,
@@ -126,6 +147,45 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenErrors,
   AnkoleWebAuthControllerOauthTokenResponses,
+  AnkoleWebAuthZGroupControllerAddMemberData,
+  AnkoleWebAuthZGroupControllerAddMemberErrors,
+  AnkoleWebAuthZGroupControllerAddMemberResponses,
+  AnkoleWebAuthZGroupControllerCreateData,
+  AnkoleWebAuthZGroupControllerCreateErrors,
+  AnkoleWebAuthZGroupControllerCreateResponses,
+  AnkoleWebAuthZGroupControllerDeleteData,
+  AnkoleWebAuthZGroupControllerDeleteErrors,
+  AnkoleWebAuthZGroupControllerDeleteResponses,
+  AnkoleWebAuthZGroupControllerGrantsData,
+  AnkoleWebAuthZGroupControllerGrantsErrors,
+  AnkoleWebAuthZGroupControllerGrantsResponses,
+  AnkoleWebAuthZGroupControllerIndexData,
+  AnkoleWebAuthZGroupControllerIndexErrors,
+  AnkoleWebAuthZGroupControllerIndexResponses,
+  AnkoleWebAuthZGroupControllerMembersData,
+  AnkoleWebAuthZGroupControllerMembersErrors,
+  AnkoleWebAuthZGroupControllerMembersResponses,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersData,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
+  AnkoleWebAuthZGroupControllerRemoveMemberData,
+  AnkoleWebAuthZGroupControllerRemoveMemberErrors,
+  AnkoleWebAuthZGroupControllerRemoveMemberResponses,
+  AnkoleWebAuthZGroupControllerShowData,
+  AnkoleWebAuthZGroupControllerShowErrors,
+  AnkoleWebAuthZGroupControllerShowResponses,
+  AnkoleWebAuthZGroupControllerUpdateData,
+  AnkoleWebAuthZGroupControllerUpdateErrors,
+  AnkoleWebAuthZGroupControllerUpdateResponses,
+  AnkoleWebBackgroundAgentJobControllerCancelData,
+  AnkoleWebBackgroundAgentJobControllerCancelErrors,
+  AnkoleWebBackgroundAgentJobControllerCancelResponses,
+  AnkoleWebBackgroundAgentJobControllerIndexData,
+  AnkoleWebBackgroundAgentJobControllerIndexErrors,
+  AnkoleWebBackgroundAgentJobControllerIndexResponses,
+  AnkoleWebBackgroundAgentJobControllerShowData,
+  AnkoleWebBackgroundAgentJobControllerShowErrors,
+  AnkoleWebBackgroundAgentJobControllerShowResponses,
   AnkoleWebBrainControllerApplyOperationsData,
   AnkoleWebBrainControllerApplyOperationsErrors,
   AnkoleWebBrainControllerApplyOperationsResponses,
@@ -183,6 +243,12 @@ import type {
   AnkoleWebCodexAccountControllerUpdateData,
   AnkoleWebCodexAccountControllerUpdateErrors,
   AnkoleWebCodexAccountControllerUpdateResponses,
+  AnkoleWebControlPlanePluginControllerIndexData,
+  AnkoleWebControlPlanePluginControllerIndexErrors,
+  AnkoleWebControlPlanePluginControllerIndexResponses,
+  AnkoleWebControlPlanePluginControllerUpdateData,
+  AnkoleWebControlPlanePluginControllerUpdateErrors,
+  AnkoleWebControlPlanePluginControllerUpdateResponses,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersErrors,
   AnkoleWebIdentityProviderControllerAdaptersResponses,
@@ -195,9 +261,30 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncErrors,
   AnkoleWebIdentityProviderControllerRunSyncResponses,
+  AnkoleWebPermissionGrantControllerCreateData,
+  AnkoleWebPermissionGrantControllerCreateErrors,
+  AnkoleWebPermissionGrantControllerCreateResponses,
+  AnkoleWebPermissionGrantControllerDeleteData,
+  AnkoleWebPermissionGrantControllerDeleteErrors,
+  AnkoleWebPermissionGrantControllerDeleteResponses,
+  AnkoleWebPermissionGrantControllerShowData,
+  AnkoleWebPermissionGrantControllerShowErrors,
+  AnkoleWebPermissionGrantControllerShowResponses,
+  AnkoleWebPermissionGrantControllerUpdateData,
+  AnkoleWebPermissionGrantControllerUpdateErrors,
+  AnkoleWebPermissionGrantControllerUpdateResponses,
+  AnkoleWebPrincipalControllerGrantsData,
+  AnkoleWebPrincipalControllerGrantsErrors,
+  AnkoleWebPrincipalControllerGrantsResponses,
+  AnkoleWebPrincipalControllerGroupsData,
+  AnkoleWebPrincipalControllerGroupsErrors,
+  AnkoleWebPrincipalControllerGroupsResponses,
   AnkoleWebPrincipalControllerIndexData,
   AnkoleWebPrincipalControllerIndexErrors,
   AnkoleWebPrincipalControllerIndexResponses,
+  AnkoleWebPrincipalControllerShowData,
+  AnkoleWebPrincipalControllerShowErrors,
+  AnkoleWebPrincipalControllerShowResponses,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponses,
   AnkoleWebScheduleControllerCreateCronData,
@@ -236,15 +323,6 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingErrors,
   AnkoleWebSignalBindingControllerPutBindingResponses,
-  AnkoleWebSubagentDelegationControllerCancelData,
-  AnkoleWebSubagentDelegationControllerCancelErrors,
-  AnkoleWebSubagentDelegationControllerCancelResponses,
-  AnkoleWebSubagentDelegationControllerIndexData,
-  AnkoleWebSubagentDelegationControllerIndexErrors,
-  AnkoleWebSubagentDelegationControllerIndexResponses,
-  AnkoleWebSubagentDelegationControllerShowData,
-  AnkoleWebSubagentDelegationControllerShowErrors,
-  AnkoleWebSubagentDelegationControllerShowResponses,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptErrors,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -419,6 +497,62 @@ export const ankoleWebIdentityProviderControllerIndex = <ThrowOnError extends bo
   })
 
 /**
+ * List active and next-start Control Plane Plugin state
+ */
+export const ankoleWebControlPlanePluginControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebControlPlanePluginControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebControlPlanePluginControllerIndexResponses,
+  AnkoleWebControlPlanePluginControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebControlPlanePluginControllerIndexResponses,
+    AnkoleWebControlPlanePluginControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/control-plane-plugins',
+    ...options
+  })
+
+/**
+ * Configure one Control Plane Plugin for the next process start
+ */
+export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebControlPlanePluginControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebControlPlanePluginControllerUpdateResponses,
+  AnkoleWebControlPlanePluginControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebControlPlanePluginControllerUpdateResponses,
+    AnkoleWebControlPlanePluginControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/control-plane-plugins',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Pause one recurring schedule
  */
 export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
@@ -433,6 +567,28 @@ export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolea
       }
     ],
     url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
+    ...options
+  })
+
+/**
+ * List the static Principal groups one Principal belongs to
+ */
+export const ankoleWebPrincipalControllerGroups = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerGroupsData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerGroupsResponses, AnkoleWebPrincipalControllerGroupsErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebPrincipalControllerGroupsResponses,
+    AnkoleWebPrincipalControllerGroupsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/groups',
     ...options
   })
 
@@ -547,6 +703,88 @@ export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends bo
   })
 
 /**
+ * List Principal groups
+ */
+export const ankoleWebAuthZGroupControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAuthZGroupControllerIndexData, ThrowOnError>
+): RequestResult<AnkoleWebAuthZGroupControllerIndexResponses, AnkoleWebAuthZGroupControllerIndexErrors, ThrowOnError> =>
+  (options?.client ?? client).get<
+    AnkoleWebAuthZGroupControllerIndexResponses,
+    AnkoleWebAuthZGroupControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups',
+    ...options
+  })
+
+/**
+ * Create one operator Principal group
+ */
+export const ankoleWebAuthZGroupControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerCreateResponses,
+  AnkoleWebAuthZGroupControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAuthZGroupControllerCreateResponses,
+    AnkoleWebAuthZGroupControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Preview active Principals matching a computed group condition
+ */
+export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerPreviewComputedMembersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses,
+    AnkoleWebAuthZGroupControllerPreviewComputedMembersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/computed-member-previews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Restore the state captured by one Brain audit record
  */
 export const ankoleWebBrainControllerRestoreAudit = <ThrowOnError extends boolean = false>(
@@ -629,18 +867,18 @@ export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boole
   })
 
 /**
- * Read one subagent delegation and its runtime Turn trajectory
+ * Set or clear one Agent Plugin override
  */
-export const ankoleWebSubagentDelegationControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSubagentDelegationControllerShowData, ThrowOnError>
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebSubagentDelegationControllerShowResponses,
-  AnkoleWebSubagentDelegationControllerShowErrors,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
   ThrowOnError
 > =>
-  (options.client ?? client).get<
-    AnkoleWebSubagentDelegationControllerShowResponses,
-    AnkoleWebSubagentDelegationControllerShowErrors,
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideErrors,
     ThrowOnError
   >({
     security: [
@@ -650,8 +888,12 @@ export const ankoleWebSubagentDelegationControllerShow = <ThrowOnError extends b
         type: 'http'
       }
     ],
-    url: '/api/v1/delegations/{delegation_id}',
-    ...options
+    url: '/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -915,6 +1157,84 @@ export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boole
   })
 
 /**
+ * Read resolved Agent Library capabilities for one Agent
+ */
+export const ankoleWebAgentLibraryCapabilityControllerAgentIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponses,
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-capabilities',
+    ...options
+  })
+
+/**
+ * Remove one Principal from a static operator group
+ */
+export const ankoleWebAuthZGroupControllerRemoveMember = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerRemoveMemberData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerRemoveMemberResponses,
+  AnkoleWebAuthZGroupControllerRemoveMemberErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAuthZGroupControllerRemoveMemberResponses,
+    AnkoleWebAuthZGroupControllerRemoveMemberErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}/members/{principal_uid}',
+    ...options
+  })
+
+/**
+ * Add one Principal to a static operator group
+ */
+export const ankoleWebAuthZGroupControllerAddMember = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerAddMemberData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerAddMemberResponses,
+  AnkoleWebAuthZGroupControllerAddMemberErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAuthZGroupControllerAddMemberResponses,
+    AnkoleWebAuthZGroupControllerAddMemberErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}/members/{principal_uid}',
+    ...options
+  })
+
+/**
  * List AIGateway vision files
  */
 export const ankoleWebAiGatewayFilesControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1065,6 +1385,62 @@ export const ankoleWebAiGatewayControllerModels = <ThrowOnError extends boolean 
   })
 
 /**
+ * List background Agent Jobs
+ */
+export const ankoleWebBackgroundAgentJobControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerIndexResponses,
+  AnkoleWebBackgroundAgentJobControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebBackgroundAgentJobControllerIndexResponses,
+    AnkoleWebBackgroundAgentJobControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/background-agent-jobs',
+    ...options
+  })
+
+/**
+ * Set one global Skill default
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agent-library/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Fetch web pages through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebFetch = <ThrowOnError extends boolean = false>(
@@ -1122,6 +1498,84 @@ export const ankoleWebIdentityProviderControllerPutProvider = <ThrowOnError exte
       }
     ],
     url: '/api/v1/identity-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Delete one operator Principal group without grants
+ */
+export const ankoleWebAuthZGroupControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerDeleteResponses,
+  AnkoleWebAuthZGroupControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAuthZGroupControllerDeleteResponses,
+    AnkoleWebAuthZGroupControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}',
+    ...options
+  })
+
+/**
+ * Read one Principal group
+ */
+export const ankoleWebAuthZGroupControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebAuthZGroupControllerShowResponses, AnkoleWebAuthZGroupControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebAuthZGroupControllerShowResponses,
+    AnkoleWebAuthZGroupControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}',
+    ...options
+  })
+
+/**
+ * Update mutable fields of one Principal group
+ */
+export const ankoleWebAuthZGroupControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerUpdateResponses,
+  AnkoleWebAuthZGroupControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebAuthZGroupControllerUpdateResponses,
+    AnkoleWebAuthZGroupControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1352,6 +1806,32 @@ export const ankoleWebAiGatewayControllerRetrieveResponse = <ThrowOnError extend
   })
 
 /**
+ * Read one background Agent Job and its runtime Turn trajectory
+ */
+export const ankoleWebBackgroundAgentJobControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBackgroundAgentJobControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerShowResponses,
+  AnkoleWebBackgroundAgentJobControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebBackgroundAgentJobControllerShowResponses,
+    AnkoleWebBackgroundAgentJobControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/background-agent-jobs/{job_id}',
+    ...options
+  })
+
+/**
  * Disable one agent
  */
 export const ankoleWebAgentControllerDelete = <ThrowOnError extends boolean = false>(
@@ -1531,6 +2011,28 @@ export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/identity-providers/{provider_id}/sync-runs',
+    ...options
+  })
+
+/**
+ * List permission grants owned directly by one Principal
+ */
+export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerGrantsData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerGrantsResponses, AnkoleWebPrincipalControllerGrantsErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebPrincipalControllerGrantsResponses,
+    AnkoleWebPrincipalControllerGrantsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}/grants',
     ...options
   })
 
@@ -1801,6 +2303,36 @@ export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boole
   })
 
 /**
+ * Create one permission grant for a Principal or a group
+ */
+export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPermissionGrantControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebPermissionGrantControllerCreateResponses,
+  AnkoleWebPermissionGrantControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebPermissionGrantControllerCreateResponses,
+    AnkoleWebPermissionGrantControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/permission-grants',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List recent concrete fires for one recurring schedule
  */
 export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
@@ -1860,6 +2392,64 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
     ],
     url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
     ...options
+  })
+
+/**
+ * List effective members of one Principal group
+ *
+ * Static groups return stored memberships. Computed groups return the members evaluated from their condition.
+ */
+export const ankoleWebAuthZGroupControllerMembers = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerMembersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerMembersResponses,
+  AnkoleWebAuthZGroupControllerMembersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAuthZGroupControllerMembersResponses,
+    AnkoleWebAuthZGroupControllerMembersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}/members',
+    ...options
+  })
+
+/**
+ * Set or clear one Agent Skill override
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -2107,6 +2697,28 @@ export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError exten
   })
 
 /**
+ * Read one principal
+ */
+export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPrincipalControllerShowData, ThrowOnError>
+): RequestResult<AnkoleWebPrincipalControllerShowResponses, AnkoleWebPrincipalControllerShowErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebPrincipalControllerShowResponses,
+    AnkoleWebPrincipalControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principals/{uid}',
+    ...options
+  })
+
+/**
  * Delete a Codex account
  */
 export const ankoleWebCodexAccountControllerDelete = <ThrowOnError extends boolean = false>(
@@ -2319,6 +2931,32 @@ export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean =
   })
 
 /**
+ * Cancel one queued or active background Agent Job
+ */
+export const ankoleWebBackgroundAgentJobControllerCancel = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBackgroundAgentJobControllerCancelData, ThrowOnError>
+): RequestResult<
+  AnkoleWebBackgroundAgentJobControllerCancelResponses,
+  AnkoleWebBackgroundAgentJobControllerCancelErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebBackgroundAgentJobControllerCancelResponses,
+    AnkoleWebBackgroundAgentJobControllerCancelErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/background-agent-jobs/{job_id}/cancel',
+    ...options
+  })
+
+/**
  * Reveal one encrypted AppConfigure value on demand
  */
 export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends boolean = false>(
@@ -2432,32 +3070,6 @@ export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends
   })
 
 /**
- * List subagent delegations
- */
-export const ankoleWebSubagentDelegationControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebSubagentDelegationControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSubagentDelegationControllerIndexResponses,
-  AnkoleWebSubagentDelegationControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebSubagentDelegationControllerIndexResponses,
-    AnkoleWebSubagentDelegationControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/delegations',
-    ...options
-  })
-
-/**
  * Run principal-level Brain curation now
  *
  * Manually starts the same Stage B path used by the scheduled Brain curation job.
@@ -2486,6 +3098,32 @@ export const ankoleWebBrainControllerRunDreaming = <ThrowOnError extends boolean
   })
 
 /**
+ * List sessions for one agent
+ */
+export const ankoleWebAgentSessionControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentSessionControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentSessionControllerIndexResponses,
+  AnkoleWebAgentSessionControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentSessionControllerIndexResponses,
+    AnkoleWebAgentSessionControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions',
+    ...options
+  })
+
+/**
  * List effective worker shell variables for one agent
  */
 export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends boolean = false>(
@@ -2508,32 +3146,6 @@ export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends b
       }
     ],
     url: '/api/v1/agents/{agent_uid}/worker-envs',
-    ...options
-  })
-
-/**
- * Cancel one queued or active subagent delegation
- */
-export const ankoleWebSubagentDelegationControllerCancel = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSubagentDelegationControllerCancelData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSubagentDelegationControllerCancelResponses,
-  AnkoleWebSubagentDelegationControllerCancelErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebSubagentDelegationControllerCancelResponses,
-    AnkoleWebSubagentDelegationControllerCancelErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/delegations/{delegation_id}/cancel',
     ...options
   })
 
@@ -2586,6 +3198,88 @@ export const ankoleWebAgentLibraryControllerUpdate = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/agents/{agent_uid}/library-documents/{document_kind}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Delete one permission grant
+ */
+export const ankoleWebPermissionGrantControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPermissionGrantControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebPermissionGrantControllerDeleteResponses,
+  AnkoleWebPermissionGrantControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebPermissionGrantControllerDeleteResponses,
+    AnkoleWebPermissionGrantControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/permission-grants/{id}',
+    ...options
+  })
+
+/**
+ * Read one permission grant
+ */
+export const ankoleWebPermissionGrantControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPermissionGrantControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebPermissionGrantControllerShowResponses,
+  AnkoleWebPermissionGrantControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebPermissionGrantControllerShowResponses,
+    AnkoleWebPermissionGrantControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/permission-grants/{id}',
+    ...options
+  })
+
+/**
+ * Update one permission grant
+ */
+export const ankoleWebPermissionGrantControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebPermissionGrantControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebPermissionGrantControllerUpdateResponses,
+  AnkoleWebPermissionGrantControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebPermissionGrantControllerUpdateResponses,
+    AnkoleWebPermissionGrantControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/permission-grants/{id}',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -2728,6 +3422,62 @@ export const ankoleWebBrainControllerApplyOperations = <ThrowOnError extends boo
   })
 
 /**
+ * Set one global Agent Plugin default
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponses,
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agent-library/agent-plugins/{id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Read global Agent Plugin and standalone Skill defaults
+ */
+export const ankoleWebAgentLibraryCapabilityControllerGlobalIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponses,
+    AnkoleWebAgentLibraryCapabilityControllerGlobalIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agent-library/capabilities',
+    ...options
+  })
+
+/**
  * Delete one agent-tier worker shell variable
  */
 export const ankoleWebWorkerEnvControllerDeleteForAgent = <ThrowOnError extends boolean = false>(
@@ -2800,4 +3550,30 @@ export const ankoleWebAuthControllerOauthToken = <ThrowOnError extends boolean =
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List permission grants owned by one Principal group
+ */
+export const ankoleWebAuthZGroupControllerGrants = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthZGroupControllerGrantsData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAuthZGroupControllerGrantsResponses,
+  AnkoleWebAuthZGroupControllerGrantsErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAuthZGroupControllerGrantsResponses,
+    AnkoleWebAuthZGroupControllerGrantsErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/principal-groups/{name}/grants',
+    ...options
   })

@@ -18,6 +18,7 @@ export function parallelReadTool(name: string, events: string[], delayMs: number
     executionMode: 'parallel' as const,
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => `测试工具：${name}`,
     execute: async () => {
       events.push(`${name}:start`)
       await sleep(delayMs)

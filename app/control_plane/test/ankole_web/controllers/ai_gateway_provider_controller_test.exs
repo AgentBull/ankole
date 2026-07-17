@@ -23,25 +23,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     :ok
   end
 
-  test "OpenAPI JSON includes operator AIGateway provider configuration endpoints", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/ai-gateway/provider-kinds")
-    assert Map.has_key?(paths, "/api/v1/ai-gateway/providers")
-    assert Map.has_key?(paths, "/api/v1/ai-gateway/providers/{provider_id}")
-    assert Map.has_key?(paths, "/api/v1/codex-accounts")
-    assert Map.has_key?(paths, "/api/v1/codex-accounts/{account_id}")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/model-profiles")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/model-profiles/{profile}")
-
-    assert get_in(paths, [
-             "/api/v1/agents/{agent_uid}/model-profiles",
-             "get",
-             "operationId"
-           ]) == "AnkoleWeb.AgentController.index_model_profiles"
-  end
-
   test "admin configures provider rows and agent model profiles through the console API", %{
     conn: conn
   } do

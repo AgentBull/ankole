@@ -1,29 +1,34 @@
 defmodule Ankole.Kernel.RuntimeFabric do
   @moduledoc """
-  Elixir facade for RuntimeFabric envelope encoding and transport.
+  Elixir facade for RuntimeFabric envelope transport.
 
-  RuntimeFabric owns protobuf serialization plus the ZeroMQ ROUTER socket. Actor
-  and RPC semantics live above this layer in the control plane.
+  Envelopes are `Ankole.RuntimeFabric.V1.Envelope` structs generated from
+  `envelope.proto` by `Ankole.Kernel.RuntimeFabric.Proto`; this facade encodes
+  them and drives the Rust-owned ZeroMQ ROUTER socket. The native kernel
+  validates protocol invariants on every send and receive, so both hosts see
+  the same semantic errors. Actor and RPC semantics live above this layer in
+  the control plane.
   """
 
   alias Ankole.Kernel
+  alias Ankole.RuntimeFabric.V1.Envelope
 
-  @type envelope :: map()
   @type router :: reference()
 
   @doc """
-  Encodes a RuntimeFabric envelope map as protobuf bytes.
+  Encodes a RuntimeFabric envelope struct as protobuf bytes.
   """
-  @spec encode_envelope(envelope()) :: binary() | {:error, String.t()}
-  def encode_envelope(envelope) when is_map(envelope),
-    do: Kernel.runtime_fabric_encode_envelope(envelope)
+  @spec encode_envelope(Envelope.t()) :: binary()
+  def encode_envelope(%Envelope{} = envelope) do
+    {iodata, _size} = Envelope.encode!(envelope)
+    IO.iodata_to_binary(iodata)
+  end
 
   @doc """
-  Decodes RuntimeFabric protobuf bytes into the public envelope map.
+  Decodes RuntimeFabric protobuf bytes into an envelope struct.
   """
-  @spec decode_envelope(binary()) :: envelope() | {:error, String.t()}
-  def decode_envelope(bytes) when is_binary(bytes),
-    do: Kernel.runtime_fabric_decode_envelope(bytes)
+  @spec decode_envelope(binary()) :: {:ok, Envelope.t()} | {:error, term()}
+  def decode_envelope(bytes) when is_binary(bytes), do: Envelope.decode(bytes)
 
   @doc """
   Starts a Rust-owned ZeroMQ ROUTER socket.
@@ -51,14 +56,17 @@ defmodule Ankole.Kernel.RuntimeFabric do
 
   @doc """
   Sends one envelope with mandatory ROUTER routing enabled.
-  """
-  @spec router_send_mandatory(router(), String.t(), envelope()) ::
-          {:ok, :sent_or_queued} | {:error, atom() | String.t()}
-  def router_send_mandatory(router, transport_route, envelope)
-      when is_binary(transport_route) and is_map(envelope) do
-    envelope_json = Torque.encode!(envelope)
 
-    case Kernel.runtime_fabric_router_send_mandatory(router, transport_route, envelope_json) do
+  The native router validates the encoded envelope before it reaches the
+  socket thread.
+  """
+  @spec router_send_mandatory(router(), String.t(), Envelope.t()) ::
+          {:ok, :sent_or_queued} | {:error, atom() | String.t()}
+  def router_send_mandatory(router, transport_route, %Envelope{} = envelope)
+      when is_binary(transport_route) do
+    envelope_bytes = encode_envelope(envelope)
+
+    case Kernel.runtime_fabric_router_send_mandatory(router, transport_route, envelope_bytes) do
       "sent_or_queued" -> {:ok, :sent_or_queued}
       {:error, reason} -> {:error, normalize_transport_error(reason)}
       other -> {:error, other}

@@ -24,7 +24,7 @@ defmodule Ankole.WorkerFiles do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
   @roots ~w(user_files agent_installed_skills workspace_sessions)
-  @internal_roots @roots ++ ~w(codex_accounts)
+  @internal_roots @roots ++ ~w(background_agent_jobs codex_accounts)
   @max_transfer_bytes 100 * 1024 * 1024
 
   @type operation_result :: FileTransferLane.operation_result()

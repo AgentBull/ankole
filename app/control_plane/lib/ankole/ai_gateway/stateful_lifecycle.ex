@@ -98,34 +98,28 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  def start_websocket_run(nil), do: {:ok, nil}
+  @spec prepare_and_start_websocket_provider_request(String.t(), map()) ::
+          {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
+  def prepare_and_start_websocket_provider_request(subject_uid, request) do
+    request = normalize_request_keys(request)
 
-  def start_websocket_run(%{} = run_attrs) do
-    attrs =
-      %{
-        subject_uid: run_attrs.subject_uid,
-        previous_response_id: run_attrs.previous_response_id,
-        request_items: run_attrs.request_items,
-        metadata: run_attrs.metadata
-      }
-      |> maybe_put(
-        :conversation_id,
-        run_attrs.conversation_id,
-        is_nil(run_attrs.previous_response_id)
-      )
-
-    case StatefulResponses.start_response_run(attrs) do
-      {:ok, %Message{} = message} ->
-        {:ok,
-         %{
-           message_id: message.id,
-           message: message,
-           subject_uid: message.subject_uid,
-           conversation_id: message.conversation_id
-         }}
-
-      {:error, _reason} = error ->
-        error
+    with :ok <- validate_websocket_stateful_shape(request),
+         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request) do
+      if request["store"] == true do
+        prepare_and_start_stateful_provider_request(subject_uid, request, runtime)
+      else
+        with {:ok, request_for_provider, nil} <-
+               provider_websocket_request(subject_uid, request, runtime),
+             {:ok, %{spec: prepared_request}} <-
+               ResponsesPreparation.prepare_with_runtime(
+                 subject_uid,
+                 runtime,
+                 request_for_provider,
+                 stream?: true
+               ) do
+          {:ok, prepared_request, nil}
+        end
+      end
     end
   end
 
@@ -163,6 +157,60 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp expand_and_inject_history(subject_uid, request, runtime) do
+    with {:ok, context} <-
+           build_stateful_request_context(
+             subject_uid,
+             request,
+             runtime,
+             &Compaction.maybe_compact_history/6
+           ) do
+      provider_request_from_stateful_context(context, runtime)
+    end
+  end
+
+  defp prepare_and_start_stateful_provider_request(subject_uid, request, runtime) do
+    with {:ok, context} <-
+           build_stateful_request_context(
+             subject_uid,
+             request,
+             runtime,
+             &Compaction.maybe_plan_history/6
+           ),
+         {:ok, message} <-
+           StatefulResponses.start_planned_response_run(planned_run_attrs(context)) do
+      stateful_context = response_stream_context(message)
+      context = materialize_admitted_context(context, message)
+
+      result =
+        with {:ok, request_for_provider, run_attrs} <-
+               provider_request_from_stateful_context(context, runtime),
+             {:ok, message} <-
+               StatefulResponses.merge_generating_response_metadata(
+                 message,
+                 run_attrs.metadata
+               ),
+             {:ok, %{spec: prepared_request}} <-
+               ResponsesPreparation.prepare_with_runtime(
+                 subject_uid,
+                 runtime,
+                 request_for_provider,
+                 stream?: true
+               ) do
+          {:ok, prepared_request, response_stream_context(message)}
+        end
+
+      case result do
+        {:ok, _prepared_request, _stateful_context} = prepared ->
+          prepared
+
+        {:error, reason} = error ->
+          commit_socket_open_error(stateful_context, reason)
+          error
+      end
+    end
+  end
+
+  defp build_stateful_request_context(subject_uid, request, runtime, compact_history) do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
@@ -175,6 +223,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              public_request_metadata(request)
            ),
          :ok <- StatefulResponses.validate_response_anchor(conversation.id, previous_response_id),
+         :ok <-
+           maybe_ensure_implicit_response_run_available(
+             conversation.id,
+             previous_response_id
+           ),
          effective_previous_response_id <-
            effective_previous_response_id(conversation.id, previous_response_id),
          {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
@@ -188,7 +241,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
-           Compaction.maybe_compact_history(
+           compact_history.(
              subject_uid,
              conversation.id,
              history,
@@ -196,46 +249,150 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              request,
              runtime
            ) do
-      history = compaction.history
-      previous_response_id = compaction.previous_response_id
-
       current_input =
         Compaction.maybe_inject_brain_pre_compaction_nudge(
           current_input,
           compaction.run_metadata
         )
 
-      with {:ok, history_items} <-
-             messages_to_response_items(subject_uid, history, runtime_input_modalities(runtime)),
-           {:ok, expanded_input} <-
-             CompactionArtifacts.resolve_input_handles(
-               subject_uid,
-               history_items ++ current_input
-             ) do
-        provider_request =
-          request
-          |> Map.put("input", expanded_input)
-          |> strip_stateful_provider_fields()
-
-        {:ok, provider_request,
-         %{
-           subject_uid: subject_uid,
-           conversation_id: conversation.id,
-           previous_response_id: previous_response_id,
-           request_items: current_input,
-           metadata:
-             stateful_run_metadata(
-               request,
-               compaction.run_metadata
-             )
-             |> maybe_put(
-               "recovered_interrupted_tool_call_ids",
-               recovered_call_ids,
-               recovered_call_ids != []
-             )
-         }}
-      end
+      {:ok,
+       %{
+         subject_uid: subject_uid,
+         conversation: conversation,
+         explicit_previous_response_id: previous_response_id,
+         request: request,
+         current_input: current_input,
+         recovered_call_ids: recovered_call_ids,
+         compaction: compaction
+       }}
     end
+  end
+
+  defp maybe_ensure_implicit_response_run_available(
+         conversation_id,
+         nil
+       ),
+       do: StatefulResponses.ensure_implicit_response_run_available(conversation_id)
+
+  defp maybe_ensure_implicit_response_run_available(
+         _conversation_id,
+         _explicit_previous_response_id
+       ),
+       do: :ok
+
+  defp provider_request_from_stateful_context(context, runtime) do
+    with {:ok, history_items} <-
+           messages_to_response_items(
+             context.subject_uid,
+             context.compaction.history,
+             runtime_input_modalities(runtime)
+           ),
+         {provider_input, tool_result_quarantine} <-
+           canonical_tool_result_projection(history_items ++ context.current_input),
+         {:ok, expanded_input} <-
+           CompactionArtifacts.resolve_input_handles(
+             context.subject_uid,
+             provider_input
+           ) do
+      provider_request =
+        context.request
+        |> Map.put("input", expanded_input)
+        |> strip_stateful_provider_fields()
+
+      {:ok, provider_request,
+       %{
+         subject_uid: context.subject_uid,
+         conversation_id: context.conversation.id,
+         previous_response_id: context.compaction.previous_response_id,
+         request_items: context.current_input,
+         metadata:
+           stateful_run_metadata(
+             context.request,
+             context.compaction.run_metadata
+           )
+           |> maybe_put(
+             "recovered_interrupted_tool_call_ids",
+             context.recovered_call_ids,
+             context.recovered_call_ids != []
+           )
+           |> maybe_put(
+             "provider_projection_tool_result_quarantine",
+             tool_result_quarantine,
+             map_size(tool_result_quarantine) > 0
+           )
+       }}
+    end
+  end
+
+  defp planned_run_attrs(context) do
+    metadata =
+      stateful_run_metadata(context.request, context.compaction.run_metadata)
+      |> maybe_put(
+        "recovered_interrupted_tool_call_ids",
+        context.recovered_call_ids,
+        context.recovered_call_ids != []
+      )
+
+    attrs = %{
+      subject_uid: context.subject_uid,
+      request_items: context.current_input,
+      metadata: metadata,
+      compaction: context.compaction.compaction
+    }
+
+    case context.explicit_previous_response_id do
+      previous_response_id when is_binary(previous_response_id) ->
+        Map.put(attrs, :previous_response_id, previous_response_id)
+
+      _implicit ->
+        attrs
+        |> Map.put(:conversation_id, context.conversation.id)
+        |> Map.put(
+          :expected_previous_response_id,
+          context.compaction.expected_previous_response_id
+        )
+    end
+  end
+
+  defp materialize_admitted_context(context, %Message{} = message) do
+    previous_response_id =
+      if is_binary(message.previous_message_id),
+        do: "resp_#{message.previous_message_id}",
+        else: nil
+
+    compaction =
+      if is_nil(context.compaction.compaction) do
+        Map.put(context.compaction, :previous_response_id, previous_response_id)
+      else
+        run_metadata =
+          put_in(
+            context.compaction.run_metadata,
+            ["auto_compaction", "response_id"],
+            previous_response_id
+          )
+
+        context.compaction
+        |> Map.put(
+          :history,
+          StatefulResponses.expand_history(context.conversation.id,
+            previous_response_id: previous_response_id,
+            protected_tail_items: context.current_input
+          )
+        )
+        |> Map.put(:previous_response_id, previous_response_id)
+        |> Map.put(:run_metadata, run_metadata)
+      end
+
+    %{context | compaction: compaction}
+  end
+
+  defp response_stream_context(%Message{} = message) do
+    %{
+      message_id: message.id,
+      message: message,
+      subject_uid: message.subject_uid,
+      conversation_id: message.conversation_id
+    }
   end
 
   defp stateful_run_metadata(request, compaction_metadata) do
@@ -260,14 +417,15 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp recover_interrupted_tool_calls(history, current_input, _automatic_anchor) do
     history_items = Enum.flat_map(history, &message_content_items/1)
-    output_call_ids = function_call_output_ids(history_items ++ current_input)
+    output_call_ids = paired_function_call_output_ids(history_items ++ current_input)
 
     interrupted_calls =
       history_items
       |> Enum.reduce([], fn
         %{"type" => "function_call", "call_id" => call_id} = item, acc
         when is_binary(call_id) and call_id != "" ->
-          if MapSet.member?(output_call_ids, call_id) or
+          if not executable_function_call_item?(item) or
+               MapSet.member?(output_call_ids, call_id) or
                Enum.any?(acc, &(&1["call_id"] == call_id)) do
             acc
           else
@@ -285,15 +443,114 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp message_content_items(%Message{content: content}) when is_list(content), do: content
   defp message_content_items(_message), do: []
 
-  defp function_call_output_ids(items) do
-    Enum.reduce(items, MapSet.new(), fn
-      %{"type" => "function_call_output", "call_id" => call_id}, acc
-      when is_binary(call_id) and call_id != "" ->
-        MapSet.put(acc, call_id)
+  defp paired_function_call_output_ids(items) do
+    {_calls, outputs} =
+      Enum.reduce(items, {%{}, MapSet.new()}, fn
+        %{"type" => "function_call", "call_id" => call_id} = item, {calls, outputs}
+        when is_binary(call_id) and call_id != "" ->
+          if executable_function_call_item?(item) do
+            {Map.put(calls, call_id, Map.get(item, "name")), outputs}
+          else
+            {calls, outputs}
+          end
 
-      _item, acc ->
-        acc
+        %{"type" => "function_call_output", "call_id" => call_id} = item, {calls, outputs}
+        when is_binary(call_id) and call_id != "" ->
+          if Map.has_key?(calls, call_id) and
+               not tool_result_name_mismatch?(item, Map.get(calls, call_id)) do
+            {calls, MapSet.put(outputs, call_id)}
+          else
+            {calls, outputs}
+          end
+
+        _item, acc ->
+          acc
+      end)
+
+    outputs
+  end
+
+  # Durable rows remain an audit log. This projection is the stricter provider
+  # view: a tool output is visible only after a matching executable call, and
+  # only the first output for that call is replayed. Legacy orphan/duplicate
+  # rows therefore cannot keep poisoning every later continuation.
+  defp canonical_tool_result_projection(items) do
+    {projected, _calls, _output_ids, quarantine} =
+      Enum.reduce(items, {[], %{}, MapSet.new(), %{}}, fn
+        %{"type" => "function_call"} = item, {projected, calls, output_ids, quarantine} ->
+          call_id = Map.get(item, "call_id")
+
+          cond do
+            executable_function_call_item?(item) ->
+              call = %{executable?: true, name: Map.get(item, "name")}
+              {[item | projected], Map.put(calls, call_id, call), output_ids, quarantine}
+
+            is_binary(call_id) and call_id != "" ->
+              call = %{executable?: false, name: Map.get(item, "name")}
+
+              {projected, Map.put(calls, call_id, call), output_ids,
+               append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
+
+            true ->
+              {projected, calls, output_ids,
+               increment_quarantine_count(quarantine, "invalid_function_call_count")}
+          end
+
+        %{"type" => "function_call_output"} = item, {projected, calls, output_ids, quarantine} ->
+          call_id = Map.get(item, "call_id")
+
+          cond do
+            not is_binary(call_id) or call_id == "" ->
+              {projected, calls, output_ids,
+               increment_quarantine_count(quarantine, "invalid_call_id_count")}
+
+            not Map.has_key?(calls, call_id) ->
+              {projected, calls, output_ids,
+               append_quarantine_id(quarantine, "orphan_call_ids", call_id)}
+
+            not calls[call_id].executable? ->
+              {projected, calls, output_ids,
+               append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
+
+            tool_result_name_mismatch?(item, calls[call_id].name) ->
+              {projected, calls, output_ids,
+               append_quarantine_id(quarantine, "name_mismatch_call_ids", call_id)}
+
+            MapSet.member?(output_ids, call_id) ->
+              {projected, calls, output_ids,
+               append_quarantine_id(quarantine, "duplicate_call_ids", call_id)}
+
+            true ->
+              {[item | projected], calls, MapSet.put(output_ids, call_id), quarantine}
+          end
+
+        item, {projected, calls, output_ids, quarantine} ->
+          {[item | projected], calls, output_ids, quarantine}
+      end)
+
+    {Enum.reverse(projected), quarantine}
+  end
+
+  defp executable_function_call_item?(item) do
+    Map.get(item, "status") in [nil, "completed"] and
+      is_binary(Map.get(item, "call_id")) and Map.get(item, "call_id") != "" and
+      is_binary(Map.get(item, "name")) and Map.get(item, "name") != "" and
+      is_binary(Map.get(item, "arguments"))
+  end
+
+  defp tool_result_name_mismatch?(item, call_name) do
+    output_name = Map.get(item, "name")
+    is_binary(output_name) and is_binary(call_name) and output_name != call_name
+  end
+
+  defp append_quarantine_id(quarantine, key, call_id) do
+    Map.update(quarantine, key, [call_id], fn call_ids ->
+      if call_id in call_ids, do: call_ids, else: call_ids ++ [call_id]
     end)
+  end
+
+  defp increment_quarantine_count(quarantine, key) do
+    Map.update(quarantine, key, 1, &(&1 + 1))
   end
 
   defp interrupted_tool_output(%{"call_id" => call_id}) do

@@ -6,6 +6,7 @@ defmodule Ankole.SystemConfig do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.TimeZone
 
   @timezone_key "system.timezone"
   @utc_timezone "Etc/UTC"
@@ -71,9 +72,6 @@ defmodule Ankole.SystemConfig do
 
   defp timezone_schema do
     Schema.new(fn
-      "UTC" ->
-        {:ok, @utc_timezone}
-
       timezone when is_binary(timezone) ->
         validate_timezone(timezone)
 
@@ -145,15 +143,11 @@ defmodule Ankole.SystemConfig do
 
   defp normalize_timezone_path(timezone), do: timezone
 
-  defp validate_timezone("UTC"), do: {:ok, @utc_timezone}
-  defp validate_timezone(""), do: {:error, :not_timezone}
-
-  defp validate_timezone(timezone) when is_binary(timezone) do
-    case DateTime.now(timezone) do
-      {:ok, _now} -> {:ok, timezone}
-      {:error, reason} -> {:error, {:invalid_timezone, reason}}
+  defp validate_timezone(timezone) do
+    case TimeZone.validate(timezone) do
+      {:ok, timezone} -> {:ok, timezone}
+      {:error, :invalid_timezone} -> {:error, :not_timezone}
+      {:error, {:invalid_timezone, _timezone, reason}} -> {:error, {:invalid_timezone, reason}}
     end
   end
-
-  defp validate_timezone(_timezone), do: {:error, :not_timezone}
 end

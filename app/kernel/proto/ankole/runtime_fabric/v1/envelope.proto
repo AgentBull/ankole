@@ -118,6 +118,7 @@ message TurnStart {
   ActorEventEnvelope actor_event = 2;
   TurnModelRef model_ref = 3;
   bytes request_context_json = 4;
+  bytes hosted_tools_json = 5;
 }
 
 message TurnModelRef {
@@ -127,6 +128,9 @@ message TurnModelRef {
   string provider_kind = 4;
   repeated string input_modalities = 5;
   TurnModelRef vision_fallback_model_ref = 6;
+  // Provider model output-token ceiling for the worker-side defensive clamp.
+  // Absent means the control plane has no limit metadata for this model.
+  optional uint32 max_completion_tokens = 7;
 }
 
 message MailboxUpdated {

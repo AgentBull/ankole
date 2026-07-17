@@ -119,6 +119,7 @@ defmodule Ankole.E2E.Scenarios.Ingress do
       event_id: "evt_direct_duplicate_1",
       message_id: "om_direct_1",
       chat_id: "oc_chaos_direct",
+      chat_type: "p2p",
       text: "@_user_1 Reply exactly CHAOS_DIRECT_OK. Do not call tools.",
       mentions: [mention],
       create_time_ms: DateTime.to_unix(@base_time, :millisecond)

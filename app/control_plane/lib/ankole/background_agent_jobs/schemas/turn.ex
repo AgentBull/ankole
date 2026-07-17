@@ -13,6 +13,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   alias Ankole.Ecto.JSONPayload
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Trajectory
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -24,10 +25,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   @max_tools_used 128
   @max_files_changed 1_024
   @max_plan_steps 100
-  # PostgreSQL jsonb::text can add one space per compact-JSON separator. Keeping
-  # the producer payload at half the database's 512 KiB constraint proves the
-  # stored representation fits for every valid JSON shape.
-  @max_trajectory_bytes 256 * 1_024
   @status_transitions %{
     "in_progress" => @statuses,
     "completed" => ["completed"],
@@ -134,7 +131,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
     |> check_constraint(:kind, name: :background_agent_job_turns_kind_check)
     |> check_constraint(:status, name: :background_agent_job_turns_status_check)
     |> check_constraint(:trajectory, name: :background_agent_job_turns_trajectory_check)
-    |> check_constraint(:trajectory, name: :background_agent_job_turns_trajectory_bytes)
     |> check_constraint(:progress, name: :background_agent_job_turns_progress_object)
     |> check_constraint(:usage, name: :background_agent_job_turns_usage_object)
     |> check_constraint(:error, name: :background_agent_job_turns_error_object)
@@ -143,22 +139,16 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   defp validate_trajectory(changeset) do
     validate_change(changeset, :trajectory, fn :trajectory, trajectory ->
-      messages = trajectory["messages"]
-
       cond do
         trajectory["format"] != "ankole_chatml" or trajectory["version"] != 1 or
-            not is_list(messages) ->
+            not is_list(trajectory["messages"]) ->
           [trajectory: "must be an ankole_chatml v1 object with a messages array"]
 
-        not valid_trajectory_metadata?(Map.get(trajectory, "metadata")) or
-            not Enum.all?(messages, &valid_message?/1) ->
-          [trajectory: "must contain only canonical ChatML messages"]
-
-        trajectory_bytes(trajectory) > @max_trajectory_bytes ->
-          [trajectory: "must not exceed #{@max_trajectory_bytes} encoded bytes"]
+        Trajectory.valid_turn_value?(trajectory) ->
+          []
 
         true ->
-          []
+          [trajectory: "must contain only canonical ChatML messages"]
       end
     end)
   end
@@ -281,95 +271,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   defp string_list?(_value, _limit), do: false
-
-  defp valid_message?(%{"role" => role} = message) when role in ~w(user developer) do
-    valid_optional_id?(message) and valid_optional_metadata?(message) and
-      valid_user_content?(message["content"])
-  end
-
-  defp valid_message?(%{"role" => "assistant", "content" => content} = message)
-       when is_binary(content) do
-    valid_optional_id?(message) and valid_optional_metadata?(message) and
-      valid_tool_calls?(Map.get(message, "tool_calls"))
-  end
-
-  defp valid_message?(
-         %{
-           "role" => "tool",
-           "tool_call_id" => tool_call_id,
-           "name" => name,
-           "content" => content
-         } = message
-       )
-       when is_binary(tool_call_id) and is_binary(name) and is_binary(content) do
-    valid_optional_id?(message) and valid_optional_metadata?(message)
-  end
-
-  defp valid_message?(_message), do: false
-
-  defp valid_optional_id?(message),
-    do: not Map.has_key?(message, "id") or is_binary(message["id"])
-
-  defp valid_optional_metadata?(message),
-    do: not Map.has_key?(message, "metadata") or is_map(message["metadata"])
-
-  defp valid_user_content?(content) when is_binary(content), do: true
-
-  defp valid_user_content?(content) when is_list(content) do
-    Enum.all?(content, fn
-      %{"type" => type} when is_binary(type) -> true
-      _part -> false
-    end)
-  end
-
-  defp valid_user_content?(_content), do: false
-
-  defp valid_tool_calls?(nil), do: true
-
-  defp valid_tool_calls?(tool_calls) when is_list(tool_calls) do
-    Enum.all?(tool_calls, fn
-      %{
-        "id" => id,
-        "type" => "function",
-        "function" => %{"name" => name, "arguments" => arguments}
-      }
-      when is_binary(id) and is_binary(name) and is_binary(arguments) ->
-        true
-
-      _tool_call ->
-        false
-    end)
-  end
-
-  defp valid_tool_calls?(_tool_calls), do: false
-
-  defp valid_trajectory_metadata?(nil), do: true
-
-  defp valid_trajectory_metadata?(metadata) when is_map(metadata) do
-    allowed = ~w(redacted content_truncated max_bytes omitted_items omitted_messages)
-
-    Map.keys(metadata) -- allowed == [] and
-      optional_boolean?(metadata, "redacted") and
-      optional_boolean?(metadata, "content_truncated") and
-      optional_nonnegative_integer?(metadata, "max_bytes") and
-      optional_nonnegative_integer?(metadata, "omitted_items") and
-      optional_nonnegative_integer?(metadata, "omitted_messages")
-  end
-
-  defp valid_trajectory_metadata?(_metadata), do: false
-
-  defp optional_boolean?(map, key),
-    do: not Map.has_key?(map, key) or is_boolean(map[key])
-
-  defp optional_nonnegative_integer?(map, key),
-    do: not Map.has_key?(map, key) or (is_integer(map[key]) and map[key] >= 0)
-
-  defp trajectory_bytes(trajectory) do
-    case Ankole.JSON.encode(trajectory) do
-      {:ok, encoded} -> byte_size(encoded)
-      {:error, _reason} -> @max_trajectory_bytes + 1
-    end
-  end
 
   defp validate_completion(changeset) do
     status = get_field(changeset, :status)

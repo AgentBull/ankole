@@ -4,9 +4,6 @@ defmodule Ankole.WorkerFilesTest do
   alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
-  alias Ankole.SubagentDelegations
-  alias Ankole.SubagentDelegations.Schemas.Delegation
-  alias Ankole.SubagentDelegations.Schemas.Turn
   alias Ankole.Repo
   alias Ankole.WorkerFiles
 
@@ -138,88 +135,6 @@ defmodule Ankole.WorkerFilesTest do
              WorkerFiles.delete("codex_accounts", "account-1", recursive: true)
 
     assert_receive {:codex_account_delete, "/codex_accounts/account-1", <<1>>}, 100
-  end
-
-  test "research retention deletes only due managed workspaces and preserves durable results", %{
-    route: route,
-    route_auth: route_auth
-  } do
-    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-    insert_ready_worker!(route)
-    parent = self()
-
-    :ok =
-      Broker.register_local_worker(route, fn
-        {:file_transfer_lane, [protocol, "DELETE", transfer_id, path, recursive]} ->
-          send(parent, {:research_workspace_delete, path, recursive})
-
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "DELETE_OK",
-            transfer_id,
-            path
-          ])
-      end)
-
-    managed = create_research_delegation!(agent.uid, "managed")
-
-    custom =
-      create_research_delegation!(agent.uid, "custom", %{
-        "workdir" => "/workspace/user-files/custom-research/workdir"
-      })
-
-    now = DateTime.utc_now(:microsecond)
-    completed_at = DateTime.add(now, -31 * 86_400, :second)
-
-    for delegation <- [managed, custom] do
-      delegation
-      |> Delegation.changeset(%{
-        status: "succeeded",
-        completed_at: completed_at,
-        result: %{"dossier" => %{"question" => "Will it happen?"}}
-      })
-      |> Repo.update!()
-    end
-
-    turn =
-      %Turn{}
-      |> Turn.changeset(%{
-        delegation_id: managed.id,
-        attempt: 1,
-        runtime_thread_id: "thread-retention",
-        runtime_turn_id: "turn-retention",
-        kind: "agent",
-        status: "completed",
-        revision: 1,
-        trajectory: %{
-          "format" => "ankole_chatml",
-          "version" => 1,
-          "messages" => [%{"role" => "assistant", "content" => "Research complete."}]
-        },
-        progress: empty_turn_progress(),
-        usage: nil,
-        error: %{},
-        started_at: completed_at,
-        completed_at: completed_at
-      })
-      |> Repo.insert!()
-
-    assert %{cleaned: 1, deferred: 0} =
-             SubagentDelegations.cleanup_expired_workspaces(now)
-
-    expected_managed_path = "/user_files/research/#{managed.id}"
-    assert_receive {:research_workspace_delete, ^expected_managed_path, <<1>>}, 100
-
-    refute_receive {:research_workspace_delete, "/user_files/custom-research/workdir",
-                    _recursive},
-                   20
-
-    cleaned = Repo.get!(Delegation, managed.id)
-    skipped = Repo.get!(Delegation, custom.id)
-    assert cleaned.workspace_cleaned_at == now
-    assert cleaned.result["dossier"]["question"] == "Will it happen?"
-    assert skipped.workspace_cleaned_at == nil
-    assert Repo.get!(Turn, turn.id).trajectory["messages"] != []
   end
 
   test "shared-route operations fail without a ready worker" do
@@ -354,37 +269,6 @@ defmodule Ankole.WorkerFilesTest do
       started_at: now,
       metadata: %{"runtime" => "test"}
     })
-  end
-
-  defp create_research_delegation!(agent_uid, suffix, extra \\ %{}) do
-    attrs =
-      Map.merge(
-        %{
-          "agent_uid" => agent_uid,
-          "session_id" => "research-retention-#{suffix}",
-          "tool_call_id" => "research-retention-#{suffix}",
-          "runtime" => "deep_research",
-          "mode" => "forecast",
-          "title" => "Retention #{suffix}",
-          "task" => "Produce a forecast.",
-          "reply_route" => %{"binding_name" => "test"}
-        },
-        extra
-      )
-
-    assert {:ok, %{delegation: delegation}} =
-             SubagentDelegations.create_with_dispatch(attrs)
-
-    delegation
-  end
-
-  defp empty_turn_progress do
-    %{
-      "completed_items" => 0,
-      "tool_calls" => 0,
-      "tools_used" => [],
-      "files_changed" => []
-    }
   end
 
   defp u64(value), do: <<value::unsigned-big-integer-size(64)>>

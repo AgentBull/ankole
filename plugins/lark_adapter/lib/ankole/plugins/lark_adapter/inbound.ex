@@ -8,7 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Plugins.LarkAdapter.IMGroups
-  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Ingress

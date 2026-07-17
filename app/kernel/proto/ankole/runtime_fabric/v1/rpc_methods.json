@@ -5,12 +5,52 @@
     "effect": "read"
   },
   {
+    "method": "agent_plugin.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
     "method": "ai_gateway.api_key_for.create_or_find_by_agent",
     "scope": "worker_agent"
   },
   {
     "method": "app_configure.resolve",
     "scope": "worker_agent"
+  },
+  {
+    "method": "background_agent_job.create",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "background_agent_job.get",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "background_agent_job.list",
+    "scope": "turn",
+    "effect": "read"
+  },
+  {
+    "method": "background_agent_job.status.update",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "background_agent_job.steer",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "background_agent_job.stop",
+    "scope": "turn",
+    "effect": "write"
+  },
+  {
+    "method": "background_agent_job.turn.upsert",
+    "scope": "turn",
+    "effect": "write"
   },
   {
     "method": "codex.account.auth.update",
@@ -136,41 +176,6 @@
     "method": "skills.overlay.resolve",
     "scope": "turn",
     "effect": "read"
-  },
-  {
-    "method": "subagent.delegation.create",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "subagent.delegation.get",
-    "scope": "turn",
-    "effect": "read"
-  },
-  {
-    "method": "subagent.delegation.list",
-    "scope": "turn",
-    "effect": "read"
-  },
-  {
-    "method": "subagent.delegation.status.update",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "subagent.delegation.steer",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "subagent.delegation.stop",
-    "scope": "turn",
-    "effect": "write"
-  },
-  {
-    "method": "subagent.delegation.turn.upsert",
-    "scope": "turn",
-    "effect": "write"
   },
   {
     "method": "worker_env.resolve",

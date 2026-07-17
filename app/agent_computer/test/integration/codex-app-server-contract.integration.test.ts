@@ -7,17 +7,23 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { CodexAppServerClient } from '../../src/tools/codex/app-server-client'
+import type { HooksListResponse } from '../../src/tools/codex/generated/protocol/v2/HooksListResponse'
 import { materializeCodexConfig } from '../../src/tools/codex/config'
 import { codexAppServerSandboxSpec } from '../../src/tools/codex/sandbox'
-import { materializeSubagentRuntimeFiles, SUBAGENT_AGENTS_SANDBOX_ROOT } from '../../src/tools/subagent/runtime-files'
+import {
+  materializeCodexJobRuntimeFiles,
+  renderCodexJobAgents,
+  CODEX_JOB_SKILLS_SANDBOX_ROOT
+} from '../../src/core/codex-runner/runtime-files'
+import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
+import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 
-const checkedInProtocolRoot = join(import.meta.dir, '../../src/tools/subagent/generated/protocol')
+const checkedInProtocolRoot = join(import.meta.dir, '../../src/tools/codex/generated/protocol')
 
 describe('@ankole/agent-computer Codex app-server protocol contract', () => {
   it('runs the Codex version pinned by the worker image', async () => {
@@ -29,7 +35,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.144.0')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.144.5')
   })
 
   it('can execute the Codex Linux sandbox inside the worker container', async () => {
@@ -112,22 +118,256 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   })
 
-  it('mounts task AGENTS and enabled skills read-only inside the real bubblewrap sandbox', async () => {
+  it('loads official plugins, project config, and trusted hooks from a private non-Git job project', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-project-'))
+    const projectRoot = join(root, 'project')
+    const codexHome = join(root, 'codex-home')
+    const marketplacePath = join(projectRoot, '.agents', 'plugins', 'marketplace.json')
+    const defaultPluginRoot = join(projectRoot, 'plugins', 'default-hooks')
+    const explicitPluginRoot = join(projectRoot, 'plugins', 'explicit-hooks')
+    mkdirSync(join(projectRoot, '.agents', 'plugins'), { recursive: true })
+    mkdirSync(join(projectRoot, '.codex'), { recursive: true })
+    mkdirSync(join(defaultPluginRoot, '.codex-plugin'), { recursive: true })
+    mkdirSync(join(defaultPluginRoot, 'skills', 'default-skill'), { recursive: true })
+    mkdirSync(join(defaultPluginRoot, 'hooks'), { recursive: true })
+    mkdirSync(join(explicitPluginRoot, '.codex-plugin'), { recursive: true })
+    mkdirSync(join(explicitPluginRoot, 'skills', 'explicit-skill'), { recursive: true })
+    mkdirSync(join(explicitPluginRoot, 'policies'), { recursive: true })
+    mkdirSync(codexHome, { recursive: true })
+
+    writeFileSync(
+      marketplacePath,
+      JSON.stringify({
+        name: 'ankole-job',
+        plugins: [
+          {
+            name: 'default-hooks',
+            source: { source: 'local', path: './plugins/default-hooks' },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Developer Tools'
+          },
+          {
+            name: 'explicit-hooks',
+            source: { source: 'local', path: './plugins/explicit-hooks' },
+            policy: { installation: 'AVAILABLE', authentication: 'ON_INSTALL' },
+            category: 'Developer Tools'
+          }
+        ]
+      })
+    )
+    writeFileSync(
+      join(defaultPluginRoot, '.codex-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'default-hooks',
+        version: '1.0.0',
+        description: 'Default hook discovery contract.',
+        skills: './skills/'
+      })
+    )
+    writeFileSync(
+      join(defaultPluginRoot, 'skills', 'default-skill', 'SKILL.md'),
+      ['---', 'name: default-skill', 'description: Default plugin skill.', '---', '', '# Default skill', ''].join('\n')
+    )
+    writeFileSync(
+      join(defaultPluginRoot, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ hooks: [{ type: 'command', command: '/bin/true' }] }]
+        }
+      })
+    )
+    writeFileSync(
+      join(explicitPluginRoot, '.codex-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'explicit-hooks',
+        version: '1.0.0',
+        description: 'Explicit hook discovery contract.',
+        skills: './skills/',
+        hooks: './policies/hooks.json'
+      })
+    )
+    writeFileSync(
+      join(explicitPluginRoot, 'skills', 'explicit-skill', 'SKILL.md'),
+      ['---', 'name: explicit-skill', 'description: Explicit plugin skill.', '---', '', '# Explicit skill', ''].join(
+        '\n'
+      )
+    )
+    writeFileSync(
+      join(explicitPluginRoot, 'policies', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          UserPromptSubmit: [{ hooks: [{ type: 'command', command: '/bin/true' }] }]
+        }
+      })
+    )
+
+    const trustedProjectKey = projectRoot.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
+    writeFileSync(
+      join(codexHome, 'config.toml'),
+      `[features]\nplugins = true\nremote_plugin = false\n\n[projects."${trustedProjectKey}"]\ntrust_level = "trusted"\n`
+    )
+    writeFileSync(
+      join(projectRoot, '.codex', 'config.toml'),
+      [
+        'model_reasoning_effort = "medium"',
+        'web_search = "disabled"',
+        '',
+        '[features.multi_agent_v2]',
+        'enabled = true',
+        'hide_spawn_agent_metadata = true',
+        'max_concurrent_threads_per_session = 1',
+        ''
+      ].join('\n')
+    )
+
+    const stderrChunks: string[] = []
+    const client = new CodexAppServerClient({
+      cwd: projectRoot,
+      env: {
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: projectRoot,
+        CODEX_HOME: codexHome,
+        CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+        LANG: 'C.UTF-8'
+      },
+      onNotification: message => {
+        if (message.method === '$stderr' && typeof (message.params as { text?: unknown })?.text === 'string') {
+          stderrChunks.push((message.params as { text: string }).text)
+        }
+      }
+    })
+
+    try {
+      await client.initialize()
+      for (const pluginName of ['default-hooks', 'explicit-hooks']) {
+        await client.request('plugin/install', { marketplacePath, pluginName })
+      }
+
+      const installed = (await client.request('plugin/installed', { cwds: [projectRoot] })) as {
+        marketplaces: Array<{ plugins: Array<{ name: string; installed: boolean; enabled: boolean }> }>
+      }
+      expect(
+        installed.marketplaces
+          .flatMap(marketplace => marketplace.plugins)
+          .filter(plugin => ['default-hooks', 'explicit-hooks'].includes(plugin.name))
+          .map(plugin => ({ name: plugin.name, installed: plugin.installed, enabled: plugin.enabled }))
+          .sort((left, right) => left.name.localeCompare(right.name))
+      ).toEqual([
+        { name: 'default-hooks', installed: true, enabled: true },
+        { name: 'explicit-hooks', installed: true, enabled: true }
+      ])
+
+      const skills = (await client.request('skills/list', {
+        cwds: [projectRoot],
+        forceReload: true
+      })) as { data: Array<{ skills: Array<{ name: string }> }> }
+      expect(skills.data[0]?.skills.map(skill => skill.name)).toEqual(
+        expect.arrayContaining(['default-hooks:default-skill', 'explicit-hooks:explicit-skill'])
+      )
+
+      const firstHooks = (await client.request('hooks/list', { cwds: [projectRoot] })) as HooksListResponse
+      const pluginHooks = firstHooks.data[0]?.hooks.filter(hook => hook.pluginId) ?? []
+      expect(pluginHooks.map(hook => hook.pluginId).sort()).toEqual([
+        'default-hooks@ankole-job',
+        'explicit-hooks@ankole-job'
+      ])
+      expect(pluginHooks.every(hook => hook.enabled && hook.trustStatus === 'untrusted')).toBe(true)
+
+      await client.request('config/batchWrite', {
+        edits: [
+          {
+            keyPath: 'hooks.state',
+            value: Object.fromEntries(pluginHooks.map(hook => [hook.key, { trusted_hash: hook.currentHash }])),
+            mergeStrategy: 'upsert'
+          }
+        ],
+        reloadUserConfig: true
+      })
+      const trustedHooks = (await client.request('hooks/list', { cwds: [projectRoot] })) as HooksListResponse
+      expect(
+        trustedHooks.data[0]?.hooks.filter(hook => hook.pluginId).every(hook => hook.trustStatus === 'trusted')
+      ).toBe(true)
+
+      const config = (await client.request('config/read', { cwd: projectRoot, includeLayers: true })) as {
+        config: { model_reasoning_effort?: string }
+        layers: Array<{ name: { type: string }; disabledReason: string | null }> | null
+      }
+      expect(config.config.model_reasoning_effort).toBe('medium')
+      const projectLayer = config.layers?.find(layer => layer.name.type === 'project')
+      expect(projectLayer).toBeDefined()
+      expect(
+        projectLayer && (!Object.hasOwn(projectLayer, 'disabledReason') || projectLayer.disabledReason === null)
+      ).toBe(true)
+
+      const thread = (await client.request('thread/start', {
+        cwd: projectRoot,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        config: { model_reasoning_effort: 'high' }
+      })) as { reasoningEffort: string | null }
+      expect(thread.reasoningEffort).toBe('high')
+
+      await client.close()
+      const resumedClient = new CodexAppServerClient({
+        cwd: projectRoot,
+        env: {
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+          HOME: projectRoot,
+          CODEX_HOME: codexHome,
+          CODEX_UNSAFE_ALLOW_NO_SANDBOX: '1',
+          LANG: 'C.UTF-8'
+        }
+      })
+      try {
+        await resumedClient.initialize()
+        for (const pluginName of ['default-hooks', 'explicit-hooks']) {
+          await resumedClient.request('plugin/install', { marketplacePath, pluginName })
+        }
+        const reinstalled = (await resumedClient.request('plugin/installed', { cwds: [projectRoot] })) as {
+          marketplaces: Array<{ plugins: Array<{ name: string; installed: boolean; enabled: boolean }> }>
+        }
+        expect(
+          reinstalled.marketplaces
+            .flatMap(marketplace => marketplace.plugins)
+            .filter(plugin => ['default-hooks', 'explicit-hooks'].includes(plugin.name))
+            .every(plugin => plugin.installed && plugin.enabled)
+        ).toBe(true)
+        const resumedSkills = (await resumedClient.request('skills/list', {
+          cwds: [projectRoot],
+          forceReload: true
+        })) as { data: Array<{ skills: Array<{ name: string }> }> }
+        expect(resumedSkills.data[0]?.skills.map(skill => skill.name)).toEqual(
+          expect.arrayContaining(['default-hooks:default-skill', 'explicit-hooks:explicit-skill'])
+        )
+        const resumedHooks = (await resumedClient.request('hooks/list', { cwds: [projectRoot] })) as HooksListResponse
+        expect(
+          resumedHooks.data[0]?.hooks.filter(hook => hook.pluginId).every(hook => hook.trustStatus === 'trusted')
+        ).toBe(true)
+      } finally {
+        await resumedClient.close()
+      }
+    } catch (error) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`)
+    } finally {
+      await client.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('uses project AGENTS and mounts enabled skills read-only inside the real bubblewrap sandbox', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-runtime-mounts-'))
-    const workspace = join(root, 'workspace')
-    const userFilesRoot = join(root, 'shared-user-files')
-    const workdir = join(workspace, 'user-files', 'project')
+    const ownerWorkspace = join(root, 'owner-workspace')
+    const workdir = join(ownerWorkspace, 'project')
+    const jobProjectRoot = join(root, 'job-session', 'project')
     const builtinSkillsRoot = join(root, 'skills')
     const skillRoot = join(builtinSkillsRoot, 'pptx')
-    const fakeCodex = join(workspace, 'fake-codex')
+    const fakeCodex = join(jobProjectRoot, 'fake-codex')
     const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
-    const previousUserFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
-    mkdirSync(join(userFilesRoot, 'project'), { recursive: true })
-    mkdirSync(join(userFilesRoot, '.git'), { recursive: true })
-    writeFileSync(join(userFilesRoot, 'AGENTS.md'), 'ROOT_PROJECT_GUIDANCE\n')
-    mkdirSync(workspace, { recursive: true })
-    symlinkSync(userFilesRoot, join(workspace, 'user-files'), 'dir')
+    mkdirSync(workdir, { recursive: true })
+    mkdirSync(jobProjectRoot, { recursive: true })
     mkdirSync(skillRoot, { recursive: true })
+    writeFileSync(join(workdir, 'caller-visible.txt'), 'CALLER_MOUNT_MARKER\n')
+    writeFileSync(join(workdir, 'AGENTS.md'), 'ORIGINAL_LOCAL_AGENTS\n')
     writeFileSync(
       join(skillRoot, 'SKILL.md'),
       ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
@@ -136,27 +376,36 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       fakeCodex,
       `#!/bin/sh
 set -eu
-agents_path=$(find ${SUBAGENT_AGENTS_SANDBOX_ROOT} -maxdepth 1 -type f -name '*.md' | head -n 1)
+agents_path=/workspace/AGENTS.md
 grep -q 'TASK_AGENTS_MOUNT_MARKER' "$agents_path"
-grep -q '# PPTX' /ankole/subagent-skills/pptx/SKILL.md
-grep -q 'PG_OVERLAY_MARKER' /ankole/subagent-skills/pptx/SKILL.md
+grep -q 'ORIGINAL_LOCAL_AGENTS' "$agents_path"
+grep -q '# PPTX' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
+grep -q 'PG_OVERLAY_MARKER' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
+grep -q 'CALLER_MOUNT_MARKER' /workspace/workspaces/workspace/caller-visible.txt
+printf 'command path works\n' > /workspace/workspaces/workspace/command-probe.txt
 test "$(bun -e \"const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))\")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md
-if printf 'forbidden' >> "$agents_path" 2>/dev/null; then exit 21; fi
-if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then exit 22; fi
+if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/null; then exit 22; fi
 `
     )
     chmodSync(fakeCodex, 0o755)
 
-    const runtimeInput: Parameters<typeof materializeSubagentRuntimeFiles>[0] = {
-      workspaceRoot: workspace,
-      workdir,
-      workdirForModel: '/workspace/user-files/project',
-      durableArtifactsRootForModel: '/workspace/user-files',
+    const project = prepareCodexJobProject({
+      jobProjectRoot,
+      ownerModelPath: '/workspace/user-files/background-agent-jobs/test/project',
+      ownerWorkspaceRoot: ownerWorkspace,
+      workspaceMounts: [{ id: 'workspace', source: '/workspace/project', access: 'read_write' }]
+    })
+    const renderedAgents = renderCodexJobAgents({
+      guidanceWorkspaceRoot: ownerWorkspace,
+      workspaceMounts: project.workspaceMounts,
       soul: 'TASK_AGENTS_MOUNT_MARKER',
-      mission: 'Verify runtime mounts.',
+      mission: 'Verify runtime mounts.'
+    })
+    writeFileSync(join(jobProjectRoot, 'AGENTS.md'), renderedAgents.content)
+    const runtimeInput: Parameters<typeof materializeCodexJobRuntimeFiles>[0] = {
       turn: {
-        actor: { agent_uid: 'agent-1', session_id: 'subagent:delegation-1' },
+        actor: { agent_uid: 'agent-1', session_id: 'job:019f0000-0000-7000-8000-000000000001' },
         activation_uid: 'activation-1',
         actor_epoch: 1,
         actor_event_id: '00000000-0000-0000-0000-000000000001',
@@ -174,21 +423,24 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
         builtinSkillsRoot,
         agentInstalledSkillsRoot: join(root, 'installed-skills')
       },
-      requestSkillOverlay: async request => ({
-        request_id: request.request_id,
-        agent_uid: 'agent-1',
-        session_id: 'subagent:delegation-1',
-        skill_name: request.skill_name,
-        has_overlay: true,
-        overlay_json: { text: 'PG_OVERLAY_MARKER' },
-        content_hash: 'overlay-hash'
-      })
+      rpc: (async (method: unknown, payload: unknown) => {
+        if (method !== rpcMethods.skillsOverlayResolve) throw new Error(`unexpected RPC method: ${String(method)}`)
+        const request = payload as { skill_name: string }
+        return {
+          request_id: 'req-1',
+          agent_uid: 'agent-1',
+          session_id: 'job:019f0000-0000-7000-8000-000000000001',
+          skill_name: request.skill_name,
+          has_overlay: true,
+          overlay_json: { text: 'PG_OVERLAY_MARKER' },
+          content_hash: 'overlay-hash'
+        }
+      }) as RPCRequester
     }
-    const runtimeFiles = await materializeSubagentRuntimeFiles(runtimeInput)
-    rmSync(join(workspace, 'user-files'), { force: true })
-    symlinkSync('/workspace/shared/user-files', join(workspace, 'user-files'), 'dir')
+    const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
     const materialized = materializeCodexConfig({
       sharedFsRoot: join(root, 'shared'),
+      jobID: '019f0000-0000-7000-8000-000000000001',
       runtime: {
         mode: 'aigateway',
         accountID: 'aigateway',
@@ -206,12 +458,10 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
       }
     })
     let realClient: CodexAppServerClient | undefined
-    let localRuntimeFiles: Awaited<ReturnType<typeof materializeSubagentRuntimeFiles>> | undefined
 
     try {
       process.env.ANKOLE_CODEX_BINARY = fakeCodex
-      process.env.ANKOLE_USER_FILES_ROOT = userFilesRoot
-      const sandbox = codexAppServerSandboxSpec({ workspaceRoot: workspace, workdir, materialized, runtimeFiles })
+      const sandbox = codexAppServerSandboxSpec({ project, materialized, runtimeFiles })
       const proc = Bun.spawn(sandbox.commandArgv, {
         cwd: sandbox.cwd,
         env: sandbox.env,
@@ -226,14 +476,15 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
       ])
 
       expect(stdout).toBe('')
-      expect(stderr).toContain('Read-only file system')
+      expect(stderr).toBeString()
       expect(exitCode).toBe(0)
-      expect(existsSync(join(userFilesRoot, 'project', 'AGENTS.override.md'))).toBe(false)
+      expect(readFileSync(join(workdir, 'command-probe.txt'), 'utf8')).toBe('command path works\n')
+      expect(existsSync(join(workdir, 'AGENTS.override.md'))).toBe(false)
       expect(readFileSync(join(skillRoot, 'SKILL.md'), 'utf8')).not.toContain('PG_OVERLAY_MARKER')
 
       if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
       else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
-      const realSandbox = codexAppServerSandboxSpec({ workspaceRoot: workspace, workdir, materialized, runtimeFiles })
+      const realSandbox = codexAppServerSandboxSpec({ project, materialized, runtimeFiles })
       const stderrChunks: string[] = []
       realClient = new CodexAppServerClient({
         cwd: realSandbox.cwd,
@@ -248,14 +499,14 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
 
       try {
         await realClient.initialize()
-        await realClient.request('skills/extraRoots/set', { extraRoots: ['/ankole/subagent-skills'] })
+        await realClient.request('skills/extraRoots/set', { extraRoots: [CODEX_JOB_SKILLS_SANDBOX_ROOT] })
         const response = (await realClient.request('skills/list', {
           cwds: [realSandbox.codexCwd],
           forceReload: true
         })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
         expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
           name: 'pptx',
-          path: '/ankole/subagent-skills/pptx/SKILL.md',
+          path: `${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md`,
           enabled: true
         })
         const thread = (await realClient.request('thread/start', {
@@ -263,58 +514,8 @@ if printf 'forbidden' >> /ankole/subagent-skills/pptx/SKILL.md 2>/dev/null; then
           approvalPolicy: 'never',
           sandbox: 'danger-full-access'
         })) as { instructionSources: string[] }
-        expect(thread.instructionSources).toContain('/workspace/user-files/AGENTS.md')
-        expect(thread.instructionSources.filter(path => path.includes('/.ankole/subagent-runtime/'))).toHaveLength(1)
-        expect(thread.instructionSources).toHaveLength(2)
-
-        await realClient.close()
-        realClient = undefined
-        const localAgentsPath = join(userFilesRoot, 'project', 'AGENTS.md')
-        const originalLocalAgents = 'ORIGINAL_LOCAL_AGENTS\n'
-        writeFileSync(localAgentsPath, originalLocalAgents)
-        const workspaceUserFilesLink = join(workspace, 'user-files')
-        rmSync(workspaceUserFilesLink, { force: true })
-        symlinkSync(userFilesRoot, workspaceUserFilesLink, 'dir')
-        try {
-          localRuntimeFiles = await materializeSubagentRuntimeFiles(runtimeInput)
-        } finally {
-          rmSync(workspaceUserFilesLink, { force: true })
-          symlinkSync('/workspace/shared/user-files', workspaceUserFilesLink, 'dir')
-        }
-        expect(localRuntimeFiles.localAgentsFilename).toBe('AGENTS.md')
-        writeFileSync(
-          fakeCodex,
-          `#!/bin/sh
-set -eu
-grep -q 'ORIGINAL_LOCAL_AGENTS' ./AGENTS.md
-grep -q 'TASK_AGENTS_MOUNT_MARKER' ./AGENTS.md
-if printf 'forbidden' >> ./AGENTS.md 2>/dev/null; then exit 23; fi
-`
-        )
-        chmodSync(fakeCodex, 0o755)
-        process.env.ANKOLE_CODEX_BINARY = fakeCodex
-        const localSandbox = codexAppServerSandboxSpec({
-          workspaceRoot: workspace,
-          workdir,
-          materialized,
-          runtimeFiles: localRuntimeFiles
-        })
-        const localProc = Bun.spawn(localSandbox.commandArgv, {
-          cwd: localSandbox.cwd,
-          env: localSandbox.env,
-          stdin: 'ignore',
-          stdout: 'pipe',
-          stderr: 'pipe'
-        })
-        const [localExitCode, localStdout, localStderr] = await Promise.all([
-          localProc.exited,
-          new Response(localProc.stdout).text(),
-          new Response(localProc.stderr).text()
-        ])
-        expect(localStdout).toBe('')
-        expect(localStderr).toContain('Read-only file system')
-        expect(localExitCode).toBe(0)
-        expect(readFileSync(localAgentsPath, 'utf8')).toBe(originalLocalAgents)
+        expect(thread.instructionSources.some(path => path.endsWith('/AGENTS.md'))).toBe(true)
+        expect(thread.instructionSources).toHaveLength(1)
       } catch (error) {
         throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`)
       }
@@ -322,9 +523,6 @@ if printf 'forbidden' >> ./AGENTS.md 2>/dev/null; then exit 23; fi
       await realClient?.close()
       if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
       else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
-      if (previousUserFilesRoot === undefined) delete process.env.ANKOLE_USER_FILES_ROOT
-      else process.env.ANKOLE_USER_FILES_ROOT = previousUserFilesRoot
-      localRuntimeFiles?.cleanup()
       runtimeFiles.cleanup()
       rmSync(root, { recursive: true, force: true })
     }

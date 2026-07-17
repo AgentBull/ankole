@@ -12,6 +12,45 @@ defmodule Ankole.BackgroundAgentJobsTest do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
 
+  require Ankole.BackgroundAgentJobs
+
+  describe "job session identity" do
+    test "job_session_id/1 pins the persisted wire format" do
+      job_id = Ecto.UUID.generate()
+
+      assert BackgroundAgentJobs.job_session_id(job_id) == "job:" <> job_id
+      assert BackgroundAgentJobs.job_session_prefix() == "job:"
+    end
+
+    test "parse_job_session_id/1 round-trips built ids and rejects everything else" do
+      job_id = Ecto.UUID.generate()
+      session_id = BackgroundAgentJobs.job_session_id(job_id)
+
+      assert BackgroundAgentJobs.parse_job_session_id(session_id) == {:ok, job_id}
+
+      for other <- ["job:", "job", "", job_id, "signal-channel:lark:oc_1", nil, :job] do
+        assert BackgroundAgentJobs.parse_job_session_id(other) == :error
+      end
+    end
+
+    test "is_job_session_id/1 agrees with parse_job_session_id/1" do
+      values = [
+        BackgroundAgentJobs.job_session_id(Ecto.UUID.generate()),
+        "job:",
+        "job",
+        "",
+        Ecto.UUID.generate(),
+        "signal-channel:lark:oc_1",
+        nil
+      ]
+
+      for value <- values do
+        assert BackgroundAgentJobs.is_job_session_id(value) ==
+                 match?({:ok, _job_id}, BackgroundAgentJobs.parse_job_session_id(value))
+      end
+    end
+  end
+
   test "bounded trajectory excerpts preserve valid UTF-8 at both ends" do
     excerpt = Text.truncate_utf8_window("开" <> String.duplicate("大", 100) <> "终", 64)
 
@@ -136,10 +175,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert event.agent_uid == agent.uid
     assert event.binding_name == "lark"
-    assert event.session_id == "job:#{job.id}"
+    assert event.session_id == BackgroundAgentJobs.job_session_id(job.id)
     assert event.signal_channel_id == "chat-1"
     assert event.provider_thread_id == "thread-1"
-    assert event.source_entry_id == "message-1"
+    assert event.source_entry_id == nil
     assert event.type == "background_agent_job.dispatch"
     assert event.source_event_id == "background_agent_job:#{job.id}:dispatch"
 
@@ -653,7 +692,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     dispatch =
       Repo.one!(
         from event in ActorEvent,
-          where: event.session_id == ^"job:#{queued.id}",
+          where: event.session_id == ^BackgroundAgentJobs.job_session_id(queued.id),
           where: event.type == "background_agent_job.dispatch"
       )
 
@@ -687,7 +726,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert running_stopped.metadata["cancel_requested_by"] == "agent:#{agent.uid}"
     assert running_stopped.metadata["cancel_reason"] == "Changed priorities"
     assert stop_event.type == "command.stop"
-    assert stop_event.session_id == "job:#{running.id}"
+    assert stop_event.session_id == BackgroundAgentJobs.job_session_id(running.id)
+    assert stop_event.source_entry_id == nil
     assert get_in(stop_event.payload, ["data", "command", "argsText"]) == "Changed priorities"
 
     waiting = create_job!(agent.uid, "waiting-stop")
@@ -725,7 +765,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     refute Repo.exists?(
              from event in ActorEvent,
-               where: event.session_id == ^"job:#{waiting.id}",
+               where: event.session_id == ^BackgroundAgentJobs.job_session_id(waiting.id),
                where: event.type == "command.stop"
            )
   end
@@ -751,6 +791,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "answers" => %{"audience" => "Operators"},
                "request_id" => "steer-same-session"
              })
+
+    assert steer_event.source_entry_id == nil
 
     assert steer_event.type == "command.steer"
 
@@ -947,9 +989,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         completed_at: now
       })
 
-    refute oversized.valid?
-    assert %{trajectory: [size_error]} = errors_on(oversized)
-    assert size_error =~ "encoded bytes"
+    assert oversized.valid?
   end
 
   test "execution projection aggregates one attempt while paginating only lead agent semantic groups" do

@@ -14,10 +14,18 @@ import {
 
 export interface CreateMemoryToolsOptions {
   turnStart: TurnStart
-  requestMemoryRPC?: MemoryRPCRequester
+  requestMemoryRPC: MemoryRPCRequester
 }
 
 type MemoryToolDetails = JSONObject
+
+const MemoryActivity = {
+  search: '回忆相关上下文',
+  open: '读取记忆内容',
+  update: '更新记忆',
+  browse: '浏览对话记忆',
+  healthCheck: '检查记忆状态'
+} as const
 
 const MemorySearchParams = z.object({
   query: z.string().min(1).max(1000),
@@ -176,9 +184,8 @@ const MemoryUpdateParams = z
 
 const MemoryHealthCheckParams = z.object({})
 
-/** Creates the Brain tools only when the turn runtime provides its RPC seam. */
+/** Creates the Brain memory tools over the turn's RPC seam. */
 export function createMemoryTools(opts: CreateMemoryToolsOptions): AgentTool<any>[] {
-  if (!opts.requestMemoryRPC) return []
   return [
     createMemorySearchTool(opts),
     createMemoryOpenTool(opts),
@@ -199,12 +206,13 @@ export function createMemorySearchTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => MemoryActivity.search,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRPC!(rpcMethods.memorySearch, {
+      const response = await opts.requestMemoryRPC(rpcMethods.memorySearch, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '回忆相关上下文', response)])
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.search, response)])
     }
   }
 }
@@ -220,13 +228,14 @@ export function createMemoryOpenTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => MemoryActivity.open,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       if (!params.entry_id && !params.name?.trim()) throw new Error('memory_open requires entry_id or name')
-      const response = await opts.requestMemoryRPC!(rpcMethods.memoryOpen, {
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryOpen, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '读取记忆内容', response)])
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.open, response)])
     }
   }
 }
@@ -242,14 +251,15 @@ export function createMemoryUpdateTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
+    describeActivity: () => MemoryActivity.update,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const operationParams = MemoryUpdateOperationParams.parse(params)
       const request = {
         ...memoryRequest(opts.turnStart),
         ...operationParams,
         tool_call_id: toolCallID
-      } as MemoryUpdateRequest
-      const response = await opts.requestMemoryRPC!(rpcMethods.memoryUpdate, request)
+      } as Omit<MemoryUpdateRequest, 'request_id'>
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryUpdate, request)
       return memoryToolResult(response, [memoryMutationReceipt(toolCallID, operationParams.operation)])
     }
   }
@@ -266,12 +276,13 @@ export function createMemoryBrowseTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => MemoryActivity.browse,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRPC!(rpcMethods.memoryBrowse, {
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryBrowse, {
         ...memoryRequest(opts.turnStart),
         ...compactRecord(params)
       })
-      return memoryToolResult(response, [memoryLookupEvent(toolCallID, '浏览对话记忆', response)])
+      return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.browse, response)])
     }
   }
 }
@@ -287,16 +298,16 @@ function createMemoryHealthCheckTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => MemoryActivity.healthCheck,
     async execute(): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRPC!(rpcMethods.memoryHealthCheck, memoryRequest(opts.turnStart))
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryHealthCheck, memoryRequest(opts.turnStart))
       return memoryToolResult(response)
     }
   }
 }
 
-function memoryRequest(turnStart: TurnStart): MemoryRPCRequestBase {
+function memoryRequest(turnStart: TurnStart): Omit<MemoryRPCRequestBase, 'request_id'> {
   return {
-    request_id: `memory-${crypto.randomUUID()}`,
     turn: turnStart.turn,
     actor_event: turnStart.actor_event
   }

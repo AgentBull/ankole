@@ -1,17 +1,17 @@
 import { match } from '@pleisto/active-support'
 import type { TurnModelRef } from '../lanes/actor_lane'
-import { assertRPCResponse, type AIGatewayAPIKeyResponse, type RPCError } from '../lanes/rpc_lane'
+import type { AIGatewayAPIKeyResponse } from '../lanes/rpc_lane'
 import { createModel, type ModelConfig } from './llm'
 
 const aiGatewayAPIKeyRefreshSkewMs = 60_000
+const aiGatewayHTTPMaxAttempts = 3
+const aiGatewayHTTPRefreshedKeyBackoffMs = 5_000
 
 export type AIGatewayAPIKeyRefreshOptions = {
   forceRefresh?: boolean
 }
 
-export type AIGatewayAPIKeyRefresher = (
-  options?: AIGatewayAPIKeyRefreshOptions
-) => Promise<AIGatewayAPIKeyResponse | RPCError>
+export type AIGatewayAPIKeyRefresher = (options?: AIGatewayAPIKeyRefreshOptions) => Promise<AIGatewayAPIKeyResponse>
 
 export type AIGatewayFetch = (
   input: Parameters<typeof fetch>[0],
@@ -90,30 +90,54 @@ function aiGatewayFetch(
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
     headers.set('authorization', `Bearer ${currentAPIKey.api_key}`)
-    return fetch(input, { ...init, headers })
+    return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
 
   return async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const reusableInput = input instanceof Request ? input.clone() : input
+    const signal = init?.signal ?? (reusableInput instanceof Request ? reusableInput.signal : undefined)
+
     // Proactive refresh: rotate the key before it expires, within the local skew window.
     if (currentAPIKey.expires_at * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs) {
       currentAPIKey = await refreshAPIKeyOrThrow(refreshAPIKey)
     }
 
-    const response = await sendWithKey(input, init)
+    for (let attempt = 1; attempt <= aiGatewayHTTPMaxAttempts; attempt++) {
+      const response = await sendWithKey(reusableInput, init)
+      if (response.status !== 401 || !refreshAPIKey || attempt === aiGatewayHTTPMaxAttempts) return response
 
-    // Reactive refresh: a key can be revoked server-side before its stated expiry.
-    if (response.status === 401 && refreshAPIKey) {
-      try {
-        await response.body?.cancel()
-      } catch {
-        // ignore: discarding the unauthorized response body before retrying
-      }
+      await discardResponse(response)
+      if (attempt > 1) await abortableDelay(aiGatewayHTTPRefreshedKeyBackoffMs, signal)
+      signal?.throwIfAborted()
       currentAPIKey = await refreshAPIKeyOrThrow(refreshAPIKey, { forceRefresh: true })
-      return sendWithKey(input, init)
     }
 
-    return response
+    throw new Error('unreachable AIGateway HTTP retry state')
   }
+}
+
+async function discardResponse(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch {
+    // The response is already being discarded; a close race must not hide the retry.
+  }
+}
+
+function abortableDelay(delayMs: number, signal?: AbortSignal | null): Promise<void> {
+  signal?.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      reject(signal?.reason ?? new DOMException('The operation was aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, delayMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /**
@@ -142,7 +166,7 @@ function aiGatewayAuthorization(initialAPIKey: AIGatewayAPIKeyResponse, refreshA
 }
 
 /**
- * Refreshes the key or throws the rejection as a worker-visible error.
+ * Refreshes the key or reports the missing refresh capability.
  */
 async function refreshAPIKeyOrThrow(
   refreshAPIKey?: AIGatewayAPIKeyRefresher,
@@ -151,9 +175,7 @@ async function refreshAPIKeyOrThrow(
   if (!refreshAPIKey) {
     throw new Error('AIGateway API key expired and no refresh callback is available')
   }
-  const refreshed = await refreshAPIKey(options)
-  assertRPCResponse<AIGatewayAPIKeyResponse>(refreshed, 'AIGateway API key rejected')
-  return refreshed
+  return await refreshAPIKey(options)
 }
 
 /**

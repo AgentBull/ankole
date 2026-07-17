@@ -42,6 +42,7 @@ export function createClarifyTool(): AgentTool<typeof ClarifyParams, ClarifyDeta
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: () => '整理需要确认的信息',
     async execute(_toolCallId, params): Promise<AgentToolResult<ClarifyDetails>> {
       const details: ClarifyDetails = {
         tool: 'clarify',

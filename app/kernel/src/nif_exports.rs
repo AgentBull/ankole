@@ -184,25 +184,6 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
         .map_err(error)
 }
 
-/// Encodes a RuntimeFabric v1 envelope map as protobuf bytes.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_encode_envelope_nif(envelope: Term<'_>) -> NIFResult<OwnedBinary> {
-    let envelope = decode_json(envelope, "envelope")?;
-
-    runtime_fabric::encode_envelope(envelope)
-        .map_err(error)
-        .and_then(binary_from_vec)
-}
-
-/// Decodes RuntimeFabric v1 protobuf bytes into the host envelope shape.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_decode_envelope_nif(envelope_bytes: Term<'_>) -> NIFResult<String> {
-    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-    let envelope = runtime_fabric::decode_envelope(envelope_bytes.as_slice()).map_err(error)?;
-
-    encode_json(envelope)
-}
-
 /// Starts a Rust-owned ZeroMQ ROUTER socket for RuntimeFabric traffic.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn runtime_fabric_router_start(
@@ -234,18 +215,21 @@ pub fn runtime_fabric_router_endpoint(
 }
 
 /// Sends a RuntimeFabric envelope to one ROUTER identity with mandatory routing.
+///
+/// The envelope arrives as protobuf bytes produced by the Elixir generated
+/// codec; the router validates protocol invariants before the socket send.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn runtime_fabric_router_send_mandatory(
     router: ResourceArc<RuntimeFabricRouterResource>,
     transport_route: Term<'_>,
-    envelope_json: Term<'_>,
+    envelope_bytes: Term<'_>,
 ) -> NIFResult<String> {
     let transport_route = decode_string(transport_route, "transport_route")?;
-    let envelope = decode_json(envelope_json, "envelope_json")?;
+    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
 
     router
         .0
-        .send_mandatory(transport_route, envelope)
+        .send_mandatory(transport_route, envelope_bytes.as_slice().to_vec())
         .map(|_| "sent_or_queued".to_string())
         .map_err(|error| error_message(error.ffi_message()))
 }
@@ -657,19 +641,22 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
             transport_route,
             authenticated_worker_id,
             authenticated_key_revision,
-            envelope_json,
+            envelope_bytes,
         } => {
             let worker_id = authenticated_worker_id.unwrap_or_default();
             let key_revision = authenticated_key_revision.unwrap_or_default();
 
-            (
-                atoms::runtime_fabric_router_received(),
-                transport_route,
-                worker_id,
-                key_revision,
-                envelope_json,
-            )
-                .encode(env)
+            match encode_binary_term(env, envelope_bytes) {
+                Ok(envelope_term) => (
+                    atoms::runtime_fabric_router_received(),
+                    transport_route,
+                    worker_id,
+                    key_revision,
+                    envelope_term,
+                )
+                    .encode(env),
+                Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
+            }
         }
         RouterEvent::FileFrame {
             transport_route,
@@ -828,15 +815,19 @@ fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Result<Te
     let mut terms: Vec<Term<'a>> = Vec::with_capacity(frames.len());
 
     for frame in frames {
-        let Some(mut binary) = OwnedBinary::new(frame.len()) else {
-            return Err("failed to allocate runtime fabric binary frame".to_string());
-        };
-
-        binary.as_mut_slice().copy_from_slice(&frame);
-        terms.push(binary.release(env).encode(env));
+        terms.push(encode_binary_term(env, frame)?);
     }
 
     Ok(terms.encode(env))
+}
+
+fn encode_binary_term(env: Env<'_>, bytes: Vec<u8>) -> Result<Term<'_>, String> {
+    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
+        return Err("failed to allocate runtime fabric binary frame".to_string());
+    };
+
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env).encode(env))
 }
 
 rustler::init!("Elixir.Ankole.Kernel");

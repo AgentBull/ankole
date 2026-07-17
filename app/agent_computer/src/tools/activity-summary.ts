@@ -54,11 +54,6 @@ export function commandActivityLabel(command: string | undefined): string {
   return activity.family ? `${activity.action} · ${activity.family}` : activity.action
 }
 
-/** Returns only the safe command family for an interactive-terminal start summary. */
-export function commandActivityFamily(command: string | undefined): string | undefined {
-  return summarizeCommand(command).family
-}
-
 function summarizeCommand(command: string | undefined): CommandActivity {
   const source = command?.trim()
   if (!source) return { action: '执行命令' }

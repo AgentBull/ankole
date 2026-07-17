@@ -1,5 +1,5 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { assertRPCResponse, type AIGatewayAPIKeyResponse, type RPCError } from '../../lanes/rpc_lane'
+import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import {
   httpClientFromAIGatewayAPIKey,
   modelConfigFromAIGatewayAPIKey,
@@ -8,8 +8,6 @@ import {
 } from '../ai_gateway_transport'
 import type { ModelConfig } from '../llm'
 import type { AIGatewayAPIKeyRequester } from './turn_options'
-
-type AIGatewayAPIKeyResult = AIGatewayAPIKeyResponse | RPCError
 
 export type TurnAIGatewayAccess = {
   model: ModelConfig
@@ -21,7 +19,6 @@ export type TurnAIGatewayAccessStep = <T>(promise: Promise<T>, step: string) => 
 
 export type AcquireTurnAIGatewayAccessOptions = {
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
-  requestIDPrefix?: string
   runStep?: TurnAIGatewayAccessStep
 }
 
@@ -42,19 +39,12 @@ export async function acquireTurnAIGatewayAccess(
     throw new Error('turn is missing a real model_ref')
   }
 
-  const requestIDPrefix = opts.requestIDPrefix ?? 'ai-gateway-key'
   const requestAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
-    opts.requestAIGatewayAPIKey(
-      {
-        request_id: `${requestIDPrefix}-${crypto.randomUUID()}`,
-        agent_uid: turnStart.turn.actor.agent_uid
-      },
-      refreshOptions
-    )
+    opts.requestAIGatewayAPIKey({ agent_uid: turnStart.turn.actor.agent_uid }, refreshOptions)
 
-  const apiKey = await requestAPIKeyOrThrow(turnStart, requestAPIKey(), 'AIGateway API key', opts.runStep)
+  const apiKey = await requestVerifiedAPIKey(turnStart, requestAPIKey(), 'AIGateway API key', opts.runStep)
   const refreshAIGatewayAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
-    requestAPIKeyOrThrow(turnStart, requestAPIKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
+    requestVerifiedAPIKey(turnStart, requestAPIKey(refreshOptions), 'AIGateway API key refresh', opts.runStep)
 
   return {
     model: modelConfigFromAIGatewayAPIKey(modelRef, apiKey, refreshAIGatewayAPIKey),
@@ -71,15 +61,13 @@ export async function acquireTurnAIGatewayAccess(
   }
 }
 
-async function requestAPIKeyOrThrow(
+async function requestVerifiedAPIKey(
   turnStart: TurnStart,
-  promise: Promise<AIGatewayAPIKeyResult>,
+  promise: Promise<AIGatewayAPIKeyResponse>,
   step: string,
   runStep?: TurnAIGatewayAccessStep
 ): Promise<AIGatewayAPIKeyResponse> {
   const apiKey = await (runStep ? runStep(promise, step) : promise)
-  assertRPCResponse<AIGatewayAPIKeyResponse>(apiKey, 'AIGateway API key rejected')
-
   assertAIGatewayAPIKeyMatchesTurn(turnStart, apiKey)
   return apiKey
 }

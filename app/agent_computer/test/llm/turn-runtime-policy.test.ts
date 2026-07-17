@@ -7,7 +7,7 @@ describe('@ankole/agent-computer turn runtime policy', () => {
   it('uses the snapshotted iteration budget and default inactivity timeout', () => {
     expect(agentRuntimePolicyFromTurnStart(turnStartForTest())).toEqual({
       maxIterations: 90,
-      inactivityTimeoutMs: ms('30m')
+      inactivityTimeoutMs: ms('35m')
     })
   })
 

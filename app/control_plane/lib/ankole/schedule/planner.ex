@@ -3,9 +3,13 @@ defmodule Ankole.Schedule.Planner do
 
   alias Ankole.Schedule.Attrs
   alias Ankole.SystemConfig
+  alias Ankole.TimeZone
+  alias Crontab.CronExpression.Parser, as: CronParser
+  alias Crontab.Scheduler, as: CronScheduler
 
   @min_delay_ms 1_000
   @max_horizon_ms 366 * 24 * 60 * 60 * 1_000
+  @max_timezone_candidate_rejections 10_000
 
   @spec next_fire_after(map(), String.t(), DateTime.t()) ::
           {:ok, DateTime.t()} | {:error, term()}
@@ -96,7 +100,7 @@ defmodule Ankole.Schedule.Planner do
         Keyword.get(opts, :timezone)
 
     case timezone do
-      value when is_binary(value) -> validate_timezone(value)
+      value when is_binary(value) -> TimeZone.validate(value)
       _value -> SystemConfig.timezone()
     end
   end
@@ -127,8 +131,8 @@ defmodule Ankole.Schedule.Planner do
     with {:ok, naive} <- NaiveDateTime.from_iso8601(value) do
       naive
       |> NaiveDateTime.to_date()
-      |> datetime_in_timezone(NaiveDateTime.to_time(naive), timezone)
-      |> to_utc()
+      |> TimeZone.resolve_local(Time.truncate(NaiveDateTime.to_time(naive), :second), timezone)
+      |> shift_to_utc()
     else
       _error -> {:error, :invalid_at}
     end
@@ -150,156 +154,82 @@ defmodule Ankole.Schedule.Planner do
   end
 
   defp next_cron_fire_after(schedule, timezone, %DateTime{} = after_at) do
-    with {:ok, local_after} <- DateTime.shift_zone(after_at, timezone),
+    with {:ok, timezone} <- TimeZone.validate(timezone),
+         {:ok, local_after} <- TimeZone.shift(after_at, timezone),
          {:ok, expression} <- Attrs.required_text(schedule, "expression"),
+         {:ok, cron_expression} <- parse_cron_expression(expression),
          {:ok, stagger_ms} <- Attrs.non_negative_integer(schedule, "stagger_ms", 0),
-         {:ok, local_next} <- next_cron_local(expression, local_after),
-         {:ok, utc_next} <- DateTime.shift_zone(local_next, "Etc/UTC") do
+         {:ok, local_next} <-
+           next_cron_local(
+             cron_expression,
+             DateTime.to_naive(local_after),
+             timezone,
+             after_at,
+             @max_timezone_candidate_rejections
+           ),
+         {:ok, utc_next} <- TimeZone.shift(local_next, "Etc/UTC") do
       {:ok, DateTime.add(utc_next, stagger_ms, :millisecond)}
-    else
-      {:error, _reason} = error -> error
     end
   end
 
-  defp next_cron_local(expression, %DateTime{} = local_after) do
-    fields = String.split(expression, ~r/\s+/, trim: true)
-
-    case fields do
-      [_minute, _hour, _day, _month, _weekday] ->
-        with {:ok, expr} <- Oban.Plugins.Cron.parse(expression) do
-          {:ok, Oban.Cron.Expression.next_at(expr, local_after)}
-        end
-
-      [seconds, minute, hour, day, month, weekday] ->
-        five_field = Enum.join([minute, hour, day, month, weekday], " ")
-
-        with {:ok, seconds} <- parse_cron_seconds(seconds),
-             {:ok, expr} <- Oban.Plugins.Cron.parse(five_field) do
-          {:ok, next_six_field_cron_local(expr, seconds, local_after)}
-        end
-
-      _fields ->
-        {:error, :invalid_cron_expression}
-    end
+  defp next_cron_local(_cron_expression, _cursor, _timezone, _after_at, 0) do
+    {:error, :cron_timezone_resolution_exhausted}
   end
 
-  defp next_six_field_cron_local(expr, seconds, %DateTime{} = local_after) do
-    minute_start = %{DateTime.truncate(local_after, :second) | second: 0}
+  defp next_cron_local(cron_expression, cursor, timezone, after_at, attempts_left) do
+    search_from = NaiveDateTime.add(cursor, 1, :microsecond)
 
-    same_minute_second =
-      if Oban.Cron.Expression.now?(expr, minute_start) do
-        Enum.find(seconds, &(&1 > local_after.second))
+    with {:ok, candidate} <- CronScheduler.get_next_run_date(cron_expression, search_from),
+         {:ok, resolved} <- TimeZone.resolve_local(candidate, timezone) do
+      case DateTime.compare(resolved, after_at) do
+        :gt ->
+          {:ok, resolved}
+
+        _comparison ->
+          next_cron_local(
+            cron_expression,
+            candidate,
+            timezone,
+            after_at,
+            attempts_left - 1
+          )
       end
-
-    case same_minute_second do
-      second when is_integer(second) ->
-        %{minute_start | second: second}
-
-      _value ->
-        next_minute = Oban.Cron.Expression.next_at(expr, local_after)
-        %{next_minute | second: List.first(seconds)}
     end
   end
 
   defp validate_cron_expression(expression) do
+    with {:ok, _cron_expression} <- parse_cron_expression(expression) do
+      expression
+      |> String.split(~r/\s+/, trim: true)
+      |> Enum.join(" ")
+      |> then(&{:ok, &1})
+    end
+  end
+
+  defp parse_cron_expression(expression) when is_binary(expression) do
     fields = String.split(expression, ~r/\s+/, trim: true)
 
     case fields do
       [_minute, _hour, _day, _month, _weekday] ->
-        with {:ok, _expr} <- Oban.Plugins.Cron.parse(expression), do: {:ok, expression}
+        parse_cron_fields(fields, false)
 
-      [seconds, minute, hour, day, month, weekday] ->
-        five_field = Enum.join([minute, hour, day, month, weekday], " ")
-
-        with {:ok, _seconds} <- parse_cron_seconds(seconds),
-             {:ok, _expr} <- Oban.Plugins.Cron.parse(five_field) do
-          {:ok, expression}
-        end
+      [_second, _minute, _hour, _day, _month, _weekday] ->
+        parse_cron_fields(fields, true)
 
       _fields ->
         {:error, :invalid_cron_expression}
     end
   end
 
-  defp parse_cron_seconds(field) when is_binary(field) do
-    field
-    |> String.split(",", trim: true)
-    |> Enum.map(&parse_cron_second_part/1)
-    |> Attrs.collect_results()
-    |> case do
-      {:ok, ranges} ->
-        seconds =
-          ranges
-          |> Enum.flat_map(& &1)
-          |> Enum.uniq()
-          |> Enum.sort()
-
-        case seconds != [] and Enum.all?(seconds, &(&1 in 0..59)) do
-          true -> {:ok, seconds}
-          false -> {:error, :invalid_cron_seconds}
-        end
-
-      {:error, _reason} = error ->
-        error
+  defp parse_cron_fields(fields, extended?) do
+    case CronParser.parse(Enum.join(fields, " "), extended?) do
+      {:ok, cron_expression} -> {:ok, cron_expression}
+      {:error, _reason} -> {:error, :invalid_cron_expression}
     end
   end
 
-  defp parse_cron_second_part("*"), do: {:ok, Enum.to_list(0..59)}
-
-  defp parse_cron_second_part("*/" <> step) do
-    with {:ok, step} <- Attrs.parse_positive_integer(step) do
-      {:ok, Enum.take_every(Enum.to_list(0..59), step)}
-    end
-  end
-
-  defp parse_cron_second_part(part) do
-    cond do
-      String.contains?(part, "/") ->
-        with [range, step] <- String.split(part, "/", parts: 2),
-             {:ok, values} <- parse_cron_second_part(range),
-             {:ok, step} <- Attrs.parse_positive_integer(step) do
-          {:ok, Enum.take_every(values, step)}
-        else
-          _value -> {:error, :invalid_cron_seconds}
-        end
-
-      String.contains?(part, "-") ->
-        with [left, right] <- String.split(part, "-", parts: 2),
-             {:ok, left} <- Attrs.parse_non_negative_integer(left),
-             {:ok, right} <- Attrs.parse_non_negative_integer(right),
-             true <- left <= right do
-          {:ok, Enum.to_list(left..right)}
-        else
-          _value -> {:error, :invalid_cron_seconds}
-        end
-
-      true ->
-        with {:ok, second} <- Attrs.parse_non_negative_integer(part) do
-          {:ok, [second]}
-        end
-    end
-  end
-
-  defp validate_timezone("UTC"), do: {:ok, "Etc/UTC"}
-
-  defp validate_timezone(timezone) when is_binary(timezone) do
-    case DateTime.now(timezone) do
-      {:ok, _now} -> {:ok, timezone}
-      {:error, reason} -> {:error, {:invalid_timezone, timezone, reason}}
-    end
-  end
-
-  defp datetime_in_timezone(%Date{} = date, %Time{} = time, timezone) do
-    case DateTime.new(date, Time.truncate(time, :second), timezone) do
-      {:ok, datetime} -> {:ok, datetime}
-      {:ambiguous, first_datetime, _second_datetime} -> {:ok, first_datetime}
-      {:gap, _before_gap, after_gap} -> {:ok, after_gap}
-      {:error, reason} -> {:error, {:invalid_timezone, timezone, reason}}
-    end
-  end
-
-  defp to_utc({:ok, %DateTime{} = datetime}), do: DateTime.shift_zone(datetime, "Etc/UTC")
-  defp to_utc({:error, _reason} = error), do: error
+  defp shift_to_utc({:ok, %DateTime{} = datetime}), do: TimeZone.shift(datetime, "Etc/UTC")
+  defp shift_to_utc({:error, _reason} = error), do: error
 
   defp absolute_datetime(value) when is_binary(value) do
     with {:ok, datetime, _offset} <- DateTime.from_iso8601(value),

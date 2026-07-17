@@ -7,6 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
@@ -95,7 +96,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   defp complete_pending_job_events(repo, job, now) do
     ActorEvent
     |> where([event], event.agent_uid == ^job.agent_uid)
-    |> where([event], event.session_id == ^"job:#{job.id}")
+    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
     |> where([event], event.type in ["background_agent_job.dispatch", "command.steer"])
     |> where([event], is_nil(event.completed_at))
     |> lock("FOR UPDATE")
@@ -149,11 +150,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     SignalsGateway.append_actor_event_in_tx(repo, %{
       agent_uid: job.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
-      session_id: "job:#{job.id}",
+      session_id: BackgroundAgentJobs.job_session_id(job.id),
       source_event_id: "background_agent_job:#{job.id}:#{command}:#{request_id}",
       signal_channel_id: Map.get(reply_route, "signal_channel_id"),
       provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-      source_entry_id: Map.get(reply_route, "source_entry_id"),
       type: "command.#{command}",
       available_at: now,
       payload: %{

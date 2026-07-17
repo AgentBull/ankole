@@ -80,54 +80,82 @@ _Avoid_: Lint error, verdict, auto-fix
 
 ## Background Work
 
-**Subagent Delegation**:
-父 agent 交办给 Subagent 的一条 durable 后台工作项，是 Ankole 的第一种后台工作项类型。其生命周期独立于任何进程、worker 或 turn，与父会话只在「创建」与「汇报」两点相接。
-_Avoid_: Codex delegation, background job, async task
+**Background Agent Job**:
+owner 交给后台 runner 的一条 durable 工作项，是 Ankole 的第一种后台工作项类型。其生命周期独立于任何进程、worker、turn 或具体 runner，与 owner 只在「创建」「控制」和「汇报」边界相接。代码实体写作 `BackgroundAgentJob`，模型工具写作 `background_agent_job`。
+_Avoid_: Subagent Delegation, generic background job, async task, Codex job
 
-**Subagent**:
-在隔离上下文中执行委托的后台执行者角色，由 Task Worker 承载；不继承父会话历史，靠 Handoff 获得工作所需上下文。
-_Avoid_: Codex（指角色时）, child agent
+**Owner**:
+拥有 Background Agent Job 的 `{agent_uid, owner_session_id}` 引用。当前 owner 是创建 Job 的 main-agent 会话；Job 的完成、失败或等人事件唤醒这个引用，而不是绑定某个活进程或 turn。
+_Avoid_: Parent agent（指 durable identity 时）, caller process
 
-**Task Worker**:
-承载 Subagent 角色并执行 Delegation 的可替换 runtime。它只拥有执行机制，不拥有委托生命周期语义。
-_Avoid_: Delegation Runtime, Codex（指 runtime 类别时）, engine
+**Runner**:
+执行 Background Agent Job 的 worker 侧载体。当前唯一实现是 CodexRunner；runner 只拥有执行机制，不拥有 Job 的 durable 生命周期语义。
+_Avoid_: Subagent（指 Ankole 角色时）, Task Worker, interchangeable engine
 
 **Handoff**:
-父会话向 Subagent 移交工作所需信息的方式：完整指令与全部 requirements 写在 durable `task` 字段并作为首个 user input；SOUL、MISSION、相关 background、执行 notes 与环境信息写入任务级 AGENTS；Skills 与必要的 Ankole Tools 作为可用能力提供。父会话历史永不自动携带。
+owner 向 runner 移交工作所需信息的方式：完整指令与全部 requirements 写在 durable `task` 字段并作为首个 user input；SOUL、MISSION、相关 background、执行 notes 与环境信息写入任务级 AGENTS；Skills 与必要的 Ankole Tools 作为可用能力提供。owner 会话历史永不自动携带。
 _Avoid_: Context transfer, context dump
 
 **Capability Projection**:
-一次委托实际可用的能力集合：父 agent 的全部 enabled Skills 通过 Codex 原生 Skill discovery 提供，必要的 Ankole Tools 通过白名单提供；明确保留给父 agent 的交付、调度与长期写入能力除外。
+一次 Job 实际获得的 allowlisted 能力集合。Job 持久化启动时选择的 Agent Plugin IDs 和独立 Skill 名称；runner 每次 prepare 都按当前 effective catalog 解析对应包、成员与 Skills，再加上白名单允许的 Ankole Tools。已关闭或缺失的选择不可用，保留给 main agent 的交付、调度与长期写入能力不投影。
 _Avoid_: Catalog parity, MCP bridge
 
-**Delegation Turn**:
-承载一次委托执行尝试的 worker 侧 turn 种类。它只是执行载体：委托的队列、状态与真相不归它所有，一次委托可跨多个 Delegation Turn 完成。
-_Avoid_: Subagent turn, job
+**Job Turn**:
+承载一次 Job 执行尝试的 worker 侧 turn。它只是执行载体：Job 的队列、状态与真相不归它所有，一次 Job 可跨多个 Job Turn 完成。
+_Avoid_: Subagent turn, Job（把执行 turn 与 durable Job 混称时）
 
-**Delegation Session**:
-每个委托专属的 actor 会话，为该委托提供串行投递与租约化执行。它不是对话会话：不携带对话上下文，也不参与会话重置。
+**Job Session**:
+每个 Job 专属的 `job:<job_id>` actor 会话，为该 Job 提供串行投递与租约化执行。它不是对话会话：不携带 owner 的对话上下文，也不参与会话重置。
 _Avoid_: Conversation session
 
 **Attempts**:
-一次委托已消耗的真实执行机会数。仅在真正取得执行租约时消耗（placement 失败不计），耗尽后委托以失败终局并唤醒父会话。
+一个 Job 已消耗的真实执行机会数。仅在真正取得执行租约时消耗（placement 失败不计），耗尽后 Job 以失败终局并唤醒 owner。
 _Avoid_: Retries, redelivery count
 
 **Steer**:
-对非终态委托追加的转向指令，携带补充方向或对 Subagent 提问的答案。送达不等于已应用：以 runtime 明确接受为准。
+对可续跑 Job 追加的转向指令，携带补充方向或 runner 提问的答案。送达不等于已应用：以 runner 明确接受为准。
 _Avoid_: Nudge, interrupt
 
 **Waiting on User**:
-委托因 Subagent 提出用户问题而进入的暂停态：执行中断，父 agent 向用户逐题转述，答案经 Steer 回流后续跑。
+Job 因 runner 提出用户问题而进入的暂停态：执行中断，main agent 向用户逐题转述，答案经 Steer 回流后续跑。
 _Avoid_: Blocked, paused
 
 **Wakeup**:
-把后台事实带回父会话并开启新 turn 的 durable 事件。来源包括定时回访与委托的完成、失败、等待用户；是否产生用户可见输出由来源领域的交付承诺决定，取消不产生 Wakeup。
+把后台事实带回 owner 会话并开启新 turn 的 durable 事件。来源包括定时回访与 Job 的完成、失败、等待用户；是否产生用户可见输出由来源领域的交付承诺决定，取消不产生 Wakeup。
 _Avoid_: Notification, callback
 
-**Delegation Report**:
-Subagent 自述的最终结果报告。它是不可信输入：父 agent 必须亲自复核证据（文件、diff、测试）后，才能据此向用户汇报。
+**Job Report**:
+runner 自述的最终结果报告。它是不可信输入：main agent 必须亲自复核证据（文件、diff、测试）后，才能据此向用户汇报。
 _Avoid_: Result（未经复核时）, Codex output
 
-**Subagent Home**:
-一次委托专属的 durable 运行时状态目录，使执行可跨 worker 恢复；终态后限期保留、到期清理。
-_Avoid_: CODEX_HOME, scratch directory
+**Agent Plugin**:
+Ankole 面向模型的安装级能力包，是标准 Codex Plugin 的超集：使用 `.codex-plugin/plugin.json` 与标准包内容，并可带 Ankole 约定的 `workspace-template/`。Job 只保存所选 Plugin ID，runner 每次 prepare 使用当前 enabled 包与当前 effective 成员 Skill。
+_Avoid_: Codex Plugin（指 Ankole 完整领域对象时）, Control Plane Plugin, runtime profile, Skill bundle
+
+**Control Plane Plugin**:
+编译进 Elixir release、在 OTP 启动时激活的可信第一方扩展。配置开关表示下次启动选择，当前是否 active 以运行中 Registry 为准。它与 Agent Plugin 没有自动启用关系。
+_Avoid_: Agent Plugin, Ankole Plugin, integration plugin
+
+**Plugin Skill**:
+属于一个 Agent Plugin、随完整父包安装但拥有独立开关状态的 Skill。父 Plugin 关闭只门控其有效性，不改写子 Skill 的全局默认或 Agent 覆盖；稳定 ID 为 `<agent-plugin-id>:<skill-name>`。
+_Avoid_: Standalone Skill, copied Skill
+
+**Standalone Skill**:
+不属于任何 Agent Plugin 的 Skill。内置独立 Skill 使用原名作为稳定 ID；Agent 私有安装 Skill 也属于此类，但继承其来源默认值。
+_Avoid_: Plugin Skill, Skill bundle
+
+**Global Capability Default**:
+一个 Agent 未显式覆盖时继承的 Agent Plugin 或 Skill 二态默认值。全局默认保存在 Agent Library 的 AppConfigure 中，不复制到每个 Agent。
+_Avoid_: Forced state, per-Agent row
+
+**Agent Capability Override**:
+某个 Agent 对一个 Agent Plugin 或 Skill 的稀疏三态选择：开启、关闭或跟随全局。`null` 表示删除显式覆盖并恢复继承。
+_Avoid_: Agent default, copied global state
+
+**Plugin Workspace Template**:
+Agent Plugin 中可选的 `workspace-template/` 目录，是 Ankole 对标准 Codex Plugin 包的唯一额外约定。runner 在 Job 私有 project 第一次创建时完整复制其内容，resume 时复用已有 project。
+_Avoid_: Plugin config, project generator, merge schema
+
+**Job Home**:
+一次 Job 专属的 durable 文件边界，包括控制面管理的私有 project 与 runner runtime home；该 Job 的 `CODEX_HOME` 位于自己的 runtime home 内，使执行可跨 worker 恢复，但绝不与其他 Job 共用目录。caller 提供的 workspace mount source 是外部资源，不属于 Job Home。
+_Avoid_: Account-scoped CODEX_HOME, shared project, scratch directory

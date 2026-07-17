@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  BrainMetadataEditorModel,
   brainCursorPage,
   buildMetadataOperations,
   canReturnBrainCursor,
@@ -13,6 +14,51 @@ import {
 } from './brain-editor-model'
 
 describe('Brain editor model', () => {
+  test('keeps unsaved metadata during same-entry refetch and resets for another entry', () => {
+    const model = new BrainMetadataEditorModel()
+
+    model.initialize('entry:alpha', {
+      name: 'Alpha',
+      type: 'topic',
+      summary: 'Original summary',
+      aliases: ['Original'],
+      propertyDrafts: [{ key: 'stage', value: '"original"' }]
+    })
+    model.name.value = 'Unsaved Alpha'
+    model.summary.value = 'Unsaved summary'
+    model.aliases.value = ['Unsaved']
+    model.propertyDrafts.value = [{ key: 'stage', value: '"unsaved"' }]
+
+    model.initialize('entry:alpha', {
+      name: 'Refetched Alpha',
+      type: 'person',
+      summary: 'Refetched summary',
+      aliases: ['Refetched'],
+      propertyDrafts: [{ key: 'stage', value: '"refetched"' }]
+    })
+
+    expect(model.name.value).toBe('Unsaved Alpha')
+    expect(model.type.value).toBe('topic')
+    expect(model.summary.value).toBe('Unsaved summary')
+    expect(model.aliases.value).toEqual(['Unsaved'])
+    expect(model.propertyDrafts.value).toEqual([{ key: 'stage', value: '"unsaved"' }])
+
+    model.initialize('entry:beta', {
+      name: 'Beta',
+      type: 'project',
+      summary: 'Beta summary',
+      aliases: ['Beta'],
+      propertyDrafts: [{ key: 'stage', value: '"current"' }]
+    })
+
+    expect(model.name.value).toBe('Beta')
+    expect(model.type.value).toBe('project')
+    expect(model.summary.value).toBe('Beta summary')
+    expect(model.aliases.value).toEqual(['Beta'])
+    expect(model.propertyDrafts.value).toEqual([{ key: 'stage', value: '"current"' }])
+    model[Symbol.dispose]()
+  })
+
   test('defaults to an agent owner before falling back to another Principal', () => {
     expect(
       defaultBrainOwnerUID([

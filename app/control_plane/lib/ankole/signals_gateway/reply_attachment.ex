@@ -8,6 +8,12 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
 
   @tool_name "reply_attachment"
   @user_files_prefix "/workspace/user-files/"
+  @path_keys [
+    "agent_computer_path",
+    :agent_computer_path,
+    "user_files_relative_path",
+    :user_files_relative_path
+  ]
 
   @type attachment :: %{
           required(String.t()) => String.t() | non_neg_integer()
@@ -32,7 +38,8 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   @doc "Normalizes one reply attachment into the durable provider-outbox shape."
   @spec normalize_attachment(term()) :: {:ok, attachment()} | {:error, term()}
   def normalize_attachment(attachment) do
-    with {:ok, attachment} <- JSONPayload.normalize_map(attachment),
+    with :ok <- validate_raw_path_bytes(attachment),
+         {:ok, attachment} <- JSONPayload.normalize_map(attachment),
          {:ok, agent_computer_path} <- required_text(attachment, "agent_computer_path"),
          {:ok, user_files_relative_path} <- required_text(attachment, "user_files_relative_path"),
          :ok <- validate_user_files_path(agent_computer_path, user_files_relative_path),
@@ -144,6 +151,21 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
       _value -> {:error, {:reply_attachment_non_negative_integer_required, key}}
     end
   end
+
+  defp validate_raw_path_bytes(attachment) when is_map(attachment) do
+    if Enum.any?(@path_keys, fn key ->
+         case Map.get(attachment, key) do
+           value when is_binary(value) -> :binary.match(value, <<0>>) != :nomatch
+           _value -> false
+         end
+       end) do
+      {:error, :reply_attachment_path_contains_null_byte}
+    else
+      :ok
+    end
+  end
+
+  defp validate_raw_path_bytes(_attachment), do: :ok
 
   defp validate_user_files_path(agent_computer_path, user_files_relative_path) do
     cond do

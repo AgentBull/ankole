@@ -848,9 +848,9 @@ fn resolve_private_input_item(
         .map(str::to_string);
 
     if let Some(id) = generated_id
-        && let Some(image_url) = resolved_reference_url(image_spec, &id)
+        && resolved_reference_url(image_spec, &id).is_some()
     {
-        *item = private_reference_message(&id, image_url);
+        *item = private_reference_message(&id);
         return;
     }
 
@@ -940,12 +940,11 @@ fn resolved_reference_url<'a>(
     })
 }
 
-fn private_reference_message(id: &str, image_url: &Value) -> Value {
+fn private_reference_message(id: &str) -> Value {
     json!({
         "role": "user",
         "content": [
-            {"type": "input_text", "text": format!("Previously generated image reference: {id}")},
-            {"type": "input_image", "image_url": image_url}
+            {"type": "input_text", "text": format!("Previously generated image reference: {id}")}
         ]
     })
 }
@@ -2413,10 +2412,10 @@ mod tests {
     fn decoded_image_and_public_response_limits_accept_the_exact_boundary_only() {
         assert_eq!(DEFAULT_MAX_DECODED_IMAGE_BYTES, 50 * 1024 * 1024);
 
-        let exact_image = STANDARD.encode_to_string(&vec![7_u8; 1_024]);
+        let exact_image = STANDARD.encode_to_string(vec![7_u8; 1_024]);
         assert_eq!(validate_image_base64(&exact_image, 1_024).unwrap(), 1_024);
 
-        let oversized_image = STANDARD.encode_to_string(&vec![7_u8; 1_025]);
+        let oversized_image = STANDARD.encode_to_string(vec![7_u8; 1_025]);
         assert_eq!(
             validate_image_base64(&oversized_image, 1_024)
                 .unwrap_err()
@@ -2700,13 +2699,7 @@ mod tests {
                 .unwrap()
                 .contains("ig_previous")
         );
-        assert_eq!(
-            generated_content[1],
-            json!({
-                "type": "input_image",
-                "image_url": "data:image/webp;base64,cHJldmlvdXM="
-            })
-        );
+        assert_eq!(generated_content.len(), 1);
         assert_eq!(
             public_request["input"][0]["content"][1]["file_id"],
             "file_source"

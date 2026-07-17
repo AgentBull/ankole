@@ -38,28 +38,6 @@ export async function runWorkspaceCommand(input: CommandInput, workspaceRoot: st
   return runCommandProcess({ argv, cwd: workspaceRoot, env, signal: input.signal })
 }
 
-/**
- * Runs Agent Computer control processes that must share container runtime state.
- *
- * This is intentionally not exposed through the model-facing `command` tool.
- * `interactive_terminal` is backed by a tmux server, and wrapping every tmux
- * control command in a fresh bubblewrap `/tmp` would make the session socket
- * disappear between `start`, `send`, `capture`, and `kill`.
- *
- * Operator worker env deliberately stays out of this path: the tmux server may
- * be shared by several agents on one worker, so per-agent variables enter a
- * session via `new-session -e`, never via the server process environment.
- */
-export async function runControlCommand(input: CommandInput, workspaceRoot: string): Promise<CommandFinished> {
-  if (input.signal?.aborted) return finishedCommand(130, '', 'command aborted')
-
-  const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-  const env = commandEnv(input.env)
-  const argv = commandArgvWithOptionalTimeout(input, 60_000)
-
-  return runCommandProcess({ argv, cwd, env, signal: input.signal })
-}
-
 export function commandArgvWithOptionalTimeout(input: CommandInput, defaultTimeoutMs?: number): string[] {
   const commandArgv = [input.cmd, ...(input.args ?? [])]
   const timeoutMs = input.timeoutMs ?? defaultTimeoutMs

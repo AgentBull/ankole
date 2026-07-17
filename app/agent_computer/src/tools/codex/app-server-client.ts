@@ -39,9 +39,26 @@ export type CodexAppServerClientOptions = {
   onServerRequest?: CodexServerRequestHandler
 }
 
+export class CodexAppServerRPCError extends Error {
+  readonly details: JSONObject
+
+  constructor(readonly rpcError: unknown) {
+    super(jsonErrorMessage(rpcError))
+    this.name = 'CodexAppServerRPCError'
+
+    const payload = isRecord(rpcError) ? rpcError : {}
+    const data = isRecord(payload.data) ? payload.data : {}
+    this.details = {
+      ...data,
+      ...payload,
+      message: typeof payload.message === 'string' ? payload.message : this.message
+    }
+  }
+}
+
 // Hermes uses 10s for initialize, 15s for thread/start, and 30s for generic
 // app-server requests. Ankole keeps the same request classes but gives slower
-// cold-start and delegation paths a wider budget.
+// cold-start and background Job paths a wider budget.
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
 const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
@@ -243,7 +260,7 @@ export class CodexAppServerClient {
     this.pending.delete(id)
 
     if (message.error) {
-      pending.reject(new Error(jsonErrorMessage(message.error)))
+      pending.reject(new CodexAppServerRPCError(message.error))
       return
     }
 

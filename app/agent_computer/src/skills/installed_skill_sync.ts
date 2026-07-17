@@ -1,6 +1,6 @@
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnStart } from '../lanes/actor_lane'
-import type { InstalledSkillObservation } from './types'
+import { rpcMethods, type RPCRequester } from '../lanes/rpc_lane'
 import { scanInstalledSkills } from './installed_skills'
 
 export type InstalledSkillSyncLogger = {
@@ -8,15 +8,9 @@ export type InstalledSkillSyncLogger = {
   error(event: string, message: string, fields?: JSONObject): void
 }
 
-export type InstalledSkillReplaceRequester = (request: {
-  request_id: string
-  turn: TurnStart['turn']
-  observations: InstalledSkillObservation[]
-}) => Promise<unknown>
-
 export type InstalledSkillSyncOptions = {
-  agentInstalledSkillsRoot?: string
-  replaceInstalledSkillObservations?: InstalledSkillReplaceRequester
+  agentInstalledSkillsRoot: string
+  rpc: RPCRequester
   memoTtlMs?: number
   logger?: InstalledSkillSyncLogger
 }
@@ -30,8 +24,6 @@ const installedSkillSyncMemo = new Map<string, InstalledSkillSyncMemo>()
 const defaultInstalledSkillSyncMemoTtlMs = 60_000
 
 export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: InstalledSkillSyncOptions): Promise<void> {
-  if (!opts.agentInstalledSkillsRoot || !opts.replaceInstalledSkillObservations) return
-
   const agentUID = turnStart.turn.actor.agent_uid
 
   try {
@@ -52,8 +44,7 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
 
     if (installedSkillSyncMemoFresh(agentUID, scan.fingerprint, opts)) return
 
-    await opts.replaceInstalledSkillObservations({
-      request_id: `skills-installed-replace-${crypto.randomUUID()}`,
+    await opts.rpc(rpcMethods.skillsInstalledReplace, {
       turn: turnStart.turn,
       observations: scan.observations
     })

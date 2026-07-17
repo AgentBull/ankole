@@ -5,8 +5,9 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   alias Ecto.Adapters.SQL
   alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
-  alias Ankole.AuthZ.{ExternalBinding, Group}
-  alias Ankole.Plugins.SlackAdapter.{Config, Inbound, MapHelpers}
+  alias Ankole.AuthZ.{ExternalBinding, Group, Store}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.{Config, Inbound}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
@@ -176,7 +177,10 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     else
       with {:ok, group} <- fetch_group(namespace(consumer.config), channel_id),
            {:ok, observed} <- upsert_member(consumer.config, user_id),
-           {:ok, _membership} <- AuthZ.add_principal_to_group(observed.principal.uid, group.id) do
+           {:ok, _membership} <-
+             Repo.transact(fn repo ->
+               Store.add_synced_group_member(repo, group.id, :im_group, observed.principal.uid)
+             end) do
         {:ok, %{status: :member_added, group_id: group.id, principal_uid: observed.principal.uid}}
       else
         {:error, :not_found} ->
@@ -199,7 +203,9 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
       with {:ok, group} <- fetch_group(namespace(consumer.config), channel_id),
            {:ok, principal_uid} <-
              Principals.resolve_platform_subject_uid(namespace(consumer.config), user_id) do
-        case AuthZ.remove_principal_from_group(principal_uid, group.id) do
+        case Repo.transact(fn repo ->
+               Store.remove_synced_group_member(repo, group.id, :im_group, principal_uid)
+             end) do
           {:ok, :deleted} -> {:ok, %{status: :member_removed}}
           {:error, :not_found} -> {:ok, %{status: :member_already_removed}}
           {:error, _reason} = error -> error

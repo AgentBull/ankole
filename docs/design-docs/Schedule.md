@@ -563,8 +563,9 @@ the requested local time to UTC before storing the expression. For example,
 
 DST behavior must match the system timezone helper used by daily reset:
 ambiguous local times choose the first occurrence, and gaps move to the
-post-gap instant. If the chosen cron parser has Vixie-style day-of-month /
-day-of-week OR behavior, document that behavior in the operator-facing API.
+post-gap instant. `Crontab` owns expression grammar and naive wall-clock
+candidate search; it does not own IANA resolution. Day-of-month and day-of-week
+constraints use AND semantics when both are restricted.
 
 Oban scheduled precision is not semantic precision. `actor_scheduled_events.due_at`
 keeps the intended instant. The fire worker must still check `due_at <= now`
@@ -597,10 +598,15 @@ schedules. Backfill can be added later as an explicit schedule policy.
 
 Manual run is not a new schedule. It creates an immediate `cron_fire` event with
 a `trigger = "manual"` payload and leaves recurrence state unchanged unless the
-run itself updates or removes the schedule.
+run itself updates or removes the schedule. Manual runs are allowed for
+`active`, `paused`, and `failed` schedules so an operator can execute or recover
+the stored task without resuming recurrence. A `deleted` schedule rejects new
+manual runs and cancels pending ones.
 
 Paused schedules keep definition and history but do not arm new events. Resume
-recomputes `next_fire_at` from the resume time.
+recomputes `next_fire_at` from the resume time. Pausing or updating a schedule
+cancels only pending recurrence events; an already-requested manual event remains
+independent and may still fire.
 
 Deleted schedules do not arm new events. Already-fired actor events and their
 completed work are history. Still-scheduled future events are cancelled
@@ -713,7 +719,9 @@ Cron recurrence:
 - cron expressions are interpreted in their timezone;
 - pause stops arming new events;
 - resume recomputes next future fire;
-- manual run does not move the recurrence schedule;
+- manual run works for active, paused, and failed schedules without moving the
+  recurrence schedule;
+- pause and update preserve pending manual runs, while delete cancels them;
 - backlog coalesces missed slots by default.
 
 ActorRuntime and worker:

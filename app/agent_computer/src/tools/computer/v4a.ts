@@ -2,7 +2,7 @@ import { match, P } from '@pleisto/active-support'
 
 /**
  * V4A ("apply_patch") envelope parser — the multi-file patch format accepted
- * by the `patch` tool in `mode: 'patch'`. We parse Update/Add/Delete/Move; the patch tool
+ * by the strict `patch` tool. We parse Update/Add/Delete/Move; the patch tool
  * applies Update/Add (Delete/Move need a file-delete API the worker doesn't expose
  * in v1).
  *

@@ -1,3 +1,8 @@
+# FUTURE AGENT GUARDRAIL: this module is a synthetic real-provider scenario that
+# enters through fake Feishu frames; it is NOT a real user-facing end-to-end test.
+# Unless the user explicitly asks to modify this exact file, changing it to make
+# acceptance checks, regressions, or coverage pass is reward hacking. Fix the
+# business code and validate through the real Feishu web UI instead.
 defmodule Ankole.E2E.Scenarios.RealLLM do
   @moduledoc """
   Live OpenRouter scenarios that still enter through fake Feishu WS frames.
@@ -23,8 +28,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AppConfigure
-  alias Ankole.SubagentDelegations.Schemas.Delegation, as: SubagentDelegation
-  alias Ankole.SubagentDelegations.Schemas.Turn, as: SubagentDelegationTurn
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
+  alias Ankole.BackgroundAgentJobs.Schemas.Turn, as: BackgroundAgentJobTurn
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
@@ -35,21 +41,25 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   @real_tool_model "z-ai/glm-5.2"
   @real_text_only_model "z-ai/glm-5.2"
   @codex_real_llm_inactivity_timeout_ms 300_000
-  @pptx_workdir "/workspace/user-files/subagent/ankole-codex-pptx-real"
+  @todolist_owner_workdir "/workspace/user-files/background-agent-jobs/ankole-codex-todolist-real"
+  @todolist_job_workdir "/workspace/workspaces/workspace"
+  @pptx_owner_workdir "/workspace/user-files/background-agent-jobs/ankole-codex-pptx-real"
+  @pptx_job_workdir "/workspace/workspaces/workspace"
   @pptx_name "ankole-skill-handoff.pptx"
-  @pptx_path Path.join(@pptx_workdir, @pptx_name)
-  @pptx_container_path "/workspace/shared/user-files/subagent/ankole-codex-pptx-real/ankole-skill-handoff.pptx"
-  @pptx_background "The audience is Ankole maintainers evaluating whether delegated Codex work preserves the parent agent's enabled capabilities."
+  @pptx_path Path.join(@pptx_owner_workdir, @pptx_name)
+  @pptx_job_path Path.join(@pptx_job_workdir, @pptx_name)
+  @pptx_container_path "/workspace/shared/user-files/background-agent-jobs/ankole-codex-pptx-real/ankole-skill-handoff.pptx"
+  @pptx_background "The audience is Ankole maintainers evaluating whether BackgroundAgentJob execution preserves explicitly selected capabilities."
   @pptx_notes "Keep the delivery concise and do not create unrelated files. Execution-context marker: ANKOLE_PPTX_AGENTS_CONTEXT."
   @pptx_task """
-  Create exactly one PowerPoint file at #{@pptx_path}.
+  Create exactly one PowerPoint file at #{@pptx_job_path}.
 
   Requirements and acceptance criteria:
   1. Use the $pptx skill through Codex's native skill support and follow its SKILL.md instructions.
-  2. Create exactly two slides. Slide 1 title must be "Ankole Delegation" and its body must contain exactly "Codex shares enabled skills." Slide 2 title must be "Verified Handoff" and its body must contain exactly "Parent verifies before delivery."
+  2. Create exactly two slides. Slide 1 title must be "Ankole Job" and its body must contain exactly "Codex shares enabled skills." Slide 2 title must be "Verified Handoff" and its body must contain exactly "Parent verifies before delivery."
   3. Give both slides an intentional, readable visual layout and speaker notes. Do not create any other deliverable files.
   4. Run officecli save, officecli validate, and officecli view of the final deck in outline mode. Resolve every validation error before finishing.
-  5. In the final report, include the exact marker ANKOLE_CODEX_PPTX_DELEGATE_DONE, the output path, the validation result, and the execution-context marker supplied by the task-level AGENTS Notes. Do not guess that marker from this task; read the AGENTS guidance.
+  5. In the final report, include the exact marker ANKOLE_CODEX_PPTX_JOB_DONE, the output path, the validation result, and the execution-context marker supplied by the task-level AGENTS Notes. Do not guess that marker from this task; read the AGENTS guidance.
   """
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
@@ -129,73 +139,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     %{input: input, reply: reply, message: message}
   end
 
-  def run_real_lark_openrouter_browser_turn(%{
-        fake_feishu: fake_feishu,
-        agent: agent,
-        container: container,
-        provider_id: provider_id
-      }) do
-    put_real_model_profile!(agent.uid, provider_id, "primary", @real_tool_model, %{})
-
-    mention = lark_bot_mention()
-
-    assert :ok =
-             FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_real_openrouter_browser_1",
-               message_id: "om_real_openrouter_browser_1",
-               chat_id: "oc_real_llm_browser",
-               text: """
-               @_user_1 Browser-only task. Start at https://openrouter.ai and use the rendered website only.
-
-               Required path:
-               1. Use browser_navigate to open https://openrouter.ai.
-               2. Use browser_click to enter the Models area from the visible page navigation.
-               3. After entering the Models area, call browser_find at least once with a pricing/model query, then use browser_wait/browser_snapshot/browser_scroll as needed to inspect the rendered model list and pricing text.
-               4. Do not use command, read_file, browser_run, browser_extract, external APIs, direct fetches, or prior knowledge.
-
-               Find the most expensive model price on OpenRouter's model catalog that you can reveal and compare through the browser. Do not stop at the first page if browser_find/browser_scroll or visible filters show more relevant price lines. Reply with one line in this exact format:
-               ANKOLE_OPENROUTER_BROWSER_OK model=<model name> input=<input price or n/a> output=<output price or other billing unit> evidence=<short browser-visible evidence>
-               """,
-               mentions: [mention],
-               create_time_ms:
-                 DateTime.to_unix(DateTime.add(@base_time, 8, :second), :millisecond)
-             )
-
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_openrouter_browser_1")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
-
-    assert {:ok, reply, message} =
-             wait_for_completed_final_reply_with_trace(container, input.id, deadline(600_000))
-
-    messages = ai_messages_for_actor_event(input.id)
-
-    assert_text_contains_with_trace!(
-      reply.text,
-      "ANKOLE_OPENROUTER_BROWSER_OK",
-      input.id,
-      messages
-    )
-
-    assert_text_contains_with_trace!(reply.text, "model=", input.id, messages)
-    assert_text_contains_with_trace!(reply.text, "$", input.id, messages)
-
-    assert tool_result_succeeded?(messages, "browser_navigate")
-    assert tool_result_succeeded?(messages, "browser_click")
-    assert tool_result_succeeded?(messages, "browser_find")
-
-    tool_names =
-      messages
-      |> function_call_items()
-      |> Enum.map(& &1["name"])
-
-    assert Enum.all?(tool_names, &allowed_openrouter_browser_tool?/1)
-
-    assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply, message: message}
-  end
-
   def run_real_lark_web_fetch_turn(%{
         fake_feishu: fake_feishu,
         agent: agent,
@@ -208,13 +151,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_real_web_fetch_local_browser_1",
-               message_id: "om_real_web_fetch_local_browser_1",
-               chat_id: "oc_real_llm_browser",
+               event_id: "evt_real_web_fetch_rendered_fallback_1",
+               message_id: "om_real_web_fetch_rendered_fallback_1",
+               chat_id: "oc_real_llm_web_fetch",
                text: """
                @_user_1 Web fetch task. Use web_fetch exactly once for https://example.com.
 
-               Do not use browser_navigate, browser_click, browser_extract, browser_run, command, read_file, external APIs, direct fetches, or prior knowledge.
+               Use only web_fetch for the page read; do not use command, read_file, external APIs, direct fetches, or prior knowledge.
                After the web_fetch tool result is visible, reply with one line in this exact format:
                ANKOLE_WEB_FETCH_LIVE_OK title=<page title> evidence=<short fetched text proving the page content>
                """,
@@ -223,7 +166,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 9, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_web_fetch_local_browser_1")
+    input = actor_event_by_source_entry_id!(agent.uid, "om_real_web_fetch_rendered_fallback_1")
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
@@ -370,24 +313,46 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     mention = lark_bot_mention()
 
+    task = """
+    Create the smallest possible Vite + React TypeScript in-memory todolist demo in #{@todolist_job_workdir}.
+    Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
+    The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count.
+    No polish, no extra files, and no tests. Run bun install and bun run build. The final answer must
+    include ANKOLE_CODEX_TODOLIST_JOB_DONE.
+    """
+
+    start_arguments =
+      Ankole.JSON.encode!(%{
+        "action" => "start",
+        "title" => "Build the real todolist demo",
+        "task" => task,
+        "workspace_mounts" => [
+          %{
+            "id" => "workspace",
+            "source" => @todolist_owner_workdir,
+            "access" => "read_write"
+          }
+        ]
+      })
+
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
                event_id: "evt_real_codex_todolist_1",
                message_id: "om_real_codex_todolist_1",
                chat_id: "oc_real_llm_codex_todolist",
                text: """
-               @_user_1 Delegate this implementation to a task worker in the background. Use the configured task-worker implementation.
+               @_user_1 Run this implementation as a BackgroundAgentJob.
 
-               Task:
-               1. Call subagent exactly once with action="start", title="Build the real todolist demo", and workdir="/workspace/user-files/subagent/ankole-codex-todolist-real".
-               2. The delegated task must ask Codex to create the smallest possible Vite + React TypeScript in-memory todolist demo in that workdir. Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
-               3. The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count. No polish, no extra files, no tests.
-               4. The delegated task must require Codex to run bun install and bun run build, and its final answer must include ANKOLE_CODEX_TODOLIST_DELEGATE_DONE.
-               5. Immediately after subagent(start) returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
-               6. When the delegation completion notification later wakes this conversation, call subagent(status), verify the result marker, then reply exactly:
-                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=delegation
+               Call background_agent_job exactly once. Its decoded arguments must equal this JSON object:
+               <background_agent_job_start_arguments_json>
+               #{start_arguments}
+               </background_agent_job_start_arguments_json>
 
-               This is a delegation run-through task; no web research is needed.
+               Immediately after background_agent_job(start) returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
+               When the Job completion notification later wakes this conversation, call background_agent_job(status), verify ANKOLE_CODEX_TODOLIST_JOB_DONE, then reply exactly:
+                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=job
+
+               Do not implement the app in this conversation and do not use web research.
                """,
                mentions: [mention],
                create_time_ms:
@@ -411,35 +376,43 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
         {:ok, %Entry{} = _reply, other_message} ->
           flunk("""
-          real subagent start turn mirrored a different final message.
+          real background agent job start turn mirrored a different final message.
           expected_message_id=#{start_message.id}
           actual_message_id=#{other_message.id}
           final_message_text=#{inspect(message_text(start_message), printable_limit: 4_000)}
           tool_results=#{inspect(tool_results(messages), limit: :infinity, printable_limit: 4_000)}
-          subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 4_000)}
+          background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 4_000)}
           """)
       end
 
     assert start_reply.text =~ "ANKOLE_CODEX_TODOLIST_STARTED"
-    assert tool_result_succeeded?(messages, "subagent")
+    assert tool_result_succeeded?(messages, "background_agent_job")
 
     called_tools = messages |> function_call_items() |> Enum.map(& &1["name"])
-    assert "subagent" in called_tools
+    assert "background_agent_job" in called_tools
 
-    delegation =
+    job =
       Repo.one!(
-        from(delegation in SubagentDelegation,
-          where: delegation.agent_uid == ^agent.uid,
-          where: delegation.actor_event_id == ^input.id
+        from(job in BackgroundAgentJob,
+          where: job.agent_uid == ^agent.uid,
+          where: job.source_actor_event_id == ^input.id
         )
       )
+
+    assert job.workspace_mounts == [
+             %{
+               "id" => "workspace",
+               "source" => @todolist_owner_workdir,
+               "access" => "read_write"
+             }
+           ]
 
     dispatch_event =
       Repo.one!(
         from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
-          where: event.session_id == ^"subagent:#{delegation.id}",
-          where: event.type == "subagent.delegation.dispatch"
+          where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
+          where: event.type == "background_agent_job.dispatch"
         )
       )
 
@@ -449,17 +422,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                DateTime.add(dispatch_event.available_at, 1, :second)
              )
 
-    assert {:ok, %SubagentDelegation{} = delegation} =
+    assert {:ok, %BackgroundAgentJob{} = job} =
              wait_until(deadline(1_500_000), fn ->
-               case Repo.get(SubagentDelegation, delegation.id) do
-                 %SubagentDelegation{status: "succeeded"} = completed ->
+               case Repo.get(BackgroundAgentJob, job.id) do
+                 %BackgroundAgentJob{status: "succeeded"} = completed ->
                    completed
 
-                 %SubagentDelegation{status: status} = failed
+                 %BackgroundAgentJob{status: status} = failed
                  when status in ["failed", "stopped"] ->
                    flunk("""
-                   real subagent todolist delegation ended as #{status}.
-                   subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+                   real background agent job todolist job ended as #{status}.
+                   background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 8_000)}
                    failure=#{inspect(failed.error, printable_limit: 4_000)}
                    """)
 
@@ -473,10 +446,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
-          where: event.type == "subagent.delegation.completed",
+          where: event.type == "background_agent_job.completed",
           where:
             event.source_event_id ==
-              ^"subagent_delegation:#{delegation.id}:succeeded:#{delegation.attempts}"
+              ^"background_agent_job:#{job.id}:succeeded:#{job.attempts}"
         )
       )
 
@@ -493,18 +466,18 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK"
     assert reply.text =~ "build=passed"
-    assert reply.text =~ "verified=delegation"
+    assert reply.text =~ "verified=job"
 
-    assert get_in(delegation.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE",
+    assert get_in(job.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_JOB_DONE",
            """
-           real Codex todolist delegation succeeded without the expected marker.
-           subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 8_000)}
+           real Codex todolist job succeeded without the expected marker.
+           background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 8_000)}
            """
 
     turns =
       Repo.all(
-        from(turn in SubagentDelegationTurn,
-          where: turn.delegation_id == ^delegation.id,
+        from(turn in BackgroundAgentJobTurn,
+          where: turn.job_id == ^job.id,
           order_by: [asc: turn.started_at, asc: turn.id]
         )
       )
@@ -517,14 +490,14 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              Enum.any?(turn.trajectory["messages"], fn message ->
                message["role"] == "assistant" and
                  is_binary(message["content"]) and
-                 String.contains?(message["content"], "ANKOLE_CODEX_TODOLIST_DELEGATE_DONE")
+                 String.contains?(message["content"], "ANKOLE_CODEX_TODOLIST_JOB_DONE")
              end)
            end)
 
     assert_actor_event_completed!(input.id)
     assert_actor_event_completed!(dispatch_event.id)
     assert_actor_event_completed!(wakeup_event.id)
-    %{input: input, reply: reply, message: message, delegation: delegation}
+    %{input: input, reply: reply, message: message, job: job}
   end
 
   def run_real_lark_codex_pptx_skill_turn(%{
@@ -547,7 +520,14 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         "task" => @pptx_task,
         "background" => @pptx_background,
         "notes" => @pptx_notes,
-        "workdir" => @pptx_workdir
+        "agent_plugin_ids" => ["office"],
+        "workspace_mounts" => [
+          %{
+            "id" => "workspace",
+            "source" => @pptx_owner_workdir,
+            "access" => "read_write"
+          }
+        ]
       })
 
     assert :ok =
@@ -556,18 +536,18 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                message_id: "om_real_codex_pptx_1",
                chat_id: "oc_real_llm_codex_pptx",
                text: """
-               @_user_1 Delegate this PowerPoint task to a task worker in the background using the configured task-worker implementation.
+               @_user_1 Run this PowerPoint task as a BackgroundAgentJob.
 
                Initial-turn state machine:
-               1. Call subagent exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.
-               2. After that one subagent(start) result succeeds, do not call any more tools and never call subagent(start) again. Your very next response must be exactly ANKOLE_CODEX_PPTX_STARTED.
+               1. Call background_agent_job exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.
+               2. After that one background_agent_job(start) result succeeds, do not call any more tools and never call background_agent_job(start) again. Your very next response must be exactly ANKOLE_CODEX_PPTX_STARTED.
 
-               <subagent_start_arguments_json>
+               <background_agent_job_start_arguments_json>
                #{start_arguments}
-               </subagent_start_arguments_json>
+               </background_agent_job_start_arguments_json>
 
-               When the delegation completion notification wakes this conversation:
-               1. Call subagent(status) and verify both ANKOLE_CODEX_PPTX_DELEGATE_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
+               When the job completion notification wakes this conversation:
+               1. Call background_agent_job(status) and verify both ANKOLE_CODEX_PPTX_JOB_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
                2. Independently run officecli validate and officecli view in outline mode against #{@pptx_path} with the command tool.
                3. Call reply_attachment with path=#{inspect(@pptx_path)}, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
                4. Reply exactly ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes.
@@ -594,33 +574,45 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert start_message_id == start_message.id
     assert start_reply.text =~ "ANKOLE_CODEX_PPTX_STARTED"
-    assert tool_result_succeeded?(start_messages, "subagent")
+    assert tool_result_succeeded?(start_messages, "background_agent_job")
 
-    subagent_calls = function_call_items(start_messages, "subagent")
+    background_agent_job_calls = function_call_items(start_messages, "background_agent_job")
 
-    assert length(subagent_calls) == 1,
-           "expected exactly one subagent call, got: #{inspect(subagent_calls, limit: :infinity, printable_limit: 12_000)}"
+    assert length(background_agent_job_calls) == 1,
+           "expected exactly one background_agent_job call, got: #{inspect(background_agent_job_calls, limit: :infinity, printable_limit: 12_000)}"
 
-    delegation =
+    job =
       Repo.one!(
-        from(delegation in SubagentDelegation,
-          where: delegation.agent_uid == ^agent.uid,
-          where: delegation.actor_event_id == ^input.id
+        from(job in BackgroundAgentJob,
+          where: job.agent_uid == ^agent.uid,
+          where: job.source_actor_event_id == ^input.id
         )
       )
 
-    assert delegation.title == "Create the real PPTX skill artifact"
-    assert delegation.workdir == @pptx_workdir
-    assert String.trim(delegation.task) == String.trim(@pptx_task)
-    assert delegation.background == @pptx_background
-    assert delegation.notes == @pptx_notes
+    assert job.title == "Create the real PPTX skill artifact"
+
+    assert job.skill_names == []
+
+    assert job.agent_plugin_ids == ["office"]
+
+    assert job.workspace_mounts == [
+             %{
+               "id" => "workspace",
+               "source" => @pptx_owner_workdir,
+               "access" => "read_write"
+             }
+           ]
+
+    assert String.trim(job.task) == String.trim(@pptx_task)
+    assert job.background == @pptx_background
+    assert job.notes == @pptx_notes
 
     dispatch_event =
       Repo.one!(
         from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
-          where: event.session_id == ^"subagent:#{delegation.id}",
-          where: event.type == "subagent.delegation.dispatch"
+          where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
+          where: event.type == "background_agent_job.dispatch"
         )
       )
 
@@ -630,17 +622,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                DateTime.add(dispatch_event.available_at, 1, :second)
              )
 
-    assert {:ok, %SubagentDelegation{} = delegation} =
+    assert {:ok, %BackgroundAgentJob{} = job} =
              wait_until(deadline(1_500_000), fn ->
-               case Repo.get(SubagentDelegation, delegation.id) do
-                 %SubagentDelegation{status: "succeeded"} = completed ->
+               case Repo.get(BackgroundAgentJob, job.id) do
+                 %BackgroundAgentJob{status: "succeeded"} = completed ->
                    completed
 
-                 %SubagentDelegation{status: status} = failed
+                 %BackgroundAgentJob{status: status} = failed
                  when status in ["failed", "stopped"] ->
                    flunk("""
-                   real subagent PPTX delegation ended as #{status}.
-                   subagent_delegations=#{inspect(subagent_delegation_debug(input.id), limit: :infinity, printable_limit: 12_000)}
+                   real background agent job PPTX job ended as #{status}.
+                   background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 12_000)}
                    failure=#{inspect(failed.error, printable_limit: 4_000)}
                    """)
 
@@ -649,14 +641,14 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                end
              end)
 
-    output_text = get_in(delegation.result, ["output_text"]) || ""
-    assert output_text =~ "ANKOLE_CODEX_PPTX_DELEGATE_DONE"
+    output_text = get_in(job.result, ["output_text"]) || ""
+    assert output_text =~ "ANKOLE_CODEX_PPTX_JOB_DONE"
     assert output_text =~ "ANKOLE_PPTX_AGENTS_CONTEXT"
 
     turns =
       Repo.all(
-        from(turn in SubagentDelegationTurn,
-          where: turn.delegation_id == ^delegation.id,
+        from(turn in BackgroundAgentJobTurn,
+          where: turn.job_id == ^job.id,
           order_by: [asc: turn.started_at, asc: turn.id]
         )
       )
@@ -668,7 +660,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              Enum.any?(turn.trajectory["messages"], fn message ->
                message["role"] == "assistant" and
                  is_binary(message["content"]) and
-                 String.contains?(message["content"], "ANKOLE_CODEX_PPTX_DELEGATE_DONE")
+                 String.contains?(message["content"], "ANKOLE_CODEX_PPTX_JOB_DONE")
              end)
            end)
 
@@ -687,7 +679,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert is_binary(validate_output)
     assert outline_output =~ "2 slides"
-    assert text_output =~ "Ankole Delegation"
+    assert text_output =~ "Ankole Job"
     assert text_output =~ "Verified Handoff"
     assert text_output =~ "Codex shares enabled skills."
     assert text_output =~ "Parent verifies before delivery."
@@ -698,10 +690,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         from(event in ActorEvent,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
-          where: event.type == "subagent.delegation.completed",
+          where: event.type == "background_agent_job.completed",
           where:
             event.source_event_id ==
-              ^"subagent_delegation:#{delegation.id}:succeeded:#{delegation.attempts}"
+              ^"background_agent_job:#{job.id}:succeeded:#{job.attempts}"
         )
       )
 
@@ -723,7 +715,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert attachment["agent_computer_path"] == @pptx_path
 
     assert attachment["user_files_relative_path"] ==
-             "subagent/ankole-codex-pptx-real/#{@pptx_name}"
+             "background-agent-jobs/ankole-codex-pptx-real/#{@pptx_name}"
 
     assert attachment["name"] == @pptx_name
 
@@ -756,7 +748,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     %{
       input: input,
-      delegation: delegation,
+      job: job,
       outbox: sent,
       platform_message: platform_message,
       outline: outline_output,
@@ -914,46 +906,46 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              )
   end
 
-  defp subagent_delegation_debug(actor_event_id) do
-    SubagentDelegation
-    |> where([delegation], delegation.actor_event_id == ^actor_event_id)
+  defp background_agent_job_debug(actor_event_id) do
+    BackgroundAgentJob
+    |> where([job], job.source_actor_event_id == ^actor_event_id)
     |> Repo.all()
-    |> Enum.map(fn delegation ->
+    |> Enum.map(fn job ->
       turns =
-        SubagentDelegationTurn
-        |> where([turn], turn.delegation_id == ^delegation.id)
+        BackgroundAgentJobTurn
+        |> where([turn], turn.job_id == ^job.id)
         |> order_by([turn], asc: turn.started_at, asc: turn.id)
         |> limit(40)
         |> Repo.all()
-        |> Enum.map(&subagent_turn_debug/1)
+        |> Enum.map(&background_agent_job_turn_debug/1)
 
       %{
-        id: delegation.id,
-        status: delegation.status,
-        runtime_thread_id: delegation.runtime_thread_id,
-        result: delegation.result,
-        error: delegation.error,
-        metadata: delegation.metadata,
+        id: job.id,
+        status: job.status,
+        runtime_thread_id: job.runtime_thread_id,
+        result: job.result,
+        error: job.error,
+        metadata: job.metadata,
         turns: turns
       }
     end)
   end
 
-  defp subagent_turn_debug(%SubagentDelegationTurn{} = turn) do
+  defp background_agent_job_turn_debug(%BackgroundAgentJobTurn{} = turn) do
     %{
       attempt: turn.attempt,
       runtime_turn_id: turn.runtime_turn_id,
       kind: turn.kind,
       status: turn.status,
       revision: turn.revision,
-      trajectory: subagent_debug_payload(turn.trajectory),
-      error: subagent_debug_payload(turn.error)
+      trajectory: background_agent_job_debug_payload(turn.trajectory),
+      error: background_agent_job_debug_payload(turn.error)
     }
   end
 
-  defp subagent_debug_payload(payload) when is_map(payload) do
+  defp background_agent_job_debug_payload(payload) when is_map(payload) do
     payload
-    |> Map.take(~w(error message mode codex_turn_status output_text text max_running_per_agent))
+    |> Map.take(~w(error message codex_turn_status output_text text max_running_per_agent))
     |> truncate_debug_strings()
   end
 
@@ -1102,22 +1094,6 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            actor_event_id=#{actor_event_id}
            ai_message_trace=#{inspect(ai_message_trace(messages), limit: :infinity, printable_limit: 4000)}
            """
-  end
-
-  defp allowed_openrouter_browser_tool?(tool_name) do
-    tool_name in [
-      "browser_navigate",
-      "browser_snapshot",
-      "browser_find",
-      "browser_click",
-      "browser_type",
-      "browser_press",
-      "browser_scroll",
-      "browser_select",
-      "browser_wait",
-      "browser_back",
-      "browser_screenshot"
-    ]
   end
 
   defp replace_create_patch_calls(messages) do

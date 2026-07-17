@@ -20,7 +20,7 @@ const PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS = 4_096
 
 export function buildResponseCreateParams(model: ModelConfig, options: CallModelOptions): ResponseCreateParams {
   const input = toResponseInput(options.messages)
-  const tools = options.tools
+  const functionTools = options.tools
     ? Object.values(options.tools)
         .toSorted((left, right) => left.name.localeCompare(right.name))
         .map(t => ({
@@ -31,13 +31,19 @@ export function buildResponseCreateParams(model: ModelConfig, options: CallModel
           strict: false
         }))
     : undefined
+  const tools = [
+    ...(functionTools ?? []),
+    ...(options.hostedTools ?? []).map(() => ({
+      type: 'image_generation' as const
+    }))
+  ]
   const promptCacheKey = reusablePromptCacheKey(options.instructions, tools)
 
   return {
     model: model.selector,
     input,
     ...(options.instructions ? { instructions: options.instructions } : {}),
-    ...(tools?.length ? { tools } : {}),
+    ...(tools.length ? { tools } : {}),
     ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
     ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
@@ -59,7 +65,10 @@ export function reusablePromptCacheKey(
 ): string | undefined {
   if (!instructions && !tools?.length) return undefined
 
-  const renderedPrefix = JSON.stringify({ instructions: instructions ?? '', tools: tools ?? [] })
+  const renderedPrefix = JSON.stringify({
+    instructions: instructions ?? '',
+    tools: tools ?? []
+  })
   const routingPrefix = renderedPrefix.slice(0, PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS)
   return `ankole_${createHash('sha256').update(routingPrefix).digest('hex').slice(0, 32)}`
 }
@@ -158,7 +167,11 @@ function responseInputContentParts(parts: ContentPart[]): ResponseInputMessageCo
   const content: ResponseInputMessageContentList = []
   for (const part of parts) {
     if (part.type === 'image') {
-      content.push({ type: 'input_image', image_url: imageContentURL(part), detail: 'auto' })
+      content.push({
+        type: 'input_image',
+        image_url: imageContentURL(part),
+        detail: 'auto'
+      })
       continue
     }
     content.push({ type: 'input_text', text: part.text })

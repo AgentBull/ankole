@@ -7,7 +7,8 @@ import {
   isWorkspacePath,
   resolveWorkspacePath,
   sanitizePathSegment,
-  toWorkspacePath
+  toWorkspacePath,
+  toWorkspacePathStrict
 } from '../src/core/workspace-paths'
 
 describe('workspace path projection', () => {
@@ -59,10 +60,18 @@ describe('workspace path projection', () => {
     })
   })
 
+  it('rejects strict physical projection outside the workspace', () => {
+    withWorkspace(root => {
+      expect(toWorkspacePathStrict(root, join(root, 'nested/file.txt'))).toBe('/workspace/nested/file.txt')
+      expect(() => toWorkspacePathStrict(root, join(root, '../outside.txt'))).toThrow('path escapes workspace root')
+      expect(() => toWorkspacePathStrict(root, '/workspace/lookalike.txt')).toThrow('path escapes workspace root')
+    })
+  })
+
   it('sanitizes path segments with one fallback-aware signature', () => {
     expect(sanitizePathSegment(' report id! ')).toBe('report-id')
     expect(sanitizePathSegment('!!!', { fallback: 'browser-task' })).toBe('browser-task')
-    expect(sanitizePathSegment('unsafe/id', { replacement: '_', fallback: 'delegation' })).toBe('unsafe_id')
+    expect(sanitizePathSegment('unsafe/id', { replacement: '_', fallback: 'job' })).toBe('unsafe_id')
   })
 })
 

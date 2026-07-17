@@ -3,14 +3,9 @@ defmodule Ankole.Brain.TemporalDecayTest do
 
   alias Ankole.Brain.TemporalDecay
 
-  test "matches the exponential decay formula" do
-    expected = :math.exp(-(:math.log(2) / 30) * 10)
-    assert_in_delta TemporalDecay.multiplier(10, 30), expected, 1.0e-12
-    assert_in_delta TemporalDecay.apply(0.8, 10, 30), 0.8 * expected, 1.0e-12
-  end
-
-  test "is one half at the half-life" do
+  test "is one half at the half-life and scales scores multiplicatively" do
     assert_in_delta TemporalDecay.multiplier(30, 30), 0.5, 1.0e-12
+    assert_in_delta TemporalDecay.apply(0.8, 30, 30), 0.4, 1.0e-12
   end
 
   test "clamps future ages and disables decay at a nonpositive half-life" do

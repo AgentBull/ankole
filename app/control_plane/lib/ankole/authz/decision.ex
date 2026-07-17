@@ -33,6 +33,18 @@ defmodule Ankole.AuthZ.Decision do
   def result(%{"status" => "deny"}), do: {:error, :forbidden}
   def result(_decision), do: {:error, :invalid_decision}
 
+  @doc false
+  def preview_computed_membership?(snapshot, group_id) do
+    case kernel_decision(AnkoleKernel.authz_authorize(snapshot)) do
+      {:ok, decision} ->
+        emit_diagnostics(decision)
+        group_id in Map.get(decision, "effectiveGroupIDs", [])
+
+      _error ->
+        false
+    end
+  end
+
   defp kernel_decision(%{} = decision), do: {:ok, decision}
   defp kernel_decision(_decision), do: {:error, :invalid_decision}
 

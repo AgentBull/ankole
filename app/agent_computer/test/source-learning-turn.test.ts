@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
@@ -32,14 +32,6 @@ describe('source learning turn toolset', () => {
     const update = learning.tools.find(tool => tool.name === 'memory_update')!
     expect(update.description).toContain('the exact marker src:brain-source:source-1')
     expect(update.isDestructive).toBe(true)
-  })
-
-  test('requires the Brain memory RPC seam instead of degrading to a read-only run', async () => {
-    const { workspace, turnStart } = await sourceWorkspace('short source')
-
-    expect(() => createSourceLearningTurnTools({ turnStart, workspaceRoot: workspace })).toThrow(
-      'source learning turn requires the Brain memory RPC seam'
-    )
   })
 
   test('gates memory_update on complete reading and fails an unfinished turn', async () => {
@@ -120,6 +112,22 @@ describe('brain source learning reader', () => {
 
     await expect(reader.tool.execute('call-1', {})).rejects.toThrow('SHA-256 mismatch')
     expect(() => reader.assertCompleted()).toThrow('failed while reading')
+  })
+
+  test('rejects a retained source symlink that resolves outside the learning workspace', async () => {
+    const bytes = Buffer.from('outside source')
+    const root = await mkdtemp(join(tmpdir(), 'ankole-brain-source-symlink-'))
+    workspaces.push(root)
+    const workspace = join(root, 'workspace')
+    const outsidePath = join(root, 'outside.md')
+    await mkdir(join(workspace, 'source'), { recursive: true })
+    await writeFile(outsidePath, bytes)
+    await symlink(outsidePath, join(workspace, 'source', 'manual.md'))
+    const reader = createBrainSourceLearningReader(turnStartFor(bytes), workspace)
+
+    await expect(reader.tool.execute('call-1', {})).rejects.toThrow(
+      'retained source path resolves outside workspace roots'
+    )
   })
 
   test('rejects a learning event without a complete source descriptor', () => {

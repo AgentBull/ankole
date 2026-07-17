@@ -278,6 +278,343 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule PrincipalGroupItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          name: %Schema{type: :string},
+          display_name: %Schema{type: :string},
+          domain: %Schema{type: :string, enum: ["operator", "directory", "im_group"]},
+          kind: %Schema{type: :string, enum: ["static", "computed"]},
+          built_in: %Schema{type: :boolean},
+          computed_condition: %Schema{type: :string, nullable: true},
+          description: %Schema{type: :string, nullable: true},
+          member_count: %Schema{type: :integer},
+          grant_count: %Schema{type: :integer},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
+        },
+        required: [
+          :id,
+          :name,
+          :display_name,
+          :domain,
+          :kind,
+          :built_in,
+          :member_count,
+          :grant_count,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupListResponse",
+        type: :object,
+        properties: %{
+          principal_groups: %Schema{type: :array, items: PrincipalGroupItem}
+        },
+        required: [:principal_groups],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupResponse",
+        type: :object,
+        properties: %{
+          principal_group: PrincipalGroupItem
+        },
+        required: [:principal_group],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupCreateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupCreateRequest",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string, description: "Lowercase stable policy key"},
+          display_name: %Schema{type: :string},
+          kind: %Schema{type: :string, enum: ["static", "computed"], default: "static"},
+          computed_condition: %Schema{
+            type: :string,
+            nullable: true,
+            description: "CEL condition required when kind is computed"
+          },
+          description: %Schema{type: :string, nullable: true}
+        },
+        required: [:name, :display_name],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupUpdateRequest",
+        type: :object,
+        properties: %{
+          display_name: %Schema{type: :string, nullable: true},
+          computed_condition: %Schema{type: :string, nullable: true},
+          description: %Schema{type: :string, nullable: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupMemberItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupMemberItem",
+        type: :object,
+        properties: %{
+          uid: %Schema{type: :string},
+          type: %Schema{type: :string, enum: ["human", "agent"]},
+          status: %Schema{type: :string, enum: ["active", "disabled"]},
+          display_name: %Schema{type: :string, nullable: true},
+          avatar_url: %Schema{type: :string, nullable: true},
+          member_since: %Schema{
+            type: :string,
+            nullable: true,
+            description: "Stored membership timestamp; null for evaluated computed members"
+          }
+        },
+        required: [:uid, :type, :status, :member_since],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalGroupMemberListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalGroupMemberListResponse",
+        type: :object,
+        properties: %{
+          principal_group_members: %Schema{type: :array, items: PrincipalGroupMemberItem}
+        },
+        required: [:principal_group_members],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ComputedMemberPreviewRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ComputedMemberPreviewRequest",
+        type: :object,
+        properties: %{
+          condition: %Schema{
+            type: :string,
+            description: "CEL condition over the principal object"
+          }
+        },
+        required: [:condition],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PermissionGrantItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PermissionGrantItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          principal_uid: %Schema{type: :string, nullable: true},
+          group_id: %Schema{type: :string, nullable: true},
+          resource_pattern: %Schema{type: :string},
+          action: %Schema{type: :string},
+          condition: %Schema{type: :string},
+          description: %Schema{type: :string, nullable: true},
+          inserted_at: %Schema{type: :string},
+          updated_at: %Schema{type: :string}
+        },
+        required: [
+          :id,
+          :principal_uid,
+          :group_id,
+          :resource_pattern,
+          :action,
+          :condition,
+          :inserted_at,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PermissionGrantListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PermissionGrantListResponse",
+        type: :object,
+        properties: %{
+          permission_grants: %Schema{type: :array, items: PermissionGrantItem}
+        },
+        required: [:permission_grants],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PermissionGrantResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PermissionGrantResponse",
+        type: :object,
+        properties: %{
+          permission_grant: PermissionGrantItem
+        },
+        required: [:permission_grant],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PermissionGrantCreateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PermissionGrantCreateRequest",
+        type: :object,
+        description: "Exactly one owner: principal_uid or group_name.",
+        properties: %{
+          principal_uid: %Schema{type: :string, nullable: true},
+          group_name: %Schema{type: :string, nullable: true},
+          resource_pattern: %Schema{
+            type: :string,
+            description: "AuthZ resource glob pattern, for example workspace:**"
+          },
+          action: %Schema{type: :string, description: "Exact action token without colons"},
+          condition: %Schema{type: :string, default: "true"},
+          description: %Schema{type: :string, nullable: true}
+        },
+        required: [:resource_pattern, :action],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PermissionGrantUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PermissionGrantUpdateRequest",
+        type: :object,
+        properties: %{
+          resource_pattern: %Schema{type: :string, nullable: true},
+          action: %Schema{type: :string, nullable: true},
+          condition: %Schema{type: :string, nullable: true},
+          description: %Schema{type: :string, nullable: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule PrincipalResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "PrincipalResponse",
+        type: :object,
+        properties: %{
+          principal: PrincipalItem
+        },
+        required: [:principal],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AgentListResponse do
     @moduledoc false
 
@@ -454,6 +791,200 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           expected_content_hash: %Schema{type: :string}
         },
         required: [:content, :expected_content_hash],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibrarySkillCapabilityItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibrarySkillCapabilityItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          name: %Schema{type: :string},
+          description: %Schema{type: :string},
+          source_kind: %Schema{type: :string, enum: ~w(builtin installed)},
+          agent_plugin_id: %Schema{type: :string, nullable: true},
+          global_default_enabled: %Schema{type: :boolean},
+          override_enabled: %Schema{type: :boolean, nullable: true},
+          effective_enabled: %Schema{type: :boolean}
+        },
+        required: [
+          :id,
+          :name,
+          :description,
+          :source_kind,
+          :agent_plugin_id,
+          :global_default_enabled,
+          :override_enabled,
+          :effective_enabled
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentPluginCapabilityItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentPluginCapabilityItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          description: %Schema{type: :string},
+          version: %Schema{type: :string},
+          content_hash: %Schema{type: :string},
+          global_default_enabled: %Schema{type: :boolean},
+          override_enabled: %Schema{type: :boolean, nullable: true},
+          effective_enabled: %Schema{type: :boolean},
+          skills: %Schema{type: :array, items: AgentLibrarySkillCapabilityItem}
+        },
+        required: [
+          :id,
+          :description,
+          :version,
+          :content_hash,
+          :global_default_enabled,
+          :override_enabled,
+          :effective_enabled,
+          :skills
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibraryCapabilitiesResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibraryCapabilitiesResponse",
+        type: :object,
+        properties: %{
+          agent_plugins: %Schema{type: :array, items: AgentPluginCapabilityItem},
+          skills: %Schema{type: :array, items: AgentLibrarySkillCapabilityItem}
+        },
+        required: [:agent_plugins, :skills],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibraryGlobalDefaultWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibraryGlobalDefaultWriteRequest",
+        type: :object,
+        properties: %{enabled: %Schema{type: :boolean}},
+        required: [:enabled],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibraryAgentOverrideWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibraryAgentOverrideWriteRequest",
+        type: :object,
+        properties: %{enabled: %Schema{type: :boolean, nullable: true}},
+        required: [:enabled],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ControlPlanePluginItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ControlPlanePluginItem",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          display_name: JSONValue,
+          description: JSONValue,
+          configured_enabled: %Schema{type: :boolean},
+          active: %Schema{type: :boolean},
+          restart_required: %Schema{type: :boolean}
+        },
+        required: [
+          :id,
+          :display_name,
+          :description,
+          :configured_enabled,
+          :active,
+          :restart_required
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ControlPlanePluginListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ControlPlanePluginListResponse",
+        type: :object,
+        properties: %{
+          control_plane_plugins: %Schema{type: :array, items: ControlPlanePluginItem}
+        },
+        required: [:control_plane_plugins],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ControlPlanePluginWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "ControlPlanePluginWriteRequest",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          enabled: %Schema{type: :boolean}
+        },
+        required: [:id, :enabled],
         additionalProperties: false
       },
       struct?: false
@@ -1239,6 +1770,51 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule AgentSession do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentSession",
+        type: :object,
+        description: "One actor session surfaced from durable schedule, event, or job rows.",
+        properties: %{
+          session_id: %Schema{type: :string},
+          kind: %Schema{
+            type: :string,
+            enum: ["job", "session"],
+            description: "`job` marks a background-agent-job session (id `\"job:<id>\"`)."
+          },
+          title: %Schema{type: :string, nullable: true},
+          status: %Schema{type: :string, nullable: true},
+          last_activity_at: %Schema{type: :string, nullable: true}
+        },
+        required: [:session_id, :kind],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentSessionListResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentSessionListResponse",
+        type: :object,
+        properties: %{sessions: %Schema{type: :array, items: AgentSession}},
+        required: [:sessions],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AIGatewayProviderEncryptedOptionProjection do
     @moduledoc false
 
@@ -1876,7 +2452,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnUsageBreakdown do
+  defmodule BackgroundAgentJobTurnUsageBreakdown do
     @moduledoc false
     require OpenAPISpex
 
@@ -1884,7 +2460,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnUsageBreakdown",
+        title: "BackgroundAgentJobTurnUsageBreakdown",
         type: :object,
         properties: %{
           total_tokens: @token_count,
@@ -1906,17 +2482,17 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnUsage do
+  defmodule BackgroundAgentJobTurnUsage do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnUsage",
+        title: "BackgroundAgentJobTurnUsage",
         type: :object,
         properties: %{
-          thread_total: SubagentTurnUsageBreakdown,
-          last_model_call: SubagentTurnUsageBreakdown,
+          thread_total: BackgroundAgentJobTurnUsageBreakdown,
+          last_model_call: BackgroundAgentJobTurnUsageBreakdown,
           model_context_window: %Schema{type: :integer, minimum: 0}
         },
         required: [:thread_total, :last_model_call],
@@ -1926,13 +2502,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnToolUsage do
+  defmodule BackgroundAgentJobTurnToolUsage do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnToolUsage",
+        title: "BackgroundAgentJobTurnToolUsage",
         type: :object,
         properties: %{
           name: %Schema{type: :string, minLength: 1},
@@ -1945,13 +2521,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnPlanStep do
+  defmodule BackgroundAgentJobTurnPlanStep do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnPlanStep",
+        title: "BackgroundAgentJobTurnPlanStep",
         type: :object,
         properties: %{
           step: %Schema{type: :string, minLength: 1},
@@ -1964,17 +2540,17 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnPlan do
+  defmodule BackgroundAgentJobTurnPlan do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnPlan",
+        title: "BackgroundAgentJobTurnPlan",
         type: :object,
         properties: %{
           explanation: %Schema{type: :string},
-          steps: %Schema{type: :array, items: SubagentTurnPlanStep, maxItems: 100}
+          steps: %Schema{type: :array, items: BackgroundAgentJobTurnPlanStep, maxItems: 100}
         },
         required: [:steps],
         additionalProperties: false
@@ -1983,13 +2559,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnActiveItem do
+  defmodule BackgroundAgentJobTurnActiveItem do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnActiveItem",
+        title: "BackgroundAgentJobTurnActiveItem",
         type: :object,
         properties: %{
           id: %Schema{type: :string, minLength: 1},
@@ -2002,21 +2578,21 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentTurnProgress do
+  defmodule BackgroundAgentJobTurnProgress do
     @moduledoc false
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentTurnProgress",
+        title: "BackgroundAgentJobTurnProgress",
         type: :object,
         properties: %{
           completed_items: %Schema{type: :integer, minimum: 0},
           tool_calls: %Schema{type: :integer, minimum: 0},
-          tools_used: %Schema{type: :array, items: SubagentTurnToolUsage, maxItems: 128},
+          tools_used: %Schema{type: :array, items: BackgroundAgentJobTurnToolUsage, maxItems: 128},
           files_changed: %Schema{type: :array, items: %Schema{type: :string}, maxItems: 1024},
-          plan: SubagentTurnPlan,
-          active_item: SubagentTurnActiveItem
+          plan: BackgroundAgentJobTurnPlan,
+          active_item: BackgroundAgentJobTurnActiveItem
         },
         required: [:completed_items, :tool_calls, :tools_used, :files_changed],
         additionalProperties: false
@@ -2025,13 +2601,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentDelegationTurnItem do
+  defmodule BackgroundAgentJobTurnItem do
     @moduledoc false
 
     require OpenAPISpex
 
-    @kinds Ankole.SubagentDelegations.Schemas.Turn.kinds()
-    @statuses Ankole.SubagentDelegations.Schemas.Turn.statuses()
+    @kinds Ankole.BackgroundAgentJobs.Schemas.Turn.kinds()
+    @statuses Ankole.BackgroundAgentJobs.Schemas.Turn.statuses()
 
     @content_part %Schema{
       type: :object,
@@ -2107,7 +2683,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentDelegationTurnItem",
+        title: "BackgroundAgentJobTurnItem",
         type: :object,
         properties: %{
           id: %Schema{type: :string},
@@ -2141,8 +2717,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             },
             required: [:format, :version, :messages]
           },
-          progress: SubagentTurnProgress,
-          usage: %Schema{allOf: [SubagentTurnUsage], nullable: true},
+          progress: BackgroundAgentJobTurnProgress,
+          usage: %Schema{allOf: [BackgroundAgentJobTurnUsage], nullable: true},
           error: %Schema{type: :object, additionalProperties: true},
           started_at: %Schema{type: :string},
           completed_at: %Schema{type: :string, nullable: true},
@@ -2171,27 +2747,33 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentDelegationItem do
+  defmodule BackgroundAgentJobItem do
     @moduledoc false
 
     require OpenAPISpex
 
-    @runtimes Ankole.SubagentDelegations.Schemas.Delegation.runtimes()
-    @modes Ankole.SubagentDelegations.Schemas.Delegation.modes()
-    @statuses Ankole.SubagentDelegations.Schemas.Delegation.statuses()
+    @statuses Ankole.BackgroundAgentJobs.Schemas.Job.statuses()
 
+    @workspace_mount %Schema{
+      type: :object,
+      additionalProperties: false,
+      properties: %{
+        id: %Schema{type: :string},
+        source: %Schema{type: :string},
+        access: %Schema{type: :string, enum: ["read_only", "read_write"]}
+      },
+      required: [:id, :source, :access]
+    }
     OpenAPISpex.schema(
       %{
-        title: "SubagentDelegationItem",
+        title: "BackgroundAgentJobItem",
         type: :object,
         properties: %{
           id: %Schema{type: :string},
           agent_uid: %Schema{type: :string},
-          session_id: %Schema{type: :string},
-          runtime: %Schema{type: :string, enum: @runtimes},
-          mode: %Schema{type: :string, enum: @modes, nullable: true},
-          source_delegation_id: %Schema{type: :string, nullable: true},
-          actual_outcome: %Schema{type: :boolean, nullable: true},
+          owner_session_id: %Schema{type: :string},
+          source_actor_event_id: %Schema{type: :string, nullable: true},
+          source_tool_call_id: %Schema{type: :string},
           codex_account_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},
@@ -2203,7 +2785,15 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             enum: @statuses
           },
           attempts: %Schema{type: :integer},
-          workdir: %Schema{type: :string, nullable: true},
+          agent_plugin_ids: %Schema{type: :array, items: %Schema{type: :string}},
+          skill_names: %Schema{type: :array, items: %Schema{type: :string}},
+          workspace_mounts: %Schema{type: :array, items: @workspace_mount},
+          model: %Schema{type: :string, nullable: true},
+          reasoning_effort: %Schema{
+            type: :string,
+            enum: ["minimal", "low", "medium", "high", "xhigh"],
+            nullable: true
+          },
           reply_route: %Schema{type: :object, additionalProperties: true},
           result: %Schema{type: :object, additionalProperties: true},
           error: %Schema{type: :object, additionalProperties: true},
@@ -2214,18 +2804,23 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           completed_at: %Schema{type: :string, nullable: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string},
-          turns: %Schema{type: :array, items: SubagentDelegationTurnItem}
+          turns: %Schema{type: :array, items: BackgroundAgentJobTurnItem}
         },
         required: [
           :id,
           :agent_uid,
-          :session_id,
-          :runtime,
+          :owner_session_id,
+          :source_tool_call_id,
           :codex_account_id,
           :title,
           :task,
           :status,
           :attempts,
+          :agent_plugin_ids,
+          :skill_names,
+          :workspace_mounts,
+          :model,
+          :reasoning_effort,
           :reply_route,
           :result,
           :error,
@@ -2240,72 +2835,39 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SubagentDelegationListResponse do
+  defmodule BackgroundAgentJobListResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentDelegationListResponse",
+        title: "BackgroundAgentJobListResponse",
         type: :object,
         properties: %{
-          delegations: %Schema{type: :array, items: SubagentDelegationItem},
-          next_cursor: %Schema{type: :string, nullable: true},
-          calibration_summary: %Schema{
-            type: :object,
-            additionalProperties: false,
-            properties: %{
-              forecast_count: %Schema{type: :integer, minimum: 0},
-              resolved_forecast_count: %Schema{type: :integer, minimum: 0},
-              mean_brier_score: %Schema{type: :number, nullable: true},
-              no_edge_count: %Schema{type: :integer, minimum: 0},
-              no_edge_rate: %Schema{type: :number, nullable: true},
-              confidence_buckets: %Schema{
-                type: :array,
-                items: %Schema{
-                  type: :object,
-                  additionalProperties: false,
-                  properties: %{
-                    confidence: %Schema{type: :integer, minimum: 1, maximum: 5},
-                    forecasts: %Schema{type: :integer, minimum: 1},
-                    hits: %Schema{type: :integer, minimum: 0},
-                    hit_rate: %Schema{type: :number, nullable: true}
-                  },
-                  required: [:confidence, :forecasts, :hits, :hit_rate]
-                }
-              }
-            },
-            required: [
-              :forecast_count,
-              :resolved_forecast_count,
-              :mean_brier_score,
-              :no_edge_count,
-              :no_edge_rate,
-              :confidence_buckets
-            ]
-          }
+          jobs: %Schema{type: :array, items: BackgroundAgentJobItem},
+          next_cursor: %Schema{type: :string, nullable: true}
         },
-        required: [:delegations, :next_cursor, :calibration_summary],
+        required: [:jobs, :next_cursor],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule SubagentDelegationResponse do
+  defmodule BackgroundAgentJobResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SubagentDelegationResponse",
+        title: "BackgroundAgentJobResponse",
         type: :object,
         properties: %{
-          delegation: SubagentDelegationItem
+          job: BackgroundAgentJobItem
         },
-        required: [:delegation],
+        required: [:job],
         additionalProperties: false
       },
       struct?: false
@@ -2325,12 +2887,36 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           id: %Schema{type: :string},
           subject_uid: %Schema{type: :string},
           conversation_key: %Schema{type: :string},
+          kind: %Schema{
+            type: :string,
+            enum: ["signal", "dreaming", "job", "responses_api", "custom"]
+          },
+          display_name: %Schema{type: :string, nullable: true},
+          channel_kind: %Schema{
+            type: :string,
+            enum: ["im_dm", "im_group", "webhook_endpoint", "issue", "alert_stream", "unknown"],
+            nullable: true
+          },
+          signal_adapter: %Schema{type: :string, nullable: true},
+          message_count: %Schema{type: :integer},
           ended_at: %Schema{type: :string, nullable: true},
           metadata: %Schema{type: :object, additionalProperties: true},
           inserted_at: %Schema{type: :string},
           updated_at: %Schema{type: :string}
         },
-        required: [:id, :subject_uid, :conversation_key, :metadata, :inserted_at, :updated_at],
+        required: [
+          :id,
+          :subject_uid,
+          :conversation_key,
+          :kind,
+          :display_name,
+          :channel_kind,
+          :signal_adapter,
+          :message_count,
+          :metadata,
+          :inserted_at,
+          :updated_at
+        ],
         additionalProperties: false
       },
       struct?: false

@@ -25,7 +25,6 @@ defmodule Ankole.Kernel do
   @type authz_snapshot :: map()
   @type authz_decision :: map()
   @type signals_gateway_filter_context :: map()
-  @type runtime_fabric_envelope :: map()
   @type jwt_claims :: map()
   @type jwt_header :: map()
   @type jwt_validation :: map()
@@ -90,38 +89,6 @@ defmodule Ankole.Kernel do
   @spec authz_authorize_all_nif(String.t()) :: result(String.t())
   defp authz_authorize_all_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc """
-  Encodes a RuntimeFabric v1 envelope as protobuf bytes.
-
-  The public Elixir shape is a map. The native kernel validates protocol
-  version, lane, durability, body type, and boundary rules before returning
-  bytes that may be sent over the runtime fabric.
-  """
-  @spec runtime_fabric_encode_envelope(runtime_fabric_envelope()) :: result(binary())
-  def runtime_fabric_encode_envelope(envelope) when is_map(envelope) do
-    envelope
-    |> Torque.encode!()
-    |> runtime_fabric_encode_envelope_nif()
-  end
-
-  @spec runtime_fabric_encode_envelope_nif(String.t()) :: result(binary())
-  defp runtime_fabric_encode_envelope_nif(_envelope),
-    do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Decodes RuntimeFabric v1 protobuf bytes into the public Elixir map shape.
-  """
-  @spec runtime_fabric_decode_envelope(binary()) :: result(runtime_fabric_envelope())
-  def runtime_fabric_decode_envelope(envelope_bytes) when is_binary(envelope_bytes) do
-    envelope_bytes
-    |> runtime_fabric_decode_envelope_nif()
-    |> decode_json_result()
-  end
-
-  @spec runtime_fabric_decode_envelope_nif(binary()) :: result(String.t())
-  defp runtime_fabric_decode_envelope_nif(_envelope_bytes),
-    do: :erlang.nif_error(:nif_not_loaded)
-
   @doc false
   @spec runtime_fabric_router_start(String.t(), pid(), String.t()) ::
           result(runtime_fabric_router())
@@ -133,9 +100,9 @@ defmodule Ankole.Kernel do
   def runtime_fabric_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), String.t()) ::
+  @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), binary()) ::
           result(String.t())
-  def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_json),
+  def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_bytes),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
@@ -382,17 +349,46 @@ defmodule Ankole.Kernel do
   @doc """
   Parses a web URL with WHATWG semantics and classifies its host.
 
-  `host_class` drives the shared web tools URL policy: `:metadata` hosts are
-  cloud credential endpoints Ankole always rejects, `:private` hosts are
-  rejected only when `security.ssrf_filter` is enabled, and
-  `:public` hosts are allowed. Scheme rules and policy application stay with
-  the runtime callers; both Elixir and Bun consume this one classifier.
+  `host_class` drives the shared web URL policy: `:metadata` hosts are cloud
+  credential endpoints Ankole always rejects, `:private` hosts are rejected
+  only when `security.ssrf_filter` is enabled, and `:public` hosts are
+  allowed. Most callers want `validate_web_url/3`, which applies that policy;
+  reach for raw facts only when a caller needs the parsed pieces themselves.
+  Both Elixir and Bun consume this one classifier.
   """
   @spec web_url_facts(String.t()) :: result(web_url_facts())
   def web_url_facts(url) when is_binary(url), do: web_url_facts_nif(url)
 
   @spec web_url_facts_nif(String.t()) :: result(web_url_facts())
   defp web_url_facts_nif(_url), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Validates one web URL against the shared SSRF policy.
+
+  Returns `:ok` when the URL scheme is in `schemes` and the classified host
+  allows the request: `:public` hosts always pass, `:private` hosts pass only
+  when `ssrf_filter?` is disabled, and `:metadata` cloud credential endpoints
+  never pass. Returns `{:error, :metadata | :private | :invalid}` so each
+  caller keeps its own scheme list and error vocabulary.
+  """
+  @spec validate_web_url(String.t(), [String.t()], boolean()) ::
+          :ok | {:error, :metadata | :private | :invalid}
+  def validate_web_url(url, schemes, ssrf_filter?)
+      when is_binary(url) and is_list(schemes) and is_boolean(ssrf_filter?) do
+    case web_url_facts(url) do
+      %{host_class: :metadata} ->
+        {:error, :metadata}
+
+      %{scheme: scheme, host_class: :private} ->
+        if scheme in schemes and not ssrf_filter?, do: :ok, else: {:error, :private}
+
+      %{scheme: scheme, host_class: :public} ->
+        if scheme in schemes, do: :ok, else: {:error, :invalid}
+
+      _unparseable ->
+        {:error, :invalid}
+    end
+  end
 
   defp decode_json_result({:error, _reason} = error), do: error
   defp decode_json_result(json) when is_binary(json), do: Torque.decode!(json)

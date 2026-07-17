@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Plugins.GoogleWorkspaceAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias GoogleOpenAPI.Client
 
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.google-workspace\.[A-Za-z0-9_.:-]+\z/

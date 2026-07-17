@@ -182,9 +182,10 @@ LLM profiles. Their public selectors are `embedding.default`,
 The binding map is owned by `Ankole.AIAgent.ModelProfiles`, because profiles
 configure worker behavior rather than the gateway itself. A `coding` profile
 may instead select a named Codex subscription account. That account-shaped
-profile is consumed by Subagent Delegation and does not become an AIGateway
-model alias; provider/model-shaped coding profiles continue to resolve through
-AIGateway normally.
+profile is resolved when CodexRunner prepares an ordinary BackgroundAgentJob;
+it is not a Plugin option and does not become an AIGateway model alias.
+Provider/model-shaped coding profiles continue to resolve through AIGateway
+normally.
 
 The worker may also send an explicit provider/model selector in the form
 `provider_id/raw-model-id`. That selector bypasses an agent alias but still
@@ -236,6 +237,10 @@ for every Principal subject and has no Actor-specific branch. Rules:
 - `background=true` does not enable an Ankole background response mode.
   AIGateway exposes only Response-scoped fail and suffix-removal primitives;
   Actor stop, retry, and retraction policy chooses targets in SignalsGateway.
+
+Stateful HTTP/SSE is intentionally unsupported in the current product. External
+OpenAI-style HTTP clients use the stateless surface; a client that needs durable
+continuation must use the WebSocket contract above.
 
 The gate is intentionally explicit. AIGateway never guesses from headers or
 `User-Agent` whether a request should be stateful. Only
@@ -390,8 +395,8 @@ top-level result `text` or `score` are normalized into that shape.
 `GET /web_tools` exposes the provider-backed tool availability for the current
 agent token. The response tells the worker whether `web_search` and
 `web_fetch` are configured, and which profile selector to send back. It does
-not advertise the worker-local browser fallback; Agent Computer may add that
-fallback for `web_fetch` independently when building its tool list.
+not advertise the worker-local rendered-page fallback; Agent Computer may add
+that fallback for `web_fetch` independently when building its tool list.
 
 `/web_search` accepts `model`, `query`, and optional `limit`. It resolves the
 model through the `web_search` capability and dispatches to the configured
@@ -626,9 +631,11 @@ The conversation row deliberately stores no active-generation lease and no
 message graph (see Status And Projection). A stored pointer would be a second
 source of truth, and it would drift from the graph on compaction, retraction,
 branching, and worker reconnect. Keeping only the graph means there is nothing
-to repair. Concurrency control — "one run at a time per session" — is not a
-conversation lease either. Each caller owns serialization of its logical loop;
-AIGateway rejects only conflicting Response-level state it can observe itself.
+to repair. The conversation row is used only as a short transaction mutex when
+AIGateway admits an implicit continuation. Under that lock AIGateway recomputes
+the visible leaf, rejects an existing `generating` Response, and writes the
+optional auto-compaction checkpoint plus new run atomically. This is admission
+serialization, not a stored lease or current-position fact.
 
 ## Response Identity
 
@@ -695,18 +702,21 @@ previous hop of the chain. History projection walks that chain backwards:
 - the current request's input comes only from the current `response.create`
   payload, never from re-reading history.
 
-A "visible leaf" is a `complete`, non-retracted row that no other row chains
-from — a tail of the graph. Continuation resolves like this:
+A "visible leaf" is a `complete`, non-retracted row that no other `complete`
+row chains from — a tail of the graph. Continuation resolves like this:
 
 - an explicit `previous_response_id` names the anchor directly. It does not
   have to be the newest row. Passing an older `complete` id creates a branch,
   the same way it does in the OpenAI Responses API.
 - a request with only `conversation` uses implicit continuation: AIGateway
-  deterministically picks the latest visible leaf by creation order. Zero
-  leaves means the conversation starts from empty history. If several leaves
-  exist because of branching, implicit continuation still picks only the
-  latest; it never explores or merges the branch graph. A caller that wants an
-  older branch must pass `previous_response_id` explicitly.
+  tentatively picks the latest visible leaf by creation order, then verifies
+  that leaf again while holding the conversation row lock. Zero leaves means
+  the conversation starts from empty history. If another run is generating or
+  the leaf changed before admission, the request gets `409
+  response_in_progress` and may retry after the active run finishes. If several
+  leaves already exist because of explicit branching, implicit continuation
+  still picks only the latest; it never explores or merges the branch graph. A
+  caller that wants an older branch must pass `previous_response_id` explicitly.
 - a `store=true` request with neither `conversation` nor
   `previous_response_id` creates a new managed conversation and starts from
   empty history.
@@ -725,15 +735,19 @@ One `response.create` runs this pipeline:
 1. Gate: transport is WebSocket, `store=true` is present, the token is valid.
 2. Scope: all queries from here on filter by the authenticated
    `subject_uid`.
-3. Resolve the anchor from `previous_response_id` or `conversation`; if neither
-   is present, create a managed conversation and start from empty history.
-4. Expand history along the chain. If the estimated provider-facing input is
-   over budget, run auto-compaction first (see Compaction). The compaction
-   artifact and checkpoint row are written before the run row, so the run row's
-   `previous_message_id` points at the checkpoint from the start.
-5. Merge the request-side input items.
-6. Create the run row: `status = "generating"`, the caller's complete opaque
-   `metadata`, and the initial `content` holding the request-side items.
+3. Resolve a tentative anchor from `previous_response_id` or `conversation`; if
+   neither is present, create a managed conversation and start from empty
+   history. Expand that chain and, when needed, compute an auto-compaction
+   summary without writing an artifact or checkpoint yet.
+4. Admit the run in one short database transaction. Explicit
+   `previous_response_id` keeps branch semantics. Implicit `conversation`
+   continuation locks the conversation row, rejects any ordinary `generating`
+   row, and verifies that the tentative leaf is still current.
+5. In the same transaction, write the optional compaction artifact and
+   checkpoint, then create the run row with `status = "generating"`, the
+   request-side input in `content`, and request metadata. The run points at the
+   checkpoint from the start. A rejected admission writes none of the three.
+6. Expand the admitted history and merge the request-side input items.
 7. Strip AIGateway continuation fields such as `previous_response_id`,
    `conversation`, and `store`, then build the provider request. The upstream
    provider sees plain input items, never Ankole continuation fields.
@@ -825,7 +839,7 @@ checkpoint row and artifact share the same raw UUID.
   checkpoint, then the user gets fixed command feedback through the outbox. See
   `docs/design-docs/SignalsGateway.md` for the command surface.
 
-Auto-compaction runs inside the write path, at history expansion:
+Auto-compaction runs inside the write path, at history expansion and admission:
 
 - AIGateway budgets automatic compaction from upstream provider usage recorded
   on history messages. `usage.total_tokens` is used when present; otherwise
@@ -838,9 +852,14 @@ Auto-compaction runs inside the write path, at history expansion:
 - An internal summarizer model generates the summary — the agent's `light`
   profile first, falling back to `primary`. The summarizer's usage is recorded
   in the artifact and in checkpoint metadata for operator inspection.
-- The artifact/checkpoint is written first. The triggering run row then chains
-  from the checkpoint. The summary of already-complete rows is valid whether or
-  not the triggering run later succeeds.
+- Summarization produces an in-memory plan first. The short admission
+  transaction verifies the implicit leaf, then writes the artifact, checkpoint,
+  and triggering run together. A competing implicit continuation may duplicate
+  summarizer work, but the losing request writes no branch, artifact, or
+  checkpoint.
+- The triggering run chains from the checkpoint. The summary of
+  already-complete rows is valid whether or not that admitted run later
+  succeeds.
 - If the summarizer fails, no artifact or checkpoint is written. There is never
   a half-written compaction artifact. The request falls back to truncation, an
   overflow retry, or an explicit error.
@@ -904,13 +923,33 @@ Nothing in the stateful path assumes a long-lived process. Recovery rules:
   re-sends the round from the last complete anchor.
 - There is no half-stream recovery. The current version keeps no stable item
   snapshots and no content version counter. A broken stream costs one round:
-  the stale row goes to `error`, and the round is re-sent.
+  the partial row goes to `error`, its partial calls remain audit-only, and the
+  round is re-sent from the last complete anchor. A function call is executable
+  only after a successful tool-use terminal; EOF never upgrades accumulated
+  argument deltas into a completed call.
 - A control-plane crash can persist a function call before its function output
   reaches the message chain. Before replay, AIGateway detects each dangling
   call and appends a synthetic `function_call_output` whose structured error is
   `tool_execution_interrupted`. This restores a provider-valid chain without
   claiming that the tool succeeded; the resumed model may retry or explain the
   interruption.
+- A provider can return a truncated or otherwise malformed
+  `function_call.arguments` string that the worker correctly answers with an
+  invalid-arguments `function_call_output`. Durable history retains the raw
+  call for audit. Current execution and Kernel replay apply a bounded repair
+  ladder: strict JSON, fenced JSON, the first balanced object, and deterministic
+  closure of containers/trailing commas, followed by the tool's strict schema.
+  Kernel uses `{}` only when an unrepairable historical call already has a
+  matching output; it drops an unpaired malformed call instead of inventing a
+  result or arguments.
+- `response.tool_results.record` reconciles outputs against executable calls on
+  its explicit anchor. Identical duplicates collapse. Orphans, conflicting
+  duplicates, name conflicts, and outputs for partial calls are retained in an
+  idempotent `status = "error"` quarantine row and returned as a structured
+  error; they never become the latest complete leaf. Provider-facing history
+  independently filters structurally invalid calls plus legacy orphan,
+  duplicate, mismatched, or non-executable outputs while leaving their durable
+  rows untouched.
 - A worker reconnect restores tool-execution context only. The worker does not
   repair history; it continues from ids it holds or its owning runtime starts a
   new execution. Failed rows keep their audit content under `status = "error"`.
@@ -1042,8 +1081,8 @@ Web tool tests must cover capability registration, profile resolution,
 provider config validation, normalized search/extract responses, URL rejection
 before extraction dispatch, worker tool registration from `/web_tools`, gateway
 success and error propagation, and the explicit unavailable behavior when
-provider-backed extraction is not configured. Local-browser fallback behavior is
-owned by the worker/browser design and is not part of this AIGateway path.
+provider-backed extraction is not configured. The worker's private rendered-page
+fallback is owned by Agent Computer and is not part of this AIGateway path.
 
 Provider error tests must classify upstream timeout, first-byte timeout, idle
 timeout, 429, 5xx, 400, and 422 responses. Retry or failover policy is provider
@@ -1084,6 +1123,18 @@ Stateful contract tests must cover:
   300-second grace, and no Actor/delivery lookup in either path;
 - `instructions` non-inheritance, `prompt_cache_key` no-op, and `service_tier`
   stripping.
+
+## Hermes Floor And Runtime Tradeoffs
+
+Hermes commit `3a1a3c7e6727a31df89b61b27bad313430bdac45` is the minimum robustness floor. Equivalent Ankole work must not fail earlier or accept less legal input; Ankole is intentionally wider where BackgroundAgentJob work is longer-lived.
+
+| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
+| --- | --- | --- | --- | --- |
+| HTTP credential recovery | Two total attempts; a second `401` failed immediately | Auth refresh remains inside the retry loop with `5s` base backoff | Three total attempts: first `401` refreshes immediately; a `401` on the refreshed key waits `5s` before the third attempt | One extra request and at most `5s` latency avoids failing during key rotation or propagation lag. |
+| WebSocket reconnect after `response.create` | Close/error was terminal locally | Transient stream failure gets two retries, three attempts total | Close/error retries from the last stable Response anchor, up to three local attempts | Replaying a round costs provider work, but stable anchors prevent partial function-call fragments from executing. |
+| First event | No independent signal; the fixed inactivity timer was the only observation | `120s` TTFB for smaller Codex requests; disabled for larger input | Never fatal solely for first-byte delay; emit `slow_first_byte` at `300s` | A warning preserves observability without killing a valid long-prefill request. |
+| Post-first-event staleness | Fixed `30m` inactivity | Layered stale budgets up to `180s`, with wider reasoning-model floors | `180s` for estimated input up to `100k` tokens; `300s` above `100k`; overall activity lease `35m` | Slower detection for very large contexts is deliberate; any valid event resets the watchdog. |
+| Image input normalization | Oversize images could be dropped and fallback description output was capped at 2,000 tokens | Codex image materialization accepts up to `25 MiB`; normal model output policy applies | Raw ingress up to `50 MiB`, decode guard `268 MP`, concurrency `2`, WebP output at most `4096x4096`, complete data URL at most `4 MiB`; no separate 2,000-token fallback ceiling | Decode and model payload limits remain bounded, while legal high-resolution inputs are normalized instead of rejected early. |
 
 ## Known Limits And Extension Points
 

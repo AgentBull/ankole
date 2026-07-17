@@ -24,7 +24,7 @@ import { errorMessage } from '../common/errors'
 import {
   assistantText,
   createModelTurn,
-  validateToolArguments,
+  validateToolArgumentsWithRepair,
   type Message,
   type AssistantMessage,
   type ToolResultMessage,
@@ -33,7 +33,7 @@ import {
   type ModelTurn,
   type ToolCall
 } from './llm'
-import { isLocallyRetryableLLMError, isRetryableLLMError } from './llm-error-classifier'
+import { isLocallyRetryableLLMError } from './llm-error-classifier'
 import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult, ReplyPresentationEvent } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
@@ -84,7 +84,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   try {
     await emitPresentationEvent({
       kind: 'turn.phase',
-      payload: { operation_id: 'turn', state: 'working', label: '正在理解请求' }
+      payload: {
+        operation_id: 'turn',
+        state: 'working',
+        label: '正在理解请求'
+      }
     })
 
     while (true) {
@@ -127,17 +131,18 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
             instructions: config.systemPrompt,
             messages: pendingMessages,
             tools: tools as never,
+            hostedTools: config.hostedTools,
             maxOutputTokens: config.maxTokens,
             temperature: config.temperature,
             text: config.text
           })
           config.onActivity?.('model_call_done')
-          const retryableError = retryableTerminalModelError(result.message)
-          if (retryableError) throw retryableError
+          const terminalError = terminalModelError(result.message)
+          if (terminalError) throw terminalError
           return result
         },
         {
-          maxAttempts: 2,
+          maxAttempts: 3,
           signal: config.abortSignal,
           isRetryable: isLocallyRetryableLLMError
         }
@@ -146,8 +151,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       latestAssistant = result.message
       latestResponseID = requiredResponseID(result.responseID)
 
-      // If no tool calls, the loop is done.
-      if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
+      // A function-call-shaped item is executable only when the provider also
+      // proved a successful tool-use terminal. Partial/error/length responses
+      // may retain diagnostic call fragments, but they never cross this gate.
+      if (latestAssistant.stopReason !== 'toolUse') {
         if (shouldNudgeEmptyAfterTools(latestAssistant, sawToolResults, nudgedEmptyAfterTools)) {
           nudgedEmptyAfterTools = true
           pendingMessages = [{ role: 'user', content: EMPTY_AFTER_TOOL_NUDGE_TEXT }]
@@ -164,6 +171,10 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         }
 
         break
+      }
+
+      if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
+        throw new Error('LLM provider returned toolUse without a completed function call')
       }
 
       const toolCalls = latestAssistant.toolCalls
@@ -198,7 +209,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
               .finally(() => config.onActivity?.('tool_results_record_done'))
           },
           {
-            maxAttempts: 2,
+            maxAttempts: 3,
             signal: config.abortSignal,
             isRetryable: isLocallyRetryableLLMError
           }
@@ -214,7 +225,11 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       pendingMessages = [...nextMessages, ...steeringMessages]
       await emitPresentationEvent({
         kind: 'turn.phase',
-        payload: { operation_id: 'turn', state: 'working', label: '正在整理结果' }
+        payload: {
+          operation_id: 'turn',
+          state: 'working',
+          label: '正在整理结果'
+        }
       })
     }
   } finally {
@@ -260,13 +275,15 @@ export function shouldNudgeEmptyAfterTools(
 }
 
 /**
- * Re-throws retryable terminal model errors into the local retry wrapper.
+ * Turns every failed terminal into an exception. The retry wrapper's
+ * classifier, not this projection layer, decides whether the same request is
+ * safe to issue again.
  */
-function retryableTerminalModelError(message: AssistantMessage): Error | undefined {
-  if (message.stopReason !== 'error') return undefined
+function terminalModelError(message: AssistantMessage): Error | undefined {
+  if (message.stopReason !== 'error' && message.stopReason !== 'aborted') return undefined
   const error = new Error(message.errorMessage || 'LLM provider returned an error')
   error.name = 'LLMProviderTerminalError'
-  return isRetryableLLMError(error) ? error : undefined
+  return error
 }
 
 interface ExecutedToolCall {
@@ -317,7 +334,7 @@ async function synthesizeAfterModelIterationLimit(input: ModelIterationLimitSynt
         .finally(() => input.config.onActivity?.('model_iteration_limit_synthesis_done'))
     },
     {
-      maxAttempts: 2,
+      maxAttempts: 3,
       signal: input.config.abortSignal,
       isRetryable: isLocallyRetryableLLMError
     }
@@ -410,7 +427,9 @@ async function executeToolCall(
 
   let parsedArgs: unknown
   try {
-    parsedArgs = validateToolArguments(toolCall.arguments, tool.schema)
+    const validated = validateToolArgumentsWithRepair(toolCall.arguments, tool.schema)
+    parsedArgs = validated.value
+    if (validated.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${validated.repair}`)
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
     return {
@@ -519,34 +538,19 @@ function presentationEmitter(config: AgentLoopConfig): PresentationEmitter {
 function toolActivity(toolCall: ToolCall, tool: AgentTool, parsedArgs: unknown): JSONObject | null {
   let described: string | null | undefined
   try {
-    described = tool.describeActivity?.(parsedArgs)
+    described = tool.describeActivity(parsedArgs)
   } catch {
     described = undefined
   }
 
   if (described === null) return null
-  const label = described?.trim() || toolActivityLabel(toolCall.name)
+  const label = described?.trim() || '处理请求'
 
   return {
     operation_id: toolCall.id,
     label,
     consequential: tool.isDestructive === true
   }
-}
-
-function toolActivityLabel(name: string): string {
-  if (name === 'memory_search') return '回忆相关上下文'
-  if (name === 'memory_open') return '读取记忆内容'
-  if (name === 'memory_browse') return '浏览对话记忆'
-  if (name === 'memory_update') return '更新记忆'
-  if (name === 'memory_health_check') return '检查记忆状态'
-  if (name === 'web_search') return '检索资料'
-  if (name === 'web_fetch') return '阅读资料'
-  if (name.startsWith('browser')) return '浏览网页'
-  if (name === 'check_back_later' || name === 'cron') return '安排后续工作'
-  if (name === 'clarify') return '整理需要确认的信息'
-  if (name === 'subagent') return '协调子任务'
-  return '处理请求'
 }
 
 function formatToolError(message: string): string {
@@ -671,7 +675,10 @@ async function processToolResultForModel(
     return {
       outputText: toolImageOutputText(text, adaptation.images.length),
       followUpMessages: [
-        { role: 'user', content: [{ type: 'text', text: 'Tool returned image content.' }, ...adaptation.images] }
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'Tool returned image content.' }, ...adaptation.images]
+        }
       ]
     }
   }
@@ -679,7 +686,12 @@ async function processToolResultForModel(
   if (adaptation.kind === 'summary') {
     return {
       outputText: toolImageOutputText(text, images.length),
-      followUpMessages: [{ role: 'user', content: `${imageSummaryBlock(adaptation.summary, 'tool')}` }]
+      followUpMessages: [
+        {
+          role: 'user',
+          content: `${imageSummaryBlock(adaptation.summary, 'tool')}`
+        }
+      ]
     }
   }
 

@@ -1,12 +1,11 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.Common do
   @moduledoc false
 
-  def unwrap_body(%{"body" => %{"type" => type} = body}, type), do: fetch_map!(body, type)
-  def unwrap_body(%{body: %{"type" => type} = body}, type), do: fetch_map!(body, type)
-  def unwrap_body(%{body: %{type: type} = body}, type), do: fetch_map!(body, type)
-
-  def unwrap_body(%{} = map, type),
-    do: fetch_map(map, type) || fetch_map(map, String.to_atom(type)) || map
+  # RuntimeFabric `*_json` bytes fields carry UTF-8 JSON text; empty bytes mean
+  # "absent". Producers are JSON serializers on both hosts, so invalid JSON is a
+  # programming error and raises instead of degrading.
+  def decode_json_bytes(bytes) when bytes in [nil, ""], do: nil
+  def decode_json_bytes(bytes) when is_binary(bytes), do: Torque.decode!(bytes)
 
   def normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do
     %{agent_uid: normalize_uid(agent_uid), session_id: session_id}

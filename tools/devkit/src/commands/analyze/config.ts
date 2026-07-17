@@ -141,7 +141,18 @@ export interface UnusedAllowEntry {
  * db-migrate, package exports) are declared as `entry` in knip.config.ts so
  * Knip treats them as used — they do NOT belong here (that would be stale).
  */
-export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = []
+export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
+  {
+    file: 'app/library/agent-plugins/deep-research/skills/deep-research/scripts/ach_update.ts',
+    owner: 'deep-research Agent Plugin',
+    reason: 'Invoked by the Skill text as a standalone script; the Agent Plugin package is not a Bun workspace.'
+  },
+  {
+    file: 'app/library/agent-plugins/deep-research/skills/deep-research/scripts/archive_source.ts',
+    owner: 'deep-research Agent Plugin',
+    reason: 'Invoked by the Skill text as a standalone script; the Agent Plugin package is not a Bun workspace.'
+  }
+]
 
 // ---------------------------------------------------------------------------
 // duplicates: jscpd v5

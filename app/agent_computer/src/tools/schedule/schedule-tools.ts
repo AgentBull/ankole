@@ -15,7 +15,7 @@ import {
 
 export interface CreateScheduleToolsOptions {
   turnStart: TurnStart
-  requestScheduleRPC?: ScheduleRPCRequester
+  requestScheduleRPC: ScheduleRPCRequester
 }
 
 type ScheduleToolDetails = JSONObject
@@ -166,10 +166,9 @@ const CronParams = z.object({
 const CronOriginReadActions = new Set<z.output<typeof CronParams>['action']>(['list', 'get', 'runs'])
 
 /**
- * Creates scheduling tools only when the turn runtime provides schedule RPC.
+ * Creates the scheduling tools over the turn's schedule RPC seam.
  */
 export function createScheduleTools(opts: CreateScheduleToolsOptions): AgentTool<any>[] {
-  if (!opts.requestScheduleRPC) return []
   return [createCheckBackLaterTool(opts), createCronTool(opts)]
 }
 
@@ -194,11 +193,11 @@ function createCheckBackLaterTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: () => '安排后续工作',
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       const operation = CheckBackLaterOperationParams.parse(params)
-      const call = opts.requestScheduleRPC!
-      const base: TurnScopedRPCRequest = {
-        request_id: `schedule-checkback-${operation.action}-${crypto.randomUUID()}`,
+      const call = opts.requestScheduleRPC
+      const base: Omit<TurnScopedRPCRequest, 'request_id'> = {
         turn: opts.turnStart.turn
       }
 
@@ -298,11 +297,11 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
+    describeActivity: () => '安排后续工作',
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
-      const call = opts.requestScheduleRPC!
-      const base: TurnScopedRPCRequest = {
-        request_id: `schedule-cron-${params.action}-${crypto.randomUUID()}`,
+      const call = opts.requestScheduleRPC
+      const base: Omit<TurnScopedRPCRequest, 'request_id'> = {
         turn: opts.turnStart.turn
       }
       const target = () => ({ ...base, cron_schedule_id: requiredCronScheduleID(params) })

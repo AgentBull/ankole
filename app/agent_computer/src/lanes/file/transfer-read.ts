@@ -12,7 +12,7 @@ import {
   zstdLevel
 } from './codec'
 import { fileFingerprint } from './fingerprint'
-import { parseVirtualPathFrame, resolveFileAddress } from './path-security'
+import { assertExistingFileAddress, parseVirtualPathFrame, resolveFileAddress } from './path-security'
 import type { FileTransferContext, GetTransfer } from './types'
 
 export async function handleReadOpen(
@@ -26,7 +26,10 @@ export async function handleReadOpen(
 
   const address = parseVirtualPathFrame(frames[3], 'read path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
-  const filePath = resolveFileAddress(context.config, address)
+  const lexicalFilePath = resolveFileAddress(context.config, address)
+  const filePath = existsSync(lexicalFilePath)
+    ? assertExistingFileAddress(context.config, address, lexicalFilePath)
+    : lexicalFilePath
   if (!existsSync(filePath)) {
     throw new Error(`file does not exist: ${address.virtualPath}`)
   }

@@ -28,6 +28,19 @@ defmodule Ankole.AuthZ.Snapshot do
     end
   end
 
+  @doc false
+  def build_condition_preview_snapshot(%Principal{} = principal, group_id, condition) do
+    %{
+      "principal" => principal_snapshot(principal),
+      "staticGroupIDs" => [],
+      "computedGroups" => [%{"id" => group_id, "condition" => condition}],
+      "grants" => [],
+      "resource" => "principal_group",
+      "action" => "read",
+      "context" => %{}
+    }
+  end
+
   defp load_authorization_snapshot(repo, principal_uid, resource, actions, context) do
     with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid),
          {:ok, resource} <- Input.normalize_resource(resource),

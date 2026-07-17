@@ -25,13 +25,17 @@ That keeps the control plane and worker model simpler:
 Stronger tenant isolation is outside this boundary. It requires a separate
 installation/runtime isolation design.
 
-## Worker and Sandbox Trust
+## Container Baseline and Inner Isolation
 
-An Agent Computer worker is a trusted first-party runtime node. It is not itself
-the sandbox.
+An Agent Computer worker is a trusted first-party runtime node inside an
+operator-controlled Docker container or equivalent pod. That container is the
+security baseline and final containment boundary. Ankole does not claim that
+multiple mutually hostile workloads can safely share one worker container.
 
-The sandbox is the `bubblewrap` execution boundary inside the worker. This
-distinction is deliberate:
+`bubblewrap` is a best-effort inner isolation layer. It gives commands a
+cleaner filesystem and process view and reduces accidental interference between
+Agents, but it is not a security boundary or a substitute for container
+isolation. This distinction is deliberate:
 
 - the worker may read app configuration and request live credentials;
 - live secrets may exist in worker memory while a turn is running;
@@ -41,9 +45,12 @@ distinction is deliberate:
   Response, while SignalsGateway owns turn fencing, ActorEvent completion, and
   provider outbox truth.
 
-This means a worker compromise is serious, but it is not the same failure mode
-as code escaping a single `bubblewrap` command sandbox. The worker is part of
-the trusted computing base; the sandbox is the untrusted tool/process boundary.
+This means escaping one `bubblewrap` boundary while remaining inside the worker
+container defeats an interference guard, but does not cross Ankole's security
+boundary. A worker or container compromise is serious because the worker is
+part of the trusted computing base and may affect other work in that container.
+Deployments that need hostile-tenant isolation must use separate containers or
+installations rather than relying on `bubblewrap`.
 
 ## Bubblewrap Deployment Modes
 
@@ -72,17 +79,65 @@ cluster policy.
 If strong mode is unavailable, the worker may downgrade to weak mode. Weak mode
 is still `bubblewrap`; it still uses namespace and filesystem isolation, but it
 binds the already-isolated container `/proc` instead of mounting a fresh procfs
-for the inner sandbox. This is weaker than strong mode, but it is not an
-unsandboxed host fallback. Startup logs must make the downgrade visible.
+for the inner sandbox. This is weaker interference isolation, but it does not
+weaken the accepted container security baseline. Startup logs must make the
+downgrade visible.
 
-If neither strong nor weak mode is available, the worker should fail rather than
-running tool commands without `bubblewrap`.
+The current worker still fails startup when neither strong nor weak mode is
+available. That is an implementation restriction, not a security requirement.
+An explicit, loudly reported container-only mode would remain compatible with
+this boundary as long as the worker continues to require the marked container
+runtime and never falls back to running directly on the host.
+
+## Browser Data Plane and Recovery
+
+`ankole-browser` is a worker-local browser data plane, not a control-plane
+service. It receives only an opaque route/session plus final material prepared
+by Agent Computer. It has no Agent, BackgroundAgentJob, Principal,
+AppConfigure-key, credential-profile, or control-plane vocabulary, and it does
+not call the control plane.
+
+Data-plane statelessness does not mean that browser bytes cannot be written to
+disk. Local Chromium profiles, live-process metadata, remote reconnect
+metadata, screenshots, and run artifacts may live under caller-supplied roots.
+They are rebuildable worker-local route data rather than PostgreSQL domain
+facts. Agent Computer resolves backend/profile source settings immediately
+before `web_fetch` invokes the CLI or before a Codex app-server starts; source
+settings are then removed from the child environment.
+
+One browser daemon is supervised per worker, while each opaque route/session
+owns a distinct physical local profile or remote session. This avoids repeated
+supervisors without sharing page, cookie, or failure state across Jobs. The
+daemon normally runs outside the inner `bubblewrap` process but inside the same
+container. Sandboxed commands receive only read-only socket/material binds, so
+leaving or escaping that inner namespace does not cross the accepted container
+security boundary.
+
+Browser persistence is deliberately best effort:
+
+- a daemon restart reconnects to a surviving local Chrome and keeps its
+  profile and local storage;
+- an orphan native dialog is dismissed through raw CDP before Playwright
+  reattaches;
+- a poisoned page target may be replaced at the same URL, so unsaved in-memory
+  DOM state can be lost;
+- remote-provider retention and reconnect guarantees remain those of the
+  supplied backend;
+- worker/container loss may discard route data unless its data root is placed
+  on deployment-managed persistent storage.
+
+`web_fetch` uses a separate ephemeral route only after its provider path is
+unavailable or fails, then purges it after extracting rendered text. Codex Jobs
+may receive a persistent opaque route and use the Browser Skill for CLI or
+Playwright-code workflows. Neither path changes the Docker trust boundary
+described above.
 
 ## Multi-Node Workers and Shared Files
 
-Workers can be deployed across multiple nodes, but multi-node deployment needs a
-shared file layer when user files or agent-installed skills must be visible
-across workers.
+Shared storage is an explicit deployment contract. If turns for the same
+installation may run on more than one worker or node, those workers must mount a
+coherent shared file layer for the worker-visible roots. NFS is the normal
+baseline; an equivalent deployment-specific shared filesystem is also valid.
 
 Practical options include NFS, S3FS, a Kubernetes CSI-backed shared filesystem,
 or another deployment-specific shared mount. The important contract is not the
@@ -104,6 +159,22 @@ or registry flows. File presence alone is not the domain source of truth.
 
 Single-node deployments may use local directories for the same roots, but that
 choice should not leak into API semantics.
+
+## Principal Convergence and Configuration Responsibility
+
+An installation should converge provider observations onto as few human
+Principals as the available stable evidence permits. `platform_subject` is the
+preferred provider-scoped merge point, and normalized email is the intentional
+cross-provider join key. The bias is merge-first: some false-merge risk is
+accepted in exchange for avoiding a growing set of duplicate Principals for one
+person. Mobile numbers are not join keys. A wrong merge is an accepted
+operational risk that requires operator cleanup.
+
+Identity Provider and communication-channel configuration remain independent.
+Ankole does not add a cross-configuration namespace consistency layer that tries
+to prove the operator chose matching provider/app/realm values. Misaligned
+configuration may create failed attribution or duplicate subjects; correcting
+those values is an operator responsibility.
 
 ## RuntimeFabric and ZeroMQ
 
@@ -183,8 +254,9 @@ Visibility is structural, not a general ACL system. Public conversations read
 and write the principal's `public` store. A one-to-one DM conversation reads
 its peer-specific DM store plus `public`, but writes only the DM store. The
 control plane derives owner, store, and author from the durable conversation;
-model tool arguments cannot broaden them. Subagents inherit the parent's frozen
-scope and snapshot.
+model tool arguments cannot broaden them. A BackgroundAgentJob receives the
+owner's frozen scope and snapshot; Job-originated writes retain that owner scope
+and add Job audit metadata.
 
 `memory_search` has two independent selectors: `layer = chat | knowledge | all`
 and `channel_scope = current_channel | all_channels`. Chat recall uses
@@ -258,12 +330,25 @@ empty value only after a real-provider smoke confirms the endpoint still works.
 These are settled decisions of the stateful Responses design, not open items.
 See `docs/design-docs/AIGateway.md` for the mechanism.
 
+Stateful continuation is WebSocket-only in the current product. OpenAI-style
+HTTP and SSE callers are intentionally stateless and reject stateful fields.
+Adding stateful HTTP parity is not current follow-up work.
+
 Continuation is derived, never stored. `ai_gateway_conversations` keeps no
 active-generation lease and no "current position" pointer; the continuation
 base is re-derived from the message graph as the latest visible leaf. A stored
 pointer would be a second source of truth that drifts from the graph on
 compaction, retraction, branching, and reconnect. Deriving costs a query;
 repairing a drifted pointer costs correctness.
+
+Implicit `conversation` continuation is nevertheless serialized at admission.
+AIGateway takes a short row lock, rechecks the derived leaf, and atomically
+writes any auto-compaction checkpoint plus the `generating` run. If another run
+is active or the leaf changed, it returns `409 response_in_progress`; it does
+not queue the request or persist a hidden branch. Explicit
+`previous_response_id` remains the opt-in branch mechanism. Compaction summary
+generation happens before this transaction without durable writes, so a losing
+request may spend summarizer work but cannot leave an artifact or checkpoint.
 
 There is no half-stream recovery. The log keeps no stable item snapshots and no
 content version counter. A broken provider stream costs one Response: a live
@@ -283,9 +368,11 @@ drops media or opaque items from provider-facing input, the run records them in
 `metadata.auto_truncation.dropped_opaque_messages`; media is never silently
 lost, but it is also not summarized yet.
 
-Retracted rows are skipped without replacement. Projection omits a retracted
-row's content and generates no note for the model. The audit fact stays on the
-row; the model simply no longer sees it.
+IM removal does not rewrite non-tail historical Response chains. Tail rows that
+are still safely removable may be removed; older or compaction-covered input
+stays as history. If a later turn needs to know that a historical message was
+removed, the compatible extension is a newly appended lifecycle/meta fact, not
+graph surgery against an earlier prompt.
 
 The security model is two rules: the existing per-agent token or administrator
 authentication proves a Principal subject, and every conversation, message,
@@ -370,10 +457,9 @@ one `bubblewrap` sandbox family, per active session actor.
 Runtime-local state is session-local:
 
 - `/workspace/temp`;
-- tmux/session process state;
-- browser profile;
 - Jupyter state;
-- background processes;
+- transient foreground-command child processes;
+- rebuildable rendered-`web_fetch` extractor state scoped to the execution;
 - temporary credentials.
 
 Workplace files are intentionally more shared. `/workspace/user-files` and
@@ -388,48 +474,74 @@ because the worker can technically run a command.
 
 The current tool surface is intentionally narrow:
 
-- `todo`;
-- browser tools;
-- `patch`;
-- `read_file`;
-- `interactive_terminal`;
-- `command`;
-- `subagent`;
-- `clarify`;
-- `reply_attachment`;
-- `skill_view`;
-- `skill_append`;
-- `check_back_later`;
-- `cron`.
+- local turn state: `todo` and `clarify`;
+- foreground computer operations: `command`, `read_file`, `replace`, `patch`, and
+  `reply_attachment`;
+- Brain operations: `memory_search`, `memory_open`, `memory_update`,
+  `memory_browse`, and `memory_health_check`;
+- web operations: `web_search` and `web_fetch` (whose rendered fallback is an
+  internal implementation detail, not a separate model capability);
+- time operations: `check_back_later` and `cron`;
+- durable work orchestration: `background_agent_job`;
+- enabled-Skill access: `skill_view`, `skill_append`, and `skill_replace`;
+- conditional external integration: one `mcp` tool only when an enabled inline
+  Skill declares at least one valid MCP server.
 
 ### Tool Runtime Bounds
 
 Ankole does not add a universal worker-side wall-clock timeout around every
-tool call. That is intentional and follows Hermes as the semantic reference:
-tools have their own lifecycle contracts, and the AI agent inactivity watchdog
-is a model/provider no-activity watchdog, not a blanket tool killer.
+tool call. Each tool owns the bound its user story requires. The AI agent
+inactivity watchdog observes model/provider inactivity; it is not a blanket
+tool killer.
 
-For shell execution, the `command` tool has a foreground default of `180s`.
-Background command runs have no default command timeout. They are tracked by
-workspace and execution scope, expose `status`, `kill`, and `list`, and keep a
-bounded output tail. The in-memory registry evicts only finished entries when
-it exceeds its capacity; running background commands are not evicted or killed
-by that capacity rule. A caller can still pass `timeout` to opt into an
-explicit command budget.
+For shell execution, `command` is foreground-only and has a default `180s`
+budget. It has no background start/status/kill/list modes and Agent Computer
+does not retain a background-command registry. A caller can still pass
+`timeout` to choose an explicit foreground budget.
 
-Task-worker delegation is a separate durable work path. `subagent(start)` commits a
-PostgreSQL work item and returns immediately; a delegation actor session owns
-dispatch, retry, cancellation, and parent-session wakeup. There is no global
-delegation timeout: active work is protected by the ordinary turn lease and can
-resume on another worker. The current Codex implementation still uses bounded
-request classes: `initialize` is `15s`, `thread/start` is `30s`, and generic
-requests are `60s`. These are protocol-stall bounds, not a task-duration cap.
+File editing uses separate strict schemas: `replace` requires one path and an
+old/new string, while `patch` requires one V4A envelope. Neither accepts the
+other tool's fields or arbitrary properties. Individual edit strings are
+bounded below the generic 256 KiB tool-argument execution limit, so a malformed
+mode union or unbounded patch cannot reach the filesystem implementation.
 
-The current skill surface is also explicit:
+BackgroundAgentJob is the separate durable work path.
+`background_agent_job(start)` commits a PostgreSQL Job and returns immediately;
+the control plane owns dispatch, retry, cancellation, status, and owner-session
+wakeup, while CodexRunner owns execution. There is no global Job wall-clock
+timeout: active work is protected by the ordinary turn lease and can resume on
+another worker. If a product workflow needs a deadline, its owner decides when
+to steer or stop the Job instead of adding a hidden runner policy.
 
-- `jupyter-live-kernel`;
-- `nano-pdf`;
-- `powerpoint`.
+Job and capability contracts do not add a runner duration or completion policy.
+An Agent Plugin supplies standard Codex Plugin Skills, hooks, scripts, and optional
+`workspace-template/` files to an ordinary Job; it does not extend durable Job
+state.
+
+The completion contract is deliberately small: the main Agent hands bounded
+work to Codex, Codex's final response becomes the Job result, and the owner
+session resumes with that result. Standardized `artifacts`, `verification`, or a
+second owner-side acceptance object are not required for Job success. A task may
+still create files, reports, commits, or pull requests, but those remain ordinary
+task outputs described by Codex's final response.
+
+Recovery resolves the selected Agent Plugins and Skills from their current
+definitions. Jobs do not freeze package bytes, Skill versions, or compatibility
+snapshots. Behavioral drift after an operator changes a capability is accepted
+because version-pinning this edge case would add disproportionate lifecycle
+complexity.
+
+The Codex app-server client still uses bounded request classes:
+`initialize` is `15s`, `thread/start` is `30s`, and generic requests are `60s`.
+These are protocol-stall bounds, not a Job-duration cap. Native MCP operations
+similarly have a per-call default of `30s` and caller-selected maximum of
+`120s`; they do not create durable work.
+
+The current Skill catalog is the resolved set of enabled built-in,
+plugin-provided, and agent-installed Skills rather than a hard-coded trio. A
+Skill marked `long_running: true` is routing metadata: the main agent can see
+only its dispatch guidance, while CodexRunner receives its full body inside a
+BackgroundAgentJob.
 
 Skill storage follows the shared-file/PG split:
 
@@ -508,6 +620,27 @@ those facts.
 
 See `docs/design-docs/SignalsGateway.md` for the detailed ingress/outbox model.
 
+## IM Message Lifecycle and Attachments
+
+Inbound message editing is outside the current IM contract. Provider delete and
+recall are supported where the provider emits them; provider limitations remain
+provider limitations rather than a reason to synthesize lifecycle events.
+
+For a non-tail removed message, Ankole preserves the historical Response chain.
+Later model awareness, when needed, should be an appended lifecycle/meta fact.
+This follows the same worse-is-better direction as Hermes/OpenClaw-style IM
+handling: preserve understandable history instead of introducing a mutable
+conversation graph.
+
+The attachment guarantee is bidirectional user-visible file and image transfer,
+not an immutable byte-snapshot protocol. Provider adapters may materialize
+accepted inbound resources into the shared file roots and read the current
+referenced file for outbound delivery. Ankole does not add byte freezing,
+content-version leases, or a separate recovery ledger solely for attachment
+edge cases. Adapter-specific limits, including DingTalk's missing inbound recall
+event and single-attachment/file-type restrictions, are accepted platform
+limits.
+
 ## Frontend and Control Plane Shell
 
 Phoenix is the control-plane web host and HTML shell. It owns routing, auth,
@@ -551,7 +684,8 @@ These surfaces are not part of the current mainline:
 - arbitrary user-configured rule routing for SignalsGateway;
 - a durable ZeroMQ queue;
 - a control-plane NFS scanner as semantic truth;
-- workflow/subagent/search surfaces beyond the schedule primitives;
+- a general workflow runtime beyond BackgroundAgentJob and the schedule
+  primitives;
 - provider-generated synchronous webhook response bodies;
 - hidden text scraping for outbound file attachments;
 - multi-instance recovery-scan claim/lock coordination;

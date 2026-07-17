@@ -1,6 +1,6 @@
 # Microsoft 365 Adapter
 
-The Microsoft 365 plugin connects one Microsoft tenant to Ankole through two
+The Microsoft 365 Control Plane Plugin connects one Microsoft tenant to Ankole through two
 independent host-owned contracts:
 
 - Microsoft Teams chat ingress and provider-visible output through
@@ -9,7 +9,7 @@ independent host-owned contracts:
 
 The two contracts may use apps in the same tenant, but they have separate
 configuration and save boundaries and either can run without the other. The
-plugin is trusted first-party Elixir code running in the control plane. Agent
+Control Plane Plugin is trusted first-party Elixir code running in the control plane. Agent
 Computer never talks to Microsoft directly.
 
 For the shared boundaries, see `docs/design-docs/Plugins.md`,
@@ -19,7 +19,7 @@ For the shared boundaries, see `docs/design-docs/Plugins.md`,
 
 The public names are:
 
-- plugin id: `microsoft365-adapter`;
+- Control Plane Plugin id: `microsoft365-adapter`;
 - SignalsGateway adapter id: `teams`;
 - identity-provider adapter id: `entra-id`;
 - webhook handler ids: `teams` (kind `messages`) and `entra-id`
@@ -58,7 +58,7 @@ configured with the app. Processing completes before the 200 is returned;
 connector redelivery is absorbed by the gateway's
 `(agent_uid, binding_name, source_event_id)` idempotency.
 
-## Plugin Declaration
+## Control Plane Plugin Declaration
 
 `Ankole.Plugins.Microsoft365Adapter` declares four contracts: the
 `signals_gateway.adapter` (id `teams`), a `signals_gateway.webhook_handler`
@@ -128,7 +128,7 @@ Provider protocol code lives in `libs/microsoft_openapi`. The library owns:
 - pre-authorized and bearer-authenticated binary downloads.
 
 The library performs no signature verification: validating connector JWTs is
-a trust decision that the plugin makes through the Rust kernel's
+a trust decision that the Control Plane Plugin makes through the Rust kernel's
 `jwt_verify_jwk` (RS256 against the fetched JWK), checking issuer
 `https://api.botframework.com`, audience, five minutes of leeway, and that the
 token's service-URL claim matches the activity.
@@ -264,12 +264,12 @@ User deletions converge through group updates and periodic full sync.
 - Principals and AuthZ own subjects, external groups, memberships, and grants.
 - AppConfigure owns encrypted operator configuration and the machine-managed
   subscription state.
-- The plugin owns provider normalization, webhook authentication, and the
+- The Control Plane Plugin owns provider normalization, webhook authentication, and the
   subscription reconciler.
 - Agent Computer receives accepted actor work and never receives Microsoft
   credentials.
 
-After a control-plane restart, plugin discovery restores the supervised
+After a control-plane restart, Control Plane Plugin discovery restores the supervised
 children, the startup sync re-enqueues channel projection, the subscription
 reconciler re-ensures Graph subscriptions, and PostgreSQL-backed gateway and
 identity state continues from committed rows. Missed change notifications
@@ -302,7 +302,7 @@ The repository verifies the adapter at three levels:
 - `libs/microsoft_openapi/test/` for Entra OAuth, Graph pagination and error
   classification, Bot Connector calls, and JWKS caching;
 - kernel tests for RS256 JWK verification;
-- control-plane plugin tests for declarations, configuration, conversation
+- Control Plane Plugin tests for declarations, configuration, conversation
   algebra, inbound normalization, mention routing, connector JWT
   verification, outbox request mapping, webhook dispatch, directory sync,
   Graph subscription lifecycle, and notification handling.

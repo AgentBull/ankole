@@ -48,14 +48,14 @@ impl RouterHandle {
 
     /// Sends an envelope to one worker route and reports mandatory-send errors.
     ///
-    /// The payload is encoded through the RuntimeFabric codec before it reaches
+    /// The host-encoded payload passes protocol validation before it reaches
     /// the socket thread, so transport code never sees partially valid envelopes.
     pub fn send_mandatory(
         &self,
         transport_route: impl Into<String>,
-        envelope_json: serde_json::Value,
+        payload: Vec<u8>,
     ) -> Result<SendOutcome, TransportError> {
-        let payload = runtime_fabric::encode_envelope(envelope_json)
+        runtime_fabric::validate_envelope_bytes(&payload)
             .map_err(TransportError::invalid_envelope)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 
@@ -306,8 +306,9 @@ fn send_router_file_frame(
         .map_err(map_send_error)
 }
 
-// Decodes inbound worker frames before crossing back into Elixir. Bad protobuf
-// never reaches ActorRuntime handlers as a normal envelope.
+// Validates inbound worker frames before crossing back into Elixir. Bad
+// protobuf never reaches ActorRuntime handlers as a normal envelope; the host
+// decodes the validated bytes with its generated codec.
 fn emit_router_frames(
     sink: &RouterEventSink,
     requires_auth: bool,
@@ -336,22 +337,12 @@ fn emit_router_frames(
                     } else {
                         None
                     };
-                    let envelope_json = match envelope.host_json() {
-                        Ok(envelope_json) => envelope_json,
-                        Err(error) => {
-                            sink(RouterEvent::DecodeFailed {
-                                transport_route: route,
-                                reason: error.to_string(),
-                            });
-                            return;
-                        }
-                    };
 
                     sink(RouterEvent::Received {
                         transport_route: route,
                         authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
                         authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
-                        envelope_json: envelope_json.to_string(),
+                        envelope_bytes: payload,
                     });
                 }
                 Err(error) => sink(RouterEvent::DecodeFailed {

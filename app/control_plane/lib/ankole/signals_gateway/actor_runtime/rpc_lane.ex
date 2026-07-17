@@ -17,20 +17,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   code that wraps those results as `rpc_response` or `rpc_error` envelopes.
   """
 
+  alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
+  alias Ankole.Logging
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
   alias Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker
+  alias Ankole.SignalsGateway.ActorRuntime.AgentPluginBroker
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
   alias Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
-  alias Ankole.SignalsGateway.ActorRuntime.SubagentDelegationBroker
+  alias Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
-  alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
-  alias Ankole.Logging
-  alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
   @type scope :: :worker_agent | :turn_read | :turn_write
@@ -43,15 +46,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "app_configure.resolve" => {AppConfigureBroker, :handle_request, :worker_agent},
     "codex.account.resolve" => {CodexAccountBroker, :handle_resolve, :turn_read},
     "codex.account.auth.update" => {CodexAccountBroker, :handle_update_auth, :turn_write},
-    "subagent.delegation.create" => {SubagentDelegationBroker, :handle_create, :turn_write},
-    "subagent.delegation.get" => {SubagentDelegationBroker, :handle_get, :turn_read},
-    "subagent.delegation.list" => {SubagentDelegationBroker, :handle_list, :turn_read},
-    "subagent.delegation.steer" => {SubagentDelegationBroker, :handle_steer, :turn_write},
-    "subagent.delegation.stop" => {SubagentDelegationBroker, :handle_stop, :turn_write},
-    "subagent.delegation.turn.upsert" =>
-      {SubagentDelegationBroker, :handle_upsert_turn, :turn_write},
-    "subagent.delegation.status.update" =>
-      {SubagentDelegationBroker, :handle_update_status, :turn_write},
+    "agent_plugin.list" => {AgentPluginBroker, :handle_list, :turn_read},
+    "background_agent_job.create" => {BackgroundAgentJobBroker, :handle_create, :turn_write},
+    "background_agent_job.get" => {BackgroundAgentJobBroker, :handle_get, :turn_read},
+    "background_agent_job.list" => {BackgroundAgentJobBroker, :handle_list, :turn_read},
+    "background_agent_job.steer" => {BackgroundAgentJobBroker, :handle_steer, :turn_write},
+    "background_agent_job.stop" => {BackgroundAgentJobBroker, :handle_stop, :turn_write},
+    "background_agent_job.turn.upsert" =>
+      {BackgroundAgentJobBroker, :handle_upsert_turn, :turn_write},
+    "background_agent_job.status.update" =>
+      {BackgroundAgentJobBroker, :handle_update_status, :turn_write},
     "memory_search" => {BrainRPCBroker, :handle_search, :turn_read},
     "memory_open" => {BrainRPCBroker, :handle_open, :turn_read},
     "memory_update" => {BrainRPCBroker, :handle_update, :turn_write},
@@ -87,11 +91,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   @spec operations() :: %{String.t() => {module(), atom(), scope()}}
   def operations, do: @rpc_operations
 
-  @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_request(request, route) when is_map(request) and is_binary(route) do
-    request_id = RPCWire.text(request, "request_id") || "rpc-#{Ecto.UUID.generate()}"
-    method = RPCWire.text(request, "method") || ""
-    payload = Map.put_new(request_payload(request), "request_id", request_id)
+  @spec handle_request(FabricProto.RPCRequest.t(), String.t()) ::
+          {:ok, FabricProto.Envelope.t()} | {:error, term()}
+  def handle_request(%FabricProto.RPCRequest{} = request, route) when is_binary(route) do
+    request_id = presence(request.request_id) || "rpc-#{Ecto.UUID.generate()}"
+    method = request.method
+
+    payload =
+      case Common.decode_json_bytes(request.payload_json) do
+        %{} = payload -> Map.put_new(payload, "request_id", request_id)
+        _payload -> %{"request_id" => request_id}
+      end
 
     case dispatch_method_safely(method, payload, route) do
       {:ok, response_payload} ->
@@ -103,6 +113,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   end
 
   def handle_request(_request, _route), do: {:error, :invalid_rpc_request}
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
 
   # RuntimeFabric's Broker owns the shared ROUTER for every worker. A defect or
   # unexpected database failure in one semantic method must fail that RPC, not
@@ -160,44 +177,40 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   end
 
   defp rpc_response_envelope(request_id, payload) do
-    %{
-      "protocol_version" => 1,
-      "message_id" => "rpc-response-#{Ecto.UUID.generate()}",
-      "correlation_id" => request_id,
-      "lane" => "LANE_RPC",
-      "durability" => "CONTROL_EPHEMERAL",
-      "body" => %{
-        "type" => "rpc_response",
-        "rpc_response" => %{
-          "request_id" => request_id,
-          "payload_json" => payload
-        }
-      }
+    %FabricProto.Envelope{
+      protocol_version: 1,
+      message_id: "rpc-response-#{Ecto.UUID.generate()}",
+      correlation_id: request_id,
+      lane: :LANE_RPC,
+      sent_at_unix_ms: System.system_time(:millisecond),
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:rpc_response,
+         %FabricProto.RPCResponse{
+           request_id: request_id,
+           payload_json: Torque.encode!(payload)
+         }}
     }
   end
 
   defp rpc_error_envelope(request_id, error_payload) do
-    %{
-      "protocol_version" => 1,
-      "message_id" => "rpc-error-#{Ecto.UUID.generate()}",
-      "correlation_id" => request_id,
-      "lane" => "LANE_RPC",
-      "durability" => "CONTROL_EPHEMERAL",
-      "body" => %{
-        "type" => "rpc_error",
-        "rpc_error" => %{
-          "request_id" => RPCWire.text(error_payload, "request_id") || request_id,
-          "code" => RPCWire.text(error_payload, "code") || "rpc_request_failed",
-          "message" => RPCWire.text(error_payload, "message") || "RPC request failed",
-          "details_json" => RPCWire.map_value(error_payload, "details_json", %{})
-        }
-      }
+    %FabricProto.Envelope{
+      protocol_version: 1,
+      message_id: "rpc-error-#{Ecto.UUID.generate()}",
+      correlation_id: request_id,
+      lane: :LANE_RPC,
+      sent_at_unix_ms: System.system_time(:millisecond),
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:rpc_error,
+         %FabricProto.RPCError{
+           request_id: RPCWire.text(error_payload, "request_id") || request_id,
+           code: RPCWire.text(error_payload, "code") || "rpc_request_failed",
+           message: RPCWire.text(error_payload, "message") || "RPC request failed",
+           details_json: Torque.encode!(RPCWire.map_value(error_payload, "details_json", %{}))
+         }}
     }
   end
-
-  defp request_payload(%{"payload_json" => payload}) when is_map(payload), do: payload
-  defp request_payload(%{payload_json: payload}) when is_map(payload), do: payload
-  defp request_payload(_request), do: %{}
 
   defp error_payload(payload, reason) do
     RPCWire.error_payload(RPCWire.text(payload, "request_id") || "", reason,

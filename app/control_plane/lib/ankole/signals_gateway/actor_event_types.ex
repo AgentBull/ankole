@@ -16,9 +16,9 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
     signal.entry.removed
     check_back_later.wakeup
     cron.fire
-    subagent.delegation.completed
-    subagent.delegation.failed
-    subagent.delegation.waiting
+    background_agent_job.completed
+    background_agent_job.failed
+    background_agent_job.waiting
   )
 
   @doc """

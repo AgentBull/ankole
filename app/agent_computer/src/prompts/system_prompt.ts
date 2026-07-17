@@ -6,13 +6,17 @@
  * what order. Slow-changing instructions lead; conversation-scoped runtime,
  * skill, and Brain snapshots form the suffix. AIGateway persists the first
  * rendered prompt with the response chain, so later turns reuse it byte for
- * byte while genuinely per-turn observations stay in the current user message.
+ * byte within one prompt epoch while genuinely per-turn observations stay in
+ * the current user message.
  */
 import type { TurnStart } from '../lanes/actor_lane'
 import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { match } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
+
+export const AGENT_SYSTEM_PROMPT_EPOCH = 'agent-computer-v3'
+const SystemPromptEpochMarker = `<!-- ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH} -->`
 
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
@@ -53,12 +57,14 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
   const skillPrompt = formatSkillsForSystemPrompt(skillsForSystemPrompt(opts))
 
   return [
+    SystemPromptEpochMarker,
     `You are ${displayName}, an AI colleague Agent powered by Ankole.`,
     soul.trim(),
     missionSection(mission),
     completionContractSection(),
+    backgroundAgentJobPolicySection(opts),
     agentEnvironmentInfoPolicySection(),
-    toolsSection(),
+    toolsSection(opts),
     brainPolicySection(opts),
     skillPrompt.trim(),
     runtimeContextSection(opts),
@@ -69,12 +75,15 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
 }
 
 /**
- * Reuses the exact prompt already observed by this conversation. A fresh
- * conversation has no snapshot until its first stateful response is stored.
+ * Reuses the exact current-epoch prompt already observed by this conversation.
+ * A missing or legacy snapshot is rebuilt so removed tools never remain in the
+ * instructions of an older response chain.
  */
 export function systemPromptForConversation(opts: BuildAgentSystemPromptOptions): string {
   const snapshot = opts.agentConversationContext?.system_prompt_snapshot
-  return typeof snapshot === 'string' && snapshot.trim().length > 0 ? snapshot : buildAgentSystemPrompt(opts)
+  return typeof snapshot === 'string' && snapshot.trimStart().startsWith(SystemPromptEpochMarker)
+    ? snapshot
+    : buildAgentSystemPrompt(opts)
 }
 
 /** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */
@@ -177,6 +186,26 @@ function completionContractSection(): string {
 }
 
 /**
+ * Defines the main agent's latency boundary and durable background handoff.
+ * This block is omitted from special turns that do not expose the Job tool.
+ */
+function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): string {
+  if (!toolAvailable(opts, 'background_agent_job')) return ''
+
+  return [
+    '<background_agent_job_policy>',
+    '# Immediate work and background work',
+    'Do work directly when the user can reasonably wait in the active exchange and your next reply can contain the completed result. A clear scope or several quick tool calls alone does not require a background job.',
+    'Use background_agent_job(start) for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Start the Job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
+    'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained Job task; call background_agent_job(start), then tell the user it moved to the background.',
+    'Track progress with background_agent_job(status) or background_agent_job(list) only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
+    'After a Job completes, inspect its status and artifacts yourself. Re-run relevant tests or checks, review diffs when code changed, and make only small mechanical corrections directly before reporting the outcome. Do not treat the Job report as sufficient evidence.',
+    'When a Job waits for user input, relay its questions with clarify, one question per turn. After collecting the answers, return them with background_agent_job(steer).',
+    '</background_agent_job_policy>'
+  ].join('\n')
+}
+
+/**
  * States how the model should treat the `<agent_environment_info>` block that
  * Ankole may prepend to a user-role message. This is a trust boundary: the
  * facts are system-injected observations about the agent's environment, useful
@@ -195,20 +224,24 @@ function agentEnvironmentInfoPolicySection(): string {
 /**
  * Renders the model-facing tool and computer policy block.
  */
-function toolsSection(): string {
+function toolsSection(opts: BuildAgentSystemPromptOptions): string {
+  const hostedImageDeliveryPolicy = opts.turnStart.hosted_tools?.some(tool => tool.type === 'image_generation')
+    ? '\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Treat image_generation_call IDs as references for later image edits, not as /workspace paths; do not search for or call reply_attachment on the generated image itself.'
+    : ''
+
   return `<tools>
 <about_computer>
-These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, commands, browser automation, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
+These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, foreground commands, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
-Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/CDP for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
+Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, and rg. Verify exact versions with a quick command when the task depends on them.
 
-Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable terminal sessions, when exposed by a tool, are backed internally by tmux and also belong to this non-persistent runtime layer.
+Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, and per-agent environment/package deltas. Enabled skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state.
 
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
 
 <tool_routing_policy>
-Follow each available tool's description and parameter schema. Do not invent tools that are not present in the tool list for this run.
+Follow each available tool's description and parameter schema. Do not invent tools that are not present in the tool list for this run.${hostedImageDeliveryPolicy}
 </tool_routing_policy>
 </tools>`
 }
@@ -222,7 +255,10 @@ function toolAvailable(opts: BuildAgentSystemPromptOptions, name: string): boole
  * Converts runtime skill metadata into prompt catalog entries.
  */
 function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPromptEntry[] {
-  return (opts.agentConversationContext?.skills ?? []).map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
+  return (opts.agentConversationContext?.skills ?? [])
+    .map(skillPromptEntryFromRuntime)
+    .filter(isSkillPromptEntry)
+    .filter(skill => !skill.longRunning || toolAvailable(opts, 'background_agent_job'))
 }
 
 /**
@@ -238,7 +274,8 @@ export function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPr
     name: skill.skill_name,
     description: skill.description,
     category: typeof skill.category === 'string' ? skill.category : undefined,
-    disableModelInvocation
+    disableModelInvocation,
+    longRunning: metadata.long_running === true
   }
 }
 

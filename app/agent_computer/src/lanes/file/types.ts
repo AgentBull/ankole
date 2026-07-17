@@ -1,7 +1,8 @@
 import type { FileFrameSender } from '../../fabric/fabric'
 import type { WorkerConfig } from '../../worker/config'
+import type { FileRoot } from './roots'
 
-export type FileRoot = 'user_files' | 'agent_installed_skills' | 'workspace_sessions' | 'codex_accounts'
+export type { FileRoot } from './roots'
 
 export type FingerprintMode = 'none' | 'xxh3_128'
 

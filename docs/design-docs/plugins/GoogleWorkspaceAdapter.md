@@ -1,13 +1,13 @@
 # Google Workspace Adapter
 
-The Google Workspace plugin connects one Workspace organization to Ankole
+The Google Workspace Control Plane Plugin connects one Workspace organization to Ankole
 through a single host-owned contract: Google login and directory
-synchronization through Principals. It is the first identity-only plugin —
+synchronization through Principals. It is the first identity-only Control Plane Plugin —
 there is no chat adapter half — and it exists in two independently usable
 parts: OIDC sign-in with Google accounts, and Admin SDK directory sync through
 a service account. Either part can run without the other.
 
-The plugin is trusted first-party Elixir code running in the control plane.
+The Control Plane Plugin is trusted first-party Elixir code running in the control plane.
 Agent Computer never talks to Google directly.
 
 For the shared boundaries, see `docs/design-docs/Plugins.md` and
@@ -18,7 +18,7 @@ relies on is host behavior documented in `Principal.md`.
 
 The public names are:
 
-- plugin id: `google-workspace-adapter`;
+- Control Plane Plugin id: `google-workspace-adapter`;
 - identity-provider adapter id: `google-workspace`;
 - identity configuration pattern:
   `principals.identity_providers.google-workspace.<id>`;
@@ -33,7 +33,7 @@ pairwise per app). The design does not depend on that equality: both carry the
 user's email, so even a divergent pair would converge on one Principal through
 the host email join.
 
-## Plugin Declaration
+## Control Plane Plugin Declaration
 
 One `principals.identity_provider` declaration with capabilities
 `oidc_authorization`, `oidc_code_exchange`, and `directory_full_sync`.
@@ -85,7 +85,7 @@ The library holds no key material and does no crypto. The service-account
 grant works through an `assertion_signer` closure on the client: `Auth`
 builds the JWT bearer grant claims (`iss` = service account, `sub` =
 delegated admin, `aud` = token endpoint, one-hour lifetime), the closure —
-wired by the plugin — signs them with `Ankole.Kernel.jwt_sign_pem/3` (RS256,
+wired by the Control Plane Plugin — signs them with `Ankole.Kernel.jwt_sign_pem/3` (RS256,
 `kid` = the key's `private_key_id`), and `Auth` exchanges the assertion for a
 bearer token cached in ETS per `{service account, subject, scope}` with a
 sixty-second refresh margin.
@@ -177,7 +177,7 @@ periodic schedule, and on manual trigger.
 
 ## Ownership and Recovery
 
-The plugin owns no durable state beyond what Principals and AuthZ already
+The Control Plane Plugin owns no durable state beyond what Principals and AuthZ already
 persist: platform subjects, human profiles, directory groups, external group
 bindings, and memberships. Bearer tokens live in a process-local ETS cache
 whose loss only costs a token refetch. Everything else re-derives from a full
@@ -186,7 +186,7 @@ sync, which is the recovery action for any suspected drift.
 ## Deliberate Limits
 
 - No chat adapter (Google Chat is out of scope).
-- No realtime directory sync this phase; see Plugin Declaration for the
+- No realtime directory sync this phase; see Control Plane Plugin Declaration for the
   designated future channel.
 - No avatar sync, no nested-group expansion, no organizational units as
   groups.
@@ -211,7 +211,7 @@ Covered by tests:
   classification, page-size caps (`libs/google_openapi`);
 - host: email join, contact-conflict drops, and mobile non-join semantics
   (`test/ankole/principals_test.exs`);
-- plugin: declaration and booted-registry acceptance, configuration gating
+- Control Plane Plugin: declaration and booted-registry acceptance, configuration gating
   (allowed domains, per-half credentials, service-account key material),
   login-gate rejections, code exchange with domain enforcement, full sync
   with kernel-signed grant assertion and membership projection, and the

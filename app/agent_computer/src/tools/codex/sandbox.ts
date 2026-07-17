@@ -1,15 +1,15 @@
 import { existsSync } from 'node:fs'
-import { join, posix, resolve } from 'node:path'
-import {
-  insideWorkspace,
-  resolveWorkspacePath,
-  toWorkspacePath as modelPath,
-  WORKSPACE_MODEL_ROOT
-} from '../../core/workspace-paths'
+import { join, resolve } from 'node:path'
+import { insideWorkspace, toWorkspacePath as modelPath, WORKSPACE_MODEL_ROOT } from '../../core/workspace-paths'
+import type { PreparedCodexJobProject } from '../../core/codex-runner/job-project'
 import { bubblewrapArgv } from '../computer/bubblewrap'
 import { commandEnv } from '../computer/env'
 import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './config'
-import { SUBAGENT_SKILLS_SANDBOX_ROOT, type MaterializedSubagentRuntimeFiles } from '../subagent/runtime-files'
+import {
+  CODEX_JOB_SKILLS_SANDBOX_ROOT,
+  type MaterializedCodexJobRuntimeFiles
+} from '../../core/codex-runner/runtime-files'
+import type { BrowserSandboxRuntime } from '../../browser-runtime'
 
 export type CodexAppServerSandboxSpec = {
   cwd: string
@@ -22,74 +22,59 @@ export type CodexAppServerSandboxSpec = {
 // Skill scripts can locate the kernel through ANKOLE_KERNEL_ROOT.
 const SANDBOX_KERNEL_ROOT = '/repo/app/kernel'
 
-export function resolveCodexWorkdir(workspaceRoot: string, workdir?: string): string {
-  return resolveWorkspacePath(workspaceRoot, workdir ?? WORKSPACE_MODEL_ROOT, {
-    nonWorkspaceAbsolute: 'reject',
-    errorMessage: 'Codex workdir must stay inside the session workspace'
-  })
-}
-
 export function codexAppServerSandboxSpec(input: {
-  workspaceRoot: string
-  workdir: string
+  project: PreparedCodexJobProject
   materialized: MaterializedCodexConfig
-  runtimeFiles?: MaterializedSubagentRuntimeFiles
+  runtimeFiles?: MaterializedCodexJobRuntimeFiles
   /** Operator-managed shell variables resolved for the delegating agent. */
   workerEnv?: Record<string, string>
+  browserRuntime?: BrowserSandboxRuntime
 }): CodexAppServerSandboxSpec {
-  const codexCwd = modelPath(input.workspaceRoot, input.workdir)
-  const codexHomeBind = codexHomeBindForSandbox(input.workspaceRoot, input.materialized.codexHome)
-  const env = codexSandboxEnv(input.workspaceRoot, input.materialized.env, codexHomeBind?.target, input.workerEnv)
-  const runtimeFileBinds = input.runtimeFiles ? subagentRuntimeFileBinds(input.runtimeFiles) : []
+  const codexCwd = input.project.codexCwd
+  const codexHomeBind = codexHomeBindForSandbox(input.project.root, input.materialized.codexHome)
+  const env = codexSandboxEnv(
+    input.project.root,
+    input.materialized.env,
+    codexHomeBind?.target,
+    input.workerEnv,
+    input.browserRuntime?.env
+  )
+  const runtimeFileBinds = input.runtimeFiles ? codexJobRuntimeFileBinds(input.runtimeFiles) : []
+  const workspaceBinds = input.project.workspaceMounts.map(mount => ({
+    source: mount.sourcePath,
+    target: mount.modelPath,
+    readonly: mount.access === 'read_only'
+  }))
 
   return {
-    cwd: input.workspaceRoot,
+    cwd: input.project.root,
     env,
     codexCwd,
     commandArgv: bubblewrapArgv({
-      workspaceRoot: input.workspaceRoot,
-      cwd: input.workdir,
+      workspaceRoot: input.project.root,
+      cwd: input.project.root,
       env,
-      extraBinds: [...(codexHomeBind ? [codexHomeBind] : []), ...runtimeFileBinds],
+      extraBinds: [
+        ...(codexHomeBind ? [codexHomeBind] : []),
+        ...workspaceBinds,
+        ...runtimeFileBinds,
+        ...(input.browserRuntime?.binds ?? [])
+      ],
       commandArgv: [
-        ...codexCommandForSandbox(input.workspaceRoot),
+        ...codexCommandForSandbox(input.project.root),
         'app-server',
         '--stdio',
-        ...codexConfigCLIOverrides(),
-        ...(input.runtimeFiles
-          ? [
-              '-c',
-              `project_doc_fallback_filenames=[${JSON.stringify(
-                posix.relative(codexCwd, input.runtimeFiles.agentsSandboxPath)
-              )}]`
-            ]
-          : [])
+        ...codexConfigCLIOverrides()
       ]
     })
   }
 }
 
-function subagentRuntimeFileBinds(runtime: MaterializedSubagentRuntimeFiles) {
+function codexJobRuntimeFileBinds(runtime: MaterializedCodexJobRuntimeFiles) {
   return [
-    {
-      source: runtime.agentsPath,
-      target: runtime.agentsSandboxPath,
-      readonly: true,
-      createTargetParents: false
-    },
-    ...(runtime.localAgentsSandboxPath
-      ? [
-          {
-            source: runtime.agentsPath,
-            target: runtime.localAgentsSandboxPath,
-            readonly: true,
-            createTargetParents: false
-          }
-        ]
-      : []),
-    { source: runtime.skillsPlaceholderRoot, target: SUBAGENT_SKILLS_SANDBOX_ROOT, readonly: true },
+    { source: runtime.skillsPlaceholderRoot, target: CODEX_JOB_SKILLS_SANDBOX_ROOT, readonly: true },
     ...runtime.skills.flatMap(skill => {
-      const target = join(SUBAGENT_SKILLS_SANDBOX_ROOT, skill.name)
+      const target = join(CODEX_JOB_SKILLS_SANDBOX_ROOT, skill.name)
       return [
         { source: skill.sourcePath, target, readonly: true },
         ...(skill.skillFileOverridePath
@@ -107,7 +92,8 @@ function codexSandboxEnv(
   workspaceRoot: string,
   env: Record<string, string>,
   codexHomeSandboxPath?: string,
-  workerEnv?: Record<string, string>
+  workerEnv?: Record<string, string>,
+  browserEnv?: Record<string, string>
 ): Record<string, string> {
   const next = commandEnv(env, {
     home: WORKSPACE_MODEL_ROOT,
@@ -116,6 +102,7 @@ function codexSandboxEnv(
   })
   if (next.CODEX_HOME) next.CODEX_HOME = codexHomeSandboxPath ?? modelPath(workspaceRoot, next.CODEX_HOME)
   next.ANKOLE_KERNEL_ROOT = SANDBOX_KERNEL_ROOT
+  Object.assign(next, browserEnv)
   return next
 }
 

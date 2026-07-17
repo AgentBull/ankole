@@ -1,0 +1,8 @@
+version: v2
+inputs:
+  - directory: ../kernel/proto
+plugins:
+  - local: protoc-gen-es
+    out: src/fabric/generated
+    opt:
+      - target=ts

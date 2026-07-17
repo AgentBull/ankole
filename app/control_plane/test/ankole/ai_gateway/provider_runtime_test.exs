@@ -1,6 +1,15 @@
 defmodule Ankole.AIGateway.ProviderRuntimeTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.SignalsGateway.ActorRuntimeCase,
+    only: [
+      rpc_request: 3,
+      rpc_response_payload!: 1,
+      rpc_error_payload!: 1,
+      envelope_body_type: 1,
+      envelope_body!: 2
+    ]
+
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
@@ -530,6 +539,43 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "image" in input_modalities
   end
 
+  test "turn start specs declare image generation only while the agent profile resolves" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-turn-hosted-tools",
+               provider_kind: "openrouter",
+               connection_options: %{"api_key" => "sk-test"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-turn-hosted-tools",
+               model: "openai/gpt-4o-mini"
+             })
+
+    actor_key = %{agent_uid: agent.uid, session_id: "session-turn-hosted-tools"}
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", %{
+               provider_id: "openrouter-turn-hosted-tools",
+               model: "openai/gpt-image-1"
+             })
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
+
+    assert {:ok, %{profile: nil}} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", nil)
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    refute Map.has_key?(turn_start_spec, :hosted_tools)
+  end
+
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do
     %{principal: agent} = agent_fixture()
     assert :ok = AgentConfig.ensure_registered()
@@ -654,6 +700,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
     assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
 
     assert {:ok, documents} = Library.list_agent_documents(agent.uid)
@@ -687,18 +734,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, context_envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "turn-context-1",
-                 "method" => "agent_conversation.context.resolve",
-                 "payload_json" => %{"turn" => mixed_case_turn}
-               },
+               rpc_request("turn-context-1", "agent_conversation.context.resolve", %{
+                 "turn" => mixed_case_turn
+               }),
                route
              )
 
-    assert get_in(context_envelope, ["body", "type"]) == "rpc_response",
+    assert envelope_body_type(context_envelope) == :rpc_response,
            inspect(context_envelope)
 
-    context_payload = get_in(context_envelope, ["body", "rpc_response", "payload_json"])
+    context_payload = rpc_response_payload!(context_envelope)
     assert context_payload["agent_uid"] == agent.uid
     assert context_payload["session_id"] == "signal-channel:context"
     assert context_payload["agent"]["display_name"] == agent.display_name
@@ -723,51 +768,40 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, resumed_context_envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "turn-context-resumed",
-                 "method" => "agent_conversation.context.resolve",
-                 "payload_json" => %{"turn" => mixed_case_turn}
-               },
+               rpc_request("turn-context-resumed", "agent_conversation.context.resolve", %{
+                 "turn" => mixed_case_turn
+               }),
                route
              )
 
-    assert get_in(resumed_context_envelope, [
-             "body",
-             "rpc_response",
-             "payload_json",
-             "system_prompt_snapshot"
-           ]) == "persisted system prompt"
+    assert rpc_response_payload!(resumed_context_envelope)["system_prompt_snapshot"] ==
+             "persisted system prompt"
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "skill-overlay-replace-1",
-                 "method" => "skills.overlay.replace",
-                 "payload_json" => %{
-                   "turn" => mixed_case_turn,
-                   "skill_name" => "nano-pdf",
-                   "content" => "Prefer page-by-page verification.",
-                   "expected_content_hash" => ""
-                 }
-               },
+               rpc_request("skill-overlay-replace-1", "skills.overlay.replace", %{
+                 "turn" => mixed_case_turn,
+                 "skill_name" => "nano-pdf",
+                 "content" => "Prefer page-by-page verification.",
+                 "expected_content_hash" => ""
+               }),
                route
              )
 
-    replace_payload = get_in(replace_envelope, ["body", "rpc_response", "payload_json"])
+    replace_payload = rpc_response_payload!(replace_envelope)
     assert replace_payload["has_overlay"]
     assert replace_payload["overlay_json"] == %{"text" => "Prefer page-by-page verification."}
 
     assert {:ok, resolve_envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "skill-overlay-resolve-1",
-                 "method" => "skills.overlay.resolve",
-                 "payload_json" => %{"turn" => mixed_case_turn, "skill_name" => "nano-pdf"}
-               },
+               rpc_request("skill-overlay-resolve-1", "skills.overlay.resolve", %{
+                 "turn" => mixed_case_turn,
+                 "skill_name" => "nano-pdf"
+               }),
                route
              )
 
-    assert get_in(resolve_envelope, ["body", "rpc_response", "payload_json", "overlay_json"]) ==
+    assert rpc_response_payload!(resolve_envelope)["overlay_json"] ==
              %{"text" => "Prefer page-by-page verification."}
   end
 
@@ -783,20 +817,19 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "turn-context-wrong-route",
-                 "method" => "agent_conversation.context.resolve",
-                 "payload_json" => %{"turn" => target_turn}
-               },
+               rpc_request("turn-context-wrong-route", "agent_conversation.context.resolve", %{
+                 "turn" => target_turn
+               }),
                other_route
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
-    assert get_in(envelope, ["body", "rpc_error", "code"]) == "worker_not_assigned_to_turn"
+    assert envelope_body_type(envelope) == :rpc_error
+    assert envelope_body!(envelope, :rpc_error).code == "worker_not_assigned_to_turn"
   end
 
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
+    assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
     assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
@@ -807,21 +840,17 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "skill-overlay-after-steer",
-                 "method" => "skills.overlay.replace",
-                 "payload_json" => %{
-                   "turn" => turn,
-                   "skill_name" => "nano-pdf",
-                   "content" => "Prefer page-by-page verification after steer.",
-                   "expected_content_hash" => ""
-                 }
-               },
+               rpc_request("skill-overlay-after-steer", "skills.overlay.replace", %{
+                 "turn" => turn,
+                 "skill_name" => "nano-pdf",
+                 "content" => "Prefer page-by-page verification after steer.",
+                 "expected_content_hash" => ""
+               }),
                route
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_response", inspect(envelope)
-    payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
+    assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
+    payload = rpc_response_payload!(envelope)
     assert payload["has_overlay"]
     assert payload["overlay_json"] == %{"text" => "Prefer page-by-page verification after steer."}
   end

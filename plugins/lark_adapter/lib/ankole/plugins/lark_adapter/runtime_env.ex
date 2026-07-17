@@ -4,12 +4,14 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
 
   Agent Computer is a trusted first-party worker. The existing FeishuOpenAPI
   token manager uses the binding's app credentials and supplies the app ID plus
-  cached tenant token once when WorkerEnv resolves for the Turn. Strict bot
-  mode rejects user identity before any request is sent.
+  cached tenant token once when WorkerEnv resolves for the Turn, but only while
+  the binding's Agent has the `lark` Agent Plugin effectively enabled. Strict
+  bot mode rejects user identity before any request is sent.
   Bindings with a custom `baseURL` remain valid for signal delivery but project
   no CLI environment because the CLI cannot inherit that endpoint override.
   """
 
+  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.SignalsGateway.Binding
   alias FeishuOpenAPI.TokenManager
@@ -17,7 +19,8 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
   @spec resolve_worker_env(Binding.t()) ::
           {:ok, %{String.t() => String.t()}} | {:error, term()}
   def resolve_worker_env(%Binding{} = binding) do
-    with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
+    with {:ok, true} <- AgentPlugins.effective_enabled?(binding.agent_uid, "lark"),
+         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
       if Config.lark_cli_compatible?(config) do
         with {:ok, token} <- TokenManager.get_tenant_token(Config.client(config)) do
           {:ok,
@@ -32,6 +35,9 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
       else
         {:ok, %{}}
       end
+    else
+      {:ok, false} -> {:ok, %{}}
+      {:error, _reason} = error -> error
     end
   end
 

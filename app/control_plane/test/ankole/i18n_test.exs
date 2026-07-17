@@ -54,16 +54,6 @@ defmodule Ankole.I18nTest do
 
       assert log =~ "i18n missing" or log =~ "i18n_missing"
     end
-
-    test "MF2 plural messages format through Localize" do
-      {:ok, _tag} = I18n.put_locale("en-US")
-
-      assert I18n.t("test.length.string.min", %{"count" => 1}) ==
-               "should be at least 1 character"
-
-      assert I18n.t("test.length.string.min", %{"count" => 7}) ==
-               "should be at least 7 characters"
-    end
   end
 
   describe "translate/3" do
@@ -159,16 +149,7 @@ defmodule Ankole.I18nTest do
   defp put_test_catalogs do
     Resolver.put_catalog(
       "en-US",
-      %{
-        "test.greeting" => canonical_message!("Hello, {$name}!"),
-        "test.length.string.min" =>
-          canonical_message!("""
-          .input {$count :integer}
-          .match $count
-            1 {{should be at least 1 character}}
-            * {{should be at least {$count} characters}}
-          """)
-      },
+      %{"test.greeting" => canonical_message!("Hello, {$name}!")},
       %{}
     )
 

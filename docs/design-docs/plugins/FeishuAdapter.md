@@ -1,7 +1,7 @@
 # Feishu / Lark Adapter
 
-The Feishu / Lark plugin connects a Feishu or international Lark self-built app
-to Ankole. It has two separate jobs:
+The Feishu / Lark Control Plane Plugin connects a Feishu or international Lark
+self-built app to Ankole. It has two separate jobs:
 
 - chat ingress and provider-visible output through SignalsGateway;
 - optional login and contact-directory sync through Principals.
@@ -10,8 +10,8 @@ Those two jobs may use the same app credentials, but they are not one shared
 provider configuration. Chat setup and identity-provider setup are separate
 save boundaries. Sharing credentials is a convenience, not a storage object.
 
-The adapter is a trusted first-party Elixir plugin. It does not run inside an
-agent computer. The agent computer only starts after SignalsGateway has accepted
+The adapter is a trusted first-party Elixir/OTP Control Plane Plugin. It does
+not run inside an Agent Computer. Agent Computer only starts after SignalsGateway has accepted
 an actor event into PostgreSQL and the control plane wakes the session actor.
 For the system map and the gateway contract this adapter plugs into, see
 `docs/README.md` and `docs/design-docs/SignalsGateway.md`.
@@ -20,7 +20,7 @@ For the system map and the gateway contract this adapter plugs into, see
 
 The stable external names are:
 
-- plugin package id: `lark-adapter`;
+- Control Plane Plugin ID: `lark-adapter`;
 - SignalsGateway adapter id: `lark`;
 - identity-provider adapter id: `lark`;
 - default chat binding name: `lark`;
@@ -31,15 +31,15 @@ Ankole should keep those external names unless there is an explicit migration
 story. `feishu` can appear as the domain value for China Feishu, but it should
 not silently replace the adapter id or platform namespace.
 
-This document describes only the Ankole plugin contract. Provider setup,
+This document describes only the Control Plane Plugin adapter contract. Provider setup,
 gateway routing, the actor event journal, provider mirror, and identity storage
 remain owned by their Ankole subsystems.
 
-## Plugin Declaration
+## Control Plane Plugin Declaration
 
-The plugin declaration should expose:
+The Control Plane Plugin declaration should expose:
 
-- plugin id `lark-adapter`;
+- Control Plane Plugin ID `lark-adapter`;
 - a SignalsGateway adapter declaration with id `lark`;
 - the SignalsGateway adapter's complete `outbound_capabilities` list, which is
   the sole capability source used to construct its outbound contract;
@@ -50,7 +50,7 @@ The plugin declaration should expose:
   provider object;
 - supervised children needed for the shared long-connection runtime.
 
-The adapter declarations are references to host-owned contracts. The plugin does
+The adapter declarations are references to host-owned contracts. The Control Plane Plugin does
 not own `signal_gateway_bindings`, `signal_gateway_channels`, `signal_gateway_entries`,
 `actor_events`, `signal_gateway_outbox_entries`, Principal rows, or AuthZ grants.
 
@@ -59,7 +59,7 @@ That registry is process state and should be rebuildable from active
 configuration after restart.
 
 The Elixir implementation should use `libs/feishu_openapi` as the provider
-library. That means the plugin owns the Feishu/Lark-specific normalization:
+library. That means the Control Plane Plugin owns the Feishu/Lark-specific normalization:
 event envelope routing, message shape parsing, sender id extraction, structured
 mention detection, resource descriptors, card-action payload mapping, and
 provider error classification.
@@ -220,7 +220,7 @@ path:
 
 The pinned CLI derives its OpenAPI host from the brand and cannot inherit a
 custom binding `baseURL`. Such a binding remains valid for signal delivery, but
-it does not auto-enable Lark Skills or project CLI credentials into the Worker.
+cannot provide compatible CLI credentials to the Worker.
 
 The CLI's environment credential provider does not mint a tenant token from
 `appID/appSecret`. During the existing once-per-Turn `worker_env.resolve`, the
@@ -237,24 +237,19 @@ skills execute the CLI through one-shot commands. A persistent interactive
 terminal retains the environment from its creation Turn and is not a supported
 Lark execution path. A configured available binding whose active adapter cannot
 resolve fails that WorkerEnv request instead of silently starting the Turn
-without its Lark identity; a residual binding for a disabled plugin is ignored.
+without its Lark identity; a residual binding for an inactive Control Plane Plugin is ignored.
 
-The builtin `lark-im`, `lark-office-suite`, and `lark-oa` skills are all stored
-with `default_enabled: false` and `execution_profile: lark-cli-bot`. The Agent
-Library owns the generic `ai_agent.library.skill_enablement_provider` contract;
-the Lark plugin contributes the `lark-cli-bot` provider and owns the binding,
-AppConfigure, and CLI-compatibility checks. The Agent Computer build validator
-discovers the same Skill set from this profile instead of maintaining another
-name list.
+The `lark` Agent Plugin owns `lark-im`, `lark-office-suite`, and `lark-oa`.
+Its global default is disabled, while all three member Skills default to
+enabled. Operators enable the parent and its members through the same Agent
+Library global defaults and per-Agent overrides used by every other Agent
+Plugin. Signal bindings never change those settings.
 
-By default the provider projects all matching Skills as enabled exactly when
-the current agent has an enabled, CLI-compatible Lark binding with no
-`unavailable_reason`. The global AppConfigure key
-`skills.auto_enable_lark_skills_from_signal_binding` defaults to `true`; setting
-it to `false` makes the provider return manual mode and restores ordinary
-per-agent `agent_skills.enabled` behavior. This projection never rewrites the
-stored manual flags. If the plugin/provider or its AppConfigure definition is
-not active, profile-backed Skills fail closed.
+Enabling the Agent Plugin makes the Skills model-visible; successful provider
+calls still require a compatible active binding so WorkerEnv can project the
+bot credentials described above. This runtime prerequisite is reported by the
+actual CLI call and is not another enablement system. The Agent Computer build
+validator reads the three Skills from `app/library/agent-plugins/lark/skills`.
 
 `lark-oa` covers Task, OKR, and attendance. The pinned `lark-cli` v1.0.69
 Approval catalog is user-only, so Approval is not exposed or relabeled as a bot
@@ -263,7 +258,7 @@ capability.
 ## Runtime Connection
 
 Feishu/Lark long-connection delivery is cluster-style: multiple live consumers
-for the same `domain + appId` can split events unpredictably. The plugin must
+for the same `domain + appId` can split events unpredictably. The Control Plane Plugin must
 therefore keep exactly one live long-connection consumer for each
 `domain + appId` inside the installation.
 
@@ -278,8 +273,8 @@ one runtime path.
 The OTP-native runtime shape is one supervised connection owner per
 `domain + appId`:
 
-- the plugin starts a local unique `Registry` for connection owners;
-- the plugin starts a `DynamicSupervisor` for per-app connection owners;
+- the Control Plane Plugin starts a local unique `Registry` for connection owners;
+- the Control Plane Plugin starts a `DynamicSupervisor` for per-app connection owners;
 - the connection key is the normalized tuple `{domain, appId}`; `appSecret` is
   validated against that key but is not part of the process identity;
 - each connection owner is named through the registry with that key;
@@ -301,14 +296,14 @@ already-started pid; both outcomes mean "use this existing connection".
 The registry is a local process registry, not durable state. It is the runtime
 way to prevent two local owners for the same `domain + appId`. The durable truth
 is still the active chat binding and identity-provider configuration read from
-the host. On restart, the plugin reconciles those configurations and starts one
+the host. On restart, the Control Plane Plugin reconciles those configurations and starts one
 owner for each distinct key that is still needed.
 
 The per-key connection owner builds an immutable
 `FeishuOpenAPI.Event.Dispatcher` from all active consumers for that key: chat
 receive/recall/reaction/card handlers when chat ingress is enabled, and contact
 handlers when identity realtime sync is enabled. If a later setup change adds or
-removes a consumer for the same key, plugin runtime reconciliation restarts that
+removes a consumer for the same key, Control Plane Plugin runtime reconciliation restarts that
 one connection owner with a newly built dispatcher rather than trying to mutate
 the dispatcher inside a running `FeishuOpenAPI.WS.Client`.
 
@@ -339,7 +334,7 @@ should be included before contact full sync starts, so new contact increments
 can be observed while startup reconciliation handles older facts.
 
 The adapter should start `FeishuOpenAPI.WS.Client` with a dispatcher that
-registers all official event types the plugin claims to support. WebSocket
+registers all official event types the Control Plane Plugin claims to support. WebSocket
 frames are trusted decoded payloads: webhook verification token and encrypt-key
 checks do not apply to those frames. HTTP webhook or HTTP card callback surfaces,
 if enabled later, must verify signatures before mutating the raw request body.
@@ -667,7 +662,7 @@ commit an explicit outbox delete, but the adapter and gateway must not infer it.
 The Feishu/Lark module adapter should implement
 `Ankole.SignalsGateway.OutboxAdapter` for provider-visible output. Real modules
 implement `send/1`; `reconcile/1` is optional and is used only for recovery of a
-durable `sending` outbox row. The plugin declaration supplies capabilities, and
+durable `sending` outbox row. The Control Plane Plugin declaration supplies capabilities, and
 `SignalsGateway.Adapters` combines that declaration with the module callbacks.
 Test map adapters remain self-contained and do not need to implement the
 behaviour.
@@ -941,7 +936,7 @@ The same projection rule applies across common tool classes:
 | Computation | Human description of the calculation. | Typed table, chart, or concise result with units. |
 | Artifact creation | Artifact name and meaningful generation stage. | Preview plus open/download action. |
 | External write | Target and pending state without claiming success. | Confirmed effect receipt or actionable failure. |
-| Deferred work | Scheduling or delegation state. | Durable schedule/delegation receipt, never an indefinite spinner. |
+| Deferred work | Schedule or BackgroundAgentJob receipt and current state. | Durable receipt or owner-wakeup result, never an indefinite spinner or Agent Plugin-specific artifact interpretation. |
 
 ### Component policy
 
@@ -1013,7 +1008,9 @@ results, and effects are meaningful.
 
 When an internal wakeup rather than a provider-visible message triggers the
 Agent turn, SignalsGateway may add a bounded `trigger_context` to the same
-presentation. A failed subagent delegation renders that context as a Markdown
+presentation. BackgroundAgentJob completion is delivered through this owner
+turn; the adapter never reads Agent Plugin files or interprets an Agent Plugin-specific
+result contract. A failed Job renders its bounded failure context as a Markdown
 blockquote before the Agent answer on the first CardKit card. The quote is
 derived from the durable ActorEvent, not authored through the model prompt, and
 survives preview recovery and terminal outbox delivery without becoming part of

@@ -1,9 +1,14 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { rename, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fingerprintMode, readBoolFrame, readU64Frame, requiredTextFrame } from './codec'
 import { fileFingerprint, forgetFingerprint, forgetFingerprintTree } from './fingerprint'
-import { parseVirtualPathFrame, resolveFileAddress } from './path-security'
+import {
+  assertCreatableFileAddress,
+  assertExistingFileAddress,
+  parseVirtualPathFrame,
+  resolveFileAddress
+} from './path-security'
 import type { FileAddress, FileTransferState, ListEntry } from './types'
 import type { WorkerConfig } from '../../worker/config'
 
@@ -34,7 +39,10 @@ export type ListResult = {
 export function statPath(config: WorkerConfig, state: FileTransferState, frames: Buffer[]): StatResult {
   const address = parseVirtualPathFrame(frames[3], 'stat path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
-  const filePath = resolveFileAddress(config, address)
+  const lexicalFilePath = resolveFileAddress(config, address)
+  const filePath = existsSync(lexicalFilePath)
+    ? assertExistingFileAddress(config, address, lexicalFilePath)
+    : lexicalFilePath
   if (!existsSync(filePath)) {
     throw new Error(`path does not exist: ${address.virtualPath}`)
   }
@@ -60,7 +68,10 @@ export async function deletePath(
 ): Promise<DeleteResult> {
   const address = parseVirtualPathFrame(frames[3], 'delete path')
   const recursive = readBoolFrame(frames[4], 'recursive')
-  const filePath = resolveFileAddress(config, address)
+  const lexicalFilePath = resolveFileAddress(config, address)
+  const filePath = existsSync(lexicalFilePath)
+    ? assertExistingFileAddress(config, address, lexicalFilePath)
+    : lexicalFilePath
   if (!existsSync(filePath)) {
     throw new Error(`path does not exist: ${address.virtualPath}`)
   }
@@ -89,8 +100,11 @@ export async function movePath(config: WorkerConfig, state: FileTransferState, f
     throw new Error('MOVE must stay inside one worker root')
   }
 
-  const fromPath = resolveFileAddress(config, from)
-  const toPath = resolveFileAddress(config, to)
+  const lexicalFromPath = resolveFileAddress(config, from)
+  const fromPath = existsSync(lexicalFromPath)
+    ? assertExistingFileAddress(config, from, lexicalFromPath)
+    : lexicalFromPath
+  const toPath = assertCreatableFileAddress(config, to, resolveFileAddress(config, to))
 
   if (!existsSync(fromPath)) {
     throw new Error(`path does not exist: ${from.virtualPath}`)
@@ -100,7 +114,6 @@ export async function movePath(config: WorkerConfig, state: FileTransferState, f
   }
 
   mkdirSync(dirname(toPath), { recursive: true })
-  if (existsSync(toPath)) rmSync(toPath, { recursive: true, force: true })
   const movingDirectory = statSync(fromPath).isDirectory()
   await rename(fromPath, toPath)
   if (movingDirectory) {
@@ -118,7 +131,10 @@ export function listPath(config: WorkerConfig, frames: Buffer[]): ListResult {
   const address = parseVirtualPathFrame(frames[3], 'list path', { allowRoot: true })
   const recursive = readBoolFrame(frames[4], 'recursive')
   const maxEntries = boundedMaxEntries(readU64Frame(frames[5], 'max_entries'))
-  const directoryPath = resolveFileAddress(config, address, { allowRoot: true })
+  const lexicalDirectoryPath = resolveFileAddress(config, address, { allowRoot: true })
+  const directoryPath = existsSync(lexicalDirectoryPath)
+    ? assertExistingFileAddress(config, address, lexicalDirectoryPath)
+    : lexicalDirectoryPath
 
   if (!existsSync(directoryPath) || !statSync(directoryPath).isDirectory()) {
     throw new Error(`directory does not exist: ${address.virtualPath}`)
@@ -153,7 +169,7 @@ function listDirectory(
 
       const childRelativePath = directoryRelativePath ? `${directoryRelativePath}/${entry.name}` : entry.name
       const childPath = join(directoryPath, entry.name)
-      const stat = statSync(childPath)
+      const stat = lstatSync(childPath)
       const kind = entry.isFile() ? 'file' : entry.isDirectory() ? 'directory' : 'other'
       entries.push({
         relative_path: childRelativePath,

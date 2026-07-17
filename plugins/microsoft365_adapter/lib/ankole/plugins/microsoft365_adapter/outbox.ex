@@ -3,7 +3,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.Plugins.Microsoft365Adapter.{AdaptiveCard, Config, Conversations, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.{AdaptiveCard, Config, Conversations}
   alias Ankole.Plugins.Microsoft365Adapter.Markdown
   alias Ankole.Repo
   alias Ankole.SignalsGateway

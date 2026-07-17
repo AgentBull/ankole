@@ -37,7 +37,9 @@ Job, so `task` must contain the requirements and acceptance criteria needed by
 the runner.
 
 Completion, failure, and `waiting_on_user` create durable wakeups for the owner
-session. Stopping a Job does not create a wakeup.
+session. A success wakeup carries Codex's final response so the main Agent can
+resume from that result. The wakeup is delivery plumbing, not a second business
+acceptance phase. Stopping a Job does not create a wakeup.
 
 ## Ownership
 
@@ -59,8 +61,8 @@ Agent Computer owns:
   and Skill configuration;
 - standalone Skill, MCP, Brain, and web capability projection;
 - Codex app-server execution and resume;
-- bounded semantic Job Turn observations;
-- the generic final execution result.
+- append-only semantic Job Turn observations with bounded presentation pages;
+- Codex's final response as the generic execution result.
 
 Codex owns thread state, Plugin and Skill behavior, hooks, native collaboration,
 and task execution. Its thread is resumable execution state, while PostgreSQL
@@ -167,6 +169,13 @@ stays in PostgreSQL and is read through the fenced Job Turn. Replaying the same
 start returns that Job and its original dispatch event; it does not append or
 deliver another event, even after attempts or status changes.
 
+The dispatch and later steer or stop events are internal Job-session work, not
+provider-entry inputs. They retain channel and thread placement but do not copy
+the originating `source_entry_id`; removing the message that created a Job does
+not delete its dispatch or change its lifecycle. The captured `reply_route`
+keeps the origin and completion-delivery facts. Stopping committed work remains
+an explicit Job lifecycle operation.
+
 ## Agent Plugin project setup
 
 Agent Plugin packages live under `app/library/agent-plugins/` and use the
@@ -228,14 +237,35 @@ it:
 3. prepares Agent Plugins, Skills, MCP servers, runtime guidance, and Codex
    configuration;
 4. starts or resumes the Codex thread;
-5. records lead and native child Turns as bounded `ankole_chatml` trajectory,
+5. records lead and native child Turns as append-only `ankole_chatml` trajectory,
    progress, and usage observations;
 6. accepts steering, stopping, and `request_user_input`;
-7. commits a generic result after Codex returns a non-empty final response.
+7. stores that non-empty Codex final response as the generic Job result and
+   wakes the owner session so the main Agent can continue.
+
+Trajectory groups are appended to PostgreSQL by stable item key and position.
+There is no per-Turn item-count or total-byte eviction. The Turn row separately
+stores lifecycle, progress, usage, error, and a metadata-only trajectory header.
+Status and Console reads expose newest-first cursor pages bounded to `24 KiB`;
+that presentation bound may shorten one displayed group but never deletes the
+durable semantic sequence. Secret redaction and per-value sanitation happen
+before a group crosses the worker boundary.
+
+## Hermes Floor And Job Tradeoffs
+
+| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
+| --- | --- | --- | --- | --- |
+| Execution attempts | `3` | No BackgroundAgentJob layer; stream stale streak gives up after `5` | `5` real lease acquisitions | More duplicate provider work is possible after worker loss, but a durable long task gets two additional recovery opportunities. |
+| Retry backoff | `2/4/8s`, maximum `60s` | Transient retry loop with wider repeated recovery | `5/10/20/40s`, maximum `120s` | Recovery is slower under persistent failure and less likely to amplify a short outage. |
+| Durable trajectory | At most `256` runtime items and `256 KiB`; oldest semantic history was evicted | Multi-strategy trajectory compression without a fixed total cap | Append-only PostgreSQL groups, no item-count or total-byte cap; `24 KiB` applies only to one presentation page | PostgreSQL grows with real work, which is the intended SSOT cost; pagination and retention policy must manage reads and storage instead of deleting history during execution. |
+| Wall-clock duration | No Job total timeout | No comparable durable Job timeout | No Job total timeout | Liveness comes from progress/worker leases; business deadlines must use `steer` or `stop`. |
 
 If the first completed Turn has no final response, the runner requests one
 generic final report once. A second empty completion fails the Job. The runner
 does not interpret package-specific files or run package-specific result code.
+Job success does not require standardized `artifacts`, `verification`, or a
+separate owner-side acceptance object. Files, reports, commits, and pull requests
+are ordinary task outputs that Codex describes in its final response.
 
 `request_user_input` closes the current Turn resumably, puts the Job in
 `waiting_on_user`, and wakes the owner. The owner's answer returns through
@@ -268,10 +298,14 @@ the main Agent.
 Deep Research selects `agent_plugin_ids: ["deep-research"]`. Its Skill and
 workspace template tell Codex how to research and to produce a self-contained
 `report/report.md`. The Job host does not parse that report or give Deep
-Research a separate lifecycle. The main Agent verifies the real report before
-delivering it to the user.
+Research a separate lifecycle. Codex reports the outcome and relevant path in
+its final response; the owner wakeup resumes the main Agent, which decides the
+next user-facing step through the ordinary Agent loop.
 
-## Required verification
+## Validation plan
+
+These checks validate the implementation path; they are not fields or
+acceptance objects required in a successful Job result.
 
 - package discovery, membership, hashes, symlink and size boundaries;
 - global defaults, Agent inheritance, parent gating, and child-state retention;

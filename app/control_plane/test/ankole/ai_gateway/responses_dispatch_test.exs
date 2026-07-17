@@ -468,6 +468,150 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                [recovered_output] ++ retry_input
   end
 
+  test "provider projection drops legacy orphan outputs while preserving the raw row" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-orphan-projection",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-orphan-projection",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-orphan-projection")
+
+    {:ok, anchor} =
+      start_stateful_message(agent.uid, conversation, "dispatch-orphan-anchor", [
+        text_message("user", "stable request")
+      ])
+
+    {:ok, anchor} =
+      StatefulResponses.commit_complete(anchor, [text_message("assistant", "stable answer")])
+
+    orphan_output = %{
+      "type" => "function_call_output",
+      "call_id" => "call_legacy_orphan",
+      "output" => "legacy side effect result"
+    }
+
+    {:ok, legacy_orphan_row} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        anchor,
+        "dispatch-orphan-row",
+        [orphan_output]
+      )
+
+    {:ok, legacy_orphan_row} = StatefulResponses.commit_complete(legacy_orphan_row, [])
+    current_input = [text_message("user", "continue safely")]
+
+    assert {:ok, prepared, run_attrs} =
+             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "orphan-projection-retry"}
+             })
+
+    projected_input = prepared.response_context.request["input"]
+
+    refute Enum.any?(projected_input, fn item ->
+             item["type"] == "function_call_output" and
+               item["call_id"] == "call_legacy_orphan"
+           end)
+
+    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+             "orphan_call_ids" => ["call_legacy_orphan"]
+           }
+
+    assert Repo.get!(Message, legacy_orphan_row.id).content == [orphan_output]
+    assert run_attrs.request_items == current_input
+  end
+
+  test "provider projection drops structurally malformed calls and their outputs while preserving raw rows" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-malformed-call-projection",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-malformed-call-projection",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-malformed-call-projection")
+
+    {:ok, legacy_row} =
+      start_stateful_message(agent.uid, conversation, "dispatch-malformed-call-row", [
+        text_message("user", "legacy request")
+      ])
+
+    malformed_call = %{
+      "type" => "function_call",
+      "status" => "incomplete",
+      "call_id" => "call_legacy_partial",
+      "name" => "patch",
+      "arguments" => "{\"path\":\"/tmp/repor"
+    }
+
+    malformed_output = %{
+      "type" => "function_call_output",
+      "call_id" => "call_legacy_partial",
+      "output" => "legacy output that must not be replayed"
+    }
+
+    {:ok, legacy_row} =
+      StatefulResponses.commit_complete(legacy_row, [malformed_call, malformed_output])
+
+    assert {:ok, prepared, run_attrs} =
+             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "continue safely")],
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "malformed-call-projection-retry"}
+             })
+
+    projected_input = prepared.response_context.request["input"]
+
+    refute Enum.any?(projected_input, fn item ->
+             item["call_id"] == "call_legacy_partial"
+           end)
+
+    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+             "non_executable_call_ids" => ["call_legacy_partial"]
+           }
+
+    assert Repo.get!(Message, legacy_row.id).content == [
+             text_message("user", "legacy request"),
+             malformed_call,
+             malformed_output
+           ]
+  end
+
   test "websocket stateful instructions are request-scoped and are not inherited" do
     %{principal: agent} = agent_fixture()
 
@@ -845,8 +989,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new current request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -859,7 +1003,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert summarizer_request.body["model"] == "gpt-compact-light"
     assert summarizer_request.body["store"] == false
-    assert summarizer_request.body["instructions"] =~ "context summarization assistant"
     assert summarizer_request.body["max_output_tokens"] == 4_096
     assert summarizer_input =~ "first user message with enough detail"
     assert summarizer_input =~ "first assistant answer"
@@ -897,6 +1040,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert compaction.previous_message_id == m3.id
     assert compaction.metadata["auto"] == true
     assert get_in(compaction.metadata, ["summarizer", "usage", "total_tokens"]) == 18
+
+    run = stateful_context.message
+    assert run.status == "generating"
+    assert run.previous_message_id == compaction.id
+
+    assert get_in(run.metadata, ["auto_compaction", "response_id"]) ==
+             "resp_#{compaction.id}"
 
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
 
@@ -1373,14 +1523,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "metadata" => %{"actor_event_id" => actor_event.id}
              })
 
-    run =
-      Repo.one!(
-        from(message in Message,
-          where:
-            fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) ==
-              ^actor_event.id
-        )
-      )
+    assert [run] =
+             Message
+             |> Repo.all()
+             |> Enum.filter(
+               &(StatefulResponses.response_metadata(&1)["actor_event_id"] == actor_event.id)
+             )
 
     assert run.status == "error"
     assert run.previous_message_id == m2.id

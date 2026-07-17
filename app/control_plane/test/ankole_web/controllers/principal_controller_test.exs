@@ -22,12 +22,6 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     :ok
   end
 
-  test "OpenAPI JSON includes the principal list endpoint", %{conn: conn} do
-    paths = conn |> get(~p"/api/v1/openapi.json") |> json_response(200) |> Map.fetch!("paths")
-
-    assert Map.has_key?(paths, "/api/v1/principals")
-  end
-
   test "admin lists active human and agent principals", %{conn: conn} do
     human = human_fixture(%{uid: unique_uid("console-human"), display_name: "Console Human"})
     agent = agent_fixture(%{uid: unique_uid("console-agent"), display_name: "Console Agent"})
@@ -59,6 +53,45 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     assert Enum.map(principals, & &1["uid"]) == Enum.sort(Enum.map(principals, & &1["uid"]))
   end
 
+  test "admin reads one principal with its groups and direct grants", %{conn: conn} do
+    conn = bearer_conn(conn)
+
+    %{principal: human} =
+      human_fixture(%{uid: unique_uid("principal-detail"), display_name: "Detail Human"})
+
+    assert {:ok, group} =
+             AuthZ.create_principal_group(%{
+               name: "detail_group_#{System.unique_integer([:positive])}",
+               display_name: "Detail Group"
+             })
+
+    assert {:ok, _membership} = AuthZ.add_principal_to_group(human.uid, group.id)
+
+    assert {:ok, grant} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: human.uid,
+               resource_pattern: "workspace:**",
+               action: "read"
+             })
+
+    conn = conn |> recycle_api() |> get(~p"/api/v1/principals/#{human.uid}")
+    assert %{"principal" => fetched} = json_response(conn, 200)
+    assert fetched["uid"] == human.uid
+    assert fetched["display_name"] == "Detail Human"
+
+    conn = conn |> recycle_api() |> get(~p"/api/v1/principals/#{human.uid}/groups")
+    assert %{"principal_groups" => groups} = json_response(conn, 200)
+    assert Enum.map(groups, & &1["name"]) == [group.name]
+
+    conn = conn |> recycle_api() |> get(~p"/api/v1/principals/#{human.uid}/grants")
+    assert %{"permission_grants" => [listed]} = json_response(conn, 200)
+    assert listed["id"] == grant.id
+    assert listed["principal_uid"] == human.uid
+
+    conn = conn |> recycle_api() |> get(~p"/api/v1/principals/missing-principal")
+    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+  end
+
   defp bearer_conn(conn) do
     {:ok, true} = SetupConfig.put_completed(true)
     admin = human_fixture(%{uid: unique_uid("principal-console-admin")})
@@ -81,6 +114,13 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     conn
     |> recycle()
     |> put_req_header("authorization", "Bearer #{access_token}")
+    |> put_req_header("content-type", "application/json")
+  end
+
+  defp recycle_api(conn) do
+    conn
+    |> recycle()
+    |> put_req_header("authorization", get_req_header(conn, "authorization") |> List.first())
     |> put_req_header("content-type", "application/json")
   end
 

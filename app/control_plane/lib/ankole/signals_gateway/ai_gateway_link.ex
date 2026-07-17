@@ -10,9 +10,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   import Ecto.Query, warn: false
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.Brain.Scope
   alias Ankole.Principals
   alias Ankole.Repo
@@ -23,6 +26,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.SignalsGateway.ClarifyPrompt
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.ReplyAttachment
+  alias Ankole.WorkerFiles
 
   @max_chain_depth 500
   @scheduled_event_types ~w(check_back_later.wakeup cron.fire)
@@ -247,7 +251,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   def daily_reset_candidates_in_tx(repo, %DateTime{} = boundary_at, opts \\ []) do
     AIGateway.list_active_conversations(repo,
       inserted_before: boundary_at,
-      exclude_conversation_key_prefixes: ["subagent:"],
+      exclude_conversation_key_prefixes: [BackgroundAgentJobs.job_session_prefix()],
       limit: Keyword.get(opts, :limit, 1_000),
       lock: true
     )
@@ -365,44 +369,42 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   def complete_responses_by_actor_event(_agent_uid, []), do: %{}
 
   def complete_responses_by_actor_event(agent_uid, events) when is_list(events) do
-    event_ids = Enum.map(events, & &1.id)
-    session_ids = events |> Enum.map(& &1.session_id) |> Enum.uniq()
+    Enum.reduce(events, %{}, fn %ActorEvent{} = event, acc ->
+      case completed_turn_responses(agent_uid, event) do
+        {%Conversation{} = conversation, [_ | _] = responses} ->
+          Map.put(acc, event.id, %{conversation: conversation, responses: responses})
 
-    conversations =
-      Conversation
-      |> where([conversation], conversation.subject_uid == ^agent_uid)
-      |> where([conversation], conversation.conversation_key in ^session_ids)
-      |> Repo.all()
+        nil ->
+          acc
+      end
+    end)
+  end
 
-    conversations_by_id = Map.new(conversations, &{&1.id, &1})
-    conversation_ids = Map.keys(conversations_by_id)
-
-    case conversation_ids do
-      [] ->
-        %{}
-
-      conversation_ids ->
-        Message
-        |> where([response], response.subject_uid == ^agent_uid)
-        |> where([response], response.conversation_id in ^conversation_ids)
-        |> where([response], response.type == "message" and response.status == "complete")
-        |> where(
-          [response],
-          fragment("?->'request_metadata'->>'actor_event_id'", response.metadata) in ^event_ids
-        )
-        |> order_by([response], asc: response.inserted_at, asc: response.id)
-        |> Repo.all()
-        |> Enum.group_by(&response_actor_event_id/1)
-        |> Map.new(fn {actor_event_id, responses} ->
-          conversation_id = List.last(responses).conversation_id
-
-          {actor_event_id,
-           %{
-             conversation: Map.fetch!(conversations_by_id, conversation_id),
-             responses: Enum.filter(responses, &(&1.conversation_id == conversation_id))
-           }}
-        end)
+  # A completed turn hangs off the worker-declared completion anchor (ADR-0005),
+  # so the chain walk stays inside AIGateway's public Response interface instead
+  # of probing its metadata storage layout with cross-context SQL.
+  defp completed_turn_responses(
+         agent_uid,
+         %ActorEvent{final_response_id: final_response_id} = event
+       )
+       when is_binary(final_response_id) do
+    with {:ok, chain} <-
+           AIGateway.list_response_chain(agent_uid, final_response_id, @max_chain_depth),
+         [%Message{} = anchor | _rest] = turn_chain <- complete_turn_chain(chain, event.id),
+         {:ok, %Conversation{} = conversation} <-
+           AIGateway.get_conversation(agent_uid, anchor.conversation_id) do
+      {conversation, Enum.reverse(turn_chain)}
+    else
+      _missing -> nil
     end
+  end
+
+  defp completed_turn_responses(_agent_uid, %ActorEvent{}), do: nil
+
+  defp complete_turn_chain(chain, actor_event_id) do
+    chain
+    |> Enum.take_while(&(response_actor_event_id(&1) == actor_event_id))
+    |> Enum.filter(&(ordinary_response?(&1) and &1.status == "complete"))
   end
 
   @doc false
@@ -566,7 +568,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
            ),
          :ok <- validate_conversation(conversation, turn_ref),
          {:ok, turn_chain} <- turn_response_chain(chain, turn_ref),
-         {:ok, projection} <- project_completion(turn_chain, final_response) do
+         {:ok, projection} <-
+           project_completion(turn_ref.agent_uid, turn_chain, final_response) do
       {:ok,
        Map.merge(projection, %{
          conversation: conversation,
@@ -927,14 +930,9 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     |> where([response], response.conversation_id == ^conversation.id)
     |> where([response], response.type == "message")
     |> where([response], response.status in ["generating", "complete"])
-    |> where(
-      [response],
-      fragment("?->'request_metadata'->>'actor_event_id'", response.metadata) ==
-        ^turn_ref.actor_event_id
-    )
     |> order_by([response], desc: response.inserted_at, desc: response.id)
-    |> limit(1)
-    |> Repo.one()
+    |> Repo.all()
+    |> Enum.find(&(response_actor_event_id(&1) == turn_ref.actor_event_id))
   end
 
   defp visible_response_chain(%Conversation{} = conversation, nil),
@@ -1111,7 +1109,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       )
   end
 
-  defp project_completion(turn_chain, final_response) do
+  defp project_completion(subject_uid, turn_chain, final_response) do
     source_items =
       turn_chain
       |> Enum.reverse()
@@ -1122,6 +1120,9 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
     with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
          {:ok, attachments} <- ReplyAttachment.attachments_from_response_items(source_items),
+         {:ok, generated_image_attachments} <-
+           materialize_generated_images(subject_uid, turn_chain),
+         attachments = attachments ++ generated_image_attachments,
          :ok <- require_user_visible_projection(final_text, clarify_prompt, attachments) do
       {:ok,
        %{
@@ -1134,6 +1135,100 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
   defp message_items(%Message{content: content}) when is_list(content), do: content
   defp message_items(_message), do: []
+
+  defp materialize_generated_images(subject_uid, turn_chain) do
+    turn_chain
+    |> Enum.reverse()
+    |> Enum.flat_map(&generated_image_items/1)
+    |> Enum.reduce_while({:ok, [], MapSet.new()}, fn
+      %{"id" => image_id}, {:ok, attachments, seen} when is_binary(image_id) ->
+        if MapSet.member?(seen, image_id) do
+          {:cont, {:ok, attachments, seen}}
+        else
+          case materialize_generated_image(subject_uid, image_id) do
+            {:ok, attachment} ->
+              {:cont, {:ok, [attachment | attachments], MapSet.put(seen, image_id)}}
+
+            {:error, _reason} = error ->
+              {:halt, error}
+          end
+        end
+
+      _item, _acc ->
+        {:halt, {:error, :invalid_completed_image_generation_call}}
+    end)
+    |> case do
+      {:ok, attachments, _seen} -> {:ok, Enum.reverse(attachments)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp generated_image_items(%Message{content: content, metadata: metadata})
+       when is_list(content) and is_map(metadata) do
+    content
+    |> Enum.drop(request_item_count(metadata))
+    |> Enum.filter(&completed_generated_image?/1)
+  end
+
+  defp generated_image_items(_message), do: []
+
+  defp request_item_count(%{"request_item_count" => count})
+       when is_integer(count) and count >= 0,
+       do: count
+
+  defp request_item_count(_metadata), do: 0
+
+  defp completed_generated_image?(%{
+         "type" => "image_generation_call",
+         "status" => "completed"
+       }),
+       do: true
+
+  defp completed_generated_image?(_item), do: false
+
+  defp materialize_generated_image(subject_uid, image_id) do
+    with {:ok, %Artifact{} = artifact} <-
+           generated_image_artifact(subject_uid, image_id),
+         {:ok, extension} <- generated_image_extension(image_id, artifact.mime_type),
+         public_id = Artifacts.public_id(artifact),
+         filename = "#{public_id}.#{extension}",
+         relative_path = "generated-images/#{filename}",
+         :ok <- write_generated_image(image_id, relative_path, artifact.payload) do
+      {:ok,
+       %{
+         "agent_computer_path" => "/workspace/user-files/#{relative_path}",
+         "user_files_relative_path" => relative_path,
+         "name" => filename,
+         "mime_type" => artifact.mime_type,
+         "size" => byte_size(artifact.payload)
+       }}
+    end
+  end
+
+  defp generated_image_artifact(subject_uid, image_id) do
+    case Artifacts.get_generated_image(subject_uid, image_id, payload?: true) do
+      {:ok, %Artifact{} = artifact} ->
+        {:ok, artifact}
+
+      {:error, reason} ->
+        {:error, {:generated_image_artifact_unavailable, image_id, reason}}
+    end
+  end
+
+  defp generated_image_extension(_image_id, "image/png"), do: {:ok, "png"}
+  defp generated_image_extension(_image_id, "image/jpeg"), do: {:ok, "jpg"}
+  defp generated_image_extension(_image_id, "image/webp"), do: {:ok, "webp"}
+  defp generated_image_extension(_image_id, "image/gif"), do: {:ok, "gif"}
+
+  defp generated_image_extension(image_id, mime_type),
+    do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
+
+  defp write_generated_image(image_id, relative_path, payload) do
+    case WorkerFiles.put("user_files", relative_path, payload) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, {:generated_image_materialization_failed, image_id, reason}}
+    end
+  end
 
   defp dedupe_function_call_outputs(items) do
     {deduped, _seen_call_ids} =

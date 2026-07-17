@@ -14,6 +14,7 @@ import type {
   Message,
   ModelConfig,
   ContentPart,
+  HostedTool,
   StatefulResponseContext,
   UserMessage
 } from './llm'
@@ -59,6 +60,9 @@ export interface AgentLoopConfig {
 
   /** Available tools. */
   tools?: AgentTool[]
+
+  /** AIGateway-hosted tools declared by the control plane for this turn. */
+  hostedTools?: HostedTool[]
 
   /** Max main-loop model/API iterations before a final no-tools summary call. */
   maxModelIterations: number
@@ -169,7 +173,7 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   isReadOnly?: boolean
   isDestructive?: boolean
   /** Builds one bounded user-facing activity label from schema-validated parameters. */
-  describeActivity?: (params: z.output<TParameters>) => string | null
+  describeActivity: (params: z.output<TParameters>) => string | null
   execute: (
     toolCallID: string,
     params: z.output<TParameters>,

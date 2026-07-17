@@ -17,10 +17,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
 
   alias Ecto.Adapters.SQL
 
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerSubagentConfig
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
   alias Ankole.Repo
+
+  require Ankole.BackgroundAgentJobs
 
   @ready_worker_status "ready"
 
@@ -48,7 +51,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     actor_key = normalize_actor_key(actor_key)
 
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      do_assign_worker_in_tx(repo, actor_key, now, delegation_limit(actor_key))
+      do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
     end
   end
 
@@ -127,13 +130,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   # Keeps actor-to-worker affinity while the assigned worker is still usable.
   # This lowers churn without making the worker part of the durable user story:
   # stale workers release the assignment and the actor event can be retried.
-  defp do_assign_worker_in_tx(repo, actor_key, now, delegation_limit) do
+  defp do_assign_worker_in_tx(repo, actor_key, now, job_limit) do
     case live_assignment_snapshot(repo, actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
-        reuse_or_replace_assignment(repo, actor_key, assignment, now, delegation_limit)
+        reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit)
 
       nil ->
-        assign_new_worker(repo, actor_key, now, delegation_limit)
+        assign_new_worker(repo, actor_key, now, job_limit)
     end
   end
 
@@ -150,8 +153,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
 
   # Picks the first currently ready worker with capacity. The policy is simple
   # on purpose: fairness can improve later without changing turn semantics.
-  defp assign_new_worker(repo, actor_key, now, delegation_limit) do
-    with %AgentComputerWorker{} = worker <- choose_worker(repo, delegation_limit),
+  defp assign_new_worker(repo, actor_key, now, job_limit) do
+    with %AgentComputerWorker{} = worker <- choose_worker(repo, job_limit),
          {:ok, worker} <- reserve_worker_slot(repo, worker),
          {:ok, assignment} <- insert_assignment(repo, actor_key, worker, now) do
       {:ok, assignment}
@@ -161,7 +164,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  defp reuse_or_replace_assignment(repo, actor_key, assignment, now, delegation_limit) do
+  defp reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit) do
     worker = lock_assignment_worker(repo, assignment.worker_id)
     assignment = lock_live_assignment(repo, assignment, actor_key)
 
@@ -169,19 +172,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
       match?(%AgentComputerWorker{status: @ready_worker_status}, worker) and
         match?(%ActorSessionWorkerAssignment{}, assignment) and
         worker_has_capacity?(worker) and
-          worker_has_delegation_capacity?(repo, worker, delegation_limit) ->
+          worker_has_job_capacity?(repo, worker, job_limit) ->
         with {:ok, worker} <- reserve_worker_slot(repo, worker) do
           touch_assignment(repo, assignment, worker, now)
         end
 
       match?(%ActorSessionWorkerAssignment{}, assignment) ->
         with {:ok, _assignment} <- release_assignment(repo, assignment),
-             {:ok, assignment} <- assign_new_worker(repo, actor_key, now, delegation_limit) do
+             {:ok, assignment} <- assign_new_worker(repo, actor_key, now, job_limit) do
           {:ok, assignment}
         end
 
       true ->
-        assign_new_worker(repo, actor_key, now, delegation_limit)
+        assign_new_worker(repo, actor_key, now, job_limit)
     end
   end
 
@@ -221,7 +224,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   # Chooses from ready workers after reading their current capacity projection.
   # Missing capacity is not assumed usable: every current worker reports turn
   # slots in its ready/capacity envelopes.
-  defp choose_worker(repo, delegation_limit) do
+  defp choose_worker(repo, job_limit) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
@@ -229,7 +232,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     |> repo.all()
     |> Enum.find(fn worker ->
       worker_has_capacity?(worker) and
-        worker_has_delegation_capacity?(repo, worker, delegation_limit)
+        worker_has_job_capacity?(repo, worker, job_limit)
     end)
   end
 
@@ -287,15 +290,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  defp worker_has_delegation_capacity?(_repo, _worker, nil), do: true
+  defp worker_has_job_capacity?(_repo, _worker, nil), do: true
 
-  defp worker_has_delegation_capacity?(repo, worker, limit) when is_integer(limit) do
+  defp worker_has_job_capacity?(repo, worker, limit) when is_integer(limit) do
     count =
       repo.aggregate(
         from(assignment in ActorSessionWorkerAssignment,
           where: assignment.worker_id == ^worker.worker_id,
           where: assignment.status in ["assigned", "draining"],
-          where: like(assignment.session_id, "subagent:%")
+          where: like(assignment.session_id, ^(BackgroundAgentJobs.job_session_prefix() <> "%"))
         ),
         :count
       )
@@ -349,10 +352,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  defp delegation_limit(%{session_id: "subagent:" <> _delegation_id}),
-    do: WorkerSubagentConfig.max_delegation_turns_per_worker()
+  defp job_limit(%{session_id: session_id})
+       when BackgroundAgentJobs.is_job_session_id(session_id),
+       do: BackgroundAgentJobWorkerConfig.max_turns_per_worker()
 
-  defp delegation_limit(_actor_key), do: nil
+  defp job_limit(_actor_key), do: nil
 
   defp integer_from_map(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

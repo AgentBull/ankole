@@ -22,18 +22,6 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
     :ok
   end
 
-  test "OpenAPI JSON includes Agent library document endpoints", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/library-documents")
-
-    assert Map.has_key?(
-             paths,
-             "/api/v1/agents/{agent_uid}/library-documents/{document_kind}"
-           )
-  end
-
   test "admin reads and independently replaces MISSION, SOUL, and DESIGN documents", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     conn = bearer_conn(conn)

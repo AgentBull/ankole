@@ -20,7 +20,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "dispatch")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -76,7 +76,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                "request_id" => "settled-resume"
              })
 
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -102,7 +102,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "turn-revision")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -184,7 +184,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "child-turn")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -245,7 +245,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "waiting-releases-capacity")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -329,7 +329,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert waiting.status == "waiting_on_user"
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(turn_noop_completed_payload(turn_start_payload!(envelope).turn, "background_agent_job_committed"))
+             ActorRuntime.handle_turn_noop_completed(
+               turn_noop_completed_payload(
+                 turn_start_payload!(envelope).turn,
+                 "background_agent_job_committed"
+               )
+             )
 
     assert %ActorSessionWorkerAssignment{status: "released"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
@@ -349,7 +354,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "durable-steer")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -458,18 +463,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert %ActorSessionWorkerAssignment{status: "assigned"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
                agent_uid: agent.uid,
-               session_id: "job:#{job.id}"
+               session_id: BackgroundAgentJobs.job_session_id(job.id)
              )
 
     assert Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at == nil
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(turn_noop_completed_payload(turn_ref, "background_agent_job_committed"))
+             ActorRuntime.handle_turn_noop_completed(
+               turn_noop_completed_payload(turn_ref, "background_agent_job_committed")
+             )
 
     assert %ActorSessionWorkerAssignment{status: "released"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
                agent_uid: agent.uid,
-               session_id: "job:#{job.id}"
+               session_id: BackgroundAgentJobs.job_session_id(job.id)
              )
 
     assert %DateTime{} = Repo.get!(Ankole.SignalsGateway.ActorEvent, steer_event.id).completed_at
@@ -485,7 +492,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, stale_worker} = admit_worker(stale_route)
 
     job = create_job!(agent.uid, "late-worker-status")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     first_now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -569,7 +576,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "replay-steer")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -610,10 +617,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     failure_time = DateTime.add(now, 2, :second)
 
     assert {:ok, %{status: :turn_failed, retry_available_at: retry_at}} =
-             ActorRuntime.handle_turn_error(turn_error_payload(first_turn_ref, "worker_turn_failed", "Background Agent Job steer delivery failed", %{
-                     "error_code" => "background_agent_job_steer_delivery_failed",
-                     "retryable" => true
-                   }),
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 first_turn_ref,
+                 "worker_turn_failed",
+                 "Background Agent Job steer delivery failed",
+                 %{
+                   "error_code" => "background_agent_job_steer_delivery_failed",
+                   "retryable" => true
+                 }
+               ),
                now: failure_time
              )
 
@@ -649,13 +662,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                attempt_no: 2
              )
 
-    assert fence == recovery["turn"]["actor_event_id"]
+    assert fence == recovery.turn.actor_event_id
   end
 
   test "worker placement deferral does not consume execution attempts or running slots" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "no-worker")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     Enum.reduce(1..4, job.queued_at, fn retry, now ->
       assert {:ok, %{status: :waiting_for_worker, reason: :worker_capacity}} =
@@ -677,7 +690,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     route = unique_route()
     assert {:ok, _worker} = admit_worker(route)
     job = create_job!(agent.uid, "delivery-failure")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{status: :waiting_for_worker, reason: :worker_delivery}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -719,8 +732,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     first = create_job!(first_agent.uid, "subscription-first")
     second = create_job!(second_agent.uid, "subscription-second")
-    first_key = %{agent_uid: first_agent.uid, session_id: "job:#{first.id}"}
-    second_key = %{agent_uid: second_agent.uid, session_id: "job:#{second.id}"}
+
+    first_key = %{
+      agent_uid: first_agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(first.id)
+    }
+
+    second_key = %{
+      agent_uid: second_agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(second.id)
+    }
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(first_key,
@@ -772,7 +793,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert acknowledged.status == "stopped"
 
     assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(turn_noop_completed_payload(turn_start_payload!(first_envelope).turn, "background_agent_job_stopped"))
+             ActorRuntime.handle_turn_noop_completed(
+               turn_noop_completed_payload(
+                 turn_start_payload!(first_envelope).turn,
+                 "background_agent_job_stopped"
+               )
+             )
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(second_key,
@@ -800,13 +826,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, first_assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: "job:#{Ecto.UUID.generate()}"
+               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
              })
 
     assert {:ok, second_assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: "job:#{Ecto.UUID.generate()}"
+               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
              })
 
     assert first_assignment.worker_id == first_worker.worker_id
@@ -817,7 +843,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     %{principal: agent} = agent_fixture()
     route = unique_route()
     assert {:ok, worker} = admit_worker(route, %{capacity: %{"available_turn_slots" => 4}})
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{Ecto.UUID.generate()}"}
+
+    actor_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+    }
 
     assert {:ok, first} = WorkerPool.assign_worker(actor_key)
     assert {:ok, second} = WorkerPool.assign_worker(actor_key)
@@ -841,11 +871,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: "job:#{Ecto.UUID.generate()}"
+               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
              })
 
     job = create_job!(agent.uid, "worker-capacity")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     assert {:ok, %{status: :waiting_for_worker, reason: :worker_capacity}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -872,7 +902,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
       end
 
     for {job, offset} <- Enum.with_index(Enum.take(jobs, 3), 1) do
-      actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+      actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
       assert {:ok, %{send_outcome: "sent_or_queued"}} =
                ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -887,7 +917,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     end
 
     fourth = List.last(jobs)
-    fourth_actor_key = %{agent_uid: agent.uid, session_id: "job:#{fourth.id}"}
+
+    fourth_actor_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(fourth.id)
+    }
 
     assert {:ok, %{status: :waiting_for_worker, reason: :agent_capacity}} =
              ReadyEventProcessor.process_ready_event_for_actor(fourth_actor_key,
@@ -912,13 +946,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
     on_exit(fn -> Broker.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
+
+    assert {:ok, _worker} =
+             admit_worker(route, %{capacity: %{"available_turn_slots" => 9}})
 
     job = create_job!(agent.uid, "turn-persistence-exhaustion")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
     retry_at =
-      Enum.reduce(1..3, DateTime.add(job.queued_at, 1, :second), fn expected_attempt, ready_at ->
+      Enum.reduce(1..5, DateTime.add(job.queued_at, 1, :second), fn expected_attempt, ready_at ->
         assert {:ok, %{send_outcome: "sent_or_queued"}} =
                  ReadyEventProcessor.process_ready_event_for_actor(actor_key,
                    now: ready_at,
@@ -934,7 +970,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
         failure_time = DateTime.add(ready_at, 1, :second)
 
-        if expected_attempt == 3 do
+        if expected_attempt == 5 do
           assert {:ok, active_turn_ref} =
                    Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
                      "turn" => turn_ref
@@ -966,16 +1002,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                    )
         end
 
-        {:ok, %{status: debug_status} = debug_result} =
-                 ActorRuntime.handle_turn_error(turn_error_payload(turn_ref, "worker_turn_failed", "Background Agent Job Turn persistence failed", %{
-                         "error_code" => "background_agent_job_turn_persistence_failed",
-                         "retryable" => true
-                       }),
+        assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
+                 ActorRuntime.handle_turn_error(
+                   turn_error_payload(
+                     turn_ref,
+                     "worker_turn_failed",
+                     "Background Agent Job Turn persistence failed",
+                     %{
+                       "error_code" => "background_agent_job_turn_persistence_failed",
+                       "retryable" => true
+                     }
+                   ),
                    now: failure_time
                  )
-
-        IO.inspect({expected_attempt, debug_status, Map.get(debug_result, :delivery_count), Map.take(debug_result, [:superseded_deliveries])}, label: "DEBUG_ATTEMPT")
-        assert %{status: :turn_failed, retry_available_at: retry_available_at} = debug_result
 
         retry_available_at
       end)
@@ -1014,7 +1053,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "turn-persistence-rejected")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -1058,10 +1097,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert {:ok,
             %{status: :background_agent_job_failed, background_agent_job_failure: %{job: failed}}} =
-             ActorRuntime.handle_turn_error(turn_error_payload(turn_ref, "worker_turn_failed", "Background Agent Job Turn persistence was rejected", %{
-                     "error_code" => "background_agent_job_turn_persistence_rejected",
-                     "retryable" => false
-                   }),
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "Background Agent Job Turn persistence was rejected",
+                 %{
+                   "error_code" => "background_agent_job_turn_persistence_rejected",
+                   "retryable" => false
+                 }
+               ),
                now: DateTime.add(now, 1, :second)
              )
 
@@ -1096,7 +1141,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "running-stop")
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job.id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =

@@ -1,215 +1,195 @@
 # Plugins
 
-Ankole plugins are first-party trusted Elixir extension packages available at
-boot. They may contribute metadata, AppConfigure declarations, setup metadata,
-adapter callback modules, and supervised children.
+Ankole has two unrelated extension boundaries. Their names are deliberately
+different because they have different owners, lifecycles, and enablement
+semantics:
 
-Plugins are not a third-party isolation runtime or marketplace boundary in this
-design.
-The runtime does not load arbitrary plugin code from disk dynamically.
+- an **Agent Plugin** is a model capability package consumed by Agent Computer;
+- a **Control Plane Plugin** is trusted Elixir/OTP code compiled into the
+  control plane.
 
-The plugin subsystem lives under `Ankole.Plugins.*`. This document defines the
-shared plugin boundary; concrete subsystem extension contracts are added by
-their owning subsystem documents when those contracts exist.
+Sharing the word “Plugin” does not create a bridge between them.
 
-## Discovery And Registry
+## Agent Plugins
 
-Plugin discovery is a bootstrap and local-code concern. The application must
-know what plugin modules or packages are available before those plugins can
-register runtime configuration, supervised children, setup metadata, or adapter
-contracts.
+An Agent Plugin is Ankole's superset of a Codex Plugin. It uses the standard
+`.codex-plugin/plugin.json` manifest and standard Codex package layout. Ankole
+adds one optional directory, `workspace-template/`, for initializing a
+BackgroundAgentJob's private project.
 
-Discovery reads local plugin paths from the repository:
+```text
+app/library/agent-plugins/<agent-plugin-id>/
+├── .codex-plugin/plugin.json
+├── skills/
+├── hooks/                 # optional Codex content
+└── workspace-template/    # optional Ankole initialization content
+```
 
-- `plugins/` for normal first-party plugins;
-- `internals/plugins/` for private first-party plugins when that tree exists.
+The installation owns these trusted first-party packages. The control plane
+validates each manifest, follows its declared `skills` directory, reads member
+Skills, rejects symlinks and invalid package entries, enforces package bounds,
+and computes a stable content hash. Agent Computer follows the same manifest
+path and installs the complete package through Codex. The tree above shows the
+current packages; `skills/` is not a second Ankole convention.
 
-Container/release deployments may override these paths with the bootstrap
-environment variable `ANKOLE_PLUGIN_PATHS`, using a colon-separated list of
-absolute paths. The image must copy the plugin source-index tree at those paths;
-the modules are still trusted first-party code compiled into the release. This
-keeps plugin discovery a deployment fact rather than a database/runtime setting.
+`workspace-template/` is a directory, not another declaration format. When a
+Job first initializes its private project, Agent Computer copies every file in
+each selected template into the project. Resume reuses that project. Conflicts
+between selected templates fail initialization rather than depending on copy
+order.
 
-`internals/plugins/` is a future optional path. A missing optional path is not a
-startup error. A plugin declaration loaded from either path follows the same
-contract once discovered.
+### Built-in packages
 
-Discovery must not depend on AppConfigure. AppConfigure starts after Repo and is
-the runtime settings store; it is not how the process finds local plugin code.
-Changing plugin paths requires changing the deployment environment and
-restarting Ankole.
+Ankole ships exactly these Agent Plugins:
 
-Plugin ids must be unique across all discovery paths. A duplicate id is a
-startup configuration error, not an ordering rule where one path silently wins.
+| ID | Member Skills | Default |
+|---|---|---|
+| `lark` | `lark-im`, `lark-oa`, `lark-office-suite` | disabled |
+| `office` | `docx`, `xlsx`, `pptx` | enabled |
+| `deep-research` | `deep-research` | enabled |
 
-The registry should store discovered specs and the active plugin set. A
-normalized plugin spec includes:
+Member Skills live only inside their Agent Plugin. Standalone Skills such as
+`nano-pdf` and `design-md` remain in `app/library/skills/`.
 
-- stable plugin id;
-- plugin API version;
-- display metadata;
-- AppConfigure exact definitions;
-- AppConfigure pattern definitions;
-- setup metadata;
-- adapter declarations, when a subsystem defines such a contract;
-- supervised children, when the plugin owns Elixir runtime processes.
+### Enablement
 
-The registry is metadata and startup coordination. It is not a durable settings
-store.
+Agent Plugin state and Skill state are separate. Global state provides the
+default inherited by every Agent; an Agent stores only explicit overrides.
 
-## Activation
+```text
+Agent Plugin effective = agent override ?? global default
+Plugin Skill effective = parent effective && (agent override ?? global default)
+Standalone Skill effective = agent override ?? global default
+Agent-installed Skill effective = agent override ?? source default
+```
 
-All discovered plugins are active by default. An operator may disable plugins
-through the core AppConfigure key `plugins.disabled_ids`, a plaintext global
-list of plugin ids.
+All Agent Plugin member Skills default to enabled. Disabling a parent gates its
+members but does not rewrite their defaults or Agent overrides, so their prior
+choices become effective again when the parent is re-enabled.
 
-The disabled list is an activation policy, not a discovery source. On startup,
-the plugin subsystem discovers local plugin code, reads the global disabled
-list, and activates every discovered plugin whose id is not listed.
+Global defaults are installation settings in AppConfigure:
 
-Changing `plugins.disabled_ids` while Ankole is running records the next-start
-policy only. It does not hot-start or hot-stop plugin code. Setup and console
-surfaces that edit the list must show that a restart is required before the
-change affects active plugins.
+- `ai_agent.library.agent_plugin_defaults` maps Agent Plugin IDs to booleans;
+- `ai_agent.library.skill_defaults` maps stable Skill IDs to booleans.
 
-A disabled plugin remains discoverable as local code, but its contributed
-AppConfigure definitions, setup metadata, adapter declarations, and supervised
-children are not active in the current process. Existing plugin-owned
-AppConfigure rows may remain in PostgreSQL; disabling a plugin stops using those
-rows, it does not delete them.
+A Plugin Skill ID is `<agent-plugin-id>:<skill-name>`. A standalone Skill keeps
+its name as its ID. Agent Plugin overrides are sparse rows in
+`agent_plugin_overrides`. Skill overrides use nullable
+`agent_skills.enabled_override`; `null` means inheritance. Plugin member rows
+use the ordinary `source_kind = "builtin"` and record `agent_plugin_id` only
+for parent enablement and Console grouping. Skill discovery, file lookup,
+overlays, MCP loading, and execution use the same ordinary Skill path for
+members and standalone Skills.
 
-## Plugin Declaration
+The Agent Library always synchronizes every member Skill, including members of
+a disabled parent. That preserves independent Skill choices and lets the
+Console display the complete package.
 
-A plugin declaration should expose a stable id and API version. Optional display
-name and description values may be plain strings or locale-keyed maps so setup
-and console surfaces can render plugin-owned text without hard-coded host copy.
+### Job projection
 
-Plugin ids identify Ankole plugin packages. They are not external platform
-namespaces, bot app ids, chat channel ids, provider instance ids, or agent ids.
-Subsystem contracts that need those identifiers must define separate fields and
-persistence rules.
+At Job creation the control plane accepts only Agent Plugins that are
+effectively enabled for the target Agent. The Job persists their IDs in
+`agent_plugin_ids`; `skill_names` contains only selected standalone Skill
+names. It does not persist package versions, hashes, or member-Skill state.
 
-Plugin declarations may contribute AppConfigure definitions and patterns. They
-may also expose setup field descriptors for operator-facing forms. The form
-metadata is UI description only; persistence still goes through the owning
-AppConfigure key.
+Before every execution or resume, Agent Computer resolves the saved IDs and
+names against the current enabled catalogs. A selected Plugin or Skill that is
+disabled or missing is unavailable and preparation fails. Otherwise Agent
+Computer stages and installs the current complete package, discovers its member
+Skills through `skills/list`, writes every member's current effective state
+through `skills/config/write` using the absolute discovered path, and lists
+again to verify the result. Only enabled member Skills contribute Skill-level
+MCP configuration. Package-level hooks, resources, MCP configuration, and the
+one-time `workspace-template/` initialization remain controlled by the parent
+selection.
 
-If a plugin contributes supervised children, the declaration must make the child
-specs explicit. Supervision belongs to the host application tree, not to an
-untracked plugin-side process manager.
+The RuntimeFabric catalog method is `agent_plugin.list`. The complete Job and
+resume contract is defined in `BackgroundAgentJob.md`.
 
-## AppConfigure Integration
+### Console and API
 
-Plugin settings use the same `Ankole.AppConfigure` mechanism as core settings.
-There is no plugin-specific config database, no plugin-specific secret store,
-and no environment-variable fallback in AppConfigure resolution.
+The Agent Library API exposes global defaults and per-Agent effective state:
 
-Plugin-owned AppConfigure values are global installation settings. Plugin
-setup, credentials, provider catalogs, and adapter defaults are written in the
-`global` scope and read without an agent resolution context.
+- `GET /api/v1/agent-library/capabilities`;
+- `PUT /api/v1/agent-library/agent-plugins/:id`;
+- `PUT /api/v1/agent-library/skills/:id`;
+- `GET /api/v1/agents/:agent_uid/library-capabilities`;
+- `PUT /api/v1/agents/:agent_uid/library-capabilities/agent-plugins/:id`;
+- `PUT /api/v1/agents/:agent_uid/library-capabilities/skills/:id`.
 
-Each plugin-owned AppConfigure definition declares the same contract as any
-other runtime setting:
+Global writes use `{ "enabled": boolean }`. Agent writes use
+`{ "enabled": boolean | null }`; `null` restores inheritance. Capability rows
+return `global_default_enabled`, `override_enabled`, and `effective_enabled`.
+Agent Plugin rows embed their member Skills, while the top-level Skills list
+contains only standalone and Agent-installed Skills.
 
-- stable key or registered key pattern;
-- JSON-compatible schema;
-- encryption policy;
-- optional code default;
-- optional generated value behavior;
-- optional description for setup and console surfaces.
+The Console's Agent Library page has `Agent Plugins`, `Skills`, and
+`Control Plane Plugins` tabs. Global defaults are the first scope; Agent scopes
+use follow-global/on/off controls. Member Skills appear only in their parent
+detail page. Control Plane Plugins appear only in the global scope.
 
-Exact definitions are used for known keys. Pattern definitions are used for
-runtime-computed keys such as provider or channel instances. Exact definitions
-take precedence over patterns, and ambiguous pattern matches must be rejected so
-validation and encryption policy never depend on load order.
+## Control Plane Plugins
 
-Plugin declarations must not create agent-scoped plugin settings. If a consuming
-subsystem needs per-agent behavior that references a plugin capability, such as
-an agent channel binding or model preference, that setting belongs to the
-subsystem's own AppConfigure key or durable row. It may use AppConfigure agent
-scope only when the subsystem's design allows it, but it is not plugin
-enablement or plugin-owned setup.
+A Control Plane Plugin is a trusted, first-party Elixir/OTP package available
+at process boot. It may contribute metadata, AppConfigure definitions, setup
+metadata, subsystem adapters, and supervised children. It is not a marketplace
+or an arbitrary-code loading boundary.
 
-Secret values are declared as encrypted AppConfigure values. Plugins must not
-implement their own at-rest encryption for AppConfigure rows. Key derivation,
-sealing, and opening go through the kernel boundary used by AppConfigure.
+The implementation lives under `Ankole.Plugins.*`. Discovery reads local
+source indexes from `plugins/` and optional `internals/plugins/`. Release images
+may override those roots with the bootstrap-only `ANKOLE_PLUGIN_PATHS`
+environment variable. The code is still compiled into the release; changing
+the source paths requires a new process start.
 
-Generated secrets or generated defaults are not silently persisted by reads.
-The owning setup or write path must explicitly accept and store the generated
-value.
+Control Plane Plugin IDs are unique across discovery roots. A duplicate ID is a startup
+configuration error. The Registry stores discovered specs and the active set;
+it is not durable configuration storage.
 
-## Setup Metadata
+### Activation
 
-Setup and console surfaces may render plugin-owned fields from plugin metadata.
-Field paths are persistence contracts inside the plugin-owned config object, not
-temporary form names. Renaming a field path changes existing stored config
-unless the plugin keeps a compatibility reader for the old shape.
+All discovered Control Plane Plugins are configured enabled unless their IDs
+appear in the global AppConfigure key `plugins.disabled_ids`.
 
-Fields that contain secrets must be marked as secrets. Host surfaces show secret
-presence or redacted values, not plaintext. Empty secret submissions mean "keep
-the existing value"; deleting the owning AppConfigure row is the explicit erase
-operation.
+Activation is boot-time state. Editing `plugins.disabled_ids` changes the next
+start configuration and does not hot-start or hot-stop OTP code. The API makes
+the difference explicit:
 
-Interactive setup flows may run server-side through trusted plugin callbacks,
-for example to produce an OAuth link or provider QR code. Returning intermediate
-values from such a flow does not persist anything by itself. The operator-facing
-write path still validates and stores the final value through AppConfigure.
+- `GET /api/v1/control-plane-plugins`;
+- `PUT /api/v1/control-plane-plugins` with `{ "id": string, "enabled": boolean }`.
 
-## Elixir Runtime Boundary
+Each row returns `configured_enabled`, `active`, and `restart_required`. The
+Console displays both states and asks for a restart whenever they differ.
 
-Plugins are Elixir-side extension modules or OTP applications. A plugin adapter
-implements behaviours or callback modules defined by the subsystem that consumes
-that adapter mode.
+A disabled package remains discoverable, and its existing AppConfigure rows
+may remain in PostgreSQL. It contributes no active definitions, adapters, or
+supervised children until the next process starts with it enabled.
 
-The host subsystem owns durable state, AppConfigure registration, setup and
-console writes, supervision placement, authorization, and database-backed runtime
-projections. Plugin callbacks receive only the context and host APIs that the
-subsystem contract exposes.
+### Runtime boundary
 
-Plugin code must not read bootstrap environment variables to simulate
-AppConfigure resolution. Host-owned operations go through the owning subsystem's
-Elixir API instead of becoming ad hoc plugin-side database writes.
+Control Plane Plugin settings use the same `Ankole.AppConfigure` registry,
+validation, global scope, and encryption as core settings. There is no separate
+Control Plane Plugin configuration database or secret store. Discovery itself cannot
+depend on AppConfigure because discovery precedes runtime configuration.
 
-One plugin may contribute separate declarations to multiple host subsystems.
-Each declaration stays within its consumer's contract: a signal adapter may
-also implement an Agent Library Skill enablement provider, but Library semantics
-do not become fields on the SignalsGateway adapter definition.
+The control plane owns persistence, authorization, setup writes, supervision,
+and durable domain commits. A Control Plane Plugin implements only the callback contracts of
+the subsystem consuming it. Concrete adapter contracts belong in that
+subsystem's design document.
 
-## Adding Subsystem Contracts
-
-Concrete adapter contracts belong to the subsystem that consumes them. When a
-subsystem adds an adapter contract, that contract should define:
-
-- the stable contract id or callback module;
-- the plugin declaration shape;
-- the Elixir behaviour, callback module, or host API exposed to plugin code;
-- what durable rows, events, or outbox records the host owns;
-- which global AppConfigure definitions or patterns the plugin may register;
-- how setup and console surfaces write those settings;
-- whether any per-agent setting may reference the plugin, and which subsystem
-  owns that setting;
-- how runtime projections reload after AppConfigure writes;
-- what behavior is intentionally not guaranteed.
-
-This document does not list current concrete adapter contracts. They should be
-added only when the owning subsystem has an implementation or a settled design.
+Control Plane Plugins do not own Agent-level enablement. A Lark adapter can be
+active while the `lark` Agent Plugin is disabled for every Agent, or vice versa.
+The former controls whether the control plane integration is running; the
+latter controls whether a model may use Lark Skills in a Job.
 
 ## Invariants
 
-- Plugin code is trusted and available as local code at boot.
-- Plugin code discovery is bootstrap/local-code state, not AppConfigure state.
-- Plugin discovery reads `plugins/` and optional `internals/plugins/`, unless
-  `ANKOLE_PLUGIN_PATHS` supplies the container/release source-index paths.
-- Plugin ids are unique across all discovery paths.
-- All discovered plugins are active unless listed in global
-  `plugins.disabled_ids`.
-- Plugin activation changes require process restart.
-- Plugin settings use global `Ankole.AppConfigure` rows.
-- AppConfigure keys must be declared or accepted by one registered pattern
-  before persistence.
-- Plugin-owned secrets use AppConfigure encryption and kernel crypto.
-- Plugins do not own agent-scoped settings. Per-agent behavior that references a
-  plugin belongs to the consuming subsystem.
-- Host-owned operations go through the owning subsystem's Elixir API.
-- Concrete adapter contracts are not documented as current until their owning
-  subsystem defines them.
+- “Agent Plugin” and “Control Plane Plugin” are never interchangeable names.
+- Agent Plugins are trusted first-party Codex packages plus optional
+  `workspace-template/` content.
+- Parent and member Skill state are stored independently; parent state only
+  gates effective availability.
+- BackgroundAgentJobs store capability selections and resolve the current
+  enabled catalogs on every prepare.
+- Control Plane Plugin activation changes require restart and never masquerade
+  as immediate runtime changes.
+- Neither plugin kind may claim durable state owned by another subsystem.

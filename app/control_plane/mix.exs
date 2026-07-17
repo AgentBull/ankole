@@ -99,6 +99,7 @@ defmodule Ankole.MixProject do
       {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 0.41"},
       {:oban, "~> 2.23"},
+      {:crontab, "~> 1.2"},
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
       {:tzdata, "~> 1.1"},
@@ -108,6 +109,7 @@ defmodule Ankole.MixProject do
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:slack_openapi, path: "../../libs/slack_openapi"},
+      {:dingtalk_openapi, path: "../../libs/dingtalk_openapi"},
       {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
       {:google_openapi, path: "../../libs/google_openapi"},
       {:dns_cluster, "~> 0.2"},
@@ -135,6 +137,7 @@ defmodule Ankole.MixProject do
           "../../tools/e2e/suites/slack_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/slack_main_flow_e2e_test.exs " <>
           "../../tools/e2e/suites/slack_lifecycle_e2e_test.exs " <>
+          "../../tools/e2e/suites/dingtalk_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
           "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
       ],

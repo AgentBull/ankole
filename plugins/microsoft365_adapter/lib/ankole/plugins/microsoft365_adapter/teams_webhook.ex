@@ -11,7 +11,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   """
 
   alias Ankole.{Logging, SignalsGateway}
-  alias Ankole.Plugins.Microsoft365Adapter.{BotFrameworkAuth, Config, Inbound, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.{BotFrameworkAuth, Config, Inbound}
   alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
   alias Ankole.SignalsGateway.AdapterContext
 

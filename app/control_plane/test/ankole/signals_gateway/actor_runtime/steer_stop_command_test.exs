@@ -29,9 +29,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
       assert_receive {:actor_lane, envelope}
-      assert %{"payload_json" => payload} = envelope["body"]["turn_start"]["actor_event"]
+      payload = decoded_json_bytes(turn_start_payload!(envelope).actor_event.payload_json)
       assert get_in(payload, ["data", "command", "argsText"]) == "focus on risk"
-      assert envelope["body"]["turn_start"]["turn"]["actor_event_id"] == steer_event.id
+      assert turn_start_payload!(envelope).turn.actor_event_id == steer_event.id
     end
 
     test "active steer is attached to the live turn and completed when mailbox update is sent" do
@@ -59,13 +59,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
-      assert turn_ref["actor_event_id"] == input.id
+      turn_ref = turn_start_payload!(envelope).turn
+      assert turn_ref.actor_event_id == input.id
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       run = start_aigateway_run_for_turn!(turn_ref)
 
@@ -83,14 +81,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert_receive {:actor_lane, mailbox_envelope}
-      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
-      mailbox = mailbox_envelope["body"]["mailbox_updated"]
-      assert mailbox["reason"] == "command.steer"
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
+      assert mailbox.reason == "command.steer"
       refute Map.has_key?(mailbox, "inputs")
-      assert mailbox["actor_event"]["actor_event_id"] == steer_event.id
-      assert mailbox["actor_event"]["type"] == "command.steer"
+      assert mailbox.actor_event.actor_event_id == steer_event.id
+      assert mailbox.actor_event.type == "command.steer"
 
-      assert get_in(mailbox, ["actor_event", "payload_json", "data", "command", "argsText"]) ==
+      assert get_in(decoded_json_bytes(mailbox.actor_event.payload_json), [
+               "data",
+               "command",
+               "argsText"
+             ]) ==
                "change course"
 
       input_id = input.id
@@ -104,14 +106,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                   actor_event_id_fence: ^input_id
                 }
               ]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => mailbox["turn"]}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
 
       assert %ActorEventDelivery{state: "accepted", actor_event_id_fence: ^input_id} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
 
-      complete_aigateway_turn!(mailbox["turn"], "PONG", run: run, wait_for_mirror: true)
+      complete_aigateway_turn!(mailbox.turn, "PONG", run: run, wait_for_mirror: true)
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
@@ -157,12 +157,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       run = start_aigateway_run_for_turn!(turn_ref)
 
@@ -180,15 +178,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert_receive {:actor_lane, mailbox_envelope}
-      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
-      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
 
       input_id = input.id
 
       assert %ActorEventDelivery{state: "sent", actor_event_id_fence: ^input_id} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
 
-      complete_aigateway_turn!(mailbox["turn"], "PONG", run: run, wait_for_mirror: true)
+      complete_aigateway_turn!(mailbox.turn, "PONG", run: run, wait_for_mirror: true)
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
@@ -222,7 +220,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
@@ -236,12 +234,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
       assert_receive {:actor_lane, mailbox_envelope}
-      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
 
       assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: input_id}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert input_id == input.id
 
@@ -249,9 +245,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
 
       assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_id}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => mailbox["turn"]}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
 
       assert steer_id == steer_event.id
     end
@@ -281,12 +275,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       input
       |> ActorEvent.changeset(%{completed_at: DateTime.add(@base_time, 2, :second)})
@@ -306,11 +298,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert {:ok, %{send_outcome: "sent_or_queued", turn_ref: steer_turn_ref}} =
                process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 
-      assert steer_turn_ref["actor_event_id"] == steer_event.id
+      assert steer_turn_ref.actor_event_id == steer_event.id
 
       assert_receive {:actor_lane, steer_envelope}
-      assert steer_envelope["body"]["type"] == "turn_start"
-      assert steer_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == steer_event.id
+      assert envelope_body_type(steer_envelope) == :turn_start
+      assert turn_start_payload!(steer_envelope).turn.actor_event_id == steer_event.id
     end
 
     test "stop command cancels active generation and writes command feedback" do
@@ -338,12 +330,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       generating = start_aigateway_run_for_turn!(turn_ref)
       :ok = Ankole.AIGateway.subscribe(agent.uid, generating.conversation_id)
@@ -387,8 +377,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert event.payload.error["stage"] == "actor_runtime_cancel"
 
       assert_receive {:actor_lane, stop_control}
-      assert stop_control["body"]["turn_control"]["command"] == "stop"
-      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
+      assert envelope_body!(stop_control, :turn_control).command == "stop"
+      assert envelope_body!(stop_control, :turn_control).turn.actor_event_id == input.id
 
       assert %Message{status: "error", metadata: metadata} = Repo.get!(Message, generating.id)
       assert metadata["error"]["code"] == "command.stop"
@@ -439,12 +429,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       generating = start_aigateway_run_for_turn!(turn_ref)
 
@@ -470,8 +458,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 
       assert_receive {:actor_lane, stop_control}
-      assert stop_control["body"]["turn_control"]["command"] == "stop"
-      assert stop_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
+      assert envelope_body!(stop_control, :turn_control).command == "stop"
+      assert envelope_body!(stop_control, :turn_control).turn.actor_event_id == input.id
 
       assert %Message{status: "error"} = Repo.get!(Message, generating.id)
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at

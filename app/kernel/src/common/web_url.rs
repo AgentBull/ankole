@@ -1,11 +1,14 @@
-//! WHATWG URL facts for the shared web tools URL policy.
+//! WHATWG URL facts for the shared web URL policy.
 //!
-//! AIGateway `web_fetch` validation and the Agent Computer browser guard used
-//! to parse and classify URLs separately (Elixir `URI` + `:inet`, Bun
-//! `new URL` + `node:net`), leaving the policy a comment-level "mirror". This
-//! module owns the parse and the host classification once; runtime bindings
-//! keep only scheme rules, the `security.ssrf_filter` toggle, and
-//! error shapes.
+//! AIGateway `web_fetch` validation, Brain source fetches, the Lark image
+//! resolver, and the Agent Computer web guard all consume these facts, and
+//! the BEAM callers share the allow/deny mechanics through
+//! `Ankole.Kernel.validate_web_url/3`. The `ankole-browser` navigation guard
+//! cannot link the native module, so it mirrors `classify_ipv4` and
+//! `classify_ipv6` in TypeScript; parity is pinned by the shared vectors in
+//! `test/vectors/web_url_host_classification.json`, which the Rust, Elixir,
+//! and Bun suites all decode. Runtime callers keep only their scheme rules
+//! and error shapes.
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -273,5 +276,37 @@ mod tests {
         assert_eq!(web_url_facts("ftp://example.com/x").unwrap().scheme, "ftp");
         assert!(web_url_facts("not a url").is_err());
         assert!(web_url_facts("/relative/path").is_err());
+    }
+
+    #[test]
+    fn shared_host_classification_vectors_hold() {
+        // The ankole-browser navigation guard mirrors classify_ipv4 and
+        // classify_ipv6 in TypeScript and asserts the same vectors, so the
+        // two tables cannot drift apart.
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/test/vectors/web_url_host_classification.json"
+        ))
+        .unwrap();
+        let vectors: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+        for vector in vectors["addresses"].as_array().unwrap() {
+            let input = vector["input"].as_str().unwrap();
+            let expected = vector["class"].as_str().unwrap();
+            let url = if input.contains(':') {
+                format!("https://[{input}]/")
+            } else {
+                format!("https://{input}/")
+            };
+
+            assert_eq!(
+                web_url_facts(&url)
+                    .unwrap()
+                    .host_class
+                    .map(HostClass::as_str),
+                Some(expected),
+                "{input} must classify as {expected}"
+            );
+        }
     }
 }

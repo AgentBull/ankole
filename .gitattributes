@@ -1,4 +1,6 @@
 # GitHub Linguist overrides.
+app/agent_computer/src/**/generated/** linguist-generated
+app/kernel/proto/golden/*.bin binary linguist-generated
 app/webapps/openapi/** linguist-generated
 app/webapps/**/generated/** linguist-generated
 app/library/skills/** linguist-vendored

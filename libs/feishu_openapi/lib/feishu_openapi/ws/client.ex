@@ -27,6 +27,19 @@ defmodule FeishuOpenAPI.WS.Client do
     * Server error codes `514`, `403`, `1000040350` are treated as fatal
       (client misconfiguration); everything else triggers a backoff-based
       reconnect when `:auto_reconnect` is `true`.
+
+  Design note: `Mint.WebSocket` is process-less by design — it covers the
+  upgrade handshake and frame codec and deliberately leaves the process model,
+  RFC 6455 pong replies, keepalive, reconnection, and backoff to its caller,
+  so the GenServer plumbing here is that contract, not accidental complexity.
+  Higher-level clients (WebSockex, Fresh, Slipstream) auto-reconnect to a
+  fixed URI, while this protocol requires fresh endpoint discovery on every
+  connect and takes its reconnect tuning (interval, nonce, attempt cap) from
+  the server at runtime, so their reconnect layers cannot be used as-is.
+  `DingTalkOpenAPI.Stream.Client` shares this skeleton on purpose: only the
+  Mint plumbing overlaps, and everything above it (pbbp2 Protobuf vs JSON
+  frames, fragmentation, ack envelopes, discovery vs registration) diverges,
+  so no shared abstraction is extracted.
   """
 
   use GenServer

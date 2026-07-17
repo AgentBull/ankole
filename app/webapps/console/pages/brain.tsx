@@ -37,6 +37,8 @@ import {
   RiRefreshLine,
   RiSparkling2Line
 } from '@remixicon/react'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -80,6 +82,7 @@ import {
   formatBrainDate
 } from './brain-shared'
 import {
+  BrainMetadataEditorModel,
   brainCursorPage,
   buildMetadataOperations,
   canReturnBrainCursor,
@@ -88,8 +91,7 @@ import {
   parsePropertyDrafts,
   previousBrainCursor,
   propertiesToDrafts,
-  setBrainFilter,
-  type PropertyDraft
+  setBrainFilter
 } from '../state/brain-editor-model'
 
 const RESTORABLE_AUDIT_ACTIONS = new Set([
@@ -690,9 +692,11 @@ export function BrainEntryCreatePage() {
 }
 
 export function BrainEntryEditorPage() {
+  useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const model = useModel(BrainMetadataEditorModel)
   const params = useParams()
   const [searchParams, setSearchParams] = useSearchParams()
   const entryID = params.id ?? ''
@@ -717,11 +721,6 @@ export function BrainEntryEditorPage() {
     enabled: Boolean(ownerUID)
   })
   const entry = detail.data?.entry
-  const [name, setName] = useState('')
-  const [entryType, setEntryType] = useState('')
-  const [summary, setSummary] = useState('')
-  const [aliases, setAliases] = useState<string[]>([])
-  const [propertyDrafts, setPropertyDrafts] = useState<PropertyDraft[]>([])
   const [validationError, setValidationError] = useState<string>()
   const apply = useMutation({
     ...ankoleWebBrainControllerApplyOperationsMutation(),
@@ -755,12 +754,14 @@ export function BrainEntryEditorPage() {
 
   useEffect(() => {
     if (!entry) return
-    setName(entry.name)
-    setEntryType(entry.type)
-    setSummary(entry.summary)
-    setAliases(entry.aliases)
-    setPropertyDrafts(propertiesToDrafts(entry.properties))
-  }, [entry])
+    model.initialize(`entry:${entry.id}`, {
+      name: entry.name,
+      type: entry.type,
+      summary: entry.summary,
+      aliases: entry.aliases,
+      propertyDrafts: propertiesToDrafts(entry.properties)
+    })
+  }, [entry, model])
 
   const applyOperations = (operations: BrainEntryOperation[], onSuccess?: () => void, reason?: string) => {
     if (!entry || operations.length === 0) return
@@ -775,20 +776,20 @@ export function BrainEntryEditorPage() {
 
   const saveMetadata = () => {
     if (!entry) return
-    if (!name.trim() || !entryType.trim()) {
+    if (!model.name.value.trim() || !model.type.value.trim()) {
       setValidationError(t('console.brain.required_fields'))
       return
     }
-    const parsed = parsePropertyDrafts(propertyDrafts)
+    const parsed = parsePropertyDrafts(model.propertyDrafts.value)
     if (!parsed.ok) {
       setValidationError(t('console.brain.invalid_property', { key: parsed.key || '—', detail: parsed.detail }))
       return
     }
     const operations = buildMetadataOperations(entry, {
-      name,
-      type: entryType,
-      summary,
-      aliases,
+      name: model.name.value,
+      type: model.type.value,
+      summary: model.summary.value,
+      aliases: model.aliases.value,
       properties: parsed.value
     })
     if (operations.length === 0) {
@@ -869,16 +870,26 @@ export function BrainEntryEditorPage() {
 
         <TabsContent value="edit" className="grid gap-6">
           <MetadataEditor
-            name={name}
-            type={entryType}
-            summary={summary}
-            aliases={aliases}
-            propertyDrafts={propertyDrafts}
-            onNameChange={setName}
-            onTypeChange={setEntryType}
-            onSummaryChange={setSummary}
-            onAliasesChange={setAliases}
-            onPropertyDraftsChange={setPropertyDrafts}
+            name={model.name.value}
+            type={model.type.value}
+            summary={model.summary.value}
+            aliases={model.aliases.value}
+            propertyDrafts={model.propertyDrafts.value}
+            onNameChange={value => {
+              model.name.value = value
+            }}
+            onTypeChange={value => {
+              model.type.value = value
+            }}
+            onSummaryChange={value => {
+              model.summary.value = value
+            }}
+            onAliasesChange={value => {
+              model.aliases.value = value
+            }}
+            onPropertyDraftsChange={value => {
+              model.propertyDrafts.value = value
+            }}
           />
           <BlocksEditor
             blocks={detail.data?.blocks ?? []}

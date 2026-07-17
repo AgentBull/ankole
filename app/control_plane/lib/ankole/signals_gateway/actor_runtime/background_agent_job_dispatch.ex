@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
 
   @retry_delay_seconds 30
+  @max_execution_attempts 5
 
   def process(actor_key, %ActorEvent{} = event, opts) do
     with {:ok, job_id} <- job_id(event),
@@ -65,7 +66,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
       job.status in Job.terminal_statuses() ->
         complete_without_turn(event, job)
 
-      job.attempts >= 3 ->
+      job.attempts >= @max_execution_attempts ->
         fail_exhausted(event, job.id, job.agent_uid)
 
       true ->
@@ -227,7 +228,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
                "status" => "failed",
                "error" => %{
                  "code" => "attempts_exhausted",
-                 "summary" => "Job could not be resumed after three execution attempts."
+                 "summary" => "Job could not be resumed after five execution attempts."
                }
              },
              turn_interruption: %{
@@ -247,9 +248,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
     end
   end
 
-  defp job_id(%ActorEvent{session_id: "job:" <> job_id})
-       when job_id != "",
-       do: {:ok, job_id}
-
-  defp job_id(%ActorEvent{}), do: {:error, :invalid_background_agent_job_session}
+  defp job_id(%ActorEvent{session_id: session_id}) do
+    case BackgroundAgentJobs.parse_job_session_id(session_id) do
+      {:ok, job_id} -> {:ok, job_id}
+      :error -> {:error, :invalid_background_agent_job_session}
+    end
+  end
 end

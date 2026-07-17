@@ -14,6 +14,40 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Turns
 
+  @job_session_prefix "job:"
+  @job_session_prefix_size byte_size(@job_session_prefix)
+
+  @doc """
+  Builds the durable actor-session id for one BackgroundAgentJob.
+
+  The `"job:" <> job_id` format is a frozen public contract: it is persisted in
+  `actor_events.session_id`, worker assignments, and AIGateway
+  `conversations.conversation_key`; documented in the Console API session
+  schema; and typed by operators in the Console session picker. See
+  `docs/design-docs/BackgroundAgentJob.md`. Changing it means a data migration
+  plus an API change, not an edit here.
+  """
+  @spec job_session_id(String.t()) :: String.t()
+  def job_session_id(job_id) when is_binary(job_id) and job_id != "",
+    do: @job_session_prefix <> job_id
+
+  @doc "True when the value is a BackgroundAgentJob session id. Usable in guards."
+  defguard is_job_session_id(session_id)
+           when is_binary(session_id) and
+                  byte_size(session_id) > @job_session_prefix_size and
+                  binary_part(session_id, 0, @job_session_prefix_size) == @job_session_prefix
+
+  @doc "Extracts the job id from a job session id; `:error` for any other term."
+  @spec parse_job_session_id(term()) :: {:ok, String.t()} | :error
+  def parse_job_session_id(@job_session_prefix <> job_id) when job_id != "",
+    do: {:ok, job_id}
+
+  def parse_job_session_id(_other), do: :error
+
+  @doc "The raw prefix, only for storage-boundary prefix matching (SQL `LIKE`, key filters)."
+  @spec job_session_prefix() :: String.t()
+  def job_session_prefix, do: @job_session_prefix
+
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
 
@@ -77,7 +111,7 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{agent_uid: agent_uid, session_id: "job:" <> job_id},
+        %ActorEvent{agent_uid: agent_uid, session_id: @job_session_prefix <> job_id},
         %{"details_json" => %{"error_code" => "background_agent_job_turn_persistence_rejected"}},
         %DateTime{} = now
       ) do
@@ -112,6 +146,12 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Projects a job into the named Console API contract."
   defdelegate console_projection(job), to: Queries
+
+  @doc "Projects a job into the worker-facing RuntimeFabric RPC payload."
+  defdelegate rpc_projection(job), to: Queries
+
+  @doc "Projects a job into the bounded RPC list summary."
+  defdelegate rpc_summary(job), to: Queries
 
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control

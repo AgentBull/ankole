@@ -183,6 +183,75 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert Map.has_key?(state, :active_stream)
   end
 
+  test "implicit continuation rejects an active run opened by another WebSocket" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-implicit-admission-conflict",
+               provider_kind: "openai",
+               base_url: "https://api.openai.invalid/v1",
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-implicit-admission-conflict",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
+
+    {:ok, root} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: agent.uid,
+        conversation_id: conversation.id
+      })
+
+    {:ok, root} = StatefulResponses.commit_complete(root, [text_message("assistant", "done")])
+
+    {:ok, active_run} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: agent.uid,
+        previous_response_id: "resp_#{root.id}"
+      })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [text_message("user", "continue")],
+        "store" => true,
+        "conversation" => "conv_#{conversation.id}"
+      })
+
+    assert {:push, {:text, pushed}, state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "status" => 409,
+             "error" => %{"code" => "response_in_progress"}
+           } = Ankole.JSON.decode!(pushed)
+
+    refute Map.has_key?(state, :active_stream)
+
+    assert [persisted_active_run] =
+             Message
+             |> where([message], message.conversation_id == ^conversation.id)
+             |> where([message], message.status == "generating")
+             |> Repo.all()
+
+    assert persisted_active_run.id == active_run.id
+  end
+
   test "hosted image request validation uses the official flat Responses error event" do
     %{principal: agent} = agent_fixture()
 
@@ -1074,6 +1143,121 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert body["output"] == [terminal_item]
   end
 
+  test "stateful upstream-closed terminal keeps partial calls for audit but commits the run as error" do
+    {_agent, conversation, actor_event, message} = stateful_message("socket-upstream-closed")
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    partial_call = %{
+      "type" => "function_call",
+      "status" => "incomplete",
+      "call_id" => "call_partial",
+      "name" => "patch",
+      "arguments" => "{\"path\":\"/tmp/repor"
+    }
+
+    chunk = %{
+      "type" => "response.incomplete",
+      "sequence_number" => 10,
+      "response" => %{
+        "id" => "provider_resp_upstream_closed",
+        "object" => "response",
+        "status" => "incomplete",
+        "incomplete_details" => %{"reason" => "upstream_stream_closed"},
+        "output" => [partial_call]
+      }
+    }
+
+    assert {:push, {:text, pushed}, _state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 10)
+
+    assert %{
+             "type" => "response.incomplete",
+             "response" => %{"output" => [^partial_call]}
+           } = Ankole.JSON.decode!(pushed)
+
+    stored = Repo.get!(Message, message.id)
+    assert stored.status == "error"
+    assert stored.content == message.content ++ [partial_call]
+    assert stored.metadata["error"]["code"] == "partial_function_call_incomplete"
+    assert stored.metadata["error"]["reason"] == "upstream_stream_closed"
+    assert stored.metadata["error"]["retryable"] == true
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+  end
+
+  test "max-output terminal with a partial call commits error instead of an incomplete success" do
+    {_agent, conversation, actor_event, message} = stateful_message("socket-max-output-partial")
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    partial_call = %{
+      "type" => "function_call",
+      "status" => "incomplete",
+      "call_id" => "call_max_output_partial",
+      "name" => "patch",
+      "arguments" => "{\"path\":\"/tmp/repor"
+    }
+
+    chunk = %{
+      "type" => "response.incomplete",
+      "sequence_number" => 11,
+      "response" => %{
+        "id" => "provider_resp_max_output_partial",
+        "object" => "response",
+        "status" => "incomplete",
+        "incomplete_details" => %{"reason" => "max_output_tokens"},
+        "output" => [partial_call]
+      }
+    }
+
+    assert {:push, {:text, _pushed}, _state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 11)
+
+    stored = Repo.get!(Message, message.id)
+    assert stored.status == "error"
+    assert stored.metadata["error"]["code"] == "partial_function_call_incomplete"
+    assert stored.metadata["error"]["reason"] == "max_output_tokens"
+    assert stored.metadata["error"]["retryable"] == false
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+  end
+
+  test "provider-completed response with an incomplete call is an error, not executable history" do
+    {_agent, conversation, actor_event, message} =
+      stateful_message("socket-partial-call-completed")
+
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    partial_call = %{
+      "type" => "function_call",
+      "status" => "in_progress",
+      "call_id" => "call_still_streaming",
+      "name" => "replace",
+      "arguments" => "{\"path\":\"report.md\""
+    }
+
+    chunk = %{
+      "type" => "response.completed",
+      "sequence_number" => 11,
+      "response" => %{
+        "id" => "provider_resp_false_complete",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [partial_call]
+      }
+    }
+
+    assert {:push, {:text, _pushed}, _state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 11)
+
+    stored = Repo.get!(Message, message.id)
+    assert stored.status == "error"
+    assert stored.content == message.content ++ [partial_call]
+    assert stored.metadata["error"]["code"] == "partial_function_call_completed"
+    assert stored.metadata["stop_reason"] == "stop"
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
+  end
+
   test "stateful terminal commit failure sends failed frame instead of completed" do
     message_id = Ecto.UUID.generate()
     ref = make_ref()
@@ -1636,6 +1820,65 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            }
   end
 
+  test "response.tool_results.record reports quarantined orphan output without opening a provider stream" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-tool-results-quarantine")
+
+    {:ok, anchor} =
+      StatefulResponses.start_response_run(%{
+        subject_uid: agent.uid,
+        conversation_id: conversation.id,
+        request_items: [text_message("user", "stable input")]
+      })
+
+    {:ok, anchor} =
+      StatefulResponses.commit_complete(anchor, [text_message("assistant", "stable answer")])
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.tool_results.record",
+        "model" => "primary",
+        "input" => [
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_socket_orphan",
+            "output" => "raw side effect result"
+          }
+        ],
+        "store" => true,
+        "previous_response_id" => "resp_#{anchor.id}"
+      })
+
+    assert {:push, {:text, pushed}, state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    refute Map.has_key?(state, :active_stream)
+
+    assert %{
+             "type" => "error",
+             "status" => 409,
+             "error" => %{
+               "code" => "tool_results_quarantined",
+               "param" => "input",
+               "details_json" => %{
+                 "reason" => "orphan_function_call_output",
+                 "orphan_call_ids" => ["call_socket_orphan"],
+                 "quarantine_response_id" => quarantine_response_id,
+                 "quarantine_status" => "error"
+               }
+             }
+           } = Ankole.JSON.decode!(pushed)
+
+    "resp_" <> quarantine_id = quarantine_response_id
+    assert Repo.get!(Message, quarantine_id).status == "error"
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
+  end
+
   test "stateful response.create treats duplicate actor metadata as opaque" do
     %{principal: agent} = agent_fixture()
 
@@ -1670,6 +1913,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         request_items: [text_message("user", "first delivery")]
       })
 
+    {:ok, first_run} = StatefulResponses.commit_complete(first_run, [])
+
     request =
       Ankole.JSON.encode!(%{
         "type" => "response.create",
@@ -1699,7 +1944,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
       )
 
-    assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == "generating"))
+    assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == "complete"))
     assert Enum.any?(runs, &(&1.id != first_run.id and &1.status == "error"))
   end
 

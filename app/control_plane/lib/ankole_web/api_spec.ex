@@ -65,6 +65,10 @@ defmodule AnkoleWeb.APISpec do
           description: "Active accountable subjects available to operator surfaces"
         },
         %Tag{
+          name: "AuthZ",
+          description: "Principal groups, memberships, and permission grants"
+        },
+        %Tag{
           name: "Codex Accounts",
           description: "Operator-managed ChatGPT subscription accounts used by coding profiles"
         },
@@ -93,12 +97,16 @@ defmodule AnkoleWeb.APISpec do
           description: "Operator-visible actor checkbacks and recurring schedules"
         },
         %Tag{
+          name: "Sessions",
+          description: "Operator-visible actor sessions for one agent"
+        },
+        %Tag{
           name: "Workers",
           description: "Agent computer worker registry and worker filesystem management"
         },
         %Tag{
-          name: "Subagent Delegations",
-          description: "Durable background work delegated to the task-worker runtime"
+          name: "Background Agent Jobs",
+          description: "Durable background Agent work executed by CodexRunner"
         },
         %Tag{
           name: "Brain",

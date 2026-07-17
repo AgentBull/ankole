@@ -13,7 +13,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     turn_ref = start_parent_turn!(agent.uid, route)
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(rpc_request("background-agent-job-create-envelope", "background_agent_job.create", %{
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-create-envelope",
+                 "background_agent_job.create",
+                 %{
                    "request_id" => "background-agent-job-create-1",
                    "turn" => turn_ref,
                    "agent_uid" => "spoofed-agent",
@@ -25,7 +29,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
                    "background" => "The brief is for operators.",
                    "notes" => "Keep the result concise.",
                    "reply_route" => %{"binding_name" => "spoofed"}
-                 }),
+                 }
+               ),
                route
              )
 
@@ -52,7 +57,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     turn_ref = start_parent_turn!(agent.uid, route)
 
     assert {:ok, envelope} =
-             RPCLane.handle_request(rpc_request("agent-plugin-list", "agent_plugin.list", %{"turn" => turn_ref}),
+             RPCLane.handle_request(
+               rpc_request("agent-plugin-list", "agent_plugin.list", %{"turn" => turn_ref}),
                route
              )
 
@@ -102,7 +108,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
           {"background_agent_job.status.update", %{"status" => "running"}}
         ] do
       assert {:ok, mutation_rejected} =
-               RPCLane.handle_request(rpc_request("mutation-#{method}", method, Map.merge(extra, %{"turn" => turn_ref, "job_id" => job_id})),
+               RPCLane.handle_request(
+                 rpc_request(
+                   "mutation-#{method}",
+                   method,
+                   Map.merge(extra, %{"turn" => turn_ref, "job_id" => job_id})
+                 ),
                  route
                )
 
@@ -117,18 +128,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     parent_turn = start_parent_turn!(agent.uid, route)
 
     assert {:ok, created} =
-             RPCLane.handle_request(rpc_request("background-agent-job-create-memory", "background_agent_job.create", %{
-                   "turn" => parent_turn,
-                   "source_tool_call_id" => "tool-memory",
-                   "title" => "Research prior decisions",
-                   "task" => "Search memory for prior decisions."
-                 }),
+             RPCLane.handle_request(
+               rpc_request("background-agent-job-create-memory", "background_agent_job.create", %{
+                 "turn" => parent_turn,
+                 "source_tool_call_id" => "tool-memory",
+                 "title" => "Research prior decisions",
+                 "task" => "Search memory for prior decisions."
+               }),
                route
              )
 
     job_id = rpc_payload(created)["job_id"]
     job = BackgroundAgentJobs.get_job_for_agent(job_id, agent.uid)
-    actor_key = %{agent_uid: agent.uid, session_id: "job:#{job_id}"}
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(actor_key,
@@ -148,10 +160,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     }
 
     assert {:ok, ignored_spoof} =
-             RPCLane.handle_request(rpc_request("memory-wrong-scope", "memory_search", Map.put(base_payload, "job_scope", %{
-                     "owner_session_id" => job.owner_session_id,
-                     "signal_channel_id" => "another-channel"
-                   })),
+             RPCLane.handle_request(
+               rpc_request(
+                 "memory-wrong-scope",
+                 "memory_search",
+                 Map.put(base_payload, "job_scope", %{
+                   "owner_session_id" => job.owner_session_id,
+                   "signal_channel_id" => "another-channel"
+                 })
+               ),
                route
              )
 
@@ -164,10 +181,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     end
 
     assert {:ok, accepted} =
-             RPCLane.handle_request(rpc_request("memory-correct-scope", "memory_search", Map.put(base_payload, "job_scope", %{
-                     "owner_session_id" => job.owner_session_id,
-                     "signal_channel_id" => job.reply_route["signal_channel_id"]
-                   })),
+             RPCLane.handle_request(
+               rpc_request(
+                 "memory-correct-scope",
+                 "memory_search",
+                 Map.put(base_payload, "job_scope", %{
+                   "owner_session_id" => job.owner_session_id,
+                   "signal_channel_id" => job.reply_route["signal_channel_id"]
+                 })
+               ),
                route
              )
 
@@ -208,12 +230,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     parent_turn = start_parent_turn!(agent.uid, route)
 
     assert {:ok, created} =
-             RPCLane.handle_request(rpc_request("background-agent-job-create-codex-account", "background_agent_job.create", %{
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-create-codex-account",
+                 "background_agent_job.create",
+                 %{
                    "turn" => parent_turn,
                    "source_tool_call_id" => "tool-codex-account",
                    "title" => "Use the subscription account",
                    "task" => "Complete the delegated coding task."
-                 }),
+                 }
+               ),
                route
              )
 
@@ -223,7 +250,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: agent.uid, session_id: "job:#{job_id}"},
+               %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job_id)},
                now: DateTime.add(job.queued_at, 1, :second),
                lease_seconds: @long_lease_seconds
              )
@@ -232,10 +259,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     job_turn = turn_start_payload!(dispatch_envelope).turn
 
     assert {:ok, resolved} =
-             RPCLane.handle_request(rpc_request("codex-account-resolve", "codex.account.resolve", %{
-                   "turn" => job_turn,
-                   "job_id" => job_id
-                 }),
+             RPCLane.handle_request(
+               rpc_request("codex-account-resolve", "codex.account.resolve", %{
+                 "turn" => job_turn,
+                 "job_id" => job_id
+               }),
                route
              )
 
@@ -247,11 +275,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     refreshed_auth = auth_json(account_id, "refreshed-token")
 
     assert {:ok, updated} =
-             RPCLane.handle_request(rpc_request("codex-account-update", "codex.account.auth.update", %{
-                   "turn" => job_turn,
-                   "job_id" => job_id,
-                   "auth_json" => refreshed_auth
-                 }),
+             RPCLane.handle_request(
+               rpc_request("codex-account-update", "codex.account.auth.update", %{
+                 "turn" => job_turn,
+                 "job_id" => job_id,
+                 "auth_json" => refreshed_auth
+               }),
                route
              )
 
@@ -271,13 +300,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     parent_turn = start_parent_turn!(agent.uid, route)
 
     assert {:ok, created} =
-             RPCLane.handle_request(rpc_request("background-agent-job-create-research", "background_agent_job.create", %{
+             RPCLane.handle_request(
+               rpc_request(
+                 "background-agent-job-create-research",
+                 "background_agent_job.create",
+                 %{
                    "turn" => parent_turn,
                    "source_tool_call_id" => "tool-research",
                    "agent_plugin_ids" => ["deep-research"],
                    "title" => "Forecast the outcome",
                    "task" => "Research and produce a forecast dossier."
-                 }),
+                 }
+               ),
                route
              )
 
@@ -286,7 +320,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: agent.uid, session_id: "job:#{job_id}"},
+               %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job_id)},
                now: DateTime.add(job.queued_at, 1, :second),
                lease_seconds: @long_lease_seconds
              )
@@ -295,19 +329,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     job_turn = turn_start_payload!(dispatch_envelope).turn
 
     assert {:ok, _running_response} =
-             RPCLane.handle_request(rpc_request("job-running", "background_agent_job.status.update", %{
-                   "turn" => job_turn,
-                   "job_id" => job_id,
-                   "status" => "running",
-                   "runtime_thread_id" => "thread-1"
-                 }),
+             RPCLane.handle_request(
+               rpc_request("job-running", "background_agent_job.status.update", %{
+                 "turn" => job_turn,
+                 "job_id" => job_id,
+                 "status" => "running",
+                 "runtime_thread_id" => "thread-1"
+               }),
                route
              )
 
     assert {:ok, turn_response} =
-             RPCLane.handle_request(rpc_request("turn-upsert", "background_agent_job.turn.upsert", turn_attrs()
-                   |> Map.put("turn", job_turn)
-                   |> Map.put("job_id", job_id)),
+             RPCLane.handle_request(
+               rpc_request(
+                 "turn-upsert",
+                 "background_agent_job.turn.upsert",
+                 turn_attrs()
+                 |> Map.put("turn", job_turn)
+                 |> Map.put("job_id", job_id)
+               ),
                route
              )
 
@@ -337,7 +377,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
       )
 
     assert {:ok, completed_response} =
-             RPCLane.handle_request(rpc_request("turn-completed", "background_agent_job.turn.upsert", completed_attrs),
+             RPCLane.handle_request(
+               rpc_request("turn-completed", "background_agent_job.turn.upsert", completed_attrs),
                route
              )
 
@@ -346,10 +387,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert completed_turn["revision"] == 1
 
     assert {:ok, stale_response} =
-             RPCLane.handle_request(rpc_request("turn-stale-retry", "background_agent_job.turn.upsert", completed_attrs
-                   |> Map.put("revision", 0)
-                   |> Map.put("status", "in_progress")
-                   |> Map.delete("completed_at")),
+             RPCLane.handle_request(
+               rpc_request(
+                 "turn-stale-retry",
+                 "background_agent_job.turn.upsert",
+                 completed_attrs
+                 |> Map.put("revision", 0)
+                 |> Map.put("status", "in_progress")
+                 |> Map.delete("completed_at")
+               ),
                route
              )
 
@@ -357,28 +403,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert [_single_turn] = BackgroundAgentJobs.list_turns(job_id)
 
     assert {:ok, status_response} =
-             RPCLane.handle_request(rpc_request("job-status", "background_agent_job.get", %{
-                   "turn" => parent_turn,
-                   "job_id" => job_id,
-                   "trajectory_limit" => 1
-                 }),
+             RPCLane.handle_request(
+               rpc_request("job-status", "background_agent_job.get", %{
+                 "turn" => parent_turn,
+                 "job_id" => job_id,
+                 "trajectory_limit" => 1
+               }),
                route
              )
 
     execution = rpc_payload(status_response)["execution"]
-    assert execution.lead_turn_number == 1
-    assert execution.turns == %{lead: 1, child: 0, compaction: 0, active: 0}
+    assert execution["lead_turn_number"] == 1
 
-    assert execution.trajectory_page.messages == [
+    assert execution["turns"] == %{
+             "lead" => 1,
+             "child" => 0,
+             "compaction" => 0,
+             "active" => 0
+           }
+
+    assert execution["trajectory_page"]["messages"] == [
              %{"role" => "assistant", "content" => "Research complete."}
            ]
 
     assert {:ok, invalid_cursor_response} =
-             RPCLane.handle_request(rpc_request("job-invalid-cursor", "background_agent_job.get", %{
-                   "turn" => parent_turn,
-                   "job_id" => job_id,
-                   "trajectory_cursor" => "not-a-cursor"
-                 }),
+             RPCLane.handle_request(
+               rpc_request("job-invalid-cursor", "background_agent_job.get", %{
+                 "turn" => parent_turn,
+                 "job_id" => job_id,
+                 "trajectory_cursor" => "not-a-cursor"
+               }),
                route
              )
 

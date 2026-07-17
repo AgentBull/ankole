@@ -518,13 +518,22 @@ short-lived tombstone blocks late re-mirroring. A pending actor event can be
 removed before the actor sees it. If the event's work already completed, the
 gateway appends a `signal.entry.removed` lifecycle event instead. Consuming
 that lifecycle event cancels checkbacks anchored to the removed entry, applies
-the AI-message deletion mapping, and completes — it produces no model-visible
-note. The deletion mapping works through `SignalsGateway.AIGatewayLink`: the
+the AI-message deletion mapping, and completes. Current v1 produces no
+model-visible note. If a later turn needs to know that historical input was
+removed, it must receive a newly appended lifecycle/meta fact rather than a
+rewrite of the old Response chain. The deletion mapping works through
+`SignalsGateway.AIGatewayLink`: the
 gateway selects explicit Response ids from its Actor/session facts, then calls
 AIGateway's subject-scoped suffix-removal API. AIGateway never receives an
 ActorEvent parameter. Chain-tail rows after the last compaction are deleted;
 historical or compaction-covered rows are no-op in v1. SignalsGateway does not
 derive a retraction note and never infers deletion of prior assistant output.
+
+Only ActorEvents carrying the provider entry as a lifecycle source participate
+in this removal path. BackgroundAgentJob dispatch, steer, and stop events are
+internal events in the Job session and therefore carry no `source_entry_id`;
+the Job owns its committed lifecycle independently of the message that created
+it.
 
 For `/steer`, the adapter/shared parser recognizes a visible command entry. The
 gateway mirrors the visible entry and appends
@@ -666,6 +675,19 @@ Ambient batch rules:
   v1 target is roughly 10-15 seconds of quiet, with a hard cap around 5 minutes
   for busy rooms, so room-intervention checks do not burn tokens every minute in
   active channels.
+- Closing an ambient batch records `data.ambient_batch.scene_fingerprint`,
+  `as_of`, and `expires_at`. The fingerprint covers the latest bounded
+  provider-visible channel scene and excludes redelivery-only `last_seen_at`, so
+  an exact provider retry does not invalidate otherwise identical work. The
+  execution opportunity expires after 5 minutes.
+- Before worker delivery, ActorRuntime takes the actor-session lock, rechecks the
+  current binding policy, expiry, and channel fingerprint, and coalesces all
+  queued ambient events for the same channel. It normally completes every stale
+  event without delivery or dead-lettering and keeps only the latest event whose
+  snapshot still matches the current scene. This admission is rechecked in the
+  same transaction that creates the worker delivery fence; a later provider
+  message is a concurrent next scene, not a reason to rewrite the delivered
+  ActorEvent.
 - An addressed trigger has priority over an ambient timer. When a bot mention
   arrives while a neutral batch is waiting, the gateway first splits the batch
   into the sender run that can become addressed and the remaining neutral
@@ -942,7 +964,7 @@ Common cases:
 | Schedule fired | Append the schedule-defined event (`check_back_later.wakeup` or `cron.fire`) with explicit `session_id` |
 | Provider-side removal before receive | Write tombstone so a late receive is dropped |
 | Provider-side removal while actor event pending | Refresh tombstone, physically delete the current mirror entry, cancel/remove the pending actor event |
-| Provider-side removal after work completed | Refresh tombstone, physically delete the current mirror entry, append `signal.entry.removed`; consuming it cancels anchored checkbacks, applies the AI-message deletion mapping, and completes — no model-visible note |
+| Provider-side removal after work completed | Refresh tombstone, physically delete the current mirror entry, append `signal.entry.removed`; consuming it cancels anchored checkbacks, applies the AI-message deletion mapping, and completes. Current v1 adds no model-visible note. |
 
 This is the only place where binding policy turns ingress facts into actor
 events. `record_only` means mirror effect only; it is not an event type and it
@@ -998,7 +1020,12 @@ the binding route treats as explicit.
 observations for the same channel/thread into a pending batch so the actor
 judges a room scene instead of one isolated message. If a later message in that
 pending batch explicitly addresses the bot, the addressed trigger takes
-priority and the eligible sender run closes as addressed instead.
+priority and the eligible sender run closes as addressed instead. After the
+batch closes, the ActorEvent remains an immutable audit fact, but its opportunity
+to run is conditional: a policy change, expired snapshot, newer room content,
+entry edit/removal, or mirrored agent reply supersedes it before worker delivery.
+The ambient recognizer receives the actual execution time as `current_time`; the
+older CloudEvents `time` remains the observation timestamp.
 
 The same phrase appears at three levels with different meanings:
 `unaddressed_group_message_policy = may_intervene` is the binding policy;
@@ -1100,7 +1127,8 @@ SignalsGateway writes only actor-facing events to `actor_events`:
   applies the AI-message deletion mapping (see Core User Stories), and
   completes the lifecycle event. It must not start a normal model run, treat the
   removal as a human command, or delete prior assistant output beyond that
-  mapping. It produces no model-visible note.
+  mapping. Current v1 produces no model-visible note; a future awareness path
+  may append a new lifecycle/meta fact but must not mutate historical input.
 
 Lifecycle events are deterministic only at the state-transition boundary: the
 runtime decides whether to cancel pending work or to apply the removal mapping
@@ -1108,7 +1136,8 @@ to already-stored AI output. Model history is affected only through that
 mapping: hard-deleted tail rows disappear from history, while historical and
 compaction-covered removals are no-op in v1. If a future audit path writes a
 retracted row, projection skips it; no replacement text is generated for the
-model.
+model. If later Agent behavior needs awareness of a non-tail removal, represent
+that event as new input on a later turn.
 `session.reset_due` is stricter session lifecycle: it produces no model input
 and does not invoke the LLM.
 
@@ -1598,17 +1627,18 @@ recreating a mirrored entry after the user removed it.
 | `pending inbound batch + removal` | Refresh tombstone, physically delete the provider mirror entry when present, remove the source entry from the pending batch, and recompute outcome |
 | `open actor event + removal` | Refresh tombstone, physically delete the provider mirror entry, cancel/remove the open actor event |
 | `in-flight actor event + removal` | Refresh tombstone, physically delete the provider mirror entry, abort the active delivery, retry the same logical batch revision without the removed source entry when anything remains, and reject stale commits from the old revision |
-| `completed actor event + removal` | Refresh tombstone, physically delete the provider mirror entry, append `signal.entry.removed`; consuming it cancels anchored checkbacks and applies the AI-message deletion mapping — no model-visible note |
+| `completed actor event + removal` | Refresh tombstone, physically delete the provider mirror entry, append `signal.entry.removed`; consuming it cancels anchored checkbacks and applies the AI-message deletion mapping. Current v1 adds no model-visible note. |
 
 This distinction matters most for historical removal. If the original event is
 still pending or is the trigger for an unfinished generation, cancellation
 prevents new output from being based on withdrawn content. If the event's work
 already completed, the removal acts only through the AI-message deletion
 mapping: chain-tail rows after the last compaction are hard-deleted from the
-message log; historical rows and compaction-covered rows are no-op in v1. No
-note is written for future model turns. A provider-visible assistant message is
-removed only through an explicit later output intent, never inferred from the
-user-side removal.
+message log; historical rows and compaction-covered rows are no-op in v1. If a
+later model turn must know about the removal, append a lifecycle/meta fact as
+new input instead of rewriting those rows. A provider-visible assistant message
+is removed only through an explicit later output intent, never inferred from
+the user-side removal.
 
 `signal_gateway_input_tombstones` is the short-lived storage for the
 `tombstoned_until` state. Its primary key is `(agent_uid, binding_name,
@@ -1957,7 +1987,7 @@ The gateway user-story surface includes these contract cases:
 - Provider-side removal of an entry whose work already completed writes a
   `signal.entry.removed` lifecycle event; consuming it cancels anchored
   checkbacks and applies the AI-message deletion mapping. It does not start a
-  normal model run, produces no model-visible note, and does not delete
+  normal model run, currently produces no model-visible note, and does not delete
   provider-visible agent output unless an explicit delete intent is committed.
 - Raw reaction keys survive mirroring and re-mirroring.
 - Source entry ids are scoped by signal channel id, so same-looking ids in
@@ -2029,3 +2059,11 @@ The gateway user-story surface includes these contract cases:
   SignalsGateway state.
 - Provider-specific gaps are adapter limitations, not reasons to widen generic
   gateway semantics.
+
+## Hermes Floor And Actor Runtime Tradeoffs
+
+| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
+| --- | --- | --- | --- | --- |
+| Progress lease | `300s`, no scheduling grace | Gateway inactivity warning at `900s`; long reasoning paths use wider stale floors | `2100s` progress lease plus `120s` activation-deadline grace | A silent hung turn is detected later, but normal long tools, model prefill, scheduler delay, and network jitter do not falsely kill a valid BackgroundAgentJob. |
+| Retryable turn failures | `3` delivery attempts with `2/4/8s` backoff | Stale streak gives up after `5` | `5` attempts with `5/10/20/40s` backoff, capped at `120s` | Longer recovery window and lower retry pressure; non-retryable errors still dead-letter immediately. |
+| Explicit worker loss | Immediate fence release | Process/stream failure is immediately observable | Still immediate: route-down, replacement incarnation, mandatory-send failure, and stale transition release assignments and supersede deliveries without waiting for the progress lease | The wider progress lease applies only when the worker remains nominally live but silent. |

@@ -1,15 +1,15 @@
 import {
-  assertRPCResponse,
+  rpcMethods,
   type AIGatewayAPIKeyResponse,
-  type CodexAccountResolveResponse,
-  type SubagentDelegationResponse
+  type BackgroundAgentJobResponse,
+  type RPCRequester
 } from '../../lanes/rpc_lane'
-import type { AIGatewayAPIKeyRequester, CodexAccountResolveRequester } from '../../core/turns/turn_options'
+import type { AIGatewayAPIKeyRequester } from '../../core/turns/turn_options'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 
 type CodexRuntimeRequesters = {
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
-  resolveCodexAccount?: CodexAccountResolveRequester
+  rpc: RPCRequester
 }
 
 export type CodexRuntimeConfig =
@@ -28,27 +28,23 @@ export type CodexRuntimeConfig =
 
 export async function resolveCodexRuntimeConfig(input: {
   turn: ActorTurnRef
-  delegation: SubagentDelegationResponse
+  job: BackgroundAgentJobResponse
   requesters: CodexRuntimeRequesters
 }): Promise<CodexRuntimeConfig> {
-  if (input.delegation.codex_account_id === 'aigateway') {
+  if (input.job.codex_account_id === 'aigateway') {
     return {
       mode: 'aigateway',
       accountID: 'aigateway',
-      aiGatewayKey: await resolveAIGatewayKey(input.delegation.agent_uid, input.requesters),
+      aiGatewayKey: await resolveAIGatewayKey(input.job.agent_uid, input.requesters),
       modelOverride: 'coding'
     }
   }
 
-  const requester = input.requesters.resolveCodexAccount
-  if (!requester) throw new Error('Codex account resolve RPC is not configured')
-  const response = await requester({
-    request_id: `codex-account-resolve-${crypto.randomUUID()}`,
+  const response = await input.requesters.rpc(rpcMethods.codexAccountResolve, {
     turn: input.turn,
-    delegation_id: input.delegation.delegation_id
+    job_id: input.job.job_id
   })
-  assertRPCResponse<CodexAccountResolveResponse>(response, 'Codex account resolve rejected')
-  if (response.account_id !== input.delegation.codex_account_id) {
+  if (response.account_id !== input.job.codex_account_id) {
     throw new Error('Codex account resolve returned a different account')
   }
   return {
@@ -63,10 +59,5 @@ async function resolveAIGatewayKey(
   agentUID: string,
   requesters: CodexRuntimeRequesters
 ): Promise<AIGatewayAPIKeyResponse> {
-  const response = await requesters.requestAIGatewayAPIKey({
-    request_id: `codex-ai-gateway-key-${crypto.randomUUID()}`,
-    agent_uid: agentUID
-  })
-  assertRPCResponse<AIGatewayAPIKeyResponse>(response, 'AIGateway API key rejected for Codex')
-  return response
+  return await requesters.requestAIGatewayAPIKey({ agent_uid: agentUID })
 }

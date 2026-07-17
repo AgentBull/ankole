@@ -3,8 +3,8 @@ defmodule Ankole.Brain.RPCBroker do
   RuntimeFabric entry point for the five model-facing Brain tools.
 
   Scope is resolved only from the durable AIGateway conversation. The worker
-  cannot choose owner, writable store, or author; subagents resolve through
-  their parent conversation and have the same tool rights as the root agent.
+  cannot choose owner, writable store, or author; BackgroundAgentJobs resolve
+  through their owner conversation and have the same tool rights as the owner.
   """
 
   alias Ankole.Brain

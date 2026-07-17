@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { MemoryRPCRequester } from '../../lanes/rpc_lane'
+import { assertExistingPathWithin, workspacePhysicalRoots } from '../../core/real-path-boundary'
 import { resolveWorkspacePath } from '../../core/workspace-paths'
 import {
   createMemoryBrowseTool,
@@ -31,11 +32,8 @@ export interface SourceLearningTurnTools {
 export function createSourceLearningTurnTools(opts: {
   turnStart: TurnStart
   workspaceRoot: string
-  requestMemoryRPC?: MemoryRPCRequester
+  requestMemoryRPC: MemoryRPCRequester
 }): SourceLearningTurnTools {
-  if (!opts.requestMemoryRPC) {
-    throw new Error('source learning turn requires the Brain memory RPC seam')
-  }
   const reader = createBrainSourceLearningReader(opts.turnStart, opts.workspaceRoot)
   const memoryOptions = { turnStart: opts.turnStart, requestMemoryRPC: opts.requestMemoryRPC }
   return {
@@ -211,9 +209,14 @@ function attachmentPath(payload: JSONObject | undefined): string | undefined {
 }
 
 async function extractSource(descriptor: SourceDescriptor, workspaceRoot: string): Promise<string> {
-  const path = resolveWorkspacePath(workspaceRoot, descriptor.path, {
+  const lexicalPath = resolveWorkspacePath(workspaceRoot, descriptor.path, {
     errorMessage: 'retained source path escapes the learning workspace'
   })
+  const path = assertExistingPathWithin(
+    workspacePhysicalRoots(workspaceRoot),
+    lexicalPath,
+    'retained source path resolves outside workspace roots'
+  )
   const bytes = await readFile(path)
   verifyBytes(bytes, descriptor)
   const mediaType = descriptor.mediaType.toLowerCase()

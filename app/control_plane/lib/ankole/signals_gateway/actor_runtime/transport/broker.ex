@@ -28,17 +28,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   use GenServer
 
-  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
-  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.Common
+  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.SignalsGateway.ActorRuntime.InboundDispatcher
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
 
-  @type handler :: (map() -> term()) | pid()
-  @mandatory_call_timeout_ms 5_000
+  @type handler :: (FabricProto.Envelope.t() -> term()) | pid()
   @default_rpc_timeout_ms 60_000
   @router_retry_base_ms 250
   @router_retry_max_ms 5_000
@@ -107,18 +106,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   The send is mandatory from the control-plane point of view: an unknown route
   must become a scheduling signal, not a silently dropped actor turn.
   """
-  @spec send_mandatory(String.t(), map()) ::
+  @spec send_mandatory(String.t(), FabricProto.Envelope.t()) ::
           {:ok, :sent_or_queued} | {:error, :unknown_route | term()}
-  def send_mandatory(transport_route, envelope)
-      when is_binary(transport_route) and is_map(envelope) do
+  def send_mandatory(transport_route, %FabricProto.Envelope{} = envelope)
+      when is_binary(transport_route) do
     try do
-      GenServer.call(
-        __MODULE__,
-        {:send_mandatory, transport_route, envelope},
-        @mandatory_call_timeout_ms
-      )
+      # The native RouterHandle owns the configurable command timeout. This
+      # call only waits its turn in the socket-owning process and must not add a
+      # second, unrelated deadline above that transport contract.
+      GenServer.call(__MODULE__, {:send_mandatory, transport_route, envelope}, :infinity)
     catch
-      :exit, {:timeout, _call} -> {:error, :broker_timeout}
       :exit, _reason -> {:error, :broker_unavailable}
     end
   end
@@ -155,7 +152,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
           {:ok, :sent_or_queued} | {:error, :unknown_route | term()}
   def send_file_frame(transport_route, frames)
       when is_binary(transport_route) and is_list(frames) do
-    GenServer.call(__MODULE__, {:send_file_frame, transport_route, frames})
+    try do
+      # FileTransferLane owns the whole-operation deadline; RouterHandle owns
+      # the per-command transport deadline. The broker queue is not a third
+      # timeout boundary.
+      GenServer.call(__MODULE__, {:send_file_frame, transport_route, frames}, :infinity)
+    catch
+      :exit, _reason -> {:error, :broker_unavailable}
+    end
   end
 
   @impl true
@@ -307,25 +311,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   @impl true
   # The native ROUTER forwards inbound frames in two shapes. The 3-tuple is the
-  # unauthenticated form (ZAP disabled, e.g. in tests): route + raw JSON only.
-  # The 5-tuple is the production form: the transport has already verified the
-  # worker's ZAP pre-auth key and sends worker_id/key_revision as authentication
-  # metadata for the route. `key_revision` is an auth-boundary fact even though
-  # the current global worker key only has revision 1.
-  def handle_info({:runtime_fabric_router_received, route, envelope_json}, state) do
-    handle_router_received_safely(route, nil, nil, envelope_json, state)
+  # unauthenticated form (ZAP disabled, e.g. in tests): route + validated
+  # protobuf bytes only. The 5-tuple is the production form: the transport has
+  # already verified the worker's ZAP pre-auth key and sends
+  # worker_id/key_revision as authentication metadata for the route.
+  # `key_revision` is an auth-boundary fact even though the current global
+  # worker key only has revision 1.
+  def handle_info({:runtime_fabric_router_received, route, envelope_bytes}, state) do
+    handle_router_received_safely(route, nil, nil, envelope_bytes, state)
   end
 
   def handle_info(
         {:runtime_fabric_router_received, route, authenticated_worker_id,
-         authenticated_key_revision, envelope_json},
+         authenticated_key_revision, envelope_bytes},
         state
       ) do
     handle_router_received_safely(
       route,
       normalize_auth_worker_id(authenticated_worker_id),
       normalize_auth_key_revision(authenticated_key_revision),
-      envelope_json,
+      envelope_bytes,
       state
     )
   end
@@ -398,22 +403,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
     end
   end
 
-  # Entry point for every inbound envelope. RuntimeFabric owns the shared ROUTER
-  # route; worker-originated RPC requests are dispatched on the control-plane
-  # side, while worker RPC replies resolve pending control-plane callers. The
-  # remaining body types are actor lane facts/events.
+  # Entry point for every inbound envelope. This process mutates only transport
+  # state: RPC replies resolve its pending callers; every request or domain
+  # event is forwarded without executing application code in the ROUTER owner.
   defp handle_router_received_safely(
          route,
          authenticated_worker_id,
          authenticated_key_revision,
-         envelope_json,
+         envelope_bytes,
          state
        ) do
     handle_router_received(
       route,
       authenticated_worker_id,
       authenticated_key_revision,
-      envelope_json,
+      envelope_bytes,
       state
     )
   rescue
@@ -430,28 +434,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
          route,
          authenticated_worker_id,
          authenticated_key_revision,
-         envelope_json,
+         envelope_bytes,
          state
        ) do
     authenticated_route =
       authenticated_route(route, authenticated_worker_id, authenticated_key_revision)
 
-    case decode_router_envelope(route, envelope_json) do
-      {:ok, route, %{"body" => %{"type" => "rpc_request"} = body}} ->
-        body["rpc_request"]
-        |> RPCLane.handle_request(route)
-        |> send_rpc_response(state.router, route)
+    case decode_router_envelope(route, envelope_bytes) do
+      {:ok, route, %FabricProto.Envelope{body: {:rpc_response, response}}} ->
+        {:noreply, resolve_rpc_response(state, route, response)}
 
-        {:noreply, state}
-
-      {:ok, route, %{"body" => %{"type" => "rpc_response"} = body}} ->
-        {:noreply, resolve_rpc_response(state, route, body["rpc_response"])}
-
-      {:ok, route, %{"body" => %{"type" => "rpc_error"} = body}} ->
-        {:noreply, resolve_rpc_error(state, route, body["rpc_error"])}
+      {:ok, route, %FabricProto.Envelope{body: {:rpc_error, error}}} ->
+        {:noreply, resolve_rpc_error(state, route, error)}
 
       decoded ->
-        dispatch_router_envelope(decoded, authenticated_route)
+        InboundDispatcher.dispatch(decoded, authenticated_route)
         {:noreply, state}
     end
   end
@@ -599,42 +596,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
     RuntimeFabric.router_send_file_frame(router, route, frames)
   end
 
-  defp send_rpc_response({:ok, response}, router, route) do
-    router
-    |> router_send_mandatory(route, response)
-    |> log_router_result("rpc_response", route)
+  defp resolve_rpc_response(state, route, %FabricProto.RPCResponse{} = response) do
+    payload = Common.decode_json_bytes(response.payload_json) || %{}
+
+    resolve_rpc_reply(state, route, response.request_id, {:ok, payload})
   end
 
-  defp send_rpc_response({:error, reason}, _router, route) do
-    Logging.warning(
-      "runtime_fabric.rpc_handling_failed",
-      "runtime fabric rpc request handling failed",
-      %{
-        route: route,
-        reason: inspect(reason)
-      }
-    )
+  defp resolve_rpc_error(state, route, %FabricProto.RPCError{} = error) do
+    error_payload = %{
+      "request_id" => error.request_id,
+      "code" => error.code,
+      "message" => error.message,
+      "details_json" => Common.decode_json_bytes(error.details_json) || %{}
+    }
+
+    resolve_rpc_reply(state, route, error.request_id, {:error, error_payload})
   end
 
-  defp resolve_rpc_response(state, route, response) when is_map(response) do
-    resolve_rpc_reply(state, route, response, fn payload -> {:ok, payload} end)
-  end
-
-  defp resolve_rpc_response(state, _route, _response), do: state
-
-  defp resolve_rpc_error(state, route, error) when is_map(error) do
-    resolve_rpc_reply(state, route, error, fn payload -> {:error, payload} end)
-  end
-
-  defp resolve_rpc_error(state, _route, _error), do: state
-
-  defp resolve_rpc_reply(state, route, reply, result_fun) do
-    request_id = text(reply, "request_id")
-
-    with request_id when is_binary(request_id) <- request_id,
+  defp resolve_rpc_reply(state, route, request_id, result) do
+    with request_id when is_binary(request_id) and request_id != "" <- request_id,
          %{route: ^route} = waiter <- Map.get(state.rpc_waiters, request_id) do
       Process.cancel_timer(waiter.timer)
-      GenServer.reply(waiter.from, result_fun.(rpc_payload(reply)))
+      GenServer.reply(waiter.from, result)
       update_in(state.rpc_waiters, &Map.delete(&1, request_id))
     else
       %{route: other_route} ->
@@ -666,41 +649,33 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
     end
   end
 
-  # Decodes the JSON host representation emitted by the native RuntimeFabric
-  # transport. Protocol validation already happened in kernel encode/decode.
-  defp decode_router_envelope(route, envelope_json) do
-    {:ok, route, Torque.decode!(envelope_json)}
-  rescue
-    error -> {:error, route, Exception.message(error)}
+  # Decodes protobuf bytes emitted by the native RuntimeFabric transport with
+  # the generated codec. Protocol validation already happened in the kernel.
+  defp decode_router_envelope(route, envelope_bytes) do
+    case FabricProto.Envelope.decode(envelope_bytes) do
+      {:ok, envelope} -> {:ok, route, envelope}
+      {:error, reason} -> {:error, route, reason}
+    end
   end
 
   defp rpc_request_envelope(request_id, method, payload, timeout_ms) do
-    %{
-      "protocol_version" => 1,
-      "message_id" => "rpc-request-#{Ecto.UUID.generate()}",
-      "correlation_id" => request_id,
-      "lane" => "LANE_RPC",
-      "durability" => "CONTROL_EPHEMERAL",
-      "body" => %{
-        "type" => "rpc_request",
-        "rpc_request" => %{
-          "request_id" => request_id,
-          "method" => method,
-          "deadline_unix_ms" => System.system_time(:millisecond) + timeout_ms,
-          "payload_json" => payload
-        }
-      }
+    %FabricProto.Envelope{
+      protocol_version: 1,
+      message_id: "rpc-request-#{Ecto.UUID.generate()}",
+      correlation_id: request_id,
+      lane: :LANE_RPC,
+      sent_at_unix_ms: System.system_time(:millisecond),
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:rpc_request,
+         %FabricProto.RPCRequest{
+           request_id: request_id,
+           method: method,
+           deadline_unix_ms: System.system_time(:millisecond) + timeout_ms,
+           payload_json: Torque.encode!(payload)
+         }}
     }
   end
-
-  defp rpc_payload(%{"payload_json" => payload}) when is_map(payload), do: payload
-  defp rpc_payload(%{"details_json" => details} = error) when is_map(details), do: error
-
-  defp rpc_payload(error = %{"code" => _code}) do
-    Map.put(error, "details_json", %{})
-  end
-
-  defp rpc_payload(_reply), do: %{}
 
   defp request_id(opts) do
     case Keyword.get(opts, :request_id) do
@@ -714,154 +689,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
         "rpc-#{Ecto.UUID.generate()}"
     end
   end
-
-  defp text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
-
-  # Lifecycle envelopes are authenticated by the route they arrived on, then
-  # projected into the worker table for scheduling.
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "worker_ready"} = body}},
-         authenticated_route
-       ) do
-    WorkerAdmission.admit_worker_ready(body["worker_ready"], %{
-      authenticated?: true,
-      transport_route: route,
-      worker_id: authenticated_route.worker_id,
-      key_revision: authenticated_route.key_revision
-    })
-    |> log_router_result("worker_ready", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "worker_heartbeat"} = body}},
-         authenticated_route
-       ) do
-    WorkerAdmission.handle_worker_heartbeat(body["worker_heartbeat"], %{
-      authenticated?: true,
-      transport_route: route,
-      worker_id: authenticated_route.worker_id,
-      key_revision: authenticated_route.key_revision
-    })
-    |> log_router_result("worker_heartbeat", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "worker_capacity"} = body}},
-         authenticated_route
-       ) do
-    WorkerAdmission.handle_worker_capacity(body["worker_capacity"], %{
-      authenticated?: true,
-      transport_route: route,
-      worker_id: authenticated_route.worker_id,
-      key_revision: authenticated_route.key_revision
-    })
-    |> log_router_result("worker_capacity", route)
-  end
-
-  # Worker turn envelopes go back through the public runtime API so local routes
-  # and ZeroMQ routes share exactly the same commit and retry behavior.
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "turn_accepted"}} = envelope},
-         _authenticated_route
-       ) do
-    envelope
-    |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&Ankole.SignalsGateway.ActorRuntime.handle_turn_accepted/1)
-    |> log_router_result("turn_accepted", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "worker_progress"}} = envelope},
-         _authenticated_route
-       ) do
-    envelope
-    |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&Ankole.SignalsGateway.ActorRuntime.handle_worker_progress/1)
-    |> log_router_result("worker_progress", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "turn_noop_completed"}} = envelope},
-         _authenticated_route
-       ) do
-    envelope
-    |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&Ankole.SignalsGateway.ActorRuntime.handle_turn_noop_completed/1)
-    |> log_router_result("turn_noop_completed", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "turn_completed"}} = envelope},
-         _authenticated_route
-       ) do
-    envelope
-    |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&Ankole.SignalsGateway.ActorRuntime.handle_turn_completed/1)
-    |> log_router_result("turn_completed", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => "turn_error"}} = envelope},
-         _authenticated_route
-       ) do
-    envelope
-    |> authorize_actor_lane_turn(route, :write)
-    |> with_authorized_envelope(&Ankole.SignalsGateway.ActorRuntime.handle_turn_error/1)
-    |> log_router_result("turn_error", route)
-  end
-
-  defp dispatch_router_envelope(
-         {:ok, route, %{"body" => %{"type" => type}}},
-         _authenticated_route
-       ) do
-    Logging.debug(
-      "runtime_fabric.actor_lane_envelope_ignored",
-      "runtime fabric actor lane envelope ignored",
-      %{
-        type: type,
-        route: route
-      }
-    )
-  end
-
-  defp dispatch_router_envelope({:error, route, reason}, _authenticated_route) do
-    Logging.warning(
-      "runtime_fabric.actor_lane_decode_failed",
-      "runtime fabric actor lane decode failed",
-      %{
-        route: route,
-        reason: inspect(reason)
-      }
-    )
-  end
-
-  defp authorize_actor_lane_turn(%{"body" => %{"type" => type} = body} = envelope, route, effect) do
-    with %{} = payload <- Map.get(body, type),
-         %{} = turn <- Map.get(payload, "turn"),
-         {:ok, turn_ref} <- TurnRef.from_wire(turn),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
-      {:ok, envelope}
-    else
-      nil -> {:error, :missing_turn_ref}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp authorize_actor_lane_turn(_envelope, _route, _effect), do: {:error, :missing_turn_ref}
-
-  defp with_authorized_envelope({:ok, envelope}, handler), do: handler.(envelope)
-  defp with_authorized_envelope({:error, _reason} = error, _handler), do: error
 
   # Same worker-auth defaulting as the supervisor, applied here for callers that
   # start the router directly via start_router/2 without going through the
@@ -892,20 +719,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   defp normalize_auth_key_revision(value) when is_integer(value) and value > 0, do: value
   defp normalize_auth_key_revision(_value), do: nil
-
-  defp log_router_result({:ok, _result}, _type, _route), do: :ok
-
-  defp log_router_result({:error, reason}, type, route) do
-    Logging.warning(
-      "runtime_fabric.actor_lane_handling_failed",
-      "runtime fabric actor lane handling failed",
-      %{
-        type: type,
-        route: route,
-        reason: inspect(reason)
-      }
-    )
-  end
 
   defp rpc_operation(request_id) when is_binary(request_id) do
     %{id: request_id, producer: "ankole-control-plane/runtime-fabric-rpc"}

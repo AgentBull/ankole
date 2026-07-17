@@ -10,6 +10,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
   alias Ankole.Principals.Principal
   alias Ankole.Ecto.JSONPayload
+  alias Ankole.TimeZone
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
@@ -118,8 +119,8 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
   defp validate_timezone(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
-      case DateTime.now(value) do
-        {:ok, _now} -> []
+      case TimeZone.validate(value) do
+        {:ok, _timezone} -> []
         {:error, reason} -> [{field, "is not a valid timezone: #{inspect(reason)}"}]
       end
     end)

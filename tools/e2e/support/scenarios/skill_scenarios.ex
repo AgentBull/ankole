@@ -54,14 +54,18 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     messages = ai_messages_for_actor_event(input.id)
     assert [skill_result] = successful_tool_results(messages, "skill_view")
-    assert inspect(skill_result) =~ "# nano-pdf"
+    rendered = inspect(skill_result)
+    assert rendered =~ "skill://enabled/nano-pdf/SKILL.md"
+    assert rendered =~ "nano-pdf Skill is a background-task capability"
+    assert rendered =~ "background_agent_job(start)"
+    refute rendered =~ "# nano-pdf"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
   end
 
   @doc """
-  Verifies every phase-one built-in skill is visible to the real Docker worker.
+  Verifies standalone background-task Skills are visible to the real Docker worker.
   """
   def run_all_builtin_skill_views(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
     mention = lark_bot_mention()
@@ -73,7 +77,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for docx, jupyter-live-kernel, nano-pdf, pptx, and xlsx, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
+                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for jupyter-live-kernel and nano-pdf, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_060, :millisecond), :millisecond)
@@ -91,13 +95,17 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     messages = ai_messages_for_actor_event(input.id)
     skill_results = successful_tool_results(messages, "skill_view")
-    assert length(skill_results) == 5
+    assert length(skill_results) == 2
     rendered = inspect(skill_results)
-    assert rendered =~ "# OfficeCLI DOCX Skill"
-    assert rendered =~ "# Jupyter Live Kernel"
-    assert rendered =~ "# nano-pdf"
-    assert rendered =~ "# OfficeCLI PPTX Skill"
-    assert rendered =~ "# OfficeCLI XLSX Skill"
+
+    for skill_name <- ~w(jupyter-live-kernel nano-pdf) do
+      assert rendered =~ "skill://enabled/#{skill_name}/SKILL.md"
+      assert rendered =~ "#{skill_name} Skill is a background-task capability"
+    end
+
+    assert rendered =~ "background_agent_job(start)"
+    refute rendered =~ "# Jupyter Live Kernel"
+    refute rendered =~ "# nano-pdf"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
@@ -116,7 +124,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_APPEND. Use skill_append for nano-pdf once, then reply exactly CHAOS_SKILL_APPEND_OK.",
+                 "@_user_1 Run CHAOS_SKILL_APPEND. Use skill_view for brain-review, then use skill_append for brain-review once, then reply exactly CHAOS_SKILL_APPEND_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_075, :millisecond), :millisecond)
@@ -133,13 +141,14 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert reply.text =~ "CHAOS_SKILL_APPEND_OK"
 
     messages = ai_messages_for_actor_event(input.id)
+    assert tool_result_succeeded?(messages, "skill_view")
     assert tool_result_succeeded?(messages, "skill_append")
 
     assert %AgentSkillOverlay{overlay_json: %{"text" => overlay_text}} =
              Repo.one(
                from(overlay in AgentSkillOverlay,
                  where: overlay.agent_uid == ^agent.uid,
-                 where: overlay.skill_name == "nano-pdf",
+                 where: overlay.skill_name == "brain-review",
                  where: is_nil(overlay.deleted_at)
                )
              )
@@ -162,8 +171,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert {:ok, _result} = Library.sync_agent_skills(agent.uid)
 
-    assert {:ok, %AgentSkill{enabled: false}} =
-             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", false)
+    assert {:ok, %AgentSkill{enabled_override: false}} =
+             Library.set_agent_skill_override(agent.uid, "nano-pdf", false)
 
     assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)
     refute Enum.any?(enabled_skills, &(&1["skill_name"] == "nano-pdf"))

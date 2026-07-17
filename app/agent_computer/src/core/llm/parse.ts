@@ -24,7 +24,8 @@ export class AIGatewayWebSocketError extends Error {
 export function parseResponse(response: OpenAIResponse, modelName: string): ModelCallResult {
   const output = response.output ?? []
   const usage = usageFromResponse(response.usage)
-  const result = parseOutputItems(output, modelName, usage, response.status === 'failed' ? 'error' : undefined)
+  const terminal = responseTerminalProjection(response)
+  const result = parseOutputItems(output, modelName, usage, terminal.status, '', terminal.errorMessage)
   result.responseID = response.id
   return result
 }
@@ -38,8 +39,8 @@ export function parseOutputItems(
   errorMessage?: string,
   fallbackFunctionCalls: ResponseFunctionToolCall[] = []
 ): ModelCallResult {
-  const functionCalls: ResponseFunctionToolCall[] = [...fallbackFunctionCalls]
-  const seenFunctionCallIDs = new Set(functionCalls.map(responseFunctionCallKey).filter(Boolean))
+  const observedFunctionCalls: ResponseFunctionToolCall[] = [...fallbackFunctionCalls]
+  const seenFunctionCallIDs = new Set(observedFunctionCalls.map(responseFunctionCallKey).filter(Boolean))
   const textParts: string[] = []
 
   for (const item of output) {
@@ -56,15 +57,25 @@ export function parseOutputItems(
     if (item.type === 'function_call') {
       const call = item as ResponseFunctionToolCall
       const id = responseFunctionCallKey(call)
-      if (id && !seenFunctionCallIDs.has(id)) {
-        functionCalls.push(call)
+      if (!id) {
+        // Preserve unkeyed fragments long enough for the structural terminal
+        // check below to turn the response into an error. Silently dropping
+        // one here could make a malformed provider terminal look successful.
+        observedFunctionCalls.push(call)
+      } else if (!seenFunctionCallIDs.has(id)) {
+        observedFunctionCalls.push(call)
         seenFunctionCallIDs.add(id)
       }
     }
   }
 
+  const incompleteFunctionCall = observedFunctionCalls.some(call => !completedFunctionCall(call))
+  const effectiveTerminalStatus = incompleteFunctionCall ? 'error' : terminalStatus
+  const functionCalls = effectiveTerminalStatus === undefined ? observedFunctionCalls.filter(completedFunctionCall) : []
   const text = textParts.join('') || textFallback
-  const stopReason = terminalStatus ?? (functionCalls.length > 0 ? 'toolUse' : 'stop')
+  const stopReason = effectiveTerminalStatus ?? (functionCalls.length > 0 ? 'toolUse' : 'stop')
+  const effectiveErrorMessage =
+    errorMessage ?? (incompleteFunctionCall ? 'AIGateway response ended with an incomplete function call' : undefined)
   const message: AssistantMessage = {
     role: 'assistant',
     content: text ? [{ type: 'text', text }] : [],
@@ -80,10 +91,37 @@ export function parseOutputItems(
     usage,
     stopReason,
     model: modelName,
-    ...(errorMessage ? { errorMessage } : {})
+    ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {})
   }
 
   return { message, functionCalls, hasToolCalls: functionCalls.length > 0 }
+}
+
+function responseTerminalProjection(response: OpenAIResponse): { status?: StopReason; errorMessage?: string } {
+  if (response.status === 'failed') {
+    return { status: 'error', errorMessage: terminalErrorMessage(response as unknown as JSONObject, {}) }
+  }
+
+  if (response.status === 'incomplete') {
+    const reason = stringValue(recordValue(response.incomplete_details)?.reason)
+    if (reason === 'max_output_tokens') return { status: 'length' }
+    return { status: 'error', errorMessage: `LLM response incomplete reason=${reason || 'unknown'}` }
+  }
+
+  return {}
+}
+
+function completedFunctionCall(call: ResponseFunctionToolCall): boolean {
+  const value = call as unknown as JSONObject
+  const status = stringValue(value.status)
+  return (
+    (status === undefined || status === 'completed') &&
+    typeof value.call_id === 'string' &&
+    value.call_id.length > 0 &&
+    typeof value.name === 'string' &&
+    value.name.length > 0 &&
+    typeof value.arguments === 'string'
+  )
 }
 
 export function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: JSONObject): void {

@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
   @moduledoc false
 
-  alias Ankole.Plugins.Microsoft365Adapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
 
   @content_type "application/vnd.microsoft.card.adaptive"
   @action_envelope_version "ankole.interactive_output.action.v1"

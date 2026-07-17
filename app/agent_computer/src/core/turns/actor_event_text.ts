@@ -33,8 +33,8 @@ export function actorEventText(payload: JSONObject | undefined, fallbackType: st
   if (fallbackType === 'cron.fire') {
     return cronFireInputText(payload)
   }
-  if (fallbackType.startsWith('subagent.delegation.')) {
-    return subagentWakeupInputText(payload, fallbackType)
+  if (fallbackType.startsWith('background_agent_job.')) {
+    return backgroundAgentJobWakeupInputText(payload, fallbackType)
   }
 
   const text = fallbackType.startsWith('command.')
@@ -172,50 +172,41 @@ function actionInputText(payload: JSONObject | undefined): string {
     .join('\n')
 }
 
-function subagentWakeupInputText(payload: JSONObject | undefined, type: string): string {
+function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type: string): string {
   const data = objectPath(payload, ['data'])
-  const delegationID = stringArg(data, 'delegation_id')
+  const jobID = stringArg(data, 'job_id')
   const title = stringArg(data, 'title')
   const summary = stringArg(data, 'result_summary')
-  const workdir = stringArg(data, 'workdir')
-  const runtime = stringArg(data, 'runtime')
-  const mode = stringArg(data, 'mode')
   const attempts = firstNumber(data, ['attempts'])
   const deliveryStatus = stringArg(data, 'delivery_status')
   const deliveryIssueCount = firstNumber(data, ['delivery_issue_count'])
-  const runtimeLabel = runtime ? `${runtime}${mode ? `/${mode}` : ''}` : undefined
 
-  if (type === 'subagent.delegation.completed') {
+  if (type === 'background_agent_job.completed') {
     return [
-      'A background subagent delegation completed.',
-      delegationID ? `Delegation: ${delegationID}` : undefined,
+      'A BackgroundAgentJob completed.',
+      jobID ? `Job: ${jobID}` : undefined,
       title ? `Title: ${title}` : undefined,
       summary ? `Reported result: ${summary}` : undefined,
       deliveryStatus
         ? `Delivery observation: ${deliveryStatus}${deliveryIssueCount ? ` (${deliveryIssueCount} issues)` : ''}`
         : undefined,
-      workdir ? `Workdir: ${workdir}` : undefined,
-      'Use subagent(status) for full details. Verify the deliverables yourself before reporting.',
-      'If the task still needs work, make a small mechanical correction directly when that is sufficient, or call subagent(steer) when the work benefits from the existing Codex context.',
-      runtime === 'deep_research'
-        ? 'For Deep Research, verify that `report/report.md` is self-contained and includes everything the user needs, then send only that Markdown file from the Workdir with reply_attachment. Briefly tell the user the report is attached; do not replace it with a prose summary. Treat JSON files, evidence indexes, source archives, and bundles as optional internal working material and never attach or package them.'
-        : 'Deliver the completed user-facing files with reply_attachment, then report the outcome to the user.'
+      'Use background_agent_job(status) for full details. Verify the deliverables yourself before reporting.',
+      'If the task still needs work, make a small mechanical correction directly when that is sufficient, or call background_agent_job(steer) when the work benefits from the existing Job runtime context.',
+      'Use the generic artifact observations from status to identify and verify user-visible deliverables. Send those files with reply_attachment, then report the outcome to the user.'
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n')
   }
 
-  if (type === 'subagent.delegation.failed') {
+  if (type === 'background_agent_job.failed') {
     return [
-      'A background subagent delegation failed.',
-      delegationID ? `Delegation: ${delegationID}` : undefined,
+      'A BackgroundAgentJob failed.',
+      jobID ? `Job: ${jobID}` : undefined,
       title ? `Title: ${title}` : undefined,
-      runtimeLabel ? `Runtime: ${runtimeLabel}` : undefined,
       summary ? `Failure: ${summary}` : undefined,
       attempts !== undefined ? `Attempts: ${attempts}` : undefined,
-      workdir ? `Workdir: ${workdir}` : undefined,
-      'Use subagent(status) for its original-task excerpt and failure details, and inspect the Workdir before repeating any side effect.',
-      'If a small caller-side correction is sufficient, make and verify it directly. If the work needs the existing research context and the delegation has a runtime_thread_id, call subagent(steer) to resume that Codex session. Otherwise report the failure honestly to the user.'
+      'Use background_agent_job(status) for its original-task excerpt, failure details, workspace mounts, and artifact observations before repeating any side effect.',
+      'If a small caller-side correction is sufficient, make and verify it directly. If the work benefits from the existing Job context and the Job has a runtime_thread_id, call background_agent_job(steer) to resume it. Otherwise report the failure honestly to the user.'
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n')
@@ -223,11 +214,11 @@ function subagentWakeupInputText(payload: JSONObject | undefined, type: string):
 
   const pending = objectPath(data, ['pending_user_input'])
   return [
-    'A background subagent delegation is waiting for user input.',
-    delegationID ? `Delegation: ${delegationID}` : undefined,
+    'A BackgroundAgentJob is waiting for user input.',
+    jobID ? `Job: ${jobID}` : undefined,
     title ? `Title: ${title}` : undefined,
     Object.keys(pending).length > 0 ? `Questions: ${JSON.stringify(pending)}` : undefined,
-    'Relay each question to the user with the clarify tool, one question per turn. After collecting the answers, call subagent(steer, answers).'
+    'Relay each question to the user with the clarify tool, one question per turn. After collecting the answers, call background_agent_job(steer, answers).'
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n')

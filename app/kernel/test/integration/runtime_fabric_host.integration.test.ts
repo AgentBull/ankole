@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'bun:test'
 import { fileURLToPath } from 'node:url'
+import { connectRuntimeFabric, type RuntimeFabricHost } from '../../../agent_computer/src/fabric/fabric'
 import {
-  connectRuntimeFabric,
-  type RuntimeFabricEnvelope,
-  type RuntimeFabricHost
-} from '../../../agent_computer/src/fabric/fabric'
+  AgentComputerWorkerReadySchema,
+  create,
+  createEnvelope,
+  DurabilityClass,
+  envelopeHeader,
+  jsonBytes,
+  Lane,
+  type Envelope
+} from '../../../agent_computer/src/fabric/envelope_proto'
 
 describe('RuntimeFabric native host adapter integration', () => {
   it('classifies real native envelope and multipart receives and owns dealer stop', async () => {
@@ -43,7 +49,7 @@ describe('RuntimeFabric native host adapter integration', () => {
 
       expect(await fabric.receive(2_000)).toMatchObject({
         kind: 'envelope',
-        envelope: { message_id: 'binding-roundtrip-envelope' }
+        envelope: { messageId: 'binding-roundtrip-envelope' }
       })
       const fileOutcome = await fabric.receive(2_000)
       expect(fileOutcome.kind).toBe('worker_file')
@@ -74,22 +80,20 @@ describe('RuntimeFabric native host adapter integration', () => {
   }, 30_000)
 })
 
-function testEnvelope(workerID: string): RuntimeFabricEnvelope {
-  return {
-    protocol_version: 1,
-    message_id: `worker-ready-${workerID}`,
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
+function testEnvelope(workerID: string): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(`worker-ready-${workerID}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
     body: {
-      type: 'worker_ready',
-      worker_ready: {
-        worker_id: workerID,
+      case: 'workerReady',
+      value: create(AgentComputerWorkerReadySchema, {
+        workerId: workerID,
+        incarnationId: `incarnation-${workerID}`,
         runtime: 'bun',
         version: 'test',
-        capacity_json: { available_turn_slots: 1 }
-      }
+        capacityJson: jsonBytes({ available_turn_slots: 1 })
+      })
     }
-  }
+  })
 }
 
 async function waitForFixtureEndpoint(path: string): Promise<string> {

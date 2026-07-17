@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { Buffer } from 'node:buffer'
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
@@ -63,6 +64,11 @@ type AIGatewayToolResultsRecordedFrame = {
   response_id?: string
   response?: { id?: string }
 }
+
+const firstResponseEventDiagnosticMs = 300_000
+const standardResponseEventStaleMs = 180_000
+const largeResponseEventStaleMs = 300_000
+const largeResponseRequestTokenThreshold = 100_000
 
 export function createModelTurn(model: ModelConfig, options: ModelTurnOptions): ModelTurn {
   return new AIGatewayResponsesTurn(model, options)
@@ -186,13 +192,33 @@ class AIGatewayResponsesTurn implements ModelTurn {
     let responseID: string | undefined
     const stableItems: ResponseOutputItem[] = []
     const functionCallsByID = new Map<string, ResponseFunctionToolCall>()
+    const estimatedRequestTokens = estimateResponseRequestTokens(params)
+    const staleTimeoutMs = responseEventStaleTimeoutMs(estimatedRequestTokens)
 
     try {
       ws.send(requestPayload)
 
-      for await (const event of abortableResponsesStream(stream, this.options.abortSignal, () =>
-        webSocketTransportError('LLM provider call aborted', 'aborted', false)
-      )) {
+      for await (const event of watchedResponsesStream(stream, {
+        signal: this.options.abortSignal,
+        staleTimeoutMs,
+        abortError: () => webSocketTransportError('LLM provider call aborted', 'aborted', false),
+        staleError: () =>
+          webSocketTransportError(
+            `AIGateway response stream stale for ${staleTimeoutMs}ms after a valid response event`,
+            'event_stale',
+            true
+          ),
+        onSlowFirstEvent: () => {
+          console.warn(
+            JSON.stringify({
+              event: 'slow_first_byte',
+              transport: 'aigateway_websocket',
+              diagnostic_after_ms: firstResponseEventDiagnosticMs,
+              estimated_request_tokens: estimatedRequestTokens
+            })
+          )
+        }
+      })) {
         if (event.type === 'message') {
           const frame = recordValue(event.message)
           if (!frame) continue
@@ -256,7 +282,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
           throw webSocketTransportError(
             `AIGateway WebSocket closed before response.completed${suffix}`,
             'closed_before_terminal',
-            false
+            true
           )
         }
       }
@@ -264,7 +290,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
       throw webSocketTransportError(
         'AIGateway WebSocket closed before response.completed',
         'closed_before_terminal',
-        false
+        true
       )
     } catch (error) {
       this.discardSocket()
@@ -420,8 +446,91 @@ function aigatewayErrorFromStreamError(error: { message: string; error?: unknown
   return webSocketTransportError(
     error.message || 'AIGateway WebSocket transport error',
     'transport_error_after_open',
-    false
+    true
   )
+}
+
+export function estimateResponseRequestTokens(params: ResponseCreateParams): number {
+  return Math.ceil(Buffer.byteLength(JSON.stringify(params), 'utf8') / 3)
+}
+
+export function responseEventStaleTimeoutMs(estimatedRequestTokens: number): number {
+  return estimatedRequestTokens > largeResponseRequestTokenThreshold
+    ? largeResponseEventStaleMs
+    : standardResponseEventStaleMs
+}
+
+async function* watchedResponsesStream(
+  stream: AsyncIterableIterator<ResponsesStreamMessage>,
+  options: {
+    signal?: AbortSignal
+    staleTimeoutMs: number
+    abortError: () => Error
+    staleError: () => Error
+    onSlowFirstEvent: () => void
+  }
+): AsyncIterable<ResponsesStreamMessage> {
+  let abortListener: (() => void) | undefined
+  const aborted = new Promise<never>((_, reject) => {
+    if (!options.signal) return
+    abortListener = () => reject(options.abortError())
+    options.signal.addEventListener('abort', abortListener, { once: true })
+  })
+  let sawValidResponseEvent = false
+  let staleDeadlineMs: number | undefined
+  let slowFirstEventDiagnosticAtMs = Date.now() + firstResponseEventDiagnosticMs
+
+  try {
+    if (options.signal?.aborted) throw options.abortError()
+
+    for (;;) {
+      const pendingNext = stream.next()
+      let next: IteratorResult<ResponsesStreamMessage>
+
+      for (;;) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const remainingMs = sawValidResponseEvent
+          ? Math.max(0, (staleDeadlineMs ?? Date.now()) - Date.now())
+          : slowFirstEventDiagnosticAtMs === Number.POSITIVE_INFINITY
+            ? undefined
+            : Math.max(0, slowFirstEventDiagnosticAtMs - Date.now())
+        const timed =
+          remainingMs === undefined
+            ? undefined
+            : new Promise<'timer'>(resolve => {
+                timer = setTimeout(() => resolve('timer'), remainingMs)
+              })
+
+        const outcome = await Promise.race([pendingNext, aborted, ...(timed ? [timed] : [])])
+        if (timer) clearTimeout(timer)
+
+        if (outcome === 'timer') {
+          if (sawValidResponseEvent) throw options.staleError()
+          options.onSlowFirstEvent()
+          slowFirstEventDiagnosticAtMs = Number.POSITIVE_INFINITY
+          continue
+        }
+
+        next = outcome
+        break
+      }
+
+      if (next.done) return
+      if (isValidResponseEvent(next.value)) {
+        sawValidResponseEvent = true
+        staleDeadlineMs = Date.now() + options.staleTimeoutMs
+      }
+      yield next.value
+    }
+  } finally {
+    if (abortListener) options.signal?.removeEventListener('abort', abortListener)
+  }
+}
+
+function isValidResponseEvent(event: ResponsesStreamMessage): boolean {
+  if (event.type !== 'message') return false
+  const frame = recordValue(event.message)
+  return typeof frame?.type === 'string' && (frame.type === 'error' || frame.type.startsWith('response.'))
 }
 
 async function* abortableResponsesStream(
@@ -442,7 +551,6 @@ async function* abortableResponsesStream(
 
   try {
     if (signal.aborted) throw abortError()
-
     for (;;) {
       const next = await Promise.race([stream.next(), aborted])
       if (next.done) return

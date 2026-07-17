@@ -17,10 +17,31 @@ defmodule Ankole.SignalsGateway.ChannelContext do
 
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.Utils
 
   @channel_context_max_rows 20
   @channel_context_max_tokens 2_000
   @ambient_observation_max_rows 80
+
+  @doc """
+  Hashes the bounded provider-visible room scene used to admit ambient work.
+
+  Arrival identity and durable content participate in the hash; `last_seen_at`
+  does not, so an exact provider redelivery cannot make an unchanged scene stale.
+  """
+  @spec ambient_scene_fingerprint(module(), String.t()) :: String.t()
+  def ambient_scene_fingerprint(repo, signal_channel_id) when is_binary(signal_channel_id) do
+    Entry
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> order_by([entry], desc: entry.first_seen_at, desc: entry.document_id)
+    |> limit(@ambient_observation_max_rows)
+    |> repo.all()
+    |> Enum.reverse()
+    |> Enum.map(fn entry ->
+      {entry.document_id, entry.content_hash, entry.provider_time}
+    end)
+    |> Utils.digest()
+  end
 
   @doc """
   Returns recent shared-channel messages immediately before the current batch.

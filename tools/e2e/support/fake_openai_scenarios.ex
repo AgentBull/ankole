@@ -77,30 +77,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       String.contains?(prompt, "CHAOS_TODO_TOOL") ->
         :todo_tool
 
-      String.contains?(prompt, "CHAOS_BACKGROUND_COMMAND") ->
-        :background_command_tool
-
-      String.contains?(prompt, "CHAOS_BACKGROUND_LIFECYCLE") ->
-        :background_lifecycle_tool
-
-      String.contains?(prompt, "CHAOS_INTERACTIVE_TERMINAL") ->
-        :interactive_terminal_tool
-
-      String.contains?(prompt, "CHAOS_TERMINAL_PERSIST_START") ->
-        :terminal_persist_start_tool
-
-      String.contains?(prompt, "CHAOS_TERMINAL_PERSIST_READ") ->
-        :terminal_persist_read_tool
-
-      String.contains?(prompt, "CHAOS_BROWSER_OPEN") ->
-        :browser_open_tool
-
-      String.contains?(prompt, "CHAOS_BROWSER_RUN") ->
-        :browser_run_tool
-
-      String.contains?(prompt, "CHAOS_BROWSER_EXTRACT") ->
-        :browser_extract_tool
-
       String.contains?(prompt, "CHAOS_SKILL_VIEW_ALL") ->
         :skill_view_all_tool
 
@@ -221,9 +197,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       kind in [:followup_slow, :followup_recall_slow] ->
         {:delayed_completion, reply_for(kind), 1_500}
 
-      missing_background_lifecycle_id?(kind, count, request) ->
-        {:completion, "CHAOS_BACKGROUND_LIFECYCLE_MISSING_BACKGROUND_ID", []}
-
       tool_call = tool_call_for(kind, count, request) ->
         {:tool_call, tool_call}
 
@@ -276,14 +249,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       {"CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN", "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN"},
       {"CHAOS_REPLY_ATTACHMENT", "CHAOS_REPLY_ATTACHMENT"},
       {"CHAOS_TODO_TOOL", "CHAOS_TODO_TOOL"},
-      {"CHAOS_BACKGROUND_COMMAND", "CHAOS_BACKGROUND_COMMAND"},
-      {"CHAOS_BACKGROUND_LIFECYCLE", "CHAOS_BACKGROUND_LIFECYCLE"},
-      {"CHAOS_INTERACTIVE_TERMINAL", "CHAOS_INTERACTIVE_TERMINAL"},
-      {"CHAOS_TERMINAL_PERSIST_START", "CHAOS_TERMINAL_PERSIST_START"},
-      {"CHAOS_TERMINAL_PERSIST_READ", "CHAOS_TERMINAL_PERSIST_READ"},
-      {"CHAOS_BROWSER_OPEN", "CHAOS_BROWSER_OPEN"},
-      {"CHAOS_BROWSER_RUN", "CHAOS_BROWSER_RUN"},
-      {"CHAOS_BROWSER_EXTRACT", "CHAOS_BROWSER_EXTRACT"},
       {"CHAOS_SKILL_VIEW_ALL", "CHAOS_SKILL_VIEW_ALL"},
       {"CHAOS_SKILL_VIEW", "CHAOS_SKILL_VIEW"},
       {"CHAOS_SKILL_APPEND", "CHAOS_SKILL_APPEND"},
@@ -389,14 +354,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "CHAOS_RECALLED_FOLLOWUP_SHOULD_NOT_RUN",
         "CHAOS_REPLY_ATTACHMENT",
         "CHAOS_TODO_TOOL",
-        "CHAOS_BACKGROUND_COMMAND",
-        "CHAOS_BACKGROUND_LIFECYCLE",
-        "CHAOS_INTERACTIVE_TERMINAL",
-        "CHAOS_TERMINAL_PERSIST_START",
-        "CHAOS_TERMINAL_PERSIST_READ",
-        "CHAOS_BROWSER_OPEN",
-        "CHAOS_BROWSER_RUN",
-        "CHAOS_BROWSER_EXTRACT",
         "CHAOS_SKILL_VIEW_ALL",
         "CHAOS_SKILL_VIEW",
         "CHAOS_SKILL_APPEND",
@@ -438,11 +395,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
   defp reply_for(:after_new_recall), do: "CHAOS_AFTER_NEW_RECALL_OK"
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
-  defp reply_for(:background_command_tool), do: "CHAOS_BACKGROUND_COMMAND_OK"
-  defp reply_for(:background_lifecycle_tool), do: "CHAOS_BACKGROUND_LIFECYCLE_OK"
-  defp reply_for(:browser_extract_tool), do: "CHAOS_BROWSER_EXTRACT_OK"
-  defp reply_for(:browser_open_tool), do: "CHAOS_BROWSER_OPEN_OK"
-  defp reply_for(:browser_run_tool), do: "CHAOS_BROWSER_RUN_OK"
   defp reply_for(:checkback_tool), do: "CHAOS_CHECKBACK_OK"
   defp reply_for(:checkback_wakeup), do: "CHAOS_CHECKBACK_WAKE_OK"
   defp reply_for(:compaction_summary), do: "## Active Task\n(none)"
@@ -455,7 +407,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:followup_slow), do: "CHAOS_FOLLOWUP_FIRST_OK"
   defp reply_for(:group_isolation_check), do: "CHAOS_GROUP_ISOLATION_OK"
   defp reply_for(:idle_steer), do: "CHAOS_IDLE_STEER_OK"
-  defp reply_for(:interactive_terminal_tool), do: "CHAOS_INTERACTIVE_TERMINAL_OK"
   defp reply_for(:new_after), do: "CHAOS_NEW_AFTER_OK"
   defp reply_for(:old_recall), do: "CHAOS_OLD_RECALL_OK"
   defp reply_for(:patch_tool), do: "CHAOS_PATCH_TOOL_OK"
@@ -470,8 +421,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:skill_view_tool), do: "CHAOS_SKILL_VIEW_OK"
   defp reply_for(:steer_tool), do: "CHAOS_STEERED_OK"
   defp reply_for(:steered_reply), do: "CHAOS_STEERED_OK"
-  defp reply_for(:terminal_persist_read_tool), do: "CHAOS_TERMINAL_PERSIST_READ_OK"
-  defp reply_for(:terminal_persist_start_tool), do: "CHAOS_TERMINAL_PERSIST_START_OK"
   defp reply_for(:todo_tool), do: "CHAOS_TODO_OK"
   defp reply_for(:workspace_read_tool), do: "CHAOS_WORKSPACE_READ_OK"
   defp reply_for(:workspace_write_tool), do: "CHAOS_WORKSPACE_WRITE_OK"
@@ -481,20 +430,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(:reply_attachment, 2), do: tool_call_for(:reply_attachment_tool)
   defp tool_call_for(:todo_tool, 1), do: tool_call_for(:todo_tool_start)
   defp tool_call_for(:todo_tool, 2), do: tool_call_for(:todo_tool_complete)
-  defp tool_call_for(:background_command_tool, 1), do: tool_call_for(:background_command_tool)
-
-  defp tool_call_for(:interactive_terminal_tool, count) when count in 1..4,
-    do: tool_call_for({:interactive_terminal_tool, count})
-
-  defp tool_call_for(:terminal_persist_start_tool, count) when count in 1..2,
-    do: tool_call_for({:terminal_persist_start_tool, count})
-
-  defp tool_call_for(:terminal_persist_read_tool, count) when count in 1..3,
-    do: tool_call_for({:terminal_persist_read_tool, count})
-
-  defp tool_call_for(:browser_open_tool, 1), do: tool_call_for(:browser_open_tool)
-  defp tool_call_for(:browser_run_tool, 1), do: tool_call_for(:browser_run_tool)
-  defp tool_call_for(:browser_extract_tool, 1), do: tool_call_for(:browser_extract_tool)
 
   defp tool_call_for(kind, count)
        when kind in [
@@ -525,9 +460,10 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_checkback",
       name: "check_back_later",
       arguments: %{
+        "action" => "create",
         "reason" => "Lark chaos checkback",
         "check" => "Confirm CHAOS_CHECKBACK_WAKE_OK",
-        "after" => %{"value" => 5, "unit" => "minute"},
+        "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}},
         "idempotency_key" => "lark-chaos-checkback-1"
       }
     }
@@ -618,184 +554,6 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     }
   end
 
-  defp tool_call_for(:background_command_tool) do
-    %{
-      id: "call_lark_chaos_background_command",
-      name: "command",
-      arguments: %{
-        "command" => "sleep 1; printf 'CHAOS_BACKGROUND_COMMAND_DONE'",
-        "background" => true,
-        "timeout" => 10
-      }
-    }
-  end
-
-  defp tool_call_for(:background_lifecycle_start) do
-    %{
-      id: "call_lark_chaos_background_lifecycle_start",
-      name: "command",
-      arguments: %{
-        "command" => "sleep 30; printf 'CHAOS_BACKGROUND_LIFECYCLE_DONE'",
-        "background" => true,
-        "timeout" => 60
-      }
-    }
-  end
-
-  defp tool_call_for({:background_lifecycle_status, background_id}) do
-    %{
-      id: "call_lark_chaos_background_lifecycle_status",
-      name: "command",
-      arguments: %{"action" => "status", "backgroundID" => background_id}
-    }
-  end
-
-  defp tool_call_for({:background_lifecycle_kill, background_id}) do
-    %{
-      id: "call_lark_chaos_background_lifecycle_kill",
-      name: "command",
-      arguments: %{"action" => "kill", "backgroundID" => background_id}
-    }
-  end
-
-  defp tool_call_for({:interactive_terminal_tool, 1}) do
-    %{
-      id: "call_lark_chaos_terminal_start",
-      name: "interactive_terminal",
-      arguments: %{
-        "action" => "start",
-        "session" => "chaos-terminal",
-        "command" => "bash",
-        "workdir" => "/workspace/user-files"
-      }
-    }
-  end
-
-  defp tool_call_for({:interactive_terminal_tool, 2}) do
-    %{
-      id: "call_lark_chaos_terminal_send",
-      name: "interactive_terminal",
-      arguments: %{
-        "action" => "send",
-        "session" => "chaos-terminal",
-        "input" => "pwd; printf 'CHAOS_INTERACTIVE_TERMINAL_SCREEN'",
-        "enter" => true
-      }
-    }
-  end
-
-  defp tool_call_for({:interactive_terminal_tool, 3}) do
-    %{
-      id: "call_lark_chaos_terminal_capture",
-      name: "interactive_terminal",
-      arguments: %{"action" => "capture", "session" => "chaos-terminal", "lines" => 40}
-    }
-  end
-
-  defp tool_call_for({:interactive_terminal_tool, 4}) do
-    %{
-      id: "call_lark_chaos_terminal_kill",
-      name: "interactive_terminal",
-      arguments: %{"action" => "kill", "session" => "chaos-terminal"}
-    }
-  end
-
-  defp tool_call_for({:terminal_persist_start_tool, 1}) do
-    %{
-      id: "call_lark_chaos_terminal_persist_start",
-      name: "interactive_terminal",
-      arguments: %{
-        "action" => "start",
-        "session" => "chaos-persist",
-        "command" => "bash",
-        "workdir" => "/workspace/user-files"
-      }
-    }
-  end
-
-  defp tool_call_for({:terminal_persist_start_tool, 2}) do
-    %{
-      id: "call_lark_chaos_terminal_persist_seed",
-      name: "interactive_terminal",
-      arguments: %{
-        "action" => "send",
-        "session" => "chaos-persist",
-        "input" =>
-          "mkdir -p persist-demo; cd persist-demo; printf 'CHAOS_TERMINAL_PERSISTED\\n' > note.txt; pwd",
-        "enter" => true
-      }
-    }
-  end
-
-  defp tool_call_for({:terminal_persist_read_tool, 1}) do
-    %{
-      id: "call_lark_chaos_terminal_persist_read",
-      name: "interactive_terminal",
-      arguments: %{
-        "action" => "send",
-        "session" => "chaos-persist",
-        "input" => "pwd; ls; cat note.txt",
-        "enter" => true
-      }
-    }
-  end
-
-  defp tool_call_for({:terminal_persist_read_tool, 2}) do
-    %{
-      id: "call_lark_chaos_terminal_persist_capture",
-      name: "interactive_terminal",
-      arguments: %{"action" => "capture", "session" => "chaos-persist", "lines" => 80}
-    }
-  end
-
-  defp tool_call_for({:terminal_persist_read_tool, 3}) do
-    %{
-      id: "call_lark_chaos_terminal_persist_kill",
-      name: "interactive_terminal",
-      arguments: %{"action" => "kill", "session" => "chaos-persist"}
-    }
-  end
-
-  defp tool_call_for(:browser_open_tool) do
-    %{
-      id: "call_lark_chaos_browser_open",
-      name: "browser_open",
-      arguments: %{
-        "url" => "https://example.com",
-        "taskID" => "lark-chaos-open",
-        "timeout" => 30,
-        "profileMode" => "ephemeral"
-      }
-    }
-  end
-
-  defp tool_call_for(:browser_run_tool) do
-    %{
-      id: "call_lark_chaos_browser_run",
-      name: "browser_run",
-      arguments: %{
-        "script" => "print('CHAOS_BROWSER_RUN_SCRIPT_OK')",
-        "taskID" => "lark-chaos-run",
-        "timeout" => 30,
-        "profileMode" => "ephemeral"
-      }
-    }
-  end
-
-  defp tool_call_for(:browser_extract_tool) do
-    %{
-      id: "call_lark_chaos_browser_extract",
-      name: "browser_extract",
-      arguments: %{
-        "url" => "https://example.com",
-        "taskID" => "lark-chaos-extract",
-        "format" => "text",
-        "timeout" => 30,
-        "profileMode" => "ephemeral"
-      }
-    }
-  end
-
   defp tool_call_for(:read_file_command) do
     %{
       id: "call_lark_chaos_read_file_command",
@@ -835,7 +593,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(:patch_tool) do
     %{
       id: "call_lark_chaos_patch",
-      name: "patch",
+      name: "replace",
       arguments: %{
         "path" => "/workspace/user-files/chaos/patch.txt",
         "old_string" => "CHAOS_PATCH_OLD",
@@ -880,108 +638,5 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     }
   end
 
-  defp tool_call_for(:background_lifecycle_tool, 1, _request),
-    do: tool_call_for(:background_lifecycle_start)
-
-  defp tool_call_for(:background_lifecycle_tool, 2, request) do
-    request
-    |> background_id_from_request()
-    |> case do
-      nil -> nil
-      background_id -> tool_call_for({:background_lifecycle_status, background_id})
-    end
-  end
-
-  defp tool_call_for(:background_lifecycle_tool, 3, request) do
-    request
-    |> background_id_from_request()
-    |> case do
-      nil -> nil
-      background_id -> tool_call_for({:background_lifecycle_kill, background_id})
-    end
-  end
-
   defp tool_call_for(kind, count, _request), do: tool_call_for(kind, count)
-
-  defp missing_background_lifecycle_id?(:background_lifecycle_tool, count, request)
-       when count in [2, 3],
-       do: is_nil(background_id_from_request(request))
-
-  defp missing_background_lifecycle_id?(_kind, _count, _request), do: false
-
-  defp background_id_from_request(request) do
-    find_background_id(request)
-  end
-
-  defp find_background_id(%{"backgroundID" => id}) when is_binary(id) and id != "", do: id
-  defp find_background_id(%{"background_id" => id}) when is_binary(id) and id != "", do: id
-  defp find_background_id(%{backgroundID: id}) when is_binary(id) and id != "", do: id
-  defp find_background_id(%{background_id: id}) when is_binary(id) and id != "", do: id
-
-  defp find_background_id(map) when is_map(map) do
-    map
-    |> Map.values()
-    |> Enum.find_value(&find_background_id/1)
-  end
-
-  defp find_background_id(list) when is_list(list),
-    do: Enum.find_value(list, &find_background_id/1)
-
-  defp find_background_id(binary) when is_binary(binary) do
-    binary = unwrap_untrusted_tool_output(binary) || String.trim(binary)
-
-    case background_id_from_text(binary) do
-      background_id when is_binary(background_id) ->
-        background_id
-
-      nil ->
-        case decode_embedded_json(binary) do
-          {:ok, decoded} -> find_background_id(decoded)
-          :error -> nil
-        end
-    end
-  end
-
-  defp find_background_id(_value), do: nil
-
-  defp decode_embedded_json(binary) do
-    trimmed = String.trim(binary)
-
-    if String.starts_with?(trimmed, ["{", "["]) do
-      case Ankole.JSON.decode(trimmed) do
-        {:ok, decoded} -> {:ok, decoded}
-        {:error, _reason} -> :error
-      end
-    else
-      :error
-    end
-  end
-
-  defp background_id_from_text(value) do
-    case Regex.run(~r/(?:^|\n)background_id=([^\n]+)/, value) do
-      [_match, background_id] ->
-        case String.trim(background_id) do
-          "" -> nil
-          background_id -> background_id
-        end
-
-      _no_match ->
-        nil
-    end
-  end
-
-  defp unwrap_untrusted_tool_output(value) do
-    value = String.trim(value)
-    prefix = ~s(<ankole_untrusted_tool_output nonce=")
-
-    with true <- String.starts_with?(value, prefix),
-         rest <- String.replace_prefix(value, prefix, ""),
-         [nonce, body_with_suffix] <- String.split(rest, ~s(">\n), parts: 2),
-         suffix <- ~s(\n</ankole_untrusted_tool_output nonce="#{nonce}">),
-         true <- String.ends_with?(body_with_suffix, suffix) do
-      String.replace_suffix(body_with_suffix, suffix, "")
-    else
-      _not_wrapped -> nil
-    end
-  end
 end

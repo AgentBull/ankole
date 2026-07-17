@@ -12,6 +12,7 @@ export type SkillPromptEntry = {
   description: string
   category?: string
   disableModelInvocation?: boolean
+  longRunning?: boolean
 }
 
 // The char cap is the real guardrail; the count cap is a cheap first cut. Every
@@ -41,14 +42,18 @@ export function formatSkillsForSystemPrompt(skills: SkillPromptEntry[]): string 
 /** Renders one exact prompt candidate so budget checks include all framing and warnings. */
 function renderSkillsPrompt(skills: SkillPromptEntry[], totalSkills: number, format: SkillsPromptFormat): string {
   const categories = groupSkillsByCategory(skills)
+  const hasLongRunningSkill = skills.some(skill => skill.longRunning)
 
   const lines = [
     '## Skills',
     '',
     `You have access to the following skills. Skills are task-specific instructions and references.
 Before performing a task or subtask you are already going to do, call \`skill_view(name)\` only if a listed skill covers that task, then follow the loaded instructions. If the user asks to inspect, view, choose, recommend, or identify an available skill, the index is only a routing aid: pick the relevant listed skill and call \`skill_view(name)\` before answering. Otherwise continue without a skill.`,
+    hasLongRunningSkill
+      ? 'Entries marked [background task] must run in a BackgroundAgentJob. Create one with background_agent_job(start), name the Skill in its self-contained task, and do not execute the Skill inline.'
+      : '',
     '<available_skills>'
-  ]
+  ].filter(Boolean)
 
   const limitNote = skillsLimitNote(skills.length, totalSkills, format)
   if (limitNote) lines.push(`  # ${limitNote}`)
@@ -59,7 +64,9 @@ Before performing a task or subtask you are already going to do, call \`skill_vi
     for (const skill of categorySkills) {
       const name = formatPromptScalar(skill.name)
       const description = skillDescriptionForFormat(skill.description, format)
-      lines.push(description ? `    - ${name}: ${formatPromptScalar(description)}` : `    - ${name}`)
+      const marker = skill.longRunning ? '[background task]' : ''
+      const value = [marker, description ? formatPromptScalar(description) : ''].filter(Boolean).join(' ')
+      lines.push(value ? `    - ${name}: ${value}` : `    - ${name}`)
     }
   }
 

@@ -12,13 +12,15 @@ export type MaterializedCodexConfig = {
 
 export function materializeCodexConfig(input: {
   sharedFsRoot: string
+  jobID: string
   runtime: CodexRuntimeConfig
   enableMultiAgent?: boolean
+  enablePlugins?: boolean
 }): MaterializedCodexConfig {
-  const safeAccountID = sanitizePathSegment(input.runtime.accountID, { replacement: '_' })
-  if (safeAccountID !== input.runtime.accountID) throw new Error('Codex account id is not a safe path segment')
+  const safeJobID = sanitizePathSegment(input.jobID, { replacement: '_' })
+  if (safeJobID !== input.jobID) throw new Error('Background agent job id is not a safe path segment')
 
-  const codexHome = join(input.sharedFsRoot, '.ankole', 'codex', safeAccountID)
+  const codexHome = join(input.sharedFsRoot, '.ankole', 'background-agent-jobs', safeJobID, 'codex-home')
   mkdirSync(codexHome, { recursive: true, mode: 0o700 })
   chmodSync(codexHome, 0o700)
 
@@ -33,14 +35,21 @@ export function materializeCodexConfig(input: {
   if (input.runtime.mode === 'aigateway') {
     atomicWrite(
       join(codexHome, 'config.toml'),
-      codexConfigToml(input.runtime.aiGatewayKey.base_url, input.enableMultiAgent ?? false)
+      codexConfigToml(
+        input.runtime.aiGatewayKey.base_url,
+        input.enableMultiAgent ?? false,
+        input.enablePlugins ?? false
+      )
     )
     rmSync(join(codexHome, 'auth.json'), { force: true })
     env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.api_key
     return { codexHome, env }
   }
 
-  atomicWrite(join(codexHome, 'config.toml'), codexConfigToml(undefined, input.enableMultiAgent ?? false))
+  atomicWrite(
+    join(codexHome, 'config.toml'),
+    codexConfigToml(undefined, input.enableMultiAgent ?? false, input.enablePlugins ?? false)
+  )
   const authPath = join(codexHome, 'auth.json')
   atomicWrite(authPath, input.runtime.authJSON)
   return {
@@ -62,7 +71,7 @@ export function codexConfigCLIOverrides(): string[] {
   ]
 }
 
-function codexConfigToml(baseURL: string | undefined, enableMultiAgent: boolean): string {
+function codexConfigToml(baseURL: string | undefined, enableMultiAgent: boolean, enablePlugins: boolean): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -70,12 +79,14 @@ web_search = "disabled"
 project_doc_max_bytes = 131072
 
 [features]
+memories = false
 remote_compaction_v2 = false
 multi_agent = false
 apps = false
 enable_mcp_apps = false
 tool_suggest = false
-plugins = false
+plugins = ${enablePlugins}
+remote_plugin = false
 ${
   enableMultiAgent
     ? `
@@ -85,6 +96,9 @@ hide_spawn_agent_metadata = true
 `
     : ''
 }
+
+[projects."/workspace"]
+trust_level = "trusted"
 `
   if (!baseURL) return common
 

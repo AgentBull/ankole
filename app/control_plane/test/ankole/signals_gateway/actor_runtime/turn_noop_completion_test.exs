@@ -27,16 +27,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                )
 
       assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
       assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok,
               %{
@@ -44,12 +40,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                 deleted_deliveries: 1,
                 activation: %ActorSessionActivation{} = activation
               }} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "ambient_silent"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "ambient_silent")
+               )
 
       assert activation.status == "active"
       assert is_nil(activation.current_actor_event_id)
@@ -66,12 +59,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
              )
 
       assert {:ok, %{status: :already_completed, deleted_deliveries: 0}} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "ambient_silent"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "ambient_silent")
+               )
     end
 
     test "marks active steer events complete when the accepted turn ends as noop" do
@@ -99,12 +89,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                )
 
       assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
@@ -118,27 +106,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
       assert_receive {:actor_lane, mailbox_envelope}, 2_000
-      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
 
-      assert mailbox_envelope["body"]["mailbox_updated"]["actor_event"]["actor_event_id"] ==
+      assert envelope_body!(mailbox_envelope, :mailbox_updated).actor_event.actor_event_id ==
                steer_event.id
 
-      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
 
       assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_id}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => mailbox["turn"]}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
 
       assert steer_id == steer_event.id
 
       assert {:ok, %{status: :noop_completed, deleted_deliveries: 2, superseded_deliveries: 0}} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "ambient_silent"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "ambient_silent")
+               )
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
@@ -178,12 +161,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                )
 
       assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
@@ -199,15 +180,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert_receive {:actor_lane, mailbox_envelope}, 2_000
-      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
 
       assert {:ok, %{status: :noop_completed, deleted_deliveries: 1, superseded_deliveries: 1}} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "ambient_silent"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "ambient_silent")
+               )
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at

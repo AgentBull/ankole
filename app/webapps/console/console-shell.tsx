@@ -54,6 +54,7 @@ import {
   RiEyeOffLine,
   RiInformationLine,
   RiInboxLine,
+  RiKey2Line,
   RiLoaderLine,
   RiLogoutBoxRLine,
   RiMenuLine,
@@ -70,7 +71,9 @@ import {
   RiServerLine,
   RiGitBranchLine,
   RiTerminalBoxLine,
-  RiChat3Line
+  RiChat3Line,
+  RiTimeLine,
+  RiPuzzle2Line
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState, type ComponentProps, type ComponentType, type FormEvent, type ReactNode } from 'react'
@@ -98,11 +101,14 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
+  { to: '/agent-library', label: 'console.nav.agent_library', icon: RiPuzzle2Line },
   { to: '/providers', label: 'console.nav.providers', icon: RiSparkling2Line },
   { to: '/identity', label: 'console.nav.identity', icon: RiShieldKeyholeLine },
+  { to: '/access', label: 'console.nav.access', icon: RiKey2Line },
   { to: '/signals', label: 'console.nav.signals', icon: RiBroadcastLine },
   { to: '/workers', label: 'console.nav.workers', icon: RiServerLine },
-  { to: '/delegations', label: 'console.nav.delegations', icon: RiGitBranchLine },
+  { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: RiGitBranchLine },
+  { to: '/schedules', label: 'console.nav.schedules', icon: RiTimeLine },
   { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
   { to: '/brain', label: 'console.nav.brain', icon: RiBrainLine },
   { to: '/worker-envs', label: 'console.nav.worker_envs', icon: RiTerminalBoxLine },

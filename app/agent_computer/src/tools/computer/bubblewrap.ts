@@ -1,12 +1,13 @@
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname, relative } from 'node:path'
+import { dirname } from 'node:path'
 import {
   BUILTIN_SKILLS_ROOT,
   INTERNAL_SKILLS_ROOT,
   WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT,
   WORKSPACE_MODEL_ROOT,
-  WORKSPACE_USER_FILES_ROOT
+  WORKSPACE_USER_FILES_ROOT,
+  toWorkspacePathStrict
 } from '../../core/workspace-paths'
 
 export type BubblewrapMode = 'strong' | 'weak'
@@ -195,7 +196,7 @@ function runtimeWorkspaceBinds(): string[] {
     binds.push('--bind', installedSkillsRoot, WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT)
   }
 
-  const globalToolPackagesRoot = bunGlobalToolPackagesRoot()
+  const globalToolPackagesRoot = codexGlobalPackagesRoot()
   if (existsSync(globalToolPackagesRoot)) {
     pushDirs(binds, parentDirs(globalToolPackagesRoot))
     binds.push('--ro-bind', globalToolPackagesRoot, globalToolPackagesRoot)
@@ -217,13 +218,12 @@ function runtimeWorkspaceBinds(): string[] {
 }
 
 /**
- * Resolves the global Bun packages behind image-provided tool CLIs.
+ * Resolves the global Bun package closure behind the image-provided Codex CLI.
  *
- * The whole node_modules directory is one dependency closure: mcporter imports
- * the MCP SDK and other hoisted siblings at runtime, while its public wrapper
- * under `/usr/local/bin` is already present through the read-only `/usr` bind.
+ * Codex may import hoisted siblings at runtime, while its public wrapper under
+ * `/usr/local/bin` is already present through the read-only `/usr` bind.
  */
-function bunGlobalToolPackagesRoot(): string {
+function codexGlobalPackagesRoot(): string {
   const bunGlobalRoot = '/root/.bun/install/global/node_modules'
   if (existsSync(bunGlobalRoot)) return bunGlobalRoot
 
@@ -294,6 +294,5 @@ function readOnlySystemBinds(): string[] {
  * Converts a host workspace path to the corresponding sandbox path.
  */
 function sandboxWorkspacePath(workspaceRoot: string, hostPath: string): string {
-  const path = relative(workspaceRoot, hostPath)
-  return path ? `/workspace/${path}` : '/workspace'
+  return toWorkspacePathStrict(workspaceRoot, hostPath)
 }

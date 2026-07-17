@@ -2,49 +2,6 @@
   "components": {
     "responses": {},
     "schemas": {
-      "SubagentDelegationListResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "calibration_summary": {
-            "additionalProperties": false,
-            "properties": {
-              "confidence_buckets": {
-                "items": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "confidence": { "maximum": 5, "minimum": 1, "type": "integer" },
-                    "forecasts": { "minimum": 1, "type": "integer" },
-                    "hit_rate": { "nullable": true, "type": "number" },
-                    "hits": { "minimum": 0, "type": "integer" }
-                  },
-                  "required": ["confidence", "forecasts", "hits", "hit_rate"],
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "forecast_count": { "minimum": 0, "type": "integer" },
-              "mean_brier_score": { "nullable": true, "type": "number" },
-              "no_edge_count": { "minimum": 0, "type": "integer" },
-              "no_edge_rate": { "nullable": true, "type": "number" },
-              "resolved_forecast_count": { "minimum": 0, "type": "integer" }
-            },
-            "required": [
-              "forecast_count",
-              "resolved_forecast_count",
-              "mean_brier_score",
-              "no_edge_count",
-              "no_edge_rate",
-              "confidence_buckets"
-            ],
-            "type": "object"
-          },
-          "delegations": { "items": { "$ref": "#/components/schemas/SubagentDelegationItem" }, "type": "array" },
-          "next_cursor": { "nullable": true, "type": "string" }
-        },
-        "required": ["delegations", "next_cursor", "calibration_summary"],
-        "title": "SubagentDelegationListResponse",
-        "type": "object"
-      },
       "AgentLibraryDocumentItem": {
         "additionalProperties": false,
         "properties": {
@@ -99,6 +56,33 @@
         "title": "AppConfigurationResponse",
         "type": "object"
       },
+      "PrincipalGroupCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "computed_condition": {
+            "description": "CEL condition required when kind is computed",
+            "nullable": true,
+            "type": "string"
+          },
+          "description": { "nullable": true, "type": "string" },
+          "display_name": { "type": "string" },
+          "kind": { "default": "static", "enum": ["static", "computed"], "type": "string" },
+          "name": { "description": "Lowercase stable policy key", "type": "string" }
+        },
+        "required": ["name", "display_name"],
+        "title": "PrincipalGroupCreateRequest",
+        "type": "object"
+      },
+      "PrincipalGroupUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "computed_condition": { "nullable": true, "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "display_name": { "nullable": true, "type": "string" }
+        },
+        "title": "PrincipalGroupUpdateRequest",
+        "type": "object"
+      },
       "BrainEntryOperationsRequest": {
         "additionalProperties": false,
         "properties": {
@@ -137,18 +121,14 @@
         "title": "WorkerEnvDecryptionResponse",
         "type": "object"
       },
-      "SubagentTurnToolUsage": {
+      "BackgroundAgentJobTurnPlanStep": {
         "additionalProperties": false,
-        "properties": { "calls": { "minimum": 0, "type": "integer" }, "name": { "minLength": 1, "type": "string" } },
-        "required": ["name", "calls"],
-        "title": "SubagentTurnToolUsage",
-        "type": "object"
-      },
-      "SubagentDelegationResponse": {
-        "additionalProperties": false,
-        "properties": { "delegation": { "$ref": "#/components/schemas/SubagentDelegationItem" } },
-        "required": ["delegation"],
-        "title": "SubagentDelegationResponse",
+        "properties": {
+          "status": { "enum": ["pending", "in_progress", "completed"], "type": "string" },
+          "step": { "minLength": 1, "type": "string" }
+        },
+        "required": ["step", "status"],
+        "title": "BackgroundAgentJobTurnPlanStep",
         "type": "object"
       },
       "JSONValue": {
@@ -251,6 +231,136 @@
         },
         "required": ["provider_id", "status"],
         "title": "IdentityProviderSyncRunItem",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnItem": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt": { "type": "integer" },
+          "completed_at": { "nullable": true, "type": "string" },
+          "error": { "additionalProperties": true, "type": "object" },
+          "id": { "type": "string" },
+          "inserted_at": { "type": "string" },
+          "kind": { "enum": ["agent", "compaction"], "type": "string" },
+          "progress": { "$ref": "#/components/schemas/BackgroundAgentJobTurnProgress" },
+          "revision": { "type": "integer" },
+          "runtime_thread_id": { "type": "string" },
+          "runtime_turn_id": { "type": "string" },
+          "started_at": { "type": "string" },
+          "status": { "enum": ["in_progress", "completed", "failed", "interrupted"], "type": "string" },
+          "trajectory": {
+            "additionalProperties": false,
+            "properties": {
+              "format": { "enum": ["ankole_chatml"], "type": "string" },
+              "messages": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": true,
+                      "properties": {
+                        "content": {
+                          "oneOf": [
+                            { "type": "string" },
+                            {
+                              "items": {
+                                "additionalProperties": true,
+                                "properties": { "type": { "type": "string" } },
+                                "required": ["type"],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            }
+                          ]
+                        },
+                        "id": { "type": "string" },
+                        "metadata": { "additionalProperties": true, "type": "object" },
+                        "role": { "enum": ["user", "developer"], "type": "string" }
+                      },
+                      "required": ["role", "content"],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "properties": {
+                        "content": { "type": "string" },
+                        "id": { "type": "string" },
+                        "metadata": { "additionalProperties": true, "type": "object" },
+                        "role": { "enum": ["assistant"], "type": "string" },
+                        "tool_calls": {
+                          "items": {
+                            "additionalProperties": true,
+                            "properties": {
+                              "function": {
+                                "additionalProperties": true,
+                                "properties": { "arguments": { "type": "string" }, "name": { "type": "string" } },
+                                "required": ["name", "arguments"],
+                                "type": "object"
+                              },
+                              "id": { "type": "string" },
+                              "type": { "enum": ["function"], "type": "string" }
+                            },
+                            "required": ["id", "type", "function"],
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": ["role", "content"],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "properties": {
+                        "content": { "type": "string" },
+                        "id": { "type": "string" },
+                        "metadata": { "additionalProperties": true, "type": "object" },
+                        "name": { "type": "string" },
+                        "role": { "enum": ["tool"], "type": "string" },
+                        "tool_call_id": { "type": "string" }
+                      },
+                      "required": ["role", "tool_call_id", "name", "content"],
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "metadata": {
+                "additionalProperties": false,
+                "properties": {
+                  "content_truncated": { "type": "boolean" },
+                  "max_bytes": { "type": "integer" },
+                  "omitted_items": { "type": "integer" },
+                  "omitted_messages": { "type": "integer" },
+                  "redacted": { "type": "boolean" }
+                },
+                "type": "object"
+              },
+              "version": { "enum": [1], "type": "integer" }
+            },
+            "required": ["format", "version", "messages"],
+            "type": "object"
+          },
+          "updated_at": { "type": "string" },
+          "usage": { "allOf": [{ "$ref": "#/components/schemas/BackgroundAgentJobTurnUsage" }], "nullable": true }
+        },
+        "required": [
+          "id",
+          "attempt",
+          "runtime_thread_id",
+          "runtime_turn_id",
+          "kind",
+          "status",
+          "revision",
+          "trajectory",
+          "progress",
+          "usage",
+          "error",
+          "started_at",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "BackgroundAgentJobTurnItem",
         "type": "object"
       },
       "ModelProfileResponse": {
@@ -397,16 +507,53 @@
       "AIGatewayConversationItem": {
         "additionalProperties": false,
         "properties": {
+          "channel_kind": {
+            "enum": ["im_dm", "im_group", "webhook_endpoint", "issue", "alert_stream", "unknown"],
+            "nullable": true,
+            "type": "string"
+          },
           "conversation_key": { "type": "string" },
+          "display_name": { "nullable": true, "type": "string" },
           "ended_at": { "nullable": true, "type": "string" },
           "id": { "type": "string" },
           "inserted_at": { "type": "string" },
+          "kind": { "enum": ["signal", "dreaming", "job", "responses_api", "custom"], "type": "string" },
+          "message_count": { "type": "integer" },
           "metadata": { "additionalProperties": true, "type": "object" },
+          "signal_adapter": { "nullable": true, "type": "string" },
           "subject_uid": { "type": "string" },
           "updated_at": { "type": "string" }
         },
-        "required": ["id", "subject_uid", "conversation_key", "metadata", "inserted_at", "updated_at"],
+        "required": [
+          "id",
+          "subject_uid",
+          "conversation_key",
+          "kind",
+          "display_name",
+          "channel_kind",
+          "signal_adapter",
+          "message_count",
+          "metadata",
+          "inserted_at",
+          "updated_at"
+        ],
         "title": "AIGatewayConversationItem",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnActiveItem": {
+        "additionalProperties": false,
+        "properties": { "id": { "minLength": 1, "type": "string" }, "name": { "minLength": 1, "type": "string" } },
+        "required": ["id", "name"],
+        "title": "BackgroundAgentJobTurnActiveItem",
+        "type": "object"
+      },
+      "PrincipalGroupListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "principal_groups": { "items": { "$ref": "#/components/schemas/PrincipalGroupItem" }, "type": "array" }
+        },
+        "required": ["principal_groups"],
+        "title": "PrincipalGroupListResponse",
         "type": "object"
       },
       "ScheduleCronScheduleResponse": {
@@ -421,6 +568,16 @@
         "properties": { "agent": { "$ref": "#/components/schemas/AgentItem" } },
         "required": ["agent"],
         "title": "AgentResponse",
+        "type": "object"
+      },
+      "AgentLibraryCapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_plugins": { "items": { "$ref": "#/components/schemas/AgentPluginCapabilityItem" }, "type": "array" },
+          "skills": { "items": { "$ref": "#/components/schemas/AgentLibrarySkillCapabilityItem" }, "type": "array" }
+        },
+        "required": ["agent_plugins", "skills"],
+        "title": "AgentLibraryCapabilitiesResponse",
         "type": "object"
       },
       "AIGatewayMessageListResponse": {
@@ -445,6 +602,20 @@
         },
         "required": ["provider_id", "adapter_id", "plugin_id", "config_key", "enabled", "config"],
         "title": "IdentityProviderItem",
+        "type": "object"
+      },
+      "AgentLibraryAgentOverrideWriteRequest": {
+        "additionalProperties": false,
+        "properties": { "enabled": { "nullable": true, "type": "boolean" } },
+        "required": ["enabled"],
+        "title": "AgentLibraryAgentOverrideWriteRequest",
+        "type": "object"
+      },
+      "PrincipalGroupResponse": {
+        "additionalProperties": false,
+        "properties": { "principal_group": { "$ref": "#/components/schemas/PrincipalGroupItem" } },
+        "required": ["principal_group"],
+        "title": "PrincipalGroupResponse",
         "type": "object"
       },
       "AIGatewayProviderEncryptedOptionProjection": {
@@ -475,6 +646,13 @@
         "title": "BrainAuditLog",
         "type": "object"
       },
+      "PrincipalResponse": {
+        "additionalProperties": false,
+        "properties": { "principal": { "$ref": "#/components/schemas/PrincipalItem" } },
+        "required": ["principal"],
+        "title": "PrincipalResponse",
+        "type": "object"
+      },
       "AIGatewayProviderSetting": {
         "additionalProperties": false,
         "properties": {
@@ -496,6 +674,94 @@
         "properties": { "identity_provider": { "$ref": "#/components/schemas/IdentityProviderItem" } },
         "required": ["identity_provider"],
         "title": "IdentityProviderResponse",
+        "type": "object"
+      },
+      "BackgroundAgentJobListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "jobs": { "items": { "$ref": "#/components/schemas/BackgroundAgentJobItem" }, "type": "array" },
+          "next_cursor": { "nullable": true, "type": "string" }
+        },
+        "required": ["jobs", "next_cursor"],
+        "title": "BackgroundAgentJobListResponse",
+        "type": "object"
+      },
+      "BackgroundAgentJobItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_plugin_ids": { "items": { "type": "string" }, "type": "array" },
+          "agent_uid": { "type": "string" },
+          "attempts": { "type": "integer" },
+          "background": { "nullable": true, "type": "string" },
+          "codex_account_id": { "type": "string" },
+          "completed_at": { "nullable": true, "type": "string" },
+          "duration_seconds": { "type": "integer" },
+          "error": { "additionalProperties": true, "type": "object" },
+          "id": { "type": "string" },
+          "inserted_at": { "type": "string" },
+          "metadata": { "additionalProperties": true, "type": "object" },
+          "model": { "nullable": true, "type": "string" },
+          "notes": { "nullable": true, "type": "string" },
+          "owner_session_id": { "type": "string" },
+          "queued_at": { "nullable": true, "type": "string" },
+          "reasoning_effort": {
+            "enum": ["minimal", "low", "medium", "high", "xhigh"],
+            "nullable": true,
+            "type": "string"
+          },
+          "reply_route": { "additionalProperties": true, "type": "object" },
+          "result": { "additionalProperties": true, "type": "object" },
+          "runtime_thread_id": { "nullable": true, "type": "string" },
+          "skill_names": { "items": { "type": "string" }, "type": "array" },
+          "source_actor_event_id": { "nullable": true, "type": "string" },
+          "source_tool_call_id": { "type": "string" },
+          "started_at": { "nullable": true, "type": "string" },
+          "status": {
+            "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
+            "type": "string"
+          },
+          "task": { "type": "string" },
+          "title": { "type": "string" },
+          "turns": { "items": { "$ref": "#/components/schemas/BackgroundAgentJobTurnItem" }, "type": "array" },
+          "updated_at": { "type": "string" },
+          "workspace_mounts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "access": { "enum": ["read_only", "read_write"], "type": "string" },
+                "id": { "type": "string" },
+                "source": { "type": "string" }
+              },
+              "required": ["id", "source", "access"],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "agent_uid",
+          "owner_session_id",
+          "source_tool_call_id",
+          "codex_account_id",
+          "title",
+          "task",
+          "status",
+          "attempts",
+          "agent_plugin_ids",
+          "skill_names",
+          "workspace_mounts",
+          "model",
+          "reasoning_effort",
+          "reply_route",
+          "result",
+          "error",
+          "metadata",
+          "duration_seconds",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "BackgroundAgentJobItem",
         "type": "object"
       },
       "AppConfigurationItem": {
@@ -576,6 +842,55 @@
         "title": "AgentLibraryDocumentResponse",
         "type": "object"
       },
+      "PrincipalGroupItem": {
+        "additionalProperties": false,
+        "properties": {
+          "built_in": { "type": "boolean" },
+          "computed_condition": { "nullable": true, "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "display_name": { "type": "string" },
+          "domain": { "enum": ["operator", "directory", "im_group"], "type": "string" },
+          "grant_count": { "type": "integer" },
+          "id": { "type": "string" },
+          "inserted_at": { "type": "string" },
+          "kind": { "enum": ["static", "computed"], "type": "string" },
+          "member_count": { "type": "integer" },
+          "name": { "type": "string" },
+          "updated_at": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "name",
+          "display_name",
+          "domain",
+          "kind",
+          "built_in",
+          "member_count",
+          "grant_count",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "PrincipalGroupItem",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnProgress": {
+        "additionalProperties": false,
+        "properties": {
+          "active_item": { "$ref": "#/components/schemas/BackgroundAgentJobTurnActiveItem" },
+          "completed_items": { "minimum": 0, "type": "integer" },
+          "files_changed": { "items": { "type": "string" }, "maxItems": 1024, "type": "array" },
+          "plan": { "$ref": "#/components/schemas/BackgroundAgentJobTurnPlan" },
+          "tool_calls": { "minimum": 0, "type": "integer" },
+          "tools_used": {
+            "items": { "$ref": "#/components/schemas/BackgroundAgentJobTurnToolUsage" },
+            "maxItems": 128,
+            "type": "array"
+          }
+        },
+        "required": ["completed_items", "tool_calls", "tools_used", "files_changed"],
+        "title": "BackgroundAgentJobTurnProgress",
+        "type": "object"
+      },
       "ScheduleCronUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -639,6 +954,13 @@
         "title": "ConsoleTokenRequest",
         "type": "object"
       },
+      "BackgroundAgentJobTurnToolUsage": {
+        "additionalProperties": false,
+        "properties": { "calls": { "minimum": 0, "type": "integer" }, "name": { "minLength": 1, "type": "string" } },
+        "required": ["name", "calls"],
+        "title": "BackgroundAgentJobTurnToolUsage",
+        "type": "object"
+      },
       "ScheduleEventListResponse": {
         "additionalProperties": false,
         "properties": { "schedule_events": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" } },
@@ -655,6 +977,31 @@
         },
         "required": ["value"],
         "title": "SignalAdapterFieldOption",
+        "type": "object"
+      },
+      "AgentLibrarySkillCapabilityItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_plugin_id": { "nullable": true, "type": "string" },
+          "description": { "type": "string" },
+          "effective_enabled": { "type": "boolean" },
+          "global_default_enabled": { "type": "boolean" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "override_enabled": { "nullable": true, "type": "boolean" },
+          "source_kind": { "enum": ["builtin", "installed"], "type": "string" }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "source_kind",
+          "agent_plugin_id",
+          "global_default_enabled",
+          "override_enabled",
+          "effective_enabled"
+        ],
+        "title": "AgentLibrarySkillCapabilityItem",
         "type": "object"
       },
       "WorkerFileUploadResponse": {
@@ -676,15 +1023,15 @@
         "title": "WorkerFileUploadResponse",
         "type": "object"
       },
-      "SubagentTurnUsage": {
+      "PermissionGrantUpdateRequest": {
         "additionalProperties": false,
         "properties": {
-          "last_model_call": { "$ref": "#/components/schemas/SubagentTurnUsageBreakdown" },
-          "model_context_window": { "minimum": 0, "type": "integer" },
-          "thread_total": { "$ref": "#/components/schemas/SubagentTurnUsageBreakdown" }
+          "action": { "nullable": true, "type": "string" },
+          "condition": { "nullable": true, "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "resource_pattern": { "nullable": true, "type": "string" }
         },
-        "required": ["thread_total", "last_model_call"],
-        "title": "SubagentTurnUsage",
+        "title": "PermissionGrantUpdateRequest",
         "type": "object"
       },
       "AgentComputerWorkerItem": {
@@ -724,6 +1071,13 @@
         "title": "AgentItem",
         "type": "object"
       },
+      "AgentSessionListResponse": {
+        "additionalProperties": false,
+        "properties": { "sessions": { "items": { "$ref": "#/components/schemas/AgentSession" }, "type": "array" } },
+        "required": ["sessions"],
+        "title": "AgentSessionListResponse",
+        "type": "object"
+      },
       "CodexAccountResponse": {
         "additionalProperties": false,
         "properties": { "codex_account": { "$ref": "#/components/schemas/CodexAccountItem" } },
@@ -738,61 +1092,6 @@
         },
         "required": ["signal_bindings"],
         "title": "SignalBindingListResponse",
-        "type": "object"
-      },
-      "SubagentDelegationItem": {
-        "additionalProperties": false,
-        "properties": {
-          "actual_outcome": { "nullable": true, "type": "boolean" },
-          "agent_uid": { "type": "string" },
-          "attempts": { "type": "integer" },
-          "background": { "nullable": true, "type": "string" },
-          "codex_account_id": { "type": "string" },
-          "completed_at": { "nullable": true, "type": "string" },
-          "duration_seconds": { "type": "integer" },
-          "error": { "additionalProperties": true, "type": "object" },
-          "id": { "type": "string" },
-          "inserted_at": { "type": "string" },
-          "metadata": { "additionalProperties": true, "type": "object" },
-          "mode": { "enum": ["general", "forecast", "retrospect"], "nullable": true, "type": "string" },
-          "notes": { "nullable": true, "type": "string" },
-          "queued_at": { "nullable": true, "type": "string" },
-          "reply_route": { "additionalProperties": true, "type": "object" },
-          "result": { "additionalProperties": true, "type": "object" },
-          "runtime": { "enum": ["task_worker", "deep_research"], "type": "string" },
-          "runtime_thread_id": { "nullable": true, "type": "string" },
-          "session_id": { "type": "string" },
-          "source_delegation_id": { "nullable": true, "type": "string" },
-          "started_at": { "nullable": true, "type": "string" },
-          "status": {
-            "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
-            "type": "string"
-          },
-          "task": { "type": "string" },
-          "title": { "type": "string" },
-          "turns": { "items": { "$ref": "#/components/schemas/SubagentDelegationTurnItem" }, "type": "array" },
-          "updated_at": { "type": "string" },
-          "workdir": { "nullable": true, "type": "string" }
-        },
-        "required": [
-          "id",
-          "agent_uid",
-          "session_id",
-          "runtime",
-          "codex_account_id",
-          "title",
-          "task",
-          "status",
-          "attempts",
-          "reply_route",
-          "result",
-          "error",
-          "metadata",
-          "duration_seconds",
-          "inserted_at",
-          "updated_at"
-        ],
-        "title": "SubagentDelegationItem",
         "type": "object"
       },
       "SignalBindingWriteRequest": {
@@ -814,6 +1113,50 @@
         "properties": { "sources": { "items": { "$ref": "#/components/schemas/BrainSourceEntry" }, "type": "array" } },
         "required": ["sources"],
         "title": "BrainSourceListResponse",
+        "type": "object"
+      },
+      "AgentPluginCapabilityItem": {
+        "additionalProperties": false,
+        "properties": {
+          "content_hash": { "type": "string" },
+          "description": { "type": "string" },
+          "effective_enabled": { "type": "boolean" },
+          "global_default_enabled": { "type": "boolean" },
+          "id": { "type": "string" },
+          "override_enabled": { "nullable": true, "type": "boolean" },
+          "skills": { "items": { "$ref": "#/components/schemas/AgentLibrarySkillCapabilityItem" }, "type": "array" },
+          "version": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "description",
+          "version",
+          "content_hash",
+          "global_default_enabled",
+          "override_enabled",
+          "effective_enabled",
+          "skills"
+        ],
+        "title": "AgentPluginCapabilityItem",
+        "type": "object"
+      },
+      "AgentLibraryGlobalDefaultWriteRequest": {
+        "additionalProperties": false,
+        "properties": { "enabled": { "type": "boolean" } },
+        "required": ["enabled"],
+        "title": "AgentLibraryGlobalDefaultWriteRequest",
+        "type": "object"
+      },
+      "ControlPlanePluginListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "control_plane_plugins": {
+            "items": { "$ref": "#/components/schemas/ControlPlanePluginItem" },
+            "type": "array"
+          }
+        },
+        "required": ["control_plane_plugins"],
+        "title": "ControlPlanePluginListResponse",
         "type": "object"
       },
       "WorkerFileListResponse": {
@@ -957,16 +1300,6 @@
         "title": "BrainEntryOperationsResponse",
         "type": "object"
       },
-      "SubagentTurnPlanStep": {
-        "additionalProperties": false,
-        "properties": {
-          "status": { "enum": ["pending", "in_progress", "completed"], "type": "string" },
-          "step": { "minLength": 1, "type": "string" }
-        },
-        "required": ["step", "status"],
-        "title": "SubagentTurnPlanStep",
-        "type": "object"
-      },
       "CodexAccountUpdateRequest": {
         "additionalProperties": false,
         "properties": { "auth_json": { "nullable": true, "type": "string" }, "name": { "type": "string" } },
@@ -1001,6 +1334,18 @@
         "title": "OAuthErrorResponse",
         "type": "object"
       },
+      "PrincipalGroupMemberListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "principal_group_members": {
+            "items": { "$ref": "#/components/schemas/PrincipalGroupMemberItem" },
+            "type": "array"
+          }
+        },
+        "required": ["principal_group_members"],
+        "title": "PrincipalGroupMemberListResponse",
+        "type": "object"
+      },
       "AppConfigurationUpdateRequest": {
         "additionalProperties": false,
         "properties": { "value": { "$ref": "#/components/schemas/JSONValue" } },
@@ -1021,31 +1366,11 @@
         "title": "BrainDreamingRun",
         "type": "object"
       },
-      "SubagentTurnUsageBreakdown": {
+      "ControlPlanePluginWriteRequest": {
         "additionalProperties": false,
-        "properties": {
-          "cached_input_tokens": { "minimum": 0, "type": "integer" },
-          "input_tokens": { "minimum": 0, "type": "integer" },
-          "output_tokens": { "minimum": 0, "type": "integer" },
-          "reasoning_output_tokens": { "minimum": 0, "type": "integer" },
-          "total_tokens": { "minimum": 0, "type": "integer" }
-        },
-        "required": ["total_tokens", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"],
-        "title": "SubagentTurnUsageBreakdown",
-        "type": "object"
-      },
-      "SubagentTurnPlan": {
-        "additionalProperties": false,
-        "properties": {
-          "explanation": { "type": "string" },
-          "steps": {
-            "items": { "$ref": "#/components/schemas/SubagentTurnPlanStep" },
-            "maxItems": 100,
-            "type": "array"
-          }
-        },
-        "required": ["steps"],
-        "title": "SubagentTurnPlan",
+        "properties": { "enabled": { "type": "boolean" }, "id": { "type": "string" } },
+        "required": ["id", "enabled"],
+        "title": "ControlPlanePluginWriteRequest",
         "type": "object"
       },
       "AIGatewayProviderKindItem": {
@@ -1098,13 +1423,6 @@
         },
         "required": ["account_id", "name", "auth_hash", "inserted_at", "updated_at"],
         "title": "CodexAccountItem",
-        "type": "object"
-      },
-      "SubagentTurnActiveItem": {
-        "additionalProperties": false,
-        "properties": { "id": { "minLength": 1, "type": "string" }, "name": { "minLength": 1, "type": "string" } },
-        "required": ["id", "name"],
-        "title": "SubagentTurnActiveItem",
         "type": "object"
       },
       "BrainSourceEntry": {
@@ -1187,6 +1505,32 @@
         "title": "WorkerEnvDecryptionValue",
         "type": "object"
       },
+      "PermissionGrantItem": {
+        "additionalProperties": false,
+        "properties": {
+          "action": { "type": "string" },
+          "condition": { "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "group_id": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "inserted_at": { "type": "string" },
+          "principal_uid": { "nullable": true, "type": "string" },
+          "resource_pattern": { "type": "string" },
+          "updated_at": { "type": "string" }
+        },
+        "required": [
+          "id",
+          "principal_uid",
+          "group_id",
+          "resource_pattern",
+          "action",
+          "condition",
+          "inserted_at",
+          "updated_at"
+        ],
+        "title": "PermissionGrantItem",
+        "type": "object"
+      },
       "IdentityProviderAdapterListResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1219,6 +1563,30 @@
         },
         "required": ["codex_accounts"],
         "title": "CodexAccountListResponse",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnUsage": {
+        "additionalProperties": false,
+        "properties": {
+          "last_model_call": { "$ref": "#/components/schemas/BackgroundAgentJobTurnUsageBreakdown" },
+          "model_context_window": { "minimum": 0, "type": "integer" },
+          "thread_total": { "$ref": "#/components/schemas/BackgroundAgentJobTurnUsageBreakdown" }
+        },
+        "required": ["thread_total", "last_model_call"],
+        "title": "BackgroundAgentJobTurnUsage",
+        "type": "object"
+      },
+      "BackgroundAgentJobTurnUsageBreakdown": {
+        "additionalProperties": false,
+        "properties": {
+          "cached_input_tokens": { "minimum": 0, "type": "integer" },
+          "input_tokens": { "minimum": 0, "type": "integer" },
+          "output_tokens": { "minimum": 0, "type": "integer" },
+          "reasoning_output_tokens": { "minimum": 0, "type": "integer" },
+          "total_tokens": { "minimum": 0, "type": "integer" }
+        },
+        "required": ["total_tokens", "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"],
+        "title": "BackgroundAgentJobTurnUsageBreakdown",
         "type": "object"
       },
       "AppConfigurationListResponse": {
@@ -1349,6 +1717,13 @@
         "title": "BrainEntryOperation",
         "type": "object"
       },
+      "BackgroundAgentJobResponse": {
+        "additionalProperties": false,
+        "properties": { "job": { "$ref": "#/components/schemas/BackgroundAgentJobItem" } },
+        "required": ["job"],
+        "title": "BackgroundAgentJobResponse",
+        "type": "object"
+      },
       "ConsoleApiErrorDetail": {
         "additionalProperties": true,
         "properties": { "message": { "type": "string" }, "path": { "nullable": true, "type": "string" } },
@@ -1376,6 +1751,13 @@
           "provider_kind": { "type": "string" }
         },
         "title": "AIGatewayProviderWriteRequest",
+        "type": "object"
+      },
+      "ComputedMemberPreviewRequest": {
+        "additionalProperties": false,
+        "properties": { "condition": { "description": "CEL condition over the principal object", "type": "string" } },
+        "required": ["condition"],
+        "title": "ComputedMemberPreviewRequest",
         "type": "object"
       },
       "BrainAuditRestorationsRequest": {
@@ -1444,6 +1826,24 @@
         "title": "AppConfigurationDecryptionResponse",
         "type": "object"
       },
+      "AgentSession": {
+        "additionalProperties": false,
+        "description": "One actor session surfaced from durable schedule, event, or job rows.",
+        "properties": {
+          "kind": {
+            "description": "`job` marks a background-agent-job session (id `\"job:<id>\"`).",
+            "enum": ["job", "session"],
+            "type": "string"
+          },
+          "last_activity_at": { "nullable": true, "type": "string" },
+          "session_id": { "type": "string" },
+          "status": { "nullable": true, "type": "string" },
+          "title": { "nullable": true, "type": "string" }
+        },
+        "required": ["session_id", "kind"],
+        "title": "AgentSession",
+        "type": "object"
+      },
       "BrainEntryBlock": {
         "additionalProperties": false,
         "properties": {
@@ -1473,22 +1873,59 @@
         "title": "BrainEntryBlock",
         "type": "object"
       },
-      "SubagentTurnProgress": {
+      "BackgroundAgentJobTurnPlan": {
         "additionalProperties": false,
         "properties": {
-          "active_item": { "$ref": "#/components/schemas/SubagentTurnActiveItem" },
-          "completed_items": { "minimum": 0, "type": "integer" },
-          "files_changed": { "items": { "type": "string" }, "maxItems": 1024, "type": "array" },
-          "plan": { "$ref": "#/components/schemas/SubagentTurnPlan" },
-          "tool_calls": { "minimum": 0, "type": "integer" },
-          "tools_used": {
-            "items": { "$ref": "#/components/schemas/SubagentTurnToolUsage" },
-            "maxItems": 128,
+          "explanation": { "type": "string" },
+          "steps": {
+            "items": { "$ref": "#/components/schemas/BackgroundAgentJobTurnPlanStep" },
+            "maxItems": 100,
             "type": "array"
           }
         },
-        "required": ["completed_items", "tool_calls", "tools_used", "files_changed"],
-        "title": "SubagentTurnProgress",
+        "required": ["steps"],
+        "title": "BackgroundAgentJobTurnPlan",
+        "type": "object"
+      },
+      "ControlPlanePluginItem": {
+        "additionalProperties": false,
+        "properties": {
+          "active": { "type": "boolean" },
+          "configured_enabled": { "type": "boolean" },
+          "description": { "$ref": "#/components/schemas/JSONValue" },
+          "display_name": { "$ref": "#/components/schemas/JSONValue" },
+          "id": { "type": "string" },
+          "restart_required": { "type": "boolean" }
+        },
+        "required": ["id", "display_name", "description", "configured_enabled", "active", "restart_required"],
+        "title": "ControlPlanePluginItem",
+        "type": "object"
+      },
+      "PermissionGrantListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "permission_grants": { "items": { "$ref": "#/components/schemas/PermissionGrantItem" }, "type": "array" }
+        },
+        "required": ["permission_grants"],
+        "title": "PermissionGrantListResponse",
+        "type": "object"
+      },
+      "PermissionGrantCreateRequest": {
+        "additionalProperties": false,
+        "description": "Exactly one owner: principal_uid or group_name.",
+        "properties": {
+          "action": { "description": "Exact action token without colons", "type": "string" },
+          "condition": { "default": "true", "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "group_name": { "nullable": true, "type": "string" },
+          "principal_uid": { "nullable": true, "type": "string" },
+          "resource_pattern": {
+            "description": "AuthZ resource glob pattern, for example workspace:**",
+            "type": "string"
+          }
+        },
+        "required": ["resource_pattern", "action"],
+        "title": "PermissionGrantCreateRequest",
         "type": "object"
       },
       "BrainReviewCandidatesResponse": {
@@ -1531,6 +1968,13 @@
         "title": "BrainReviewCandidatesResponse",
         "type": "object"
       },
+      "PermissionGrantResponse": {
+        "additionalProperties": false,
+        "properties": { "permission_grant": { "$ref": "#/components/schemas/PermissionGrantItem" } },
+        "required": ["permission_grant"],
+        "title": "PermissionGrantResponse",
+        "type": "object"
+      },
       "IdentityProviderWriteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1542,134 +1986,22 @@
         "title": "IdentityProviderWriteRequest",
         "type": "object"
       },
-      "SubagentDelegationTurnItem": {
+      "PrincipalGroupMemberItem": {
         "additionalProperties": false,
         "properties": {
-          "attempt": { "type": "integer" },
-          "completed_at": { "nullable": true, "type": "string" },
-          "error": { "additionalProperties": true, "type": "object" },
-          "id": { "type": "string" },
-          "inserted_at": { "type": "string" },
-          "kind": { "enum": ["agent", "compaction"], "type": "string" },
-          "progress": { "$ref": "#/components/schemas/SubagentTurnProgress" },
-          "revision": { "type": "integer" },
-          "runtime_thread_id": { "type": "string" },
-          "runtime_turn_id": { "type": "string" },
-          "started_at": { "type": "string" },
-          "status": { "enum": ["in_progress", "completed", "failed", "interrupted"], "type": "string" },
-          "trajectory": {
-            "additionalProperties": false,
-            "properties": {
-              "format": { "enum": ["ankole_chatml"], "type": "string" },
-              "messages": {
-                "items": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": true,
-                      "properties": {
-                        "content": {
-                          "oneOf": [
-                            { "type": "string" },
-                            {
-                              "items": {
-                                "additionalProperties": true,
-                                "properties": { "type": { "type": "string" } },
-                                "required": ["type"],
-                                "type": "object"
-                              },
-                              "type": "array"
-                            }
-                          ]
-                        },
-                        "id": { "type": "string" },
-                        "metadata": { "additionalProperties": true, "type": "object" },
-                        "role": { "enum": ["user", "developer"], "type": "string" }
-                      },
-                      "required": ["role", "content"],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": true,
-                      "properties": {
-                        "content": { "type": "string" },
-                        "id": { "type": "string" },
-                        "metadata": { "additionalProperties": true, "type": "object" },
-                        "role": { "enum": ["assistant"], "type": "string" },
-                        "tool_calls": {
-                          "items": {
-                            "additionalProperties": true,
-                            "properties": {
-                              "function": {
-                                "additionalProperties": true,
-                                "properties": { "arguments": { "type": "string" }, "name": { "type": "string" } },
-                                "required": ["name", "arguments"],
-                                "type": "object"
-                              },
-                              "id": { "type": "string" },
-                              "type": { "enum": ["function"], "type": "string" }
-                            },
-                            "required": ["id", "type", "function"],
-                            "type": "object"
-                          },
-                          "type": "array"
-                        }
-                      },
-                      "required": ["role", "content"],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": true,
-                      "properties": {
-                        "content": { "type": "string" },
-                        "id": { "type": "string" },
-                        "metadata": { "additionalProperties": true, "type": "object" },
-                        "name": { "type": "string" },
-                        "role": { "enum": ["tool"], "type": "string" },
-                        "tool_call_id": { "type": "string" }
-                      },
-                      "required": ["role", "tool_call_id", "name", "content"],
-                      "type": "object"
-                    }
-                  ]
-                },
-                "type": "array"
-              },
-              "metadata": {
-                "additionalProperties": false,
-                "properties": {
-                  "content_truncated": { "type": "boolean" },
-                  "max_bytes": { "type": "integer" },
-                  "omitted_items": { "type": "integer" },
-                  "omitted_messages": { "type": "integer" },
-                  "redacted": { "type": "boolean" }
-                },
-                "type": "object"
-              },
-              "version": { "enum": [1], "type": "integer" }
-            },
-            "required": ["format", "version", "messages"],
-            "type": "object"
+          "avatar_url": { "nullable": true, "type": "string" },
+          "display_name": { "nullable": true, "type": "string" },
+          "member_since": {
+            "description": "Stored membership timestamp; null for evaluated computed members",
+            "nullable": true,
+            "type": "string"
           },
-          "updated_at": { "type": "string" },
-          "usage": { "allOf": [{ "$ref": "#/components/schemas/SubagentTurnUsage" }], "nullable": true }
+          "status": { "enum": ["active", "disabled"], "type": "string" },
+          "type": { "enum": ["human", "agent"], "type": "string" },
+          "uid": { "type": "string" }
         },
-        "required": [
-          "id",
-          "attempt",
-          "runtime_thread_id",
-          "runtime_turn_id",
-          "kind",
-          "status",
-          "revision",
-          "trajectory",
-          "progress",
-          "usage",
-          "error",
-          "started_at",
-          "inserted_at",
-          "updated_at"
-        ],
-        "title": "SubagentDelegationTurnItem",
+        "required": ["uid", "type", "status", "member_since"],
+        "title": "PrincipalGroupMemberItem",
         "type": "object"
       },
       "AppConfigurationDecryptionValue": {
@@ -1881,6 +2213,79 @@
         "tags": ["Identity Providers"]
       }
     },
+    "/api/v1/control-plane-plugins": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ControlPlanePluginController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ControlPlanePluginListResponse" } }
+            },
+            "description": "Control Plane Plugins"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid configuration"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List active and next-start Control Plane Plugin state",
+        "tags": ["Control Plane Plugins"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ControlPlanePluginController.update",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ControlPlanePluginWriteRequest" } }
+          },
+          "description": "Control Plane Plugin configuration",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ControlPlanePluginListResponse" } }
+            },
+            "description": "Control Plane Plugins"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid configuration"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Configure one Control Plane Plugin for the next process start",
+        "tags": ["Control Plane Plugins"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
       "post": {
         "callbacks": {},
@@ -1907,6 +2312,38 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Pause one recurring schedule",
         "tags": ["Schedule"]
+      }
+    },
+    "/api/v1/principals/{uid}/groups": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.groups",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupListResponse" } }
+            },
+            "description": "Principal groups"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List the static Principal groups one Principal belongs to",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/ai-gateway/files/{file_id}": {
@@ -2079,6 +2516,102 @@
         "tags": ["AppConfigure"]
       }
     },
+    "/api/v1/principal-groups": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupListResponse" } }
+            },
+            "description": "Principal groups"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List Principal groups",
+        "tags": ["AuthZ"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupCreateRequest" } }
+          },
+          "description": "Principal group",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupResponse" } } },
+            "description": "Principal group"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid group"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create one operator Principal group",
+        "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/principal-groups/computed-member-previews": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.preview_computed_members",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ComputedMemberPreviewRequest" } }
+          },
+          "description": "Computed member preview",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupMemberListResponse" } }
+            },
+            "description": "Principal group members"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid condition"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Preview active Principals matching a computed group condition",
+        "tags": ["AuthZ"]
+      }
+    },
     "/api/v1/brain/audit-log/{audit_id}/restorations": {
       "post": {
         "callbacks": {},
@@ -2191,19 +2724,27 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/v1/delegations/{delegation_id}": {
-      "get": {
+    "/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}": {
+      "put": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.SubagentDelegationController.show",
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.put_agent_plugin_override",
         "parameters": [
-          { "description": "", "in": "path", "name": "delegation_id", "required": true, "schema": { "type": "string" } }
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryAgentOverrideWriteRequest" } }
+          },
+          "description": "Agent Plugin override",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/SubagentDelegationResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
             },
-            "description": "Delegation"
+            "description": "Agent Library capabilities"
           },
           "401": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
@@ -2216,11 +2757,15 @@
           "404": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Read one subagent delegation and its runtime Turn trajectory",
-        "tags": ["Subagent Delegations"]
+        "summary": "Set or clear one Agent Plugin override",
+        "tags": ["Agent Library"]
       }
     },
     "/api/v1/brain/entries/{id}": {
@@ -2629,6 +3174,114 @@
         "tags": ["Schedule"]
       }
     },
+    "/api/v1/agents/{agent_uid}/library-capabilities": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.agent_index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
+            },
+            "description": "Agent Library capabilities"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read resolved Agent Library capabilities for one Agent",
+        "tags": ["Agent Library"]
+      }
+    },
+    "/api/v1/principal-groups/{name}/members/{principal_uid}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.remove_member",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "principal_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupMemberListResponse" } }
+            },
+            "description": "Principal group members"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Membership cannot change"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Remove one Principal from a static operator group",
+        "tags": ["AuthZ"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.add_member",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "principal_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupMemberListResponse" } }
+            },
+            "description": "Principal group members"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Membership cannot change"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Add one Principal to a static operator group",
+        "tags": ["AuthZ"]
+      }
+    },
     "/api/v1/ai-gateway/files": {
       "get": {
         "callbacks": {},
@@ -2913,6 +3566,99 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/background-agent-jobs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BackgroundAgentJobController.index",
+        "parameters": [
+          {
+            "description": "",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
+              "type": "string"
+            }
+          },
+          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } },
+          { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundAgentJobListResponse" } }
+            },
+            "description": "Background Agent Jobs"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid filters"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List background Agent Jobs",
+        "tags": ["Background Agent Jobs"]
+      }
+    },
+    "/api/v1/agent-library/skills/{id}": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.put_global_skill",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryGlobalDefaultWriteRequest" } }
+          },
+          "description": "Skill default",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
+            },
+            "description": "Agent Library capabilities"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Set one global Skill default",
+        "tags": ["Agent Library"]
+      }
+    },
     "/api/v1/ai-gateway/web_fetch": {
       "post": {
         "callbacks": {},
@@ -2983,6 +3729,107 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create or update one identity provider",
         "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/principal-groups/{name}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.delete",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupResponse" } } },
+            "description": "Principal group"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Group cannot be deleted"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Delete one operator Principal group without grants",
+        "tags": ["AuthZ"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupResponse" } } },
+            "description": "Principal group"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one Principal group",
+        "tags": ["AuthZ"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.update",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupUpdateRequest" } }
+          },
+          "description": "Principal group",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupResponse" } } },
+            "description": "Principal group"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid group"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update mutable fields of one Principal group",
+        "tags": ["AuthZ"]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings": {
@@ -3249,6 +4096,38 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/background-agent-jobs/{job_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BackgroundAgentJobController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "job_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundAgentJobResponse" } }
+            },
+            "description": "Background Agent Job"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one background Agent Job and its runtime Turn trajectory",
+        "tags": ["Background Agent Jobs"]
+      }
+    },
     "/api/v1/agents/{agent_uid}": {
       "delete": {
         "callbacks": {},
@@ -3480,6 +4359,38 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Enqueue one identity-provider full directory sync",
         "tags": ["Identity Providers"]
+      }
+    },
+    "/api/v1/principals/{uid}/grants": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.grants",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantListResponse" } }
+            },
+            "description": "Permission grants"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List permission grants owned directly by one Principal",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/ai-gateway/conversations/{conversation_id}": {
@@ -3811,6 +4722,45 @@
         "tags": ["Schedule"]
       }
     },
+    "/api/v1/permission-grants": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PermissionGrantController.create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantCreateRequest" } }
+          },
+          "description": "Permission grant",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantResponse" } } },
+            "description": "Permission grant"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Owner not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid grant"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Create one permission grant for a Principal or a group",
+        "tags": ["AuthZ"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
       "get": {
         "callbacks": {},
@@ -3891,6 +4841,83 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Disable one signal binding for an agent",
         "tags": ["Signal Bindings"]
+      }
+    },
+    "/api/v1/principal-groups/{name}/members": {
+      "get": {
+        "callbacks": {},
+        "description": "Static groups return stored memberships. Computed groups return the members evaluated from their condition.",
+        "operationId": "AnkoleWeb.AuthZGroupController.members",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalGroupMemberListResponse" } }
+            },
+            "description": "Principal group members"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List effective members of one Principal group",
+        "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/library-capabilities/skills/{id}": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.put_agent_skill_override",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryAgentOverrideWriteRequest" } }
+          },
+          "description": "Agent Skill override",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
+            },
+            "description": "Agent Library capabilities"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Set or clear one Agent Skill override",
+        "tags": ["Agent Library"]
       }
     },
     "/api/v1/brain/review-candidates": {
@@ -4143,6 +5170,13 @@
           { "description": "", "in": "query", "name": "subject", "required": false, "schema": { "type": "string" } },
           { "description": "", "in": "query", "name": "key", "required": false, "schema": { "type": "string" } },
           { "description": "", "in": "query", "name": "active", "required": false, "schema": { "type": "boolean" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "min_messages",
+            "required": false,
+            "schema": { "minimum": 1, "type": "integer" }
+          },
           { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
           {
             "description": "",
@@ -4175,6 +5209,36 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List AIGateway conversations",
         "tags": ["AI Gateway Conversations"]
+      }
+    },
+    "/api/v1/principals/{uid}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PrincipalController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PrincipalResponse" } } },
+            "description": "Principal"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one principal",
+        "tags": ["Principals"]
       }
     },
     "/api/v1/codex-accounts/{account_id}": {
@@ -4458,6 +5522,38 @@
         "tags": ["WorkerEnv"]
       }
     },
+    "/api/v1/background-agent-jobs/{job_id}/cancel": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.BackgroundAgentJobController.cancel",
+        "parameters": [
+          { "description": "", "in": "path", "name": "job_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundAgentJobResponse" } }
+            },
+            "description": "Background Agent Job"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Cancel one queued or active background Agent Job",
+        "tags": ["Background Agent Jobs"]
+      }
+    },
     "/api/v1/app-configurations/{key}/decryptions": {
       "post": {
         "callbacks": {},
@@ -4577,56 +5673,6 @@
         "tags": ["Workers"]
       }
     },
-    "/api/v1/delegations": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.SubagentDelegationController.index",
-        "parameters": [
-          {
-            "description": "",
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
-              "type": "string"
-            }
-          },
-          { "description": "", "in": "query", "name": "agent", "required": false, "schema": { "type": "string" } },
-          { "description": "", "in": "query", "name": "cursor", "required": false, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/SubagentDelegationListResponse" } }
-            },
-            "description": "Delegations"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid filters"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List subagent delegations",
-        "tags": ["Subagent Delegations"]
-      }
-    },
     "/api/v1/brain/dreaming-runs": {
       "post": {
         "callbacks": {},
@@ -4666,6 +5712,34 @@
         "tags": ["Brain"]
       }
     },
+    "/api/v1/agents/{agent_uid}/sessions": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentSessionController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentSessionListResponse" } }
+            },
+            "description": "Agent sessions"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List sessions for one agent",
+        "tags": ["Sessions"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/worker-envs": {
       "get": {
         "callbacks": {},
@@ -4694,38 +5768,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List effective worker shell variables for one agent",
         "tags": ["WorkerEnv"]
-      }
-    },
-    "/api/v1/delegations/{delegation_id}/cancel": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.SubagentDelegationController.cancel",
-        "parameters": [
-          { "description": "", "in": "path", "name": "delegation_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/SubagentDelegationResponse" } }
-            },
-            "description": "Delegation"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Cancel one queued or active subagent delegation",
-        "tags": ["Subagent Delegations"]
       }
     },
     "/api/v1/ai-gateway/conversations/{conversation_id}/messages": {
@@ -4826,6 +5868,103 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Replace one agent MISSION, SOUL, or DESIGN document",
         "tags": ["Agents"]
+      }
+    },
+    "/api/v1/permission-grants/{id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PermissionGrantController.delete",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantResponse" } } },
+            "description": "Permission grant"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Delete one permission grant",
+        "tags": ["AuthZ"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PermissionGrantController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantResponse" } } },
+            "description": "Permission grant"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one permission grant",
+        "tags": ["AuthZ"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.PermissionGrantController.update",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantUpdateRequest" } }
+          },
+          "description": "Permission grant",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantResponse" } } },
+            "description": "Permission grant"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid grant"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update one permission grant",
+        "tags": ["AuthZ"]
       }
     },
     "/api/v1/brain/audit-log": {
@@ -5067,6 +6206,83 @@
         "tags": ["Brain"]
       }
     },
+    "/api/v1/agent-library/agent-plugins/{id}": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.put_global_agent_plugin",
+        "parameters": [
+          { "description": "", "in": "path", "name": "id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryGlobalDefaultWriteRequest" } }
+          },
+          "description": "Agent Plugin default",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
+            },
+            "description": "Agent Library capabilities"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Set one global Agent Plugin default",
+        "tags": ["Agent Library"]
+      }
+    },
+    "/api/v1/agent-library/capabilities": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibraryCapabilityController.global_index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibraryCapabilitiesResponse" } }
+            },
+            "description": "Agent Library capabilities"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid capability"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read global Agent Plugin and standalone Skill defaults",
+        "tags": ["Agent Library"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/worker-envs/{name}": {
       "delete": {
         "callbacks": {},
@@ -5167,16 +6383,48 @@
         "summary": "Exchange a browser admin session or refresh token for console bearer tokens",
         "tags": ["Auth"]
       }
+    },
+    "/api/v1/principal-groups/{name}/grants": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthZGroupController.grants",
+        "parameters": [
+          { "description": "", "in": "path", "name": "name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PermissionGrantListResponse" } }
+            },
+            "description": "Permission grants"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List permission grants owned by one Principal group",
+        "tags": ["AuthZ"]
+      }
     }
   },
   "security": [],
-  "servers": [{ "url": "http://localhost:4000", "variables": {} }],
   "tags": [
     { "description": "Session-backed console authentication endpoints", "name": "Auth" },
     { "description": "Registry-backed runtime configuration exposed to the web console", "name": "AppConfigure" },
     { "description": "Operator-managed environment variables for Agent Computer shells", "name": "WorkerEnv" },
     { "description": "Operator-managed agent principals", "name": "Agents" },
     { "description": "Active accountable subjects available to operator surfaces", "name": "Principals" },
+    { "description": "Principal groups, memberships, and permission grants", "name": "AuthZ" },
     {
       "description": "Operator-managed ChatGPT subscription accounts used by coding profiles",
       "name": "Codex Accounts"
@@ -5193,8 +6441,9 @@
     },
     { "description": "Operator-managed agent bindings for signal adapters", "name": "Signal Bindings" },
     { "description": "Operator-visible actor checkbacks and recurring schedules", "name": "Schedule" },
+    { "description": "Operator-visible actor sessions for one agent", "name": "Sessions" },
     { "description": "Agent computer worker registry and worker filesystem management", "name": "Workers" },
-    { "description": "Durable background work delegated to the task-worker runtime", "name": "Subagent Delegations" },
+    { "description": "Durable background Agent work executed by CodexRunner", "name": "Background Agent Jobs" },
     { "description": "Human supervision of current knowledge, provenance, and audit recovery", "name": "Brain" }
   ]
 }

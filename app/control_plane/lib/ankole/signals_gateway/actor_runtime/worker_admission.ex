@@ -14,12 +14,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Repo
+  alias Ankole.RuntimeEvents
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
-  alias Ankole.Repo
-  alias Ankole.RuntimeEvents
 
   @ready_worker_status "ready"
   # Only "ready"/"draining" workers can be made stale or block a duplicate claim;
@@ -48,9 +50,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   authenticated. The worker payload names the stable worker id and one concrete
   process incarnation; the route proves where replies should be sent.
   """
-  @spec admit_worker_ready(map(), String.t() | map()) ::
+  @spec admit_worker_ready(FabricProto.AgentComputerWorkerReady.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
-  def admit_worker_ready(worker_ready, authenticated_route) when is_map(worker_ready) do
+  def admit_worker_ready(
+        %FabricProto.AgentComputerWorkerReady{} = worker_ready,
+        authenticated_route
+      ) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, attrs} <- worker_ready_attrs(worker_ready, auth.route),
          :ok <- authenticated_worker_matches(auth, attrs.worker_id) do
@@ -104,17 +109,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   authenticated identity matches and the worker still owns its route, so
   heartbeats from a previous process cannot keep a superseded worker alive.
   """
-  @spec handle_worker_heartbeat(map(), String.t() | map()) ::
+  @spec handle_worker_heartbeat(FabricProto.AgentComputerWorkerHeartbeat.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
-  def handle_worker_heartbeat(worker_heartbeat, authenticated_route)
-      when is_map(worker_heartbeat) do
+  def handle_worker_heartbeat(
+        %FabricProto.AgentComputerWorkerHeartbeat{} = worker_heartbeat,
+        authenticated_route
+      ) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
-         {:ok, worker_id} <- fetch_required_text(worker_heartbeat, "worker_id"),
-         {:ok, incarnation_id} <- fetch_required_text(worker_heartbeat, "incarnation_id"),
+         {:ok, worker_id} <- required_text(worker_heartbeat.worker_id, "worker_id"),
+         {:ok, incarnation_id} <-
+           required_text(worker_heartbeat.incarnation_id, "incarnation_id"),
          :ok <- authenticated_worker_matches(auth, worker_id) do
       update_worker_projection(worker_id, incarnation_id, auth.route, %{
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
-        load: fetch_map(worker_heartbeat, "load_json") || %{}
+        load: decoded_json_map(worker_heartbeat.load_json)
       })
     end
   end
@@ -126,29 +134,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   heartbeats, this also refreshes the lease and is identity/route fenced so a
   stale connection cannot rewrite a live worker's capacity.
   """
-  @spec handle_worker_capacity(map(), String.t() | map()) ::
+  @spec handle_worker_capacity(FabricProto.AgentComputerWorkerCapacity.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
-  def handle_worker_capacity(worker_capacity, authenticated_route) when is_map(worker_capacity) do
+  def handle_worker_capacity(
+        %FabricProto.AgentComputerWorkerCapacity{} = worker_capacity,
+        authenticated_route
+      ) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
-         {:ok, worker_id} <- fetch_required_text(worker_capacity, "worker_id"),
-         {:ok, incarnation_id} <- fetch_required_text(worker_capacity, "incarnation_id"),
+         {:ok, worker_id} <- required_text(worker_capacity.worker_id, "worker_id"),
+         {:ok, incarnation_id} <-
+           required_text(worker_capacity.incarnation_id, "incarnation_id"),
          :ok <- authenticated_worker_matches(auth, worker_id) do
       # Prefer the structured capacity map; fall back to the scalar
       # available_turn_slots field for older workers that don't send capacity_json.
       capacity =
-        worker_capacity
-        |> fetch_map("capacity_json")
-        |> case do
+        case Common.decode_json_bytes(worker_capacity.capacity_json) do
           %{} = capacity ->
             capacity
 
           _value ->
-            %{"available_turn_slots" => fetch_int(worker_capacity, "available_turn_slots") || 0}
+            %{"available_turn_slots" => worker_capacity.available_turn_slots}
         end
 
       update_worker_projection(worker_id, incarnation_id, auth.route, %{
         capacity: capacity,
-        load: fetch_map(worker_capacity, "load_json") || %{},
+        load: decoded_json_map(worker_capacity.load_json),
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
       })
     end
@@ -581,45 +591,36 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
 
   # Extracts only the data needed to place homogeneous workers. Runtime and
   # version stay as observability metadata instead of becoming scheduling axes.
-  defp worker_ready_attrs(worker_ready, route) do
-    with {:ok, worker_id} <- fetch_required_text(worker_ready, "worker_id"),
-         {:ok, incarnation_id} <- fetch_required_text(worker_ready, "incarnation_id"),
-         {:ok, runtime} <- fetch_required_text(worker_ready, "runtime"),
-         {:ok, version} <- fetch_required_text(worker_ready, "version") do
+  defp worker_ready_attrs(%FabricProto.AgentComputerWorkerReady{} = worker_ready, route) do
+    with {:ok, worker_id} <- required_text(worker_ready.worker_id, "worker_id"),
+         {:ok, incarnation_id} <- required_text(worker_ready.incarnation_id, "incarnation_id"),
+         {:ok, runtime} <- required_text(worker_ready.runtime, "runtime"),
+         {:ok, version} <- required_text(worker_ready.version, "version") do
       {:ok,
        %{
          worker_id: worker_id,
          incarnation_id: incarnation_id,
          status: @ready_worker_status,
          version: version,
-         capacity:
-           fetch_map(worker_ready, "capacity_json") || fetch_map(worker_ready, "capacity") || %{},
-         load: fetch_map(worker_ready, "load") || %{},
+         capacity: decoded_json_map(worker_ready.capacity_json),
+         load: %{},
          transport_route: route,
          metadata: %{"runtime" => runtime}
        }}
     end
   end
 
-  defp fetch_required_text(map, key) do
-    case fetch_text(map, key) do
+  defp required_text(value, key) do
+    case value do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, key}}
     end
   end
 
-  defp fetch_text(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key))
-  end
-
-  defp fetch_map(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, String.to_atom(key))
-  end
-
-  defp fetch_int(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_integer(value) -> value
-      _value -> nil
+  defp decoded_json_map(bytes) do
+    case Common.decode_json_bytes(bytes) do
+      %{} = decoded -> decoded
+      _value -> %{}
     end
   end
 

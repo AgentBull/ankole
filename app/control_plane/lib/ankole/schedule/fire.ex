@@ -63,7 +63,7 @@ defmodule Ankole.Schedule.Fire do
 
   defp fire_claimed_event_in_tx(repo, %ScheduledEvent{kind: "cron_fire"} = event, now, opts) do
     with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, event.cron_schedule_id),
-         :ok <- Cron.validate_fire_schedule_active(schedule, event),
+         :ok <- Cron.validate_fire_schedule(schedule, event),
          {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now),
          {:ok, event} <- mark_event_fired(repo, event, actor_event, now),
          {:ok, _schedule} <- Cron.advance_after_fire(repo, schedule, event, now, opts) do

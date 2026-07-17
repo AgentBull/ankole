@@ -31,7 +31,7 @@ Ankole is for work that needs an owner, not just an answer. A good Ankole role h
 - **Many agents.** One installation can host multiple agents with different missions, access, tools, memory, and outbound identities.
 - **Session actors.** The long-running execution unit is `actor_id = {agent_id, session_id}`. A session is where context, workspace state, steering, cancellation, and recovery meet.
 - **Owned context.** Conversations, model turns, summaries, signal projections, decisions, corrections, and future domain records live in your infrastructure.
-- **Operator control.** Access, configuration, plugin activation, actor leases, outbox side effects, and audit surfaces belong to the installation operator.
+- **Operator control.** Access, configuration, Agent Library defaults, Control Plane Plugin activation, actor leases, outbox side effects, and audit surfaces belong to the installation operator.
 
 ## Product Shape
 
@@ -73,13 +73,13 @@ flowchart TB
   end
 
   SG["SignalsGateway<br/>shared-work ingress / delivery<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>configuration / plugins<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>configuration / Control Plane Plugins<br/>Control Plane"]
   Runtime["Actor Runtime<br/>long-running sessions / recovery<br/>Control Plane"]
   Main["Main agents<br/>model loops · tools · skills<br/>Agent Computer"]
   Brain["Brain<br/>long-term memory<br/>curated knowledge · recall<br/>dreaming · oversight"]
-  Delegate["Subagent Delegation<br/>durable · resumable work<br/>Control Plane"]
+  Delegate["Background Agent Job<br/>durable · resumable work<br/>Control Plane"]
   AI["AIGateway<br/>unified external + agent AI API<br/>stateless calls · stateful conversations"]
-  Task["Codex subagent<br/>inherited skills · isolated work<br/>Agent Computer"]
+  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · standalone Skills<br/>Agent Computer"]
   Providers["AI providers<br/>LLM · embedding · rerank · web"]
 
   subgraph Storage["Durability boundary"]
@@ -95,8 +95,8 @@ flowchart TB
   Main -->|"agent AI calls"| AI
   Main -->|"long-term context"| Brain
   Brain -->|"model capabilities"| AI
-  Main -->|"delegate"| Delegate
-  Delegate -->|"isolated task"| Task
+  Main -->|"create Job"| Delegate
+  Delegate -->|"isolated execution"| Task
   AI --> Providers
 
   Runtime -.-> PG
@@ -113,7 +113,7 @@ At a high level:
 - **AIGateway is the unified AI boundary.** Its OpenResponses-compatible HTTP, SSE, and WebSocket API supports stateless requests and Principal-scoped stateful conversations. It resolves models across LLM, embedding, rerank, web-search, and web-fetch providers while upstream credentials remain in the control plane.
 - **Actors separate durable work from execution.** Actor Runtime owns long-running session and recovery semantics; replaceable Agent Computer workers run model loops, tools, skills, and sandboxes.
 - **Brain is long-term memory.** It combines curated current knowledge, source-chat recall, dreaming, and human oversight. PostgreSQL rows are truth; Markdown and injected context are projections.
-- **Subagents are durable work, not child processes.** A delegation survives worker loss, can resume or wait for input, and wakes its parent when it changes state. Codex is the current task-worker implementation, with enabled skills and a deliberately narrow platform-tool projection.
+- **Background Agent Jobs are durable work, not child processes.** A Job survives worker loss, can resume or wait for input, and wakes its owner when it changes state. It stores selected Agent Plugin IDs and standalone Skill names; CodexRunner resolves their current enabled catalog on every prepare and exposes a deliberately narrow platform-tool projection.
 - **Durability has two forms.** PostgreSQL owns semantic truth; the shared workspace holds artifacts and resumable files referenced by that state. RuntimeFabric is live transport only, with the shared Rust kernel providing in-process transport and AI data-plane primitives.
 
 ## Current Status
@@ -124,7 +124,7 @@ Ankole is a complete, self-hostable AgentOS in production. The control plane, Ag
 - **Real IM integration.** Lark/Feishu and Slack are integrated as first-party providers with lifecycle, transport, main-flow, and real-LLM end-to-end coverage.
 - **Brain.** Curated knowledge, chat recall, dreaming (offline consolidation), human review, and recovery live in one subsystem backed by PostgreSQL full-text and vector search.
 - **Long-running actor runtime.** Sessions wake, checkpoint, stream progress, hibernate, and recover with context; steering and cancellation are live-control operations, not request/response.
-- **Operator console.** Agents, providers, model profiles, identity, signals, workers, worker environments, brain entries, and delegations are all managed from a built-in web console.
+- **Operator console.** Agents, Agent Library defaults and overrides, Control Plane Plugins, providers, model profiles, identity, signals, workers, worker environments, brain entries, and Background Agent Jobs are managed from a built-in web console.
 - **Tested for real conditions.** Unit suites plus dedicated end-to-end suites for Lark and Slack main flows, transport, lifecycle, real-LLM, scheduling, worker computer, chaos recovery, and concurrency/performance.
 
 Ankole's public APIs do not yet carry a compatibility contract; expect breaking changes between releases.
@@ -143,16 +143,16 @@ Ankole's public APIs do not yet carry a compatibility contract; expect breaking 
 
 This repository is the active Ankole control-plane and runtime workspace.
 
-- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and PostgreSQL-owned durable state.
+- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, the Control Plane Plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and PostgreSQL-owned durable state.
 - `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, protobuf envelopes, and ZeroMQ RuntimeFabric transport.
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
 - `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
-- `app/library` - built-in agent skills and starter templates such as `MISSION.md` and `SOUL.md`.
+- `app/library` - built-in standalone Skills, first-party Agent Plugins, and starter templates such as `MISSION.md` and `SOUL.md`.
 - `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
 - `libs/uikit` - shared UI primitives for Ankole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
 - `libs/slack_openapi` - local Slack Web API, Socket Mode, and OIDC client library.
-- `internals/plugins` - private first-party provider/plugin code that is kept with the repo but not presented as the public plugin boundary.
+- `internals/plugins` - private first-party Control Plane Plugin code compiled into private releases.
 - `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
 - `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.
 

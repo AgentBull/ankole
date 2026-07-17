@@ -1,6 +1,4 @@
-use crate::common::{KernelError, KernelResult};
-
-use super::{json::normalized_name, proto};
+use super::proto;
 use proto::Lane::Rpc as RPCLane;
 use proto::envelope::Body::{
     RpcError as RPCErrorBody, RpcRequest as RPCRequestBody, RpcResponse as RPCResponseBody,
@@ -34,33 +32,6 @@ pub(super) struct BodySpec {
 }
 
 impl BodyKind {
-    pub(super) fn from_name(name: &str) -> KernelResult<Self> {
-        match normalized_name(name).as_str() {
-            "worker_ready" => Ok(Self::WorkerReady),
-            "worker_heartbeat" => Ok(Self::WorkerHeartbeat),
-            "worker_capacity" => Ok(Self::WorkerCapacity),
-            "turn_start" => Ok(Self::TurnStart),
-            "mailbox_updated" => Ok(Self::MailboxUpdated),
-            "turn_accepted" => Ok(Self::TurnAccepted),
-            "turn_control" => Ok(Self::TurnControl),
-            "worker_progress" => Ok(Self::WorkerProgress),
-            "turn_error" => Ok(Self::TurnError),
-            "turn_noop_completed" => Ok(Self::TurnNoopCompleted),
-            "turn_completed" => Ok(Self::TurnCompleted),
-            "control_shutdown" => Ok(Self::ControlShutdown),
-            "rpc_request" => Ok(Self::RPCRequest),
-            "rpc_response" => Ok(Self::RPCResponse),
-            "rpc_error" => Ok(Self::RPCError),
-            other => Err(KernelError::new(format!(
-                "unsupported runtime fabric body: {other}"
-            ))),
-        }
-    }
-
-    pub(super) fn name(self) -> &'static str {
-        self.spec().name
-    }
-
     pub(super) fn spec(self) -> BodySpec {
         match self {
             Self::WorkerReady => BodySpec {

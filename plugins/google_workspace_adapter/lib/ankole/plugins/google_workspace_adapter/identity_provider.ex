@@ -1,9 +1,11 @@
 defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   @moduledoc false
 
-  alias Ankole.{AuthZ, Principals}
+  alias Ankole.AuthZ
+  alias Ankole.IdentityProviders.Directory, as: IdentityDirectory
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Plugins.GoogleWorkspaceAdapter.{Config, MapHelpers}
+  alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
+  alias Ankole.Plugins.MapHelpers
   alias GoogleOpenAPI.Auth
   alias GoogleOpenAPI.Directory
 
@@ -41,30 +43,29 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) do
-    with {:ok, user_id} <- user_id(user),
-         {:ok, observed} <-
-           Principals.upsert_platform_subject_human(
-             %{
-               provider: provider_id,
-               external_id: user_id,
-               uid: user_id,
-               display_name: display_name(user) || user_id,
-               email: MapHelpers.optional_text(user, "primaryEmail"),
-               job_title: job_title(user),
-               mobile: normalized_mobile(user),
-               metadata:
-                 MapHelpers.compact_metadata_map(%{
-                   "primary_email" => MapHelpers.optional_text(user, "primaryEmail"),
-                   "org_unit_path" => MapHelpers.optional_text(user, "orgUnitPath"),
-                   "hosted_domain" => MapHelpers.optional_text(user, "hd"),
-                   "suspended" => Map.get(user, "suspended"),
-                   "archived" => Map.get(user, "archived")
-                 })
-             }
-             |> MapHelpers.compact_map()
-           ),
-         {:ok, _sync} <- maybe_sync_groups(provider_id, observed.principal.uid, opts) do
-      {:ok, observed}
+    with {:ok, user_id} <- user_id(user) do
+      IdentityDirectory.upsert_user(
+        provider_id,
+        %{
+          provider: provider_id,
+          external_id: user_id,
+          uid: user_id,
+          display_name: display_name(user) || user_id,
+          email: MapHelpers.optional_text(user, "primaryEmail"),
+          job_title: job_title(user),
+          mobile: normalized_mobile(user),
+          metadata:
+            MapHelpers.compact_metadata_map(%{
+              "primary_email" => MapHelpers.optional_text(user, "primaryEmail"),
+              "org_unit_path" => MapHelpers.optional_text(user, "orgUnitPath"),
+              "hosted_domain" => MapHelpers.optional_text(user, "hd"),
+              "suspended" => Map.get(user, "suspended"),
+              "archived" => Map.get(user, "archived")
+            })
+        }
+        |> MapHelpers.compact_map(),
+        Keyword.take(opts, [:group_external_ids, :directory_group_index])
+      )
     end
   end
 
@@ -115,7 +116,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
             case upsert_user(provider_id, user,
                    directory_group_index: directory_group_index,
-                   group_ids: Map.get(user_index, user_id, [])
+                   group_external_ids: Map.get(user_index, user_id, [])
                  ) do
               {:ok, _observed} -> {:cont, {:ok, count + 1}}
               {:error, reason} -> {:halt, {:error, reason}}
@@ -156,92 +157,19 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
   defp ensure_google_group(provider_id, group) do
     with {:ok, external_id} <- group_id(group) do
-      result =
-        case AuthZ.external_group_ids(provider_id, :directory_department, external_id) do
-          [group_id | _rest] -> AuthZ.get_principal_group(group_id)
-          [] -> fetch_or_create_group(provider_id, external_id, group)
-        end
-
-      with {:ok, directory_group} <- result,
-           {:ok, directory_group} <-
-             AuthZ.update_principal_group(directory_group, %{
-               display_name: group_display_name(group, external_id),
-               metadata: group_metadata(provider_id, external_id, group)
-             }),
-           :ok <-
-             upsert_group_binding(provider_id, external_id, group, directory_group.id, "active") do
-        {:ok, directory_group}
-      end
-    end
-  end
-
-  defp fetch_or_create_group(provider_id, external_id, group) do
-    attrs = %{
-      name: "#{provider_id}:google_group:#{String.downcase(external_id)}",
-      display_name: group_display_name(group, external_id),
-      domain: :directory,
-      metadata: group_metadata(provider_id, external_id, group)
-    }
-
-    case AuthZ.get_principal_group(attrs.name) do
-      {:ok, directory_group} -> {:ok, directory_group}
-      {:error, :not_found} -> AuthZ.create_principal_group(attrs)
-    end
-  end
-
-  defp upsert_group_binding(provider_id, external_id, group, group_id, status) do
-    case AuthZ.upsert_external_binding(%{
-           provider: provider_id,
-           external_kind: :directory_department,
-           external_id: external_id,
-           group_id: group_id,
-           metadata:
-             MapHelpers.compact_metadata_map(%{
-               "provider" => provider_id,
-               "externalID" => external_id,
-               "name" => group_display_name(group, external_id),
-               "status" => status,
-               "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
-               "external_directory" => %{
-                 "provider" => provider_id,
-                 "kind" => "google_group",
-                 "external_id" => external_id
-               }
-             })
-         }) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp group_metadata(provider_id, external_id, group) do
-    %{
-      "external_directory" => %{
-        "provider" => provider_id,
-        "kind" => "google_group",
-        "external_id" => external_id
-      },
-      "google" =>
-        MapHelpers.compact_metadata_map(%{
-          "email" => MapHelpers.optional_text(group, "email"),
-          "name" => MapHelpers.optional_text(group, "name"),
-          "description" => MapHelpers.optional_text(group, "description")
-        })
-    }
-  end
-
-  defp maybe_sync_groups(provider_id, principal_uid, opts) do
-    case Keyword.fetch(opts, :group_ids) do
-      {:ok, ids} when is_list(ids) ->
-        AuthZ.sync_external_directory_group_memberships(
-          provider_id,
-          principal_uid,
-          ids,
-          Keyword.take(opts, [:directory_group_index])
-        )
-
-      :error ->
-        {:ok, :memberships_untouched}
+      IdentityDirectory.ensure_group(provider_id, %IdentityDirectory.Group{
+        external_id: external_id,
+        kind: "google_group",
+        display_name: group_display_name(group, external_id),
+        provider_metadata: %{
+          "google" =>
+            MapHelpers.compact_metadata_map(%{
+              "email" => MapHelpers.optional_text(group, "email"),
+              "name" => MapHelpers.optional_text(group, "name"),
+              "description" => MapHelpers.optional_text(group, "description")
+            })
+        }
+      })
     end
   end
 
@@ -267,13 +195,20 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
     hosted_domain = downcased(MapHelpers.optional_text(claims, "hd"))
 
     cond do
-      Map.get(claims, "email_verified") != true -> {:error, :email_unverified}
-      is_nil(hosted_domain) -> {:error, :not_workspace_account}
-      hosted_domain not in allowed_domains -> {:error, :login_domain_not_allowed}
+      Map.get(claims, "email_verified") != true ->
+        {:error, :email_unverified}
+
+      is_nil(hosted_domain) ->
+        {:error, :not_workspace_account}
+
+      hosted_domain not in allowed_domains ->
+        {:error, :login_domain_not_allowed}
+
       is_nil(email) or email_domain(email) not in allowed_domains ->
         {:error, :login_domain_not_allowed}
 
-      true -> :ok
+      true ->
+        :ok
     end
   end
 

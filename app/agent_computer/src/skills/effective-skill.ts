@@ -1,7 +1,6 @@
 import { join, normalize } from 'node:path'
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import type { RuntimeSkillSummary } from '../lanes/rpc_lane'
-import type { SkillOverlayRequester } from '../core/turns/turn_options'
+import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -60,12 +59,9 @@ export function resolveSkillFilesystemRoot(
 
 export async function resolveSkillOverlayText(
   name: string,
-  input: { turn?: ActorTurnRef; requestSkillOverlay?: SkillOverlayRequester }
+  input: { turn: ActorTurnRef; rpc: RPCRequester }
 ): Promise<string> {
-  if (!input.turn || !input.requestSkillOverlay) return ''
-
-  const response = await input.requestSkillOverlay({
-    request_id: `skill-overlay-resolve-${crypto.randomUUID()}`,
+  const response = await input.rpc(rpcMethods.skillsOverlayResolve, {
     turn: input.turn,
     skill_name: name
   })

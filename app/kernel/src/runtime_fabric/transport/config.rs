@@ -8,7 +8,7 @@ use super::error::{TransportError, transport_error};
 
 const DEFAULT_ZAP_DOMAIN: &str = "ankole-runtime-fabric";
 const DEFAULT_POLL_INTERVAL_MS: u64 = 10;
-const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 1_000;
+const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 10_000;
 const DEFAULT_IO_TIMEOUT_MS: i32 = 1_000;
 const DEFAULT_HWM: i32 = 1_000;
 const DEFAULT_LINGER_MS: i32 = 0;
@@ -222,5 +222,22 @@ fn validate_optional_positive_usize(
             "{field} must be positive"
         ))),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_command_timeout_defaults_to_ten_seconds_for_both_socket_roles() {
+        let router = RouterConfig::from_json(r#"{"endpoint":"tcp://127.0.0.1:5555"}"#).unwrap();
+        let dealer = DealerConfig::from_json(
+            r#"{"endpoint":"tcp://127.0.0.1:5555","identity":"worker-1","username":"worker-1","password":"secret"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(router.command_timeout(), Duration::from_secs(10));
+        assert_eq!(dealer.command_timeout(), Duration::from_secs(10));
     }
 }

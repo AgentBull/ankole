@@ -14,6 +14,8 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       signal_session_id: 1
     ]
 
+  @ambient_execution_ttl_seconds 5 * 60
+
   def append_actor_event(repo, binding, fact, type, channel, entry, now) do
     fact = ReplyReference.enrich(repo, fact)
     session_id = Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id)
@@ -41,7 +43,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       binding
       |> actor_envelope(fact, type, channel, entry, now)
       |> maybe_channel_context(type, attrs, fact)
-      |> maybe_ambient_batch_payload(type, attrs, fact, now)
+      |> maybe_ambient_batch_payload(repo, type, attrs, fact, now)
 
     attrs = Map.put(attrs, :payload, payload)
 
@@ -68,17 +70,19 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
 
   defp maybe_ambient_batch_payload(
          payload,
+         repo,
          "im.message.may_intervene",
          attrs,
          %{finalized_batch_id: _batch_id, batch_entries: entries},
          now
        )
        when is_list(entries) do
-    refresh_ambient_batch_payload(payload, attrs, entries, now)
+    refresh_ambient_batch_payload(payload, repo, attrs, entries, now)
   end
 
   defp maybe_ambient_batch_payload(
          payload,
+         _repo,
          _type,
          _attrs,
          %{finalized_batch_id: _batch_id},
@@ -86,11 +90,12 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
        ),
        do: payload
 
-  defp maybe_ambient_batch_payload(payload, _type, _attrs, _fact, _now), do: payload
+  defp maybe_ambient_batch_payload(payload, _repo, _type, _attrs, _fact, _now), do: payload
 
-  defp refresh_ambient_batch_payload(payload, attrs, entries, now) do
+  defp refresh_ambient_batch_payload(payload, repo, attrs, entries, now) do
     observed_messages = ChannelContext.observed_messages(attrs, entries)
     unreplied_messages = ChannelContext.unreplied_messages(attrs, entries)
+    scene_fingerprint = ChannelContext.ambient_scene_fingerprint(repo, attrs.signal_channel_id)
 
     payload
     |> put_in(["data", "entry"], batch_entry_summary(entries))
@@ -101,7 +106,10 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       "size" => length(entries),
       "first_source_entry_id" => entries |> List.first() |> Map.get("source_entry_id"),
       "last_source_entry_id" => entries |> List.last() |> Map.get("source_entry_id"),
-      "updated_at" => DateTime.to_iso8601(now)
+      "scene_fingerprint" => scene_fingerprint,
+      "as_of" => DateTime.to_iso8601(now),
+      "expires_at" =>
+        now |> DateTime.add(@ambient_execution_ttl_seconds, :second) |> DateTime.to_iso8601()
     })
   end
 

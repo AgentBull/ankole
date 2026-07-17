@@ -729,7 +729,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert IdentityProvider.normalize_claims(user)["displayName"] == "Ada Lovelace"
     end
 
-    test "missing group_ids preserves memberships while explicit empty clears them" do
+    test "missing group_external_ids preserves memberships while explicit empty clears them" do
       assert {:ok, group} =
                AuthZ.create_principal_group(%{
                  name: "entra-id-main:entra_group:g1",
@@ -749,7 +749,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       user = %{"id" => "oid-u1", "displayName" => "Ada", "mail" => "ada@example.com"}
 
       assert {:ok, observed} =
-               IdentityProvider.upsert_user("entra-id-main", user, group_ids: ["G1"])
+               IdentityProvider.upsert_user("entra-id-main", user, group_external_ids: ["G1"])
 
       assert Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
 
@@ -757,7 +757,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
 
       assert {:ok, _observed} =
-               IdentityProvider.upsert_user("entra-id-main", user, group_ids: [])
+               IdentityProvider.upsert_user("entra-id-main", user, group_external_ids: [])
 
       refute Repo.get_by(Membership, principal_uid: observed.principal.uid, group_id: group.id)
     end

@@ -4,7 +4,6 @@ use super::{
     PROTOCOL_VERSION,
     body::body_spec,
     enums::{durability_name, lane_name},
-    json::{empty_json_payload_bytes, normalized_name},
     proto,
 };
 use proto::envelope::Body::{
@@ -229,6 +228,11 @@ fn validate_optional_model_ref(
         for (index, modality) in model_ref.input_modalities.iter().enumerate() {
             require_non_empty(modality, &format!("{field}.input_modalities[{index}]"))?;
         }
+        if model_ref.max_completion_tokens == Some(0) {
+            return Err(KernelError::new(format!(
+                "{field}.max_completion_tokens must be greater than 0 when present"
+            )));
+        }
         validate_optional_model_ref(
             model_ref.vision_fallback_model_ref.as_deref(),
             &format!("{field}.vision_fallback_model_ref"),
@@ -272,6 +276,19 @@ fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {
     }
 
     Ok(())
+}
+
+// `*_json` payload fields carry UTF-8 JSON text produced by host serializers;
+// empty bytes mean "absent". The steer rule below only needs the absence check,
+// not JSON parsing.
+fn empty_json_payload_bytes(bytes: &[u8]) -> bool {
+    bytes.is_empty() || bytes == b"{}" || bytes == b"null"
+}
+
+// Normalizes enum-like text from both generated names and human-friendly names
+// before matching against control-plane-visible vocabularies.
+fn normalized_name(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace('-', "_")
 }
 
 // Steering must be journaled as an actor event instead of hidden in a

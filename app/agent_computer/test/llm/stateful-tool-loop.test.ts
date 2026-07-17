@@ -83,6 +83,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           executionMode: 'sequential',
           isReadOnly: false,
           isDestructive: true,
+          describeActivity: () => '测试副作用',
           execute: async () => {
             sideEffectCalls += 1
             return { content: [{ type: 'text' as const, text: 'changed' }], details: { ok: true } }
@@ -180,6 +181,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          describeActivity: () => '测试查询',
           execute: async () => ({
             content: [{ type: 'text', text: 'sunny' }],
             details: { ok: true }
@@ -293,6 +295,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
+          describeActivity: () => '测试截图',
           execute: async () => ({
             content: [
               { type: 'text', text: 'screenshot ready' },
@@ -405,6 +408,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'screenshot',
           description: 'Capture a screenshot',
           schema: z.object({}),
+          describeActivity: () => '测试截图',
           execute: async () => ({
             content: [
               { type: 'text', text: 'screenshot ready' },
@@ -511,6 +515,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          describeActivity: () => '测试查询',
           execute: async () => ({
             content: [],
             details: 1n
@@ -625,6 +630,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'loop',
           description: 'Loop forever',
           schema: z.object({}),
+          describeActivity: () => '测试循环',
           execute: async () => {
             toolExecutions += 1
             return { content: [{ type: 'text', text: `again ${toolExecutions}` }], details: {} }
@@ -780,6 +786,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          describeActivity: () => '测试查询',
           execute: async () => ({
             content: [{ type: 'text', text: 'tool complete' }],
             details: { ok: true }

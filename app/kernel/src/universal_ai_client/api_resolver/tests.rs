@@ -309,6 +309,50 @@ fn openai_chat_accumulates_tool_calls() {
 }
 
 #[test]
+fn openai_chat_eof_keeps_partial_tool_call_incomplete_without_done_events() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext::default(),
+    );
+
+    resolver
+        .ingest(json!({
+            "choices": [{
+                "delta": {"tool_calls": [{
+                    "index": 0,
+                    "id": "call_partial",
+                    "function": {"name": "patch", "arguments": "{\"path\":\"/tmp/repor"}
+                }]},
+                "finish_reason": null
+            }]
+        }))
+        .unwrap();
+
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+    let call = terminal["response"]["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "function_call")
+        .unwrap();
+
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(
+        terminal["response"]["incomplete_details"]["reason"],
+        "upstream_stream_closed"
+    );
+    assert_eq!(call["status"], "incomplete");
+    assert_eq!(call["arguments"], "{\"path\":\"/tmp/repor");
+    assert!(!events.iter().any(|event| {
+        matches!(
+            event["type"].as_str(),
+            Some("response.function_call_arguments.done" | "response.output_item.done")
+        )
+    }));
+}
+
+#[test]
 fn openai_chat_build_body_keeps_png_data_url_as_chat_image_url() {
     let image_data_url = "data:image/png;base64,iVBORw0KGgo=";
     let resolver = APIResolver::new(
@@ -435,6 +479,48 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
         !serde_json::to_string(&messages)
             .unwrap()
             .contains("function_call_output")
+    );
+}
+
+#[test]
+fn openai_chat_build_body_repairs_trailing_function_call_history() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_truncated",
+                        "name": "patch",
+                        "arguments": "{\"path\":\"/tmp/report.py\","
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_truncated",
+                        "output": "Invalid arguments: unterminated JSON"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(
+        messages[0]["tool_calls"][0]["function"]["arguments"],
+        json!("{\"path\":\"/tmp/report.py\"}")
+    );
+    assert_eq!(messages[0]["tool_calls"][0]["id"], "call_truncated");
+    assert_eq!(messages[1]["tool_call_id"], "call_truncated");
+    assert_eq!(
+        messages[1]["content"],
+        "Invalid arguments: unterminated JSON"
     );
 }
 
@@ -701,6 +787,60 @@ fn anthropic_message_stop_closes_open_text_block() {
             .any(|event| event["type"] == "response.content_part.done")
     );
     assert_eq!(events.last().unwrap()["type"], "response.completed");
+}
+
+#[test]
+fn anthropic_eof_keeps_partial_tool_call_incomplete_without_done_events() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::AnthropicMessages,
+        ResponseContext {
+            model: "claude-test".to_string(),
+            request: json!({}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    resolver
+        .ingest(json!({
+            "type": "message_start",
+            "message": {"id": "msg_partial", "model": "claude-test"}
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": "call_partial", "name": "patch"}
+        }))
+        .unwrap();
+    resolver
+        .ingest(json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": "{\"path\":\"/tmp/repor"}
+        }))
+        .unwrap();
+
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+    let call = terminal["response"]["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "function_call")
+        .unwrap();
+
+    assert_eq!(terminal["type"], "response.incomplete");
+    assert_eq!(call["status"], "incomplete");
+    assert_eq!(call["arguments"], "{\"path\":\"/tmp/repor");
+    assert!(!events.iter().any(|event| {
+        matches!(
+            event["type"].as_str(),
+            Some("response.function_call_arguments.done" | "response.output_item.done")
+        )
+    }));
 }
 
 #[test]

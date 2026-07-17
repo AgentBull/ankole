@@ -758,8 +758,10 @@ Stage B follows these constraints:
   only semantic content and opaque edit handles. Store routing, audit fields, database
   timestamps, hashes, and lock versions remain server-side; the server attaches current
   concurrency fences after model output.
-- Before writing a `src:` citation, it rechecks that the mirror row still exists and
-  that its `content_hash` is unchanged.
+- Before writing a `src:` citation, it performs a non-locking point-in-time recheck that
+  the mirror row still exists and its `content_hash` is unchanged. Brain never row-locks
+  or delays SignalsGateway writes; changes after that read converge through withdrawal,
+  later dreaming, or human review.
 - It resolves the model-owning Principal's `heavy` profile.
 - Stage A, the Stage B locator, and the Stage B curator declare their JSON envelopes
   through AIGateway structured output rather than prompt examples. Fixed outputs use
@@ -1189,8 +1191,10 @@ the baseline only after real work commits.
 ### 16.4 Recheck Sources Before Dreaming Writes
 
 Evidence can be recalled or edited between scan and write. Stage B rehydrates every
-cited `document_id` against the current mirror and verifies `content_hash` before
-committing a source-bearing block.
+cited `document_id` against the current mirror and verifies `content_hash` with an
+ordinary MVCC read before committing a source-bearing block. The check never locks a
+SignalsGateway row or blocks its update/delete path; a change after the read is handled
+by the existing withdrawal and later reconciliation paths.
 
 Openclaw's `short-term-promotion.ts` uses the same decision shape for file-backed
 memory. Brain keeps the recheck behavior but targets PostgreSQL mirror rows.
@@ -1297,8 +1301,8 @@ Chat BM25 excludes only mirrored entries represented by the root turn's exact vi
 AIGateway Response chain. The adapter maps visible Response ids to outbound mirrors and
 their opaque Actor event ids to inbound mirrors. It does not infer model context from a
 channel-wide time or row-count window; a reset conversation therefore makes the prior
-conversation's messages recallable again. A subagent's inherited parent conversation is
-Brain scope, not its model transcript, so it is not used for this exclusion.
+conversation's messages recallable again. A BackgroundAgentJob's owner conversation is
+Brain scope, not the Job's model transcript, so it is not used for this exclusion.
 
 ### 17.5 Dreaming and Withdrawal
 
@@ -1329,8 +1333,11 @@ An explicit retained source enters through `brain.source.learn`. Agent Computer 
 tools for that turn. Source bytes remain PostgreSQL truth and are copied into the
 session workspace only for execution.
 
-The main agent and subagents receive the same Brain tools. Skill notes use the existing
-append and replace overlay RPCs.
+The main Agent and BackgroundAgentJobs use the same Brain RPC family. A Job derives its
+frozen Brain scope from the owner conversation and adds its Job ID to audit metadata;
+neither an Agent Plugin nor model arguments can widen that scope. Owner conversation
+history is not copied into the Job transcript. Skill notes use the existing append and
+replace overlay RPCs.
 
 Threat scanning is a pure Elixir control-plane module and only guards resident entry
 writes. It does not move into kernel.

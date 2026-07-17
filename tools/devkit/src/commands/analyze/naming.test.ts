@@ -46,7 +46,7 @@ describe('naming policy', () => {
   test('skips external CDP casing and generated sources without widening browser exclusions', () => {
     expect(isNamingSourcePath('app/agent_computer/src/tools/browser/cdp/client.ts')).toBe(false)
     expect(isNamingSourcePath('app/agent_computer/test/browser_cdp.test.ts')).toBe(false)
-    expect(isNamingSourcePath('app/agent_computer/src/tools/subagent/generated/protocol/ThreadId.ts')).toBe(false)
+    expect(isNamingSourcePath('app/agent_computer/src/tools/codex/generated/protocol/ThreadId.ts')).toBe(false)
     expect(isNamingSourcePath('app/kernel/index.d.ts')).toBe(false)
     expect(isNamingSourcePath('app/agent_computer/src/tools/browser/browser-tools.ts')).toBe(true)
   })

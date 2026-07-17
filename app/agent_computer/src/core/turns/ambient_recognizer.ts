@@ -1,6 +1,5 @@
 import {
   arrayPath,
-  deepString,
   firstString,
   isRecord,
   recordValue,
@@ -34,18 +33,19 @@ export interface AmbientRecognizerResult {
  */
 export async function recognizeAmbientIntervention(
   input: AmbientRecognizerInput,
-  opts?: { abortSignal?: AbortSignal }
+  opts?: { abortSignal?: AbortSignal; currentTime?: Date }
 ): Promise<AmbientRecognizerResult> {
   const turnStart = input.turnStart
   const context = input.agentConversationContext
   const currentChannel = currentChannelFromTurnStart(turnStart)
   const timezone = context.conversation?.timezone ?? 'UTC'
   const displayName = context.agent?.display_name ?? turnStart.turn.actor.agent_uid
-  const conversationHistory = ambientConversationHistory(input, timezone)
+  const currentTime = (opts?.currentTime ?? new Date()).toISOString()
+  const conversationHistory = ambientConversationHistory(input, timezone, currentTime)
 
   const result = await callModel(input.model, {
     instructions: buildAmbientRecognizerSystemPrompt({
-      currentTime: formatZonedDateTime(eventTime(turnStart), timezone),
+      currentTime: formatZonedDateTime(currentTime, timezone),
       displayName,
       groupName: currentChannel?.name,
       brainSnapshot: context.brain_snapshot,
@@ -100,9 +100,9 @@ const ambientDecisionTextFormat = {
   }
 } as const
 
-function ambientConversationHistory(input: AmbientRecognizerInput, timezone: string): string {
+function ambientConversationHistory(input: AmbientRecognizerInput, timezone: string, currentTime: string): string {
   const payload = input.turnStart.actor_event.payload_json
-  const currentDate = formatZonedDate(eventTime(input.turnStart), timezone)
+  const currentDate = formatZonedDate(currentTime, timezone)
   const rawMessages = [
     ...arrayPath(payload, ['data', 'channel_context', 'messages']),
     ...arrayPath(payload, ['data', 'unreplied_messages']),
@@ -180,10 +180,6 @@ function dedupeTranscriptMessages(messages: TranscriptMessage[]): TranscriptMess
 
 function transcriptLine(message: TranscriptMessage): string {
   return `- ${message.time} [${message.role}] ${message.speaker}: ${message.text}`
-}
-
-function eventTime(turnStart: TurnStart): string {
-  return deepString(turnStart.actor_event.payload_json, ['time']) ?? new Date().toISOString()
 }
 
 function formatZonedDateTime(value: string, timezone: string): string {

@@ -274,7 +274,85 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     |> maybe_mark_retryable_terminal_error()
   end
 
+  defp terminal_error("response.incomplete", response) do
+    reason = incomplete_response_reason(response) || "unknown"
+
+    cond do
+      response_has_incomplete_function_call?(response) ->
+        %{
+          "type" => "response.incomplete",
+          "code" => "partial_function_call_incomplete",
+          "status" => Map.get(response, "status", "incomplete"),
+          "incomplete_details" => Map.get(response, "incomplete_details"),
+          "reason" => reason,
+          "retryable" => transient_incomplete_reason?(reason)
+        }
+
+      intentional_incomplete_response?(response) ->
+        nil
+
+      true ->
+        %{
+          "type" => "response.incomplete",
+          "code" => "response_incomplete",
+          "status" => Map.get(response, "status", "incomplete"),
+          "incomplete_details" => Map.get(response, "incomplete_details"),
+          "reason" => reason,
+          "retryable" => transient_incomplete_reason?(reason)
+        }
+    end
+  end
+
+  defp terminal_error("response.completed", %{"output" => output}) when is_list(output) do
+    if Enum.any?(output, &incomplete_function_call_item?/1) do
+      %{
+        "type" => "response.completed",
+        "code" => "partial_function_call_completed",
+        "reason" =>
+          "provider marked the response completed while a function call remained incomplete",
+        "retryable" => false
+      }
+    end
+  end
+
   defp terminal_error(_type, _response), do: nil
+
+  defp response_has_incomplete_function_call?(%{"output" => output}) when is_list(output),
+    do: Enum.any?(output, &incomplete_function_call_item?/1)
+
+  defp response_has_incomplete_function_call?(_response), do: false
+
+  defp intentional_incomplete_response?(response) do
+    incomplete_response_reason(response) == "max_output_tokens" or
+      match?(%{"max_tool_calls" => %{}}, Map.get(response, "provider_metadata"))
+  end
+
+  defp incomplete_response_reason(%{"incomplete_details" => %{"reason" => reason}})
+       when is_binary(reason),
+       do: reason
+
+  defp incomplete_response_reason(_response), do: nil
+
+  defp transient_incomplete_reason?(reason) do
+    reason in [
+      "upstream_stream_closed",
+      "upstream_stream_closed_before_terminal_event",
+      "provider_stream_closed_without_terminal"
+    ]
+  end
+
+  defp incomplete_function_call_item?(%{"type" => "function_call"} = item) do
+    status = Map.get(item, "status")
+
+    status not in [nil, "completed"] or
+      not non_empty_binary?(Map.get(item, "call_id")) or
+      not non_empty_binary?(Map.get(item, "name")) or
+      not is_binary(Map.get(item, "arguments"))
+  end
+
+  defp incomplete_function_call_item?(_item), do: false
+
+  defp non_empty_binary?(value), do: is_binary(value) and value != ""
 
   defp max_tool_calls_incomplete_event(state) do
     %{
@@ -359,13 +437,15 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     do: "error"
 
   defp response_stop_reason(%{"output" => output}) when is_list(output) do
-    if Enum.any?(output, &function_call_item?/1), do: "tool_use", else: "stop"
+    if Enum.any?(output, &completed_function_call_item?/1), do: "tool_use", else: "stop"
   end
 
   defp response_stop_reason(_response), do: "stop"
 
-  defp function_call_item?(%{"type" => "function_call"}), do: true
-  defp function_call_item?(_item), do: false
+  defp completed_function_call_item?(%{"type" => "function_call"} = item),
+    do: not incomplete_function_call_item?(item)
+
+  defp completed_function_call_item?(_item), do: false
 
   defp commit_stateful_terminal(nil, _items, _terminal_error, _terminal_metadata), do: :ok
 

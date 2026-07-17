@@ -130,12 +130,12 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
   })
 })
 
-describe('@ankole/agent-computer subagent failure input', () => {
+describe('@ankole/agent-computer background agent job failure input', () => {
   it('offers direct correction or same-session continuation without forcing either', () => {
     const text = actorEventText(
       {
         data: {
-          delegation_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
           title: 'Market classification research',
           runtime: 'task_worker',
           result_summary: 'Codex upstream returned HTTP 502.',
@@ -143,17 +143,17 @@ describe('@ankole/agent-computer subagent failure input', () => {
           workdir: '/workspace'
         }
       },
-      'subagent.delegation.failed'
+      'background_agent_job.failed'
     )
 
-    expect(text).toContain('Delegation: 019f64b1-4198-7200-9e22-6fb8fa8a3db8')
-    expect(text).toContain('Runtime: task_worker')
-    expect(text).toContain('Workdir: /workspace')
-    expect(text).toContain('inspect the Workdir before repeating any side effect')
+    expect(text).toContain('Job: 019f64b1-4198-7200-9e22-6fb8fa8a3db8')
+    expect(text).not.toContain('Runtime: task_worker')
+    expect(text).not.toContain('Workdir: /workspace')
+    expect(text).toContain('workspace mounts, and artifact observations before repeating any side effect')
     expect(text).toContain('make and verify it directly')
-    expect(text).toContain('If the work needs the existing research context')
-    expect(text).toContain('call subagent(steer)')
-    expect(text).toContain('resume that Codex session')
-    expect(text).not.toContain('subagent(start)')
+    expect(text).toContain('If the work benefits from the existing Job context')
+    expect(text).toContain('call background_agent_job(steer)')
+    expect(text).toContain('resume it')
+    expect(text).not.toContain('background_agent_job(start)')
   })
 })

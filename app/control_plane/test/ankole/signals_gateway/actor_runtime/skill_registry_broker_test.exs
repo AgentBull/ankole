@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
   import Ecto.Query, only: [from: 2]
 
+  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
 
   describe "skills.installed.replace RPC" do
@@ -22,29 +23,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 %{
-                   "request_id" => "rpc-installed-skills-1",
-                   "method" => "skills.installed.replace",
-                   "payload_json" => %{
-                     "request_id" => "installed-skills-1",
-                     "turn" => turn_ref,
-                     "observations" => [
-                       %{
-                         "skill_name" => "agent-notes",
-                         "relative_path" => "agent-notes",
-                         "description" => "Agent installed notes.",
-                         "default_enabled" => true,
-                         "metadata" => %{"category" => "custom"},
-                         "xxh3_128" => "7b16fe7c3e492b87d9615265f0856cec",
-                         "file_count" => 2
-                       }
-                     ]
-                   }
-                 },
+                 rpc_request("rpc-installed-skills-1", "skills.installed.replace", %{
+                   "request_id" => "installed-skills-1",
+                   "turn" => turn_ref,
+                   "observations" => [
+                     %{
+                       "skill_name" => "agent-notes",
+                       "relative_path" => "agent-notes",
+                       "description" => "Agent installed notes.",
+                       "default_enabled" => true,
+                       "metadata" => %{"category" => "custom"},
+                       "xxh3_128" => "7b16fe7c3e492b87d9615265f0856cec",
+                       "file_count" => 2
+                     }
+                   ]
+                 }),
                  route
                )
 
-      payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
+      payload = rpc_response_payload!(envelope)
       assert payload["request_id"] == "installed-skills-1"
       assert payload["agent_uid"] == agent.uid
 
@@ -56,8 +53,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert payload["files"] >= 4
 
-      assert %AgentSkill{source_kind: "installed", enabled: true} =
+      assert %AgentSkill{source_kind: "installed", enabled_override: nil, default_enabled: true} =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
+
+      assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)
+
+      assert Enum.any?(enabled_skills, fn skill ->
+               skill["skill_name"] == "agent-notes" and skill["effective_enabled"]
+             end)
     end
 
     test "rejects an unassigned worker route" do
@@ -75,19 +78,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 %{
-                   "request_id" => "rpc-installed-skills-rejected",
-                   "method" => "skills.installed.replace",
-                   "payload_json" => %{
-                     "request_id" => "installed-skills-rejected",
-                     "turn" => turn_ref,
-                     "observations" => []
-                   }
-                 },
+                 rpc_request("rpc-installed-skills-rejected", "skills.installed.replace", %{
+                   "request_id" => "installed-skills-rejected",
+                   "turn" => turn_ref,
+                   "observations" => []
+                 }),
                  wrong_route
                )
 
-      error = get_in(envelope, ["body", "rpc_error"])
+      error = rpc_error_payload!(envelope)
       assert error["request_id"] == "installed-skills-rejected"
       assert error["code"] == "worker_not_assigned_to_turn"
     end
@@ -106,19 +105,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 %{
-                   "request_id" => "rpc-installed-skills-stale",
-                   "method" => "skills.installed.replace",
-                   "payload_json" => %{
-                     "request_id" => "installed-skills-stale",
-                     "turn" => pre_context_turn_ref,
-                     "observations" => []
-                   }
-                 },
+                 rpc_request("rpc-installed-skills-stale", "skills.installed.replace", %{
+                   "request_id" => "installed-skills-stale",
+                   "turn" => pre_context_turn_ref,
+                   "observations" => []
+                 }),
                  route
                )
 
-      error = get_in(envelope, ["body", "rpc_error"])
+      error = rpc_error_payload!(envelope)
       assert error["request_id"] == "installed-skills-stale"
       assert error["code"] == "stale_revision"
     end
@@ -136,25 +131,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 %{
-                   "request_id" => "rpc-installed-skills-invalid",
-                   "method" => "skills.installed.replace",
-                   "payload_json" => %{
-                     "request_id" => "installed-skills-invalid",
-                     "turn" => turn_ref,
-                     "observations" => [
-                       %{
-                         "skill_name" => "bad-skill",
-                         "description" => "",
-                         "xxh3_128" => "not-a-fingerprint"
-                       }
-                     ]
-                   }
-                 },
+                 rpc_request("rpc-installed-skills-invalid", "skills.installed.replace", %{
+                   "request_id" => "installed-skills-invalid",
+                   "turn" => turn_ref,
+                   "observations" => [
+                     %{
+                       "skill_name" => "bad-skill",
+                       "description" => "",
+                       "xxh3_128" => "not-a-fingerprint"
+                     }
+                   ]
+                 }),
                  route
                )
 
-      error = get_in(envelope, ["body", "rpc_error"])
+      error = rpc_error_payload!(envelope)
       assert error["request_id"] == "installed-skills-invalid"
       assert error["code"] in ["invalid_skill_fingerprint", "skill_description_missing"]
     end
@@ -176,10 +167,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
              )
 
     assert_receive {:actor_lane, envelope}, 200
-    assert envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+    assert turn_start_payload!(envelope).turn.actor_event_id == input.id
 
     # Keep the route registered until the RPC under test performs auth.
     assert is_binary(route)
-    envelope["body"]["turn_start"]["turn"]
+    turn_wire_ref(turn_start_payload!(envelope).turn)
   end
 end

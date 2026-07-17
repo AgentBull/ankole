@@ -79,20 +79,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
          {:ok, conversation} <-
            resolve_run_conversation(subject_uid, conversation_id, previous_message_id) do
       extra_metadata =
-        attrs
-        |> Map.take([:metadata, "metadata"])
-        |> case do
-          %{metadata: m} when is_map(m) -> m
-          %{"metadata" => m} when is_map(m) -> m
-          _ -> %{}
-        end
+        response_run_metadata(attrs)
 
-      # Initial content: request-side input items (function_call_output, etc.)
-      initial_content = Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
-
-      merged_metadata =
-        extra_metadata
-        |> Map.merge(request_items_metadata(initial_content))
+      initial_content = response_run_request_items(attrs)
+      merged_metadata = Map.merge(extra_metadata, request_items_metadata(initial_content))
 
       insert_response_run(%{
         subject_uid: subject_uid,
@@ -109,8 +99,95 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
+  @doc false
+  @spec start_planned_response_run(map()) ::
+          {:ok, Message.t()}
+          | {:error,
+             Ecto.Changeset.t()
+             | :invalid_compaction_plan
+             | :invalid_anchor
+             | :invalid_conversation
+             | :response_run_in_progress
+             | :stateful_anchor_conflict}
+  def start_planned_response_run(attrs) when is_map(attrs) do
+    raw_subject_uid = Map.fetch!(attrs, :subject_uid)
+    conversation_id = conversation_id(attrs)
+    previous_response_id = previous_response_id(attrs)
+    expected_previous_response_id = Map.get(attrs, :expected_previous_response_id)
+    compaction = Map.get(attrs, :compaction)
+    initial_content = response_run_request_items(attrs)
+
+    merged_metadata =
+      attrs
+      |> response_run_metadata()
+      |> Map.merge(request_items_metadata(initial_content))
+
+    with {:ok, subject_uid} <- Principals.normalize_uid(raw_subject_uid),
+         {:ok, selector} <-
+           planned_run_selector(
+             conversation_id,
+             previous_response_id,
+             expected_previous_response_id
+           ) do
+      case Repo.transact(fn repo ->
+             admit_planned_response_run(
+               repo,
+               subject_uid,
+               selector,
+               compaction,
+               initial_content,
+               merged_metadata
+             )
+           end) do
+        {:ok, %Message{} = message} ->
+          Events.publish(message, :response_started, %{})
+          {:ok, message}
+
+        {:error, :invalid_response_id} ->
+          {:error, :invalid_anchor}
+
+        {:error, :invalid_uuid} ->
+          {:error, :invalid_conversation}
+
+        {:error, _reason} = error ->
+          error
+      end
+    else
+      {:error, :invalid_uid} -> {:error, :invalid_conversation}
+      {:error, :invalid_response_id} -> {:error, :invalid_anchor}
+      {:error, :invalid_uuid} -> {:error, :invalid_conversation}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec ensure_implicit_response_run_available(binary()) ::
+          :ok | {:error, :invalid_conversation | :response_run_in_progress}
+  def ensure_implicit_response_run_available(conversation_id) do
+    with {:ok, conversation_id} <- cast_uuid(conversation_id) do
+      ensure_no_generating_response(Repo, conversation_id)
+    else
+      {:error, _reason} -> {:error, :invalid_conversation}
+    end
+  end
+
+  @doc false
+  @spec merge_generating_response_metadata(Message.t(), map()) ::
+          {:ok, Message.t()} | {:error, :response_not_generating | Ecto.Changeset.t()}
+  def merge_generating_response_metadata(%Message{status: "generating"} = message, metadata)
+      when is_map(metadata) do
+    message
+    |> Ecto.Changeset.change(metadata: Map.merge(message.metadata || %{}, metadata))
+    |> Repo.update()
+  end
+
+  def merge_generating_response_metadata(%Message{}, _metadata),
+    do: {:error, :response_not_generating}
+
   @doc """
-  Records tool results as a completed message-log row without opening a provider run.
+  Records valid tool results as a completed message-log row without opening a
+  provider run. Results that cannot be paired safely are retained in an error
+  quarantine row and returned as a structured error.
 
   This closes the worker crash window after a tool side effect has happened but
   before the next `response.create` continuation reaches AIGateway. The returned
@@ -123,7 +200,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
              Ecto.Changeset.t()
              | :invalid_anchor
              | :invalid_conversation
-             | :invalid_tool_results}
+             | :invalid_tool_results
+             | {:tool_results_quarantined, map()}}
   def record_tool_results(attrs) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
@@ -143,18 +221,29 @@ defmodule Ankole.AIGateway.StatefulResponses do
          {:ok, previous_message_id} <- decode_response_id(previous_response_id),
          %Message{status: "complete"} = anchor <-
            complete_message_for_subject(subject_uid, previous_message_id) do
-      idempotency_key =
-        tool_result_idempotency_key(subject_uid, previous_message_id, request_items)
+      case reconcile_tool_result_items(anchor, request_items) do
+        {:ok, reconciled_items} ->
+          idempotency_key =
+            tool_result_idempotency_key(subject_uid, previous_message_id, reconciled_items)
 
-      merged_metadata =
-        extra_metadata
-        |> Map.merge(request_items_metadata(request_items))
-        |> Map.merge(%{
-          "tool_result_journal" => true,
-          "tool_result_idempotency_key" => idempotency_key
-        })
+          merged_metadata =
+            extra_metadata
+            |> Map.merge(request_items_metadata(reconciled_items))
+            |> Map.merge(%{
+              "tool_result_journal" => true,
+              "tool_result_idempotency_key" => idempotency_key
+            })
 
-      insert_tool_result_journal(anchor, request_items, merged_metadata, idempotency_key)
+          insert_tool_result_journal(
+            anchor,
+            reconciled_items,
+            merged_metadata,
+            idempotency_key
+          )
+
+        {:quarantine, reason, details} ->
+          quarantine_tool_result_items(anchor, request_items, extra_metadata, reason, details)
+      end
     else
       {:error, :invalid_response_id} -> {:error, :invalid_anchor}
       {:error, :invalid_uid} -> {:error, :invalid_conversation}
@@ -170,20 +259,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
          initial_content: initial_content,
          merged_metadata: merged_metadata
        }) do
-    changeset =
-      %Message{}
-      |> Message.changeset(%{
-        subject_uid: subject_uid,
-        conversation_id: conversation_id,
-        type: "message",
-        status: "generating",
-        previous_message_id: previous_message_id,
-        content: initial_content,
-        metadata: merged_metadata
-      })
-
     case Repo.transact(fn repo ->
-           with {:ok, message} <- repo.insert(changeset),
+           with {:ok, message} <-
+                  insert_response_run_in_tx(repo, %{
+                    subject_uid: subject_uid,
+                    conversation_id: conversation_id,
+                    previous_message_id: previous_message_id,
+                    initial_content: initial_content,
+                    merged_metadata: merged_metadata
+                  }),
                 :ok <- notify_ai_message_deadline(repo, message) do
              {:ok, message}
            end
@@ -198,6 +282,206 @@ defmodule Ankole.AIGateway.StatefulResponses do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp response_run_request_items(attrs),
+    do: Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
+
+  defp response_run_metadata(attrs) do
+    case Map.take(attrs, [:metadata, "metadata"]) do
+      %{metadata: metadata} when is_map(metadata) -> metadata
+      %{"metadata" => metadata} when is_map(metadata) -> metadata
+      _missing -> %{}
+    end
+  end
+
+  defp planned_run_selector(conversation_id, nil, expected_previous_response_id)
+       when not is_nil(conversation_id) do
+    with {:ok, conversation_id} <- cast_uuid(conversation_id),
+         {:ok, expected_previous_message_id} <-
+           decode_optional_response_id(expected_previous_response_id) do
+      {:ok, {:implicit, conversation_id, expected_previous_message_id}}
+    end
+  end
+
+  defp planned_run_selector(nil, previous_response_id, nil)
+       when not is_nil(previous_response_id) do
+    with {:ok, previous_message_id} <- decode_response_id(previous_response_id) do
+      {:ok, {:explicit, previous_message_id}}
+    end
+  end
+
+  defp planned_run_selector(nil, nil, _expected_previous_response_id),
+    do: {:error, :invalid_conversation}
+
+  defp planned_run_selector(
+         _conversation_id,
+         _previous_response_id,
+         _expected_previous_response_id
+       ),
+       do: {:error, :stateful_anchor_conflict}
+
+  defp admit_planned_response_run(
+         repo,
+         subject_uid,
+         {:implicit, conversation_id, expected_previous_message_id},
+         compaction,
+         initial_content,
+         merged_metadata
+       ) do
+    with %Conversation{} <-
+           lock_active_owned_conversation(repo, subject_uid, conversation_id),
+         :ok <- ensure_no_generating_response(repo, conversation_id),
+         :ok <-
+           ensure_expected_visible_leaf(
+             repo,
+             conversation_id,
+             expected_previous_message_id
+           ),
+         {:ok, previous_message_id} <-
+           maybe_insert_planned_compaction(
+             repo,
+             subject_uid,
+             conversation_id,
+             expected_previous_message_id,
+             compaction
+           ),
+         {:ok, message} <-
+           insert_response_run_in_tx(repo, %{
+             subject_uid: subject_uid,
+             conversation_id: conversation_id,
+             previous_message_id: previous_message_id,
+             initial_content: initial_content,
+             merged_metadata: merged_metadata
+           }),
+         :ok <- notify_ai_message_deadline(repo, message) do
+      {:ok, message}
+    else
+      nil -> {:error, :invalid_conversation}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp admit_planned_response_run(
+         repo,
+         subject_uid,
+         {:explicit, previous_message_id},
+         compaction,
+         initial_content,
+         merged_metadata
+       ) do
+    with %Message{conversation_id: conversation_id} <-
+           complete_message_for_active_subject(repo, subject_uid, previous_message_id),
+         {:ok, previous_message_id} <-
+           maybe_insert_planned_compaction(
+             repo,
+             subject_uid,
+             conversation_id,
+             previous_message_id,
+             compaction
+           ),
+         {:ok, message} <-
+           insert_response_run_in_tx(repo, %{
+             subject_uid: subject_uid,
+             conversation_id: conversation_id,
+             previous_message_id: previous_message_id,
+             initial_content: initial_content,
+             merged_metadata: merged_metadata
+           }),
+         :ok <- notify_ai_message_deadline(repo, message) do
+      {:ok, message}
+    else
+      nil -> {:error, :invalid_anchor}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_no_generating_response(repo, conversation_id) do
+    generating? =
+      Message
+      |> where([message], message.conversation_id == ^conversation_id)
+      |> where([message], message.type == "message")
+      |> where([message], message.status == "generating")
+      |> repo.exists?()
+
+    if generating?, do: {:error, :response_run_in_progress}, else: :ok
+  end
+
+  defp ensure_expected_visible_leaf(repo, conversation_id, expected_previous_message_id) do
+    if latest_visible_leaf_for_uuid(repo, conversation_id) == expected_previous_message_id do
+      :ok
+    else
+      {:error, :response_run_in_progress}
+    end
+  end
+
+  defp maybe_insert_planned_compaction(
+         _repo,
+         _subject_uid,
+         _conversation_id,
+         previous_message_id,
+         nil
+       ),
+       do: {:ok, previous_message_id}
+
+  defp maybe_insert_planned_compaction(
+         repo,
+         subject_uid,
+         conversation_id,
+         previous_message_id,
+         %{
+           artifact_attrs: artifact_attrs,
+           checkpoint_metadata: checkpoint_metadata
+         }
+       )
+       when is_map(artifact_attrs) and is_map(checkpoint_metadata) do
+    artifact_attrs =
+      Map.merge(artifact_attrs, %{
+        subject_uid: subject_uid,
+        conversation_id: conversation_id
+      })
+
+    with {:ok, artifact} <- CompactionArtifacts.insert_artifact_in_tx(repo, artifact_attrs),
+         {:ok, checkpoint} <-
+           insert_checkpoint_row(
+             repo,
+             subject_uid,
+             conversation_id,
+             previous_message_id,
+             artifact.id,
+             checkpoint_metadata
+           ) do
+      {:ok, checkpoint.id}
+    end
+  end
+
+  defp maybe_insert_planned_compaction(
+         _repo,
+         _subject_uid,
+         _conversation_id,
+         _previous_message_id,
+         _invalid_compaction
+       ),
+       do: {:error, :invalid_compaction_plan}
+
+  defp insert_response_run_in_tx(repo, %{
+         subject_uid: subject_uid,
+         conversation_id: conversation_id,
+         previous_message_id: previous_message_id,
+         initial_content: initial_content,
+         merged_metadata: merged_metadata
+       }) do
+    %Message{}
+    |> Message.changeset(%{
+      subject_uid: subject_uid,
+      conversation_id: conversation_id,
+      type: "message",
+      status: "generating",
+      previous_message_id: previous_message_id,
+      content: initial_content,
+      metadata: merged_metadata
+    })
+    |> repo.insert()
   end
 
   defp insert_tool_result_journal(
@@ -272,6 +556,207 @@ defmodule Ankole.AIGateway.StatefulResponses do
       %Message{} = message -> {:ok, message}
       nil -> {:error, :invalid_anchor}
     end
+  end
+
+  defp reconcile_tool_result_items(%Message{} = anchor, request_items) do
+    with {:ok, deduplicated_items} <- deduplicate_tool_result_items(request_items) do
+      output_items = Enum.filter(deduplicated_items, &function_call_output_item?/1)
+      output_call_ids = Enum.map(output_items, &Map.get(&1, "call_id"))
+
+      invalid_call_ids = Enum.filter(output_call_ids, &(not is_binary(&1) or &1 == ""))
+      anchor_calls = function_calls_by_id(anchor.content)
+      executable_call_ids = executable_function_call_ids(anchor_calls)
+
+      orphan_call_ids =
+        output_call_ids
+        |> Enum.filter(&is_binary/1)
+        |> Enum.reject(&Map.has_key?(anchor_calls, &1))
+        |> Enum.uniq()
+
+      non_executable_call_ids =
+        output_call_ids
+        |> Enum.filter(&is_binary/1)
+        |> Enum.filter(
+          &(Map.has_key?(anchor_calls, &1) and not MapSet.member?(executable_call_ids, &1))
+        )
+        |> Enum.uniq()
+
+      mismatched_tool_names = mismatched_tool_result_names(output_items, anchor_calls)
+
+      cond do
+        invalid_call_ids != [] ->
+          {:quarantine, "invalid_call_id", %{"invalid_call_id_count" => length(invalid_call_ids)}}
+
+        orphan_call_ids != [] ->
+          {:quarantine, "orphan_function_call_output", %{"orphan_call_ids" => orphan_call_ids}}
+
+        non_executable_call_ids != [] ->
+          {:quarantine, "non_executable_function_call_output",
+           %{"non_executable_call_ids" => non_executable_call_ids}}
+
+        mismatched_tool_names != [] ->
+          {:quarantine, "function_call_output_name_mismatch",
+           %{"name_mismatches" => mismatched_tool_names}}
+
+        true ->
+          {:ok, deduplicated_items}
+      end
+    end
+  end
+
+  defp deduplicate_tool_result_items(request_items) do
+    request_items
+    |> Enum.reduce_while({[], %{}}, fn
+      %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
+      when is_binary(call_id) and call_id != "" ->
+        case Map.fetch(seen, call_id) do
+          :error ->
+            {:cont, {[item | acc], Map.put(seen, call_id, item)}}
+
+          {:ok, ^item} ->
+            {:cont, {acc, seen}}
+
+          {:ok, _different_item} ->
+            {:halt,
+             {:quarantine, "conflicting_duplicate_function_call_output",
+              %{"conflicting_call_ids" => [call_id]}}}
+        end
+
+      item, {acc, seen} ->
+        {:cont, {[item | acc], seen}}
+    end)
+    |> case do
+      {items, _seen} -> {:ok, Enum.reverse(items)}
+      {:quarantine, reason, details} -> {:quarantine, reason, details}
+    end
+  end
+
+  defp function_calls_by_id(items) when is_list(items) do
+    Map.new(items, fn
+      %{"type" => "function_call", "call_id" => call_id} = item
+      when is_binary(call_id) and call_id != "" ->
+        {call_id, item}
+
+      _item ->
+        {nil, nil}
+    end)
+    |> Map.delete(nil)
+  end
+
+  defp function_calls_by_id(_items), do: %{}
+
+  defp executable_function_call_ids(anchor_calls) do
+    Enum.reduce(anchor_calls, MapSet.new(), fn
+      {call_id, call}, acc ->
+        if executable_function_call?(call) do
+          MapSet.put(acc, call_id)
+        else
+          acc
+        end
+    end)
+  end
+
+  defp executable_function_call?(call) do
+    Map.get(call, "status") in [nil, "completed"] and
+      is_binary(Map.get(call, "name")) and Map.get(call, "name") != "" and
+      is_binary(Map.get(call, "arguments"))
+  end
+
+  defp mismatched_tool_result_names(output_items, anchor_calls) do
+    Enum.flat_map(output_items, fn item ->
+      call_id = Map.get(item, "call_id")
+      output_name = Map.get(item, "name")
+      call_name = get_in(anchor_calls, [call_id, "name"])
+
+      if is_binary(output_name) and is_binary(call_name) and output_name != call_name do
+        [%{"call_id" => call_id, "expected" => call_name, "received" => output_name}]
+      else
+        []
+      end
+    end)
+  end
+
+  defp quarantine_tool_result_items(anchor, request_items, extra_metadata, reason, details) do
+    idempotency_key =
+      tool_result_idempotency_key(anchor.subject_uid, anchor.id, request_items)
+
+    quarantine =
+      details
+      |> Map.put("reason", reason)
+      |> Map.put("anchor_response_id", "resp_#{anchor.id}")
+
+    metadata =
+      extra_metadata
+      |> Map.merge(request_items_metadata(request_items))
+      |> Map.merge(%{
+        "tool_result_idempotency_key" => idempotency_key,
+        "tool_result_quarantine" => quarantine,
+        "error" => %{
+          "code" => "tool_results_quarantined",
+          "reason" => reason,
+          "details" => details
+        }
+      })
+
+    case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+      {:ok, %Message{} = message} ->
+        tool_results_quarantined_error(message, quarantine)
+
+      {:error, :invalid_anchor} ->
+        insert_tool_result_quarantine(
+          anchor,
+          request_items,
+          metadata,
+          idempotency_key,
+          quarantine
+        )
+    end
+  end
+
+  defp insert_tool_result_quarantine(
+         anchor,
+         request_items,
+         metadata,
+         idempotency_key,
+         quarantine
+       ) do
+    changeset =
+      %Message{}
+      |> Message.changeset(%{
+        subject_uid: anchor.subject_uid,
+        conversation_id: anchor.conversation_id,
+        type: "message",
+        status: "error",
+        previous_message_id: anchor.id,
+        content: request_items,
+        metadata: metadata
+      })
+
+    case Repo.insert(changeset) do
+      {:ok, %Message{} = message} ->
+        tool_results_quarantined_error(message, quarantine)
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        if unique_constraint_error?(
+             changeset,
+             "ai_gateway_messages_tool_result_journal_key_index"
+           ) do
+          case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+            {:ok, %Message{} = message} -> tool_results_quarantined_error(message, quarantine)
+            {:error, _reason} = error -> error
+          end
+        else
+          {:error, changeset}
+        end
+    end
+  end
+
+  defp tool_results_quarantined_error(%Message{} = message, quarantine) do
+    {:error,
+     {:tool_results_quarantined,
+      quarantine
+      |> Map.put("quarantine_response_id", "resp_#{message.id}")
+      |> Map.put("quarantine_status", message.status)}}
   end
 
   defp request_items_metadata(request_items) when is_list(request_items) do
@@ -1016,6 +1501,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
     |> repo.one()
   end
 
+  defp lock_active_owned_conversation(repo, subject_uid, conversation_id) do
+    Conversation
+    |> where([conversation], conversation.id == ^conversation_id)
+    |> where([conversation], conversation.subject_uid == ^subject_uid)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
   defp complete_response_rows?(repo, conversation_id, message_ids) do
     count =
       Message
@@ -1146,6 +1640,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
          {:ok, conversation_id, previous_message_id} <-
            resolve_checkpoint_chain(subject_uid, conversation_id, previous_message_id, artifact) do
       insert_checkpoint_row(
+        Repo,
         subject_uid,
         conversation_id,
         previous_message_id,
@@ -1282,12 +1777,32 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp complete_message_for_subject(subject_uid, message_id) do
-    Repo.one(
+    complete_message_for_subject(Repo, subject_uid, message_id)
+  end
+
+  defp complete_message_for_subject(repo, subject_uid, message_id) do
+    repo.one(
       from(m in Message,
         where:
           m.id == ^message_id and
             m.subject_uid == ^subject_uid and
             m.status == "complete"
+      )
+    )
+  end
+
+  defp complete_message_for_active_subject(repo, subject_uid, message_id) do
+    repo.one(
+      from(m in Message,
+        join: conversation in Conversation,
+        on: conversation.id == m.conversation_id,
+        where:
+          m.id == ^message_id and
+            m.subject_uid == ^subject_uid and
+            m.status == "complete" and
+            conversation.subject_uid == ^subject_uid and
+            is_nil(conversation.ended_at),
+        select: m
       )
     )
   end
@@ -1317,6 +1832,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp insert_checkpoint_row(
+         repo,
          subject_uid,
          conversation_id,
          previous_message_id,
@@ -1333,7 +1849,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
       content: [CompactionArtifacts.ref_item(artifact_id)],
       metadata: metadata
     })
-    |> Repo.insert()
+    |> repo.insert()
   end
 
   # Terminal provider items append to the request-side items saved when the

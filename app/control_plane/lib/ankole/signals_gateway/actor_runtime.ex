@@ -29,11 +29,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
   alias Ankole.I18n
   alias Ankole.Logging
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorTurnCompletion
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SubagentDelegations
+  alias Ankole.BackgroundAgentJobs
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -46,21 +47,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   @doc """
   Admits an authenticated worker-ready message.
   """
-  @spec admit_worker_ready(map(), String.t() | map()) ::
+  @spec admit_worker_ready(FabricProto.AgentComputerWorkerReady.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   defdelegate admit_worker_ready(worker_ready, authenticated_route), to: WorkerAdmission
 
   @doc """
   Records an authenticated worker heartbeat projection.
   """
-  @spec handle_worker_heartbeat(map(), String.t() | map()) ::
+  @spec handle_worker_heartbeat(FabricProto.AgentComputerWorkerHeartbeat.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   defdelegate handle_worker_heartbeat(worker_heartbeat, authenticated_route), to: WorkerAdmission
 
   @doc """
   Records an authenticated worker capacity projection.
   """
-  @spec handle_worker_capacity(map(), String.t() | map()) ::
+  @spec handle_worker_capacity(FabricProto.AgentComputerWorkerCapacity.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   defdelegate handle_worker_capacity(worker_capacity, authenticated_route), to: WorkerAdmission
 
@@ -74,44 +75,46 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   @doc """
   Handles an actor lane turn.accepted envelope.
   """
-  @spec handle_turn_accepted(map()) :: {:ok, [ActorEventDelivery.t()]} | {:error, term()}
-  defdelegate handle_turn_accepted(envelope), to: TurnLifecycle
+  @spec handle_turn_accepted(FabricProto.TurnAccepted.t()) ::
+          {:ok, [ActorEventDelivery.t()]} | {:error, term()}
+  defdelegate handle_turn_accepted(payload), to: TurnLifecycle
 
   @doc """
   Extends the live activation lease for a matching in-flight worker turn.
   """
-  @spec handle_worker_progress(map(), keyword()) ::
+  @spec handle_worker_progress(FabricProto.WorkerProgress.t(), keyword()) ::
           {:ok, ActorSessionActivation.t()} | {:error, term()}
-  defdelegate handle_worker_progress(envelope, opts \\ []), to: TurnLifecycle
+  defdelegate handle_worker_progress(payload, opts \\ []), to: TurnLifecycle
 
   @doc """
   Completes a worker turn that deliberately adopts no provider-visible output.
   """
-  @spec handle_turn_noop_completed(map()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_noop_completed(envelope), to: TurnLifecycle
+  @spec handle_turn_noop_completed(FabricProto.TurnNoopCompleted.t()) ::
+          {:ok, map()} | {:error, term()}
+  defdelegate handle_turn_noop_completed(payload), to: TurnLifecycle
 
   @doc """
   Commits a response-backed Agent turn completion through SignalsGateway.
   """
-  @spec handle_turn_completed(map()) :: {:ok, map()} | {:error, term()}
-  defdelegate handle_turn_completed(envelope), to: ActorTurnCompletion, as: :handle
+  @spec handle_turn_completed(FabricProto.TurnCompleted.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate handle_turn_completed(payload), to: ActorTurnCompletion, as: :handle
 
   @doc """
   Handles a worker turn.error envelope and releases the actor event for retry.
   """
-  @spec handle_turn_error(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle_turn_error(envelope, opts \\ []) do
+  @spec handle_turn_error(FabricProto.TurnError.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def handle_turn_error(payload, opts \\ []) do
     opts =
       Keyword.put(
         opts,
         :compensate_turn_error_in_tx,
-        &SubagentDelegations.compensate_turn_error_in_tx/4
+        &BackgroundAgentJobs.compensate_turn_error_in_tx/4
       )
 
     result =
-      envelope
+      payload
       |> TurnLifecycle.handle_turn_error(opts)
-      |> SubagentDelegations.finalize_turn_error()
+      |> BackgroundAgentJobs.finalize_turn_error()
 
     case result do
       {:ok, %{dead_lettered?: true, actor_event: event}} ->

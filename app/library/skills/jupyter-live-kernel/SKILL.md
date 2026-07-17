@@ -1,7 +1,8 @@
 ---
 name: jupyter-live-kernel
-description: Use for iterative Python via a live Jupyter notebook kernel, especially data science, DataFrame inspection, notebook editing, and stateful API exploration. Prefer command for one-shot scripts.
+description: Use for iterative Python via a live Jupyter notebook kernel, especially data science, DataFrame inspection, notebook editing, and stateful API exploration. Prefer a one-shot Python process for stateless scripts.
 default_enabled: true
+long_running: true
 tags:
   - python
   - jupyter
@@ -24,8 +25,8 @@ Use this skill when a task benefits from a live notebook kernel: variables persi
 
 Prefer:
 
-- `command` for one-shot Python scripts.
-- `interactive_terminal` for starting Jupyter and long-running server processes.
+- One-shot shell execution for short Python scripts.
+- Codex unified exec sessions for starting Jupyter and keeping the server process available across calls.
 - This skill when you would normally want a Jupyter notebook or stateful Python REPL.
 
 ## Runtime
@@ -57,15 +58,16 @@ The bootstrap uses `uv venv --system-site-packages`, so the env sees the image b
 
 When the user asks for analysis of an uploaded file and expects a chart or file
 back, do not stop after saying that the server/session has started. Finish the
-artifact path first, verify it exists, then call `reply_attachment` when a file
-should be sent back.
+artifact path first, verify it exists under the durable artifacts root, and
+report the exact path. The calling main agent owns user-visible attachment
+delivery.
 
-Prefer one foreground `command` call for this batch workflow. The command may
-start Jupyter in the background inside its own shell, but keep server startup,
-session creation, `jupyter_live_kernel.py execute`, artifact verification, and
-cleanup in that same shell command. Do not split "start Jupyter" and "execute
-analysis" into separate tool calls unless you use `interactive_terminal` to keep
-the server process alive.
+For a batch workflow, prefer one foreground shell call. It may start Jupyter in
+the background inside its own shell, but keep server startup, session creation,
+`jupyter_live_kernel.py execute`, artifact verification, and cleanup in that
+same call. For iterative work across calls, start Jupyter in a yielded Codex
+unified exec session, retain its session ID, and resume that exact session for
+later interaction instead of detaching an untracked process.
 
 For readiness, use the explicit local REST API
 (`curl --unix-socket "$JUPYTER_SOCKET" http://localhost/...`)
@@ -169,7 +171,7 @@ python -m jupyter lab \
   > /workspace/temp/jupyter.log 2>&1
 ```
 
-Use `interactive_terminal` for this command so the server persists across tool calls. If using the per-agent env, replace `python` with `"$AGENT_PYTHON"`.
+Run this command in a yielded Codex unified exec session so the server persists across calls, and retain the returned session ID. If using the per-agent env, replace `python` with `"$AGENT_PYTHON"`.
 
 ## Create A Live Notebook Session
 
@@ -253,4 +255,4 @@ python "$SCRIPT" restart-run-all --socket "$JUPYTER_SOCKET" --path scratch.ipynb
 - If startup reports that the socket is already in use, stop the owning server or remove the stale socket before restarting.
 - If the server returns 403, restart it with disabled token/password and `--ServerApp.disable_check_xsrf=True`.
 - If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `/workspace/user-files/.ankole/python`.
-- `contents` reads the saved notebook file. Unsaved browser edits are not visible to hamelnb until saved.
+- `contents` reads the saved notebook file. Unsaved frontend edits are not visible to hamelnb until saved.

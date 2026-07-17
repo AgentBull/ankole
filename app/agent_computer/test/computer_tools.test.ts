@@ -1,19 +1,17 @@
 import { describe, expect, it } from 'bun:test'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createBrowserTools } from '../src/tools/browser/browser-tools'
 import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   createContainerComputer,
-  type BackgroundCommandSnapshot,
   type CommandFinished,
   type CommandOutputMode,
   type ContainerComputer
 } from '../src/tools/computer/computer'
 import type { ComputerToolContext } from '../src/tools/computer/context'
-import { createInteractiveTerminalTool } from '../src/tools/computer/interactive-terminal-tool'
-import { createPatchTool } from '../src/tools/computer/patch-tool'
+import { createComputerTools } from '../src/tools/computer'
+import { createPatchTool, createReplaceTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 import { createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
 
@@ -32,27 +30,11 @@ class FakeFinishedCommand implements CommandFinished {
 }
 
 class FakeComputer implements ContainerComputer {
-  backgroundStatusSnapshot: BackgroundCommandSnapshot | null = null
-  backgroundStartInputs: Array<Parameters<ContainerComputer['backgroundCommands']['start']>[0]> = []
   files = new Map<string, Buffer>()
   runImpl: ContainerComputer['runCommand'] = async () => new FakeFinishedCommand(0)
-  terminalCaptureScreen = ''
-  terminalSendCalls: Array<{ input?: string; keys?: string[]; enter?: boolean }> = []
 
   async runCommand(input: Parameters<ContainerComputer['runCommand']>[0]): Promise<CommandFinished> {
     return this.runImpl(input)
-  }
-
-  backgroundCommands = {
-    start: async (
-      input: Parameters<ContainerComputer['backgroundCommands']['start']>[0]
-    ): Promise<BackgroundCommandSnapshot> => {
-      this.backgroundStartInputs.push(input)
-      return backgroundSnapshot('bg-1', async () => '')
-    },
-    status: async (): Promise<BackgroundCommandSnapshot | null> => this.backgroundStatusSnapshot,
-    kill: async (): Promise<BackgroundCommandSnapshot | null> => null,
-    list: async (): Promise<BackgroundCommandSnapshot[]> => []
   }
 
   async readFileToBuffer(input: { path: string }): Promise<Buffer | null> {
@@ -66,22 +48,10 @@ class FakeComputer implements ContainerComputer {
       }
     }
   }
-
-  terminals = {
-    list: async () => [],
-    start: async (name: string) => ({ name, status: 'started' }),
-    send: async (name: string, opts: { input?: string; keys?: string[]; enter?: boolean }) => {
-      this.terminalSendCalls.push(opts)
-      return { name, status: 'sent' }
-    },
-    capture: async (name: string) => ({ name, screen: this.terminalCaptureScreen }),
-    kill: async (name: string) => ({ name, status: 'killed' })
-  }
 }
 
 function contextFor(computer: ContainerComputer, overrides: Partial<ComputerToolContext> = {}): ComputerToolContext {
   return {
-    agentUID: 'agent-1',
     executionScopeID: 'scope-1',
     workspaceRoot: '/workspace',
     getComputer: async () => computer,
@@ -95,153 +65,80 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
   return part?.text ?? ''
 }
 
-function backgroundSnapshot(id: string, output: BackgroundCommandSnapshot['output']): BackgroundCommandSnapshot {
-  return {
-    id,
-    command: 'sleep',
-    cwd: '/workspace',
-    output,
-    startedAtUnixMs: 0,
-    status: 'running'
-  }
-}
-
-let fakeBwrapBinDir: string | undefined
-
-function ensureFakeBwrap(): void {
-  if (fakeBwrapBinDir) return
-
-  fakeBwrapBinDir = mkdtempSync(join(tmpdir(), 'ankole-fake-bwrap-'))
-  const bwrapPath = join(fakeBwrapBinDir, 'bwrap')
-  writeFileSync(
-    bwrapPath,
-    [
-      '#!/usr/bin/env bash',
-      'set -euo pipefail',
-      'while [[ $# -gt 0 ]]; do',
-      '  case "$1" in',
-      '    --unshare-all|--share-net|--die-with-parent|--new-session|--clearenv)',
-      '      shift',
-      '      ;;',
-      '    --proc|--dev|--tmpfs|--dir)',
-      '      shift 2',
-      '      ;;',
-      '    --bind|--ro-bind)',
-      '      shift 3',
-      '      ;;',
-      '    --chdir)',
-      '      shift 2',
-      '      ;;',
-      '    --setenv)',
-      '      export "$2=$3"',
-      '      shift 3',
-      '      ;;',
-      '    --)',
-      '      shift',
-      '      break',
-      '      ;;',
-      '    --*)',
-      '      echo "unsupported fake bwrap option: $1" >&2',
-      '      exit 2',
-      '      ;;',
-      '    *)',
-      '      break',
-      '      ;;',
-      '  esac',
-      'done',
-      'if [[ "${1:-}" == "/bin/sh" && "${2:-}" == "-lc" && "${3:-}" == "test -r /proc/self/status && test -w /tmp" ]]; then',
-      '  exit 0',
-      'fi',
-      'exec "$@"',
-      ''
-    ].join('\n')
-  )
-  chmodSync(bwrapPath, 0o755)
-  process.env.ANKOLE_BWRAP_PATH = bwrapPath
-}
-
 describe('computer tools', () => {
-  it('exposes the browser toolset with sequential execution and correct flags', () => {
-    const computer = new FakeComputer()
-    const tools = createBrowserTools(contextFor(computer))
+  it('exposes only foreground, stateless computer tools to the main agent', () => {
+    const tools = createComputerTools({
+      agentUID: 'agent-1',
+      conversationID: 'conversation-1',
+      workspaceRoot: '/workspace'
+    })
     const names = tools.map(tool => tool.name)
 
-    expect([...names].sort()).toEqual(
-      [
-        'browser_navigate',
-        'browser_snapshot',
-        'browser_find',
-        'browser_click',
-        'browser_type',
-        'browser_press',
-        'browser_scroll',
-        'browser_select',
-        'browser_wait',
-        'browser_back',
-        'browser_screenshot',
-        'browser_open',
-        'browser_extract',
-        'browser_run'
-      ].sort()
-    )
-
-    const toolByName = new Map(tools.map(tool => [tool.name, tool]))
-    for (const tool of tools) expect(tool.executionMode).toBe('sequential')
-    expect(toolByName.get('browser_find')).toMatchObject({ isReadOnly: true, isDestructive: false })
-    expect(toolByName.get('browser_run')).toMatchObject({ isReadOnly: false, isDestructive: true })
-
-    for (const name of names.filter(name => name !== 'browser_find' && name !== 'browser_run')) {
-      expect(toolByName.get(name)).toMatchObject({ isReadOnly: false, isDestructive: false })
-    }
+    expect(names).toEqual(['command', 'read_file', 'replace', 'patch', 'reply_attachment'])
+    expect(names.some(name => name.startsWith('browser_'))).toBe(false)
+    expect(names).not.toContain('interactive_terminal')
   })
 
-  it('describes file, command, and terminal work without exposing detailed parameters', () => {
+  it('keeps replace and V4A patch schemas disjoint, strict, and bounded', () => {
+    const context = contextFor(new FakeComputer())
+    const replace = createReplaceTool(context)
+    const patch = createPatchTool(context)
+
+    expect(replace.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b' }).success).toBe(true)
+    expect(replace.schema.safeParse({ mode: 'patch', patch: 'private patch body' }).success).toBe(false)
+    expect(replace.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b', surprise: true }).success).toBe(
+      false
+    )
+    expect(
+      replace.schema.safeParse({ path: 'a.ts', old_string: 'a'.repeat(96 * 1024 + 1), new_string: 'b' }).success
+    ).toBe(false)
+
+    expect(patch.schema.safeParse({ patch: '*** Begin Patch\n*** End Patch' }).success).toBe(true)
+    expect(patch.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b' }).success).toBe(false)
+    expect(patch.schema.safeParse({ patch: 'x'.repeat(192 * 1024 + 1) }).success).toBe(false)
+  })
+
+  it('describes file and command work without exposing detailed parameters', () => {
     const computer = new FakeComputer()
     const context = contextFor(computer)
     const readFile = createReadFileTool(context)
+    const replace = createReplaceTool(context)
     const patch = createPatchTool(context)
     const attachment = createReplyAttachmentTool(context)
     const command = createCommandTool(context)
-    const terminal = createInteractiveTerminalTool(context)
 
     expect(
-      readFile.describeActivity?.(
-        readFile.schema.parse({ path: '/workspace/app/agent_computer/src/core/agent-loop.ts' })
-      )
+      readFile.describeActivity(readFile.schema.parse({ path: '/workspace/app/agent_computer/src/core/agent-loop.ts' }))
     ).toContain('core/agent-loop.ts')
     expect(
-      patch.describeActivity?.(
-        patch.schema.parse({
+      replace.describeActivity(
+        replace.schema.parse({
           path: '/workspace/app/agent_computer/src/core/agent-loop.ts',
           old_string: 'before',
           new_string: 'after'
         })
       )
     ).toContain('core/agent-loop.ts')
-    const patchBodySummary = patch.describeActivity?.(
-      patch.schema.parse({ mode: 'patch', patch: 'private patch body' })
-    )
+    const patchBodySummary = patch.describeActivity(patch.schema.parse({ patch: 'private patch body' }))
     expect(patchBodySummary).toBeTruthy()
     expect(patchBodySummary).not.toContain('private patch body')
-    const attachmentSummary = attachment.describeActivity?.(
+    const attachmentSummary = attachment.describeActivity(
       attachment.schema.parse({ path: '/workspace/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
     )
     expect(attachmentSummary).toContain('reports/weekly.pdf')
     expect(attachmentSummary).not.toContain('private-name')
 
     const commandSummaries = [
-      command.describeActivity?.(
+      command.describeActivity(
         command.schema.parse({
           command: 'source /workspace/private.env && mix test test/secret_test.exs --seed 123',
           env: { API_TOKEN: 'do-not-leak' }
         })
       ),
-      command.describeActivity?.(command.schema.parse({ command: 'rg -n "private query" /workspace/app --hidden' })),
-      command.describeActivity?.(command.schema.parse({ command: 'git diff -- app/private.ex' })),
-      command.describeActivity?.(
-        command.schema.parse({ command: '/workspace/private/run-secret --token do-not-leak' })
-      ),
-      command.describeActivity?.(command.schema.parse({ command: 'echo "rg private query"' }))
+      command.describeActivity(command.schema.parse({ command: 'rg -n "private query" /workspace/app --hidden' })),
+      command.describeActivity(command.schema.parse({ command: 'git diff -- app/private.ex' })),
+      command.describeActivity(command.schema.parse({ command: '/workspace/private/run-secret --token do-not-leak' })),
+      command.describeActivity(command.schema.parse({ command: 'echo "rg private query"' }))
     ]
 
     expect(commandSummaries).toEqual([
@@ -253,22 +150,6 @@ describe('computer tools', () => {
     ])
     expect(commandSummaries.join(' ')).not.toContain('private')
     expect(commandSummaries.join(' ')).not.toContain('do-not-leak')
-
-    const startSummary = terminal.describeActivity?.(
-      terminal.schema.parse({
-        action: 'start',
-        session: 'private-session',
-        command: 'python -m pytest tests/private_test.py --token do-not-leak'
-      })
-    )
-    expect(startSummary).toContain('pytest')
-    expect(startSummary).not.toContain('do-not-leak')
-    expect(startSummary).not.toContain('private-session')
-    const sendSummary = terminal.describeActivity?.(
-      terminal.schema.parse({ action: 'send', session: 'private-session', input: 'do-not-leak' })
-    )
-    expect(sendSummary).toBeTruthy()
-    expect(sendSummary).not.toContain('do-not-leak')
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {
@@ -276,7 +157,7 @@ describe('computer tools', () => {
     computer.runImpl = async () => new FakeFinishedCommand(1, '')
     const tool = createCommandTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', { action: 'run', command: 'rg does-not-exist' })
+    const result = await tool.execute('call-1', { command: 'rg does-not-exist' })
     const text = textOf(result)
 
     expect(text).toContain('exit_code=1')
@@ -316,14 +197,22 @@ describe('computer tools', () => {
     computer.runImpl = async () => new FakeFinishedCommand(124, 'partial output')
     const tool = createCommandTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', { action: 'run', command: 'sleep 99', timeout: 1 })
+    const result = await tool.execute('call-1', { command: 'sleep 99', timeout: 1 })
     const text = textOf(result)
 
     expect(text).toContain('exit_code=124')
     expect(text).toContain('command timed out after 1s')
-    expect(text).toContain('background=true')
-    expect(text).toContain('action=status')
+    expect(text).toContain('background_agent_job(start)')
+    expect(text).not.toContain('background=true')
     expect(text).toContain('partial output')
+  })
+
+  it('rejects removed background command controls at the schema boundary', () => {
+    const tool = createCommandTool(contextFor(new FakeComputer()))
+
+    expect(tool.schema.safeParse({ command: 'sleep 1', background: true }).success).toBe(false)
+    expect(tool.schema.safeParse({ action: 'status', backgroundID: 'bg-1' }).success).toBe(false)
+    expect(tool.schema.safeParse({ action: 'list' }).success).toBe(false)
   })
 
   it('passes system-root traversal commands through to the sandboxed command runner', async () => {
@@ -335,93 +224,13 @@ describe('computer tools', () => {
     }
     const tool = createCommandTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', { action: 'run', command: 'find / -maxdepth 2 -type f' })
+    const result = await tool.execute('call-1', { command: 'find / -maxdepth 2 -type f' })
     const text = textOf(result)
 
     expect(runCalled).toBe(true)
     expect(result.details.exitCode).toBe(0)
     expect(text).toContain('sandbox result')
     expect(text).not.toContain('Refused command')
-  })
-
-  it('polls background status with incremental output', async () => {
-    const computer = new FakeComputer()
-    computer.backgroundStatusSnapshot = backgroundSnapshot('bg-1', async (_mode, opts) =>
-      opts?.incremental ? 'second batch' : 'full output'
-    )
-    const tool = createCommandTool(contextFor(computer))
-
-    const result = await tool.execute('call-1', { action: 'status', backgroundID: 'bg-1' })
-    const text = textOf(result)
-
-    expect(text).toContain('background_id=bg-1')
-    expect(text).toContain('new_output_chars=12')
-    expect(text).toContain('second batch')
-    expect(text).not.toContain('full output')
-  })
-
-  it('keeps background command runs unbounded by default like Hermes', async () => {
-    const computer = new FakeComputer()
-    const tool = createCommandTool(contextFor(computer))
-
-    await tool.execute('call-1', { action: 'run', command: 'sleep 999', background: true })
-    expect(computer.backgroundStartInputs[0]?.timeoutMs).toBeUndefined()
-
-    await tool.execute('call-2', { action: 'run', command: 'sleep 10', background: true, timeout: 7 })
-    expect(computer.backgroundStartInputs[1]?.timeoutMs).toBe(7000)
-  })
-
-  it('reports when a background status poll has no new output', async () => {
-    const computer = new FakeComputer()
-    computer.backgroundStatusSnapshot = backgroundSnapshot('bg-1', async () => '')
-    const tool = createCommandTool(contextFor(computer))
-
-    const result = await tool.execute('call-1', { action: 'status', backgroundID: 'bg-1' })
-
-    expect(textOf(result)).toContain('[no new output]')
-  })
-
-  it('isolates background commands by workspace and execution scope', async () => {
-    ensureFakeBwrap()
-
-    const workspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-bg-owner-'))
-    const otherWorkspaceRoot = mkdtempSync(join(tmpdir(), 'ankole-bg-other-'))
-    let ownerComputer: ContainerComputer | undefined
-    let backgroundID: string | undefined
-
-    try {
-      mkdirSync(join(workspaceRoot, 'temp'), { recursive: true })
-      mkdirSync(join(otherWorkspaceRoot, 'temp'), { recursive: true })
-
-      ownerComputer = createContainerComputer(workspaceRoot, 'conversation-a')
-      const peerConversationComputer = createContainerComputer(workspaceRoot, 'conversation-b')
-      const otherWorkspaceComputer = createContainerComputer(otherWorkspaceRoot, 'conversation-a')
-
-      const started = await ownerComputer.backgroundCommands.start({
-        cmd: 'bash',
-        args: ['-lc', 'sleep 30'],
-        timeoutMs: 30_000
-      })
-      backgroundID = started.id
-
-      expect((await ownerComputer.backgroundCommands.list()).map(command => command.id)).toContain(backgroundID)
-      expect(await ownerComputer.backgroundCommands.status(backgroundID)).not.toBeNull()
-
-      expect(await peerConversationComputer.backgroundCommands.list()).toEqual([])
-      expect(await peerConversationComputer.backgroundCommands.status(backgroundID)).toBeNull()
-      expect(await peerConversationComputer.backgroundCommands.kill(backgroundID)).toBeNull()
-
-      expect(await otherWorkspaceComputer.backgroundCommands.list()).toEqual([])
-      expect(await otherWorkspaceComputer.backgroundCommands.status(backgroundID)).toBeNull()
-      expect(await otherWorkspaceComputer.backgroundCommands.kill(backgroundID)).toBeNull()
-
-      expect((await ownerComputer.backgroundCommands.kill(backgroundID))?.status).toBe('killed')
-      backgroundID = undefined
-    } finally {
-      if (ownerComputer && backgroundID) await ownerComputer.backgroundCommands.kill(backgroundID)
-      rmSync(workspaceRoot, { recursive: true, force: true })
-      rmSync(otherWorkspaceRoot, { recursive: true, force: true })
-    }
   })
 
   it('prints read_file line ranges and total line counts in visible text', async () => {
@@ -445,7 +254,7 @@ describe('computer tools', () => {
         ['function run() {', '  const result = await computer.runCommand(input)', '  return result', '}'].join('\n')
       )
     )
-    const tool = createPatchTool(contextFor(computer))
+    const tool = createReplaceTool(contextFor(computer))
 
     await expect(
       tool.execute('call-1', {
@@ -459,7 +268,7 @@ describe('computer tools', () => {
   it('escalates repeated patch match failures for the same path', async () => {
     const computer = new FakeComputer()
     computer.files.set('repeat.ts', Buffer.from('const actual = 1\n'))
-    const tool = createPatchTool(contextFor(computer))
+    const tool = createReplaceTool(contextFor(computer))
 
     let lastError: unknown
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -482,7 +291,7 @@ describe('computer tools', () => {
   it('uses Unicode punctuation normalization for unique single-line replacements', async () => {
     const computer = new FakeComputer()
     computer.files.set('demo.ts', Buffer.from('const title = “Hello”;\n'))
-    const tool = createPatchTool(contextFor(computer))
+    const tool = createReplaceTool(contextFor(computer))
 
     const result = await tool.execute('call-1', {
       path: 'demo.ts',
@@ -496,7 +305,7 @@ describe('computer tools', () => {
 
   it('creates a missing file in replace mode when old_string is empty', async () => {
     const computer = new FakeComputer()
-    const tool = createPatchTool(contextFor(computer))
+    const tool = createReplaceTool(contextFor(computer))
 
     const result = await tool.execute('call-1', {
       path: 'created.txt',
@@ -515,7 +324,6 @@ describe('computer tools', () => {
     const tool = createPatchTool(contextFor(computer))
 
     await tool.execute('call-1', {
-      mode: 'patch',
       patch: [
         '*** Begin Patch',
         '*** Update File: demo.txt',
@@ -540,7 +348,6 @@ describe('computer tools', () => {
     const tool = createPatchTool(contextFor(computer))
 
     await tool.execute('call-1', {
-      mode: 'patch',
       patch: ['*** Begin Patch', '*** Update File: demo.txt', '@@ target', '-old', '+new', '*** End Patch'].join('\n')
     })
 
@@ -553,7 +360,6 @@ describe('computer tools', () => {
     const tool = createPatchTool(contextFor(computer))
 
     await tool.execute('call-1', {
-      mode: 'patch',
       patch: [
         '*** Begin Patch',
         '*** Update File: demo.txt',
@@ -576,9 +382,8 @@ describe('computer tools', () => {
     writeFileSync(outsidePath, 'secret\n')
 
     try {
-      const computer = createContainerComputer(workspaceRoot, 'scope-patch-boundary')
-      const tool = createPatchTool({
-        agentUID: 'agent-1',
+      const computer = createContainerComputer(workspaceRoot)
+      const tool = createReplaceTool({
         executionScopeID: 'scope-patch-boundary',
         workspaceRoot,
         getComputer: async () => computer
@@ -607,27 +412,32 @@ describe('computer tools', () => {
     }
   })
 
-  it('captures the screen after interactive terminal send unless disabled', async () => {
-    const computer = new FakeComputer()
-    computer.terminalCaptureScreen = 'after send'
-    const tool = createInteractiveTerminalTool(contextFor(computer))
+  it('allows the declared user-files projection but rejects other symlink escapes', async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'ankole-computer-symlink-boundary-'))
+    const workspaceRoot = join(tempRoot, 'workspace')
+    const userFilesRoot = join(tempRoot, 'user-files')
+    const outsidePath = join(tempRoot, 'outside.txt')
+    mkdirSync(workspaceRoot, { recursive: true })
+    mkdirSync(userFilesRoot, { recursive: true })
+    writeFileSync(join(userFilesRoot, 'allowed.txt'), 'allowed')
+    writeFileSync(outsidePath, 'secret')
+    symlinkSync(userFilesRoot, join(workspaceRoot, 'user-files'), 'dir')
+    symlinkSync(outsidePath, join(workspaceRoot, 'escaped.txt'))
 
-    const captured = await tool.execute('call-1', {
-      action: 'send',
-      session: 'main',
-      input: 'Up',
-      captureAfterMs: 1,
-      captureLines: 12
-    })
-    expect(JSON.parse(textOf(captured))).toMatchObject({ session: 'main', status: 'sent', screen: 'after send' })
-    expect(computer.terminalSendCalls[0]).toEqual({ input: 'Up', keys: [], enter: undefined })
-
-    const statusOnly = await tool.execute('call-2', {
-      action: 'send',
-      session: 'main',
-      keys: ['Enter'],
-      captureAfterMs: 0
-    })
-    expect(JSON.parse(textOf(statusOnly))).toEqual({ session: 'main', status: 'sent' })
+    try {
+      const computer = createContainerComputer(workspaceRoot)
+      expect(await computer.readFileToBuffer({ path: '/workspace/user-files/allowed.txt' })).toEqual(
+        Buffer.from('allowed')
+      )
+      await expect(computer.readFileToBuffer({ path: '/workspace/escaped.txt' })).rejects.toThrow(
+        'path resolves outside workspace roots'
+      )
+      await expect(computer.fs.writeFiles([{ path: '/workspace/escaped.txt', content: 'changed' }])).rejects.toThrow(
+        'path resolves outside workspace roots'
+      )
+      expect(readFileSync(outsidePath, 'utf8')).toBe('secret')
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true })
+    }
   })
 })

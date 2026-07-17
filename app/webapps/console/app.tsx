@@ -6,9 +6,10 @@ import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/i
 import { CodexAccountEditorPage, ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorPage, SettingsListPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
+import { ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
-import { DelegationsPage } from './pages/delegations'
+import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
 import {
   BrainAuditPage,
@@ -20,6 +21,10 @@ import {
 } from './pages/brain'
 import { BrainReviewPage } from './pages/brain-review'
 import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
+import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
+import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
+import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
+import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
 
 // Configure the bearer-token API client at module load, before any route
 // component can render or fire a query. This must run eagerly and NOT inside a
@@ -42,6 +47,8 @@ const router = createBrowserRouter(
         { path: 'agents', element: <AgentsListPage /> },
         { path: 'agents/new', element: <AgentEditorPage /> },
         { path: 'agents/:uid', element: <AgentEditorPage /> },
+        { path: 'agent-library', element: <AgentLibraryPage /> },
+        { path: 'agent-library/agent-plugins/:pluginID', element: <AgentPluginDetailPage /> },
         { path: 'providers', element: <ProvidersListPage /> },
         { path: 'providers/codex/new', element: <CodexAccountEditorPage /> },
         { path: 'providers/codex/:accountID', element: <CodexAccountEditorPage /> },
@@ -50,8 +57,19 @@ const router = createBrowserRouter(
         { path: 'identity', element: <IdentityProvidersListPage /> },
         { path: 'identity/new', element: <IdentityProviderEditorPage /> },
         { path: 'identity/:providerID', element: <IdentityProviderEditorPage /> },
+        { path: 'access', element: <Navigate to="/access/groups" replace /> },
+        { path: 'access/groups', element: <PrincipalGroupsListPage /> },
+        { path: 'access/groups/new', element: <PrincipalGroupEditorPage /> },
+        { path: 'access/groups/:name', element: <PrincipalGroupEditorPage /> },
+        { path: 'access/groups/:name/grants/new', element: <PermissionGrantEditorPage createFor="group" /> },
+        { path: 'access/principals', element: <PrincipalsListPage /> },
+        { path: 'access/principals/:uid', element: <PrincipalDetailPage /> },
+        { path: 'access/principals/:uid/grants/new', element: <PermissionGrantEditorPage createFor="principal" /> },
+        { path: 'access/grants/:grantID', element: <PermissionGrantEditorPage /> },
         { path: 'signals', element: <SignalsListPage /> },
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
+        { path: 'schedules', element: <SchedulesListPage /> },
+        { path: 'schedules/new', element: <ScheduleCronEditorPage /> },
         { path: 'settings', element: <SettingsListPage /> },
         { path: 'settings/:key', element: <SettingEditorPage /> },
         { path: 'worker-envs', element: <WorkerEnvsListPage /> },
@@ -59,7 +77,7 @@ const router = createBrowserRouter(
         { path: 'worker-envs/:name', element: <WorkerEnvEditorPage /> },
         { path: 'workers', element: <WorkersListPage /> },
         { path: 'workers/:workerID/files', element: <WorkerFilesPage /> },
-        { path: 'delegations', element: <DelegationsPage /> },
+        { path: 'background-agent-jobs', element: <BackgroundAgentJobsPage /> },
         { path: 'conversations', element: <ConversationsListPage /> },
         { path: 'conversations/:conversationID', element: <ConversationDetailPage /> },
         { path: 'brain', element: <BrainEntriesPage /> },

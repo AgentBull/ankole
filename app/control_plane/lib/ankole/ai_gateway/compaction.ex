@@ -41,6 +41,19 @@ defmodule Ankole.AIGateway.Compaction do
           run_metadata: map()
         }
 
+  @type history_plan :: %{
+          history: [Message.t()],
+          previous_response_id: binary() | nil,
+          expected_previous_response_id: binary() | nil,
+          compaction:
+            nil
+            | %{
+                artifact_attrs: map(),
+                checkpoint_metadata: map()
+              },
+          run_metadata: map()
+        }
+
   @default_config %{
     "threshold" => @default_threshold_percent,
     "max_threshold_tokens" => @default_max_threshold_tokens,
@@ -139,6 +152,31 @@ defmodule Ankole.AIGateway.Compaction do
         runtime \\ %{}
       )
       when is_list(history) and is_list(current_input) and is_map(request) do
+    with {:ok, plan} <-
+           maybe_plan_history(
+             subject_uid,
+             conversation_id,
+             history,
+             current_input,
+             request,
+             runtime
+           ) do
+      materialize_history_plan(subject_uid, conversation_id, plan)
+    end
+  end
+
+  @doc false
+  @spec maybe_plan_history(String.t(), binary(), [Message.t()], [map()], map(), map()) ::
+          {:ok, history_plan()} | {:error, term()}
+  def maybe_plan_history(
+        subject_uid,
+        conversation_id,
+        history,
+        current_input,
+        request,
+        runtime \\ %{}
+      )
+      when is_list(history) and is_list(current_input) and is_map(request) do
     total_tokens = history_usage_tokens(history)
     threshold = threshold_spec(runtime, request)
 
@@ -150,7 +188,7 @@ defmodule Ankole.AIGateway.Compaction do
         {:ok, brain_pre_compaction_nudge(history, request, total_tokens, threshold)}
 
       true ->
-        compact_history(
+        plan_compact_history(
           subject_uid,
           conversation_id,
           history,
@@ -252,7 +290,7 @@ defmodule Ankole.AIGateway.Compaction do
 
   def compact_response(_subject_uid, _request), do: {:error, :invalid_request_body}
 
-  defp compact_history(
+  defp plan_compact_history(
          subject_uid,
          conversation_id,
          history,
@@ -262,33 +300,30 @@ defmodule Ankole.AIGateway.Compaction do
          threshold
        ) do
     with {:ok, candidate} <- compaction_candidate(subject_uid, history, current_input),
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request),
-         {:ok, artifact} <-
-           create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
-         {:ok, checkpoint} <-
-           StatefulResponses.create_compaction_checkpoint(%{
-             subject_uid: subject_uid,
-             previous_response_id: "resp_#{candidate.anchor.id}",
-             artifact: artifact,
-             metadata:
-               checkpoint_metadata(
-                 request,
-                 compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
-               )
-           }) do
-      previous_response_id = "resp_#{checkpoint.id}"
+         {:ok, summary} <- summarize_candidate(subject_uid, candidate, request) do
+      previous_response_id = "resp_#{candidate.anchor.id}"
 
       {:ok,
        %{
-         history:
-           StatefulResponses.expand_history(conversation_id,
-             previous_response_id: previous_response_id
-           ),
+         history: history,
          previous_response_id: previous_response_id,
-         compaction: checkpoint,
+         expected_previous_response_id: previous_response_id,
+         compaction: %{
+           artifact_attrs:
+             artifact_attrs_for_candidate(
+               subject_uid,
+               conversation_id,
+               candidate,
+               summary
+             ),
+           checkpoint_metadata:
+             checkpoint_metadata(
+               request,
+               compaction_metadata(summary, candidate, total_tokens, %{"auto" => true})
+             )
+         },
          run_metadata: %{
            "auto_compaction" => %{
-             "response_id" => previous_response_id,
              "history_usage_tokens_before" => total_tokens,
              "token_threshold" => threshold.tokens,
              "context_length" => threshold.context_length,
@@ -314,14 +349,64 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary) do
-    retained_items = messages_to_items(candidate.retained_tail)
+  defp materialize_history_plan(_subject_uid, _conversation_id, %{compaction: nil} = plan) do
+    {:ok, Map.delete(plan, :expected_previous_response_id)}
+  end
 
-    CompactionArtifacts.insert_artifact(%{
+  defp materialize_history_plan(
+         subject_uid,
+         conversation_id,
+         %{
+           previous_response_id: previous_response_id,
+           compaction: %{
+             artifact_attrs: artifact_attrs,
+             checkpoint_metadata: checkpoint_metadata
+           }
+         } = plan
+       ) do
+    with {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
+         {:ok, checkpoint} <-
+           StatefulResponses.create_compaction_checkpoint(%{
+             subject_uid: subject_uid,
+             previous_response_id: previous_response_id,
+             artifact: artifact,
+             metadata: checkpoint_metadata
+           }) do
+      checkpoint_response_id = "resp_#{checkpoint.id}"
+
+      {:ok,
+       plan
+       |> Map.put(
+         :history,
+         StatefulResponses.expand_history(conversation_id,
+           previous_response_id: checkpoint_response_id
+         )
+       )
+       |> Map.put(:previous_response_id, checkpoint_response_id)
+       |> Map.put(:compaction, checkpoint)
+       |> Map.update!(:run_metadata, fn run_metadata ->
+         put_in(
+           run_metadata,
+           ["auto_compaction", "response_id"],
+           checkpoint_response_id
+         )
+       end)
+       |> Map.delete(:expected_previous_response_id)}
+    end
+  end
+
+  defp create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary) do
+    CompactionArtifacts.insert_artifact(
+      artifact_attrs_for_candidate(subject_uid, conversation_id, candidate, summary)
+    )
+  end
+
+  defp artifact_attrs_for_candidate(subject_uid, conversation_id, candidate, summary) do
+    %{
       subject_uid: subject_uid,
       conversation_id: conversation_id,
       summary_text: summary.text,
-      retained_items: retained_items,
+      retained_items: messages_to_items(candidate.retained_tail),
       retained_user_originals: candidate.retained_user_originals,
       retention: %{
         "strategy" => "tail_rows",
@@ -331,7 +416,7 @@ defmodule Ankole.AIGateway.Compaction do
         "user_message_count" => length(candidate.retained_user_originals)
       },
       usage: summary.usage
-    })
+    }
   end
 
   defp create_standalone_artifact(subject_uid, store_context, candidate, summary) do
@@ -464,18 +549,24 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp unchanged(history, request) do
+    previous_response_id = previous_response_id_for(history, request)
+
     %{
       history: history,
-      previous_response_id: previous_response_id_for(history, request),
+      previous_response_id: previous_response_id,
+      expected_previous_response_id: previous_response_id,
       compaction: nil,
       run_metadata: %{}
     }
   end
 
   defp brain_pre_compaction_nudge(history, request, total_tokens, threshold) do
+    previous_response_id = previous_response_id_for(history, request)
+
     %{
       history: history,
-      previous_response_id: previous_response_id_for(history, request),
+      previous_response_id: previous_response_id,
+      expected_previous_response_id: previous_response_id,
       compaction: nil,
       run_metadata: %{
         "brain_pre_compaction_nudge" => %{
@@ -528,6 +619,7 @@ defmodule Ankole.AIGateway.Compaction do
   defp truncate_history(history, request, total_tokens, reason, threshold) do
     truncated_history = truncate_history_to_budget(history, threshold.tokens)
     truncated_tokens = history_usage_tokens(truncated_history)
+    previous_response_id = previous_response_id_for(history, request)
 
     auto_truncation =
       auto_truncation_metadata(
@@ -542,7 +634,8 @@ defmodule Ankole.AIGateway.Compaction do
     {:ok,
      %{
        history: truncated_history,
-       previous_response_id: previous_response_id_for(history, request),
+       previous_response_id: previous_response_id,
+       expected_previous_response_id: previous_response_id,
        compaction: nil,
        run_metadata: %{
          "truncation" => "auto",

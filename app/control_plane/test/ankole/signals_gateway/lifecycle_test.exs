@@ -2,6 +2,8 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   use Ankole.DataCase, async: false
 
   alias Ecto.Adapters.SQL
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -268,6 +270,63 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
 
       assert Repo.aggregate(Entry, :count) == 0
       assert Repo.aggregate(ActorEvent, :count) == 0
+    end
+
+    test "removal preserves queued and running BackgroundAgentJobs and their dispatches" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :record_only)
+
+      assert {:ok, %{status: :recorded}} =
+               Ingress.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
+
+      jobs =
+        for suffix <- ["queued", "running"] do
+          attrs = %{
+            "agent_uid" => agent.uid,
+            "owner_session_id" => "owner-#{suffix}",
+            "source_tool_call_id" => "source-removal-#{suffix}",
+            "title" => "Preserve #{suffix} Job",
+            "task" => "Continue after the source entry is removed.",
+            "reply_route" => %{
+              "binding_name" => "bot",
+              "signal_channel_id" => "lark:chat:group-a",
+              "provider_thread_id" => "thread-1",
+              "source_entry_id" => "msg-1"
+            }
+          }
+
+          assert {:ok, %{job: job, dispatch_event: dispatch}} =
+                   BackgroundAgentJobs.create_with_dispatch(attrs)
+
+          assert dispatch.source_entry_id == nil
+          {suffix, attrs, job, dispatch}
+        end
+
+      {"running", _attrs, running, _dispatch} = List.keyfind!(jobs, "running", 0)
+
+      assert {:ok, %{job: %Job{status: "running"}}} =
+               BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
+                 "status" => "running"
+               })
+
+      assert {:ok, %{canceled_actor_events: 0, retried_actor_events: 0, lifecycle_events: []}} =
+               Ingress.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{source_event_id: "remove-background-agent-job-source"}),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      for {suffix, attrs, job, dispatch} <- jobs do
+        assert %Job{status: ^suffix} = Repo.get!(Job, job.id)
+        assert Repo.get!(ActorEvent, dispatch.id).id == dispatch.id
+
+        assert {:ok, %{job: replayed, dispatch_event: replayed_dispatch}} =
+                 BackgroundAgentJobs.create_with_dispatch(attrs)
+
+        assert replayed.id == job.id
+        assert replayed_dispatch.id == dispatch.id
+      end
     end
   end
 

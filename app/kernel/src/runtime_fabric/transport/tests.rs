@@ -2,9 +2,9 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use serde_json::json;
+use prost::Message;
 
-use crate::runtime_fabric;
+use crate::runtime_fabric::proto;
 
 use super::dealer::{DealerInbox, emit_dealer_frames};
 use super::framing::FILE_TRANSFER_PROTOCOL;
@@ -109,7 +109,7 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
     }
 
     dealer
-        .send_envelope(worker_ready_envelope())
+        .send_payload(worker_ready_envelope_bytes())
         .expect("ready sends");
 
     let ready = wait_for_router_event(&events).expect("ready event");
@@ -118,25 +118,31 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
             transport_route,
             authenticated_worker_id,
             authenticated_key_revision,
-            envelope_json,
+            envelope_bytes,
         } => {
-            let envelope: serde_json::Value =
-                serde_json::from_str(&envelope_json).expect("decoded JSON");
+            let envelope =
+                proto::Envelope::decode(envelope_bytes.as_slice()).expect("decoded envelope");
             assert_eq!(transport_route, "worker-instance-a");
             assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
             assert_eq!(authenticated_key_revision, Some(1));
-            assert_eq!(envelope["body"]["type"], "worker_ready");
+            assert!(matches!(
+                envelope.body,
+                Some(proto::envelope::Body::WorkerReady(_))
+            ));
         }
         other => panic!("unexpected router event: {other:?}"),
     }
 
     router
-        .send_mandatory("worker-instance-a", turn_start_envelope())
+        .send_mandatory("worker-instance-a", turn_start_envelope_bytes())
         .expect("turn.start sends");
 
     let payload = wait_for_dealer_payload(&dealer).expect("dealer payload");
-    let envelope = runtime_fabric::decode_envelope(&payload).expect("turn.start decodes");
-    assert_eq!(envelope["body"]["type"], "turn_start");
+    let envelope = proto::Envelope::decode(payload.as_slice()).expect("turn.start decodes");
+    assert!(matches!(
+        envelope.body,
+        Some(proto::envelope::Body::TurnStart(_))
+    ));
 
     dealer
         .send_file_frame(vec![
@@ -188,9 +194,14 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
     assert_eq!(frames[2], b"transfer-b");
 
     let unknown = router
-        .send_mandatory("missing-worker", turn_start_envelope())
+        .send_mandatory("missing-worker", turn_start_envelope_bytes())
         .expect_err("missing route fails");
     assert!(matches!(unknown, TransportError::UnknownRoute));
+
+    let invalid = router
+        .send_mandatory("worker-instance-a", vec![0xff, 0xff, 0xff])
+        .expect_err("invalid envelope bytes fail validation");
+    assert!(matches!(invalid, TransportError::InvalidEnvelope(_)));
 
     dealer.stop().expect("dealer stops");
     router.stop().expect("router stops");
@@ -205,7 +216,7 @@ fn disconnected_dealer_reports_backpressure_at_its_send_bound() {
 
     let mut backpressured = false;
     for _attempt in 0..8 {
-        match dealer.send_envelope(worker_ready_envelope()) {
+        match dealer.send_payload(worker_ready_envelope_bytes()) {
             Ok(SendOutcome::SentOrQueued) => {}
             Err(TransportError::Backpressure) => {
                 backpressured = true;
@@ -275,53 +286,61 @@ fn wait_for_dealer_file_frame(dealer: &DealerHandle) -> Option<Vec<Vec<u8>>> {
     }
 }
 
-fn worker_ready_envelope() -> serde_json::Value {
-    json!({
-        "protocol_version": 1,
-        "message_id": "worker-ready-test",
-        "lane": "LANE_CONTROL",
-        "durability": "CONTROL_EPHEMERAL",
-        "body": {
-            "type": "worker_ready",
-            "worker_ready": {
-                "worker_id": "worker-a",
-                "incarnation_id": "incarnation-a",
-                "runtime": "bun",
-                "version": "test",
-                "capacity_json": {"available_turn_slots": 1}
-            }
-        }
-    })
+fn worker_ready_envelope_bytes() -> Vec<u8> {
+    proto::Envelope {
+        protocol_version: 1,
+        message_id: "worker-ready-test".to_string(),
+        correlation_id: String::new(),
+        lane: proto::Lane::Control as i32,
+        sent_at_unix_ms: 0,
+        durability: proto::DurabilityClass::ControlEphemeral as i32,
+        body: Some(proto::envelope::Body::WorkerReady(
+            proto::AgentComputerWorkerReady {
+                worker_id: "worker-a".to_string(),
+                runtime: "bun".to_string(),
+                version: "test".to_string(),
+                capacity_json: br#"{"available_turn_slots":1}"#.to_vec(),
+                incarnation_id: "incarnation-a".to_string(),
+            },
+        )),
+    }
+    .encode_to_vec()
 }
 
-fn turn_start_envelope() -> serde_json::Value {
-    json!({
-        "protocol_version": 1,
-        "message_id": "turn-start-test",
-        "correlation_id": "turn-start-test",
-        "lane": "LANE_TURN",
-        "durability": "CONTROL_REPLAYABLE",
-        "body": {
-            "type": "turn_start",
-            "turn_start": {
-                "turn": {
-                    "actor": {
-                        "agent_uid": "agent-a",
-                        "session_id": "signal-channel:test"
-                    },
-                    "activation_uid": "activation-a",
-                    "actor_epoch": 1,
-                    "actor_event_id": "00000000-0000-0000-0000-000000000001",
-                    "revision": 0
-                },
-                "actor_event": {
-                    "actor_event_id": "00000000-0000-0000-0000-000000000002",
-                    "queue_sequence": 1,
-                    "type": "im.message.addressed",
-                    "source_event_id": "event-a",
-                    "payload_json": {"text": "PING"}
-                }
-            }
-        }
-    })
+fn turn_start_envelope_bytes() -> Vec<u8> {
+    proto::Envelope {
+        protocol_version: 1,
+        message_id: "turn-start-test".to_string(),
+        correlation_id: "turn-start-test".to_string(),
+        lane: proto::Lane::Turn as i32,
+        sent_at_unix_ms: 0,
+        durability: proto::DurabilityClass::ControlReplayable as i32,
+        body: Some(proto::envelope::Body::TurnStart(proto::TurnStart {
+            turn: Some(proto::ActorTurnRef {
+                actor: Some(proto::ActorKey {
+                    agent_uid: "agent-a".to_string(),
+                    session_id: "signal-channel:test".to_string(),
+                }),
+                activation_uid: "activation-a".to_string(),
+                actor_epoch: 1,
+                actor_event_id: "00000000-0000-0000-0000-000000000001".to_string(),
+                revision: 0,
+            }),
+            actor_event: Some(proto::ActorEventEnvelope {
+                actor_event_id: "00000000-0000-0000-0000-000000000002".to_string(),
+                queue_sequence: 1,
+                r#type: "im.message.addressed".to_string(),
+                source_event_id: "event-a".to_string(),
+                source_entry_id: String::new(),
+                payload_json: br#"{"text":"PING"}"#.to_vec(),
+                binding_name: String::new(),
+                signal_channel_id: String::new(),
+                provider_thread_id: String::new(),
+            }),
+            model_ref: None,
+            request_context_json: Vec::new(),
+            hosted_tools_json: Vec::new(),
+        })),
+    }
+    .encode_to_vec()
 }

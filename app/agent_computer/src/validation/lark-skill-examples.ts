@@ -2,7 +2,6 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 export const supportedLarkCLIVersion = '1.0.69'
-export const larkSkillExecutionProfile = 'lark-cli-bot'
 
 export interface LarkCommandExample {
   file: string
@@ -103,7 +102,7 @@ export async function validateLarkSkillExamples(skillsRoot: string, run: Command
     return issues
   }
 
-  const skillNames = await discoverSkillNamesByExecutionProfile(skillsRoot, larkSkillExecutionProfile)
+  const skillNames = await discoverSkillNames(skillsRoot)
 
   for (const skillName of skillNames) {
     const skillRoot = join(skillsRoot, skillName)
@@ -133,10 +132,7 @@ export async function validateLarkSkillExamples(skillsRoot: string, run: Command
   return issues
 }
 
-export async function discoverSkillNamesByExecutionProfile(
-  skillsRoot: string,
-  executionProfile: string
-): Promise<string[]> {
+export async function discoverSkillNames(skillsRoot: string): Promise<string[]> {
   const skillNames: string[] = []
   const entries = await readdir(skillsRoot, { withFileTypes: true })
 
@@ -146,25 +142,14 @@ export async function discoverSkillNamesByExecutionProfile(
     const skillFile = join(skillsRoot, entry.name, 'SKILL.md')
 
     try {
-      const source = await readFile(skillFile, 'utf8')
-      if (executionProfileFromSkillSource(source) === executionProfile) skillNames.push(entry.name)
+      await readFile(skillFile, 'utf8')
+      skillNames.push(entry.name)
     } catch (error) {
       if (nodeErrorCode(error) !== 'ENOENT') throw error
     }
   }
 
   return skillNames
-}
-
-export function executionProfileFromSkillSource(source: string): string | undefined {
-  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source)?.[1]
-  if (!frontmatter) return undefined
-
-  const value = /^execution_profile:\s*(.*?)\s*$/m.exec(frontmatter)?.[1]
-  if (!value) return undefined
-
-  const normalized = stripShellQuotes(value.trim())
-  return normalized || undefined
 }
 
 export function createLarkCLIRunner(binary = process.env.LARK_CLI_BIN || 'lark-cli'): CommandRunner {

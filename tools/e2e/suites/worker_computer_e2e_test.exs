@@ -1,15 +1,14 @@
 defmodule Ankole.E2E.WorkerComputerE2ETest do
   @moduledoc """
-  Worker admission plus the computer tool surface: command, todo, browser,
-  interactive terminal, read_file, patch, skills, attachments, and workspace
-  persistence — all through the real Docker worker.
+  Worker admission plus the main-agent computer tool surface: one-shot command,
+  todo, read_file, patch, skills, attachments, and workspace persistence — all
+  through the real Docker worker.
   """
 
   use Ankole.DataCase, async: false
 
   import Ankole.E2E.DockerWorker
   import Ankole.E2E.Harness
-  import Ankole.E2E.Scenarios.ComputerState
 
   import Ankole.E2E.Scenarios.ScheduleAndTool,
     except: [
@@ -154,76 +153,6 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_todo_tool_1"
     )
 
-    background = run_background_command_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      background.reply,
-      "CHAOS_BACKGROUND_COMMAND_OK",
-      :reply,
-      "om_background_command_1"
-    )
-
-    background_lifecycle = run_background_command_lifecycle(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      background_lifecycle.reply,
-      "CHAOS_BACKGROUND_LIFECYCLE_OK",
-      :reply,
-      "om_background_lifecycle_1"
-    )
-
-    terminal = run_interactive_terminal_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      terminal.reply,
-      "CHAOS_INTERACTIVE_TERMINAL_OK",
-      :reply,
-      "om_interactive_terminal_1"
-    )
-
-    terminal_persist = run_interactive_terminal_persistence(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      terminal_persist.reply,
-      "CHAOS_TERMINAL_PERSIST_READ_OK",
-      :reply,
-      "om_terminal_persist_read_1"
-    )
-
-    browser_open = run_browser_open_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      browser_open.reply,
-      "CHAOS_BROWSER_OPEN_OK",
-      :reply,
-      "om_browser_open_1"
-    )
-
-    browser_run = run_browser_run_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      browser_run.reply,
-      "CHAOS_BROWSER_RUN_OK",
-      :reply,
-      "om_browser_run_1"
-    )
-
-    browser_extract = run_browser_extract_tool_loop(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      browser_extract.reply,
-      "CHAOS_BROWSER_EXTRACT_OK",
-      :reply,
-      "om_browser_extract_1"
-    )
-
     skill_view = run_skill_view_tool_loop(ctx)
 
     assert_lark_final_reply(
@@ -298,17 +227,9 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert counters[:generic] == 1
     assert counters[:reply_attachment] == 3
     assert counters[:todo_tool] == 3
-    assert counters[:background_command_tool] == 2
-    assert counters[:background_lifecycle_tool] == 4
-    assert counters[:interactive_terminal_tool] == 5
-    assert counters[:terminal_persist_start_tool] == 3
-    assert counters[:terminal_persist_read_tool] == 4
-    assert counters[:browser_open_tool] == 2
-    assert counters[:browser_run_tool] == 2
-    assert counters[:browser_extract_tool] == 2
     assert counters[:skill_view_tool] == 2
-    assert counters[:skill_view_all_tool] == 6
-    assert counters[:skill_append_tool] == 2
+    assert counters[:skill_view_all_tool] == 3
+    assert counters[:skill_append_tool] == 3
     assert counters[:skill_disabled_tool] == 2
     assert counters[:read_file_tool] == 3
     assert counters[:patch_tool] == 4

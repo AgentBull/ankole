@@ -15,7 +15,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   """
 
   alias Ankole.AppConfigure
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.Config
   alias MicrosoftOpenAPI.Error
   alias MicrosoftOpenAPI.Graph
 

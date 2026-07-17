@@ -1,488 +1,141 @@
 # Web Tools
 
-This document describes Ankole's model-facing web tools. There are three
-families:
-
-- `web_search`: search the public web through the agent's configured
-  AIGateway provider profile.
-- `web_fetch`: fetch readable content from HTTPS URLs through the agent's
-  configured AIGateway provider profile, with a worker-local browser
-  fallback.
-- `browser_*`: operate an interactive rendered browser session in Agent
-  Computer.
-
-`web_search` is a provider-backed AIGateway tool. `web_fetch` is
-provider-backed when `GET /api/v1/ai-gateway/web_tools` reports
-`web_fetch.default` as available, and otherwise falls back to the worker-local
-browser runtime. Both provider-backed tools use the agent-scoped AIGateway
-bearer key; provider credentials never enter Agent Computer.
-
-`browser_*` tools are the rendered browser runtime: the default local
-Chromium backend and the operator-controlled remote CDP override used for
-Cloudflare Browser Run, Bright Data Browser API, Rayobrowse, CloakBrowser, or
-other CDP-compatible services.
-
-The short version: every tool family has a stable model-facing contract.
-Provider-backed tools route through AIGateway; browser tools route through the
-Agent Computer browser runtime. For each turn, Bun resolves the browser runtime
-AppConfigure keys it needs through `app_configure.resolve`. If
-`worker.remote_browser_cdp_config` resolves to a remote CDP adapter, the worker
-connects to that adapter. If it resolves to `nil`, the main Bun worker lazily
-starts one local Chromium sidecar through its in-process `LocalSidecarManager`,
-creates a CDP BrowserContext per browser session, and releases the idle sidecar
-according to `worker.local_browser_idle_ttl_ms`.
-
-## Provider-Backed Tools
-
-The control plane owns provider configuration and profile routing:
-
-- `web_search.default` resolves through the `web_search` AIGateway capability.
-- `web_fetch.default` resolves through the `web_fetch` AIGateway capability.
-- Built-in `web_search` providers are `parallel`, `bright_data_serp`, and
-  `agentbull_cloud`.
-- Built-in `web_fetch` providers are `parallel` and `jina_reader`.
-
-Agent Computer asks AIGateway which provider-backed tools are available before
-starting the model loop. If `web_search` is missing, disabled, or points at a
-provider without the required capability, that tool is omitted from the model's
-tool list. If provider-backed `web_fetch` is missing, Agent Computer still
-registers `web_fetch` when the worker-local browser runtime is available.
-
-`web_search` accepts a query and optional limit. AIGateway normalizes provider
-responses into a shared result list with fields such as `title`, `url`,
-`snippet`, `published_at`, `source`, `sources`, and `score` when available.
-
-`web_fetch` accepts one to five HTTPS URLs. AIGateway always rejects literal
-cloud metadata-host URLs before provider dispatch, and additionally rejects
-literal localhost, loopback, private, link-local, and CGNAT URLs when the
-`security.ssrf_filter` AppConfigure key is enabled (see SSRF Filtering below;
-the default keeps intranet URLs reachable). Provider
-responses are normalized into a shared result list with fields such as `url`,
-`title`, `text`, `markdown`, `html`, `links`, `images`, `metadata`, and
-`error` when available.
-
-Provider-backed `web_search` and `web_fetch` are not rendered browser
-automation. The local `web_fetch` fallback uses a rendered CDP browser session,
-but exposes only the stable fetch result shape. Use `browser_*` when the task
-needs interaction, login/session continuity, screenshots, or element-level
-actions.
-
-## Local Web Fetch Fallback
-
-The local `web_fetch` fallback is owned by Agent Computer, not AIGateway.
-`GET /api/v1/ai-gateway/web_tools` continues to report only provider-backed
-availability. During a text turn, Agent Computer adds `web_fetch` when it has a
-local browser scope for the current agent/session.
-
-The fallback:
-
-- accepts the same one-to-five HTTPS URL input as provider-backed `web_fetch`
-  and applies the same URL policy: cloud metadata endpoints are always
-  rejected, and non-public URLs are rejected when
-  `security.ssrf_filter` is enabled;
-- starts or reuses the local Chromium singleton through `LocalSidecarManager`;
-- uses its own browser session and Chromium BrowserContext separate from
-  interactive `browser_*` sessions;
-- navigates each URL through CDP and extracts `document.body.innerText`;
-- normalizes results to the same `success` plus `results` body shape used by
-  AIGateway providers;
-- records `source: "local_browser"` metadata, and records the AIGateway error
-  when provider-backed fetch failed before fallback.
-
-The fallback deliberately does not use the operator remote CDP override. It is
-the local-browser safety path for missing or failed provider-backed extraction;
-operator-selected remote browser behavior remains visible through `browser_*`.
-
-## SSRF Filtering
-
-Ankole is built for digital employees, so reaching intranet services through
-web tools is the expected default. The only restriction switch is:
-
-```text
-security.ssrf_filter
-```
-
-Contract:
-
-- scope: scoped AppConfigure key, resolution `agent:<uid> -> global -> default`;
-- encrypted: false;
-- default: `false` (private-network URLs allowed);
-- operator/admin-owned setting, not model-writable state.
-
-When enabled, model-supplied URLs must point at public hosts, and the same
-rejection set applies at every model URL input: AIGateway `web_fetch`
-validation, the worker-local `web_fetch` fallback, and `browser_*` navigation
-entrypoints (`browser_navigate` and the extract path). Rejected inputs are
-literal `localhost` and `*.localhost` names, loopback, RFC1918 private ranges,
-IPv4 link-local, CGNAT (`100.64/10`), `0/8`, IPv6 loopback, unique-local
-(`fc00::/7`), IPv6 link-local (`fe80::/10`), and IPv4-mapped IPv6 forms of
-those addresses.
-
-URL parsing and host classification are implemented once in the native kernel
-(`web_url_facts`, WHATWG semantics) and consumed by both the Elixir gateway
-and the Bun worker, so alternate literal encodings such as hex or integer
-IPv4 canonicalize before classification and the two runtimes cannot drift.
-
-Cloud metadata endpoints are rejected regardless of this setting: `metadata`,
-`metadata.google.internal`, `169.254.169.254`, `169.254.169.250`,
-`169.254.169.251`, `fd00:ec2::254`, and IPv6 link-local addresses. Credential
-surfaces are not intranet assets.
-
-This policy is a model input filter, not a network-layer control. It checks
-the literal URLs the model supplies. Page-driven navigation — real clicks, JS
-redirects, and page-provided hrefs — does not pass through it, and DNS names
-are not resolved at validation time, so a public-looking hostname may still
-resolve to a private address. Deployments that need a hard guarantee must
-enforce it at the worker network layer.
-
-## Browser Runtime
-
-## Architecture
-
-```text
-model tool loop
-  |
-  | browser_navigate / browser_snapshot / browser_find / browser_click / ...
-  v
-Agent Computer browser tools (Bun)
-  |
-  | resolves effective browser endpoint for this agent/turn
-  v
-BrowserEndpointResolver (Bun)
-  |
-  +-- remote override:
-  |     worker.remote_browser_cdp_config from AppConfigure
-  |     adapter: cdp_endpoint | cdp_session_request
-  |
-  +-- local default:
-        LocalSidecarManager.ensure(browser.chromium)
-        -> chromium-headless-shell --headless=new --remote-debugging-port=<free> ...
-        -> Target.createBrowserContext per browser session
-  |
-  v
-CDPBrowserEngine (same implementation for local and remote)
-```
-
-The control plane owns configuration. The worker owns browser process/session
-state.
-
-- Elixir `AppConfigure` stores `worker.remote_browser_cdp_config` and
-  `worker.local_browser_idle_ttl_ms`.
-- RuntimeFabric RPC `app_configure.resolve` lets the worker resolve declared
-  AppConfigure keys for the current agent. Browser does not own a special
-  configuration transport.
-- Agent scope overrides global scope; absent config resolves to `nil`.
-- Decrypted remote config is not written into `turn_start.request_context`,
-  actor events, model messages, or durable browser artifacts.
-- Local Chromium is not started at container boot. The main Bun worker starts
-  it only when the effective remote config is `nil` and a browser tool needs a
-  rendered browser.
-- The production browser tools call the Bun CDP engine directly. The worker
-  image does not install a separate browser CLI surface.
-- Browser session metadata lives under
-  `/workspace/.sessions/<session>/browser/session.json` and is rebuildable.
-
-The model only sees normal browser tool results.
-
-## Why This Shape
-
-The design deliberately separates the stable product contract from the browser
-implementation:
-
-- The model always uses the same `browser_*` tools.
-- Local default operation has no external browser service dependency.
-- Operators can switch one agent or all agents to a stronger remote browser
-  without changing prompts, tools, or actor runtime behavior.
-- Remote provider credentials stay in encrypted AppConfigure and ephemeral
-  worker memory.
-- HTTP fetch fallback is removed; browser-family behavior operates through a
-  real CDP browser session. `web_fetch` has an explicit local-browser fallback
-  that also uses the CDP engine.
-- Chromium headless shell provides the default local rendered-browser
-  compatibility, screenshots, and CDP BrowserContext isolation; remote CDP
-  remains available for managed browser infrastructure, stronger anti-bot
-  needs, and provider-specific browser fleets.
-
-## Default Backend: Lazy Local Chromium
-
-If `worker.remote_browser_cdp_config` is unset or resolves to `nil`, the worker
-uses the Chromium headless shell binary installed in the Agent Computer image.
-
-The Bun `LocalSidecarManager` launches a local sidecar with:
-
-```bash
-chromium-headless-shell --headless=new --renderer-process-limit=4 --no-zygote --no-sandbox \
-  --disable-gpu --disable-dev-shm-usage --disable-sync \
-  --disable-background-networking --disable-default-apps --disable-translate \
-  --disable-popup-blocking --disable-notifications --disable-extensions \
-  --user-agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36 Edg/150.0.4078.48" \
-  --remote-debugging-address=127.0.0.1 --remote-debugging-port=<free> \
-  --user-data-dir=/workspace/.sessions/_browser/chromium/profile about:blank
-```
-
-The Docker image still uses Tini as PID 1 for signal forwarding and zombie
-reaping, and starts the worker directly with `bun src/main.ts`. There is no
-Python browser daemon, runtime shell wrapper, UDS control protocol, or Rust
-browser supervisor in the default design.
-
-The important lifecycle boundary is that Chromium is not a child of a
-short-lived bwrap tool command. It is held by the main Bun worker process, whose
-lifetime is the Agent Computer worker lifetime. This fixes the failure mode
-where a browser launched through the foreground/background command tool died
-with the tool command. It does not try to preserve browser sidecars across a Bun
-worker crash; if Bun exits, the worker is restarted and browser sessions are
-recreated.
-
-Local browser state isolation is keyed by the browser session identifier, which
-defaults to the current agent plus execution scope. The sidecar key is global
-(`browser.chromium`); isolation lives in Chromium CDP BrowserContext, created by
-`Target.createBrowserContext` and disposed by `Target.disposeBrowserContext` on
-session release. BrowserContext isolates cookies, localStorage, IndexedDB, and
-cache while sharing one Chromium process.
-
-The local adapter tracks the main frame's default Runtime execution context and
-waits for navigation primarily through Page lifecycle events instead of repeated
-`document.readyState` polling. Browser navigation failure pages, such as
-transient TLS or network failures, are returned as browser tool errors rather
-than successful snapshots.
-
-Sidecar release is idle-time based. Each browser action touches the sidecar's
-`lastUsedAt` timestamp. The TTL comes from scoped AppConfigure key
-`worker.local_browser_idle_ttl_ms`, defaults to 30 minutes, and is intentionally
-conservative: it prevents leaks in long-lived workers without aggressively
-killing useful browser state. When no action has used that sidecar for the
-configured idle TTL, Bun sends `SIGTERM`; if the process does not exit within
-the grace period, Bun sends `SIGKILL`.
-
-Local Chromium is the right default for:
-
-- normal navigation and rendered text extraction;
-- multi-step browser tasks that use `browser_snapshot`, `browser_find`,
-  `browser_click`, `browser_type`, and related structured tools;
-- screenshots through `Page.captureScreenshot`;
-- fast per-session startup through CDP BrowserContext instead of per-session
-  browser processes.
-
-Known local Chromium limits:
-
-- headless Chromium still has a detectable browser/runtime fingerprint;
-- anti-bot-sensitive flows may need a remote browser provider;
-- local sidecar state is worker-local and rebuildable, not durable control-plane
-  state.
-
-There is no `ANKOLE_BROWSER_BACKEND=fetch` mode. If Chromium is missing and
-no remote CDP config is set, browser tools fail closed.
-
-## Remote CDP Configuration
-
-The only browser override key is:
-
-```text
-worker.remote_browser_cdp_config
-```
-
-Contract:
-
-- scope: scoped AppConfigure key;
-- encrypted: true;
-- default: `nil`;
-- resolution order: `agent:<uid> -> global -> default`;
-- no compatibility alias for misspellings such as `broswer`;
-- operator/admin-owned setting, not model-writable state.
-
-When a remote config is present, it is authoritative. The worker does not
-silently fall back to local Chromium if the remote endpoint is misconfigured
-or unavailable; this makes operator mistakes visible.
-
-### Adapter: Direct CDP Endpoint
-
-Use `cdp_endpoint` when the provider gives you a WebSocket CDP endpoint or an
-HTTP(S) CDP server root.
-
-```json
-{
-  "adapter": "cdp_endpoint",
-  "endpoint_url": "wss://...",
-  "headers": {
-    "Authorization": "Bearer ..."
-  },
-  "connect_timeout_ms": 30000
-}
-```
-
-`endpoint_url` may be:
-
-- `ws://...` or `wss://...`: used directly as the CDP WebSocket endpoint;
-- `http://...` or `https://...`: the worker requests `/json/version` and reads
-  `webSocketDebuggerUrl`.
-
-If a CDP server root returns a loopback WebSocket URL such as
-`ws://127.0.0.1:9222/...`, the worker rewrites the host, scheme, and port to
-match the configured root URL. This supports LAN proxies and Docker
-`host.docker.internal` style endpoints.
-
-`headers` are sent to HTTP discovery requests and WebSocket CDP connections.
-This is required by providers such as Cloudflare Browser Run.
-
-### Adapter: Session Request
-
-Use `cdp_session_request` when a provider first creates a browser session via
-HTTP and then returns the WebSocket URL.
-
-```json
-{
-  "adapter": "cdp_session_request",
-  "request": {
-    "url": "http://rayobrowse.lan:3000/connect?headless=true&os=windows",
-    "method": "GET",
-    "headers": {},
-    "response": {
-      "type": "text"
-    }
-  },
-  "headers": {},
-  "connect_timeout_ms": 120000
-}
-```
-
-`request.response` can also extract the WebSocket URL from JSON:
-
-```json
-{
-  "type": "json",
-  "path": ["webSocketDebuggerUrl"]
-}
-```
-
-`request.headers` authenticate the session-creation HTTP call. Top-level
-`headers` authenticate the resulting CDP WebSocket connection.
-
-## Cloudflare Browser Run
-
-Cloudflare Browser Run supports CDP connections from external environments.
-The official Playwright example connects to:
-
-```text
-wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000
-```
-
-and sends:
-
-```text
-Authorization: Bearer <API_TOKEN>
-```
-
-Cloudflare documents that the API token needs `Browser Rendering - Edit`
-permission, and that `keep_alive` is in milliseconds. See the official
-[Cloudflare Browser Run Playwright CDP documentation](https://developers.cloudflare.com/browser-run/cdp/playwright/).
-
-Ankole config:
-
-```json
-{
-  "adapter": "cdp_endpoint",
-  "endpoint_url": "wss://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/browser-rendering/devtools/browser?keep_alive=600000",
-  "headers": {
-    "Authorization": "Bearer <CF_API_TOKEN>"
-  },
-  "connect_timeout_ms": 30000
-}
-```
-
-Use Cloudflare when you want managed Chromium-compatible sessions, provider
-headers, screenshots/PDFs from a full browser backend, or globally reachable
-browser infrastructure without running your own CDP service.
-
-## Bright Data Browser API
-
-Bright Data Browser API exposes a CDP WebSocket endpoint commonly used with
-Playwright `chromium.connectOverCDP`:
-
-```text
-wss://<AUTH>@brd.superproxy.io:9222
-```
-
-where `AUTH` is the Bright Data Browser API zone credential string, for
-example `SBR_ZONE_FULL_USERNAME:SBR_ZONE_PASSWORD`. Bright Data also documents
-CDP inspection via `Page.inspect`. See the official
-[Bright Data Browser API code examples](https://docs.brightdata.com/scraping-automation/scraping-browser/code-examples)
-and [configuration documentation](https://docs.brightdata.com/scraping-automation/scraping-browser/configuration).
-
-Ankole config:
-
-```json
-{
-  "adapter": "cdp_endpoint",
-  "endpoint_url": "wss://<SBR_ZONE_FULL_USERNAME>:<SBR_ZONE_PASSWORD>@brd.superproxy.io:9222",
-  "connect_timeout_ms": 120000
-}
-```
-
-Credential-bearing URLs are allowed for providers that require them, but tool
-output and status responses must use redacted URLs. URL-encode credential
-characters that are not valid in userinfo.
-
-Bright Data is a good fit for high-friction sites, geo/proxy requirements,
-CAPTCHA-oriented scraping workflows, and externally inspectable browser
-sessions.
-
-## Other Remote Providers
-
-CloakBrowser, Rayobrowse, ShardBrowser, self-hosted Chromium, and similar
-systems should integrate through the same two adapters:
-
-- expose a stable `ws(s)://` CDP URL and use `cdp_endpoint`; or
-- expose an HTTP session creation endpoint and use `cdp_session_request`.
-
-Do not add provider-specific browser tool names. If a provider requires extra
-fields, extend the adapter schema deliberately and keep the model-facing
-`browser_*` contract unchanged.
-
-## Security Boundary
-
-Remote browser config may contain bearer tokens, Basic credentials, or signed
-session URLs. Treat it as operator secret material:
-
-- store it only in encrypted AppConfigure;
-- prefer agent-scoped config for provider experiments;
-- use global config only when every agent should share the same browser
-  provider;
-- do not put remote CDP secrets in prompts, SOUL, MISSION, actor events, or
-  workspace files;
-- avoid long-lived remote sessions unless the provider requires them;
-- rotate provider credentials outside Ankole and update AppConfigure.
-
-The browser itself executes untrusted web content. Keep browser behavior inside
-the worker sandbox and expose only structured, redacted tool observations to
-the model.
-
-## Operational Checks
-
-Browser runtime checks should exercise the same interface production uses: the
-worker's in-process browser tools and the CDP runtime underneath them.
-Configure production remote CDP through `worker.remote_browser_cdp_config` in
-AppConfigure; the environment variable path is only for focused package tests.
-
-Fast no-build package check:
-
-```bash
-cd app/agent_computer
-bun run test
-```
-
-The package test command uses the existing `ankole-agent-computer:0.1.0` image
-and bind-mounts local `src/` and `test/` into the container. Rebuild
-the image only after Dockerfile, dependency, kernel output, or image-level tool
-changes. Browser runtime fixes in TypeScript can usually be reproduced and
-verified through this no-build path first.
-
-## Failure Model
-
-- No remote config: use local Chromium.
-- Remote config present but invalid: fail before browser launch.
-- Remote endpoint unreachable: fail the browser tool call; do not fall back.
-- Backend lacks screenshot support: `browser_screenshot` returns unsupported.
-- Stale element ref: action fails and the model must take a fresh snapshot.
-
-This keeps failures explicit and recoverable. Silent fallback would make
-operator browser policy and test evidence ambiguous.
+The current Agent Computer web surface has two model tools:
+provider-backed `web_search` and provider-first `web_fetch`. This document does
+not turn the interactive browser into a third foreground web tool. Interactive
+work is exposed separately through the long-running Browser Skill inside a
+Codex Job, but both paths share the same `ankole-browser` data plane.
+
+## Ownership
+
+- AIGateway owns provider selection, provider credentials, and the
+  `/web_tools`, `/web_search`, and `/web_fetch` HTTP contracts.
+- Agent Computer owns stable model schemas, lazy availability checks,
+  cancellation, result formatting, final browser-material injection, and the
+  private rendered-page fallback used by `web_fetch`.
+- `ankole-browser` owns only the browser data plane: opaque routes, physical
+  sessions, rendered extraction, and generic lifecycle. It has no
+  control-plane client or Agent/Job/Principal vocabulary.
+- The Rust kernel supplies URL and SSRF facts used by the worker guard. BEAM
+  callers apply those facts through the shared `Ankole.Kernel.validate_web_url/3`
+  policy helper, keeping only their scheme list and error vocabulary.
+- The control plane owns `security.ssrf_filter` and
+  `worker.rendered_fetch_idle_ttl_ms` configuration.
+
+Provider credentials stay inside AIGateway. Agent Computer receives only its
+agent-scoped AIGateway handle and provider availability/model metadata.
+
+## `web_search`
+
+`web_search` accepts one non-empty query without an Ankole-owned length ceiling
+and an optional result limit from 1 to 100, defaulting to 5. The provider may
+still enforce its own request boundary. Agent Computer calls the configured
+AIGateway search provider and returns a compact numbered list of titles, URLs,
+and snippets. If no provider is configured, it fails with the availability
+reason; there is no local search-index fallback.
+
+## Hermes Floor And Web Tradeoffs
+
+| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
+| --- | --- | --- | --- | --- |
+| Search query length | `500` characters | No equivalent Hermes ceiling | No Ankole-owned ceiling; provider limits still apply | Very large requests reach the provider, but Ankole no longer rejects legal research queries earlier. |
+| Result count | Maximum `100` | No equivalent boundary | Maximum `100` | Retained as a presentation and provider-cost boundary, not a query-acceptance restriction. |
+| Rendered fetch | `45s` subprocess timeout | No equivalent rendered-fetch boundary | `300s` | A broken renderer consumes capacity longer, but complex pages and slow networks get the same five-minute tolerance as control-plane RPC. |
+
+## `web_fetch`
+
+`web_fetch` accepts one to five HTTPS page URLs. It extracts readable page text;
+it is not a downloader for PDFs, archives, images, audio, video, or
+executables. Binary downloads use the foreground `command` tool and an explicit
+downloader such as `aria2c`.
+
+Agent Computer first uses the configured AIGateway fetch provider. If provider
+availability resolution fails, no fetch provider is configured, or the
+provider request fails, it may use its private rendered-page extractor.
+
+Both paths return the same text-oriented shape: URL, title, extracted text or
+error, and a neutral source label. The fallback label is
+`rendered_fallback`. Implementation processes, endpoints, credentials, and
+rebuildable renderer state never enter the model contract.
+
+One bad URL does not hide successful URLs in the same fallback call. Each URL
+gets a normalized result in request order; the renderer uses two bounded
+workers and a per-URL budget so a slow page cannot consume the whole batch.
+After `domcontentloaded`, body text must remain stable for a bounded quiet
+window before it is returned, avoiding a successful `Loading` placeholder
+without waiting indefinitely for `networkidle`. Caller cancellation aborts the
+whole operation.
+
+## Rendered-Page Fallback
+
+The fallback exists only so JavaScript-rendered text remains readable through
+`web_fetch`. Agent Computer materializes an ephemeral opaque route immediately
+before invoking `ankole-browser fetch`, injects only the final socket, route,
+session, and material paths into that CLI process, and sends an internal purge
+in `finally`. If the daemon died during the fetch, Agent Computer first restores
+the supervised daemon and retries that purge before discarding the short-lived
+material file. Profile or backend source variables are never inherited by the
+CLI. The worker-singleton `ankole-browserd` starts with Agent Computer and may
+serve other independent physical sessions, but an ephemeral fetch route is not
+reused after the call.
+
+Browser route data is worker-local and rebuildable. PostgreSQL stores no
+semantic fact that depends on it. `ankole-browser` may persist profile and
+remote reconnect bytes under its supplied data root, but it does not know why
+the route exists or who owns it.
+
+`worker.rendered_fetch_idle_ttl_ms` bounds live-resource cleanup if explicit
+purge cannot complete. It does not add a model capability or change the
+`web_fetch` schema.
+
+## Interactive Browser Boundary
+
+Every Codex Job receives the built-in Browser capability. Agent Computer
+materializes its persistent opaque route immediately before the Codex app-server
+and its `bubblewrap` sandbox are created. The sandbox receives
+only reserved `ANKOLE_BROWSER_*` values and read-only binds for the daemon
+socket and final material. Backend/profile source variables are removed first.
+
+The Browser Skill then exposes the preconfigured `ankole-browser` CLI. Short
+verb-first commands and LLM-authored Playwright scripts both attach to the same
+route and injected default session; Codex does not resolve profiles or credentials and cannot create
+a second browser owner. Route records contain only opaque identifiers and
+hashes needed to resume the same Job route. Browser profiles and reconnect
+bytes remain worker-local data-plane state.
+
+This split is intentional: `web_fetch` owns text extraction and uses an
+ephemeral route, while the Browser Skill owns visible interaction, screenshots,
+persistent login state, and reproducible code workflows. Neither surface gives
+`ankole-browser` any Agent, Job, Principal, or control-plane meaning.
+
+## URL and Security Rules
+
+- The model schema accepts HTTPS URLs only.
+- The fallback repeats the URL safety guard before extraction.
+- When `security.ssrf_filter` is enabled, kernel-backed URL facts reject unsafe
+  destinations and redirects at the worker boundary.
+- The `ankole-browser` navigation guard applies the same classification to
+  every main-frame destination and each DNS-resolved address: cloud metadata
+  addresses are always blocked, private addresses only while the filter is on.
+  The data plane cannot link the native module, so its TypeScript tables
+  mirror the kernel classifier; the shared vectors in
+  `app/kernel/test/vectors/web_url_host_classification.json` pin parity across
+  the Rust, Elixir, and Bun suites.
+- Provider responses and page content are untrusted tool output. They do not
+  become system instructions or durable semantic state by being fetched.
+- Decrypted settings and credentials stay in memory and must not appear in
+  model output, result metadata, logs, or workspace files.
+
+## Availability
+
+The model tool list is stable for one turn. Provider availability is resolved
+lazily and memoized within that turn, so Responses tool schemas do not change
+between model iterations. `web_search` requires a configured provider;
+`web_fetch` may remain available through the rendered-page fallback.
+
+## Validation
+
+Tests cover availability caching, provider request mapping, fallback
+activation, pre-CLI material injection, source-environment stripping, per-URL
+partial failure, bounded rendered settling, cancellation, HTTPS validation,
+SSRF guarding, explicit cleanup, and neutral result metadata.

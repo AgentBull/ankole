@@ -54,7 +54,7 @@ defmodule Ankole.Schedule do
   defdelegate update_cron_schedule(cron_schedule_id, attrs, opts \\ []), to: Cron
 
   @doc """
-  Pauses a cron schedule and cancels future fires that have not materialized.
+  Pauses a cron schedule and cancels pending recurrence fires.
   """
   @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}

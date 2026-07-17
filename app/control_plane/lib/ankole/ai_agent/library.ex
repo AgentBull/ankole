@@ -10,11 +10,12 @@ defmodule Ankole.AIAgent.Library do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AIAgent.Library.AgentPlugins
+  alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
-  alias Ankole.AIAgent.Library.SkillEnablementProviders
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Principals
   alias Ankole.Principals.Agent
@@ -62,7 +63,10 @@ defmodule Ankole.AIAgent.Library do
     force? = Keyword.get(opts, :force, false)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, sources} <- SourceReader.read_builtin_skill_sources() do
+    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(),
+         {:ok, sources} <-
+           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
       content_hash = SourceReader.catalog_hash(sources)
       current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
 
@@ -128,13 +132,14 @@ defmodule Ankole.AIAgent.Library do
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
          {:ok, installed_sources} <- installed_sources_from_observations(observations) do
       repo.transact(fn repo ->
         sync_agent_skills_in_tx(
           repo,
           agent_uid,
           %{
-            builtin: builtin_sources,
+            builtin: builtin_sources ++ agent_plugin_sources,
             installed: installed_sources,
             installed_authoritative?: true
           },
@@ -148,25 +153,27 @@ defmodule Ankole.AIAgent.Library do
     do: {:error, :invalid_skill_observations}
 
   @doc """
-  Enables or disables one registered skill for an agent.
+  Sets or clears one Agent-specific Skill enablement override.
 
   This is an operator/control-plane facade. The model-facing worker tools can
   read and append enabled skill content, but they cannot toggle the registry.
   """
-  @spec set_agent_skill_enabled(String.t(), String.t(), boolean(), keyword()) ::
+  @spec set_agent_skill_override(String.t(), String.t(), boolean() | nil, keyword()) ::
           {:ok, AgentSkill.t()} | {:error, term()}
-  def set_agent_skill_enabled(agent_uid, skill_name, enabled?, opts \\ [])
+  def set_agent_skill_override(agent_uid, skill_id, enabled, opts \\ [])
 
-  def set_agent_skill_enabled(agent_uid, skill_name, enabled?, opts) when is_boolean(enabled?) do
+  def set_agent_skill_override(agent_uid, skill_id, enabled, opts)
+      when is_boolean(enabled) or is_nil(enabled) do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          {:ok, _result} <- sync_agent_skills(agent_uid, opts),
-         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         {:ok, skill_name, expected_agent_plugin_id} <- normalize_skill_id(skill_id),
          %AgentSkill{} = skill <-
-           repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
+           repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name),
+         :ok <- validate_skill_owner(skill, expected_agent_plugin_id) do
       skill
-      |> AgentSkill.changeset(%{enabled: enabled?})
+      |> AgentSkill.changeset(%{enabled_override: enabled})
       |> repo.update()
     else
       nil -> {:error, :skill_not_found}
@@ -174,8 +181,80 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  def set_agent_skill_enabled(_agent_uid, _skill_name, _enabled?, _opts),
-    do: {:error, :invalid_skill_enabled}
+  def set_agent_skill_override(_agent_uid, _skill_id, _enabled, _opts),
+    do: {:error, :invalid_skill_override}
+
+  @doc "Returns globally inherited Agent Plugin and standalone Skill capabilities."
+  @spec global_capabilities(keyword()) :: {:ok, map()} | {:error, term()}
+  def global_capabilities(opts \\ []) do
+    with {:ok, agent_plugins} <- AgentPlugins.global_capabilities(opts),
+         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
+         {:ok, _sources} <-
+           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources),
+         {:ok, defaults} <- library_defaults(opts) do
+      skills =
+        Enum.map(builtin_sources, fn source ->
+          global_default = Map.get(defaults.skills, source.name, source.default_enabled)
+
+          %{
+            "id" => source.name,
+            "name" => source.name,
+            "description" => source.description,
+            "source_kind" => "builtin",
+            "agent_plugin_id" => nil,
+            "global_default_enabled" => global_default,
+            "override_enabled" => nil,
+            "effective_enabled" => global_default
+          }
+        end)
+
+      {:ok, %{"agent_plugins" => agent_plugins, "skills" => skills}}
+    end
+  end
+
+  @doc "Returns effective Agent Plugin and standalone Skill capabilities for one Agent."
+  @spec capabilities_for_agent(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def capabilities_for_agent(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
+         {:ok, defaults} <- library_defaults(opts) do
+      skills =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid and is_nil(skill.agent_plugin_id))
+        |> order_by([skill], asc: skill.skill_name)
+        |> repo.all()
+        |> Enum.map(&standalone_skill_capability(&1, defaults))
+
+      {:ok, %{"agent_plugins" => agent_plugins, "skills" => skills}}
+    end
+  end
+
+  @spec set_global_skill_default(String.t(), boolean(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def set_global_skill_default(skill_id, enabled, opts \\ [])
+
+  def set_global_skill_default(skill_id, enabled, opts) when is_boolean(enabled) do
+    case String.split(skill_id, ":", parts: 2) do
+      [_agent_plugin_id, _skill_name] ->
+        AgentPlugins.set_global_skill_default(skill_id, enabled, opts)
+
+      [skill_name] ->
+        with {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+             {:ok, sources} <- SourceReader.read_builtin_skill_sources(),
+             %{} <- Enum.find(sources, &(&1.name == skill_name)) do
+          AgentPluginConfig.put_skill_default(skill_name, enabled)
+        else
+          nil -> {:error, :skill_not_found}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  def set_global_skill_default(_skill_id, _enabled, _opts),
+    do: {:error, :invalid_skill_default}
 
   @doc """
   Seeds writable library state for a newly-created agent.
@@ -210,7 +289,8 @@ defmodule Ankole.AIAgent.Library do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, _result} <- sync_agent_skills(agent_uid, opts) do
+         {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts),
+         {:ok, defaults} <- library_defaults(opts) do
       overlay_skills =
         AgentSkillOverlay
         |> where([overlay], overlay.agent_uid == ^agent_uid)
@@ -225,9 +305,53 @@ defmodule Ankole.AIAgent.Library do
         |> order_by([skill], asc: skill.skill_name)
         |> repo.all()
 
-      with {:ok, skills} <-
-             SkillEnablementProviders.filter_enabled(agent_uid, all_skills, opts) do
-        {:ok, Enum.map(skills, &skill_summary(&1, overlay_skills))}
+      parent_enabled = Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]})
+
+      {:ok,
+       all_skills
+       |> Enum.map(fn skill ->
+         effective = effective_skill_enabled?(skill, defaults, parent_enabled)
+         {skill, effective}
+       end)
+       |> Enum.filter(&elem(&1, 1))
+       |> Enum.map(fn {skill, effective} ->
+         skill_summary(skill, overlay_skills, effective, defaults)
+       end)}
+    end
+  end
+
+  @doc """
+  Resolves the currently enabled standalone Agent Skills selected for one
+  BackgroundAgentJob.
+  """
+  @spec resolve_job_skill_names(String.t(), [String.t()] | nil, keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def resolve_job_skill_names(agent_uid, requested_names, opts \\ []) do
+    with {:ok, skills} <- enabled_skills_for_agent(agent_uid, opts) do
+      standalone = Enum.reject(skills, &is_binary(&1["agent_plugin_id"]))
+      standalone_names = MapSet.new(standalone, & &1["skill_name"])
+
+      plugin_names =
+        skills
+        |> Enum.filter(&is_binary(&1["agent_plugin_id"]))
+        |> MapSet.new(& &1["skill_name"])
+
+      case requested_names do
+        nil ->
+          {:ok, standalone_names |> MapSet.to_list() |> Enum.sort()}
+
+        names when is_list(names) ->
+          with {:ok, names} <- normalize_requested_skill_names(names),
+               :ok <- reject_plugin_owned_skill_names(names, plugin_names),
+               [] <- Enum.reject(names, &MapSet.member?(standalone_names, &1)) do
+            {:ok, Enum.sort(names)}
+          else
+            missing when is_list(missing) -> {:error, {:job_skills_not_enabled, missing}}
+            {:error, _reason} = error -> error
+          end
+
+        _value ->
+          {:error, :invalid_job_skill_names}
       end
     end
   end
@@ -482,6 +606,7 @@ defmodule Ankole.AIAgent.Library do
            "description" => skill["description"],
            "category" => skill["category"],
            "source_kind" => skill["source_kind"],
+           "agent_plugin_id" => skill["agent_plugin_id"],
            "relative_path" => skill["relative_path"],
            "skill_root" => metadata["skill_root"],
            "skill_uri" => skill_uri(skill["skill_name"], @skill_file),
@@ -492,9 +617,17 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp agent_skill_sources(_agent_uid, _opts) do
-    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources() do
-      {:ok, %{builtin: builtin_sources, installed: [], installed_authoritative?: false}}
+  defp agent_skill_sources(_agent_uid, opts) do
+    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, agent_plugin_sources} <- AgentPlugins.skill_sources(opts),
+         {:ok, _all_sources} <-
+           reject_skill_source_conflicts(builtin_sources ++ agent_plugin_sources) do
+      {:ok,
+       %{
+         builtin: builtin_sources ++ agent_plugin_sources,
+         installed: [],
+         installed_authoritative?: false
+       }}
     end
   end
 
@@ -505,13 +638,17 @@ defmodule Ankole.AIAgent.Library do
 
     source_names = MapSet.new(source_rows, & &1.skill_name)
 
-    existing =
-      AgentSkill
-      |> where([skill], skill.agent_uid == ^agent_uid)
-      |> repo.all()
-      |> Map.new(&{&1.skill_name, &1})
+    preserved_installed_rows =
+      if sources.installed_authoritative? do
+        []
+      else
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid and skill.source_kind == "installed")
+        |> repo.all()
+      end
 
-    with :ok <- upsert_agent_skill_rows(repo, agent_uid, source_rows, existing),
+    with :ok <- reject_skill_row_conflicts(source_rows ++ preserved_installed_rows),
+         :ok <- upsert_agent_skill_rows(repo, agent_uid, source_rows),
          {_count, _rows} <-
            stale_agent_skills_query(agent_uid, source_names, sources.installed_authoritative?)
            |> repo.delete_all() do
@@ -542,8 +679,9 @@ defmodule Ankole.AIAgent.Library do
     %{
       skill_name: source.name,
       source_kind: source_kind,
+      agent_plugin_id: source.metadata["agent_plugin_id"],
       relative_path: source.relative_path,
-      enabled: source.default_enabled,
+      enabled_override: nil,
       default_enabled: source.default_enabled,
       description: source.description,
       metadata:
@@ -556,19 +694,14 @@ defmodule Ankole.AIAgent.Library do
     }
   end
 
-  defp upsert_agent_skill_rows(repo, agent_uid, source_rows, existing) do
+  defp upsert_agent_skill_rows(repo, agent_uid, source_rows) do
     Enum.reduce_while(source_rows, :ok, fn row, :ok ->
-      enabled =
-        case Map.get(existing, row.skill_name) do
-          %AgentSkill{enabled: enabled?} -> enabled?
-          nil -> row.enabled
-        end
-
       attrs =
         row
         |> Map.take([
           :skill_name,
           :source_kind,
+          :agent_plugin_id,
           :relative_path,
           :default_enabled,
           :description,
@@ -577,7 +710,7 @@ defmodule Ankole.AIAgent.Library do
           :synced_at
         ])
         |> Map.put(:agent_uid, agent_uid)
-        |> Map.put(:enabled, enabled)
+        |> Map.put(:enabled_override, nil)
 
       %AgentSkill{}
       |> AgentSkill.changeset(attrs)
@@ -586,8 +719,8 @@ defmodule Ankole.AIAgent.Library do
           {:replace,
            [
              :source_kind,
+             :agent_plugin_id,
              :relative_path,
-             :enabled,
              :default_enabled,
              :description,
              :metadata,
@@ -773,14 +906,11 @@ defmodule Ankole.AIAgent.Library do
   defp enabled_skill(repo, agent_uid, skill_name, opts) do
     case repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
       %AgentSkill{} = skill ->
-        case SkillEnablementProviders.enabled?(
-               agent_uid,
-               skill,
-               Keyword.put(opts, :repo, repo)
-             ) do
-          {:ok, true} -> {:ok, skill}
-          {:ok, false} -> {:error, :skill_not_enabled}
-          {:error, reason} -> {:error, reason}
+        with {:ok, defaults} <- library_defaults(opts),
+             {:ok, parent_enabled} <- parent_enablement(agent_uid, opts) do
+          if effective_skill_enabled?(skill, defaults, parent_enabled),
+            do: {:ok, skill},
+            else: {:error, :skill_not_enabled}
         end
 
       nil ->
@@ -946,6 +1076,62 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
+  defp reject_skill_source_conflicts(sources) do
+    conflicts =
+      sources
+      |> Enum.frequencies_by(& &1.name)
+      |> Enum.filter(fn {_name, count} -> count > 1 end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    case conflicts do
+      [] -> {:ok, sources}
+      _names -> {:error, {:skill_source_name_conflicts, conflicts}}
+    end
+  end
+
+  defp reject_skill_row_conflicts(rows) do
+    conflicts =
+      rows
+      |> Enum.frequencies_by(& &1.skill_name)
+      |> Enum.filter(fn {_name, count} -> count > 1 end)
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.sort()
+
+    case conflicts do
+      [] -> :ok
+      names -> {:error, {:skill_source_name_conflicts, names}}
+    end
+  end
+
+  defp normalize_requested_skill_names(names) do
+    names
+    |> Enum.reduce_while({:ok, []}, fn name, {:ok, acc} ->
+      case SourceReader.normalize_skill_name(name) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, _reason} -> {:halt, {:error, :invalid_job_skill_names}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} ->
+        normalized = Enum.reverse(normalized)
+
+        if length(normalized) == length(Enum.uniq(normalized)),
+          do: {:ok, normalized},
+          else: {:error, :duplicate_job_skill_name}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp reject_plugin_owned_skill_names(names, plugin_names) do
+    case Enum.filter(names, &MapSet.member?(plugin_names, &1)) do
+      [] -> :ok
+      owned -> {:error, {:job_plugin_skills_must_be_selected_by_plugin, owned}}
+    end
+  end
+
   defp map_text(map, key) do
     case map_value(map, key) do
       value when is_binary(value) ->
@@ -1054,16 +1240,22 @@ defmodule Ankole.AIAgent.Library do
 
   defp overlay_json(_overlay), do: %{}
 
-  defp skill_summary(%AgentSkill{} = skill, overlay_skills) do
+  defp skill_summary(%AgentSkill{} = skill, overlay_skills, effective, defaults) do
     metadata = skill.metadata || %{}
+    global_default = skill_global_default(skill, defaults)
 
     %{
+      "id" => skill_stable_id(skill),
       "skill_name" => skill.skill_name,
       "description" => skill.description,
       "source_kind" => skill.source_kind,
+      "agent_plugin_id" => skill.agent_plugin_id,
       "relative_path" => skill.relative_path,
       "default_enabled" => skill.default_enabled,
-      "enabled" => skill.enabled,
+      "global_default_enabled" => global_default,
+      "override_enabled" => skill.enabled_override,
+      "effective_enabled" => effective,
+      "enabled" => effective,
       "metadata" => metadata,
       "category" => metadata["category"],
       "tags" => metadata["tags"] || [],
@@ -1071,6 +1263,93 @@ defmodule Ankole.AIAgent.Library do
       "has_agent_overlay" => MapSet.member?(overlay_skills, skill.skill_name)
     }
   end
+
+  defp standalone_skill_capability(%AgentSkill{} = skill, defaults) do
+    global_default = skill_global_default(skill, defaults)
+    effective = effective_override(skill.enabled_override, global_default)
+
+    %{
+      "id" => skill.skill_name,
+      "name" => skill.skill_name,
+      "description" => skill.description,
+      "source_kind" => skill.source_kind,
+      "agent_plugin_id" => nil,
+      "global_default_enabled" => global_default,
+      "override_enabled" => skill.enabled_override,
+      "effective_enabled" => effective
+    }
+  end
+
+  defp effective_skill_enabled?(%AgentSkill{} = skill, defaults, parent_enabled) do
+    enabled = effective_override(skill.enabled_override, skill_global_default(skill, defaults))
+
+    if is_binary(skill.agent_plugin_id),
+      do: enabled and Map.get(parent_enabled, skill.agent_plugin_id, false),
+      else: enabled
+  end
+
+  defp skill_global_default(%AgentSkill{source_kind: "installed"} = skill, _defaults),
+    do: skill.default_enabled
+
+  defp skill_global_default(%AgentSkill{agent_plugin_id: id} = skill, defaults)
+       when is_binary(id) do
+    Map.get(defaults.skills, skill_stable_id(skill), true)
+  end
+
+  defp skill_global_default(%AgentSkill{} = skill, defaults) do
+    Map.get(defaults.skills, skill.skill_name, skill.default_enabled)
+  end
+
+  defp skill_stable_id(%AgentSkill{agent_plugin_id: id} = skill) when is_binary(id),
+    do: AgentPlugins.stable_skill_id(skill.agent_plugin_id, skill.skill_name)
+
+  defp skill_stable_id(%AgentSkill{} = skill), do: skill.skill_name
+
+  defp effective_override(value, _default) when is_boolean(value), do: value
+  defp effective_override(nil, default), do: default
+
+  defp parent_enablement(agent_uid, opts) do
+    with {:ok, agent_plugins} <- AgentPlugins.capabilities_for_agent(agent_uid, opts) do
+      {:ok, Map.new(agent_plugins, &{&1["id"], &1["effective_enabled"]})}
+    end
+  end
+
+  defp library_defaults(opts) do
+    case Keyword.get(opts, :agent_library_defaults) do
+      %{agent_plugins: agent_plugins, skills: skills}
+      when is_map(agent_plugins) and is_map(skills) ->
+        {:ok, %{agent_plugins: agent_plugins, skills: skills}}
+
+      _value ->
+        AgentPluginConfig.defaults()
+    end
+  end
+
+  defp normalize_skill_id(skill_id) when is_binary(skill_id) do
+    case String.split(skill_id, ":", parts: 2) do
+      [skill_name] ->
+        with {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name) do
+          {:ok, skill_name, nil}
+        end
+
+      [agent_plugin_id, skill_name] ->
+        with {:ok, agent_plugin_id} <- SourceReader.normalize_skill_name(agent_plugin_id),
+             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name) do
+          {:ok, skill_name, agent_plugin_id}
+        end
+    end
+  end
+
+  defp normalize_skill_id(_skill_id), do: {:error, :invalid_skill_id}
+
+  defp validate_skill_owner(%AgentSkill{agent_plugin_id: id}, id) when is_binary(id),
+    do: :ok
+
+  defp validate_skill_owner(%AgentSkill{agent_plugin_id: nil}, nil),
+    do: :ok
+
+  defp validate_skill_owner(%AgentSkill{}, _expected_agent_plugin_id),
+    do: {:error, :skill_not_found}
 
   defp skill_uri(skill_name, file_path), do: "skill://enabled/#{skill_name}/#{file_path}"
 end

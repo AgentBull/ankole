@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
 
   describe "start_response_run/1" do
@@ -122,6 +123,116 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
     end
   end
 
+  describe "start_planned_response_run/1" do
+    test "admits only one concurrent implicit continuation and commits its compaction atomically" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-implicit-admission"
+        )
+
+      {:ok, root} = start_run(agent, conversation, "event-implicit-admission-root")
+      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+
+      attrs = %{
+        subject_uid: agent.principal.uid,
+        conversation_id: conversation.id,
+        expected_previous_response_id: "resp_#{root.id}",
+        request_items: [%{"type" => "message", "role" => "user", "content" => []}],
+        metadata: %{"request_metadata" => %{"source" => "implicit-admission-test"}},
+        compaction: %{
+          artifact_attrs: %{
+            subject_uid: agent.principal.uid,
+            conversation_id: conversation.id,
+            summary_text: "Concurrent admission summary",
+            retained_items: [],
+            retained_user_originals: [],
+            retention: %{},
+            usage: %{}
+          },
+          checkpoint_metadata: %{"auto" => true}
+        }
+      }
+
+      tasks =
+        for _index <- 1..2 do
+          Task.async(fn ->
+            receive do
+              :start -> StatefulResponses.start_planned_response_run(attrs)
+            end
+          end)
+        end
+
+      Enum.each(tasks, fn task ->
+        :ok = Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), task.pid)
+        send(task.pid, :start)
+      end)
+
+      results = Enum.map(tasks, &Task.await(&1, 5_000))
+
+      assert [{:ok, admitted}] = Enum.filter(results, &match?({:ok, %Message{}}, &1))
+      assert [{:error, :response_run_in_progress}] = Enum.reject(results, &match?({:ok, _}, &1))
+
+      assert [checkpoint] =
+               Message
+               |> where([message], message.conversation_id == ^conversation.id)
+               |> where([message], message.type == "checkpoint")
+               |> Repo.all()
+
+      assert checkpoint.previous_message_id == root.id
+      assert admitted.previous_message_id == checkpoint.id
+      assert Repo.aggregate(CompactionArtifact, :count) == 1
+
+      assert {:ok, explicit_branch} =
+               StatefulResponses.start_response_run(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{root.id}",
+                 metadata: %{"request_metadata" => %{"source" => "explicit-branch-test"}}
+               })
+
+      assert explicit_branch.previous_message_id == root.id
+    end
+
+    test "rejects an implicit plan when its derived leaf changed before admission" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-implicit-head-change"
+        )
+
+      {:ok, root} = start_run(agent, conversation, "event-implicit-head-change-root")
+      {:ok, root} = StatefulResponses.commit_complete(root, [%{"text" => "root"}])
+
+      {:ok, newer_leaf} =
+        start_run(agent, conversation, "event-implicit-head-change-newer", %{
+          previous_response_id: "resp_#{root.id}"
+        })
+
+      {:ok, _newer_leaf} =
+        StatefulResponses.commit_complete(newer_leaf, [%{"text" => "newer"}])
+
+      assert {:error, :response_run_in_progress} =
+               StatefulResponses.start_planned_response_run(%{
+                 subject_uid: agent.principal.uid,
+                 conversation_id: conversation.id,
+                 expected_previous_response_id: "resp_#{root.id}",
+                 request_items: [%{"type" => "message", "role" => "user", "content" => []}]
+               })
+
+      refute Repo.exists?(
+               from(message in Message,
+                 where:
+                   message.conversation_id == ^conversation.id and
+                     message.status == "generating"
+               )
+             )
+    end
+  end
+
   describe "record_tool_results/1" do
     test "writes an idempotent completed tool-result journal row after an anchor" do
       agent = agent_fixture()
@@ -187,6 +298,132 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                ),
                :count
              ) == 1
+    end
+
+    test "deduplicates identical outputs before writing the canonical journal" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-tool-dedupe")
+
+      {:ok, anchor} = start_run(agent, conversation, "event-tool-dedupe-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "function_call",
+            "call_id" => "call_dedupe",
+            "name" => "lookup",
+            "arguments" => "{}"
+          }
+        ])
+
+      output = %{
+        "type" => "function_call_output",
+        "call_id" => "call_dedupe",
+        "output" => "sunny"
+      }
+
+      assert {:ok, journal} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [output, output]
+               })
+
+      assert journal.status == "complete"
+      assert journal.content == [output]
+      assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
+    end
+
+    test "quarantines orphan outputs as raw error rows outside canonical history" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-tool-quarantine")
+
+      {:ok, anchor} = start_run(agent, conversation, "event-tool-quarantine-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{"type" => "message", "role" => "assistant", "content" => "stable answer"}
+        ])
+
+      orphan = %{
+        "type" => "function_call_output",
+        "call_id" => "call_orphan",
+        "output" => "side effect happened"
+      }
+
+      attrs = %{
+        subject_uid: agent.principal.uid,
+        previous_response_id: "resp_#{anchor.id}",
+        request_items: [orphan]
+      }
+
+      assert {:error,
+              {:tool_results_quarantined,
+               %{
+                 "reason" => "orphan_function_call_output",
+                 "orphan_call_ids" => ["call_orphan"],
+                 "quarantine_response_id" => quarantine_response_id,
+                 "quarantine_status" => "error"
+               }}} = StatefulResponses.record_tool_results(attrs)
+
+      quarantine_id = String.replace_prefix(quarantine_response_id, "resp_", "")
+      quarantined = Repo.get!(Message, quarantine_id)
+
+      assert quarantined.status == "error"
+      assert quarantined.previous_message_id == anchor.id
+      assert quarantined.content == [orphan]
+
+      assert quarantined.metadata["tool_result_quarantine"]["reason"] ==
+               "orphan_function_call_output"
+
+      assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
+      assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [anchor.id]
+
+      assert {:error,
+              {:tool_results_quarantined, %{"quarantine_response_id" => ^quarantine_response_id}}} =
+               StatefulResponses.record_tool_results(attrs)
+    end
+
+    test "quarantines outputs for explicitly incomplete calls" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-incomplete-call")
+
+      {:ok, anchor} = start_run(agent, conversation, "event-incomplete-call-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "function_call",
+            "status" => "incomplete",
+            "call_id" => "call_incomplete",
+            "name" => "patch",
+            "arguments" => "{\"path\":\"/tmp/repor"
+          }
+        ])
+
+      assert {:error,
+              {:tool_results_quarantined,
+               %{
+                 "reason" => "non_executable_function_call_output",
+                 "non_executable_call_ids" => ["call_incomplete"]
+               }}} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [
+                   %{
+                     "type" => "function_call_output",
+                     "call_id" => "call_incomplete",
+                     "output" => "must not become canonical"
+                   }
+                 ]
+               })
     end
 
     test "rejects records that do not contain a tool output" do

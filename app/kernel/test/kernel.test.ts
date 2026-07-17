@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
+import { readFileSync } from 'node:fs'
 import * as kernel from '../index.js'
 
 describe('@ankole/kernel', () => {
   it('exports the public Bun API', () => {
     for (const name of [
-      'runtimeFabricDecodeEnvelope',
-      'runtimeFabricEncodeEnvelope',
+      'runtimeFabricValidateEnvelope',
       'RuntimeFabricDealer',
       'authzAuthorize',
       'authzAuthorizeAll',
@@ -49,7 +49,7 @@ describe('@ankole/kernel', () => {
     expect(await declarations.exists()).toBe(true)
 
     const source = await declarations.text()
-    expect(source).toContain('sendEnvelope(envelope: any): void')
+    expect(source).toContain('sendEnvelope(envelope: Buffer): void')
     expect(source).toContain('sendFileFrame(frames: Buffer[]): void')
     expect(source).toContain('recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>')
     expect(source).toContain('stop(): void')
@@ -95,8 +95,8 @@ describe('@ankole/kernel', () => {
     expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeUndefined()
   })
 
-  it('surfaces RuntimeFabric decode failures and void dealer stop through the native binding', () => {
-    expect(() => kernel.runtimeFabricDecodeEnvelope(Buffer.from('not-protobuf'))).toThrow()
+  it('surfaces RuntimeFabric validate failures and void dealer stop through the native binding', () => {
+    expect(() => kernel.runtimeFabricValidateEnvelope(Buffer.from('not-protobuf'))).toThrow()
 
     const dealer = new kernel.RuntimeFabricDealer(
       'tcp://127.0.0.1:1',
@@ -119,7 +119,7 @@ describe('@ankole/kernel', () => {
     let sendError: unknown
     for (let attempt = 0; attempt < 2_048; attempt += 1) {
       try {
-        dealer.sendEnvelope(workerReadyEnvelope(`worker-binding-backpressure-${attempt}`))
+        dealer.sendEnvelope(goldenWorkerReadyBytes())
       } catch (error) {
         sendError = error
         break
@@ -165,223 +165,14 @@ describe('@ankole/kernel', () => {
     expect(() => kernel.signalsGatewayFilterMatch('true', {})).toThrow(/signal filter context must include binding/)
   })
 
-  it('encodes and decodes RuntimeFabric protobuf envelopes', () => {
-    const envelope = {
-      protocol_version: 1,
-      message_id: 'turn-start-1',
-      correlation_id: 'corr-1',
-      lane: 'LANE_TURN',
-      sent_at_unix_ms: 1782300000000,
-      durability: 'CONTROL_REPLAYABLE',
-      body: {
-        type: 'turn_start',
-        turn_start: {
-          turn: actorTurnRef(),
-          actor_event: actorEventEnvelope(),
-          model_ref: {
-            profile: 'chat',
-            provider_id: 'openrouter-main',
-            model: 'openai/gpt-5.4-mini',
-            provider_kind: 'openrouter',
-            input_modalities: ['text'],
-            vision_fallback_model_ref: {
-              profile: 'vision_fallback',
-              provider_id: 'openai-vision',
-              model: 'gpt-5',
-              provider_kind: 'openai',
-              input_modalities: ['text', 'image']
-            }
-          },
-          request_context: {
-            kind: 'schedule',
-            silent_success_allowed: true
-          }
-        }
-      }
-    }
+  it('validates host-encoded envelope bytes as the single semantic checker', () => {
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v1.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.pre_max_completion_tokens.v1.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v1.bin'))
 
-    const encoded = kernel.runtimeFabricEncodeEnvelope(envelope)
-    expect(Buffer.isBuffer(encoded)).toBe(true)
-
-    const decoded = kernel.runtimeFabricDecodeEnvelope(encoded)
-    expect(decoded.body.type).toBe('turn_start')
-    expect(decoded.body.turn_start.turn.actor).toEqual({
-      agent_uid: 'agent-1',
-      session_id: 'signal-channel:lark:dm:1'
-    })
-    expect(decoded.body.turn_start.actor_event.payload_json.text).toBe('PING')
-    expect(decoded.body.turn_start.actor_event.binding_name).toBe('lark')
-    expect(decoded.body.turn_start.actor_event.signal_channel_id).toBe('lark:chat:group-a')
-    expect(decoded.body.turn_start.actor_event.provider_thread_id).toBe('thread-1')
-    expect(decoded.body.turn_start.model_ref.provider_kind).toBe('openrouter')
-    expect(decoded.body.turn_start.model_ref.input_modalities).toEqual(['text'])
-    expect(decoded.body.turn_start.model_ref.vision_fallback_model_ref).toMatchObject({
-      profile: 'vision_fallback',
-      provider_id: 'openai-vision',
-      model: 'gpt-5',
-      provider_kind: 'openai',
-      input_modalities: ['text', 'image']
-    })
-    expect(decoded.body.turn_start.request_context.silent_success_allowed).toBe(true)
-  })
-
-  it('encodes and decodes RuntimeFabric mailbox updates without inline inputs', () => {
-    const envelope = {
-      protocol_version: 1,
-      message_id: 'mailbox-updated-1',
-      correlation_id: 'mailbox-updated-1',
-      lane: 'LANE_TURN',
-      durability: 'CONTROL_EPHEMERAL',
-      body: {
-        type: 'mailbox_updated',
-        mailbox_updated: {
-          turn: actorTurnRef(),
-          reason: 'command.steer',
-          actor_event: {
-            actor_event_id: '22222222-2222-2222-2222-222222222222',
-            queue_sequence: 2,
-            type: 'command.steer',
-            source_event_id: 'evt-steer-1',
-            source_entry_id: 'msg-steer-1',
-            payload_json: { text: 'change course' }
-          }
-        }
-      }
-    }
-
-    const decoded = kernel.runtimeFabricDecodeEnvelope(kernel.runtimeFabricEncodeEnvelope(envelope))
-
-    expect(decoded.body.type).toBe('mailbox_updated')
-    expect(decoded.body.mailbox_updated.turn.actor_event_id).toBe('11111111-1111-1111-1111-111111111111')
-    expect(decoded.body.mailbox_updated.actor_event.payload_json.text).toBe('change course')
-    expect(decoded.body.mailbox_updated.inputs).toBeUndefined()
-  })
-
-  it('encodes and decodes RuntimeFabric noop turn completions', () => {
-    const envelope = {
-      protocol_version: 1,
-      message_id: 'turn-noop-completed-1',
-      correlation_id: 'turn-noop-completed-1',
-      lane: 'LANE_TURN',
-      durability: 'CONTROL_REPLAYABLE',
-      body: {
-        type: 'turn_noop_completed',
-        turn_noop_completed: {
-          turn: actorTurnRef(),
-          reason: 'ambient_silent'
-        }
-      }
-    }
-
-    const decoded = kernel.runtimeFabricDecodeEnvelope(kernel.runtimeFabricEncodeEnvelope(envelope))
-
-    expect(decoded.body.type).toBe('turn_noop_completed')
-    expect(decoded.body.turn_noop_completed.turn.actor_event_id).toBe('11111111-1111-1111-1111-111111111111')
-    expect(decoded.body.turn_noop_completed.reason).toBe('ambient_silent')
-  })
-
-  it('requires RuntimeFabric turn_start to carry one actor event', () => {
-    expect(() =>
-      kernel.runtimeFabricEncodeEnvelope({
-        protocol_version: 1,
-        message_id: 'turn-start-missing-event',
-        correlation_id: 'turn-start-missing-event',
-        lane: 'LANE_TURN',
-        durability: 'CONTROL_REPLAYABLE',
-        body: {
-          type: 'turn_start',
-          turn_start: {
-            turn: actorTurnRef()
-          }
-        }
-      })
-    ).toThrow(/turn_start\.actor_event is required/)
-  })
-
-  it('requires RuntimeFabric mailbox_updated to carry one actor event', () => {
-    expect(() =>
-      kernel.runtimeFabricEncodeEnvelope({
-        protocol_version: 1,
-        message_id: 'mailbox-updated-missing-event',
-        correlation_id: 'mailbox-updated-missing-event',
-        lane: 'LANE_TURN',
-        durability: 'CONTROL_EPHEMERAL',
-        body: {
-          type: 'mailbox_updated',
-          mailbox_updated: {
-            turn: actorTurnRef(),
-            reason: 'command.steer'
-          }
-        }
-      })
-    ).toThrow(/mailbox_updated\.actor_event is required/)
-  })
-
-  it('encodes and decodes RuntimeFabric RPC envelopes', () => {
-    const encoded = kernel.runtimeFabricEncodeEnvelope({
-      protocol_version: 1,
-      message_id: 'rpc-conversation-context-1',
-      correlation_id: 'rpc-conversation-context-1',
-      lane: 'LANE_RPC',
-      durability: 'CONTROL_EPHEMERAL',
-      body: {
-        type: 'rpc_request',
-        rpc_request: {
-          request_id: 'rpc-conversation-context-1',
-          method: 'agent_conversation.context.resolve',
-          payload_json: {
-            turn: {
-              actor: {
-                agent_uid: 'agent-1',
-                session_id: 'signal-channel:lark:dm:1'
-              }
-            }
-          }
-        }
-      }
-    })
-
-    expect(kernel.runtimeFabricDecodeEnvelope(encoded).body.rpc_request.method).toBe(
-      'agent_conversation.context.resolve'
+    expect(() => kernel.runtimeFabricValidateEnvelope(Buffer.from([0xff, 0xff, 0xff]))).toThrow(
+      /failed to decode runtime fabric envelope/
     )
-  })
-
-  it('rejects inline steer payloads in actor lane turn_control', () => {
-    expect(() =>
-      kernel.runtimeFabricEncodeEnvelope({
-        protocol_version: 1,
-        message_id: 'steer-1',
-        correlation_id: 'steer-1',
-        lane: 'LANE_CONTROL',
-        durability: 'CONTROL_DURABLE',
-        body: {
-          type: 'turn_control',
-          turn_control: {
-            turn: actorTurnRef(),
-            command: 'steer',
-            payload_json: { text: 'inline steer is not allowed' }
-          }
-        }
-      })
-    ).toThrow(/steer payload must be empty/)
-  })
-
-  it('rejects actor lane bodies on the wrong lane or durability', () => {
-    expect(() =>
-      kernel.runtimeFabricEncodeEnvelope({
-        protocol_version: 1,
-        message_id: 'turn-start-wrong-lane',
-        lane: 'LANE_CONTROL',
-        durability: 'CONTROL_EPHEMERAL',
-        body: {
-          type: 'turn_start',
-          turn_start: {
-            turn: actorTurnRef(),
-            actor_event: actorEventEnvelope()
-          }
-        }
-      })
-    ).toThrow(/turn_start must use lane LANE_TURN/)
   })
 
   it('authorizes direct grants with the shared AuthZ engine', () => {
@@ -419,48 +210,10 @@ describe('@ankole/kernel', () => {
   })
 })
 
-function actorTurnRef() {
-  return {
-    actor: {
-      agent_uid: 'agent-1',
-      session_id: 'signal-channel:lark:dm:1'
-    },
-    activation_uid: 'activation-1',
-    actor_epoch: 1,
-    actor_event_id: '11111111-1111-1111-1111-111111111111',
-    revision: 0
-  }
+function goldenBytes(name: string): Buffer {
+  return Buffer.from(readFileSync(new URL(`../proto/golden/${name}`, import.meta.url)))
 }
 
-function actorEventEnvelope() {
-  return {
-    actor_event_id: '00000000-0000-0000-0000-000000000001',
-    queue_sequence: 1,
-    type: 'im.message.addressed',
-    source_event_id: 'event-1',
-    source_entry_id: 'message-1',
-    binding_name: 'lark',
-    signal_channel_id: 'lark:chat:group-a',
-    provider_thread_id: 'thread-1',
-    payload_json: { text: 'PING' }
-  }
-}
-
-function workerReadyEnvelope(workerID: string) {
-  return {
-    protocol_version: 1,
-    message_id: `worker-ready-${workerID}`,
-    lane: 'LANE_CONTROL',
-    durability: 'CONTROL_EPHEMERAL',
-    body: {
-      type: 'worker_ready',
-      worker_ready: {
-        worker_id: workerID,
-        incarnation_id: '11111111-2222-4333-8444-555555555555',
-        runtime: 'bun',
-        version: 'test',
-        capacity_json: { available_turn_slots: 1 }
-      }
-    }
-  }
+function goldenWorkerReadyBytes(): Buffer {
+  return goldenBytes('worker_ready.v1.bin')
 }

@@ -23,13 +23,6 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
     :ok
   end
 
-  test "OpenAPI JSON includes the worker index endpoint", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/agent-computer-workers")
-  end
-
   test "admin lists workers ordered newest first", %{conn: conn} do
     %{worker_id: older_id} =
       insert_worker!(%{status: "ready", inserted_at_diff_seconds: -120})

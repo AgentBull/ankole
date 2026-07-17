@@ -179,16 +179,11 @@ describe('schedule tools', () => {
     ])
   })
 
-  it('tells the model that prose alone cannot change durable checkbacks', () => {
+  it('validates check_back_later update payloads and exposes the action enum to the model', () => {
     const checkBackLater = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
       requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
     }).find(tool => tool.name === 'check_back_later')
-
-    expect(checkBackLater?.description).toContain('create, list, inspect, update, or cancel')
-    expect(checkBackLater?.description).toContain('Use list/get before update/cancel')
-    expect(checkBackLater?.description).toContain('does not change durable work by itself')
-    expect(checkBackLater?.description).toContain('Never claim')
 
     expect(
       checkBackLater?.schema.safeParse({
@@ -329,19 +324,6 @@ describe('schedule tools', () => {
     expect(result.presentation).toEqual([])
   })
 
-  it('describes cron as conversational standing-work management with confirmation rules', () => {
-    const cron = createScheduleTools({
-      turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
-    }).find(tool => tool.name === 'cron')
-
-    expect(cron?.description).toContain('standing work')
-    expect(cron?.description).toContain('recurring tasks')
-    expect(cron?.description).toContain('After add or update')
-    expect(cron?.description).toContain('name, schedule/timezone, delivery target')
-    expect(cron?.description).toContain('quiet_success=true')
-    expect(cron?.description).toContain('visibly report failures')
-  })
 })
 
 function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStart {

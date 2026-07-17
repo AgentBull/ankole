@@ -1,10 +1,8 @@
 /**
- * The `patch` tool: how the agent edits files on the computer. It has two modes that
- * share the same file-safety machinery (BOM/line-ending preservation, fuzzy matching,
- * unified-diff output):
+ * The `replace` and `patch` tools edit files through the same file-safety
+ * machinery (BOM/line-ending preservation, fuzzy matching, unified-diff output):
  *
- *  - `replace` (default): find one string and swap it. Simple and unambiguous, the
- *    everyday path.
+ *  - `replace`: find one string and swap it. Simple and unambiguous, the everyday path.
  *  - `patch`: apply a multi-file V4A (`apply_patch`) envelope. Used when the model
  *    wants to express several edits, or edits across files, in one call.
  *
@@ -24,29 +22,42 @@ import { splitWritePath } from './format'
 import { findClosestLineMatches, findScopedFuzzyMatch, findUniqueFuzzyMatch } from './fuzzy-match'
 import { parseV4APatch } from './v4a'
 
-const PatchParams = z.object({
-  mode: z
-    .enum(['replace', 'patch'])
-    .optional()
-    .describe("'replace' (default): find a unique string and replace it. 'patch': apply a V4A multi-file patch."),
-  path: z.string().optional().describe('File to edit (replace mode).'),
-  old_string: z
-    .string()
-    .optional()
-    .describe("Exact text to find (replace mode); use '' only to create a missing file."),
-  new_string: z.string().optional().describe('Replacement text; empty string deletes the match (replace mode).'),
-  replace_all: z
-    .boolean()
-    .optional()
-    .describe('Replace all occurrences instead of requiring a unique match (replace mode).'),
-  patch: z
-    .string()
-    .optional()
-    .describe('V4A patch envelope (patch mode): *** Begin Patch, file operations, hunks, then *** End Patch.'),
-  cwd: z.string().optional().describe('Base directory for relative paths (default /workspace).'),
-  workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.')
-})
+const MaxReplaceTextCharacters = 96 * 1024
+const MaxPatchTextCharacters = 192 * 1024
 
+const WorkingDirectoryParams = {
+  cwd: z.string().max(4096).optional().describe('Base directory for relative paths (default /workspace).'),
+  workdir: z.string().max(4096).optional().describe('Alias for cwd, matching command tool terminology.')
+}
+
+const ReplaceParams = z
+  .object({
+    path: z.string().min(1).max(4096).describe('File to edit.'),
+    old_string: z
+      .string()
+      .max(MaxReplaceTextCharacters)
+      .describe("Exact text to find; use '' only to create a missing file."),
+    new_string: z
+      .string()
+      .max(MaxReplaceTextCharacters)
+      .describe('Replacement text; an empty string deletes the match.'),
+    replace_all: z.boolean().optional().describe('Replace all occurrences instead of requiring a unique match.'),
+    ...WorkingDirectoryParams
+  })
+  .strict()
+
+const PatchParams = z
+  .object({
+    patch: z
+      .string()
+      .min(1)
+      .max(MaxPatchTextCharacters)
+      .describe('V4A patch envelope: *** Begin Patch, file operations, hunks, then *** End Patch.'),
+    ...WorkingDirectoryParams
+  })
+  .strict()
+
+type ReplaceInput = z.infer<typeof ReplaceParams>
 type PatchInput = z.infer<typeof PatchParams>
 
 interface PatchDetails {
@@ -82,29 +93,51 @@ interface TextFileSnapshot {
   normalized: string
 }
 
-/** Builds the `patch` tool bound to a run's computer session. */
-export function createPatchTool(context: ComputerToolContext): AgentTool<typeof PatchParams, PatchDetails> {
+/** Builds the narrow single-replacement tool bound to a run's computer session. */
+export function createReplaceTool(context: ComputerToolContext): AgentTool<typeof ReplaceParams, PatchDetails> {
   return {
-    name: 'patch',
+    name: 'replace',
     description:
-      "Targeted edits to files in the computer. Use this instead of sed/awk edits or echo/cat heredocs. Returns a unified diff. REPLACE MODE (default): use for one precise edit; pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. PATCH MODE (mode='patch'): use for multi-file, multi-site, or larger edits; apply a V4A patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
-    schema: PatchParams,
+      "Replace one precise string in one file and return a unified diff. Use this instead of sed/awk edits or echo/cat heredocs. old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. For multi-file or multi-site edits use patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
+    schema: ReplaceParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
     describeActivity: params => {
-      if ((params.mode ?? 'replace') === 'patch') return '更新文件'
       const path = compactActivityPath(params.path)
       return path ? `更新文件：${path}` : '更新文件'
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
       const computer = await context.getComputer(signal)
       try {
-        // `replace` is the default; only an explicit `mode: 'patch'` takes the V4A path.
-        const result =
-          (params.mode ?? 'replace') === 'patch'
-            ? await applyV4A(computer, params, signal)
-            : await applyReplace(computer, params, signal)
+        const result = await applyReplace(computer, params, signal)
+        resetPatchFailures(context.executionScopeID, result.details.filesModified)
+        return result
+      } catch (error) {
+        if (error instanceof PatchMatchError) {
+          throw new Error(recordPatchFailure(context.executionScopeID, error.path, error.message))
+        }
+        throw error
+      }
+    }
+  }
+}
+
+/** Builds the strict V4A patch tool bound to a run's computer session. */
+export function createPatchTool(context: ComputerToolContext): AgentTool<typeof PatchParams, PatchDetails> {
+  return {
+    name: 'patch',
+    description:
+      'Apply a V4A patch for multi-file, multi-site, or larger edits and return unified diffs. Pass only a patch envelope with *** Begin Patch / *** End Patch. For one precise replacement use replace. Relative paths resolve from cwd/workdir, defaulting to /workspace.',
+    schema: PatchParams,
+    executionMode: 'sequential',
+    isReadOnly: false,
+    isDestructive: true,
+    describeActivity: () => '更新文件',
+    async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
+      const computer = await context.getComputer(signal)
+      try {
+        const result = await applyV4A(computer, params, signal)
         resetPatchFailures(context.executionScopeID, result.details.filesModified)
         return result
       } catch (error) {
@@ -172,12 +205,9 @@ function replaceRange(source: string, start: number, end: number, replacement: s
  */
 async function applyReplace(
   computer: ContainerComputer,
-  params: PatchInput,
+  params: ReplaceInput,
   signal: AbortSignal | undefined
 ): Promise<AgentToolResult<PatchDetails>> {
-  if (!params.path || params.old_string === undefined || params.new_string === undefined) {
-    throw new Error('replace mode requires path, old_string, and new_string')
-  }
   const cwd = patchCwd(params)
   const buffer = await computer.readFileToBuffer({ path: params.path, cwd }, { signal })
   const needle = params.old_string.replace(/\r\n/g, '\n')
@@ -275,7 +305,6 @@ async function applyV4A(
   params: PatchInput,
   signal: AbortSignal | undefined
 ): Promise<AgentToolResult<PatchDetails>> {
-  if (!params.patch) throw new Error("patch mode requires 'patch'")
   const operations = parseV4APatch(params.patch)
   if (operations.length === 0) throw new Error('no operations parsed from patch')
   const cwd = patchCwd(params)
@@ -347,7 +376,7 @@ async function applyV4A(
 }
 
 /** Resolves the base directory, accepting `workdir` as an alias for `cwd` (command-tool parity). */
-function patchCwd(params: Pick<PatchInput, 'cwd' | 'workdir'>): string | undefined {
+function patchCwd(params: Pick<ReplaceInput | PatchInput, 'cwd' | 'workdir'>): string | undefined {
   return params.cwd ?? params.workdir
 }
 

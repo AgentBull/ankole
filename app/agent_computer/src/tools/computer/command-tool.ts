@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { commandActivityLabel } from '../activity-summary'
-import type { BackgroundCommandSnapshot } from './computer'
 import type { ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
@@ -9,18 +8,7 @@ const ForegroundCommandDefaultTimeoutSeconds = 180
 
 const CommandParams = z
   .object({
-    action: z
-      .enum(['run', 'status', 'kill', 'list'])
-      .optional()
-      .describe(
-        'Action to perform. Omit or use run to execute a command; use status/kill with backgroundID; use list to show all background commands.'
-      ),
-    command: z.string().min(1).optional().describe('Shell command to execute. Required for action=run.'),
-    background: z
-      .boolean()
-      .optional()
-      .describe('When true, start the command in the background and return a backgroundID immediately.'),
-    backgroundID: z.string().min(1).optional().describe('Background command id returned by a prior background run.'),
+    command: z.string().min(1).describe('Shell command to execute.'),
     workdir: z
       .string()
       .optional()
@@ -30,91 +18,35 @@ const CommandParams = z
       .int()
       .min(1)
       .optional()
-      .describe(
-        `Max seconds to wait for the command. Default is ${ForegroundCommandDefaultTimeoutSeconds} for foreground runs. Background runs have no default command timeout; pass this only when you want an explicit budget.`
-      ),
+      .describe(`Max seconds to wait for the command. Defaults to ${ForegroundCommandDefaultTimeoutSeconds}.`),
     env: z.record(z.string(), z.string()).optional().describe('Environment variables for this command only.')
   })
-  .superRefine((params, ctx) => {
-    const action = params.action ?? 'run'
-    if (action === 'run' && !params.command) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['command'], message: 'command is required for run' })
-    }
-    if ((action === 'status' || action === 'kill') && !params.backgroundID) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['backgroundID'],
-        message: 'backgroundID is required for status/kill'
-      })
-    }
-  })
+  .strict()
 
 interface CommandDetails {
   durationMs?: number
   exitCode?: number
-  backgroundID?: string
-  status?: 'running' | 'exited' | 'killed' | 'not_found'
 }
 
 /**
  * The model's tool for one-shot, stateless shell commands (builds, installs, git, searches).
  *
- * Each call runs through the worker's isolated `runCommand`, not the persistent shell, so nothing
- * a command does to cwd/env/aliases leaks into the next one. That isolation is the whole point of
- * having `command` separate from `interactive_terminal`: callers who explicitly want
- * carried-over interactive state reach for `interactive_terminal` instead. The long `description` is what the model reads, and it deliberately
- * steers the model away from cat/sed/heredoc tricks toward the dedicated read_file/patch tools.
+ * Each call runs through the worker's isolated `runCommand`, so nothing a command does to
+ * cwd/env/aliases leaks into the next one. The long `description` is what the model reads, and it
+ * deliberately steers the model away from persistent processes and cat/sed/heredoc tricks.
  */
 export function createCommandTool(context: ComputerToolContext): AgentTool<typeof CommandParams, CommandDetails> {
   return {
     name: 'command',
     description:
-      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundID. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk to edit files; use patch. Do not use echo/cat heredoc to create files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
+      'Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use background_agent_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use replace for one precise edit and patch for larger edits.',
     schema: CommandParams,
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: params => {
-      const action = params.action ?? 'run'
-      if (action === 'list') return '查看后台命令'
-      if (action === 'status') return '检查后台命令'
-      if (action === 'kill') return '停止后台命令'
-      return commandActivityLabel(params.command)
-    },
+    describeActivity: params => commandActivityLabel(params.command),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
-      const action = params.action ?? 'run'
-
-      if (action === 'list') {
-        const snapshots = await computer.backgroundCommands.list({ signal })
-        if (snapshots.length === 0) {
-          return { content: [{ type: 'text', text: 'no background commands' }], details: {} }
-        }
-        const lines = snapshots.map(snapshot => {
-          const parts = [`background_id=${snapshot.id}`, `status=${snapshot.status}`]
-          if (snapshot.exitCode !== undefined) parts.push(`exit_code=${snapshot.exitCode}`)
-          parts.push(`command=${snapshot.command}`)
-          return parts.join(' ')
-        })
-        return { content: [{ type: 'text', text: lines.join('\n') }], details: {} }
-      }
-
-      if (action === 'status' || action === 'kill') {
-        const backgroundID = params.backgroundID!
-        const snapshot =
-          action === 'status'
-            ? await computer.backgroundCommands.status(backgroundID, { signal })
-            : await computer.backgroundCommands.kill(backgroundID, { signal })
-
-        if (!snapshot) {
-          return {
-            content: [{ type: 'text', text: `background_id=${backgroundID}\nstatus=not_found` }],
-            details: { backgroundID, status: 'not_found' }
-          }
-        }
-
-        return backgroundResult(snapshot, { incremental: action === 'status' })
-      }
 
       // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
       // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
@@ -122,38 +54,28 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
       // environment, not the host user's. `timeout`, when provided, is the
       // command execution budget in seconds, passed as ms; the worker kills
       // the process when it elapses.
-      const timeoutSeconds = params.timeout ?? (params.background ? undefined : ForegroundCommandDefaultTimeoutSeconds)
+      const timeoutSeconds = params.timeout ?? ForegroundCommandDefaultTimeoutSeconds
       const runInput = {
         cmd: 'bash',
-        args: ['-lc', params.command!],
+        args: ['-lc', params.command],
         cwd: params.workdir,
         env: params.env,
-        timeoutMs: timeoutSeconds === undefined ? undefined : timeoutSeconds * 1000,
+        timeoutMs: timeoutSeconds * 1000,
         signal
       }
-
-      if (params.background) {
-        const snapshot = await computer.backgroundCommands.start(runInput)
-        return backgroundResult(snapshot)
-      }
-
-      const foregroundTimeoutSeconds = timeoutSeconds ?? ForegroundCommandDefaultTimeoutSeconds
       const startedAt = Date.now()
-      const result = await computer.runCommand({
-        ...runInput,
-        timeoutMs: foregroundTimeoutSeconds * 1000
-      })
+      const result = await computer.runCommand(runInput)
       const durationMs = Date.now() - startedAt
       // stdout and stderr are merged and truncated before going back to the model, so a runaway
       // command cannot blow the context window. The `exit_code=` prefix gives the model the result
       // up front even when the tail of the output was dropped.
       const output = truncateOutput(await result.output('both', { signal }))
       const text = formatForegroundCommandResult({
-        command: params.command!,
+        command: params.command,
         durationMs,
         exitCode: result.exitCode,
         output,
-        timeoutSeconds: foregroundTimeoutSeconds
+        timeoutSeconds
       })
       return {
         content: [{ type: 'text', text }],
@@ -178,7 +100,7 @@ function formatForegroundCommandResult(input: {
   if (note) lines.push(`exit_code_note: ${note}`)
   if (isLikelyForegroundTimeout(input.exitCode, input.durationMs, input.timeoutSeconds)) {
     lines.push(
-      `command timed out after ${input.timeoutSeconds}s (foreground budget). Recovery: rerun with background=true then poll with action=status, or narrow the command (shorter probe, smaller input) and split the work.`
+      `command timed out after ${input.timeoutSeconds}s (foreground budget). Narrow the command (shorter probe or smaller input) and split the work, or create a BackgroundAgentJob with background_agent_job(start) when it cannot finish in the active exchange.`
     )
   }
   if (input.output.length > 0) lines.push(input.output)
@@ -229,40 +151,4 @@ function lastCommandName(command: string): string | undefined {
   if (!segment) return undefined
   const token = segment.match(/^(?:env\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*)=[^\s]+\s+)*([^\s]+)/)?.[1]
   return token?.replace(/^.*\//, '')
-}
-
-/**
- * Formats a background command snapshot for status/list/kill responses.
- */
-async function backgroundResult(
-  snapshot: BackgroundCommandSnapshot,
-  options: { incremental?: boolean } = {}
-): Promise<AgentToolResult<CommandDetails>> {
-  const output = truncateOutput(await snapshot.output('both', { incremental: options.incremental }))
-  const outputLines =
-    options.incremental && output.length === 0
-      ? ['[no new output]']
-      : options.incremental
-        ? [`new_output_chars=${output.length}`, output]
-        : [output]
-  return {
-    content: [
-      {
-        type: 'text',
-        text: [
-          `background_id=${snapshot.id}`,
-          `status=${snapshot.status}`,
-          snapshot.exitCode === undefined ? undefined : `exit_code=${snapshot.exitCode}`,
-          ...outputLines
-        ]
-          .filter((line): line is string => line !== undefined && line.length > 0)
-          .join('\n')
-      }
-    ],
-    details: {
-      backgroundID: snapshot.id,
-      status: snapshot.status,
-      ...(snapshot.exitCode === undefined ? {} : { exitCode: snapshot.exitCode })
-    }
-  }
 }

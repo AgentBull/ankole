@@ -3,7 +3,8 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, MapHelpers, Mrkdwn}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, Emoji, Mrkdwn}
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.WorkerFiles

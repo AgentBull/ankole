@@ -19,22 +19,20 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.Logging
   alias Ankole.Repo
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.ReplyInteractions
 
   @live_activation_statuses ~w(starting active draining)
-  @outcomes ~w(loop_finished iteration_exhausted)
 
-  @spec handle(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def handle(envelope, opts \\ []) when is_map(envelope) do
-    payload = unwrap_body(envelope, "turn_completed")
-
-    with {:ok, turn_ref} <- TurnRef.from_request(payload),
-         {:ok, final_response_id} <- required_text(payload, "final_response_id"),
+  @spec handle(FabricProto.TurnCompleted.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def handle(%FabricProto.TurnCompleted{} = payload, opts \\ []) do
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn),
+         {:ok, final_response_id} <- required_text(payload.final_response_id),
          :ok <- validate_final_response_id(final_response_id),
-         {:ok, outcome} <- completion_outcome(payload) do
+         {:ok, outcome} <- completion_outcome(payload.outcome) do
       case completed_actor_event(turn_ref) do
         %ActorEvent{} = event ->
           with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
@@ -501,12 +499,14 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp after_commit({:error, _reason} = error, _turn_ref, _response_id, _outcome), do: error
 
-  defp completion_outcome(payload) do
-    case map_value(payload, "outcome") do
-      outcome when outcome in @outcomes -> {:ok, outcome}
-      _outcome -> {:error, :invalid_turn_completion_outcome}
-    end
-  end
+  # The proto enum atom becomes the domain outcome string persisted on the
+  # actor event (`turn_outcome`), so downstream rows keep their existing values.
+  defp completion_outcome(:TURN_COMPLETION_OUTCOME_LOOP_FINISHED), do: {:ok, "loop_finished"}
+
+  defp completion_outcome(:TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED),
+    do: {:ok, "iteration_exhausted"}
+
+  defp completion_outcome(_outcome), do: {:error, :invalid_turn_completion_outcome}
 
   defp validate_final_response_id("resp_" <> uuid) do
     case Ecto.UUID.cast(uuid) do
@@ -534,25 +534,12 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp validate_completion_anchor(%ActorEvent{}, _final_response_id, _outcome),
     do: {:error, :actor_turn_completion_conflict}
 
-  defp required_text(map, key) do
-    case map_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:required_text_blank, key}}
-          value -> {:ok, value}
-        end
-
-      _value ->
-        {:error, {:required_text_missing, key}}
+  defp required_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, {:required_text_blank, "final_response_id"}}
+      value -> {:ok, value}
     end
   end
 
-  defp unwrap_body(%{"body" => %{"type" => type} = body}, type), do: Map.get(body, type, %{})
-  defp unwrap_body(%{body: %{type: type} = body}, type), do: Map.get(body, type, %{})
-
-  defp unwrap_body(payload, type) when is_map(payload),
-    do: Map.get(payload, type) || Map.get(payload, String.to_atom(type)) || payload
-
-  defp map_value(map, key) when is_map(map) and is_binary(key),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
+  defp required_text(_value), do: {:error, {:required_text_missing, "final_response_id"}}
 end

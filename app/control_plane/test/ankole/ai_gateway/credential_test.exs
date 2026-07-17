@@ -1,6 +1,15 @@
 defmodule Ankole.AIGateway.CredentialTest do
   use Ankole.AIGatewayCase
 
+  import Ankole.SignalsGateway.ActorRuntimeCase,
+    only: [
+      rpc_request: 3,
+      rpc_response_payload!: 1,
+      rpc_error_payload!: 1,
+      envelope_body_type: 1,
+      envelope_body!: 2
+    ]
+
   test "agent API key JWT carries the AIGateway audience, scope, subject, and 30 day expiry" do
     %{principal: agent} = agent_fixture()
 
@@ -23,18 +32,18 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "ai-gateway-key-1",
-                 "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
-                 "payload_json" => %{
+               rpc_request(
+                 "ai-gateway-key-1",
+                 "ai_gateway.api_key_for.create_or_find_by_agent",
+                 %{
                    "request_id" => "ai-gateway-key-1",
                    "agent_uid" => agent.uid
                  }
-               },
+               ),
                "trusted-worker-route"
              )
 
-    response = get_in(envelope, ["body", "rpc_response", "payload_json"])
+    response = rpc_response_payload!(envelope)
     assert response["request_id"] == "ai-gateway-key-1"
     assert response["agent_uid"] == agent.uid
     refute Map.has_key?(response, "session_id")
@@ -57,18 +66,18 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "ai-gateway-worker-url",
-                 "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
-                 "payload_json" => %{
+               rpc_request(
+                 "ai-gateway-worker-url",
+                 "ai_gateway.api_key_for.create_or_find_by_agent",
+                 %{
                    "request_id" => "ai-gateway-worker-url",
                    "agent_uid" => agent.uid
                  }
-               },
+               ),
                "trusted-worker-route"
              )
 
-    response = get_in(envelope, ["body", "rpc_response", "payload_json"])
+    response = rpc_response_payload!(envelope)
 
     assert response["base_url"] ==
              "http://host.docker.internal:49321/api/v1/ai-gateway"
@@ -77,20 +86,20 @@ defmodule Ankole.AIGateway.CredentialTest do
   test "RuntimeFabric RPC requires the agent uid for an agent-scoped AIGateway API key" do
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "missing-agent-uid",
-                 "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
-                 "payload_json" => %{
+               rpc_request(
+                 "missing-agent-uid",
+                 "ai_gateway.api_key_for.create_or_find_by_agent",
+                 %{
                    "request_id" => "missing-agent-uid",
                    "session_id" => "signal-channel:ignored"
                  }
-               },
+               ),
                "trusted-worker-route"
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
-    assert get_in(envelope, ["body", "rpc_error", "code"]) == "missing_agent_uid"
-    assert get_in(envelope, ["body", "rpc_error", "details_json"]) == %{"agent_uid" => ""}
+    assert envelope_body_type(envelope) == :rpc_error
+    assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
+    assert rpc_error_payload!(envelope)["details_json"] == %{"agent_uid" => ""}
   end
 
   test "RuntimeFabric rejects RPC methods outside the declared contract" do
@@ -99,20 +108,16 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               %{
-                 "request_id" => "unknown-method-rpc",
-                 "method" => "definitely.not_a_declared_method",
-                 "payload_json" => %{
-                   "turn" => turn,
-                   "agent_uid" => agent.uid,
-                   "session_id" => "signal-channel:no-provider-secret-rpc"
-                 }
-               },
+               rpc_request("unknown-method-rpc", "definitely.not_a_declared_method", %{
+                 "turn" => turn,
+                 "agent_uid" => agent.uid,
+                 "session_id" => "signal-channel:no-provider-secret-rpc"
+               }),
                route
              )
 
-    assert get_in(envelope, ["body", "type"]) == "rpc_error"
-    assert get_in(envelope, ["body", "rpc_error", "code"]) == "unknown_rpc_method"
+    assert envelope_body_type(envelope) == :rpc_error
+    assert envelope_body!(envelope, :rpc_error).code == "unknown_rpc_method"
   end
 
   defp put_ai_gateway_broker_env!(config) do

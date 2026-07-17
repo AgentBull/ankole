@@ -3,12 +3,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   alias Ankole.{Logging, Principals, WorkerFiles}
 
+  alias Ankole.Plugins.MapHelpers
+
   alias Ankole.Plugins.Microsoft365Adapter.{
     AdaptiveCard,
     Config,
     Conversations,
-    Emoji,
-    MapHelpers
+    Emoji
   }
 
   alias Ankole.SignalsGateway.{AdapterContext, Ingress}

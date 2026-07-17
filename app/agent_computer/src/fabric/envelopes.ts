@@ -1,24 +1,39 @@
+import { create } from '@bufbuild/protobuf'
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import type { RuntimeFabricEnvelope } from './fabric'
+import { actorTurnRefToProto } from '../lanes/actor_lane'
+import {
+  createEnvelope,
+  DurabilityClass,
+  envelopeHeader,
+  jsonBytes,
+  Lane,
+  TurnAcceptedSchema,
+  TurnCompletedSchema,
+  TurnCompletionOutcome,
+  TurnErrorSchema,
+  TurnNoopCompletedSchema,
+  WorkerProgressSchema,
+  type Envelope
+} from './envelope_proto'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 /**
  * Builds the acceptance fence for a received turn revision.
  * Active mailbox updates are identified by the same turn fence plus a newer revision.
  */
-export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string): RuntimeFabricEnvelope {
-  return baseEnvelope(
-    'turn-accepted',
-    'LANE_TURN',
-    'CONTROL_REPLAYABLE',
-    {
-      type: 'turn_accepted',
-      turn_accepted: {
-        turn
-      }
-    },
-    correlationID
-  )
+export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(
+      `turn-accepted-${crypto.randomUUID()}`,
+      Lane.TURN,
+      DurabilityClass.CONTROL_REPLAYABLE,
+      correlationID
+    ),
+    body: {
+      case: 'turnAccepted',
+      value: create(TurnAcceptedSchema, { turn: actorTurnRefToProto(turn) })
+    }
+  })
 }
 
 /**
@@ -33,22 +48,24 @@ export function turnErrorEnvelope(
   message: string,
   correlationID?: string,
   details: JSONObject = { runtime: 'bun' }
-): RuntimeFabricEnvelope {
-  return baseEnvelope(
-    'turn-error',
-    'LANE_TURN',
-    'CONTROL_REPLAYABLE',
-    {
-      type: 'turn_error',
-      turn_error: {
-        turn,
+): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(
+      `turn-error-${crypto.randomUUID()}`,
+      Lane.TURN,
+      DurabilityClass.CONTROL_REPLAYABLE,
+      correlationID
+    ),
+    body: {
+      case: 'turnError',
+      value: create(TurnErrorSchema, {
+        turn: actorTurnRefToProto(turn),
         code,
         message,
-        details_json: details
-      }
-    },
-    correlationID
-  )
+        detailsJson: jsonBytes(details)
+      })
+    }
+  })
 }
 
 /**
@@ -62,20 +79,19 @@ export function turnNoopCompletedEnvelope(
   turn: ActorTurnRef,
   reason = 'noop_completed',
   correlationID?: string
-): RuntimeFabricEnvelope {
-  return baseEnvelope(
-    'turn-noop-completed',
-    'LANE_TURN',
-    'CONTROL_REPLAYABLE',
-    {
-      type: 'turn_noop_completed',
-      turn_noop_completed: {
-        turn,
-        reason
-      }
-    },
-    correlationID
-  )
+): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(
+      `turn-noop-completed-${crypto.randomUUID()}`,
+      Lane.TURN,
+      DurabilityClass.CONTROL_REPLAYABLE,
+      correlationID
+    ),
+    body: {
+      case: 'turnNoopCompleted',
+      value: create(TurnNoopCompletedSchema, { turn: actorTurnRefToProto(turn), reason })
+    }
+  })
 }
 
 /**
@@ -90,21 +106,24 @@ export function turnCompletedEnvelope(
   finalResponseID: string,
   outcome: 'loop_finished' | 'iteration_exhausted',
   correlationID?: string
-): RuntimeFabricEnvelope {
-  return baseEnvelope(
-    'turn-completed',
-    'LANE_TURN',
-    'CONTROL_REPLAYABLE',
-    {
-      type: 'turn_completed',
-      turn_completed: {
-        turn,
-        final_response_id: finalResponseID,
-        outcome
-      }
-    },
-    correlationID
-  )
+): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(
+      `turn-completed-${crypto.randomUUID()}`,
+      Lane.TURN,
+      DurabilityClass.CONTROL_REPLAYABLE,
+      correlationID
+    ),
+    body: {
+      case: 'turnCompleted',
+      value: create(TurnCompletedSchema, {
+        turn: actorTurnRefToProto(turn),
+        finalResponseId: finalResponseID,
+        outcome:
+          outcome === 'loop_finished' ? TurnCompletionOutcome.LOOP_FINISHED : TurnCompletionOutcome.ITERATION_EXHAUSTED
+      })
+    }
+  })
 }
 
 /**
@@ -119,44 +138,22 @@ export function workerProgressEnvelope(
   summary = 'turn in progress',
   correlationID?: string,
   refs?: JSONObject
-): RuntimeFabricEnvelope {
-  const workerProgress: JSONObject = {
-    turn,
-    kind,
-    summary
-  }
-  if (refs) workerProgress.refs_json = refs
-
-  return baseEnvelope(
-    'worker-progress',
-    'LANE_PROGRESS',
-    'CONTROL_EPHEMERAL',
-    {
-      type: 'worker_progress',
-      worker_progress: workerProgress
-    },
-    correlationID
-  )
-}
-
-/**
- * Builds a protocol envelope while preserving the turn-start correlation id.
- */
-function baseEnvelope(
-  messagePrefix: string,
-  lane: string,
-  durability: string,
-  body: RuntimeFabricEnvelope['body'],
-  correlationID?: string
-): RuntimeFabricEnvelope {
-  const messageID = `${messagePrefix}-${crypto.randomUUID()}`
-
-  return {
-    protocol_version: 1,
-    message_id: messageID,
-    correlation_id: correlationID ?? messageID,
-    lane,
-    durability,
-    body
-  }
+): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(
+      `worker-progress-${crypto.randomUUID()}`,
+      Lane.PROGRESS,
+      DurabilityClass.CONTROL_EPHEMERAL,
+      correlationID
+    ),
+    body: {
+      case: 'workerProgress',
+      value: create(WorkerProgressSchema, {
+        turn: actorTurnRefToProto(turn),
+        kind,
+        summary,
+        refsJson: jsonBytes(refs)
+      })
+    }
+  })
 }

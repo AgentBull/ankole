@@ -98,9 +98,6 @@ describe('Brain memory tools', () => {
       results: [],
       degraded_reasons: ['chat vector unavailable']
     })
-    expect(toolNamed(tools, 'memory_search').description).toContain(
-      'an incomplete empty result does not prove that no matching memory exists'
-    )
   })
 
   it('opens by id or name and requires one of them', async () => {

@@ -184,22 +184,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   end
 
   defp validate_url(url, ssrf_filter?) do
-    case NativeKernel.web_url_facts(url) do
-      %{scheme: scheme, host_class: :public} when scheme in ["http", "https"] ->
-        :ok
-
-      %{scheme: scheme, host_class: :private}
-      when scheme in ["http", "https"] and not ssrf_filter? ->
-        :ok
-
-      %{host_class: :metadata} ->
-        {:error, :cloud_metadata_image_url_blocked}
-
-      %{host_class: :private} ->
-        {:error, :private_network_image_url_blocked}
-
-      _facts_or_error ->
-        {:error, :invalid_image_url}
+    case NativeKernel.validate_web_url(url, ["http", "https"], ssrf_filter?) do
+      :ok -> :ok
+      {:error, :metadata} -> {:error, :cloud_metadata_image_url_blocked}
+      {:error, :private} -> {:error, :private_network_image_url_blocked}
+      {:error, :invalid} -> {:error, :invalid_image_url}
     end
   end
 

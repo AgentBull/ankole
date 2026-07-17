@@ -18,10 +18,14 @@ defmodule Ankole.AuthZ do
   alias Ankole.AuthZ.Root
   alias Ankole.AuthZ.Snapshot
   alias Ankole.AuthZ.Store
+  alias Ankole.Principals
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   @type decision :: map()
   @type decision_result :: :ok | {:error, term()}
+
+  @computed_preview_group_id "preview"
 
   @doc """
   Lists Principal groups ordered by name.
@@ -69,6 +73,138 @@ defmodule Ankole.AuthZ do
 
   def delete_principal_group(id_or_name) do
     Repo.transact(fn repo -> Store.delete_operator_group(repo, id_or_name) end)
+  end
+
+  @doc """
+  Lists static members of a Principal group with their Principal display fields.
+
+  Members are ordered by Principal display name. Computed groups derive
+  membership at authorization time and have no stored rows to list.
+  """
+  @spec list_group_members(String.t()) ::
+          {:ok, [%{membership: Membership.t(), principal: Principal.t()}]}
+          | {:error, :not_found | :computed_group}
+  def list_group_members(id_or_name) do
+    with {:ok, group} <- Store.fetch_group(Repo, id_or_name),
+         :ok <- Store.ensure_static_group(group) do
+      members =
+        Membership
+        |> join(:inner, [membership], principal in Principal,
+          on: principal.uid == membership.principal_uid
+        )
+        |> where([membership, _principal], membership.group_id == ^group.id)
+        |> order_by([_membership, principal], asc: principal.display_name, asc: principal.uid)
+        |> select([membership, principal], %{membership: membership, principal: principal})
+        |> Repo.all()
+
+      {:ok, members}
+    end
+  end
+
+  @doc """
+  Lists permission grants owned by a Principal group ordered by pattern and action.
+  """
+  @spec list_group_grants(String.t()) :: {:ok, [Grant.t()]} | {:error, :not_found}
+  def list_group_grants(id_or_name) do
+    with {:ok, group} <- Store.fetch_group(Repo, id_or_name) do
+      {:ok, list_ordered_grants(group_id: group.id)}
+    end
+  end
+
+  @doc """
+  Lists permission grants owned directly by one Principal ordered by pattern and action.
+  """
+  @spec list_principal_grants(String.t()) :: {:ok, [Grant.t()]} | {:error, term()}
+  def list_principal_grants(principal_uid) do
+    with {:ok, principal} <- Principals.get_principal(principal_uid) do
+      {:ok, list_ordered_grants(principal_uid: principal.uid)}
+    end
+  end
+
+  @doc """
+  Lists the static groups one Principal belongs to, ordered by group name.
+  """
+  @spec list_principal_group_memberships(String.t()) :: {:ok, [Group.t()]} | {:error, term()}
+  def list_principal_group_memberships(principal_uid) do
+    with {:ok, principal} <- Principals.get_principal(principal_uid) do
+      groups =
+        Group
+        |> join(:inner, [group], membership in Membership, on: membership.group_id == group.id)
+        |> where([_group, membership], membership.principal_uid == ^principal.uid)
+        |> order_by([group, _membership], asc: group.name)
+        |> Repo.all()
+
+      {:ok, groups}
+    end
+  end
+
+  @doc """
+  Counts stored members and owned grants per Principal group, defaulting to zero.
+  """
+  @spec summarize_principal_groups() :: %{
+          String.t() => %{member_count: non_neg_integer(), grant_count: non_neg_integer()}
+        }
+  def summarize_principal_groups do
+    member_counts =
+      Membership
+      |> group_by([membership], membership.group_id)
+      |> select([membership], {membership.group_id, count(membership.principal_uid)})
+      |> Repo.all()
+      |> Map.new()
+
+    grant_counts =
+      Grant
+      |> where([grant], not is_nil(grant.group_id))
+      |> group_by([grant], grant.group_id)
+      |> select([grant], {grant.group_id, count(grant.id)})
+      |> Repo.all()
+      |> Map.new()
+
+    Map.new(Map.keys(member_counts) ++ Map.keys(grant_counts), fn group_id ->
+      {group_id,
+       %{
+         member_count: Map.get(member_counts, group_id, 0),
+         grant_count: Map.get(grant_counts, group_id, 0)
+       }}
+    end)
+  end
+
+  @doc """
+  Looks up one permission grant by id.
+  """
+  @spec get_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, :not_found}
+  def get_permission_grant(id) do
+    with {:ok, uuid} <- Ecto.UUID.cast(id) do
+      case Repo.get(Grant, uuid) do
+        %Grant{} = grant -> {:ok, grant}
+        nil -> {:error, :not_found}
+      end
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Evaluates a computed group condition against every active Principal.
+
+  Returns the Principals that would belong to a computed group with the given
+  condition, ordered by display name. The condition is validated before
+  evaluation so invalid CEL returns an error instead of an empty list.
+  """
+  @spec preview_computed_group_members(String.t()) :: {:ok, [Principal.t()]} | {:error, term()}
+  def preview_computed_group_members(condition) do
+    with :ok <- Input.validate_condition_syntax(condition) do
+      members =
+        Principals.list_active_principals()
+        |> Enum.filter(fn principal ->
+          principal
+          |> Snapshot.build_condition_preview_snapshot(@computed_preview_group_id, condition)
+          |> Decision.preview_computed_membership?(@computed_preview_group_id)
+        end)
+        |> Enum.sort_by(fn principal -> {principal.display_name, principal.uid} end)
+
+      {:ok, members}
+    end
   end
 
   @doc """
@@ -321,5 +457,12 @@ defmodule Ankole.AuthZ do
   @spec ensure_can_disable_principal(String.t(), term()) :: :ok | {:error, term()}
   def ensure_can_disable_principal(principal_uid, repo) do
     Store.ensure_can_disable_principal(principal_uid, repo, Root.admin_group_name())
+  end
+
+  defp list_ordered_grants(owner_filter) do
+    Grant
+    |> where(^owner_filter)
+    |> order_by([grant], asc: grant.resource_pattern, asc: grant.action)
+    |> Repo.all()
   end
 end

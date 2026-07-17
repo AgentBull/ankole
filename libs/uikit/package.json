@@ -23,6 +23,7 @@
     "./styles.css": "./src/styles.css"
   },
   "scripts": {
+    "test": "bun test test",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",

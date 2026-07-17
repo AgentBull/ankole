@@ -5,7 +5,6 @@ use std::thread;
 use std::time::Duration;
 
 use crate::common::{KernelError, KernelResult};
-use crate::runtime_fabric;
 
 use super::config::{
     DEFAULT_DEALER_INBOX_MAX_BYTES, DEFAULT_DEALER_INBOX_MAX_EVENTS, DealerConfig,
@@ -151,17 +150,10 @@ fn dealer_event_size(event: &DealerEvent) -> usize {
 }
 
 impl DealerHandle {
-    /// Sends a JSON-shaped RuntimeFabric envelope from the worker to the control plane.
-    pub fn send_envelope(
-        &self,
-        envelope_json: serde_json::Value,
-    ) -> Result<SendOutcome, TransportError> {
-        let payload = runtime_fabric::encode_envelope(envelope_json)
-            .map_err(TransportError::invalid_envelope)?;
-        self.send_payload(payload)
-    }
-
     /// Sends already encoded protobuf bytes from the worker socket.
+    ///
+    /// Envelope validation happens at the host binding seam before this call,
+    /// keeping the dealer purely physical.
     pub fn send_payload(&self, payload: Vec<u8>) -> Result<SendOutcome, TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 

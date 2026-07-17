@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { syncInstalledSkillsForTurn } from '../src/skills/installed_skill_sync'
 import type { InstalledSkillSyncOptions } from '../src/skills/installed_skill_sync'
+import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 import type { InstalledSkillObservation } from '../src/skills/types'
 
 describe('@ankole/agent-computer installed skill sync', () => {
@@ -32,10 +33,12 @@ describe('@ankole/agent-computer installed skill sync', () => {
       const pushedObservations: InstalledSkillObservation[][] = []
       const opts: InstalledSkillSyncOptions = {
         agentInstalledSkillsRoot: root,
-        replaceInstalledSkillObservations: async request => {
+        rpc: (async (method: unknown, payload: unknown) => {
+          expect(method).toBe(rpcMethods.skillsInstalledReplace)
+          const request = payload as { observations: InstalledSkillObservation[] }
           pushedObservations.push(request.observations)
           return {
-            request_id: request.request_id,
+            request_id: 'req-1',
             agent_uid: agentUID,
             session_id: 'session-1',
             changed: true,
@@ -43,7 +46,7 @@ describe('@ankole/agent-computer installed skill sync', () => {
             files: request.observations.reduce((sum, observation) => sum + (observation.file_count ?? 0), 0),
             content_hash: '7b16fe7c3e492b87d9615265f0856cec'
           }
-        }
+        }) as RPCRequester
       }
 
       await syncInstalledSkillsForTurn(turnStart, opts)

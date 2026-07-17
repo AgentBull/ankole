@@ -16,6 +16,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
 
+  require Ankole.BackgroundAgentJobs
+
   @create_request_fields ~w(
     background
     model
@@ -101,7 +103,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       {:ok,
        %{
          "request_id" => request_id,
-         "jobs" => Enum.map(jobs, &job_summary/1)
+         "jobs" => Enum.map(jobs, &BackgroundAgentJobs.rpc_summary/1)
        }}
     else
       nil -> error(request_id, turn_ref.agent_uid, :actor_event_not_found)
@@ -117,7 +119,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     attrs =
       Map.take(
         request,
-        ~w(attempt runtime_thread_id runtime_turn_id kind status revision trajectory progress usage error started_at completed_at)
+        ~w(attempt runtime_thread_id runtime_turn_id kind status revision trajectory trajectory_groups progress usage error started_at completed_at)
       )
 
     with :ok <- authorize_job_turn(turn_ref, job_id),
@@ -211,10 +213,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   defp authorize_visible_job(%TurnRef{} = turn_ref, %Job{} = job) do
     cond do
-      turn_ref.session_id == "job:#{job.id}" ->
+      turn_ref.session_id == BackgroundAgentJobs.job_session_id(job.id) ->
         :ok
 
-      String.starts_with?(turn_ref.session_id, "job:") ->
+      BackgroundAgentJobs.is_job_session_id(turn_ref.session_id) ->
         {:error, :background_agent_job_scope_mismatch}
 
       job.owner_session_id == turn_ref.session_id ->
@@ -237,14 +239,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   defp authorize_job_turn(%TurnRef{} = turn_ref, job_id) do
-    case turn_ref.session_id do
-      "job:" <> ^job_id -> :ok
-      _session_id -> {:error, :background_agent_job_turn_mismatch}
+    case BackgroundAgentJobs.parse_job_session_id(turn_ref.session_id) do
+      {:ok, ^job_id} -> :ok
+      _other -> {:error, :background_agent_job_turn_mismatch}
     end
   end
 
-  defp require_owner_turn(%TurnRef{session_id: "job:" <> _job_id}),
-    do: {:error, :background_agent_job_owner_turn_required}
+  defp require_owner_turn(%TurnRef{session_id: session_id})
+       when BackgroundAgentJobs.is_job_session_id(session_id),
+       do: {:error, :background_agent_job_owner_turn_required}
 
   defp require_owner_turn(%TurnRef{}), do: :ok
 
@@ -285,51 +288,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   defp job_payload(request_id, %Job{} = job) do
-    %{
-      "request_id" => request_id,
-      "job_id" => job.id,
-      "agent_uid" => job.agent_uid,
-      "owner_session_id" => job.owner_session_id,
-      "source_actor_event_id" => job.source_actor_event_id,
-      "source_tool_call_id" => job.source_tool_call_id,
-      "status" => job.status,
-      "runtime_thread_id" => job.runtime_thread_id,
-      "codex_account_id" => job.codex_account_id,
-      "title" => job.title,
-      "task" => job.task,
-      "background" => job.background,
-      "notes" => job.notes,
-      "reply_route" => job.reply_route,
-      "attempts" => job.attempts,
-      "agent_plugin_ids" => job.agent_plugin_ids,
-      "skill_names" => job.skill_names,
-      "workspace_mounts" => job.workspace_mounts,
-      "model" => job.model,
-      "reasoning_effort" => job.reasoning_effort,
-      "queued_at" => iso8601(job.queued_at),
-      "started_at" => iso8601(job.started_at),
-      "completed_at" => iso8601(job.completed_at),
-      "result" => job.result || %{},
-      "error" => job.error || %{},
-      "metadata" => job.metadata || %{}
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
-
-  defp job_summary(%Job{} = job) do
-    %{
-      "job_id" => job.id,
-      "title" => job.title,
-      "status" => job.status,
-      "agent_plugin_ids" => job.agent_plugin_ids,
-      "attempts" => job.attempts,
-      "queued_at" => iso8601(job.queued_at),
-      "started_at" => iso8601(job.started_at),
-      "completed_at" => iso8601(job.completed_at)
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
+    job
+    |> BackgroundAgentJobs.rpc_projection()
+    |> Map.put("request_id", request_id)
   end
 
   defp trajectory_options(request) do
@@ -354,9 +315,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
        details_json: %{"agent_uid" => agent_uid}
      )}
   end
-
-  defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
-  defp iso8601(_value), do: nil
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

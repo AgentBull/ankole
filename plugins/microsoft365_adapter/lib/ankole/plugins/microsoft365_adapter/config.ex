@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
-  alias Ankole.Plugins.Microsoft365Adapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias MicrosoftOpenAPI.Client
 
   @chat_key_pattern ~r/\Asignals_gateway\.teams\.bindings\.[A-Za-z0-9_.:-]+\z/

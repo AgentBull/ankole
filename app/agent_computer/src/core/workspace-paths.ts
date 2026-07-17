@@ -1,11 +1,12 @@
-import { normalize, relative, resolve, join } from 'node:path'
+import { join, normalize, resolve } from 'node:path'
+import { pathIsWithin, relativePathWithin, resolvePathWithin } from './path-boundary'
 
 export const WORKSPACE_MODEL_ROOT = '/workspace'
 export const WORKSPACE_SESSIONS_ROOT = `${WORKSPACE_MODEL_ROOT}/.sessions`
 export const WORKSPACE_SHARED_ROOT = `${WORKSPACE_MODEL_ROOT}/shared`
 export const WORKSPACE_USER_FILES_ROOT = `${WORKSPACE_SHARED_ROOT}/user-files`
 export const WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT = `${WORKSPACE_SHARED_ROOT}/skills/agents`
-export const BUILTIN_SKILLS_ROOT = '/repo/app/library/skills'
+export const BUILTIN_SKILLS_ROOT = '/repo/app/library'
 export const INTERNAL_SKILLS_ROOT = '/repo/internals/skills'
 
 export type NonWorkspaceAbsolutePathMode = 'anchor' | 'reject'
@@ -17,7 +18,7 @@ export interface ResolveWorkspacePathOptions {
    */
   cwd?: string
   /**
-   * Legacy computer/browser tools anchor absolute non-/workspace paths inside
+   * Legacy computer tools anchor absolute non-/workspace paths inside
    * the session workspace. Stricter callers such as codex workdirs can reject
    * them explicitly.
    */
@@ -46,12 +47,12 @@ export function resolveWorkspacePath(
   const base = options.cwd ? resolveWorkspacePath(workspaceRoot, options.cwd, { nonWorkspaceAbsolute: mode }) : root
 
   const resolved = isWorkspacePath(path)
-    ? resolve(root, `.${path.slice(WORKSPACE_MODEL_ROOT.length)}`)
+    ? resolvePathWithin(root, `.${path.slice(WORKSPACE_MODEL_ROOT.length)}`, errorMessage)
     : path.startsWith('/')
       ? resolveNonWorkspaceAbsolute(root, path, mode, errorMessage)
       : resolve(base, normalize(path))
 
-  if (!insideResolvedWorkspace(root, resolved)) {
+  if (!pathIsWithin(root, resolved)) {
     throw new Error(errorMessage)
   }
 
@@ -65,8 +66,9 @@ export function toWorkspacePath(workspaceRoot: string, path: string): string {
   const root = resolve(workspaceRoot)
   const resolved = resolve(path)
   if (resolved === root) return WORKSPACE_MODEL_ROOT
-  if (insideResolvedWorkspace(root, resolved)) {
-    return join(WORKSPACE_MODEL_ROOT, relative(root, resolved)).replaceAll('\\', '/')
+  const relativePath = relativePathWithin(root, resolved)
+  if (relativePath !== undefined) {
+    return join(WORKSPACE_MODEL_ROOT, relativePath).replaceAll('\\', '/')
   }
   return path
 }
@@ -75,7 +77,15 @@ export function toWorkspacePath(workspaceRoot: string, path: string): string {
  * Checks whether a real path sits inside the session workspace root.
  */
 export function insideWorkspace(workspaceRoot: string, path: string): boolean {
-  return insideResolvedWorkspace(resolve(workspaceRoot), resolve(path))
+  return pathIsWithin(workspaceRoot, path)
+}
+
+export function toWorkspacePathStrict(workspaceRoot: string, path: string): string {
+  const root = resolve(workspaceRoot)
+  const resolved = resolve(path)
+  const relativePath = relativePathWithin(root, resolved)
+  if (relativePath === undefined) throw new Error('path escapes workspace root')
+  return relativePath ? join(WORKSPACE_MODEL_ROOT, relativePath).replaceAll('\\', '/') : WORKSPACE_MODEL_ROOT
 }
 
 /**
@@ -111,10 +121,6 @@ function resolveNonWorkspaceAbsolute(
 ): string {
   if (mode === 'reject') throw new Error(errorMessage)
   return resolve(root, `.${normalize(path)}`)
-}
-
-function insideResolvedWorkspace(root: string, path: string): boolean {
-  return path === root || path.startsWith(`${root}/`)
 }
 
 function escapeRegExp(value: string): string {

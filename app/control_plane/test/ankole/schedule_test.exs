@@ -1,6 +1,7 @@
 defmodule Ankole.ScheduleTest do
   use Ankole.DataCase, async: false
 
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
@@ -25,7 +26,20 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
-    only: [complete_actor_event: 4, process_ready_events_once: 1]
+    only: [
+      complete_actor_event: 4,
+      process_ready_events_once: 1,
+      turn_proto_ref: 1,
+      turn_accepted_payload: 1,
+      turn_completed_payload: 3,
+      turn_noop_completed_payload: 2,
+      turn_start_payload!: 1,
+      decoded_request_context: 1,
+      envelope_body_type: 1,
+      envelope_body!: 2,
+      decoded_json_bytes: 1,
+      turn_wire_ref: 1
+    ]
 
   @base_time DateTime.utc_now(:microsecond)
   @long_lease_seconds 604_800
@@ -336,6 +350,110 @@ defmodule Ankole.ScheduleTest do
       assert Schedule.list_cron_runs(paused.id, 10) == []
     end
 
+    test "manual cron runs fire while paused or failed without advancing recurrence" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      for {status, offset} <- [{"paused", 1}, {"failed", 2}] do
+        now = DateTime.add(@base_time, offset, :second)
+
+        assert {:ok, %{status: :created, cron_schedule: schedule}} =
+                 Schedule.create_cron_schedule(
+                   cron_attrs(agent.uid,
+                     status: status,
+                     name: "manual-#{status}",
+                     idempotency_key: "manual-#{status}",
+                     schedule: %{
+                       "kind" => "every",
+                       "every_ms" => 60_000,
+                       "timezone" => "Etc/UTC",
+                       "anchor_at" => DateTime.to_iso8601(DateTime.add(now, 1, :minute))
+                     }
+                   ),
+                   now: now
+                 )
+
+        assert {:ok, %{status: :scheduled, scheduled_event: manual_event}} =
+                 Schedule.run_cron_schedule(schedule.id, now: now)
+
+        assert manual_event.wake_payload["trigger"] == "manual"
+
+        assert {:ok, %{status: :fired, actor_event: actor_event}} =
+                 Schedule.fire_due_event(manual_event.id, now: now)
+
+        assert actor_event.type == "cron.fire"
+
+        assert {:ok, unchanged} = Schedule.get_cron_schedule(schedule.id)
+        assert unchanged.status == status
+        assert unchanged.next_fire_at == nil
+        assert unchanged.last_fire_at == nil
+      end
+    end
+
+    test "pausing preserves a pending manual run while cancelling recurrence" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 5, :minute)
+
+      assert {:ok, %{status: :created, cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "manual-before-pause",
+                   idempotency_key: "manual-before-pause",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "timezone" => "Etc/UTC",
+                     "anchor_at" => DateTime.to_iso8601(first_slot)
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, %{scheduled_event: manual_event}} =
+               Schedule.run_cron_schedule(schedule.id, now: @base_time)
+
+      assert {:ok, paused} =
+               Schedule.pause_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert paused.status == "paused"
+
+      runs = Schedule.list_cron_runs(schedule.id, 10)
+      assert Repo.get!(ScheduledEvent, manual_event.id).status == "scheduled"
+      assert Enum.find(runs, &(&1.wake_payload["trigger"] == "scheduled")).status == "cancelled"
+
+      assert {:ok, %{status: :fired}} =
+               Schedule.fire_due_event(manual_event.id,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+    end
+
+    test "deleted cron schedules reject new manual runs and cancel pending ones" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{status: :created, cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "manual-before-delete",
+                   idempotency_key: "manual-before-delete"
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, %{scheduled_event: manual_event}} =
+               Schedule.run_cron_schedule(schedule.id, now: @base_time)
+
+      assert {:ok, deleted} =
+               Schedule.remove_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert deleted.status == "deleted"
+      assert Repo.get!(ScheduledEvent, manual_event.id).status == "cancelled"
+      assert {:error, :cron_schedule_deleted} = Schedule.run_cron_schedule(schedule.id)
+    end
+
     test "cron created_by is trusted context, not caller attrs" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
@@ -482,7 +600,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, conversation} =
                StatefulResponses.ensure_conversation(agent.uid, source_event.session_id)
@@ -492,7 +610,7 @@ defmodule Ankole.ScheduleTest do
                  subject_uid: agent.uid,
                  conversation_id: conversation.id,
                  metadata: %{
-                   "request_metadata" => %{"actor_event_id" => turn_ref["actor_event_id"]}
+                   "request_metadata" => %{"actor_event_id" => turn_ref.actor_event_id}
                  }
                })
 
@@ -754,99 +872,6 @@ defmodule Ankole.ScheduleTest do
                )
     end
 
-    test "mock IM checkback story wakes later and replies through the provider outbox" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "mock-provider", :ignore, "mock-provider")
-
-      consumer =
-        MockInbound.chat_consumer(
-          mock_adapter_context(agent.uid, "mock-provider"),
-          %{},
-          now: @base_time
-        )
-
-      assert {:ok, [receive_result]} =
-               MockInbound.handle_message_receive(
-                 "message.receive",
-                 %{
-                   source_event_id: "mock-entry-1",
-                   signal_channel_id: "mock:chat:e2e",
-                   source_entry_id: "mock-message-1",
-                   provider_thread_id: "mock-thread-1",
-                   text: "Please check in five minutes whether deploy finished.",
-                   explicit: true,
-                   now: @base_time,
-                   provider_time: @base_time
-                 },
-                 [consumer]
-               )
-
-      %{actor_event: source_event} = maybe_finalize_test_inbound_batch(receive_result)
-
-      assert {:ok, _consumed} =
-               complete_actor_event(
-                 agent.uid,
-                 "mock-provider",
-                 source_event.source_event_id,
-                 actor_commit_opts(completed_at: DateTime.add(@base_time, 1, :second))
-               )
-
-      due_at = DateTime.add(@base_time, 5, :minute)
-
-      assert {:ok, %{scheduled_event: event}} =
-               Schedule.create_check_back_later(
-                 checkback_attrs(agent.uid,
-                   session_id: source_event.session_id,
-                   binding_name: "mock-provider",
-                   reply_route: %{
-                     "signal_channel_id" => source_event.signal_channel_id,
-                     "provider_thread_id" => source_event.provider_thread_id,
-                     "source_entry_id" => source_event.source_entry_id
-                   },
-                   source_actor_event_id: source_event.id,
-                   schedule: %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"}
-                 ),
-                 now: DateTime.add(@base_time, 2, :second)
-               )
-
-      assert {:ok, %{actor_event: wake_input}} = Schedule.fire_due_event(event.id, now: due_at)
-
-      route = unique_route()
-      :ok = Broker.register_local_worker(route, self())
-      on_exit(fn -> Broker.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
-
-      assert {:ok, %{send_outcome: "sent_or_queued"}} =
-               process_ready_events_once(
-                 now: DateTime.add(due_at, 1, :second),
-                 lease_seconds: @long_lease_seconds
-               )
-
-      assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(List.wrap(turn_start["actor_event"]), & &1["actor_event_id"])
-
-      assert input_ids == [wake_input.id]
-      assert turn_start["request_context"]["silent_success_allowed"] == false
-
-      assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
-
-      committed = complete_turn_via_aigateway!(turn_ref, "Deployment finished cleanly.")
-
-      dispatch_final_reply_outbox!(committed.id)
-      mirror = wait_for_final_mirror(committed.id)
-      assert mirror.signal_channel_id == "mock:chat:e2e"
-      assert mirror.text == "Deployment finished cleanly."
-      assert mirror.ai_message_id == committed.id
-      assert mirror.metadata["actor_event_id"] == wake_input.id
-    end
-
     test "mock IM dashboard cron story fires through Oban and posts service lines" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "mock-provider", :ignore, "mock-provider")
@@ -889,15 +914,13 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
-      assert turn_ref["actor"]["session_id"] == source_event.session_id
+      assert turn_ref.actor.session_id == source_event.session_id
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
                schedule_rpc(
@@ -979,15 +1002,13 @@ defmodule Ankole.ScheduleTest do
             envelope
         end
 
-      cron_turn_start = cron_envelope["body"]["turn_start"]
-      cron_turn_ref = cron_turn_start["turn"]
+      cron_turn_start = turn_start_payload!(cron_envelope)
+      cron_turn_ref = cron_turn_start.turn
 
-      assert cron_turn_start["request_context"]["turn_mode"] == "cron"
+      assert decoded_request_context(cron_turn_start)["turn_mode"] == "cron"
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => cron_turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(cron_turn_ref))
 
       dashboard_report = """
       api: green
@@ -1032,32 +1053,30 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
-      input_ids = Enum.map(List.wrap(turn_start["actor_event"]), & &1["actor_event_id"])
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
+      input_ids = Enum.map(List.wrap(turn_start.actor_event), & &1.actor_event_id)
 
       assert input_ids == [input.id]
 
-      assert [%{"type" => "check_back_later.wakeup", "signal_channel_id" => "mock:chat:schedule"}] =
-               List.wrap(turn_start["actor_event"])
+      assert [
+               %FabricProto.ActorEventEnvelope{
+                 type: "check_back_later.wakeup",
+                 signal_channel_id: "mock:chat:schedule"
+               }
+             ] =
+               List.wrap(turn_start.actor_event)
 
-      assert turn_start["request_context"]["turn_mode"] == "check_back_later"
-      assert turn_start["request_context"]["silent_success_allowed"] == true
+      assert decoded_request_context(turn_start)["turn_mode"] == "check_back_later"
+      assert decoded_request_context(turn_start)["silent_success_allowed"] == true
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{status: :noop_completed}} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "schedule_silent_success"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "schedule_silent_success")
+               )
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -1106,17 +1125,13 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
-      assert turn_start["request_context"]["turn_mode"] == "cron"
+      assert decoded_request_context(turn_start)["turn_mode"] == "cron"
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert %Message{} =
                committed = complete_turn_via_aigateway!(turn_ref, "Daily digest is ready.")
@@ -1161,7 +1176,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, %{"runs" => [projected_run | _rest]}} =
                schedule_rpc(
@@ -1232,25 +1247,18 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
-      assert turn_start["request_context"]["silent_success_allowed"] == true
+      assert decoded_request_context(turn_start)["silent_success_allowed"] == true
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{status: :noop_completed}} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "schedule_silent_success"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "schedule_silent_success")
+               )
 
       # Actor events are durable — completion records the terminal timestamp.
       assert Repo.get(ActorEvent, input.id)
@@ -1397,9 +1405,10 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp complete_turn_via_aigateway!(turn_ref, text) do
-    agent_uid = get_in(turn_ref, ["actor", "agent_uid"])
-    session_id = get_in(turn_ref, ["actor", "session_id"])
-    actor_event_id = Map.fetch!(turn_ref, "actor_event_id")
+    wire_ref = turn_wire_ref(turn_ref)
+    agent_uid = wire_ref["actor"]["agent_uid"]
+    session_id = wire_ref["actor"]["session_id"]
+    actor_event_id = wire_ref["actor_event_id"]
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
 
@@ -1420,13 +1429,9 @@ defmodule Ankole.ScheduleTest do
       ])
 
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(%{
-               "turn_completed" => %{
-                 "turn" => turn_ref,
-                 "final_response_id" => "resp_#{committed.id}",
-                 "outcome" => "loop_finished"
-               }
-             })
+             ActorRuntime.handle_turn_completed(
+               turn_completed_payload(turn_ref, "resp_#{committed.id}", "loop_finished")
+             )
 
     committed
   end
@@ -1668,7 +1673,7 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp admit_worker(route, overrides \\ %{}) do
-    ActorRuntime.admit_worker_ready(
+    fields =
       Map.merge(
         %{
           worker_id: "worker-" <> route,
@@ -1678,6 +1683,14 @@ defmodule Ankole.ScheduleTest do
           capacity: %{"available_turn_slots" => 4}
         },
         overrides
+      )
+
+    {capacity, fields} = Map.pop(fields, :capacity)
+
+    ActorRuntime.admit_worker_ready(
+      struct!(
+        FabricProto.AgentComputerWorkerReady,
+        Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
       ),
       %{authenticated?: true, transport_route: route}
     )

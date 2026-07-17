@@ -16,7 +16,11 @@ import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transp
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
-import { buildAgentSystemPrompt, systemPromptForConversation } from '../../src/prompts/system_prompt'
+import {
+  AGENT_SYSTEM_PROMPT_EPOCH,
+  buildAgentSystemPrompt,
+  systemPromptForConversation
+} from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import type { AgentConversationContext, AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
@@ -41,17 +45,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     await expect(access.model.responseWebSocket?.authorization()).resolves.toBe('Bearer agent-key')
   })
 
-  it('rejects AIGateway access acquisition when the key response is rejected', async () => {
+  it('rejects AIGateway access acquisition when the key belongs to another agent', async () => {
     await expect(
       acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayAPIKey: async request => ({
-          request_id: request.request_id,
-          agent_uid: request.agent_uid,
-          code: 'missing_agent_uid',
-          message: 'agent uid is required'
-        })
+        requestAIGatewayAPIKey: async () => aiGatewayKeyForTest('another-agent', 'agent-key')
       })
-    ).rejects.toThrow('AIGateway API key rejected: missing_agent_uid agent uid is required')
+    ).rejects.toThrow('AIGateway API key response does not match turn agent or auth contract')
   })
 
   it('rejects refreshed AIGateway keys that no longer match the turn agent', async () => {
@@ -140,7 +139,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
       )
-    }) as typeof fetch
+    }) as unknown as typeof fetch
 
     try {
       const model = modelConfigFromAIGatewayAPIKey(
@@ -182,6 +181,77 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       expect(response.id).toBe('resp_after_refresh')
       expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer new-key'])
       expect(refreshOptions).toEqual([{ forceRefresh: true }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('makes a third HTTP attempt only after a refreshed key also receives 401', async () => {
+    const originalFetch = globalThis.fetch
+    const seenAuthorization: string[] = []
+    const refreshOptions: Array<{ forceRefresh?: boolean } | undefined> = []
+    const cancelledAttempts: number[] = []
+    let calls = 0
+
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+      seenAuthorization.push(headers.get('authorization') ?? '')
+      calls += 1
+      if (calls < 3) {
+        const attempt = calls
+        return new Response(
+          new ReadableStream({
+            cancel() {
+              cancelledAttempts.push(attempt)
+            }
+          }),
+          { status: 401 }
+        )
+      }
+      return new Response('ok', { status: 200 })
+    }) as typeof fetch
+
+    try {
+      let refreshes = 0
+      const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
+        requestAIGatewayAPIKey: async (request, options) => {
+          refreshOptions.push(options)
+          if (!options?.forceRefresh) return aiGatewayKeyForTest(request.agent_uid, 'old-key')
+          refreshes += 1
+          return aiGatewayKeyForTest(request.agent_uid, `refreshed-key-${refreshes}`)
+        }
+      })
+
+      const response = await access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/web_tools')
+      expect(await response.text()).toBe('ok')
+      expect(seenAuthorization).toEqual(['Bearer old-key', 'Bearer refreshed-key-1', 'Bearer refreshed-key-2'])
+      expect(refreshOptions).toEqual([undefined, { forceRefresh: true }, { forceRefresh: true }])
+      expect(cancelledAttempts).toEqual([1, 2])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  }, 10_000)
+
+  it('aborts during refreshed-key backoff without consuming the third HTTP attempt', async () => {
+    const originalFetch = globalThis.fetch
+    let calls = 0
+
+    globalThis.fetch = (async () => {
+      calls += 1
+      return new Response('revoked', { status: 401 })
+    }) as unknown as typeof fetch
+
+    try {
+      const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
+        requestAIGatewayAPIKey: async request => aiGatewayKeyForTest(request.agent_uid, `key-${calls}`)
+      })
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new Error('caller stopped AIGateway retry')), 20)
+
+      await expect(
+        access.aiGateway.fetch('https://control.test/api/v1/ai-gateway/web_tools', { signal: controller.signal })
+      ).rejects.toThrow('caller stopped AIGateway retry')
+      expect(calls).toBe(2)
     } finally {
       globalThis.fetch = originalFetch
     }
@@ -566,7 +636,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice (chatbot)'])
   })
 
-  it('keeps durable context in the system suffix and reuses the stored conversation prompt verbatim', () => {
+  it('keeps durable context in the system suffix and reuses a current-epoch conversation prompt verbatim', () => {
     const turnStart = turnStartForTest() as TurnStart
     const context: AgentConversationContext = {
       request_id: 'context-1',
@@ -614,11 +684,73 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).toContain('Asia/Shanghai')
     expect(instructions).toContain('Prefer concise evidence.')
     expect(instructions).toContain('financial-data')
+    expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
     expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
     expect(buildAgentSystemPrompt(changedOptions)).not.toBe(instructions)
     expect(systemPromptForConversation(changedOptions)).toBe(instructions)
     expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
     expect(instructions.indexOf('<runtime_context>')).toBeLessThan(instructions.indexOf('<durable_context>'))
+  })
+
+  it('refreshes legacy prompt snapshots when the tool contract epoch changes', () => {
+    const turnStart = turnStartForTest() as TurnStart
+    const context: AgentConversationContext = {
+      request_id: 'context-legacy-prompt',
+      agent_uid: 'agent-1',
+      session_id: 'session-1',
+      turn: turnStart.turn,
+      conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' },
+      skills: [
+        {
+          skill_name: 'documents',
+          description: 'Create and verify a Word document.',
+          metadata: { long_running: true }
+        }
+      ],
+      system_prompt_snapshot: 'Legacy prompt with browser automation, Chromium/CDP, tmux, and interactive_terminal.'
+    }
+
+    const instructions = systemPromptForConversation({
+      workspaceRoot: '/workspace',
+      turnStart,
+      agentConversationContext: context,
+      availableToolNames: ['background_agent_job', 'skill_view']
+    })
+
+    expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
+    expect(instructions).toContain('<background_agent_job_policy>')
+    expect(instructions).toContain('If direct work becomes heavier than expected')
+    expect(instructions).toContain('background_agent_job(status)')
+    expect(instructions).toContain('background_agent_job(steer)')
+    expect(instructions).toContain('documents: [background task]')
+    expect(instructions).not.toContain('browser automation')
+    expect(instructions).not.toContain('Chromium/CDP')
+    expect(instructions).not.toContain('tmux')
+    expect(instructions).not.toContain('interactive_terminal')
+  })
+
+  it('states the hosted image delivery contract only when that tool is projected', () => {
+    const turnStart = turnStartForTest() as TurnStart
+    const options = {
+      workspaceRoot: '/workspace',
+      turnStart,
+      agentConversationContext: {
+        request_id: 'context-hosted-image',
+        agent_uid: 'agent-1',
+        session_id: 'session-1',
+        turn: turnStart.turn,
+        conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' }
+      },
+      availableToolNames: ['reply_attachment']
+    }
+
+    expect(buildAgentSystemPrompt(options)).not.toContain('image_generation_call IDs')
+    expect(
+      buildAgentSystemPrompt({
+        ...options,
+        turnStart: { ...turnStart, hosted_tools: [{ type: 'image_generation' as const }] }
+      })
+    ).toContain('Images created in this turn with the hosted image_generation tool are attached')
   })
 
   it('keeps schedule values in the current event block while system policy owns their meaning', () => {
@@ -676,13 +808,13 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       })
       expect(parts[1]!.type).toBe('image')
       const imagePart = parts[1] as Extract<ContentPart, { type: 'image' }>
-      expect(imagePart).toMatchObject({ mimeType: 'image/png' })
+      expect(imagePart).toMatchObject({ mimeType: 'image/webp' })
       expect(typeof imagePart.image).toBe('string')
       const imageURL = imagePart.image as string
-      expect(imageURL).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/)
-      expect([...Buffer.from(imageURL.slice('data:image/png;base64,'.length), 'base64').subarray(0, 8)]).toEqual([
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a
-      ])
+      expect(imageURL).toMatch(/^data:image\/webp;base64,[A-Za-z0-9+/]+=*$/)
+      const bytes = Buffer.from(imageURL.slice('data:image/webp;base64,'.length), 'base64')
+      expect(bytes.subarray(0, 4).toString('ascii')).toBe('RIFF')
+      expect(bytes.subarray(8, 12).toString('ascii')).toBe('WEBP')
     })
   })
 
@@ -737,6 +869,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       expect(content).not.toContain('data:image/png;base64,')
       expect(fallbackBodies).toHaveLength(1)
       expect(JSON.stringify(fallbackBodies[0]!.input)).toContain('"type":"input_image"')
+      expect(JSON.stringify(fallbackBodies[0]!.input)).toContain('data:image/webp;base64,')
     })
   })
 

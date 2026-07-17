@@ -4,11 +4,24 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
+import { estimateResponseRequestTokens, responseEventStaleTimeoutMs } from '../../src/core/llm/session'
 import { buildResponseCreateParams } from '../../src/core/llm/wire'
 
 import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
+  it('uses a 300-second post-first-event stale window only above 100k estimated request tokens', () => {
+    expect(responseEventStaleTimeoutMs(100_000)).toBe(180_000)
+    expect(responseEventStaleTimeoutMs(100_001)).toBe(300_000)
+
+    const estimated = estimateResponseRequestTokens({
+      model: 'primary',
+      input: '中'.repeat(100_001)
+    })
+    expect(estimated).toBeGreaterThan(100_000)
+    expect(responseEventStaleTimeoutMs(estimated)).toBe(300_000)
+  })
+
   it('keys the reusable prompt prefix independently of dynamic messages and tool insertion order', () => {
     const model = createModel({
       apiKey: 'unused',
@@ -19,16 +32,32 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       instructions: 'stable instructions',
       messages: [{ role: 'user', content: 'first dynamic message' }],
       tools: {
-        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
-        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+        zebra: {
+          name: 'zebra',
+          description: 'Zebra tool',
+          parameters: z.object({})
+        },
+        alpha: {
+          name: 'alpha',
+          description: 'Alpha tool',
+          parameters: z.object({ q: z.string() })
+        }
       }
     })
     const second = buildResponseCreateParams(model, {
       instructions: 'stable instructions',
       messages: [{ role: 'user', content: 'different dynamic message' }],
       tools: {
-        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) },
-        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) }
+        alpha: {
+          name: 'alpha',
+          description: 'Alpha tool',
+          parameters: z.object({ q: z.string() })
+        },
+        zebra: {
+          name: 'zebra',
+          description: 'Zebra tool',
+          parameters: z.object({})
+        }
       }
     })
 
@@ -37,7 +66,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(first.tools?.map(tool => ('name' in tool ? tool.name : undefined))).toEqual(['alpha', 'zebra'])
     expect(second.tools?.map(tool => ('name' in tool ? tool.name : undefined))).toEqual(['alpha', 'zebra'])
     expect(JSON.stringify({ instructions: first.instructions, tools: first.tools })).toBe(
-      JSON.stringify({ instructions: second.instructions, tools: second.tools })
+      JSON.stringify({
+        instructions: second.instructions,
+        tools: second.tools
+      })
     )
 
     const longStablePrefix = 'stable policy '.repeat(400)
@@ -45,16 +77,32 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       instructions: `${longStablePrefix}runtime suffix one`,
       messages: [{ role: 'user', content: 'first dynamic message' }],
       tools: {
-        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
-        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+        zebra: {
+          name: 'zebra',
+          description: 'Zebra tool',
+          parameters: z.object({})
+        },
+        alpha: {
+          name: 'alpha',
+          description: 'Alpha tool',
+          parameters: z.object({ q: z.string() })
+        }
       }
     })
     const secondSuffix = buildResponseCreateParams(model, {
       instructions: `${longStablePrefix}runtime suffix two`,
       messages: [{ role: 'user', content: 'different dynamic message' }],
       tools: {
-        alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) },
-        zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) }
+        alpha: {
+          name: 'alpha',
+          description: 'Alpha tool',
+          parameters: z.object({ q: z.string() })
+        },
+        zebra: {
+          name: 'zebra',
+          description: 'Zebra tool',
+          parameters: z.object({})
+        }
       }
     })
 
@@ -64,14 +112,60 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         instructions: 'changed instructions',
         messages: [{ role: 'user', content: 'first dynamic message' }],
         tools: {
-          zebra: { name: 'zebra', description: 'Zebra tool', parameters: z.object({}) },
-          alpha: { name: 'alpha', description: 'Alpha tool', parameters: z.object({ q: z.string() }) }
+          zebra: {
+            name: 'zebra',
+            description: 'Zebra tool',
+            parameters: z.object({})
+          },
+          alpha: {
+            name: 'alpha',
+            description: 'Alpha tool',
+            parameters: z.object({ q: z.string() })
+          }
         }
       }).prompt_cache_key
     ).not.toBe(first.prompt_cache_key)
     expect(
-      buildResponseCreateParams(model, { messages: [{ role: 'user', content: 'no reusable prefix' }] }).prompt_cache_key
+      buildResponseCreateParams(model, {
+        messages: [{ role: 'user', content: 'no reusable prefix' }]
+      }).prompt_cache_key
     ).toBeUndefined()
+  })
+
+  it('merges the hosted image tool with function tools and includes it in the prompt cache prefix', () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary'
+    })
+    const baseOptions = {
+      instructions: 'stable instructions',
+      messages: [{ role: 'user' as const, content: 'draw and annotate' }],
+      tools: {
+        annotate: {
+          name: 'annotate',
+          description: 'Annotate a result',
+          parameters: z.object({ label: z.string() })
+        }
+      }
+    }
+
+    const withoutHosted = buildResponseCreateParams(model, baseOptions)
+    const withHosted = buildResponseCreateParams(model, {
+      ...baseOptions,
+      hostedTools: [{ type: 'image_generation' }]
+    })
+    const hostedOnly = buildResponseCreateParams(model, {
+      messages: [{ role: 'user', content: 'draw' }],
+      hostedTools: [{ type: 'image_generation' }]
+    })
+
+    expect(withHosted.tools).toEqual([
+      expect.objectContaining({ type: 'function', name: 'annotate' }),
+      { type: 'image_generation' }
+    ])
+    expect(hostedOnly.tools).toEqual([{ type: 'image_generation' }])
+    expect(withHosted.prompt_cache_key).not.toBe(withoutHosted.prompt_cache_key)
   })
 
   it('passes image input through as Responses input_image content', async () => {
@@ -119,7 +213,11 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         role: 'user',
         content: [
           { type: 'input_text', text: 'look' },
-          { type: 'input_image', image_url: 'data:image/png;base64,AAA=', detail: 'auto' }
+          {
+            type: 'input_image',
+            image_url: 'data:image/png;base64,AAA=',
+            detail: 'auto'
+          }
         ]
       }
     ])
@@ -199,7 +297,12 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
               {
                 type: 'message',
                 role: 'assistant',
-                content: [{ type: 'output_text', text: '{"intervene":false,"reason":"quiet"}' }]
+                content: [
+                  {
+                    type: 'output_text',
+                    text: '{"intervene":false,"reason":"quiet"}'
+                  }
+                ]
               }
             ]
           }),
@@ -377,7 +480,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       new Error('AIGateway WebSocket transport error'),
       new Error('LLM provider call aborted')
     ]) {
-      expect(classifyLLMError(error)).toMatchObject({ kind: 'timeout', retryable: true })
+      expect(classifyLLMError(error)).toMatchObject({
+        kind: 'timeout',
+        retryable: true
+      })
     }
 
     expect(isLocallyRetryableLLMError(beforeOpen)).toBe(true)
@@ -509,7 +615,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         {
           role: 'user',
           content: [
-            { type: 'text', text: '<agent_environment_info>\nroom: Ops\n</agent_environment_info>' },
+            {
+              type: 'text',
+              text: '<agent_environment_info>\nroom: Ops\n</agent_environment_info>'
+            },
             { type: 'text', text: 'Deploy status?' }
           ]
         }
@@ -525,7 +634,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         {
           role: 'user',
           content: [
-            { type: 'input_text', text: '<agent_environment_info>\nroom: Ops\n</agent_environment_info>' },
+            {
+              type: 'input_text',
+              text: '<agent_environment_info>\nroom: Ops\n</agent_environment_info>'
+            },
             { type: 'input_text', text: 'Deploy status?' }
           ]
         }
@@ -683,6 +795,97 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.content).toEqual([{ type: 'text', text: 'partial answer' }])
     expect(result.message.stopReason).toBe('length')
     expect(result.message.errorMessage).toBeUndefined()
+  })
+
+  it('maps max_output_tokens with a partial function call to error instead of executable length output', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => [
+            {
+              type: 'response.incomplete',
+              response: {
+                id: 'resp_partial_length',
+                status: 'incomplete',
+                incomplete_details: { reason: 'max_output_tokens' },
+                output: [
+                  {
+                    type: 'function_call',
+                    status: 'incomplete',
+                    id: 'fc_partial_length',
+                    call_id: 'call_partial_length',
+                    name: 'patch',
+                    arguments: '{"path":"/tmp/repor'
+                  }
+                ]
+              }
+            }
+          ])
+      }
+    })
+
+    const result = await callModel(model, {
+      messages: [{ role: 'user', content: 'write a report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000020',
+        conversationID: '20202020-2020-2020-2020-202020202020'
+      }
+    })
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.message.toolCalls).toBeUndefined()
+    expect(result.hasToolCalls).toBe(false)
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete function call')
+  })
+
+  it('treats an unkeyed function-call fragment as a malformed terminal instead of dropping it', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => [
+            {
+              type: 'response.completed',
+              response: {
+                id: 'resp_unkeyed_call',
+                status: 'completed',
+                output: [
+                  {
+                    type: 'function_call',
+                    status: 'completed',
+                    name: 'patch',
+                    arguments: '{}'
+                  }
+                ]
+              }
+            }
+          ])
+      }
+    })
+
+    const result = await callModel(model, {
+      messages: [{ role: 'user', content: 'write a report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000021',
+        conversationID: '21212121-2121-2121-2121-212121212121'
+      }
+    })
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.message.toolCalls).toBeUndefined()
+    expect(result.hasToolCalls).toBe(false)
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete function call')
   })
 
   it('maps content_filter response.incomplete terminals to an error assistant message', async () => {

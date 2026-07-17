@@ -3,7 +3,7 @@
 /** Bun/Node DEALER-side RuntimeFabric client. */
 export declare class RuntimeFabricDealer {
   constructor(endpoint: string, identity: string, username: string, password: string)
-  sendEnvelope(envelope: any): void
+  sendEnvelope(envelope: Buffer): void
   sendFileFrame(frames: Buffer[]): void
   recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>
   stop(): void
@@ -30,11 +30,13 @@ export declare function estimateO200kBaseTokens(text: string): number
 /** Hashes binary data through the shared kernel `generic_hash` contract. */
 export declare function genericHash(data: Buffer): string
 
-/** Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope. */
-export declare function runtimeFabricDecodeEnvelope(bytes: Buffer): any
-
-/** Encodes a RuntimeFabric v1 envelope into protobuf bytes. */
-export declare function runtimeFabricEncodeEnvelope(envelope: any): Buffer
+/**
+ * Checks RuntimeFabric protocol invariants on host-encoded envelope bytes.
+ *
+ * The worker encodes envelopes with its generated protobuf codec; this keeps
+ * the Rust kernel as the single semantic checker for received envelopes.
+ */
+export declare function runtimeFabricValidateEnvelope(bytes: Buffer): void
 
 /** Evaluates a SignalsGateway CEL admission filter. */
 export declare function signalsGatewayFilterMatch(filterSource: string, context: any): boolean

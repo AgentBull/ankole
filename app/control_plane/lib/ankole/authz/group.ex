@@ -11,6 +11,7 @@ defmodule Ankole.AuthZ.Group do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
+  alias Ankole.AuthZ.Input
   alias Ankole.AuthZ.Membership
 
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
@@ -89,28 +90,12 @@ defmodule Ankole.AuthZ.Group do
 
   defp validate_condition(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
-      case validate_kernel_condition(value) do
+      case Input.validate_condition_syntax(value) do
         :ok -> []
         {:error, reason} -> [{field, reason}]
       end
     end)
   end
-
-  defp validate_kernel_condition(value) when is_binary(value) do
-    try do
-      case Ankole.Kernel.authz_validate_condition(value) do
-        true -> :ok
-        {:error, reason} -> {:error, to_string(reason)}
-        _other -> {:error, "is invalid"}
-      end
-    rescue
-      exception -> {:error, Exception.message(exception)}
-    catch
-      _kind, reason -> {:error, inspect(reason)}
-    end
-  end
-
-  defp validate_kernel_condition(_value), do: {:error, "must be a string"}
 
   defp validate_absent(changeset, field) do
     case get_field(changeset, field) do

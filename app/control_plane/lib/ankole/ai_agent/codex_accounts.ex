@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.CodexAccounts do
   @moduledoc """
-  Durable ChatGPT subscription accounts for the Codex task-worker implementation.
+  Durable ChatGPT subscription accounts for CodexRunner BackgroundAgentJobs.
   """
 
   import Ecto.Query, warn: false
@@ -11,7 +11,8 @@ defmodule Ankole.AIAgent.CodexAccounts do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
-  alias Ankole.SubagentDelegations.Schemas.Delegation
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.WorkerFiles
 
   @nonterminal_statuses ~w(queued running waiting_on_user)
@@ -108,7 +109,7 @@ defmodule Ankole.AIAgent.CodexAccounts do
       Repo.transact(fn repo ->
         with %Account{} = account <- lock_account(repo, account_id),
              [] <- model_profile_references(repo, account_id),
-             [] <- delegation_references(repo, account_id) do
+             [] <- job_references(repo, account_id) do
           repo.delete(account)
         else
           nil -> {:error, :not_found}
@@ -231,7 +232,7 @@ defmodule Ankole.AIAgent.CodexAccounts do
   defp ensure_deletable(account_id) do
     with {:ok, _account} <- fetch_account(account_id),
          [] <- model_profile_references(Repo, account_id),
-         [] <- delegation_references(Repo, account_id) do
+         [] <- job_references(Repo, account_id) do
       :ok
     else
       references when is_list(references) -> {:error, {:codex_account_in_use, references}}
@@ -253,25 +254,30 @@ defmodule Ankole.AIAgent.CodexAccounts do
     |> repo.all()
   end
 
-  defp delegation_references(repo, account_id) do
-    Delegation
+  defp job_references(repo, account_id) do
+    Job
     |> join(
       :left,
-      [delegation],
+      [job],
       assignment in ActorSessionWorkerAssignment,
       on:
-        assignment.agent_uid == delegation.agent_uid and
-          assignment.session_id == fragment("'subagent:' || ?", delegation.id) and
+        assignment.agent_uid == job.agent_uid and
+          assignment.session_id ==
+            fragment(
+              "? || ?",
+              type(^BackgroundAgentJobs.job_session_prefix(), :string),
+              job.id
+            ) and
           assignment.status in ["assigned", "draining"]
     )
     |> where(
-      [delegation, assignment],
-      delegation.codex_account_id == ^account_id and
-        (delegation.status in ^@nonterminal_statuses or not is_nil(assignment.id))
+      [job, assignment],
+      job.codex_account_id == ^account_id and
+        (job.status in ^@nonterminal_statuses or not is_nil(assignment.id))
     )
-    |> select([delegation, _assignment], %{
-      type: "delegation",
-      delegation_id: delegation.id
+    |> select([job, _assignment], %{
+      type: "job",
+      job_id: job.id
     })
     |> repo.all()
   end

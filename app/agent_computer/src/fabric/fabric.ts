@@ -1,25 +1,6 @@
 import * as kernel from '../../../kernel'
+import { decodeEnvelope, encodeEnvelope, type Envelope } from './envelope_proto'
 import { Buffer } from 'node:buffer'
-
-/**
- * JSON-shaped host representation of a RuntimeFabric protobuf envelope.
- *
- * The native kernel owns protobuf validation. TypeScript keeps a JSON shape so
- * the worker code can stay close to the control-plane envelope contract.
- */
-export type RuntimeFabricEnvelope = {
-  protocol_version: 1
-  message_id: string
-  correlation_id?: string
-  seq?: number
-  lane: string
-  sent_at_unix_ms?: number
-  durability: string
-  body: {
-    type: string
-    [key: string]: unknown
-  }
-}
 
 export const runtimeFabricFileProtocol = Buffer.from('ANKOLE_FILE/1')
 
@@ -48,10 +29,10 @@ export class RuntimeFabricTransportError extends Error {
 
 export type RuntimeFabricReceiveOutcome =
   | { kind: 'timeout' }
-  | { kind: 'envelope'; envelope: RuntimeFabricEnvelope }
+  | { kind: 'envelope'; envelope: Envelope }
   | { kind: 'worker_file'; frames: Buffer[] }
 
-export type EnvelopeSender = (envelope: RuntimeFabricEnvelope) => Promise<void>
+export type EnvelopeSender = (envelope: Envelope) => Promise<void>
 
 export type FileFrameSender = (frames: Buffer[]) => Promise<void>
 
@@ -63,7 +44,7 @@ export type RuntimeFabricHost = {
 }
 
 export type RuntimeFabricPhysicalTransport = {
-  sendEnvelope(envelope: RuntimeFabricEnvelope): void
+  sendEnvelope(envelope: Buffer): void
   sendFileFrame(frames: Buffer[]): void
   recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>
   stop(): void
@@ -139,7 +120,7 @@ export function createRuntimeFabricHost(
   }
 
   return {
-    sendEnvelope: envelope => sendWithRetry(() => transport.sendEnvelope(envelope)),
+    sendEnvelope: envelope => sendWithRetry(() => transport.sendEnvelope(encodeEnvelope(envelope))),
     sendFileFrame: frames => sendWithRetry(() => transport.sendFileFrame(frames)),
     async receive(timeoutMs) {
       ensureOpen()
@@ -165,9 +146,12 @@ export function createRuntimeFabricHost(
       }
 
       try {
+        // The kernel stays the single semantic checker for received envelopes;
+        // structural decoding uses the codec generated from envelope.proto.
+        kernel.runtimeFabricValidateEnvelope(frames[0])
         return {
           kind: 'envelope',
-          envelope: kernel.runtimeFabricDecodeEnvelope(frames[0]) as RuntimeFabricEnvelope
+          envelope: decodeEnvelope(frames[0])
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

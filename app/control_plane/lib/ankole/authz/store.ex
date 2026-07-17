@@ -24,6 +24,7 @@ defmodule Ankole.AuthZ.Store do
   def add_principal_to_group(repo, principal_uid, group_id_or_name, admin_group_name) do
     with {:ok, group} <- fetch_group_for_update(repo, group_id_or_name),
          :ok <- ensure_static_group(group),
+         :ok <- ensure_operator_domain(group),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
          :ok <- ensure_group_accepts_principal(group, principal, admin_group_name) do
       insert_membership(repo, group.id, principal.uid)
@@ -33,8 +34,29 @@ defmodule Ankole.AuthZ.Store do
   def remove_principal_from_group(repo, principal_uid, group_id_or_name, admin_group_name) do
     with {:ok, group} <- fetch_group(repo, group_id_or_name),
          :ok <- ensure_static_group(group),
+         :ok <- ensure_operator_domain(group),
          {:ok, principal_uid} <- Principals.normalize_uid(principal_uid) do
       remove_membership(repo, principal_uid, group, admin_group_name)
+    end
+  end
+
+  def add_synced_group_member(repo, group_id, expected_domain, principal_uid)
+      when expected_domain in [:directory, :im_group] do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain),
+         {:ok, principal} <- fetch_principal_for_update(repo, principal_uid) do
+      insert_membership(repo, group.id, principal.uid)
+    end
+  end
+
+  def remove_synced_group_member(repo, group_id, expected_domain, principal_uid)
+      when expected_domain in [:directory, :im_group] do
+    with {:ok, group} <- lock_group(repo, group_id),
+         :ok <- ensure_static_group(group),
+         :ok <- ensure_group_domain(group, expected_domain),
+         {:ok, principal_uid} <- Principals.normalize_uid(principal_uid) do
+      delete_membership(repo, principal_uid, group.id)
     end
   end
 
@@ -245,6 +267,9 @@ defmodule Ankole.AuthZ.Store do
 
   def ensure_operator_group(%Group{built_in: false}), do: :ok
   def ensure_operator_group(%Group{built_in: true}), do: {:error, :built_in_group}
+
+  def ensure_operator_domain(%Group{domain: :operator}), do: :ok
+  def ensure_operator_domain(%Group{}), do: {:error, :group_domain_mismatch}
 
   def ensure_group_has_no_grants(repo, group_id) do
     case repo.exists?(from grant in Grant, where: grant.group_id == ^group_id) do

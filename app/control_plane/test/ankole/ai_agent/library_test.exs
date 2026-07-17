@@ -4,6 +4,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
@@ -24,15 +25,33 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert Enum.all?(skills, & &1["default_enabled"])
 
+    research = Enum.find(skills, &(&1["skill_name"] == "deep-research"))
+    assert research["source_kind"] == "builtin"
+    assert research["agent_plugin_id"] == "deep-research"
+    assert research["relative_path"] == "agent-plugins/deep-research/skills/deep-research"
+
+    assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
+    prompt_research = Enum.find(prompt_skills, &(&1["skill_name"] == "deep-research"))
+    assert prompt_research["source_kind"] == "builtin"
+    assert prompt_research["agent_plugin_id"] == "deep-research"
+    assert prompt_research["skill_root"] == "library"
+
+    assert {:ok, research_view} = Library.skill_view(agent.uid, "deep-research")
+    assert research_view["content"] =~ "Deep Research"
+
     for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
-      assert %AgentSkill{enabled: false, default_enabled: false} =
+      assert %AgentSkill{
+               enabled_override: nil,
+               default_enabled: true,
+               source_kind: "builtin",
+               agent_plugin_id: "lark"
+             } =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: skill_name)
     end
 
-    browser = Enum.find(skills, &(&1["skill_name"] == "browser"))
-    assert browser["metadata"]["long_running"]
+    assert {:ok, false} = AgentPlugins.effective_enabled?(agent.uid, "lark")
 
-    assert {:ok, _browser_skill} = Library.skill_view(agent.uid, "browser")
+    assert {:ok, _browser} = Library.skill_view(agent.uid, "browser")
 
     assert Enum.find(skills, &(&1["skill_name"] == "jupyter-live-kernel"))["category"] ==
              "data-science"
@@ -182,18 +201,77 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert Enum.any?(skills, &(&1["skill_name"] == "agent-notes"))
   end
 
-  test "set_agent_skill_enabled updates an existing registry row through the context facade" do
+  test "rejects Skill name collisions across first-party and installed sources" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %AgentSkill{enabled: false}} =
-             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", false)
+    assert {:error, {:skill_source_name_conflicts, ["nano-pdf"]}} =
+             Library.replace_installed_skill_observations(agent.uid, [
+               %{
+                 skill_name: "nano-pdf",
+                 relative_path: "nano-pdf",
+                 description: "Conflicting installed Skill.",
+                 default_enabled: true,
+                 metadata: %{},
+                 content_hash: "7b16fe7c3e492b87d9615265f0856cec",
+                 file_count: 1
+               }
+             ])
+
+    assert %AgentSkill{source_kind: "builtin", agent_plugin_id: nil} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "nano-pdf")
+
+    root = tmp_library_root!("plugin-collision")
+    library_root = Path.join(root, "library")
+
+    write_skill!(
+      Path.join([library_root, "skills", "shared-name"]),
+      "shared-name",
+      "Standalone.",
+      "# Standalone"
+    )
+
+    write_agent_plugin!(library_root, "collision-plugin", "shared-name")
+    with_library_config(library_root: library_root)
+
+    assert {:error, {:skill_source_name_conflicts, ["shared-name"]}} =
+             Library.sync_builtin_skills(force: true)
+
+    assert {:error, {:skill_source_name_conflicts, ["shared-name"]}} =
+             Library.global_capabilities()
+  end
+
+  test "Agent Skill overrides can be set and cleared without rewriting the inherited default" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, %AgentSkill{enabled_override: false}} =
+             Library.set_agent_skill_override(agent.uid, "nano-pdf", false)
 
     assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "nano-pdf")
 
-    assert {:ok, %AgentSkill{enabled: true}} =
-             Library.set_agent_skill_enabled(agent.uid, "nano-pdf", true)
+    assert {:ok, %AgentSkill{enabled_override: true}} =
+             Library.set_agent_skill_override(agent.uid, "nano-pdf", true)
 
     assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
+
+    assert {:ok, %AgentSkill{enabled_override: nil}} =
+             Library.set_agent_skill_override(agent.uid, "nano-pdf", nil)
+
+    assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
+  end
+
+  test "effective Agent Plugin lookup does not resynchronize Skill registry rows" do
+    %{principal: agent} = agent_fixture()
+    skill = Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "lark-im")
+    old_sync = ~U[2020-01-01 00:00:00.000000Z]
+
+    skill
+    |> Ecto.Changeset.change(synced_at: old_sync)
+    |> Repo.update!()
+
+    assert {:ok, false} = AgentPlugins.effective_enabled?(agent.uid, "lark")
+
+    assert %AgentSkill{synced_at: ^old_sync} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "lark-im")
   end
 
   test "source reader uses runtime roots, internal shadowing, and metadata-only fingerprints" do
@@ -284,28 +362,6 @@ defmodule Ankole.AIAgent.LibraryTest do
              "Public description."
   end
 
-  test "source reader rejects invalid execution profile identifiers" do
-    root = tmp_library_root!("invalid-execution-profile")
-    skill_root = Path.join([root, "library", "skills", "invalid-profile"])
-    File.mkdir_p!(skill_root)
-
-    File.write!(Path.join(skill_root, "SKILL.md"), """
-    ---
-    name: invalid-profile
-    description: Invalid execution profile fixture.
-    default_enabled: false
-    execution_profile: Lark CLI
-    ---
-
-    # Invalid profile
-    """)
-
-    with_library_config(library_root: Path.join(root, "library"))
-
-    assert {:error, {:invalid_execution_profile, "Lark CLI"}} =
-             SourceReader.read_builtin_skill_sources()
-  end
-
   defp tmp_library_root!(name) do
     root =
       Path.join([
@@ -332,6 +388,29 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     #{body}
     """)
+  end
+
+  defp write_agent_plugin!(library_root, plugin_id, skill_name) do
+    plugin_root = Path.join([library_root, "agent-plugins", plugin_id])
+
+    write_skill!(
+      Path.join([plugin_root, "skills", skill_name]),
+      skill_name,
+      "Plugin member.",
+      "# Plugin"
+    )
+
+    File.mkdir_p!(Path.join(plugin_root, ".codex-plugin"))
+
+    File.write!(
+      Path.join([plugin_root, ".codex-plugin", "plugin.json"]),
+      Ankole.JSON.encode!(%{
+        "name" => plugin_id,
+        "version" => "1.0.0",
+        "description" => "Collision test Plugin.",
+        "skills" => "./skills/"
+      })
+    )
   end
 
   defp with_library_config(config) do

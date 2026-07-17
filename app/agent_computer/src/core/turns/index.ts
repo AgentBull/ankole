@@ -1,8 +1,8 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAmbientMayInterveneHandler } from './ambient_turn'
 import { runTextTurnLoop } from './text_turn'
-import { runSubagentTurn } from './subagent_turn'
-import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
+import { runCodexJob } from '../codex-runner'
+import type { TurnHandlerOptions, TurnHandlerResult } from './turn_options'
 
 /**
  * Dispatches one worker turn by actor event type.
@@ -10,9 +10,9 @@ import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
  * AIGateway owns compaction. The worker handles normal text turns and ambient
  * may-intervene events.
  */
-export async function runTurnHandlers(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
-  if (turnStart.turn.actor.session_id.startsWith('subagent:')) {
-    return runSubagentTurn(turnStart, opts)
+export async function runTurnHandlers(turnStart: TurnStart, opts: TurnHandlerOptions): Promise<TurnHandlerResult> {
+  if (turnStart.turn.actor.session_id.startsWith('job:')) {
+    return runCodexJob(turnStart, opts)
   }
 
   if (isAmbientMayInterveneTurn(turnStart)) {

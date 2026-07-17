@@ -32,13 +32,6 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     {:ok, route: route, route_auth: route_auth}
   end
 
-  test "OpenAPI JSON includes worker file endpoints", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/agent-computer-workers/{worker_id}/files")
-  end
-
   test "list returns entries and truncation from the lane", %{
     conn: conn,
     route: route,

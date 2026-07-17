@@ -29,6 +29,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   test "admin creates a Lark signal binding with the record-only default", %{conn: conn} do
     %{principal: agent} = agent_fixture()
+    config_key = "signals_gateway.lark.bindings.#{agent.uid}"
+    config_ref = "app-config://#{config_key}"
 
     conn =
       conn
@@ -48,8 +50,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                "agent_uid" => agent_uid,
                "name" => "lark-main",
                "adapter" => "lark",
-               "config_key" => "signals_gateway.lark.bindings.lark-main",
-               "config_ref" => "app-config://signals_gateway.lark.bindings.lark-main",
+               "config_key" => ^config_key,
+               "config_ref" => ^config_ref,
                "unaddressed_group_message_policy" => "record_only",
                "enabled" => true
              }
@@ -114,7 +116,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> get(~p"/api/v1/signal-adapters")
 
     assert %{"signal_adapters" => adapters} = json_response(conn, 200)
-    assert Enum.map(adapters, & &1["adapter_id"]) == ["lark", "slack", "teams"]
+    assert Enum.map(adapters, & &1["adapter_id"]) == ["dingtalk", "lark", "slack", "teams"]
 
     adapter = Enum.find(adapters, &(&1["adapter_id"] == "lark"))
     assert adapter["adapter_id"] == "lark"
@@ -190,30 +192,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                "message" => "signal adapter registry is unavailable"
              }
            } = json_response(conn, 503)
-  end
-
-  test "OpenAPI JSON includes signal binding configuration endpoint", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/signal-adapters")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings")
-
-    assert Map.has_key?(
-             paths,
-             "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}"
-           )
-
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}")
-
-    assert get_in(paths, ["/api/v1/signal-adapters", "get", "responses", "503"])
-
-    assert get_in(paths, [
-             "/api/v1/agents/{agent_uid}/signal-bindings/{adapter_id}/{binding_name}",
-             "put",
-             "responses",
-             "503"
-           ])
   end
 
   defp without_plugin_registry(fun) do

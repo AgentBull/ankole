@@ -5,13 +5,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
 
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.AmbientIntervention
   alias Ankole.SignalsGateway.ActorRuntime.EntryLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.RuntimeCommand
   alias Ankole.SignalsGateway.ActorRuntime.ScheduledTurn
   alias Ankole.SignalsGateway.ActorRuntime.SessionReset
-  alias Ankole.SignalsGateway.ActorRuntime.SubagentDispatch
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.Repo
+
+  require Ankole.BackgroundAgentJobs
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -38,14 +42,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
       %ActorEvent{type: "signal.entry.removed"} = event ->
         EntryLifecycle.process(event, opts)
 
-      %ActorEvent{type: "subagent.delegation.dispatch"} = event ->
-        SubagentDispatch.process(actor_key, event, opts)
+      %ActorEvent{type: "background_agent_job.dispatch"} = event ->
+        BackgroundAgentJobDispatch.process(actor_key, event, opts)
 
-      %ActorEvent{type: "command.steer", session_id: "subagent:" <> _delegation_id} = event ->
-        SubagentDispatch.process_steer(actor_key, event, opts)
+      %ActorEvent{type: "command.steer", session_id: session_id} = event
+      when BackgroundAgentJobs.is_job_session_id(session_id) ->
+        BackgroundAgentJobDispatch.process_steer(actor_key, event, opts)
 
-      %ActorEvent{type: "command.stop", session_id: "subagent:" <> _delegation_id} = event ->
-        RuntimeCommand.process_subagent_stop(actor_key, event, opts)
+      %ActorEvent{type: "command.stop", session_id: session_id} = event
+      when BackgroundAgentJobs.is_job_session_id(session_id) ->
+        RuntimeCommand.process_background_agent_job_stop(actor_key, event, opts)
 
       %ActorEvent{type: type} = event
       when type in ["command.stop", "command.retry", "command.compress"] ->
@@ -59,11 +65,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
         TurnLifecycle.start_worker_turn(actor_key, event, ScheduledTurn.opts(event, opts))
 
       %ActorEvent{type: "im.message.may_intervene"} = event ->
-        TurnLifecycle.start_worker_turn(
-          actor_key,
-          event,
-          Keyword.put_new(opts, :profile, "light")
-        )
+        AmbientIntervention.process(actor_key, event, opts)
 
       %ActorEvent{type: "brain.source.learn"} = event ->
         TurnLifecycle.start_worker_turn(

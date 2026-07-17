@@ -30,7 +30,7 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
   return {
     name: 'read_file',
     description:
-      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command or interactive_terminal. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to /workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
+      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to /workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
     schema: ReadFileParams,
     executionMode: 'parallel',
     isReadOnly: true,

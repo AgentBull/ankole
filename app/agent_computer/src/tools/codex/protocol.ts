@@ -1,18 +1,18 @@
 import { jsonObject, match } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { JSONRPCMessage } from './app-server-client'
-import type { SubagentDelegationStatus, SubagentTurnUsage } from '../../lanes/rpc_lane'
+import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../lanes/rpc_lane'
 
 export type CodexNotificationProjection =
   | { type: 'stderr'; params: JSONObject }
   | { type: 'turn_started'; turnID?: string }
   | { type: 'agent_completed'; text: string }
-  | { type: 'token_usage'; usage: SubagentTurnUsage }
+  | { type: 'token_usage'; usage: BackgroundAgentJobTurnUsage }
   | { type: 'turn_diff'; filesChanged: string[] }
   | {
       type: 'turn_completed'
       codexTurnStatus: string
-      terminalStatus: SubagentDelegationStatus
+      terminalStatus: BackgroundAgentJobStatus
       error: JSONObject
     }
   | { type: 'ignored' }
@@ -66,7 +66,7 @@ export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
-export function normalizeCodexThreadUsage(value: unknown): SubagentTurnUsage | undefined {
+export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTurnUsage | undefined {
   const usage = jsonObject(value)
   const threadTotal = usageBreakdown(usage.total)
   const lastModelCall = usageBreakdown(usage.last)
@@ -89,7 +89,7 @@ export function filesChangedFromCodexDiff(diff: string): string[] {
   return [...files].sort()
 }
 
-function usageBreakdown(value: unknown): SubagentTurnUsage['thread_total'] | undefined {
+function usageBreakdown(value: unknown): BackgroundAgentJobTurnUsage['thread_total'] | undefined {
   const breakdown = jsonObject(value)
   const totalTokens = nonnegativeInteger(breakdown.totalTokens)
   const inputTokens = nonnegativeInteger(breakdown.inputTokens)
@@ -158,7 +158,7 @@ export function userInputResponse(
   return { answers }
 }
 
-function terminalStatusFromCodexTurn(status: string): SubagentDelegationStatus {
+function terminalStatusFromCodexTurn(status: string): BackgroundAgentJobStatus {
   return match(status)
     .with('completed', () => 'succeeded' as const)
     .with('interrupted', () => 'stopped' as const)

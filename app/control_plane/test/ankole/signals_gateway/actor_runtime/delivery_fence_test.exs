@@ -142,7 +142,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert {:ok, %{send_outcome: "unknown_route", turn_ref: first_turn_ref}} =
                process_ready_events_once(now: DateTime.add(@base_time, 1, :second))
 
-      assert first_turn_ref["actor_event_id"] == input.id
+      assert first_turn_ref.actor_event_id == input.id
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
       assert Repo.aggregate(Message, :count) == initial_message_count
 
@@ -156,7 +156,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert Repo.aggregate(Message, :count) == initial_message_count
 
       assert_receive {:actor_lane, envelope}
-      assert envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+      assert turn_start_payload!(envelope).turn.actor_event_id == input.id
 
       deliveries =
         Repo.all(from(delivery in ActorEventDelivery, order_by: [asc: delivery.attempt_no]))
@@ -258,9 +258,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: 1
                )
 
-      assert first_turn_ref["actor_event_id"] == input.id
+      assert first_turn_ref.actor_event_id == input.id
       assert_receive {:actor_lane, first_envelope}
-      assert first_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+      assert turn_start_payload!(first_envelope).turn.actor_event_id == input.id
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
 
       stale_message =
@@ -289,8 +289,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert second_turn_ref["actor_event_id"] == input.id
-      assert second_turn_ref["actor_epoch"] == 2
+      assert second_turn_ref.actor_event_id == input.id
+      assert second_turn_ref.actor_epoch == 2
 
       assert Repo.get!(Message, stale_message.id).status == "error"
 
@@ -306,7 +306,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert Enum.map(activations, & &1.actor_epoch) == [1, 2]
 
       assert_receive {:actor_lane, retry_envelope}
-      assert retry_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == input.id
+      assert turn_start_payload!(retry_envelope).turn.actor_event_id == input.id
 
       assert ["sent"] =
                ActorEventDelivery
@@ -393,28 +393,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert first_turn_ref["actor_event_id"] == input.id
+      assert first_turn_ref.actor_event_id == input.id
       assert_receive {:actor_lane, first_envelope}
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
-      first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
+      first_turn_ref = turn_start_payload!(first_envelope).turn
 
       failure_time = DateTime.add(@base_time, 2, :second)
 
       assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
                ActorRuntime.handle_turn_error(
-                 %{
-                   "turn_error" => %{
-                     "turn" => first_turn_ref,
-                     "code" => "worker_loop_failed",
-                     "message" => "worker loop failed",
-                     "details_json" => %{"retryable" => true}
-                   }
-                 },
+                 turn_error_payload(first_turn_ref, "worker_loop_failed", "worker loop failed", %{
+                   "retryable" => true
+                 }),
                  now: failure_time
                )
 
-      assert retry_available_at == DateTime.add(failure_time, 2, :second)
+      assert retry_available_at == DateTime.add(failure_time, 5, :second)
 
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
@@ -432,22 +427,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
       assert {:ok, %{turn_ref: second_turn_ref}} =
                process_ready_events_once(
-                 now: DateTime.add(failure_time, 2, :second),
+                 now: DateTime.add(failure_time, 5, :second),
                  lease_seconds: @long_lease_seconds
                )
 
-      assert second_turn_ref["actor_event_id"] == input.id
-      assert second_turn_ref["actor_epoch"] == 2
+      assert second_turn_ref.actor_event_id == input.id
+      assert second_turn_ref.actor_epoch == 2
 
       assert Repo.one!(
                from(message in Message, where: message.role == "user", select: count(message.id))
              ) == 0
 
       assert_receive {:actor_lane, second_envelope}
-      assert second_envelope["body"]["turn_start"]["turn"]["actor_epoch"] == 2
+      assert turn_start_payload!(second_envelope).turn.actor_epoch == 2
     end
 
-    test "repeated worker turn_error dead-letters the poison event and releases the session" do
+    test "non-retryable turn_error dead-letters immediately and releases the session" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -472,20 +467,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert {:ok, %{status: :turn_failed, actor_event: first_failed}} =
-               fail_next_turn!(DateTime.add(@base_time, 2, :second))
-
-      assert first_failed.id == poison_event.id
-      assert Repo.get!(ActorEvent, poison_event.id).input_state == "open"
-
-      assert {:ok, %{status: :turn_failed, actor_event: second_failed}} =
-               fail_next_turn!(DateTime.add(@base_time, 3, :second))
-
-      assert second_failed.id == poison_event.id
-      assert Repo.get!(ActorEvent, poison_event.id).input_state == "open"
-
       assert {:ok, %{status: :turn_dead_lettered, actor_event: dead_lettered}} =
-               fail_next_turn!(DateTime.add(@base_time, 4, :second))
+               fail_next_turn!(DateTime.add(@base_time, 2, :second))
 
       assert dead_lettered.id == poison_event.id
 
@@ -507,13 +490,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
       assert {:ok, %{turn_ref: next_turn_ref}} =
                process_ready_events_once(
-                 now: DateTime.add(@base_time, 5, :second),
+                 now: DateTime.add(@base_time, 3, :second),
                  lease_seconds: @long_lease_seconds
                )
 
-      assert next_turn_ref["actor_event_id"] == next_event.id
+      assert next_turn_ref.actor_event_id == next_event.id
       assert_receive {:actor_lane, next_envelope}
-      assert next_envelope["body"]["turn_start"]["turn"]["actor_event_id"] == next_event.id
+      assert turn_start_payload!(next_envelope).turn.actor_event_id == next_event.id
     end
 
     test "dead-lettering an addressed message finalizes the reply preview with a failure notice" do
@@ -533,23 +516,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  now: @base_time
                )
 
-      # Simulate a preview that streamed on an earlier attempt before the turn
-      # exhausted its worker retries. The dead-letter notice must edit that frozen
-      # preview in place rather than leave it stuck or post a second message.
+      # Simulate a preview that streamed before the terminal worker failure. The
+      # dead-letter notice must edit that frozen preview in place rather than
+      # leave it stuck or post a second message.
       preview_source_entry_id = "preview-#{Ecto.UUID.generate()}"
 
       poison_event
       |> ActorEvent.changeset(%{reply_preview_source_entry_id: preview_source_entry_id})
       |> Repo.update!()
 
-      assert {:ok, %{status: :turn_failed}} =
-               fail_next_turn!(DateTime.add(@base_time, 2, :second))
-
-      assert {:ok, %{status: :turn_failed}} =
-               fail_next_turn!(DateTime.add(@base_time, 3, :second))
-
       assert {:ok, %{status: :turn_dead_lettered}} =
-               fail_next_turn!(DateTime.add(@base_time, 4, :second))
+               fail_next_turn!(DateTime.add(@base_time, 2, :second))
 
       notice = Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
 
@@ -567,14 +544,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert is_nil(notice.reply_to_source_entry_id)
     end
 
-    test "retryable turn_error backs off without poisoning the event" do
+    test "retryable turn_error backs off then dead-letters at the attempt limit" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())
       on_exit(fn -> Broker.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, _worker} =
+               admit_worker(route, %{capacity: %{"available_turn_slots" => 9}})
 
       assert {:ok, %{actor_event: input}} =
                emit_entry(
@@ -585,13 +564,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                )
 
       retry_available_at =
-        Enum.reduce(1..2, DateTime.add(@base_time, 2, :second), fn attempt, now ->
+        Enum.reduce(1..4, DateTime.add(@base_time, 2, :second), fn attempt, now ->
           assert {:ok, %{status: :turn_failed, retry_available_at: retry_available_at}} =
                    fail_next_turn!(now, retryable?: true)
 
           assert Repo.get!(ActorEvent, input.id).input_state == "open"
           assert is_nil(Repo.get!(ActorEvent, input.id).dead_letter_at)
           assert DateTime.compare(retry_available_at, now) == :gt
+          assert DateTime.diff(retry_available_at, now, :second) == 5 * 2 ** (attempt - 1)
 
           assert {:ok, %{status: :idle}} =
                    process_ready_events_once(
@@ -604,19 +584,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
       assert {:ok,
               %{
-                status: :turn_failed,
-                dead_lettered?: false,
-                retry_available_at: next_retry_available_at,
+                status: :turn_dead_lettered,
+                dead_lettered?: true,
+                retry_available_at: nil,
                 actor_event: retried
               }} =
                fail_next_turn!(retry_available_at, retryable?: true)
 
       assert retried.id == input.id
-      assert DateTime.compare(next_retry_available_at, retry_available_at) == :gt
 
       stored = Repo.get!(ActorEvent, input.id)
-      assert stored.input_state == "open"
-      assert is_nil(stored.dead_letter_at)
+      assert stored.input_state == "dead_letter"
+      assert %DateTime{} = stored.dead_letter_at
     end
 
     test "nested aigateway retryable turn_error details back off without poisoning the event" do
@@ -699,7 +678,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert next_turn_ref["actor_event_id"] == next_event.id
+      assert next_turn_ref.actor_event_id == next_event.id
     end
 
     test "context overflow turn_error marks the actor event for truncation retry" do
@@ -725,17 +704,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert first_turn_ref["actor_event_id"] == input.id
+      assert first_turn_ref.actor_event_id == input.id
       assert_receive {:actor_lane, first_envelope}
-      first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
+      first_turn_ref = turn_start_payload!(first_envelope).turn
 
       assert {:ok, %{status: :turn_failed, actor_event: retried_event}} =
-               ActorRuntime.handle_turn_error(%{
-                 "turn_error" => %{
-                   "turn" => first_turn_ref,
-                   "code" => "worker_turn_failed",
-                   "message" => "AIGateway stateful input exceeds the configured context budget.",
-                   "details_json" => %{
+               ActorRuntime.handle_turn_error(
+                 turn_error_payload(
+                   first_turn_ref,
+                   "worker_turn_failed",
+                   "AIGateway stateful input exceeds the configured context budget.",
+                   %{
                      "llm_error_kind" => "overflow",
                      "should_compress" => true,
                      "aigateway" => %{
@@ -746,8 +725,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                        }
                      }
                    }
-                 }
-               })
+                 )
+               )
 
       assert retried_event.id == input.id
 
@@ -780,8 +759,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert second_turn_ref["actor_event_id"] == input.id
-      assert second_turn_ref["actor_epoch"] == 2
+      assert second_turn_ref.actor_event_id == input.id
+      assert second_turn_ref.actor_epoch == 2
     end
 
     test "expired activation rejects late worker completion without provider output" do
@@ -808,32 +787,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: @long_lease_seconds
                )
 
-      assert turn_ref_from_result["actor_event_id"] == input.id
+      assert turn_ref_from_result.actor_event_id == input.id
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       Repo.update_all(
         from(activation in ActorSessionActivation,
-          where: activation.activation_uid == ^turn_ref["activation_uid"]
+          where: activation.activation_uid == ^turn_ref.activation_uid
         ),
         set: [lease_expires_at: DateTime.add(DateTime.utc_now(:microsecond), -1, :second)]
       )
 
       assert {:error, :activation_lease_expired} =
-               ActorRuntime.handle_turn_noop_completed(%{
-                 "turn_noop_completed" => %{
-                   "turn" => turn_ref,
-                   "reason" => "late_worker_completion"
-                 }
-               })
+               ActorRuntime.handle_turn_noop_completed(
+                 turn_noop_completed_payload(turn_ref, "late_worker_completion")
+               )
 
       assert Repo.get!(ActorEvent, input.id).input_state == "open"
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
@@ -868,50 +840,41 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
                  lease_seconds: 2
                )
 
-      assert turn_ref_from_result["actor_event_id"] == input.id
+      assert turn_ref_from_result.actor_event_id == input.id
       assert_receive {:actor_lane, envelope}
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{
-                   "turn" => turn_ref
-                 }
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       now = DateTime.utc_now(:microsecond)
       soon = DateTime.add(now, 1, :second)
 
       Repo.update_all(
         from(activation in ActorSessionActivation,
-          where: activation.activation_uid == ^turn_ref["activation_uid"]
+          where: activation.activation_uid == ^turn_ref.activation_uid
         ),
         set: [lease_expires_at: soon]
       )
 
       assert {:ok, activation} =
                ActorRuntime.handle_worker_progress(
-                 %{
-                   "worker_progress" => %{
-                     "turn" => turn_ref,
-                     "kind" => "reply_presentation",
-                     "summary" => "reply presentation updated",
-                     "refs_json" => %{
-                       "presentation_event" => %{
-                         "kind" => "tool.activity",
-                         "payload" => %{
-                           "operation_id" => "call-1",
-                           "phase" => "running",
-                           "label" => "检索资料",
-                           "revision" => 1
-                         }
+                 worker_progress_payload(turn_ref, "reply_presentation",
+                   summary: "reply presentation updated",
+                   refs: %{
+                     "presentation_event" => %{
+                       "kind" => "tool.activity",
+                       "payload" => %{
+                         "operation_id" => "call-1",
+                         "phase" => "running",
+                         "label" => "检索资料",
+                         "revision" => 1
                        }
                      }
                    }
-                 },
+                 ),
                  now: now,
-                 lease_seconds: 300,
                  presentation_event_fun: fn actor_event_id, event ->
                    send(self(), {:reply_presentation_event, actor_event_id, event})
                  end
@@ -920,27 +883,40 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       input_id = input.id
       assert_receive {:reply_presentation_event, ^input_id, %{"kind" => "tool.activity"}}
 
-      assert DateTime.compare(activation.lease_expires_at, DateTime.add(now, 299, :second)) ==
+      assert DateTime.compare(activation.lease_expires_at, DateTime.add(now, 2_099, :second)) ==
                :gt
+
+      {_, deadline_payload} =
+        ActorRuntime.runtime_event_snapshot()
+        |> Enum.find(fn
+          {channel, %{"activation_uid" => activation_uid}} ->
+            channel == Ankole.RuntimeEvents.activation_deadline_channel() and
+              activation_uid == activation.activation_uid
+
+          _event ->
+            false
+        end)
+
+      {:ok, lease_expires_at, _offset} =
+        DateTime.from_iso8601(deadline_payload["lease_expires_at"])
+
+      {:ok, due_at, _offset} = DateTime.from_iso8601(deadline_payload["due_at"])
+      assert DateTime.diff(due_at, lease_expires_at, :second) == 120
 
       assert DateTime.compare(activation.last_actor_heartbeat_at, now) == :eq
 
-      stale_turn_ref = Map.put(turn_ref, "activation_uid", "stale-activation")
+      stale_turn_ref = %{turn_ref | activation_uid: "stale-activation"}
 
       assert {:error, :actor_runtime_fence_not_found} =
                ActorRuntime.handle_worker_progress(
-                 %{
-                   "worker_progress" => %{
-                     "turn" => stale_turn_ref,
-                     "kind" => "reply_presentation",
-                     "refs_json" => %{
-                       "presentation_event" => %{
-                         "kind" => "tool.activity",
-                         "payload" => %{"operation_id" => "stale", "revision" => 2}
-                       }
+                 worker_progress_payload(stale_turn_ref, "reply_presentation",
+                   refs: %{
+                     "presentation_event" => %{
+                       "kind" => "tool.activity",
+                       "payload" => %{"operation_id" => "stale", "revision" => 2}
                      }
                    }
-                 },
+                 ),
                  now: now,
                  presentation_event_fun: fn actor_event_id, event ->
                    send(self(), {:stale_reply_presentation_event, actor_event_id, event})
@@ -978,8 +954,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
              )
 
     assert_receive {:actor_lane, envelope}, 2_000
-    turn_ref = envelope["body"]["turn_start"]["turn"]
-    assert turn_ref["actor_event_id"] == turn_ref_from_result["actor_event_id"]
+    turn_ref = turn_start_payload!(envelope).turn
+    assert turn_ref.actor_event_id == turn_ref_from_result.actor_event_id
 
     details_json =
       Keyword.get_lazy(opts, :details_json, fn ->
@@ -991,14 +967,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       end)
 
     ActorRuntime.handle_turn_error(
-      %{
-        "turn_error" => %{
-          "turn" => turn_ref,
-          "code" => "worker_loop_failed",
-          "message" => "worker loop failed",
-          "details_json" => details_json
-        }
-      },
+      turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", details_json),
       now: now
     )
   end

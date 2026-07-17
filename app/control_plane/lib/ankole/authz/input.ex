@@ -130,6 +130,38 @@ defmodule Ankole.AuthZ.Input do
 
   def split_permission_key(_permission), do: {:error, :invalid_request}
 
+  def validate_condition_syntax(condition) when is_binary(condition) do
+    try do
+      case Ankole.Kernel.authz_validate_condition(condition) do
+        true -> :ok
+        {:error, reason} -> {:error, to_string(reason)}
+        _other -> {:error, "is invalid"}
+      end
+    rescue
+      exception -> {:error, Exception.message(exception)}
+    catch
+      _kind, reason -> {:error, inspect(reason)}
+    end
+  end
+
+  def validate_condition_syntax(_condition), do: {:error, "must be a string"}
+
+  def validate_resource_pattern_syntax(pattern) when is_binary(pattern) do
+    try do
+      case Ankole.Kernel.authz_validate_resource_pattern(pattern) do
+        true -> :ok
+        {:error, reason} -> {:error, to_string(reason)}
+        _other -> {:error, "is invalid"}
+      end
+    rescue
+      exception -> {:error, Exception.message(exception)}
+    catch
+      _kind, reason -> {:error, inspect(reason)}
+    end
+  end
+
+  def validate_resource_pattern_syntax(_pattern), do: {:error, "must be a string"}
+
   def take_attrs(attrs, keys) do
     Enum.reduce(keys, %{}, fn key, acc ->
       case fetch_attr(attrs, key) do

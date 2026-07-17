@@ -15,6 +15,7 @@ export type {
   ModelTurnCallOptions,
   ModelTurnOptions,
   ModelUsage,
+  HostedTool,
   StatefulResponseContext,
   StopReason,
   TextContent,
@@ -26,7 +27,13 @@ export type {
 } from './types'
 export { createModel } from './model'
 export { createModelTurn } from './session'
-export { validateToolArguments, zodToJSONSchema } from './tool-schema'
+export {
+  MAX_REPAIRABLE_TOOL_ARGUMENT_BYTES,
+  MAX_TOOL_ARGUMENT_BYTES,
+  validateToolArguments,
+  validateToolArgumentsWithRepair,
+  zodToJSONSchema
+} from './tool-schema'
 
 export async function callModel(model: ModelConfig, options: CallModelOptions) {
   if (options.stateful) {

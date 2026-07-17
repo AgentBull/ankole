@@ -1,3 +1,5 @@
+import { batch, createModel, signal } from '@preact/signals-react'
+
 export type BrainEntrySnapshot = {
   id: string
   name: string
@@ -51,10 +53,47 @@ export type BrainMetadataOperation =
 
 export type PropertyDraft = { key: string; value: string }
 
+export type BrainMetadataEditorDraft = {
+  name: string
+  type: string
+  summary: string
+  aliases: string[]
+  propertyDrafts: PropertyDraft[]
+}
+
 export type BrainOwnerOption = { uid: string; type: 'human' | 'agent' }
 
 const ROOT_CURSOR = '~'
 const CURSOR_HISTORY_SEPARATOR = '.'
+
+export const BrainMetadataEditorModel = createModel(() => {
+  const sourceKey = signal<string>()
+  const name = signal('')
+  const type = signal('')
+  const summary = signal('')
+  const aliases = signal<string[]>([])
+  const propertyDrafts = signal<PropertyDraft[]>([])
+
+  return {
+    sourceKey,
+    name,
+    type,
+    summary,
+    aliases,
+    propertyDrafts,
+    initialize(nextSourceKey: string, draft: BrainMetadataEditorDraft) {
+      if (sourceKey.value === nextSourceKey) return
+      batch(() => {
+        sourceKey.value = nextSourceKey
+        name.value = draft.name
+        type.value = draft.type
+        summary.value = draft.summary
+        aliases.value = [...draft.aliases]
+        propertyDrafts.value = draft.propertyDrafts.map(property => ({ ...property }))
+      })
+    }
+  }
+})
 
 /** Keeps Brain's agent-first default while allowing every active Principal to be selected. */
 export function defaultBrainOwnerUID(principals: BrainOwnerOption[]): string {

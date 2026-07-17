@@ -129,12 +129,10 @@ defmodule Ankole.E2E.WaitHelpersTest do
              )
 
     assert_receive {:actor_lane, envelope}, 2_000
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     %{agent: agent, actor_event: actor_event, turn_ref: turn_ref}
   end
@@ -171,13 +169,9 @@ defmodule Ankole.E2E.WaitHelpersTest do
   end
 
   defp complete_turn(turn_ref, response) do
-    ActorRuntime.handle_turn_completed(%{
-      "turn_completed" => %{
-        "turn" => turn_ref,
-        "final_response_id" => "resp_#{response.id}",
-        "outcome" => "loop_finished"
-      }
-    })
+    ActorRuntime.handle_turn_completed(
+      turn_completed_payload(turn_ref, "resp_#{response.id}", "loop_finished")
+    )
   end
 
   defp insert_mirror!(actor_event, message, source_entry_id, metadata \\ nil) do

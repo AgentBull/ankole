@@ -1,17 +1,15 @@
-//! Runtime Fabric v1 protobuf envelope helpers.
+//! Runtime Fabric v1 protobuf envelope protocol.
 //!
-//! The host APIs pass JSON-shaped envelope maps, but this module owns the
-//! protocol validation and protobuf bytes. That keeps Elixir and Bun bindings
-//! thin while avoiding a second JSON wire protocol.
+//! Hosts encode and decode envelopes with codecs generated from
+//! `envelope.proto`; this module owns the protocol invariants. Every envelope
+//! crossing the transport is validated here so Elixir and Bun see identical
+//! semantic errors.
 
 mod body;
 mod codec;
 mod enums;
-mod from_host_json;
-mod json;
 #[cfg(test)]
 mod tests;
-mod to_host_json;
 mod validate;
 
 pub mod proto {
@@ -23,6 +21,6 @@ pub mod proto {
 pub mod transport;
 
 pub(crate) use codec::decode_envelope_view;
-pub use codec::{decode_envelope, encode_envelope};
+pub use codec::validate_envelope_bytes;
 
 const PROTOCOL_VERSION: u32 = 1;

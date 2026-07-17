@@ -194,12 +194,12 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
            ]
   end
 
-  test "projects a failed subagent trigger without mixing it into the model answer" do
+  test "projects a failed BackgroundAgentJob trigger without mixing it into the model answer" do
     long_summary = "返回 JSON Schema 少声明了必填字段。\n" <> String.duplicate("详情 ", 400)
 
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.project_trigger("subagent.delegation.failed", %{
+      |> ReplyPresentation.project_trigger("background_agent_job.failed", %{
         "data" => %{
           "title" => "第二版\n deep research",
           "result_summary" => long_summary,
@@ -211,7 +211,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     assert presentation["answer"] == "我已修正配置并重新提交任务。"
 
     assert %{
-             "kind" => "subagent_failure",
+             "kind" => "background_agent_job_failure",
              "title" => "第二版 deep research",
              "summary" => summary
            } = presentation["trigger_context"]

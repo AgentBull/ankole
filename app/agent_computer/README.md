@@ -1,8 +1,8 @@
 # @ankole/agent-computer
 
 Agent Computer is the Bun + TypeScript worker runtime for Ankole actor turns.
-It runs the model loop, tools, browser/terminal/file behavior, skill access, and
-worker-side RuntimeFabric lanes inside the Linux worker image.
+It runs the model loop, foreground computer tools, Skill access, native MCP
+consumption, and worker-side RuntimeFabric lanes inside the Linux worker image.
 
 This package is not a standalone local CLI. `bun run dev` and `bun run start`
 intentionally fail because the worker depends on the Docker image contract:
@@ -30,15 +30,15 @@ payloads.
   control.
 - Core turn execution: model/provider construction, prompt assembly, message
   shaping, tool loops, and ambient recognizer turns.
-- Worker-local tools: `todo`, browser tools, `command`,
-  `interactive_terminal`, `read_file`, `patch`, `reply_attachment`,
-  `subagent`, `clarify`, the Brain tools `memory_search`, `memory_open`,
-  `memory_update`, `memory_browse`, and `memory_health_check`, the skill tools
-  `skill_view`, `skill_append`, and `skill_replace`, plus `check_back_later` and
-  `cron`.
+- Worker-local tools: `todo`; foreground `command`, `read_file`, `replace`, `patch`, and
+  `reply_attachment`; `background_agent_job`; `clarify`; `web_search` and
+  `web_fetch`; the Brain tools `memory_search`, `memory_open`, `memory_update`,
+  `memory_browse`, and `memory_health_check`; the Skill tools `skill_view`,
+  `skill_append`, and `skill_replace`; `check_back_later` and `cron`; and one
+  conditional, Skill-allowlisted `mcp` surface.
 - Workspace behavior: per-session roots under `/workspace/.sessions`, shared
-  user files, agent-installed skill files, temporary files, tmux state, and
-  browser artifacts.
+  user files, agent-installed Skill files, temporary files, and rebuildable Job
+  runtime files.
 - RuntimeFabric worker lanes: actor envelopes, worker RPC replies, worker RPC
   requests to the control plane, and file transfer frames.
 
@@ -108,23 +108,14 @@ ai_agent.max_output_tokens
 not a wall-clock turn cap, and it is not a promise that every running tool has a
 hidden timeout. Tool calls own their runtime lifecycle while they are active.
 
-The model-facing `command` tool follows the Hermes terminal shape: foreground
-commands default to `180s`; background commands return a `backgroundID`
-immediately and have no default command timeout. Passing `timeout` to a
-background command opts into an explicit shell-level budget for that command.
-Background commands are scoped by workspace and execution scope, expose
-`status`/`kill`/`list`, keep a bounded output tail, and evict only finished
-registry entries when the worker has too many tracked commands. Running
-background commands continue until they exit, are killed, or the worker process
-itself goes away.
-
-The `subagent` tool is a five-action asynchronous control surface:
-`start`/`list`/`status`/`steer`/`stop`. `start` commits a durable control-plane
-work item and returns immediately. A dedicated task-worker turn currently
-launches Codex, uses a durable `CODEX_HOME`, and commits completion before the
-parent session is woken. Delegations have no wall-clock timeout; individual
-JSON-RPC requests use
-`15s` for `initialize`, `30s` for `thread/start`, and `60s` for other requests.
+The model-facing `command` tool is foreground-only and defaults to `180s`.
+Persistent, interactive, or asynchronous work goes through
+`background_agent_job(start)`, which commits a durable BackgroundAgentJob and
+returns immediately. The same tool exposes `list`/`status`/`steer`/`stop`.
+CodexRunner uses durable execution state and commits completion before waking
+the owner session. Jobs have no wall-clock cap; a workflow-specific deadline is
+owned by the caller, which may steer or stop the Job. Individual JSON-RPC requests use `15s` for
+`initialize`, `30s` for `thread/start`, and `60s` for other requests.
 
 Optional capacity tuning:
 
@@ -136,9 +127,9 @@ This is the per-worker cap on active turns. A turn is one currently running
 actor execution; idle conversations do not consume slots, and the same
 `{agent_uid, session_id}` remains serialized by the control plane. The default
 of 9 is sized for the typical worker shape of at least 2 vCPU / 4 GiB: LLM
-streaming is mostly I/O wait, while browser, Jupyter, and shell-heavy turns can
-raise memory pressure. Lower it for tool-heavy workers; raise it after measuring
-memory and latency under representative traffic.
+streaming is mostly I/O wait, while Jupyter, document, MCP stdio, and shell-heavy
+turns can raise memory pressure. Lower it for tool-heavy workers; raise it after
+measuring memory and latency under representative traffic.
 
 Image/runtime path configuration, normally provided by the Dockerfile defaults:
 
@@ -148,81 +139,47 @@ ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions
 ANKOLE_SHARED_FS_ROOT=/workspace/shared
 ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
 ANKOLE_AGENT_INSTALLED_SKILLS_ROOT=/workspace/shared/skills/agents
-ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library/skills
+ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
 ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills  # optional internal image only
 ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
+ANKOLE_BROWSER_NODE=/opt/ankole-browser/node/bin/node
+ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
+ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
+ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell
+ANKOLE_BROWSER_MAX_ACTIVE_BROWSERS=4  # optional worker-local live-browser cap
 ```
 
 Operator-managed variables are resolved per agent through `worker_env.resolve`
-and injected into both main-agent commands and Codex subagent shells. MCP-backed
-skills call the image-provided `mcporter` CLI with a skill-owned config; the
-config may contain fixed endpoints but must reference secrets through those
-turn-scoped environment variables rather than image or process env.
+and injected into foreground commands, MCP stdio servers, and Codex Job
+processes. An enabled inline Skill may declare MCP dependencies in
+`agents/openai.yaml`. Agent Computer consumes them with the official MCP SDK and
+exposes one `mcp` tool with `list`, single-tool `describe`, and single-tool
+`call`. HTTP bearer values come from the declared WorkerEnv variable; the value
+is never written to the Skill or workspace. Every remote catalog or call uses a
+fresh connection that closes after the operation.
 
-Browser runtime:
+The main Agent has no direct browser dynamic tool. It may route interactive
+work through the default long-running Browser Skill to a BackgroundAgentJob.
+Immediately before that Job's Codex app-server starts, Agent Computer
+materializes one persistent opaque route and projects only final
+`ANKOLE_BROWSER_*` values plus read-only daemon-socket/material binds. Codex
+uses the preconfigured `ankole-browser` CLI for short commands or LLM-authored
+Playwright scripts; it never resolves backend/profile source settings.
 
-```text
-worker.remote_browser_cdp_config = nil
-worker.local_browser_idle_ttl_ms = 1800000
-```
+`web_fetch` remains provider-first and uses a separate short-lived rendered
+route only as a fallback. Agent Computer materializes the route immediately
+before invoking `ankole-browser fetch`, returns the normalized page text, and
+purges the route in `finally`. In both paths, source variables such as
+`BROWSER_BACKEND_JSON` and `BROWSER_PROFILE_SEED_PATH` are removed before the
+CLI or Codex process starts. `ankole-browser` receives only opaque routing and
+final data-plane material and has no control-plane semantics.
 
-By default the browser tools use the Chromium headless shell binary installed in
-the worker image. It is not started at container boot. The main Bun worker
-resolves the effective browser backend for each turn; if no remote CDP config is
-present, it lazily starts one local Chromium sidecar through the in-process
-`LocalSidecarManager`, polls `/json/version`, and persists CDP session metadata
-under `/workspace/.sessions/<browser-session>/browser/session.json`.
-Local session isolation uses Chromium CDP `Target.createBrowserContext`: each
-browser session gets its own BrowserContext and page while sharing the same
-Chromium process. The local adapter binds `Runtime.evaluate` to the main frame's
-default execution context and waits primarily from Page lifecycle events instead
-of high-frequency `document.readyState` polling. The local Chromium sidecar is
-released after `worker.local_browser_idle_ttl_ms` of inactivity, defaulting to
-30 minutes. Each browser action refreshes the idle timer; release is a
-leak-prevention guard, not an aggressive cleanup policy.
-
-Production `browser_*` tools call the Bun CDP engine directly. There is no
-separate browser CLI surface in the worker image. Tini remains PID 1 for signal
-forwarding and zombie reaping.
-
-Operators may set the encrypted scoped AppConfigure key
-`worker.remote_browser_cdp_config` to override local Chromium with a remote
-CDP endpoint for one agent or globally. The worker resolves browser runtime
-settings through the generic `app_configure.resolve` RuntimeFabric RPC for the
-active agent; decrypted headers and credentials stay in worker memory and are
-only passed to the CDP connection.
-
-Direct endpoint form:
-
-```json
-{
-  "adapter": "cdp_endpoint",
-  "endpoint_url": "wss://api.cloudflare.com/client/v4/accounts/.../browser-rendering/devtools/browser?keep_alive=600000",
-  "headers": { "Authorization": "Bearer ..." },
-  "connect_timeout_ms": 30000
-}
-```
-
-Session-request form:
-
-```json
-{
-  "adapter": "cdp_session_request",
-  "request": {
-    "url": "http://rayobrowse.lan:3000/connect?headless=true&os=windows",
-    "method": "GET",
-    "response": { "type": "text" }
-  },
-  "connect_timeout_ms": 120000
-}
-```
-
-There is no HTTP fetch browser fallback. If the local Chromium-compatible
-binary is unavailable and no remote CDP config is set, browser tools fail closed
-during session launch.
-
-`browser_run` may pass `ANKOLE_BROWSER_START_URL` to the helper script for that
-single tool call; it is not a worker startup setting.
+BackgroundAgentJobs may select Agent Plugins from
+`/repo/app/library/agent-plugins`. Each Job stores only selected Plugin IDs and
+standalone Skill names. Before every execution or resume, CodexRunner resolves
+the current enabled catalogs, installs the current complete packages, applies
+every member's current state through `skills/config/write` by absolute
+discovered path, and verifies the final `skills/list` result.
 
 ## Filesystem Contract
 
@@ -234,7 +191,8 @@ The image provides these stable worker-visible roots:
 /workspace/shared
 /workspace/shared/user-files
 /workspace/shared/skills/agents
-/repo/app/library/skills
+/repo/app/library
+/repo/app/library/agent-plugins
 ```
 
 For each turn, `prepareTurnWorkspace` creates:
@@ -244,8 +202,10 @@ For each turn, `prepareTurnWorkspace` creates:
 /workspace/.sessions/<agent_uid>/<session_id>/user-files -> /workspace/shared/user-files
 ```
 
-Built-in skills are read from `/repo/app/library/skills`; internal images may
-also mount `/repo/internals/skills`. Agent-installed skills are read from
+Built-in standalone and Agent Plugin member Skills use root-relative locators
+under `/repo/app/library`; Agent Plugin packages are read from
+`/repo/app/library/agent-plugins`; internal images may also mount
+`/repo/internals/skills`. Agent-installed skills are read from
 `/workspace/shared/skills/agents/<agent_uid>/...`. Before dispatching turn
 handlers, the worker scans that installed-skill directory and sends
 `skills.installed.replace` observations when the fingerprint changed. Skill
@@ -260,9 +220,11 @@ Build from the repository root:
 docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 ```
 
-The image includes Bun, the built kernel N-API module, bubblewrap, Chromium,
-Python/Jupyter/document tooling, LibreOffice, `zstd`, and the built-in Ankole
-skill library.
+The image includes Bun, the built kernel N-API module, bubblewrap, a private
+Node runtime with pinned Playwright and matching Chromium for
+`ankole-browser`, Python/Jupyter/document tooling, LibreOffice, `zstd`, and the
+built-in Ankole Skill library. The private Node path does not alter the image's
+global `node -> bun` convention.
 
 For strong bubblewrap mode, run Docker with:
 
@@ -321,7 +283,7 @@ bun run agent-computer:test
 Rebuild the image after changes to the Dockerfile, package dependencies, the
 kernel build output, image-level tools, or built-in library files. Plain
 TypeScript source/test changes are picked up by the package test volume mounts,
-so most browser runtime debugging can use the no-build `bun run
+so most tool and rendered-fetch debugging can use the no-build `bun run
 agent-computer:test` path.
 
 ## Worker E2E
@@ -381,3 +343,5 @@ failures are intentional guardrails:
   tradeoffs.
 - `../../docs/design-docs/RuntimeFabric.md` - RuntimeFabric lanes, envelopes,
   and transport details.
+- `../../docs/design-docs/MCPBackedSkills.md` - native MCP discovery,
+  allowlisting, connection lifetime, and WorkerEnv credential boundaries.

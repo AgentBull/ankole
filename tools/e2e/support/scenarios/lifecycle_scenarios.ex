@@ -341,7 +341,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
                DateTime.add(steer_input.available_at, 1, :second)
              )
 
-    assert steered_turn_ref["actor_event_id"] == input.id
+    assert steered_turn_ref.actor_event_id == input.id
 
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
@@ -460,7 +460,6 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
              FakeFeishu.State.user_sends_message(fake_feishu.state,
                event_id: "evt_ambient_silent_2",
                message_id: "om_ambient_silent_2",
-               root_id: "om_ambient_silent_1",
                chat_id: "oc_chaos_ambient_silent",
                text: "CHAOS_AMBIENT_IGNORE Acknowledged by the team; no reply needed.",
                mentions: [],

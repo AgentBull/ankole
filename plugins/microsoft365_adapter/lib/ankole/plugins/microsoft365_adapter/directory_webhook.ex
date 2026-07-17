@@ -13,7 +13,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
 
   alias Ankole.{IdentityProviders, Logging}
   alias Ankole.Plugins.Microsoft365Adapter.{Config, GraphSubscriptions, IdentityProvider}
-  alias Ankole.Plugins.Microsoft365Adapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
 
   @spec handle_webhook(map()) :: {:ok, map()} | {:error, term()}
   def handle_webhook(%{kind: "directory"} = request) do

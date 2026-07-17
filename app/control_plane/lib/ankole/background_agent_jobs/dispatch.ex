@@ -9,6 +9,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
@@ -195,7 +196,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp pending_steer_events_in_tx(repo, job_id, agent_uid, excluded_event_id) do
     ActorEvent
     |> where([event], event.agent_uid == ^agent_uid)
-    |> where([event], event.session_id == ^"job:#{job_id}")
+    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
     |> where([event], event.type == "command.steer")
     |> where([event], event.input_state == "open")
     |> where([event], is_nil(event.completed_at))
@@ -216,7 +217,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp complete_open_events_in_tx(repo, job_id, agent_uid, types, completed_at) do
     ActorEvent
     |> where([event], event.agent_uid == ^agent_uid)
-    |> where([event], event.session_id == ^"job:#{job_id}")
+    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
     |> where([event], event.type in ^types)
     |> where([event], is_nil(event.completed_at))
     |> lock("FOR UPDATE")
@@ -283,11 +284,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     SignalsGateway.append_actor_event_in_tx(repo, %{
       agent_uid: job.agent_uid,
       binding_name: Map.fetch!(reply_route, "binding_name"),
-      session_id: "job:#{job.id}",
+      session_id: BackgroundAgentJobs.job_session_id(job.id),
       source_event_id: source_event_id,
       signal_channel_id: Map.get(reply_route, "signal_channel_id"),
       provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-      source_entry_id: Map.get(reply_route, "source_entry_id"),
       type: "background_agent_job.dispatch",
       available_at: now,
       payload: %{

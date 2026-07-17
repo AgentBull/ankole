@@ -49,28 +49,9 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     )
   end
 
-  @tag timeout: 900_000
-  @tag ownership_timeout: 900_000
-  @tag :real_llm
-  @tag :browser_tool
-  test "real OpenRouter LLM completes a browser-only OpenRouter pricing task" do
-    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
-
-    result = run_real_lark_openrouter_browser_turn(ctx)
-
-    assert_lark_final_reply(
-      ctx.fake_feishu,
-      result.reply,
-      "ANKOLE_OPENROUTER_BROWSER_OK",
-      :reply,
-      "om_real_openrouter_browser_1"
-    )
-  end
-
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
   @tag :real_llm
-  @tag :browser_tool
   @tag :web_fetch
   test "real OpenRouter LLM uses web_fetch" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
@@ -82,7 +63,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       result.reply,
       "ANKOLE_WEB_FETCH_LIVE_OK",
       :reply,
-      "om_real_web_fetch_local_browser_1"
+      "om_real_web_fetch_rendered_fallback_1"
     )
   end
 
@@ -108,12 +89,12 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_pptx_skill_real_llm
-  test "real OpenRouter parent delegates a native PPTX skill task and delivers the artifact" do
+  test "real OpenRouter parent runs the Office Agent Plugin and delivers a PPTX" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     result = run_real_lark_codex_pptx_skill_turn(ctx)
 
-    assert result.delegation.status == "succeeded"
+    assert result.job.status == "succeeded"
     assert result.outbox.status == :succeeded
     assert result.platform_message.msg_type == "file"
     assert result.outline =~ "2 slides"
@@ -124,20 +105,19 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag ownership_timeout: 3_600_000
   @tag :real_llm
   @tag :deep_research_real_llm
-  test "real parent subagent flow completes non-ACH and ACH Deep Research with complete trajectories" do
+  test "real parent Job flow runs Deep Research as a standard Codex Plugin" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
-    result = run_deep_research_modes(ctx)
+    result = run_deep_research_plugin(ctx)
 
-    assert result.general.mode == "general"
-    assert result.forecast.mode == "forecast"
+    assert result.report =~ "Aurora's approved budget is 10 units."
   end
 
   @tag timeout: 1_800_000
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
   @tag :codex_subscription_real_llm
-  test "real ChatGPT subscription account completes the delegated Codex task" do
+  test "real ChatGPT subscription account completes the Codex Job" do
     auth_json = File.read!(Path.expand("~/.codex/auth.json"))
     %{"tokens" => %{"account_id" => account_id}} = Ankole.JSON.decode!(auth_json)
 

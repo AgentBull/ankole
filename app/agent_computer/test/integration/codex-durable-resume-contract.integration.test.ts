@@ -8,16 +8,16 @@ import {
   CodexAppServerClient,
   type JSONRPCMessage
 } from '../../src/tools/codex/app-server-client'
-import type { DynamicToolCallParams } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallParams'
-import type { DynamicToolCallResponse } from '../../src/tools/subagent/generated/protocol/v2/DynamicToolCallResponse'
-import type { ThreadResumeParams } from '../../src/tools/subagent/generated/protocol/v2/ThreadResumeParams'
-import type { ThreadResumeResponse } from '../../src/tools/subagent/generated/protocol/v2/ThreadResumeResponse'
-import type { ThreadStartParams } from '../../src/tools/subagent/generated/protocol/v2/ThreadStartParams'
-import type { ThreadStartResponse } from '../../src/tools/subagent/generated/protocol/v2/ThreadStartResponse'
-import type { TurnStartParams } from '../../src/tools/subagent/generated/protocol/v2/TurnStartParams'
-import type { TurnStartResponse } from '../../src/tools/subagent/generated/protocol/v2/TurnStartResponse'
-import type { TurnSteerResponse } from '../../src/tools/subagent/generated/protocol/v2/TurnSteerResponse'
-import { SUBAGENT_USER_INPUT_TOOL_NAME, subagentUserInputToolSpec } from '../../src/tools/subagent/user-input-bridge'
+import type { DynamicToolCallParams } from '../../src/tools/codex/generated/protocol/v2/DynamicToolCallParams'
+import type { DynamicToolCallResponse } from '../../src/tools/codex/generated/protocol/v2/DynamicToolCallResponse'
+import type { ThreadResumeParams } from '../../src/tools/codex/generated/protocol/v2/ThreadResumeParams'
+import type { ThreadResumeResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadResumeResponse'
+import type { ThreadStartParams } from '../../src/tools/codex/generated/protocol/v2/ThreadStartParams'
+import type { ThreadStartResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadStartResponse'
+import type { TurnStartParams } from '../../src/tools/codex/generated/protocol/v2/TurnStartParams'
+import type { TurnStartResponse } from '../../src/tools/codex/generated/protocol/v2/TurnStartResponse'
+import type { TurnSteerResponse } from '../../src/tools/codex/generated/protocol/v2/TurnSteerResponse'
+import { PARENT_INPUT_TOOL_NAME, parentInputToolSpec } from '../../src/core/codex-runner/parent-input'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {
   it('keeps tools and stable user-message identity across interrupt and cross-process resume', async () => {
@@ -183,7 +183,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         threadSource: 'ankole',
-        dynamicTools: [subagentUserInputToolSpec()]
+        dynamicTools: [parentInputToolSpec()]
       } satisfies ThreadStartParams)) as ThreadStartResponse
       const threadID = started.thread.id
 
@@ -247,7 +247,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       expect(bridgeRequest?.params).toMatchObject({
         threadId: threadID,
         turnId: bridgeTurn.turn.id,
-        tool: SUBAGENT_USER_INPUT_TOOL_NAME,
+        tool: PARENT_INPUT_TOOL_NAME,
         arguments: { questions: [{ id: 'audience' }] }
       })
 
@@ -314,7 +314,7 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
         threadSource: 'ankole',
-        dynamicTools: [subagentUserInputToolSpec()]
+        dynamicTools: [parentInputToolSpec()]
       } satisfies ThreadStartParams)) as ThreadStartResponse
       const threadID = started.thread.id
 
@@ -339,11 +339,11 @@ describe('@ankole/agent-computer Codex durable resume contract', () => {
       expect(userInputRequests[0]?.params).toMatchObject({
         threadId: threadID,
         turnId: waitingTurn.turn.id,
-        tool: SUBAGENT_USER_INPUT_TOOL_NAME
+        tool: PARENT_INPUT_TOOL_NAME
       })
 
       const providerRequest = requests.find(request => JSON.stringify(request).includes('PAUSE_FOR_PARENT'))
-      expect(JSON.stringify(providerRequest)).toContain(SUBAGENT_USER_INPUT_TOOL_NAME)
+      expect(JSON.stringify(providerRequest)).toContain(PARENT_INPUT_TOOL_NAME)
       expect(JSON.stringify(providerRequest)).toContain('instead of request_user_input')
 
       await firstClient.close()
@@ -423,7 +423,7 @@ function codexClient(input: {
       }
 
       const params = message.params as DynamicToolCallParams
-      if (params.tool === SUBAGENT_USER_INPUT_TOOL_NAME) {
+      if (params.tool === PARENT_INPUT_TOOL_NAME) {
         input.userInputRequests?.push(message)
         if (input.pauseParentInput) {
           await client.request('turn/interrupt', {
@@ -503,22 +503,16 @@ function createControlContractProvider(requests: JSONObject[]) {
       }
 
       if (bodyText.includes('PAUSE_FOR_PARENT')) {
-        return namedFunctionCallResponse(
-          'resp_pause_parent',
-          model,
-          'call_pause_parent',
-          SUBAGENT_USER_INPUT_TOOL_NAME,
-          {
-            questions: [
-              {
-                id: 'audience',
-                header: 'Audience',
-                question: 'Who should receive the report?',
-                options: [{ label: 'Operators', description: 'The operations team.' }]
-              }
-            ]
-          }
-        )
+        return namedFunctionCallResponse('resp_pause_parent', model, 'call_pause_parent', PARENT_INPUT_TOOL_NAME, {
+          questions: [
+            {
+              id: 'audience',
+              header: 'Audience',
+              question: 'Who should receive the report?',
+              options: [{ label: 'Operators', description: 'The operations team.' }]
+            }
+          ]
+        })
       }
 
       if (bodyText.includes('STEER_WAIT')) {
@@ -530,7 +524,7 @@ function createControlContractProvider(requests: JSONObject[]) {
       if (bodyText.includes('BRIDGE_AND_ASK')) {
         return bodyText.includes('call_parent_input')
           ? messageResponse('resp_bridge_done', model, 'parent input bridge accepted')
-          : namedFunctionCallResponse('resp_parent_input', model, 'call_parent_input', SUBAGENT_USER_INPUT_TOOL_NAME, {
+          : namedFunctionCallResponse('resp_parent_input', model, 'call_parent_input', PARENT_INPUT_TOOL_NAME, {
               questions: [
                 {
                   id: 'audience',

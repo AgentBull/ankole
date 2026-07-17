@@ -247,7 +247,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert checkpoint["presentation"]["interaction_status"] == "pending"
   end
 
-  test "a background delegation result does not supersede an unrelated clarification" do
+  test "a background job result does not supersede an unrelated clarification" do
     %{event: source_event} = setup_interaction()
 
     assert {:ok, _background_event} =
@@ -256,12 +256,12 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
                  agent_uid: source_event.agent_uid,
                  binding_name: source_event.binding_name,
                  session_id: source_event.session_id,
-                 source_event_id: unique_uid("background-delegation"),
-                 type: "subagent.delegation.failed",
+                 source_event_id: unique_uid("background-job"),
+                 type: "background_agent_job.failed",
                  available_at: @now,
                  payload: %{
-                   "type" => "subagent.delegation.failed",
-                   "data" => %{"delegation_id" => Ecto.UUID.generate()}
+                   "type" => "background_agent_job.failed",
+                   "data" => %{"job_id" => Ecto.UUID.generate()}
                  }
                })
              end)

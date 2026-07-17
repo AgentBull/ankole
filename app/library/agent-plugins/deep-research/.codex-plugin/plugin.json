@@ -1,0 +1,6 @@
+{
+  "name": "deep-research",
+  "version": "1.0.0",
+  "description": "Evidence-backed general research, forecasting, and forecast retrospectives.",
+  "skills": "./skills/"
+}

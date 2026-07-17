@@ -1,11 +1,27 @@
+import { create, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { runtimeFabricEncodeEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { runtimeFabricValidateEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createFileTransferLane } from '../src/lanes/file'
 import { runtimeFabricFileProtocol } from '../src/fabric/fabric'
+import {
+  ActorEventEnvelopeSchema,
+  createEnvelope,
+  DurabilityClass,
+  encodeEnvelope,
+  envelopeHeader,
+  EnvelopeSchema,
+  jsonBytes,
+  jsonObjectFromBytes,
+  Lane,
+  MailboxUpdatedSchema,
+  TurnCompletionOutcome,
+  TurnStartSchema,
+  type Envelope
+} from '../src/fabric/envelope_proto'
 import {
   parseRuntimeFabricURL,
   workerCapacityEnvelope,
@@ -16,10 +32,16 @@ import { handleWorkerRPCRequest, type RPCRequest } from '../src/lanes/rpc_lane'
 import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
-import { mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
+import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
-import { SubagentTurnPersistenceError } from '../src/tools/subagent/turn-recorder'
+import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/turn-recorder'
+
+function validatedBytes(envelope: Envelope): Buffer {
+  const bytes = encodeEnvelope(envelope)
+  runtimeFabricValidateEnvelope(bytes)
+  return bytes
+}
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses RuntimeFabric URL auth without embedding worker identity', () => {
@@ -40,47 +62,47 @@ describe('@ankole/agent-computer runtime', () => {
     const heartbeat = workerHeartbeatEnvelope(config, 123)
     const capacity = workerCapacityEnvelope(config)
 
-    expect(ready.body.type).toBe('worker_ready')
-    expect(heartbeat.body.type).toBe('worker_heartbeat')
-    expect(capacity.body.type).toBe('worker_capacity')
-    expect(ready.body.worker_ready).toMatchObject({ incarnation_id: 'incarnation-a' })
-    expect(heartbeat.body.worker_heartbeat).toMatchObject({ incarnation_id: 'incarnation-a' })
-    expect(capacity.body.worker_capacity).toMatchObject({ incarnation_id: 'incarnation-a' })
-    expect(JSON.stringify(ready)).not.toContain('agent_uid')
-    expect(JSON.stringify(ready)).not.toContain('actor_epoch')
-    expect((ready.body.worker_ready as { capacity_json: unknown }).capacity_json).toMatchObject({
+    expect(ready.body.case).toBe('workerReady')
+    expect(heartbeat.body.case).toBe('workerHeartbeat')
+    expect(capacity.body.case).toBe('workerCapacity')
+    expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
+    expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
+    expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
+    const readyJSON = JSON.stringify(toJSON(EnvelopeSchema, ready))
+    expect(readyJSON).not.toContain('agentUid')
+    expect(readyJSON).not.toContain('actorEpoch')
+    if (ready.body.case !== 'workerReady') throw new Error('expected workerReady body')
+    expect(jsonObjectFromBytes(ready.body.value.capacityJson, 'capacity_json')).toMatchObject({
       max_turns: 9,
       available_turn_slots: 9
     })
-    expect(capacity.body.worker_capacity as { available_turn_slots: number }).toMatchObject({
-      available_turn_slots: 9
-    })
-    expect(runtimeFabricEncodeEnvelope(ready)).toBeInstanceOf(Buffer)
-    expect(runtimeFabricEncodeEnvelope(heartbeat)).toBeInstanceOf(Buffer)
-    expect(runtimeFabricEncodeEnvelope(capacity)).toBeInstanceOf(Buffer)
+    if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
+    expect(capacity.body.value.availableTurnSlots).toBe(9)
+    expect(validatedBytes(ready)).toBeInstanceOf(Buffer)
+    expect(validatedBytes(heartbeat)).toBeInstanceOf(Buffer)
+    expect(validatedBytes(capacity)).toBeInstanceOf(Buffer)
   })
 
   it('reports available capacity from configured concurrent turn slots', () => {
     const config = { ...workerConfig(), maxConcurrentTurns: 3 }
     const capacity = workerCapacityEnvelope(config, 1, 2)
 
-    expect(capacity.body.worker_capacity).toMatchObject({
-      available_turn_slots: 1,
-      capacity_json: {
-        max_turns: 3,
-        available_turn_slots: 1
-      },
-      load_json: {
-        active_turns: 2
-      }
+    if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
+    expect(capacity.body.value.availableTurnSlots).toBe(1)
+    expect(jsonObjectFromBytes(capacity.body.value.capacityJson, 'capacity_json')).toEqual({
+      max_turns: 3,
+      available_turn_slots: 1
+    })
+    expect(jsonObjectFromBytes(capacity.body.value.loadJson, 'load_json')).toEqual({
+      active_turns: 2
     })
   })
 
-  it('classifies exhausted subagent Turn persistence as retryable worker infrastructure failure', () => {
-    const details = turnFailureDetails(new SubagentTurnPersistenceError(new Error('RPC timed out')))
+  it('classifies exhausted BackgroundAgentJob Turn persistence as retryable worker infrastructure failure', () => {
+    const details = turnFailureDetails(new BackgroundAgentJobTurnPersistenceError(new Error('RPC timed out')))
 
     expect(details).toMatchObject({
-      error_code: 'subagent_turn_persistence_failed',
+      error_code: 'background_agent_job_turn_persistence_failed',
       retryable: true
     })
   })
@@ -91,17 +113,17 @@ describe('@ankole/agent-computer runtime', () => {
       stage: 'llm'
     })
 
-    expect(envelope.lane).toBe('LANE_PROGRESS')
-    expect(envelope.durability).toBe('CONTROL_EPHEMERAL')
-    expect(envelope.correlation_id).toBe('turn-start-1')
-    expect(envelope.body.type).toBe('worker_progress')
-    expect(envelope.body.worker_progress).toMatchObject({
-      turn,
+    expect(envelope.lane).toBe(Lane.PROGRESS)
+    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(envelope.correlationId).toBe('turn-start-1')
+    if (envelope.body.case !== 'workerProgress') throw new Error('expected workerProgress body')
+    expect(envelope.body.value).toMatchObject({
       kind: 'checkpoint',
-      summary: 'turn in progress',
-      refs_json: { stage: 'llm' }
+      summary: 'turn in progress'
     })
-    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+    expect(envelope.body.value.turn).toMatchObject({ actorEventId: turn.actor_event_id })
+    expect(jsonObjectFromBytes(envelope.body.value.refsJson, 'refs_json')).toEqual({ stage: 'llm' })
+    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
   })
 
   it('encodes renderer-safe reply presentation progress for the control plane', () => {
@@ -113,30 +135,26 @@ describe('@ankole/agent-computer runtime', () => {
       }
     })
 
-    expect(envelope.lane).toBe('LANE_PROGRESS')
-    expect(envelope.durability).toBe('CONTROL_EPHEMERAL')
-    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+    expect(envelope.lane).toBe(Lane.PROGRESS)
+    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
   })
 
   it('emits response-backed turn completion as replayable turn control', () => {
     const turn = actorTurnRef()
     const envelope = turnCompletedEnvelope(turn, 'resp_final_1', 'iteration_exhausted', 'turn-start-1')
 
-    expect(envelope.lane).toBe('LANE_TURN')
-    expect(envelope.durability).toBe('CONTROL_REPLAYABLE')
-    expect(envelope.correlation_id).toBe('turn-start-1')
-    expect(envelope.body).toEqual({
-      type: 'turn_completed',
-      turn_completed: {
-        turn,
-        final_response_id: 'resp_final_1',
-        outcome: 'iteration_exhausted'
-      }
-    })
-    expect(runtimeFabricEncodeEnvelope(envelope)).toBeInstanceOf(Buffer)
+    expect(envelope.lane).toBe(Lane.TURN)
+    expect(envelope.durability).toBe(DurabilityClass.CONTROL_REPLAYABLE)
+    expect(envelope.correlationId).toBe('turn-start-1')
+    if (envelope.body.case !== 'turnCompleted') throw new Error('expected turnCompleted body')
+    expect(envelope.body.value.turn).toEqual(actorTurnRefToProto(turn))
+    expect(envelope.body.value.finalResponseId).toBe('resp_final_1')
+    expect(envelope.body.value.outcome).toBe(TurnCompletionOutcome.ITERATION_EXHAUSTED)
+    expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
   })
 
-  it('renews a silent subagent Turn independently of Codex notifications', async () => {
+  it('renews a silent BackgroundAgentJob Turn independently of Codex notifications', async () => {
     const sent: unknown[] = []
     const active = {
       turnStart: { turn: actorTurnRef() } as TurnStart,
@@ -184,7 +202,11 @@ describe('@ankole/agent-computer runtime', () => {
           source_event_id: 'signal-entry-1',
           payload_json: {}
         },
-        model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+        model_ref: {
+          profile: 'primary',
+          provider_id: 'openrouter-main',
+          model: 'z-ai/glm-5.2'
+        }
       })
 
       expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
@@ -196,53 +218,71 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('rejects mailbox updates without the journaled actor event', () => {
     expect(() =>
-      mailboxUpdatedFromEnvelope({
-        protocol_version: 1,
-        message_id: 'mailbox-updated-missing-event',
-        correlation_id: 'mailbox-updated-missing-event',
-        lane: 'LANE_TURN',
-        durability: 'CONTROL_EPHEMERAL',
-        body: {
-          type: 'mailbox_updated',
-          mailbox_updated: {
-            turn: {
-              actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-              activation_uid: 'activation-1',
-              actor_epoch: 1,
-              actor_event_id: '00000000-0000-0000-0000-000000000001',
-              revision: 1
-            },
-            reason: 'command.steer'
+      mailboxUpdatedFromEnvelope(
+        createEnvelope({
+          ...envelopeHeader('mailbox-updated-missing-event', Lane.TURN, DurabilityClass.CONTROL_EPHEMERAL),
+          body: {
+            case: 'mailboxUpdated',
+            value: create(MailboxUpdatedSchema, {
+              turn: actorTurnRefToProto(actorTurnRef()),
+              reason: 'command.steer'
+            })
           }
-        }
-      })
+        })
+      )
     ).toThrow(/mailbox_updated\.actor_event is required/)
   })
 
   it('rejects turn_start envelopes without a durable turn fence', () => {
     expect(() =>
-      turnStartFromEnvelope({
-        protocol_version: 1,
-        message_id: 'turn-start-missing-turn',
-        lane: 'LANE_TURN',
-        durability: 'CONTROL_DURABLE',
-        body: {
-          type: 'turn_start',
-          turn_start: {
-            actor_event: {
-              actor_event_id: '00000000-0000-0000-0000-000000000001',
-              queue_sequence: 1,
-              type: 'im.message.addressed',
-              source_event_id: 'source-1'
-            }
+      turnStartFromEnvelope(
+        createEnvelope({
+          ...envelopeHeader('turn-start-missing-turn', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+          body: {
+            case: 'turnStart',
+            value: create(TurnStartSchema, {
+              actorEvent: create(ActorEventEnvelopeSchema, {
+                actorEventId: '00000000-0000-0000-0000-000000000001',
+                queueSequence: 1n,
+                type: 'im.message.addressed',
+                sourceEventId: 'source-1'
+              })
+            })
           }
-        }
-      })
+        })
+      )
     ).toThrow(/turn_start\.turn is required/)
   })
 
+  it('accepts only the image generation hosted-tool declaration on turn_start', () => {
+    const hostedToolsEnvelope = (hostedTools: unknown): Envelope =>
+      createEnvelope({
+        ...envelopeHeader('turn-start-hosted-tools', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            turn: actorTurnRefToProto(actorTurnRef()),
+            actorEvent: create(ActorEventEnvelopeSchema, {
+              actorEventId: '00000000-0000-0000-0000-000000000001',
+              queueSequence: 1n,
+              type: 'im.message.addressed',
+              sourceEventId: 'source-1'
+            }),
+            hostedToolsJson: jsonBytes(hostedTools as never)
+          })
+        }
+      })
+
+    expect(turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'image_generation' }])).hosted_tools).toEqual([
+      { type: 'image_generation' }
+    ])
+    expect(() => turnStartFromEnvelope(hostedToolsEnvelope([{ type: 'function', name: 'untrusted' }]))).toThrow(
+      /must declare only image_generation/
+    )
+  })
+
   it('rejects unknown control-plane-initiated worker RPC requests', async () => {
-    const sent: ReturnType<typeof workerReadyEnvelope>[] = []
+    const sent: Envelope[] = []
     const request: RPCRequest = {
       request_id: 'worker-rpc-1',
       method: 'test.probe',
@@ -254,19 +294,20 @@ describe('@ankole/agent-computer runtime', () => {
     }, request)
 
     expect(sent).toHaveLength(1)
-    expect(sent[0]!.lane).toBe('LANE_RPC')
-    expect(sent[0]!.correlation_id).toBe('worker-rpc-1')
-    expect(sent[0]!.body.type).toBe('rpc_error')
-    expect(sent[0]!.body.rpc_error).toMatchObject({
-      request_id: 'worker-rpc-1',
-      code: 'unknown_rpc_method',
-      details_json: { method: 'test.probe' }
+    expect(sent[0]!.lane).toBe(Lane.RPC)
+    expect(sent[0]!.correlationId).toBe('worker-rpc-1')
+    const body = sent[0]!.body
+    if (body.case !== 'rpcError') throw new Error('expected rpcError body')
+    expect(body.value).toMatchObject({
+      requestId: 'worker-rpc-1',
+      code: 'unknown_rpc_method'
     })
-    expect(runtimeFabricEncodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'test.probe' })
+    expect(validatedBytes(sent[0]!)).toBeInstanceOf(Buffer)
   })
 
   it('returns RPC errors for unknown worker methods', async () => {
-    const sent: ReturnType<typeof workerReadyEnvelope>[] = []
+    const sent: Envelope[] = []
 
     await handleWorkerRPCRequest(
       async envelope => {
@@ -280,13 +321,14 @@ describe('@ankole/agent-computer runtime', () => {
     )
 
     expect(sent).toHaveLength(1)
-    expect(sent[0]!.body.type).toBe('rpc_error')
-    expect(sent[0]!.body.rpc_error).toMatchObject({
-      request_id: 'worker-rpc-unknown',
-      code: 'unknown_rpc_method',
-      details_json: { method: 'worker.unknown' }
+    const body = sent[0]!.body
+    if (body.case !== 'rpcError') throw new Error('expected rpcError body')
+    expect(body.value).toMatchObject({
+      requestId: 'worker-rpc-unknown',
+      code: 'unknown_rpc_method'
     })
-    expect(runtimeFabricEncodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+    expect(jsonObjectFromBytes(body.value.detailsJson, 'details_json')).toEqual({ method: 'worker.unknown' })
+    expect(validatedBytes(sent[0]!)).toBeInstanceOf(Buffer)
   })
 
   it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
@@ -403,7 +445,9 @@ describe('@ankole/agent-computer runtime', () => {
     }
 
     try {
-      mkdirSync(join(config.userFilesRoot, 'inbox/lark/message-1'), { recursive: true })
+      mkdirSync(join(config.userFilesRoot, 'inbox/lark/message-1'), {
+        recursive: true
+      })
       writeFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'hello world')
 
       const lane = createFileTransferLane(config, sender.sendFileFrame)
@@ -454,6 +498,105 @@ describe('@ankole/agent-computer runtime', () => {
       ])
       expect(existsSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'))).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('overwrites with rename without deleting the target before a failed move', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-move-overwrite-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const lane = createFileTransferLane(config, async frames => {
+      sentFrames.push(frames)
+    })
+
+    try {
+      mkdirSync(join(config.userFilesRoot, 'replace'), { recursive: true })
+      writeFileSync(join(config.userFilesRoot, 'replace/source.txt'), 'new content')
+      writeFileSync(join(config.userFilesRoot, 'replace/target.txt'), 'old content')
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('MOVE'),
+        Buffer.from('move-overwrite-file'),
+        Buffer.from('/user_files/replace/source.txt'),
+        Buffer.from('/user_files/replace/target.txt'),
+        boolFrame(true)
+      ])
+
+      frameFor(sentFrames, 'move-overwrite-file', 'MOVE_OK')
+      expect(existsSync(join(config.userFilesRoot, 'replace/source.txt'))).toBe(false)
+      expect(readFileSync(join(config.userFilesRoot, 'replace/target.txt'), 'utf8')).toBe('new content')
+
+      mkdirSync(join(config.userFilesRoot, 'replace/source-dir'), { recursive: true })
+      mkdirSync(join(config.userFilesRoot, 'replace/target-dir'), { recursive: true })
+      writeFileSync(join(config.userFilesRoot, 'replace/source-dir/source.txt'), 'source content')
+      writeFileSync(join(config.userFilesRoot, 'replace/target-dir/target.txt'), 'target content')
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('MOVE'),
+        Buffer.from('move-overwrite-directory'),
+        Buffer.from('/user_files/replace/source-dir'),
+        Buffer.from('/user_files/replace/target-dir'),
+        boolFrame(true)
+      ])
+
+      expect(errorMessageFor(sentFrames, 'move-overwrite-directory')).not.toBe('')
+      expect(readFileSync(join(config.userFilesRoot, 'replace/source-dir/source.txt'), 'utf8')).toBe('source content')
+      expect(readFileSync(join(config.userFilesRoot, 'replace/target-dir/target.txt'), 'utf8')).toBe('target content')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('deletes only the requested internal BackgroundAgentJob runtime root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-background-agent-job-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const lane = createFileTransferLane(config, async frames => {
+      sentFrames.push(frames)
+    })
+    const jobID = '019f6aa0-3f4d-7573-b4a8-bde808f3011f'
+    const siblingJobID = '019f6aa0-3f4d-7573-b4a8-bde808f30120'
+    const jobsRoot = join(config.sharedFsRoot, '.ankole', 'background-agent-jobs')
+
+    try {
+      mkdirSync(join(jobsRoot, jobID, 'codex-home'), { recursive: true })
+      writeFileSync(join(jobsRoot, jobID, 'codex-home', 'rollout.jsonl'), 'managed')
+      mkdirSync(join(jobsRoot, siblingJobID, 'codex-home'), {
+        recursive: true
+      })
+      writeFileSync(join(jobsRoot, siblingJobID, 'codex-home', 'rollout.jsonl'), 'sibling')
+      mkdirSync(join(config.userFilesRoot, 'caller-owned'), {
+        recursive: true
+      })
+      writeFileSync(join(config.userFilesRoot, 'caller-owned', 'keep.txt'), 'keep')
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('DELETE'),
+        Buffer.from('delete-background-agent-job'),
+        Buffer.from(`/background_agent_jobs/${jobID}`),
+        boolFrame(true)
+      ])
+
+      expect(existsSync(join(jobsRoot, jobID))).toBe(false)
+      expect(readFileSync(join(jobsRoot, siblingJobID, 'codex-home', 'rollout.jsonl'), 'utf8')).toBe('sibling')
+      expect(readFileSync(join(config.userFilesRoot, 'caller-owned', 'keep.txt'), 'utf8')).toBe('keep')
+      expect(frameFor(sentFrames, 'delete-background-agent-job', 'DELETE_OK')[3]?.toString('utf8')).toBe(
+        `/background_agent_jobs/${jobID}`
+      )
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('STAT'),
+        Buffer.from('escape-background-agent-job'),
+        Buffer.from('/background_agent_jobs/../outside'),
+        Buffer.from('none')
+      ])
+      expect(errorMessageFor(sentFrames, 'escape-background-agent-job')).toMatch(/invalid relative_path/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -521,6 +664,34 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 
+  it('rejects file lane symlinks that resolve outside their configured root', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-symlink-'))
+    const config = workerConfigForRoot(root)
+    const sentFrames: Buffer[][] = []
+    const lane = createFileTransferLane(config, async frames => {
+      sentFrames.push(frames)
+    })
+
+    try {
+      mkdirSync(config.userFilesRoot, { recursive: true })
+      const outsidePath = join(root, 'outside.txt')
+      writeFileSync(outsidePath, 'secret')
+      symlinkSync(outsidePath, join(config.userFilesRoot, 'escaped.txt'))
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('STAT'),
+        Buffer.from('symlink-escape'),
+        Buffer.from('/user_files/escaped.txt'),
+        Buffer.from('none')
+      ])
+
+      expect(errorMessageFor(sentFrames, 'symlink-escape')).toMatch(/path resolves outside root/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('resolves the workspace_sessions root and round-trips LIST and STAT', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-sessions-'))
     const config = workerConfigForRoot(root)
@@ -530,7 +701,9 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     try {
-      mkdirSync(join(config.workspaceSessionsRoot, 'agent-1/session-1'), { recursive: true })
+      mkdirSync(join(config.workspaceSessionsRoot, 'agent-1/session-1'), {
+        recursive: true
+      })
       writeFileSync(join(config.workspaceSessionsRoot, 'agent-1/session-1/log.txt'), 'logs')
 
       await lane.handle([
@@ -588,7 +761,7 @@ function workerConfig(): WorkerConfig {
     sharedFsRoot: '/workspace/shared',
     userFilesRoot: '/workspace/shared/user-files',
     agentInstalledSkillsRoot: '/workspace/shared/skills/agents',
-    builtinSkillsRoot: '/repo/app/library/skills',
+    builtinSkillsRoot: '/repo/app/library',
     maxConcurrentTurns: 9
   }
 }

@@ -7,12 +7,6 @@ import {
   safeJsonStringify as safeJSONStringify
 } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import {
-  assertSafeBrowserURL,
-  browserExtractFromSession,
-  ensureBrowserSession,
-  type BrowserRuntimeOptions
-} from '../browser/cdp'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
@@ -31,25 +25,25 @@ interface WebToolsResponse {
 }
 
 type WebToolsAvailabilityResolver = (signal?: AbortSignal) => Promise<WebToolsResponse>
+const RenderedFallbackSource = 'rendered_fallback'
 
 export interface CreateWebToolsOptions {
   aiGateway: AIGatewayHTTPClient
   abortSignal?: AbortSignal
-  localBrowser?: LocalBrowserWebFetchOptions
+  renderedFallback?: RenderedWebFetchOptions
 }
 
-export interface LocalBrowserWebFetchOptions {
-  agentUID: string
-  executionScopeID?: string | null
-  localBrowserIdleTtlMs?: number
+export interface RenderedWebFetchOptions {
   ssrfFilter?: boolean
-  fetchURL?: LocalBrowserFetchURL
+  fetchBatch?: RenderedWebFetchBatch
+  fetchURL?: RenderedWebFetchURL
 }
 
-export type LocalBrowserFetchURL = (input: { url: string; index: number }, signal?: AbortSignal) => Promise<unknown>
+export type RenderedWebFetchBatch = (urls: string[], signal?: AbortSignal) => Promise<unknown>
+export type RenderedWebFetchURL = (input: { url: string; index: number }, signal?: AbortSignal) => Promise<unknown>
 
 const WebSearchParams = z.object({
-  query: z.string().min(1).max(500).describe('Search query.'),
+  query: z.string().min(1).describe('Search query.'),
   limit: z.number().int().min(1).max(100).optional().describe('Maximum result count. Defaults to 5.')
 })
 
@@ -71,7 +65,7 @@ const WebFetchParams = z.object({
  *
  * Provider configuration may change between turns, but the model-facing tool
  * definitions must not. Each turn memoizes the first availability lookup;
- * web_fetch can fall back to the local browser, while web_search remains
+ * web_fetch can fall back to an internal rendered-page extractor, while web_search remains
  * provider-backed because the worker does not own a search index.
  */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<AgentTool<any>[]> {
@@ -85,7 +79,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Agent
     createWebSearchTool(opts.aiGateway, resolveAvailability),
     createWebFetchTool(opts.aiGateway, {
       resolveAvailability,
-      localBrowser: opts.localBrowser
+      renderedFallback: opts.renderedFallback
     })
   ]
 }
@@ -104,6 +98,7 @@ function createWebSearchTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => '检索资料',
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       const availability = await resolveAvailability(signal)
       const model = configuredProviderModel('web_search', availability.web_search)
@@ -127,27 +122,28 @@ function createWebSearchTool(
 }
 
 /**
- * Builds web_fetch with provider-first and optional local-browser fallback.
+ * Builds web_fetch with provider-first and an optional rendered-page fallback.
  *
  * Provider fetch is preferred when configured because it can use gateway-owned
- * extraction services. The browser fallback keeps rendered pages reachable when
+ * extraction services. The internal fallback keeps rendered pages reachable when
  * the provider path is unavailable.
  */
 function createWebFetchTool(
   aiGateway: AIGatewayHTTPClient,
   config: {
     resolveAvailability: WebToolsAvailabilityResolver
-    localBrowser?: LocalBrowserWebFetchOptions
+    renderedFallback?: RenderedWebFetchOptions
   }
 ): AgentTool<typeof WebFetchParams, WebToolDetails> {
   return {
     name: 'web_fetch',
     description:
-      'Extract and return readable text from HTTPS web pages through AIGateway, falling back to the local browser when available. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call.',
+      'Extract and return readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. This tool returns text only, never binary file content. Do not use web_fetch for PDFs, archives, images, audio/video, executables, or other binary files; use the command shell tool to run aria2c for those downloads. Pass all needed text-page URLs in one call.',
     schema: WebFetchParams,
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
+    describeActivity: () => '阅读资料',
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       let body: unknown
       let providerModel: string | undefined
@@ -155,12 +151,12 @@ function createWebFetchTool(
       try {
         const availability = await config.resolveAvailability(signal)
         providerModel = optionalProviderModel(availability.web_fetch)
-        if (!providerModel && !config.localBrowser) {
+        if (!providerModel && !config.renderedFallback) {
           configuredProviderModel('web_fetch', availability.web_fetch)
         }
       } catch (error) {
-        if (signal?.aborted || !config.localBrowser) throw error
-        body = await localBrowserFetch(params.urls, config.localBrowser, signal, errorMessage(error))
+        if (signal?.aborted || !config.renderedFallback) throw error
+        body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal, errorMessage(error))
       }
 
       if (body === undefined && providerModel) {
@@ -168,11 +164,11 @@ function createWebFetchTool(
           body = await postAIGatewayJSON(aiGateway, '/web_fetch', { model: providerModel, urls: params.urls }, signal)
         } catch (error) {
           if (signal?.aborted) throw error
-          if (!config.localBrowser) throw error
-          body = await localBrowserFetch(params.urls, config.localBrowser, signal, errorMessage(error))
+          if (!config.renderedFallback) throw error
+          body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal, errorMessage(error))
         }
-      } else if (body === undefined && config.localBrowser) {
-        body = await localBrowserFetch(params.urls, config.localBrowser, signal)
+      } else if (body === undefined && config.renderedFallback) {
+        body = await renderedFallbackFetch(params.urls, config.renderedFallback, signal)
       }
 
       return {
@@ -198,82 +194,93 @@ function optionalProviderModel(availability?: WebToolAvailability): string | und
 }
 
 /**
- * Fetches URLs through a persistent local browser session.
+ * Fetches URLs through an ephemeral, materialized browser route.
  *
  * Per-URL errors are returned in the result array so one bad page does not hide
  * successful fetches from the model.
  */
-async function localBrowserFetch(
+async function renderedFallbackFetch(
   urls: string[],
-  config: LocalBrowserWebFetchOptions,
+  config: RenderedWebFetchOptions,
   signal?: AbortSignal,
   fallbackReason?: string
 ): Promise<JSONObject> {
-  const fetchURL = config.fetchURL ?? createLocalBrowserFetchURL(config)
-  const results: JSONObject[] = []
+  const results: Array<JSONObject | undefined> = new Array(urls.length)
+  const accepted: Array<{ url: string; index: number }> = []
 
   for (const [index, url] of urls.entries()) {
     if (signal?.aborted) throw new Error('web_fetch aborted')
     try {
       if (!isHTTPSURL(url)) throw new Error('Only HTTPS URLs are supported.')
-      // Same guard the browser session applies on navigation; checking here
-      // fails fast without starting a Chromium sidecar for a rejected URL.
-      assertSafeBrowserURL(url, { ssrfFilter: config.ssrfFilter === true })
-      const result = await fetchURL({ url, index }, signal)
-      results.push(normalizeLocalBrowserFetchResult(url, result))
+      assertSafeRenderedFetchURL(url, config.ssrfFilter !== false)
+      accepted.push({ url, index })
     } catch (error) {
       if (signal?.aborted) throw error
-      results.push({
+      results[index] = {
         url,
-        error: errorMessage(error),
+        error: renderedFallbackErrorMessage(error),
         metadata: {
-          source: 'local_browser'
+          source: RenderedFallbackSource
         }
-      })
+      }
     }
   }
+
+  if (accepted.length > 0 && config.fetchBatch) {
+    try {
+      const body = await config.fetchBatch(
+        accepted.map(item => item.url),
+        signal
+      )
+      const fetched = Array.isArray(isRecord(body) ? body.results : undefined)
+        ? (body as { results: unknown[] }).results
+        : []
+      for (const [offset, item] of accepted.entries()) {
+        results[item.index] = normalizeRenderedFetchResult(item.url, fetched[offset])
+      }
+    } catch (error) {
+      if (signal?.aborted) throw error
+      for (const item of accepted) results[item.index] = renderedFetchError(item.url, error)
+    }
+  } else if (accepted.length > 0 && config.fetchURL) {
+    for (const item of accepted) {
+      try {
+        results[item.index] = normalizeRenderedFetchResult(
+          item.url,
+          await config.fetchURL({ url: item.url, index: item.index }, signal)
+        )
+      } catch (error) {
+        if (signal?.aborted) throw error
+        results[item.index] = renderedFetchError(item.url, error)
+      }
+    }
+  } else if (accepted.length > 0) {
+    throw new Error('rendered fallback adapter is unavailable')
+  }
+
+  const normalizedResults = results.map((result, index) => result ?? renderedFetchError(urls[index]!, 'no result'))
 
   return {
-    success: results.every(result => typeof result.error !== 'string'),
-    source: 'local_browser',
+    success: normalizedResults.every(result => typeof result.error !== 'string'),
+    source: RenderedFallbackSource,
     ...(fallbackReason ? { fallback_from: 'aigateway', fallback_reason: fallbackReason } : {}),
-    results
+    results: normalizedResults
+  }
+}
+
+function renderedFetchError(url: string, error: unknown): JSONObject {
+  return {
+    url,
+    error: renderedFallbackErrorMessage(error),
+    metadata: { source: RenderedFallbackSource }
   }
 }
 
 /**
- * Creates the URL fetcher used by local-browser web_fetch.
- *
- * The session name is scoped to the agent/session so cookies and page state can
- * persist during a turn without leaking across unrelated execution scopes.
- */
-function createLocalBrowserFetchURL(config: LocalBrowserWebFetchOptions): LocalBrowserFetchURL {
-  const executionScopeID = sanitizeWebFetchID(config.executionScopeID || config.agentUID || 'default')
-  const session = `web-fetch-${executionScopeID}`
-  const options: BrowserRuntimeOptions = {
-    remoteCDPConfig: null,
-    ssrfFilter: config.ssrfFilter === true,
-    ...(typeof config.localBrowserIdleTtlMs === 'number' ? { localBrowserIdleTtlMs: config.localBrowserIdleTtlMs } : {})
-  }
-  let sessionReady = false
-
-  return async ({ url, index }, signal) => {
-    if (signal?.aborted) throw new Error('web_fetch aborted')
-    if (!sessionReady) {
-      await ensureBrowserSession({ session }, options)
-      sessionReady = true
-    }
-    const extracted = await browserExtractFromSession({ session, url, taskID: `web-fetch-${index + 1}` }, options)
-    if (!extracted) throw new Error('local browser returned no extract result')
-    return extracted
-  }
-}
-
-/**
- * Normalizes browser extract output into the same rough result shape as
+ * Normalizes rendered extract output into the same rough result shape as
  * provider web_fetch.
  */
-function normalizeLocalBrowserFetchResult(url: string, value: unknown): JSONObject {
+function normalizeRenderedFetchResult(url: string, value: unknown): JSONObject {
   const record = isRecord(value) ? value : { text: String(value ?? '') }
   const metadata = isRecord(record.metadata) ? record.metadata : {}
   const result: JSONObject = {
@@ -282,10 +289,7 @@ function normalizeLocalBrowserFetchResult(url: string, value: unknown): JSONObje
     text: stringField(record, 'text') || '',
     metadata: {
       ...metadata,
-      source: 'local_browser',
-      ...(stringField(record, 'backend') ? { backend: stringField(record, 'backend') } : {}),
-      ...(stringField(record, 'adapter') ? { adapter: stringField(record, 'adapter') } : {}),
-      ...(stringField(record, 'session') ? { session: stringField(record, 'session') } : {})
+      source: RenderedFallbackSource
     }
   }
 
@@ -434,6 +438,21 @@ function stringField(record: JSONObject, key: string): string | undefined {
   return typeof value === 'string' && value.trim() ? value : undefined
 }
 
+/** Hides renderer implementation details from model-visible fallback errors. */
+function renderedFallbackErrorMessage(error: unknown): string {
+  const message = errorMessage(error)
+  if (/ankole-browser|browser daemon|playwright|chromium|\bCDP\b|browser session/i.test(message)) {
+    return 'rendered fallback is temporarily unavailable'
+  }
+  return message
+    .replace(/local browser/gi, 'rendered fallback')
+    .replace(/blocked browser navigation/gi, 'blocked rendered fetch')
+    .replace(/browser navigation/gi, 'rendered fetch')
+    .replace(/browser session/gi, 'rendered-fetch session')
+    .replace(/browser returned/gi, 'rendered fallback returned')
+    .replace(/browser_[a-z0-9_]+/gi, 'rendered-fetch operation')
+}
+
 /**
  * Accepts HTTPS URLs for web_fetch, using the shared kernel URL parser.
  */
@@ -448,10 +467,10 @@ function isHTTPSURL(value: string): boolean {
 /**
  * Sanitizes the execution scope into a browser session id.
  */
-function sanitizeWebFetchID(value: string): string {
-  const safe = value
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return safe.slice(0, 96) || 'default'
+function assertSafeRenderedFetchURL(value: string, ssrfFilter: boolean): void {
+  const facts = webURLFacts(value)
+  if (facts.hostClass === 'metadata') throw new Error('blocked rendered fetch to cloud metadata endpoint')
+  if (ssrfFilter && facts.hostClass === 'private') {
+    throw new Error('blocked non-public URL by the security.ssrf_filter policy')
+  }
 }

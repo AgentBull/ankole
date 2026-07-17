@@ -302,19 +302,12 @@ defmodule Ankole.AIGateway do
   def prepare_websocket_request(_subject_uid, _request), do: {:error, :invalid_request_body}
 
   defp prepare_websocket_stream_request(subject_uid, request) do
-    with {:ok, prepared_request, run_attrs} <-
-           prepare_websocket_provider_request(subject_uid, request),
-         {:ok, stateful_context} <- maybe_start_websocket_stateful_run(run_attrs) do
-      {:ok, prepared_request, stateful_context}
-    end
+    StatefulLifecycle.prepare_and_start_websocket_provider_request(subject_uid, request)
   end
 
   defp prepare_websocket_provider_request(subject_uid, request) do
     StatefulLifecycle.prepare_websocket_provider_request(subject_uid, request)
   end
-
-  defp maybe_start_websocket_stateful_run(run_attrs),
-    do: StatefulLifecycle.start_websocket_run(run_attrs)
 
   @doc false
   @spec read_response_stream(ResponseStream.t(), non_neg_integer()) :: :ok | {:error, term()}
@@ -589,17 +582,12 @@ defmodule Ankole.AIGateway do
 
   defp valid_extract_urls?(_urls, _ssrf_filter?), do: false
 
-  # URL parsing and host classification live in the native kernel so the
-  # provider path and the Agent Computer web/browser guards share one
-  # classifier. Cloud metadata endpoints classify as `:metadata` and are
-  # rejected regardless of the `security.ssrf_filter` policy.
-  defp safe_web_url?(url, ssrf_filter?) when is_binary(url) do
-    case NativeKernel.web_url_facts(url) do
-      %{scheme: "https", host_class: :public} -> true
-      %{scheme: "https", host_class: :private} -> not ssrf_filter?
-      _facts_or_error -> false
-    end
-  end
+  # The kernel owns URL parsing, host classification, and the SSRF toggle so
+  # the provider path and the Agent Computer web/browser guards share one
+  # policy; the gateway keeps only its HTTPS-only scheme rule. Cloud metadata
+  # endpoints are rejected regardless of the `security.ssrf_filter` policy.
+  defp safe_web_url?(url, ssrf_filter?) when is_binary(url),
+    do: NativeKernel.validate_web_url(url, ["https"], ssrf_filter?) == :ok
 
   defp safe_web_url?(_url, _ssrf_filter?), do: false
 

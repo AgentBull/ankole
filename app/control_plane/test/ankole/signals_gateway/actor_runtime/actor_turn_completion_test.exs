@@ -55,7 +55,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       assert {:ok, %{status: :turn_completed}} = complete_turn(turn_ref, final)
 
       activation =
-        Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref["activation_uid"])
+        Repo.get_by!(ActorSessionActivation, activation_uid: turn_ref.activation_uid)
 
       assert activation.status == "active"
       assert is_nil(activation.current_actor_event_id)
@@ -90,12 +90,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       activation =
         Repo.get_by!(ActorSessionActivation,
-          activation_uid: initial_turn_ref["activation_uid"]
+          activation_uid: initial_turn_ref.activation_uid
         )
 
       activation =
         activation
-        |> ActorSessionActivation.changeset(%{revision: initial_turn_ref["revision"] + 1})
+        |> ActorSessionActivation.changeset(%{revision: initial_turn_ref.revision + 1})
         |> Repo.update!()
 
       main_delivery = Repo.get_by!(ActorEventDelivery, actor_event_id: event.id)
@@ -123,7 +123,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       })
       |> Repo.insert!()
 
-      completion_turn_ref = Map.put(initial_turn_ref, "revision", activation.revision)
+      completion_turn_ref = %{initial_turn_ref | revision: activation.revision}
 
       final = complete_response(agent.uid, event, "steered done")
 
@@ -370,7 +370,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
     test "rejects a stale actor epoch without modifying Actor state" do
       %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("stale-fence")
       final = complete_response(agent.uid, event, "must not commit")
-      stale_turn_ref = Map.update!(turn_ref, "actor_epoch", &(&1 + 1))
+      stale_turn_ref = %{turn_ref | actor_epoch: turn_ref.actor_epoch + 1}
 
       assert {:error, :stale_actor_epoch} = complete_turn(stale_turn_ref, final)
       assert_turn_remains_open(event)
@@ -511,12 +511,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
              )
 
     assert_receive {:actor_lane, envelope}, 2_000
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     %{agent: agent, event: event, turn_ref: turn_ref}
   end
@@ -572,13 +570,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   end
 
   defp complete_turn(turn_ref, final, outcome \\ "loop_finished") do
-    ActorRuntime.handle_turn_completed(%{
-      "turn_completed" => %{
-        "turn" => turn_ref,
-        "final_response_id" => "resp_#{final.id}",
-        "outcome" => outcome
-      }
-    })
+    ActorRuntime.handle_turn_completed(
+      turn_completed_payload(turn_ref, "resp_#{final.id}", outcome)
+    )
   end
 
   defp assert_turn_remains_open(event) do

@@ -598,6 +598,39 @@ defmodule Ankole.AuthZTest do
     end
   end
 
+  describe "computed group member preview" do
+    test "returns active Principals matching the condition ordered by display name" do
+      %{principal: human} = human_fixture(%{uid: unique_uid("preview-human")})
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("preview-agent")})
+
+      assert {:ok, members} =
+               AuthZ.preview_computed_group_members(~s(principal.type == "human"))
+
+      member_uids = Enum.map(members, & &1.uid)
+      assert human.uid in member_uids
+      refute agent.uid in member_uids
+
+      display_names = Enum.map(members, & &1.display_name)
+      assert display_names == Enum.sort(display_names)
+    end
+
+    test "disabled Principals never match" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("preview-disabled")})
+      assert {:ok, _disabled} = Principals.disable_principal(principal.uid)
+
+      assert {:ok, members} =
+               AuthZ.preview_computed_group_members(~s(principal.type == "human"))
+
+      refute principal.uid in Enum.map(members, & &1.uid)
+    end
+
+    test "invalid conditions return an error instead of an empty list" do
+      assert {:error, reason} = AuthZ.preview_computed_group_members("principal.")
+      assert is_binary(reason)
+      assert {:error, _reason} = AuthZ.preview_computed_group_members(nil)
+    end
+  end
+
   defp dirty_computed_group(prefix, condition) do
     Repo.insert!(%Group{
       id: Ankole.Kernel.gen_uuid_v7(),

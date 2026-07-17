@@ -1,7 +1,8 @@
 defmodule Ankole.Plugins.SlackAdapter.BlockKit do
   @moduledoc false
 
-  alias Ankole.Plugins.SlackAdapter.{MapHelpers, Mrkdwn}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.Mrkdwn
 
   @spec render(map()) :: {:ok, [map()]} | {:error, :missing_card_payload}
   def render(payload) when is_map(payload) do

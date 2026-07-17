@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -381,6 +381,7 @@ impl ResponseContext {
         let mut request = self.resolved_request_object();
         request.remove("service_tier");
         normalize_compaction_input(&mut request);
+        normalize_function_call_replay(&mut request);
         request
     }
 }
@@ -430,6 +431,254 @@ fn normalize_compaction_input(request: &mut Map<String, Value>) {
             *item = normalized;
         }
     }
+}
+
+const MAX_FUNCTION_CALL_ARGUMENT_BYTES: usize = 256 * 1024;
+const MAX_REPAIRABLE_FUNCTION_CALL_ARGUMENT_BYTES: usize = 64 * 1024;
+
+// Durable history is the raw audit record; provider replay is a stricter
+// projection. Repair deterministic punctuation damage first. Only a malformed
+// call that already has a matching output may fall back to `{}` so the pair
+// remains provider-valid. An unpaired malformed call is omitted rather than
+// inventing arguments or a result.
+fn normalize_function_call_replay(request: &mut Map<String, Value>) {
+    let Some(Value::Array(items)) = request.get_mut("input") else {
+        return;
+    };
+
+    let output_call_ids = items
+        .iter()
+        .filter_map(|item| {
+            let item = item.as_object()?;
+            if item.get("type").and_then(Value::as_str) != Some("function_call_output") {
+                return None;
+            }
+            item.get("call_id")
+                .and_then(Value::as_str)
+                .filter(|call_id| !call_id.is_empty())
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+
+    items.retain_mut(|item| {
+        let Some(item) = item.as_object_mut() else {
+            return true;
+        };
+
+        if item.get("type").and_then(Value::as_str) != Some("function_call") {
+            return true;
+        }
+
+        let normalized_arguments = match item.get("arguments") {
+            Some(Value::String(arguments)) => normalize_function_arguments(arguments),
+            Some(Value::Object(arguments)) => serde_json::to_string(arguments)
+                .ok()
+                .filter(|arguments| arguments.len() <= MAX_FUNCTION_CALL_ARGUMENT_BYTES),
+            _invalid_or_missing => None,
+        };
+
+        if let Some(arguments) = normalized_arguments {
+            item.insert("arguments".to_string(), Value::String(arguments));
+            return true;
+        }
+
+        let paired = item
+            .get("call_id")
+            .and_then(Value::as_str)
+            .is_some_and(|call_id| output_call_ids.contains(call_id));
+
+        if paired {
+            item.insert("arguments".to_string(), Value::String("{}".to_string()));
+        }
+
+        paired
+    });
+}
+
+fn normalize_function_arguments(arguments: &str) -> Option<String> {
+    if arguments.len() > MAX_FUNCTION_CALL_ARGUMENT_BYTES {
+        return None;
+    }
+
+    if valid_function_arguments(arguments) {
+        return Some(arguments.to_string());
+    }
+
+    if arguments.len() > MAX_REPAIRABLE_FUNCTION_CALL_ARGUMENT_BYTES {
+        return None;
+    }
+
+    let base = strip_json_code_fence(arguments).unwrap_or_else(|| arguments.trim().to_string());
+    let candidates = [
+        Some(base.clone()),
+        extract_balanced_json_object(&base),
+        repair_incomplete_json_object(&base),
+    ];
+
+    candidates.into_iter().flatten().find_map(|candidate| {
+        serde_json::from_str::<Map<String, Value>>(&candidate)
+            .ok()
+            .and_then(|value| serde_json::to_string(&value).ok())
+    })
+}
+
+fn valid_function_arguments(arguments: &str) -> bool {
+    serde_json::from_str::<Map<String, Value>>(arguments).is_ok()
+}
+
+fn strip_json_code_fence(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    let fenced = trimmed.strip_prefix("```")?.strip_suffix("```")?;
+    let fenced = fenced.trim();
+    let fenced = fenced
+        .strip_prefix("json")
+        .filter(|rest| rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace))
+        .unwrap_or(fenced);
+    Some(fenced.trim().to_string())
+}
+
+fn extract_balanced_json_object(input: &str) -> Option<String> {
+    let start = input.find('{')?;
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, character) in input[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match character {
+            '"' => in_string = true,
+            '{' => stack.push('}'),
+            '[' => stack.push(']'),
+            '}' | ']' => {
+                if stack.pop() != Some(character) {
+                    return None;
+                }
+                if stack.is_empty() {
+                    let end = start + offset + character.len_utf8();
+                    return Some(input[start..end].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn repair_incomplete_json_object(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+
+    let mut repaired = String::with_capacity(trimmed.len() + 8);
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for character in trimmed.chars() {
+        if in_string {
+            match character {
+                _ if escaped => {
+                    repaired.push(character);
+                    escaped = false;
+                }
+                '\\' => {
+                    repaired.push(character);
+                    escaped = true;
+                }
+                '"' => {
+                    repaired.push(character);
+                    in_string = false;
+                }
+                '\n' => repaired.push_str("\\n"),
+                '\r' => repaired.push_str("\\r"),
+                '\t' => repaired.push_str("\\t"),
+                _ => repaired.push(character),
+            }
+            continue;
+        }
+
+        match character {
+            '"' => {
+                repaired.push(character);
+                in_string = true;
+            }
+            '{' => {
+                repaired.push(character);
+                stack.push('}');
+            }
+            '[' => {
+                repaired.push(character);
+                stack.push(']');
+            }
+            '}' | ']' => {
+                if stack.pop() != Some(character) {
+                    return None;
+                }
+                repaired.push(character);
+            }
+            _ => repaired.push(character),
+        }
+    }
+
+    if in_string || escaped {
+        return None;
+    }
+
+    repaired.extend(stack.into_iter().rev());
+    Some(remove_trailing_json_commas(&repaired))
+}
+
+fn remove_trailing_json_commas(input: &str) -> String {
+    let characters = input.char_indices().collect::<Vec<_>>();
+    let mut output = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (index, (_, character)) in characters.iter().enumerate() {
+        if in_string {
+            output.push(*character);
+            if escaped {
+                escaped = false;
+            } else if *character == '\\' {
+                escaped = true;
+            } else if *character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if *character == '"' {
+            output.push(*character);
+            in_string = true;
+            continue;
+        }
+
+        if *character == ',' {
+            let next = characters[index + 1..]
+                .iter()
+                .map(|(_, next)| *next)
+                .find(|next| !next.is_whitespace());
+            if matches!(next, Some('}' | ']')) {
+                continue;
+            }
+        }
+
+        output.push(*character);
+    }
+
+    output
 }
 
 fn normalize_compaction_item(item: &Value) -> Option<Value> {
@@ -705,6 +954,126 @@ mod tests {
             Some(&json!({"include_usage": true}))
         );
         assert!(!provider_request.contains_key("service_tier"));
+    }
+
+    #[test]
+    fn provider_request_repairs_trailing_punctuation_without_breaking_pair() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_truncated",
+                        "name": "patch",
+                        "arguments": "{\"path\":\"/tmp/report.py\","
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_truncated",
+                        "output": "Invalid arguments: unterminated JSON"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+        let input = provider_request["input"].as_array().unwrap();
+
+        assert_eq!(
+            context.request["input"][0]["arguments"],
+            json!("{\"path\":\"/tmp/report.py\",")
+        );
+        assert_eq!(
+            input[0]["arguments"],
+            json!("{\"path\":\"/tmp/report.py\"}")
+        );
+        assert_eq!(input[0]["call_id"], json!("call_truncated"));
+        assert_eq!(input[1]["call_id"], json!("call_truncated"));
+        assert_eq!(
+            input[1]["output"],
+            json!("Invalid arguments: unterminated JSON")
+        );
+    }
+
+    #[test]
+    fn provider_request_uses_empty_object_only_for_paired_unrepairable_calls() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_paired",
+                        "name": "patch",
+                        "arguments": "{\"path\":\"/tmp/repor"
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_paired",
+                        "output": "Invalid arguments: unterminated string"
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_unpaired",
+                        "name": "patch",
+                        "arguments": "{\"path\":\"/tmp/othe"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+        let input = provider_request["input"].as_array().unwrap();
+
+        assert_eq!(context.request["input"].as_array().unwrap().len(), 3);
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["call_id"], json!("call_paired"));
+        assert_eq!(input[0]["arguments"], json!("{}"));
+        assert_eq!(input[1]["call_id"], json!("call_paired"));
+        assert!(
+            !serde_json::to_string(input)
+                .unwrap()
+                .contains("call_unpaired")
+        );
+    }
+
+    #[test]
+    fn provider_request_repairs_fenced_and_surrounded_function_arguments() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_fenced",
+                        "name": "read_file",
+                        "arguments": "```json\n{\"path\":\"/tmp/a\"}\n```"
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_surrounded",
+                        "name": "read_file",
+                        "arguments": "arguments: {\"path\":\"/tmp/b\"} thanks"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let provider_request = context.resolved_provider_request_object();
+        let input = provider_request["input"].as_array().unwrap();
+
+        assert_eq!(input[0]["arguments"], json!("{\"path\":\"/tmp/a\"}"));
+        assert_eq!(input[1]["arguments"], json!("{\"path\":\"/tmp/b\"}"));
     }
 
     #[test]

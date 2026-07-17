@@ -56,6 +56,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     image_generate do
       upstream(:json)
       api_resolver(:openrouter_images)
+      timeout_ms(300_000)
       prepare(:prepare_image_generate)
     end
   end

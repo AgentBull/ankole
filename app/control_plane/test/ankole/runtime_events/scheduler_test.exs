@@ -199,12 +199,10 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
              )
 
     assert_receive {:actor_lane, envelope}
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, conversation} =
              StatefulResponses.ensure_conversation(agent.uid, event.session_id)
@@ -221,13 +219,9 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
 
   defp assert_turn_completed(turn_ref, message) do
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(%{
-               "turn_completed" => %{
-                 "turn" => turn_ref,
-                 "final_response_id" => "resp_#{message.id}",
-                 "outcome" => "loop_finished"
-               }
-             })
+             ActorRuntime.handle_turn_completed(
+               turn_completed_payload(turn_ref, "resp_#{message.id}", "loop_finished")
+             )
   end
 
   defp assistant_content(text) do

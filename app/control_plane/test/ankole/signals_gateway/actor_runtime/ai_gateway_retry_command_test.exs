@@ -236,9 +236,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
              process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
 
     assert_receive {:actor_lane, retry_envelope}
-    retry_actor_event = retry_envelope["body"]["turn_start"]["actor_event"]
-    assert retry_actor_event["actor_event_id"] == retry_event.id
-    assert retry_actor_event["payload_json"]["data"]["entry"]["text"] == "PING"
+    retry_actor_event = turn_start_payload!(retry_envelope).actor_event
+    assert retry_actor_event.actor_event_id == retry_event.id
+    assert decoded_json_bytes(retry_actor_event.payload_json)["data"]["entry"]["text"] == "PING"
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
     assert is_nil(StatefulResponses.latest_visible_leaf(conversation.id))
@@ -268,14 +268,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
              )
 
     assert_receive {:actor_lane, envelope}
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{
-                 "turn" => turn_ref
-               }
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
 
@@ -327,9 +323,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
            ) == "superseded"
 
     assert_receive {:actor_lane, retry_control}
-    assert retry_control["body"]["type"] == "turn_control"
-    assert retry_control["body"]["turn_control"]["command"] == "retry"
-    assert retry_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
+    assert envelope_body_type(retry_control) == :turn_control
+    assert envelope_body!(retry_control, :turn_control).command == "retry"
+    assert envelope_body!(retry_control, :turn_control).turn.actor_event_id == input.id
   end
 
   test "retry command bypasses ordinary queued input while AIGateway generation is active" do
@@ -380,17 +376,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert cancelled.metadata["error"]["code"] == "command.retry"
 
     assert_receive {:actor_lane, retry_control}
-    assert retry_control["body"]["type"] == "turn_control"
-    assert retry_control["body"]["turn_control"]["command"] == "retry"
-    assert retry_control["body"]["turn_control"]["turn"]["actor_event_id"] == input.id
+    assert envelope_body_type(retry_control) == :turn_control
+    assert envelope_body!(retry_control, :turn_control).command == "retry"
+    assert envelope_body!(retry_control, :turn_control).turn.actor_event_id == input.id
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
 
     assert_receive {:actor_lane, retry_envelope}
-    retry_actor_event = retry_envelope["body"]["turn_start"]["actor_event"]
-    assert retry_actor_event["actor_event_id"] == input.id
-    assert retry_actor_event["payload_json"]["data"]["entry"]["text"] == "PING"
+    retry_actor_event = turn_start_payload!(retry_envelope).actor_event
+    assert retry_actor_event.actor_event_id == input.id
+    assert decoded_json_bytes(retry_actor_event.payload_json)["data"]["entry"]["text"] == "PING"
   end
 
   defp start_accepted_aigateway_run(agent_uid, text, now, opts \\ []) do
@@ -411,14 +407,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
              )
 
     assert_receive {:actor_lane, envelope}
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [_delivery]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{
-                 "turn" => turn_ref
-               }
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, input.session_id)
 
@@ -455,13 +447,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert completed.status == "complete"
 
     assert {:ok, %{status: :turn_completed}} =
-             ActorRuntime.handle_turn_completed(%{
-               "turn_completed" => %{
-                 "turn" => turn_ref,
-                 "final_response_id" => "resp_#{completed.id}",
-                 "outcome" => "loop_finished"
-               }
-             })
+             ActorRuntime.handle_turn_completed(
+               turn_completed_payload(turn_ref, "resp_#{completed.id}", "loop_finished")
+             )
 
     completed
   end

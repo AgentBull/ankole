@@ -139,7 +139,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
           error_event(
             409,
             "response_in_progress",
-            "This response already has an active stateful run."
+            "This conversation already has an active stateful run."
           )
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
@@ -183,6 +183,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
             "tool_results_record_unavailable",
             "AIGateway could not persist tool results before the retry budget was exhausted.",
             nil,
+            details
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, {:tool_results_quarantined, %{} = details}} ->
+        event =
+          error_event(
+            409,
+            "tool_results_quarantined",
+            "Tool results did not match executable calls on the anchor and were excluded from canonical history.",
+            "input",
             details
           )
 

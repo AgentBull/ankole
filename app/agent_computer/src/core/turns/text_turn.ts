@@ -6,10 +6,10 @@ import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
-import { createWebTools } from '../../tools/web/web-tools'
-import { createSubagentTool } from '../../tools/subagent/subagent-tool'
+import { createBackgroundAgentJobTool } from '../../tools/background-agent-job/background-agent-job-tool'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
+import { createMCPTools } from '../../tools/mcp'
 import type { AgentTool } from '../types'
 import { assistantText, userMessage } from '../llm'
 import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
@@ -25,9 +25,11 @@ import { steeringMessages } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
-import { resolveBrowserRuntimeConfig } from './browser_runtime_config'
+import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
+import { rpcMethods, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 const silentSuccessMarker = '<silent_success/>'
 
@@ -69,7 +71,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         ? createSourceLearningTurnTools({
             turnStart,
             workspaceRoot: opts.workspaceRoot,
-            requestMemoryRPC: opts.requestMemoryRPC
+            requestMemoryRPC: opts.rpc
           })
         : undefined
     const userPrompt = userMessage(
@@ -85,23 +87,30 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     if (learningTurn) {
       tools = learningTurn.tools
     } else {
-      const browserRuntimeConfig = await turnActivity.runStep(
-        resolveBrowserRuntimeConfig(turnStart, opts),
-        'browser runtime config'
+      const renderedFetchRuntimeConfig = await turnActivity.runStep(
+        resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc),
+        'rendered fetch runtime config'
       )
-      const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts), 'worker env')
+      const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts.rpc), 'worker env')
+      const toolWorkerEnv = withoutBrowserMaterialSourceEnv(workerEnv)
+      const skillRoots = skillRootsFromOptions(opts)
+      const mcpTools = await turnActivity.runStep(
+        createMCPTools({
+          enabledSkills: agentConversationContext.skills ?? [],
+          skillRoots,
+          turn: turnStart.turn,
+          workerEnv: toolWorkerEnv,
+          abortSignal: turnActivity.signal
+        }),
+        'MCP tools availability'
+      )
       const webTools = await turnActivity.runStep(
-        createWebTools({
+        createTurnWebTools({
           aiGateway,
-          abortSignal: turnActivity.signal,
-          localBrowser: {
-            agentUID: turnStart.turn.actor.agent_uid,
-            executionScopeID: turnStart.turn.actor.session_id ?? turnStart.turn.actor.agent_uid,
-            ssrfFilter: browserRuntimeConfig.ssrfFilter,
-            ...(typeof browserRuntimeConfig.localBrowserIdleTtlMs === 'number'
-              ? { localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs }
-              : {})
-          }
+          renderedFetchRuntimeConfig,
+          workerEnv,
+          browserRuntime: opts.browserRuntime,
+          abortSignal: turnActivity.signal
         }),
         'web tools availability'
       )
@@ -109,37 +118,33 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         agentUID: turnStart.turn.actor.agent_uid,
         conversationID: turnStart.turn.actor.session_id,
         workspaceRoot: opts.workspaceRoot,
-        browserRemoteCDPConfig: browserRuntimeConfig.remoteCDPConfig,
-        localBrowserIdleTtlMs: browserRuntimeConfig.localBrowserIdleTtlMs,
-        ssrfFilter: browserRuntimeConfig.ssrfFilter,
-        workerEnv
+        workerEnv: toolWorkerEnv
       })
+      const backgroundAgentJobTools = await turnActivity.runStep(
+        resolveBackgroundAgentJobTools(turnStart, opts, agentConversationContext.skills ?? []),
+        'background agent job tool availability'
+      )
 
       tools = [
         createTodoTool(new TodoStore()),
         ...computerTools,
         ...createScheduleTools({
           turnStart,
-          requestScheduleRPC: opts.requestScheduleRPC
+          requestScheduleRPC: opts.rpc
         }),
-        ...createMemoryTools({ turnStart, requestMemoryRPC: opts.requestMemoryRPC }),
-        ...webTools,
-        createClarifyTool(),
-        createSubagentTool({
+        ...createMemoryTools({
           turnStart,
-          createSubagentDelegation: opts.createSubagentDelegation,
-          getSubagentDelegation: opts.getSubagentDelegation,
-          listSubagentDelegations: opts.listSubagentDelegations,
-          steerSubagentDelegation: opts.steerSubagentDelegation,
-          stopSubagentDelegation: opts.stopSubagentDelegation
+          requestMemoryRPC: opts.rpc
         }),
+        ...webTools,
+        ...mcpTools,
+        createClarifyTool(),
+        ...backgroundAgentJobTools,
         ...createSkillTools(opts.workspaceRoot, {
           turn: turnStart.turn,
           enabledSkills: agentConversationContext.skills ?? [],
-          skillRoots: skillRootsFromOptions(opts),
-          requestSkillOverlay: opts.requestSkillOverlay,
-          appendSkillOverlay: opts.appendSkillOverlay,
-          replaceSkillOverlay: opts.replaceSkillOverlay
+          skillRoots,
+          rpc: opts.rpc
         })
       ]
     }
@@ -173,6 +178,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         truncation: statefulTruncationFromActorEventPayload(actorEvent.payload_json)
       },
       tools,
+      hostedTools: turnStart.hosted_tools,
       abortSignal: turnActivity.signal,
       onActivity: turnActivity.touch,
       onPresentationEvent: opts.onPresentationEvent,
@@ -191,6 +197,23 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   } finally {
     turnActivity.cleanup()
   }
+}
+
+async function resolveBackgroundAgentJobTools(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions,
+  skills: RuntimeSkillSummary[]
+): Promise<AgentTool[]> {
+  const response = await opts.rpc(rpcMethods.agentPluginList, { turn: turnStart.turn })
+
+  return [
+    createBackgroundAgentJobTool({
+      turnStart,
+      agentPluginCatalog: response.agent_plugins,
+      standaloneSkillNames: skills.filter(skill => !skill.agent_plugin_id).map(skill => skill.skill_name),
+      rpc: opts.rpc
+    })
+  ]
 }
 
 /**
@@ -221,8 +244,7 @@ function silentSuccessAllowed(turnStart: TurnStart): boolean {
   return turnStart.request_context?.silent_success_allowed === true
 }
 
-function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots | undefined {
-  if (!opts.builtinSkillsRoot || !opts.agentInstalledSkillsRoot) return undefined
+function skillRootsFromOptions(opts: TextTurnLoopOptions): SkillFileRoots {
   return {
     builtinSkillsRoot: opts.builtinSkillsRoot,
     agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot,

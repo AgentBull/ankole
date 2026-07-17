@@ -104,7 +104,7 @@ defmodule Ankole.RuntimeEvents do
   @activation_deadline %{
     kind: :activation_deadline,
     channel: @activation_deadline_channel,
-    due_at_field: "lease_expires_at",
+    due_at_field: "due_at",
     timer_key_fields: ["activation_uid"]
   }
 
@@ -245,13 +245,14 @@ defmodule Ankole.RuntimeEvents do
     })
   end
 
-  @spec notify_activation_deadline(module(), map()) :: :ok | {:error, term()}
-  def notify_activation_deadline(repo, activation) do
+  @spec notify_activation_deadline(module(), map(), DateTime.t() | nil) :: :ok | {:error, term()}
+  def notify_activation_deadline(repo, activation, due_at \\ nil) do
     Notifier.notify_in_tx(repo, activation_deadline_channel(), %{
       "activation_uid" => activation.activation_uid,
       "agent_uid" => activation.agent_uid,
       "session_id" => activation.session_id,
-      "lease_expires_at" => encode_datetime(activation.lease_expires_at)
+      "lease_expires_at" => encode_datetime(activation.lease_expires_at),
+      "due_at" => encode_datetime(due_at || activation.lease_expires_at)
     })
   end
 

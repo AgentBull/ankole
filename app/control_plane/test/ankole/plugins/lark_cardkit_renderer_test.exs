@@ -138,10 +138,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == live["answer"]
   end
 
-  test "renders failed subagent context as a quoted prefix only on the first card" do
+  test "renders failed BackgroundAgentJob context as a quoted prefix only on the first card" do
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.project_trigger("subagent.delegation.failed", %{
+      |> ReplyPresentation.project_trigger("background_agent_job.failed", %{
         "data" => %{
           "title" => "第二版 deep research",
           "result_summary" => "返回 JSON Schema 少声明了必填字段"
@@ -164,8 +164,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert trigger["tag"] == "markdown"
 
     assert trigger["i18n_content"] == %{
-             "en_us" => "> Background task “第二版 deep research” failed: 返回 JSON Schema 少声明了必填字段",
-             "zh_cn" => "> 后台任务「第二版 deep research」失败：返回 JSON Schema 少声明了必填字段"
+             "en_us" =>
+               "> Background Agent Job “第二版 deep research” failed: 返回 JSON Schema 少声明了必填字段",
+             "zh_cn" => "> 后台 Agent 任务「第二版 deep research」失败：返回 JSON Schema 少声明了必填字段"
            }
 
     assert element_index(first_elements, "trigger_context") <

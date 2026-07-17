@@ -1,4 +1,20 @@
-import { Badge, Button, Skeleton, TableCell, TableRow } from '@ankole/uikit'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Badge,
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+  TableCell,
+  TableRow,
+  cn
+} from '@ankole/uikit'
 import { RiArrowLeftLine, RiArrowRightLine, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@pleisto/active-support'
 import { useQuery } from '@tanstack/react-query'
@@ -6,7 +22,8 @@ import { type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
-import { PageHeader, ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { MarkdownBody } from '../markdown-body'
+import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
 import {
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
@@ -30,12 +47,16 @@ export function ConversationsListPage() {
   const subjectFilter = searchParams.get('subject') ?? ''
   const cursor = searchParams.get('cursor') ?? undefined
   const activeFilter = searchParams.get('active')
+  // Stub conversations (fewer than two messages — no exchange recorded) are
+  // hidden by default; `min_messages=0` opts back into the full list.
+  const showAll = searchParams.get('min_messages') === '0'
 
   const list = useQuery(
     ankoleWebAIGatewayConversationControllerIndexOptions({
       query: {
         subject: subjectFilter.trim() || undefined,
         active: activeFilter === 'true' ? true : activeFilter === 'false' ? false : undefined,
+        min_messages: showAll ? undefined : 2,
         cursor,
         limit: 50
       }
@@ -63,6 +84,14 @@ export function ConversationsListPage() {
     setSearchParams(next, { replace: true })
   }
 
+  const setMessageFilter = (value: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === 'all') next.set('min_messages', '0')
+    else next.delete('min_messages')
+    next.delete('cursor')
+    setSearchParams(next, { replace: true })
+  }
+
   const goCursor = (value: string | undefined) => {
     const next = new URLSearchParams(searchParams)
     if (value) next.set('cursor', value)
@@ -70,21 +99,28 @@ export function ConversationsListPage() {
     setSearchParams(next)
   }
 
+  const isFiltered = Boolean(subjectFilter.trim()) || activeFilter !== null
+
   return (
     <ResourceListPage
       title={t('console.conversations.title')}
       description={t('console.conversations.description')}
       columns={[
+        t('console.conversations.name'),
         t('console.conversations.subject'),
-        t('console.conversations.key'),
+        t('console.conversations.messages'),
         t('console.conversations.status'),
         t('console.conversations.updated')
       ]}
       isLoading={list.isLoading}
       isEmpty={conversations.length === 0}
-      isFiltered={Boolean(subjectFilter.trim()) || activeFilter !== null}
+      isFiltered={isFiltered}
       emptyTitle={t('console.conversations.empty_title')}
-      emptyDescription={t('console.conversations.empty_description')}
+      emptyDescription={
+        isFiltered || showAll
+          ? t('console.conversations.empty_description')
+          : t('console.conversations.empty_min_messages_description')
+      }
       error={list.error}
       toolbar={
         <div className="flex flex-wrap items-center gap-2">
@@ -101,6 +137,17 @@ export function ConversationsListPage() {
                 ? t('console.conversations.filter_ended_only')
                 : t('console.conversations.filter_all')}
           </Button>
+          <Select
+            value={showAll ? 'all' : 'with_messages'}
+            onValueChange={value => setMessageFilter(value ?? 'with_messages')}>
+            <SelectTrigger size="sm" aria-label={t('console.conversations.filter_with_messages')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="with_messages">{t('console.conversations.filter_with_messages')}</SelectItem>
+              <SelectItem value="all">{t('console.conversations.filter_all_conversations')}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       }
       footer={
@@ -126,16 +173,37 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
 
   return (
     <TableRow>
-      <TableCell className="font-mono text-xs">
-        <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(conversation.id)}>
-          {conversation.subject_uid}
-        </Link>
-      </TableCell>
-      <TableCell className="max-w-[24rem] truncate font-mono text-xs">{conversation.conversation_key}</TableCell>
       <TableCell>
-        <StatusIndicator tone={active ? 'positive' : 'neutral'}>
-          {active ? t('console.conversations.status_active') : t('console.conversations.status_ended')}
-        </StatusIndicator>
+        <div className="grid min-w-0 max-w-md gap-0.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Link
+              className={cn(
+                'truncate text-foreground hover:text-primary hover:underline',
+                conversation.display_name ? 'font-medium' : 'font-mono text-xs'
+              )}
+              to={encodeURIComponent(conversation.id)}>
+              {conversation.display_name ?? conversation.conversation_key}
+            </Link>
+            <ConversationKindTags conversation={conversation} />
+          </div>
+          {conversation.display_name ? (
+            <span className="truncate font-mono text-xs text-muted-foreground">{conversation.conversation_key}</span>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell className="font-mono text-xs">{conversation.subject_uid}</TableCell>
+      <TableCell className="text-right text-sm tabular-nums">
+        <span className={conversation.message_count === 0 ? 'text-muted-foreground' : undefined}>
+          {conversation.message_count}
+        </span>
+      </TableCell>
+      <TableCell>
+        <span className="inline-flex items-center gap-1.5 text-sm">
+          <span className={cn('size-1.5 rounded-full', active ? 'bg-success' : 'bg-gray-40')} aria-hidden />
+          <span className={active ? undefined : 'text-muted-foreground'}>
+            {active ? t('console.conversations.status_active') : t('console.conversations.status_ended')}
+          </span>
+        </span>
       </TableCell>
       <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
         {formatConsoleDate(conversation.updated_at)}
@@ -145,8 +213,42 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
 }
 
 /**
+ * Room-type tags disambiguating rows that share one display name: the room
+ * kind for non-signal conversations (Dreaming run, background job, managed
+ * API session), and for signal rooms the DM/group kind plus the owning
+ * adapter. `custom` keys and `unknown` channel kinds get no tag.
+ */
+function ConversationKindTags({ conversation }: { conversation: AIGatewayConversationItem }) {
+  const { t } = useTranslation()
+
+  return (
+    <>
+      {conversation.kind !== 'signal' && conversation.kind !== 'custom' ? (
+        <Badge variant="secondary" className="shrink-0">
+          {t(`console.conversations.kind.${conversation.kind}`)}
+        </Badge>
+      ) : null}
+      {conversation.channel_kind && conversation.channel_kind !== 'unknown' ? (
+        <Badge variant="outline" className="shrink-0">
+          {t(`console.conversations.channel_kind.${conversation.channel_kind}`)}
+        </Badge>
+      ) : null}
+      {conversation.signal_adapter ? (
+        <Badge variant="outline" className="shrink-0 font-mono">
+          {conversation.signal_adapter}
+        </Badge>
+      ) : null}
+    </>
+  )
+}
+
+/**
  * Conversation detail page — the conversation metadata plus its full message
- * thread rendered as a chat-style bubble timeline. Read-only; no polling.
+ * thread. Read-only; no polling. The layout follows the console's Carbon
+ * conventions: a constrained reading column, a hairline definition-list grid
+ * for the resource facts, and a single left-aligned message stream where
+ * conversational text renders as Markdown and tool traffic renders as
+ * structured tiles.
  */
 export function ConversationDetailPage() {
   const { t } = useTranslation()
@@ -186,57 +288,73 @@ export function ConversationDetailPage() {
   if (conversation.error || (!conversation.isLoading && !detail)) {
     return (
       <div className="grid gap-4">
-        <div className="flex items-center justify-between">
-          <Button type="button" size="sm" variant="ghost" onClick={() => navigate('/conversations')}>
-            <RiArrowLeftLine />
-            {t('console.conversations.back')}
-          </Button>
-        </div>
+        <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
         <ErrorBlock error={conversation.error ?? new Error(t('console.conversations.not_found'))} />
       </div>
     )
   }
 
   return (
-    <div className="grid gap-6">
-      <div className="flex items-center justify-between">
-        <Button type="button" size="sm" variant="ghost" onClick={() => navigate('/conversations')}>
-          <RiArrowLeftLine />
-          {t('console.conversations.back')}
-        </Button>
-      </div>
-
-      <PageHeader
-        title={detail?.conversation_key ?? t('console.conversations.detail_title')}
-        description={detail ? `${detail.subject_uid} · ${detail.id}` : undefined}
-      />
+    <div className="grid max-w-5xl gap-8">
+      <BackLink label={t('console.conversations.back')} onClick={() => navigate('/conversations')} />
 
       {conversation.isLoading || !detail ? (
-        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-40 w-full" />
       ) : (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 border border-border bg-card p-4 text-sm">
-          <DetailField label={t('console.conversations.subject')} value={<code>{detail.subject_uid}</code>} />
-          <DetailField
-            label={t('console.conversations.status')}
-            value={
+        <>
+          <header className="grid gap-3 border-b border-border pb-6">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h2 className="min-w-0 break-all text-xl leading-8 font-semibold tracking-normal text-foreground">
+                {detail.display_name ?? detail.conversation_key}
+              </h2>
               <StatusIndicator tone={detail.ended_at == null ? 'positive' : 'neutral'}>
                 {detail.ended_at == null
                   ? t('console.conversations.status_active')
                   : t('console.conversations.status_ended')}
               </StatusIndicator>
-            }
-          />
-          <DetailField label={t('console.conversations.key')} value={<code>{detail.conversation_key}</code>} />
-          <DetailField label={t('console.conversations.ended_at')} value={formatConsoleDate(detail.ended_at)} />
-          <DetailField label={t('console.conversations.created')} value={formatConsoleDate(detail.inserted_at)} />
-          <DetailField label={t('console.conversations.updated')} value={formatConsoleDate(detail.updated_at)} />
-          <DetailField label={t('console.conversations.metadata')} value={<RawJSON value={detail.metadata} />} wide />
-        </dl>
+              <ConversationKindTags conversation={detail} />
+            </div>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+              {detail.display_name ? (
+                <>
+                  <span className="break-all font-mono text-xs">{detail.conversation_key}</span>
+                  <span aria-hidden>·</span>
+                </>
+              ) : null}
+              <span className="break-all">{detail.subject_uid}</span>
+              <span aria-hidden>·</span>
+              <span className="break-all font-mono text-xs">{detail.id}</span>
+            </p>
+          </header>
+
+          <section className="grid gap-3" aria-label={t('console.conversations.details')}>
+            <h3 className="text-base font-semibold">{t('console.conversations.details')}</h3>
+            <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+              <DetailField label={t('console.conversations.subject')} value={detail.subject_uid} mono />
+              <DetailField label={t('console.conversations.key')} value={detail.conversation_key} mono />
+              <DetailField label="ID" value={detail.id} mono />
+              <DetailField label={t('console.conversations.messages')} value={detail.message_count} />
+              <DetailField label={t('console.conversations.created')} value={formatConsoleDate(detail.inserted_at)} />
+              <DetailField label={t('console.conversations.ended_at')} value={formatConsoleDate(detail.ended_at)} />
+              <DetailField label={t('console.conversations.updated')} value={formatConsoleDate(detail.updated_at)} />
+            </dl>
+            {Object.keys(detail.metadata).length > 0 ? (
+              <Accordion className="border border-border bg-card px-4">
+                <AccordionItem value="metadata">
+                  <AccordionTrigger className="py-3">{t('console.conversations.metadata')}</AccordionTrigger>
+                  <AccordionContent>
+                    <CodeBlock>{JSON.stringify(detail.metadata, null, 2)}</CodeBlock>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            ) : null}
+          </section>
+        </>
       )}
 
-      <section className="grid gap-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-medium">{t('console.conversations.messages')}</h3>
+      <section className="grid gap-4">
+        <div className="flex items-baseline justify-between gap-4">
+          <h3 className="text-base font-semibold">{t('console.conversations.messages')}</h3>
           {messages.isLoading ? (
             <span className="text-xs text-muted-foreground">{t('console.conversations.loading')}</span>
           ) : (
@@ -272,16 +390,40 @@ export function ConversationDetailPage() {
   )
 }
 
+function BackLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <RiArrowLeftLine className="size-4" aria-hidden />
+        {label}
+      </button>
+    </div>
+  )
+}
+
+function DetailField({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
+  return (
+    <div className="grid content-start gap-1 bg-card p-4">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('break-all text-sm', mono && 'font-mono text-xs leading-5')}>{value}</dd>
+    </div>
+  )
+}
+
 /**
- * Chat-style message thread. User/assistant text items render as left/right
- * bubbles; tool items (function_call, function_call_output, reasoning) render
- * as full-width labeled compact blocks; checkpoints render as a single label.
- * The raw JSON is always reachable via the <RawJSON> fallback so no information
- * is lost for unfamiliar ResponseItem variants.
+ * Message stream, Codex-style: user input is a right-aligned bubble, assistant
+ * replies flow full-width as Markdown, tool traffic (function_call,
+ * function_call_output, reasoning) collapses into one-line tiles that expand
+ * to pretty-printed payloads, and checkpoints render as hairline separators.
+ * The raw JSON is always reachable via the <RawJSON> fallback so no
+ * information is lost for unfamiliar ResponseItem variants.
  */
 function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-5">
       {messages.map(message => (
         <MessageRow key={message.id} message={message} />
       ))}
@@ -290,67 +432,104 @@ function MessageThread({ messages }: { messages: AIGatewayMessageItem[] }) {
 }
 
 function MessageRow({ message }: { message: AIGatewayMessageItem }) {
-  const { t } = useTranslation()
-  const role = message.role
-
-  // Checkpoint rows reference a compaction artifact; show the header plus the
-  // raw content/metadata so the artifact reference stays inspectable.
+  // Checkpoint rows reference a compaction artifact; render as a hairline
+  // separator plus the raw artifact reference so it stays inspectable.
   if (message.type === 'checkpoint') {
     return (
-      <div className="grid gap-1 px-2 py-1 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
+      <div className="grid gap-2">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant="secondary">checkpoint</Badge>
-          <span className="font-mono">{message.id}</span>
-          <span>· {formatConsoleDate(message.inserted_at)}</span>
+          <span className="min-w-0 break-all font-mono">{message.id}</span>
+          <span className="ml-auto shrink-0">{formatConsoleDate(message.inserted_at)}</span>
         </div>
         <RawJSON value={message.content} />
+        <div className="h-px bg-border" aria-hidden />
       </div>
     )
   }
 
   const text = extractOutputText(message.content)
 
-  // Tool rows are not conversational bubbles; render as labeled compact blocks.
-  if (role === 'tool' || hasToolItems(message.content)) {
+  // Tool traffic collapses to a one-line summary by default; expanding the
+  // tile reveals the individual items and their pretty-printed payloads.
+  if (message.role === 'tool' || hasToolItems(message.content)) {
     return (
-      <article className="grid gap-2 border border-border bg-muted/40 p-3 text-xs">
-        <header className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <RiFunctionLine className="size-3.5 text-muted-foreground" />
-            <Badge variant="secondary">{role ?? 'tool'}</Badge>
+      <article className="border border-border">
+        {text ? (
+          <div className="border-b border-border px-4 py-3">
+            <MarkdownBody text={text} />
           </div>
-          <MessageMeta message={message} />
-        </header>
-        <ToolItems content={message.content} fallbackText={text} />
+        ) : null}
+        <Accordion>
+          <AccordionItem value="items">
+            <AccordionTrigger className="items-center gap-3 px-4 py-2.5 text-xs font-normal hover:no-underline">
+              <span className="flex min-w-0 flex-1 items-center gap-2">
+                <RiFunctionLine className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <ToolSummary content={message.content} role={message.role} />
+                <span className="ml-auto flex shrink-0 items-center gap-2 text-muted-foreground">
+                  <MessageStatus message={message} />
+                  <span>{formatConsoleDate(message.inserted_at)}</span>
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent className="border-t border-border pb-0">
+              <ToolItems content={message.content} fallbackText={text} />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </article>
     )
   }
 
-  // Conversational text bubbles.
-  const isUser = role === 'user'
+  // Conversational text, Codex-style: user input is a right-aligned bubble on
+  // the layer-01 surface; assistant replies flow full-width without a tile.
+  if (message.role === 'user') {
+    return (
+      <article className="flex justify-end">
+        <div className="grid max-w-[85%] gap-1.5 sm:max-w-2xl">
+          <header className="flex items-center justify-end gap-2 px-1 text-xs text-muted-foreground">
+            <MessageStatus message={message} />
+            <span>{formatConsoleDate(message.inserted_at)}</span>
+          </header>
+          <div className="border border-border bg-card px-4 py-3">
+            {text ? <MarkdownBody text={text} /> : <RawJSON value={message.content} />}
+          </div>
+        </div>
+      </article>
+    )
+  }
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`grid max-w-2xl gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
-          <Badge variant="secondary">{role ?? 'message'}</Badge>
-          <MessageStatus message={message} />
-        </div>
-        <div className={`px-4 py-2 text-sm text-foreground ${isUser ? 'border border-border bg-card' : 'bg-muted'}`}>
-          {text ? <p className="whitespace-pre-wrap break-words">{text}</p> : <RawJSON value={message.content} />}
-        </div>
-        <span className="px-1 text-xs text-muted-foreground">{formatConsoleDate(message.inserted_at)}</span>
-      </div>
-    </div>
+    <article className="grid gap-1.5">
+      <header className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+        {message.role && message.role !== 'assistant' ? <Badge variant="secondary">{message.role}</Badge> : null}
+        <MessageStatus message={message} />
+        <span>{formatConsoleDate(message.inserted_at)}</span>
+      </header>
+      {text ? <MarkdownBody text={text} /> : <RawJSON value={message.content} />}
+    </article>
   )
 }
 
-function MessageMeta({ message }: { message: AIGatewayMessageItem }) {
+/** One-line summary of a collapsed tool tile: first item's name/type plus a count. */
+function ToolSummary({ content, role }: { content: ResponseItem[]; role?: AIGatewayMessageItem['role'] }) {
+  const toolItems = content.filter(isToolItem)
+  const first = toolItems[0]
+
+  if (!first) {
+    return <Badge variant="secondary">{role ?? 'tool'}</Badge>
+  }
+
   return (
-    <div className="flex items-center gap-2 text-muted-foreground">
-      <MessageStatus message={message} />
-      <span>· {formatConsoleDate(message.inserted_at)}</span>
-    </div>
+    <>
+      <Badge variant="outline">{String(first.type ?? 'item')}</Badge>
+      {typeof first.name === 'string' ? (
+        <span className="truncate font-mono font-medium">{first.name}</span>
+      ) : typeof first.call_id === 'string' ? (
+        <span className="truncate font-mono text-muted-foreground">{first.call_id}</span>
+      ) : null}
+      {toolItems.length > 1 ? <span className="shrink-0 text-muted-foreground">+{toolItems.length - 1}</span> : null}
+    </>
   )
 }
 
@@ -372,49 +551,97 @@ function ToolItems({ content, fallbackText }: { content: ResponseItem[]; fallbac
   const toolItems = content.filter(isToolItem)
 
   if (toolItems.length === 0) {
-    return <RawJSON value={fallbackText || content} />
+    return (
+      <div className="px-4 py-3">
+        <RawJSON value={fallbackText || content} />
+      </div>
+    )
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid divide-y divide-border">
       {toolItems.map((item, index) => (
-        <div key={index} className="grid gap-1 bg-background p-2">
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">{String(item.type ?? 'item')}</Badge>
-            {typeof item.name === 'string' ? <span className="font-mono text-xs">{item.name}</span> : null}
-            {typeof item.call_id === 'string' ? (
-              <span className="font-mono text-xs text-muted-foreground">{item.call_id}</span>
-            ) : null}
-          </div>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-xs">
-            {truncate(toolItemText(item), 4_000)}
-          </pre>
-        </div>
+        <ToolItemView key={index} item={item} />
       ))}
     </div>
   )
 }
 
-function RawJSON({ value }: { value: unknown }) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
-  return (
-    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
-      {truncate(text, 8_000)}
-    </pre>
-  )
-}
+function ToolItemView({ item }: { item: ResponseItem }) {
+  const type = String(item.type ?? 'item')
+  const raw = toolItemText(item)
 
-function DetailField({ label, value, wide = false }: { label: string; value: ReactNode; wide?: boolean }) {
+  if (type === 'reasoning') {
+    return (
+      <div className="grid gap-2 px-4 py-3">
+        <ToolItemHeader item={item} type={type} />
+        {raw ? <p className="text-xs leading-5 whitespace-pre-wrap text-muted-foreground">{raw}</p> : null}
+      </div>
+    )
+  }
+
+  // Function call outputs are wrapped in the untrusted-content envelope; show
+  // the inner payload and keep the nonce as provenance instead of dumping the
+  // wrapper markup into the reading column.
+  const envelope = type === 'function_call_output' ? stripUntrustedEnvelope(raw) : null
+  const body = envelope ? envelope.body : raw
+
   return (
-    <div className={wide ? 'col-span-2 grid gap-1' : 'grid gap-1'}>
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="break-words">{value}</dd>
+    <div className="grid gap-2 px-4 py-3">
+      <ToolItemHeader item={item} type={type} nonce={envelope?.nonce} />
+      {body ? <CodeBlock>{prettyJSON(truncate(body, 16_000))}</CodeBlock> : null}
     </div>
   )
 }
 
+function ToolItemHeader({ item, type, nonce }: { item: ResponseItem; type: string; nonce?: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <Badge variant="outline">{type}</Badge>
+      {typeof item.name === 'string' ? <span className="font-mono font-medium">{item.name}</span> : null}
+      {typeof item.call_id === 'string' ? (
+        <span className="break-all font-mono text-muted-foreground">{item.call_id}</span>
+      ) : null}
+      {nonce ? <span className="font-mono text-muted-foreground">nonce {nonce}</span> : null}
+    </div>
+  )
+}
+
+/** Monospace payload surface: Carbon layer-01 with a hairline border, no wrapping. */
+function CodeBlock({ children }: { children: string }) {
+  return (
+    <pre className="max-h-80 overflow-auto border border-border bg-card px-3 py-2 font-mono text-xs leading-5 whitespace-pre">
+      {children}
+    </pre>
+  )
+}
+
+function RawJSON({ value }: { value: unknown }) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  return <CodeBlock>{truncate(text, 8_000)}</CodeBlock>
+}
+
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`
+}
+
+/** Re-indents JSON payloads; passes non-JSON text through unchanged. */
+function prettyJSON(text: string): string {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2)
+  } catch {
+    return text
+  }
+}
+
+const UNTRUSTED_ENVELOPE =
+  /^<ankole_untrusted_tool_output nonce="([^"]+)">\s*([\s\S]*?)<\/ankole_untrusted_tool_output[^>]*>\s*$/
+
+function stripUntrustedEnvelope(text: string): { nonce: string; body: string } | null {
+  const found = UNTRUSTED_ENVELOPE.exec(text.trim())
+  return found ? { nonce: found[1], body: found[2].trim() } : null
 }
 
 function extractOutputText(content: ResponseItem[]): string {
@@ -448,6 +675,13 @@ function isToolItem(item: ResponseItem): boolean {
 function toolItemText(item: ResponseItem): string {
   if (typeof item.arguments === 'string') return item.arguments
   if (typeof item.output === 'string') return item.output
+  if (typeof item.text === 'string') return item.text
+  if (Array.isArray(item.summary)) {
+    const parts = item.summary
+      .map(part => (part && typeof part === 'object' ? (part as Record<string, unknown>).text : undefined))
+      .filter((text): text is string => typeof text === 'string')
+    if (parts.length > 0) return parts.join('\n')
+  }
   if (item.content !== undefined) {
     return typeof item.content === 'string' ? item.content : JSON.stringify(item.content, null, 2)
   }

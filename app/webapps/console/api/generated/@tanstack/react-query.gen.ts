@@ -19,8 +19,15 @@ import {
   ankoleWebAgentControllerPutModelProfile,
   ankoleWebAgentControllerShow,
   ankoleWebAgentControllerUpdate,
+  ankoleWebAgentLibraryCapabilityControllerAgentIndex,
+  ankoleWebAgentLibraryCapabilityControllerGlobalIndex,
+  ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride,
+  ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride,
+  ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin,
+  ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill,
   ankoleWebAgentLibraryControllerIndex,
   ankoleWebAgentLibraryControllerUpdate,
+  ankoleWebAgentSessionControllerIndex,
   ankoleWebAiGatewayControllerCompactResponse,
   ankoleWebAiGatewayControllerEmbeddings,
   ankoleWebAiGatewayControllerModels,
@@ -49,6 +56,19 @@ import {
   ankoleWebAppConfigurationControllerUpdate,
   ankoleWebAuthControllerDeleteSession,
   ankoleWebAuthControllerOauthToken,
+  ankoleWebAuthZGroupControllerAddMember,
+  ankoleWebAuthZGroupControllerCreate,
+  ankoleWebAuthZGroupControllerDelete,
+  ankoleWebAuthZGroupControllerGrants,
+  ankoleWebAuthZGroupControllerIndex,
+  ankoleWebAuthZGroupControllerMembers,
+  ankoleWebAuthZGroupControllerPreviewComputedMembers,
+  ankoleWebAuthZGroupControllerRemoveMember,
+  ankoleWebAuthZGroupControllerShow,
+  ankoleWebAuthZGroupControllerUpdate,
+  ankoleWebBackgroundAgentJobControllerCancel,
+  ankoleWebBackgroundAgentJobControllerIndex,
+  ankoleWebBackgroundAgentJobControllerShow,
   ankoleWebBrainControllerApplyOperations,
   ankoleWebBrainControllerAuditIndex,
   ankoleWebBrainControllerAuditLog,
@@ -68,11 +88,20 @@ import {
   ankoleWebCodexAccountControllerDelete,
   ankoleWebCodexAccountControllerIndex,
   ankoleWebCodexAccountControllerUpdate,
+  ankoleWebControlPlanePluginControllerIndex,
+  ankoleWebControlPlanePluginControllerUpdate,
   ankoleWebIdentityProviderControllerAdapters,
   ankoleWebIdentityProviderControllerIndex,
   ankoleWebIdentityProviderControllerPutProvider,
   ankoleWebIdentityProviderControllerRunSync,
+  ankoleWebPermissionGrantControllerCreate,
+  ankoleWebPermissionGrantControllerDelete,
+  ankoleWebPermissionGrantControllerShow,
+  ankoleWebPermissionGrantControllerUpdate,
+  ankoleWebPrincipalControllerGrants,
+  ankoleWebPrincipalControllerGroups,
   ankoleWebPrincipalControllerIndex,
+  ankoleWebPrincipalControllerShow,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -88,9 +117,6 @@ import {
   ankoleWebSignalBindingControllerDelete,
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
-  ankoleWebSubagentDelegationControllerCancel,
-  ankoleWebSubagentDelegationControllerIndex,
-  ankoleWebSubagentDelegationControllerShow,
   ankoleWebWorkerEnvControllerDecrypt,
   ankoleWebWorkerEnvControllerDecryptForAgent,
   ankoleWebWorkerEnvControllerDelete,
@@ -135,12 +161,33 @@ import type {
   AnkoleWebAgentControllerUpdateData,
   AnkoleWebAgentControllerUpdateError,
   AnkoleWebAgentControllerUpdateResponse,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexData,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexError,
+  AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexError,
+  AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideError,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideError,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginError,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillError,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponse,
   AnkoleWebAgentLibraryControllerIndexData,
   AnkoleWebAgentLibraryControllerIndexError,
   AnkoleWebAgentLibraryControllerIndexResponse,
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateError,
   AnkoleWebAgentLibraryControllerUpdateResponse,
+  AnkoleWebAgentSessionControllerIndexData,
+  AnkoleWebAgentSessionControllerIndexError,
+  AnkoleWebAgentSessionControllerIndexResponse,
   AnkoleWebAiGatewayControllerCompactResponseData,
   AnkoleWebAiGatewayControllerCompactResponseError,
   AnkoleWebAiGatewayControllerCompactResponseResponse,
@@ -224,6 +271,45 @@ import type {
   AnkoleWebAuthControllerOauthTokenData,
   AnkoleWebAuthControllerOauthTokenError,
   AnkoleWebAuthControllerOauthTokenResponse,
+  AnkoleWebAuthZGroupControllerAddMemberData,
+  AnkoleWebAuthZGroupControllerAddMemberError,
+  AnkoleWebAuthZGroupControllerAddMemberResponse,
+  AnkoleWebAuthZGroupControllerCreateData,
+  AnkoleWebAuthZGroupControllerCreateError,
+  AnkoleWebAuthZGroupControllerCreateResponse,
+  AnkoleWebAuthZGroupControllerDeleteData,
+  AnkoleWebAuthZGroupControllerDeleteError,
+  AnkoleWebAuthZGroupControllerDeleteResponse,
+  AnkoleWebAuthZGroupControllerGrantsData,
+  AnkoleWebAuthZGroupControllerGrantsError,
+  AnkoleWebAuthZGroupControllerGrantsResponse,
+  AnkoleWebAuthZGroupControllerIndexData,
+  AnkoleWebAuthZGroupControllerIndexError,
+  AnkoleWebAuthZGroupControllerIndexResponse,
+  AnkoleWebAuthZGroupControllerMembersData,
+  AnkoleWebAuthZGroupControllerMembersError,
+  AnkoleWebAuthZGroupControllerMembersResponse,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersData,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersError,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse,
+  AnkoleWebAuthZGroupControllerRemoveMemberData,
+  AnkoleWebAuthZGroupControllerRemoveMemberError,
+  AnkoleWebAuthZGroupControllerRemoveMemberResponse,
+  AnkoleWebAuthZGroupControllerShowData,
+  AnkoleWebAuthZGroupControllerShowError,
+  AnkoleWebAuthZGroupControllerShowResponse,
+  AnkoleWebAuthZGroupControllerUpdateData,
+  AnkoleWebAuthZGroupControllerUpdateError,
+  AnkoleWebAuthZGroupControllerUpdateResponse,
+  AnkoleWebBackgroundAgentJobControllerCancelData,
+  AnkoleWebBackgroundAgentJobControllerCancelError,
+  AnkoleWebBackgroundAgentJobControllerCancelResponse,
+  AnkoleWebBackgroundAgentJobControllerIndexData,
+  AnkoleWebBackgroundAgentJobControllerIndexError,
+  AnkoleWebBackgroundAgentJobControllerIndexResponse,
+  AnkoleWebBackgroundAgentJobControllerShowData,
+  AnkoleWebBackgroundAgentJobControllerShowError,
+  AnkoleWebBackgroundAgentJobControllerShowResponse,
   AnkoleWebBrainControllerApplyOperationsData,
   AnkoleWebBrainControllerApplyOperationsError,
   AnkoleWebBrainControllerApplyOperationsResponse,
@@ -281,6 +367,12 @@ import type {
   AnkoleWebCodexAccountControllerUpdateData,
   AnkoleWebCodexAccountControllerUpdateError,
   AnkoleWebCodexAccountControllerUpdateResponse,
+  AnkoleWebControlPlanePluginControllerIndexData,
+  AnkoleWebControlPlanePluginControllerIndexError,
+  AnkoleWebControlPlanePluginControllerIndexResponse,
+  AnkoleWebControlPlanePluginControllerUpdateData,
+  AnkoleWebControlPlanePluginControllerUpdateError,
+  AnkoleWebControlPlanePluginControllerUpdateResponse,
   AnkoleWebIdentityProviderControllerAdaptersData,
   AnkoleWebIdentityProviderControllerAdaptersError,
   AnkoleWebIdentityProviderControllerAdaptersResponse,
@@ -293,9 +385,30 @@ import type {
   AnkoleWebIdentityProviderControllerRunSyncData,
   AnkoleWebIdentityProviderControllerRunSyncError,
   AnkoleWebIdentityProviderControllerRunSyncResponse,
+  AnkoleWebPermissionGrantControllerCreateData,
+  AnkoleWebPermissionGrantControllerCreateError,
+  AnkoleWebPermissionGrantControllerCreateResponse,
+  AnkoleWebPermissionGrantControllerDeleteData,
+  AnkoleWebPermissionGrantControllerDeleteError,
+  AnkoleWebPermissionGrantControllerDeleteResponse,
+  AnkoleWebPermissionGrantControllerShowData,
+  AnkoleWebPermissionGrantControllerShowError,
+  AnkoleWebPermissionGrantControllerShowResponse,
+  AnkoleWebPermissionGrantControllerUpdateData,
+  AnkoleWebPermissionGrantControllerUpdateError,
+  AnkoleWebPermissionGrantControllerUpdateResponse,
+  AnkoleWebPrincipalControllerGrantsData,
+  AnkoleWebPrincipalControllerGrantsError,
+  AnkoleWebPrincipalControllerGrantsResponse,
+  AnkoleWebPrincipalControllerGroupsData,
+  AnkoleWebPrincipalControllerGroupsError,
+  AnkoleWebPrincipalControllerGroupsResponse,
   AnkoleWebPrincipalControllerIndexData,
   AnkoleWebPrincipalControllerIndexError,
   AnkoleWebPrincipalControllerIndexResponse,
+  AnkoleWebPrincipalControllerShowData,
+  AnkoleWebPrincipalControllerShowError,
+  AnkoleWebPrincipalControllerShowResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -334,15 +447,6 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingError,
   AnkoleWebSignalBindingControllerPutBindingResponse,
-  AnkoleWebSubagentDelegationControllerCancelData,
-  AnkoleWebSubagentDelegationControllerCancelError,
-  AnkoleWebSubagentDelegationControllerCancelResponse,
-  AnkoleWebSubagentDelegationControllerIndexData,
-  AnkoleWebSubagentDelegationControllerIndexError,
-  AnkoleWebSubagentDelegationControllerIndexResponse,
-  AnkoleWebSubagentDelegationControllerShowData,
-  AnkoleWebSubagentDelegationControllerShowError,
-  AnkoleWebSubagentDelegationControllerShowResponse,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptError,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -540,6 +644,61 @@ export const ankoleWebIdentityProviderControllerIndexOptions = (
     queryKey: ankoleWebIdentityProviderControllerIndexQueryKey(options)
   })
 
+export const ankoleWebControlPlanePluginControllerIndexQueryKey = (
+  options?: Options<AnkoleWebControlPlanePluginControllerIndexData>
+) => createQueryKey('ankoleWebControlPlanePluginControllerIndex', options)
+
+/**
+ * List active and next-start Control Plane Plugin state
+ */
+export const ankoleWebControlPlanePluginControllerIndexOptions = (
+  options?: Options<AnkoleWebControlPlanePluginControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebControlPlanePluginControllerIndexResponse,
+    AnkoleWebControlPlanePluginControllerIndexError,
+    AnkoleWebControlPlanePluginControllerIndexResponse,
+    ReturnType<typeof ankoleWebControlPlanePluginControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebControlPlanePluginControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebControlPlanePluginControllerIndexQueryKey(options)
+  })
+
+/**
+ * Configure one Control Plane Plugin for the next process start
+ */
+export const ankoleWebControlPlanePluginControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebControlPlanePluginControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebControlPlanePluginControllerUpdateResponse,
+  AnkoleWebControlPlanePluginControllerUpdateError,
+  Options<AnkoleWebControlPlanePluginControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebControlPlanePluginControllerUpdateResponse,
+    AnkoleWebControlPlanePluginControllerUpdateError,
+    Options<AnkoleWebControlPlanePluginControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebControlPlanePluginControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Pause one recurring schedule
  */
@@ -566,6 +725,31 @@ export const ankoleWebScheduleControllerPauseCronMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebPrincipalControllerGroupsQueryKey = (options: Options<AnkoleWebPrincipalControllerGroupsData>) =>
+  createQueryKey('ankoleWebPrincipalControllerGroups', options)
+
+/**
+ * List the static Principal groups one Principal belongs to
+ */
+export const ankoleWebPrincipalControllerGroupsOptions = (options: Options<AnkoleWebPrincipalControllerGroupsData>) =>
+  queryOptions<
+    AnkoleWebPrincipalControllerGroupsResponse,
+    AnkoleWebPrincipalControllerGroupsError,
+    AnkoleWebPrincipalControllerGroupsResponse,
+    ReturnType<typeof ankoleWebPrincipalControllerGroupsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebPrincipalControllerGroups({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebPrincipalControllerGroupsQueryKey(options)
+  })
 
 /**
  * Delete an AIGateway vision file
@@ -755,6 +939,85 @@ export const ankoleWebAppConfigurationControllerIndexOptions = (
     queryKey: ankoleWebAppConfigurationControllerIndexQueryKey(options)
   })
 
+export const ankoleWebAuthZGroupControllerIndexQueryKey = (options?: Options<AnkoleWebAuthZGroupControllerIndexData>) =>
+  createQueryKey('ankoleWebAuthZGroupControllerIndex', options)
+
+/**
+ * List Principal groups
+ */
+export const ankoleWebAuthZGroupControllerIndexOptions = (options?: Options<AnkoleWebAuthZGroupControllerIndexData>) =>
+  queryOptions<
+    AnkoleWebAuthZGroupControllerIndexResponse,
+    AnkoleWebAuthZGroupControllerIndexError,
+    AnkoleWebAuthZGroupControllerIndexResponse,
+    ReturnType<typeof ankoleWebAuthZGroupControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAuthZGroupControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAuthZGroupControllerIndexQueryKey(options)
+  })
+
+/**
+ * Create one operator Principal group
+ */
+export const ankoleWebAuthZGroupControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerCreateResponse,
+  AnkoleWebAuthZGroupControllerCreateError,
+  Options<AnkoleWebAuthZGroupControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerCreateResponse,
+    AnkoleWebAuthZGroupControllerCreateError,
+    Options<AnkoleWebAuthZGroupControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Preview active Principals matching a computed group condition
+ */
+export const ankoleWebAuthZGroupControllerPreviewComputedMembersMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerPreviewComputedMembersData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse,
+  AnkoleWebAuthZGroupControllerPreviewComputedMembersError,
+  Options<AnkoleWebAuthZGroupControllerPreviewComputedMembersData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse,
+    AnkoleWebAuthZGroupControllerPreviewComputedMembersError,
+    Options<AnkoleWebAuthZGroupControllerPreviewComputedMembersData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerPreviewComputedMembers({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Restore the state captured by one Brain audit record
  */
@@ -837,33 +1100,32 @@ export const ankoleWebScheduleControllerCreateCronMutation = (
   return mutationOptions
 }
 
-export const ankoleWebSubagentDelegationControllerShowQueryKey = (
-  options: Options<AnkoleWebSubagentDelegationControllerShowData>
-) => createQueryKey('ankoleWebSubagentDelegationControllerShow', options)
-
 /**
- * Read one subagent delegation and its runtime Turn trajectory
+ * Set or clear one Agent Plugin override
  */
-export const ankoleWebSubagentDelegationControllerShowOptions = (
-  options: Options<AnkoleWebSubagentDelegationControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebSubagentDelegationControllerShowResponse,
-    AnkoleWebSubagentDelegationControllerShowError,
-    AnkoleWebSubagentDelegationControllerShowResponse,
-    ReturnType<typeof ankoleWebSubagentDelegationControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSubagentDelegationControllerShow({
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideError,
+  Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideResponse,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideError,
+    Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerPutAgentPluginOverride({
         ...options,
-        ...queryKey[0],
-        signal,
+        ...fnOptions,
         throwOnError: true
       })
       return data
-    },
-    queryKey: ankoleWebSubagentDelegationControllerShowQueryKey(options)
-  })
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebBrainControllerShowQueryKey = (options: Options<AnkoleWebBrainControllerShowData>) =>
   createQueryKey('ankoleWebBrainControllerShow', options)
@@ -1132,6 +1394,88 @@ export const ankoleWebScheduleControllerResumeCronMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAgentLibraryCapabilityControllerAgentIndexQueryKey = (
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData>
+) => createQueryKey('ankoleWebAgentLibraryCapabilityControllerAgentIndex', options)
+
+/**
+ * Read resolved Agent Library capabilities for one Agent
+ */
+export const ankoleWebAgentLibraryCapabilityControllerAgentIndexOptions = (
+  options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse,
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexError,
+    AnkoleWebAgentLibraryCapabilityControllerAgentIndexResponse,
+    ReturnType<typeof ankoleWebAgentLibraryCapabilityControllerAgentIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerAgentIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentLibraryCapabilityControllerAgentIndexQueryKey(options)
+  })
+
+/**
+ * Remove one Principal from a static operator group
+ */
+export const ankoleWebAuthZGroupControllerRemoveMemberMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerRemoveMemberData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerRemoveMemberResponse,
+  AnkoleWebAuthZGroupControllerRemoveMemberError,
+  Options<AnkoleWebAuthZGroupControllerRemoveMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerRemoveMemberResponse,
+    AnkoleWebAuthZGroupControllerRemoveMemberError,
+    Options<AnkoleWebAuthZGroupControllerRemoveMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerRemoveMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Add one Principal to a static operator group
+ */
+export const ankoleWebAuthZGroupControllerAddMemberMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerAddMemberData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerAddMemberResponse,
+  AnkoleWebAuthZGroupControllerAddMemberError,
+  Options<AnkoleWebAuthZGroupControllerAddMemberData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerAddMemberResponse,
+    AnkoleWebAuthZGroupControllerAddMemberError,
+    Options<AnkoleWebAuthZGroupControllerAddMemberData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerAddMember({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAiGatewayFilesControllerIndexQueryKey = (
   options?: Options<AnkoleWebAiGatewayFilesControllerIndexData>
 ) => createQueryKey('ankoleWebAiGatewayFilesControllerIndex', options)
@@ -1315,6 +1659,110 @@ export const ankoleWebAiGatewayControllerModelsOptions = (options?: Options<Anko
     queryKey: ankoleWebAiGatewayControllerModelsQueryKey(options)
   })
 
+export const ankoleWebBackgroundAgentJobControllerIndexQueryKey = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
+) => createQueryKey('ankoleWebBackgroundAgentJobControllerIndex', options)
+
+/**
+ * List background Agent Jobs
+ */
+export const ankoleWebBackgroundAgentJobControllerIndexOptions = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebBackgroundAgentJobControllerIndexResponse,
+    AnkoleWebBackgroundAgentJobControllerIndexError,
+    AnkoleWebBackgroundAgentJobControllerIndexResponse,
+    ReturnType<typeof ankoleWebBackgroundAgentJobControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBackgroundAgentJobControllerIndexQueryKey(options)
+  })
+
+export const ankoleWebBackgroundAgentJobControllerIndexInfiniteQueryKey = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
+): QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>> =>
+  createQueryKey('ankoleWebBackgroundAgentJobControllerIndex', options, true)
+
+/**
+ * List background Agent Jobs
+ */
+export const ankoleWebBackgroundAgentJobControllerIndexInfiniteOptions = (
+  options?: Options<AnkoleWebBackgroundAgentJobControllerIndexData>
+) => {
+  const opts = infiniteQueryOptions<
+    AnkoleWebBackgroundAgentJobControllerIndexResponse,
+    AnkoleWebBackgroundAgentJobControllerIndexError,
+    InfiniteData<AnkoleWebBackgroundAgentJobControllerIndexResponse>,
+    QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>,
+    | string
+    | Pick<QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<AnkoleWebBackgroundAgentJobControllerIndexData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await ankoleWebBackgroundAgentJobControllerIndex({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: ankoleWebBackgroundAgentJobControllerIndexInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * Set one global Skill default
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillError,
+  Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillResponse,
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillError,
+    Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalSkillData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 /**
  * Fetch web pages through AIGateway
  */
@@ -1359,6 +1807,85 @@ export const ankoleWebIdentityProviderControllerPutProviderMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebIdentityProviderControllerPutProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Delete one operator Principal group without grants
+ */
+export const ankoleWebAuthZGroupControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerDeleteResponse,
+  AnkoleWebAuthZGroupControllerDeleteError,
+  Options<AnkoleWebAuthZGroupControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerDeleteResponse,
+    AnkoleWebAuthZGroupControllerDeleteError,
+    Options<AnkoleWebAuthZGroupControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAuthZGroupControllerShowQueryKey = (options: Options<AnkoleWebAuthZGroupControllerShowData>) =>
+  createQueryKey('ankoleWebAuthZGroupControllerShow', options)
+
+/**
+ * Read one Principal group
+ */
+export const ankoleWebAuthZGroupControllerShowOptions = (options: Options<AnkoleWebAuthZGroupControllerShowData>) =>
+  queryOptions<
+    AnkoleWebAuthZGroupControllerShowResponse,
+    AnkoleWebAuthZGroupControllerShowError,
+    AnkoleWebAuthZGroupControllerShowResponse,
+    ReturnType<typeof ankoleWebAuthZGroupControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAuthZGroupControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAuthZGroupControllerShowQueryKey(options)
+  })
+
+/**
+ * Update mutable fields of one Principal group
+ */
+export const ankoleWebAuthZGroupControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebAuthZGroupControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebAuthZGroupControllerUpdateResponse,
+  AnkoleWebAuthZGroupControllerUpdateError,
+  Options<AnkoleWebAuthZGroupControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthZGroupControllerUpdateResponse,
+    AnkoleWebAuthZGroupControllerUpdateError,
+    Options<AnkoleWebAuthZGroupControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthZGroupControllerUpdate({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1587,6 +2114,34 @@ export const ankoleWebAiGatewayControllerRetrieveResponseOptions = (
     queryKey: ankoleWebAiGatewayControllerRetrieveResponseQueryKey(options)
   })
 
+export const ankoleWebBackgroundAgentJobControllerShowQueryKey = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
+) => createQueryKey('ankoleWebBackgroundAgentJobControllerShow', options)
+
+/**
+ * Read one background Agent Job and its runtime Turn trajectory
+ */
+export const ankoleWebBackgroundAgentJobControllerShowOptions = (
+  options: Options<AnkoleWebBackgroundAgentJobControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebBackgroundAgentJobControllerShowResponse,
+    AnkoleWebBackgroundAgentJobControllerShowError,
+    AnkoleWebBackgroundAgentJobControllerShowResponse,
+    ReturnType<typeof ankoleWebBackgroundAgentJobControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebBackgroundAgentJobControllerShowQueryKey(options)
+  })
+
 /**
  * Disable one agent
  */
@@ -1773,6 +2328,31 @@ export const ankoleWebIdentityProviderControllerRunSyncMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebPrincipalControllerGrantsQueryKey = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
+  createQueryKey('ankoleWebPrincipalControllerGrants', options)
+
+/**
+ * List permission grants owned directly by one Principal
+ */
+export const ankoleWebPrincipalControllerGrantsOptions = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
+  queryOptions<
+    AnkoleWebPrincipalControllerGrantsResponse,
+    AnkoleWebPrincipalControllerGrantsError,
+    AnkoleWebPrincipalControllerGrantsResponse,
+    ReturnType<typeof ankoleWebPrincipalControllerGrantsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebPrincipalControllerGrants({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebPrincipalControllerGrantsQueryKey(options)
+  })
 
 export const ankoleWebAiGatewayConversationControllerShowQueryKey = (
   options: Options<AnkoleWebAiGatewayConversationControllerShowData>
@@ -2071,6 +2651,33 @@ export const ankoleWebScheduleControllerUpdateCronMutation = (
   return mutationOptions
 }
 
+/**
+ * Create one permission grant for a Principal or a group
+ */
+export const ankoleWebPermissionGrantControllerCreateMutation = (
+  options?: Partial<Options<AnkoleWebPermissionGrantControllerCreateData>>
+): UseMutationOptions<
+  AnkoleWebPermissionGrantControllerCreateResponse,
+  AnkoleWebPermissionGrantControllerCreateError,
+  Options<AnkoleWebPermissionGrantControllerCreateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPermissionGrantControllerCreateResponse,
+    AnkoleWebPermissionGrantControllerCreateError,
+    Options<AnkoleWebPermissionGrantControllerCreateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPermissionGrantControllerCreate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebScheduleControllerCronRunsQueryKey = (
   options: Options<AnkoleWebScheduleControllerCronRunsData>
 ) => createQueryKey('ankoleWebScheduleControllerCronRuns', options)
@@ -2141,6 +2748,63 @@ export const ankoleWebSignalBindingControllerDeleteMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebSignalBindingControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAuthZGroupControllerMembersQueryKey = (
+  options: Options<AnkoleWebAuthZGroupControllerMembersData>
+) => createQueryKey('ankoleWebAuthZGroupControllerMembers', options)
+
+/**
+ * List effective members of one Principal group
+ *
+ * Static groups return stored memberships. Computed groups return the members evaluated from their condition.
+ */
+export const ankoleWebAuthZGroupControllerMembersOptions = (
+  options: Options<AnkoleWebAuthZGroupControllerMembersData>
+) =>
+  queryOptions<
+    AnkoleWebAuthZGroupControllerMembersResponse,
+    AnkoleWebAuthZGroupControllerMembersError,
+    AnkoleWebAuthZGroupControllerMembersResponse,
+    ReturnType<typeof ankoleWebAuthZGroupControllerMembersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAuthZGroupControllerMembers({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAuthZGroupControllerMembersQueryKey(options)
+  })
+
+/**
+ * Set or clear one Agent Skill override
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideError,
+  Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse,
+    AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideError,
+    Options<AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2448,6 +3112,31 @@ export const ankoleWebAiGatewayConversationControllerIndexInfiniteOptions = (
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const ankoleWebPrincipalControllerShowQueryKey = (options: Options<AnkoleWebPrincipalControllerShowData>) =>
+  createQueryKey('ankoleWebPrincipalControllerShow', options)
+
+/**
+ * Read one principal
+ */
+export const ankoleWebPrincipalControllerShowOptions = (options: Options<AnkoleWebPrincipalControllerShowData>) =>
+  queryOptions<
+    AnkoleWebPrincipalControllerShowResponse,
+    AnkoleWebPrincipalControllerShowError,
+    AnkoleWebPrincipalControllerShowResponse,
+    ReturnType<typeof ankoleWebPrincipalControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebPrincipalControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebPrincipalControllerShowQueryKey(options)
+  })
+
 /**
  * Delete a Codex account
  */
@@ -2732,6 +3421,33 @@ export const ankoleWebWorkerEnvControllerIndexOptions = (options?: Options<Ankol
   })
 
 /**
+ * Cancel one queued or active background Agent Job
+ */
+export const ankoleWebBackgroundAgentJobControllerCancelMutation = (
+  options?: Partial<Options<AnkoleWebBackgroundAgentJobControllerCancelData>>
+): UseMutationOptions<
+  AnkoleWebBackgroundAgentJobControllerCancelResponse,
+  AnkoleWebBackgroundAgentJobControllerCancelError,
+  Options<AnkoleWebBackgroundAgentJobControllerCancelData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebBackgroundAgentJobControllerCancelResponse,
+    AnkoleWebBackgroundAgentJobControllerCancelError,
+    Options<AnkoleWebBackgroundAgentJobControllerCancelData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebBackgroundAgentJobControllerCancel({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
  * Reveal one encrypted AppConfigure value on demand
  */
 export const ankoleWebAppConfigurationControllerDecryptMutation = (
@@ -2841,83 +3557,6 @@ export const ankoleWebAgentComputerWorkerControllerIndexOptions = (
     queryKey: ankoleWebAgentComputerWorkerControllerIndexQueryKey(options)
   })
 
-export const ankoleWebSubagentDelegationControllerIndexQueryKey = (
-  options?: Options<AnkoleWebSubagentDelegationControllerIndexData>
-) => createQueryKey('ankoleWebSubagentDelegationControllerIndex', options)
-
-/**
- * List subagent delegations
- */
-export const ankoleWebSubagentDelegationControllerIndexOptions = (
-  options?: Options<AnkoleWebSubagentDelegationControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebSubagentDelegationControllerIndexResponse,
-    AnkoleWebSubagentDelegationControllerIndexError,
-    AnkoleWebSubagentDelegationControllerIndexResponse,
-    ReturnType<typeof ankoleWebSubagentDelegationControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebSubagentDelegationControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebSubagentDelegationControllerIndexQueryKey(options)
-  })
-
-export const ankoleWebSubagentDelegationControllerIndexInfiniteQueryKey = (
-  options?: Options<AnkoleWebSubagentDelegationControllerIndexData>
-): QueryKey<Options<AnkoleWebSubagentDelegationControllerIndexData>> =>
-  createQueryKey('ankoleWebSubagentDelegationControllerIndex', options, true)
-
-/**
- * List subagent delegations
- */
-export const ankoleWebSubagentDelegationControllerIndexInfiniteOptions = (
-  options?: Options<AnkoleWebSubagentDelegationControllerIndexData>
-) => {
-  const opts = infiniteQueryOptions<
-    AnkoleWebSubagentDelegationControllerIndexResponse,
-    AnkoleWebSubagentDelegationControllerIndexError,
-    InfiniteData<AnkoleWebSubagentDelegationControllerIndexResponse>,
-    QueryKey<Options<AnkoleWebSubagentDelegationControllerIndexData>>,
-    | string
-    | Pick<QueryKey<Options<AnkoleWebSubagentDelegationControllerIndexData>>[0], 'body' | 'headers' | 'path' | 'query'>
-  >(
-    // @ts-ignore
-    {
-      queryFn: async ({ pageParam, queryKey, signal }) => {
-        // @ts-ignore
-        const page: Pick<
-          QueryKey<Options<AnkoleWebSubagentDelegationControllerIndexData>>[0],
-          'body' | 'headers' | 'path' | 'query'
-        > =
-          typeof pageParam === 'object'
-            ? pageParam
-            : {
-                query: {
-                  cursor: pageParam
-                }
-              }
-        const params = createInfiniteParams(queryKey, page)
-        const { data } = await ankoleWebSubagentDelegationControllerIndex({
-          ...options,
-          ...params,
-          signal,
-          throwOnError: true
-        })
-        return data
-      },
-      queryKey: ankoleWebSubagentDelegationControllerIndexInfiniteQueryKey(options)
-    }
-  )
-  return opts as Omit<typeof opts, 'initialData'>
-}
-
 /**
  * Run principal-level Brain curation now
  *
@@ -2947,6 +3586,34 @@ export const ankoleWebBrainControllerRunDreamingMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAgentSessionControllerIndexQueryKey = (
+  options: Options<AnkoleWebAgentSessionControllerIndexData>
+) => createQueryKey('ankoleWebAgentSessionControllerIndex', options)
+
+/**
+ * List sessions for one agent
+ */
+export const ankoleWebAgentSessionControllerIndexOptions = (
+  options: Options<AnkoleWebAgentSessionControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentSessionControllerIndexResponse,
+    AnkoleWebAgentSessionControllerIndexError,
+    AnkoleWebAgentSessionControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentSessionControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentSessionControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentSessionControllerIndexQueryKey(options)
+  })
+
 export const ankoleWebWorkerEnvControllerIndexForAgentQueryKey = (
   options: Options<AnkoleWebWorkerEnvControllerIndexForAgentData>
 ) => createQueryKey('ankoleWebWorkerEnvControllerIndexForAgent', options)
@@ -2974,33 +3641,6 @@ export const ankoleWebWorkerEnvControllerIndexForAgentOptions = (
     },
     queryKey: ankoleWebWorkerEnvControllerIndexForAgentQueryKey(options)
   })
-
-/**
- * Cancel one queued or active subagent delegation
- */
-export const ankoleWebSubagentDelegationControllerCancelMutation = (
-  options?: Partial<Options<AnkoleWebSubagentDelegationControllerCancelData>>
-): UseMutationOptions<
-  AnkoleWebSubagentDelegationControllerCancelResponse,
-  AnkoleWebSubagentDelegationControllerCancelError,
-  Options<AnkoleWebSubagentDelegationControllerCancelData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebSubagentDelegationControllerCancelResponse,
-    AnkoleWebSubagentDelegationControllerCancelError,
-    Options<AnkoleWebSubagentDelegationControllerCancelData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebSubagentDelegationControllerCancel({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const ankoleWebAiGatewayConversationControllerMessagesQueryKey = (
   options: Options<AnkoleWebAiGatewayConversationControllerMessagesData>
@@ -3099,6 +3739,88 @@ export const ankoleWebAgentLibraryControllerUpdateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAgentLibraryControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Delete one permission grant
+ */
+export const ankoleWebPermissionGrantControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebPermissionGrantControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebPermissionGrantControllerDeleteResponse,
+  AnkoleWebPermissionGrantControllerDeleteError,
+  Options<AnkoleWebPermissionGrantControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPermissionGrantControllerDeleteResponse,
+    AnkoleWebPermissionGrantControllerDeleteError,
+    Options<AnkoleWebPermissionGrantControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPermissionGrantControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebPermissionGrantControllerShowQueryKey = (
+  options: Options<AnkoleWebPermissionGrantControllerShowData>
+) => createQueryKey('ankoleWebPermissionGrantControllerShow', options)
+
+/**
+ * Read one permission grant
+ */
+export const ankoleWebPermissionGrantControllerShowOptions = (
+  options: Options<AnkoleWebPermissionGrantControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebPermissionGrantControllerShowResponse,
+    AnkoleWebPermissionGrantControllerShowError,
+    AnkoleWebPermissionGrantControllerShowResponse,
+    ReturnType<typeof ankoleWebPermissionGrantControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebPermissionGrantControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebPermissionGrantControllerShowQueryKey(options)
+  })
+
+/**
+ * Update one permission grant
+ */
+export const ankoleWebPermissionGrantControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebPermissionGrantControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebPermissionGrantControllerUpdateResponse,
+  AnkoleWebPermissionGrantControllerUpdateError,
+  Options<AnkoleWebPermissionGrantControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebPermissionGrantControllerUpdateResponse,
+    AnkoleWebPermissionGrantControllerUpdateError,
+    Options<AnkoleWebPermissionGrantControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebPermissionGrantControllerUpdate({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -3292,6 +4014,61 @@ export const ankoleWebBrainControllerApplyOperationsMutation = (
 }
 
 /**
+ * Set one global Agent Plugin default
+ */
+export const ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse,
+  AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginError,
+  Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginResponse,
+    AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginError,
+    Options<AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPlugin({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey = (
+  options?: Options<AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData>
+) => createQueryKey('ankoleWebAgentLibraryCapabilityControllerGlobalIndex', options)
+
+/**
+ * Read global Agent Plugin and standalone Skill defaults
+ */
+export const ankoleWebAgentLibraryCapabilityControllerGlobalIndexOptions = (
+  options?: Options<AnkoleWebAgentLibraryCapabilityControllerGlobalIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse,
+    AnkoleWebAgentLibraryCapabilityControllerGlobalIndexError,
+    AnkoleWebAgentLibraryCapabilityControllerGlobalIndexResponse,
+    ReturnType<typeof ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentLibraryCapabilityControllerGlobalIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentLibraryCapabilityControllerGlobalIndexQueryKey(options)
+  })
+
+/**
  * Delete one agent-tier worker shell variable
  */
 export const ankoleWebWorkerEnvControllerDeleteForAgentMutation = (
@@ -3371,3 +4148,29 @@ export const ankoleWebAuthControllerOauthTokenMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAuthZGroupControllerGrantsQueryKey = (
+  options: Options<AnkoleWebAuthZGroupControllerGrantsData>
+) => createQueryKey('ankoleWebAuthZGroupControllerGrants', options)
+
+/**
+ * List permission grants owned by one Principal group
+ */
+export const ankoleWebAuthZGroupControllerGrantsOptions = (options: Options<AnkoleWebAuthZGroupControllerGrantsData>) =>
+  queryOptions<
+    AnkoleWebAuthZGroupControllerGrantsResponse,
+    AnkoleWebAuthZGroupControllerGrantsError,
+    AnkoleWebAuthZGroupControllerGrantsResponse,
+    ReturnType<typeof ankoleWebAuthZGroupControllerGrantsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAuthZGroupControllerGrants({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAuthZGroupControllerGrantsQueryKey(options)
+  })

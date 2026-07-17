@@ -22,14 +22,6 @@ defmodule AnkoleWeb.AgentControllerTest do
     :ok
   end
 
-  test "OpenAPI JSON includes agent CRUD endpoints", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/agents")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}")
-  end
-
   test "admin creates, lists, updates, reads, and disables an agent", %{conn: conn} do
     conn = bearer_conn(conn)
 

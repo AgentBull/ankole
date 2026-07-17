@@ -30,18 +30,6 @@ defmodule AnkoleWeb.WorkerEnvControllerTest do
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
   end
 
-  test "OpenAPI JSON documents the worker env console routes", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/worker-envs")
-    assert Map.has_key?(paths, "/api/v1/worker-envs/{name}")
-    assert Map.has_key?(paths, "/api/v1/worker-envs/{name}/decryptions")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/worker-envs")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/worker-envs/{name}")
-    assert Map.has_key?(paths, "/api/v1/agents/{agent_uid}/worker-envs/{name}/decryptions")
-  end
-
   test "admin manages custom variables end to end", %{conn: conn, unique: unique} do
     name = "CTRL_CUSTOM_#{unique}"
     conn = bearer_conn(conn)

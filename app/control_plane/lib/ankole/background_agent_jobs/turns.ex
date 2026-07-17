@@ -10,8 +10,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Text
+  alias Ankole.BackgroundAgentJobs.Trajectory
 
   @worker_fields ~w(
     attempt
@@ -21,6 +23,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     status
     revision
     trajectory
+    trajectory_groups
     progress
     usage
     error
@@ -41,7 +44,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     error
     started_at
     completed_at
-  )a
+  )
   @active_statuses ~w(in_progress)
   @trajectory_default_limit 3
   @trajectory_max_limit 20
@@ -64,8 +67,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
            %Job{} = job <-
              Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
            attrs <- normalize_worker_attrs(attrs, job),
+           {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
            :ok <- validate_attempt(job, attrs),
-           {:ok, turn} <- upsert_in_tx(repo, job, attrs) do
+           {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups) do
         {:ok, turn}
       else
         nil -> {:error, :job_not_found}
@@ -282,21 +286,22 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Repo.all()
   end
 
-  defp upsert_in_tx(repo, %Job{} = job, attrs) do
+  defp upsert_in_tx(repo, %Job{} = job, attrs, trajectory_groups) do
     runtime_turn_id = Map.fetch!(attrs, "runtime_turn_id")
 
     case get_in_tx(repo, job.id, runtime_turn_id, lock: "FOR UPDATE") do
       nil ->
-        %Turn{}
-        |> Turn.changeset(attrs)
-        |> repo.insert()
+        with {:ok, turn} <- %Turn{} |> Turn.changeset(attrs) |> repo.insert(),
+             :ok <- append_trajectory_groups(repo, turn, trajectory_groups) do
+          {:ok, turn}
+        end
 
       %Turn{} = turn ->
-        update_existing(repo, turn, attrs)
+        update_existing(repo, turn, attrs, trajectory_groups)
     end
   end
 
-  defp update_existing(repo, %Turn{} = turn, attrs) do
+  defp update_existing(repo, %Turn{} = turn, attrs, trajectory_groups) do
     revision = Map.fetch!(attrs, "revision")
 
     if revision < turn.revision do
@@ -314,7 +319,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
             {:error, :background_agent_job_turn_runtime_thread_mismatch}
 
           revision == turn.revision and checkpoint_equal?(turn, candidate) ->
-            {:ok, turn}
+            with :ok <- checkpoint_groups_equal?(repo, turn, revision, trajectory_groups),
+                 do: {:ok, turn}
 
           revision == turn.revision ->
             {:error, :background_agent_job_turn_revision_conflict}
@@ -323,9 +329,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
             {:error, :background_agent_job_turn_status_transition_invalid}
 
           true ->
-            turn
-            |> Turn.changeset(attrs)
-            |> repo.update()
+            with {:ok, updated} <- turn |> Turn.changeset(attrs) |> repo.update(),
+                 :ok <- append_trajectory_groups(repo, updated, trajectory_groups) do
+              {:ok, updated}
+            end
         end
       end
     end
@@ -352,12 +359,151 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Map.take(@worker_fields)
     |> Map.put("job_id", job.id)
     |> Map.put_new("kind", "agent")
+    |> Map.put_new("trajectory", Trajectory.empty())
     |> Map.put_new("progress", empty_progress())
     |> Map.put_new("error", %{})
+    |> normalize_legacy_trajectory()
+  end
+
+  defp normalize_legacy_trajectory(
+         %{"trajectory" => %{"messages" => messages} = trajectory} = attrs
+       )
+       when is_list(messages) and messages != [] do
+    groups = Map.get(attrs, "trajectory_groups", [])
+
+    attrs
+    |> Map.put("trajectory", Map.put(trajectory, "messages", []))
+    |> Map.put("trajectory_groups", groups ++ legacy_trajectory_groups(messages))
+  end
+
+  defp normalize_legacy_trajectory(attrs), do: attrs
+
+  defp legacy_trajectory_groups(messages), do: do_legacy_trajectory_groups(messages, 0, [])
+
+  defp do_legacy_trajectory_groups([], _position, acc), do: Enum.reverse(acc)
+
+  defp do_legacy_trajectory_groups(
+         [%{"role" => "assistant", "tool_calls" => tool_calls} = assistant | rest],
+         position,
+         acc
+       )
+       when is_list(tool_calls) and tool_calls != [] do
+    ids = tool_calls |> Enum.map(&Map.get(&1, "id")) |> Enum.filter(&is_binary/1) |> MapSet.new()
+
+    {results, remaining} =
+      Enum.split_while(rest, fn
+        %{"role" => "tool", "tool_call_id" => id} -> MapSet.member?(ids, id)
+        _message -> false
+      end)
+
+    item_key = Map.get(assistant, "id") || Enum.at(MapSet.to_list(ids), 0) || "legacy:#{position}"
+    group = %{"position" => position, "item_key" => item_key, "messages" => [assistant | results]}
+    do_legacy_trajectory_groups(remaining, position + 1, [group | acc])
+  end
+
+  defp do_legacy_trajectory_groups([message | rest], position, acc) do
+    item_key = Map.get(message, "id") || "legacy:#{position}"
+    group = %{"position" => position, "item_key" => item_key, "messages" => [message]}
+    do_legacy_trajectory_groups(rest, position + 1, [group | acc])
   end
 
   defp validate_attempt(%Job{attempts: attempts}, %{"attempt" => attempts}), do: :ok
   defp validate_attempt(%Job{}, _attrs), do: {:error, :background_agent_job_turn_attempt_mismatch}
+
+  defp append_trajectory_groups(_repo, _turn, []), do: :ok
+
+  defp append_trajectory_groups(repo, %Turn{} = turn, groups) when is_list(groups) do
+    Enum.reduce_while(groups, :ok, fn group, :ok ->
+      with {:ok, candidate, changeset} <- trajectory_group_candidate(turn, group) do
+        existing =
+          TrajectoryGroup
+          |> where([row], row.turn_id == ^turn.id)
+          |> where(
+            [row],
+            row.position == ^candidate.position or row.item_key == ^candidate.item_key
+          )
+          |> lock("FOR UPDATE")
+          |> repo.all()
+
+        cond do
+          existing == [] ->
+            case repo.insert(changeset) do
+              {:ok, _group} -> {:cont, :ok}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+
+          Enum.any?(existing, &trajectory_group_equal?(&1, candidate)) and length(existing) == 1 ->
+            {:cont, :ok}
+
+          true ->
+            {:halt, {:error, :background_agent_job_trajectory_group_conflict}}
+        end
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp append_trajectory_groups(_repo, _turn, _groups),
+    do: {:error, :invalid_background_agent_job_trajectory_groups}
+
+  defp trajectory_group_candidate(%Turn{} = turn, %{} = group) do
+    attrs = Attrs.normalize(group)
+
+    changeset =
+      TrajectoryGroup.changeset(%TrajectoryGroup{}, %{
+        turn_id: turn.id,
+        position: attrs["position"],
+        revision: turn.revision,
+        item_key: attrs["item_key"],
+        content: %{"messages" => attrs["messages"]}
+      })
+
+    case Ecto.Changeset.apply_action(changeset, :insert) do
+      {:ok, candidate} -> {:ok, candidate, changeset}
+      {:error, invalid} -> {:error, invalid}
+    end
+  end
+
+  defp trajectory_group_candidate(_turn, _group),
+    do: {:error, :invalid_background_agent_job_trajectory_groups}
+
+  defp checkpoint_groups_equal?(repo, turn, revision, groups) do
+    stored =
+      TrajectoryGroup
+      |> where([row], row.turn_id == ^turn.id)
+      |> order_by([row], asc: row.position)
+      |> repo.all()
+
+    current = Enum.filter(stored, &(&1.revision == revision))
+
+    candidates =
+      Enum.map(groups, fn group ->
+        attrs = Attrs.normalize(group)
+
+        %{
+          position: attrs["position"],
+          item_key: attrs["item_key"],
+          content: %{"messages" => attrs["messages"]}
+        }
+      end)
+
+    if trajectory_group_lists_equal?(current, candidates) or
+         trajectory_group_lists_equal?(stored, candidates),
+       do: :ok,
+       else: {:error, :background_agent_job_turn_revision_conflict}
+  end
+
+  defp trajectory_group_lists_equal?(stored, candidates) do
+    length(stored) == length(candidates) and
+      Enum.zip(stored, candidates)
+      |> Enum.all?(fn {row, value} -> trajectory_group_equal?(row, value) end)
+  end
+
+  defp trajectory_group_equal?(group, value) do
+    group.position == value.position and group.item_key == value.item_key and
+      group.content == value.content
+  end
 
   defp lead_turn?(%Turn{} = turn, lead_thread_id),
     do: is_binary(lead_thread_id) and turn.runtime_thread_id == lead_thread_id
@@ -540,10 +686,49 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp trajectory_limit(_limit), do: {:error, :invalid_background_agent_job_trajectory_limit}
 
   defp trajectory_page(turns, job, cursor, limit) do
-    groups =
+    lead_turns =
       turns
       |> Enum.filter(&(&1.kind == "agent" and lead_turn?(&1, job.runtime_thread_id)))
-      |> Enum.flat_map(&semantic_groups/1)
+
+    groups =
+      if lead_turns == [] do
+        []
+      else
+        turn_ids = Enum.map(lead_turns, & &1.id)
+
+        stored_by_turn =
+          TrajectoryGroup
+          |> where([group], group.turn_id in ^turn_ids)
+          |> Repo.all()
+          |> Enum.group_by(& &1.turn_id)
+
+        Enum.flat_map(lead_turns, fn turn ->
+          case Map.get(stored_by_turn, turn.id, []) do
+            [] ->
+              turn.trajectory
+              |> Map.get("messages", [])
+              |> legacy_trajectory_groups()
+              |> Enum.map(fn group ->
+                %{
+                  turn_id: turn.id,
+                  position: group["position"],
+                  messages: bound_group(group["messages"])
+                }
+              end)
+
+            stored ->
+              stored
+              |> Enum.sort_by(& &1.position)
+              |> Enum.map(fn group ->
+                %{
+                  turn_id: group.turn_id,
+                  position: group.position,
+                  messages: bound_group(group.content["messages"])
+                }
+              end)
+          end
+        end)
+      end
 
     with {:ok, older_groups} <- groups_before_cursor(groups, cursor) do
       selected = select_page_groups(older_groups, limit)
@@ -566,43 +751,6 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
          page
        end}
     end
-  end
-
-  defp semantic_groups(%Turn{} = turn) do
-    messages = get_in(turn.trajectory || %{}, ["messages"])
-    do_semantic_groups(if(is_list(messages), do: messages, else: []), turn.id, 0, [])
-  end
-
-  defp do_semantic_groups([], _turn_id, _position, acc), do: Enum.reverse(acc)
-
-  defp do_semantic_groups(
-         [%{"role" => "assistant", "tool_calls" => tool_calls} = assistant | rest],
-         turn_id,
-         position,
-         acc
-       )
-       when is_list(tool_calls) and tool_calls != [] do
-    ids =
-      tool_calls
-      |> Enum.flat_map(fn
-        %{"id" => id} when is_binary(id) -> [id]
-        _tool_call -> []
-      end)
-      |> MapSet.new()
-
-    {results, remaining} =
-      Enum.split_while(rest, fn
-        %{"role" => "tool", "tool_call_id" => id} -> MapSet.member?(ids, id)
-        _message -> false
-      end)
-
-    group = %{turn_id: turn_id, position: position, messages: bound_group([assistant | results])}
-    do_semantic_groups(remaining, turn_id, position + 1, [group | acc])
-  end
-
-  defp do_semantic_groups([message | rest], turn_id, position, acc) do
-    group = %{turn_id: turn_id, position: position, messages: bound_group([message])}
-    do_semantic_groups(rest, turn_id, position + 1, [group | acc])
   end
 
   defp groups_before_cursor(groups, nil), do: {:ok, groups}
@@ -775,10 +923,12 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     do: {:error, :invalid_background_agent_job_trajectory_cursor}
 
   defp trajectory_has_pending_tool_call?(
-         %Turn{trajectory: %{"messages" => messages}},
+         %Turn{} = turn,
          required_tool
        )
-       when is_list(messages) and is_binary(required_tool) do
+       when is_binary(required_tool) do
+    messages = trajectory_messages(turn)
+
     result_ids =
       messages
       |> Enum.flat_map(fn
@@ -815,9 +965,9 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Enum.find_value(&turn_summary/1)
   end
 
-  defp turn_summary(%Turn{trajectory: trajectory}) when is_map(trajectory) do
-    trajectory
-    |> Map.get("messages", [])
+  defp turn_summary(%Turn{} = turn) do
+    turn
+    |> trajectory_messages()
     |> Enum.reverse()
     |> Enum.find_value(fn
       %{"role" => "assistant", "content" => content} when is_binary(content) and content != "" ->
@@ -828,7 +978,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end)
   end
 
-  defp turn_summary(_turn), do: nil
+  defp trajectory_messages(%Turn{} = turn) do
+    messages =
+      TrajectoryGroup
+      |> where([group], group.turn_id == ^turn.id)
+      |> order_by([group], asc: group.position)
+      |> Repo.all()
+      |> Enum.flat_map(&Map.get(&1.content, "messages", []))
+
+    if messages == [], do: Map.get(turn.trajectory || %{}, "messages", []), else: messages
+  end
 
   defp empty_progress do
     %{
@@ -839,7 +998,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     }
   end
 
-  defp empty_trajectory, do: %{"format" => "ankole_chatml", "version" => 1, "messages" => []}
+  defp empty_trajectory, do: Trajectory.empty()
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -1,9 +1,11 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   @moduledoc false
 
-  alias Ankole.{AuthZ, Logging, Principals}
+  alias Ankole.AuthZ
+  alias Ankole.IdentityProviders.Directory
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.Config
   alias MicrosoftOpenAPI.EntraAuth
   alias MicrosoftOpenAPI.Error
   alias MicrosoftOpenAPI.Graph
@@ -54,31 +56,30 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
 
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, user, opts \\ []) do
-    with {:ok, user_id} <- user_id(user),
-         {:ok, observed} <-
-           Principals.upsert_platform_subject_human(
-             %{
-               provider: provider_id,
-               external_id: user_id,
-               uid: user_id,
-               display_name: MapHelpers.optional_text(user, "displayName") || user_id,
-               email:
-                 MapHelpers.optional_text(user, "mail") ||
-                   MapHelpers.optional_text(user, "userPrincipalName"),
-               job_title: MapHelpers.optional_text(user, "jobTitle"),
-               mobile: normalized_mobile(user),
-               metadata:
-                 MapHelpers.compact_metadata_map(%{
-                   "user_principal_name" => MapHelpers.optional_text(user, "userPrincipalName"),
-                   "department" => MapHelpers.optional_text(user, "department"),
-                   "user_type" => MapHelpers.optional_text(user, "userType"),
-                   "account_enabled" => Map.get(user, "accountEnabled")
-                 })
-             }
-             |> MapHelpers.compact_map()
-           ),
-         {:ok, _sync} <- maybe_sync_groups(provider_id, observed.principal.uid, opts) do
-      {:ok, observed}
+    with {:ok, user_id} <- user_id(user) do
+      Directory.upsert_user(
+        provider_id,
+        %{
+          provider: provider_id,
+          external_id: user_id,
+          uid: user_id,
+          display_name: MapHelpers.optional_text(user, "displayName") || user_id,
+          email:
+            MapHelpers.optional_text(user, "mail") ||
+              MapHelpers.optional_text(user, "userPrincipalName"),
+          job_title: MapHelpers.optional_text(user, "jobTitle"),
+          mobile: normalized_mobile(user),
+          metadata:
+            MapHelpers.compact_metadata_map(%{
+              "user_principal_name" => MapHelpers.optional_text(user, "userPrincipalName"),
+              "department" => MapHelpers.optional_text(user, "department"),
+              "user_type" => MapHelpers.optional_text(user, "userType"),
+              "account_enabled" => Map.get(user, "accountEnabled")
+            })
+        }
+        |> MapHelpers.compact_map(),
+        Keyword.take(opts, [:group_external_ids, :directory_group_index])
+      )
     end
   end
 
@@ -143,17 +144,18 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
       {:ok, group} ->
         with {:ok, directory_group} <- ensure_entra_group(consumer.provider_id, group),
              {:ok, member_ids} <- group_member_ids(client, group_id, consumer.config),
-             {:ok, uids, skipped} <- resolve_known_members(consumer.provider_id, member_ids),
              {:ok, result} <-
-               AuthZ.replace_static_group_members(directory_group.id, :directory, uids) do
-          maybe_log_skipped_members(group_id, skipped)
-
+               Directory.replace_group_members(
+                 consumer.provider_id,
+                 directory_group.id,
+                 member_ids
+               ) do
           {:ok,
            %{
              status: :group_updated,
              group_id: directory_group.id,
              removed_memberships: result.removed_memberships,
-             skipped_unknown_users: skipped
+             skipped_unknown_users: result.skipped_unknown_members
            }}
         end
 
@@ -203,9 +205,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
     page_size = get_in(config, ["sync", "pageSize"]) || 999
 
     with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
-      Pagination.stream(client, "users",
-        query: [{"$select", @user_select}, {"$top", page_size}]
-      )
+      Pagination.stream(client, "users", query: [{"$select", @user_select}, {"$top", page_size}])
       |> Enum.reduce_while({:ok, 0}, fn
         {:ok, user}, {:ok, count} ->
           if directory_user?(user, config) do
@@ -213,7 +213,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
 
             case upsert_user(provider_id, user,
                    directory_group_index: directory_group_index,
-                   group_ids: Map.get(user_index, user_id, [])
+                   group_external_ids: Map.get(user_index, user_id, [])
                  ) do
               {:ok, _observed} -> {:cont, {:ok, count + 1}}
               {:error, reason} -> {:halt, {:error, reason}}
@@ -266,138 +266,37 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
 
   defp ensure_entra_group(provider_id, group) do
     with {:ok, external_id} <- group_id(group) do
-      result =
-        case AuthZ.external_group_ids(provider_id, :directory_department, external_id) do
-          [group_id | _rest] -> AuthZ.get_principal_group(group_id)
-          [] -> fetch_or_create_group(provider_id, external_id, group)
-        end
-
-      with {:ok, directory_group} <- result,
-           {:ok, directory_group} <-
-             AuthZ.update_principal_group(directory_group, %{
-               display_name: group_display_name(group, external_id),
-               metadata: group_metadata(provider_id, external_id, group)
-             }),
-           :ok <-
-             upsert_group_binding(provider_id, external_id, group, directory_group.id, "active") do
-        {:ok, directory_group}
-      end
+      Directory.ensure_group(provider_id, entra_group_struct(group, external_id))
     end
   end
 
-  defp fetch_or_create_group(provider_id, external_id, group) do
-    attrs = %{
-      name: "#{provider_id}:entra_group:#{String.downcase(external_id)}",
+  defp entra_group_struct(group, external_id) do
+    %Directory.Group{
+      external_id: external_id,
+      kind: "entra_group",
       display_name: group_display_name(group, external_id),
-      domain: :directory,
-      metadata: group_metadata(provider_id, external_id, group)
-    }
-
-    case AuthZ.get_principal_group(attrs.name) do
-      {:ok, directory_group} -> {:ok, directory_group}
-      {:error, :not_found} -> AuthZ.create_principal_group(attrs)
-    end
-  end
-
-  defp upsert_group_binding(provider_id, external_id, group, group_id, status) do
-    case AuthZ.upsert_external_binding(%{
-           provider: provider_id,
-           external_kind: :directory_department,
-           external_id: external_id,
-           group_id: group_id,
-           metadata:
-             MapHelpers.compact_metadata_map(%{
-               "provider" => provider_id,
-               "externalID" => external_id,
-               "name" => group_display_name(group, external_id),
-               "status" => status,
-               "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
-               "external_directory" => %{
-                 "provider" => provider_id,
-                 "kind" => "entra_group",
-                 "external_id" => external_id
-               }
-             })
-         }) do
-      {:ok, _binding} -> :ok
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp group_metadata(provider_id, external_id, group) do
-    %{
-      "external_directory" => %{
-        "provider" => provider_id,
-        "kind" => "entra_group",
-        "external_id" => external_id
-      },
-      "entra" =>
-        MapHelpers.compact_metadata_map(%{
-          "display_name" => MapHelpers.optional_text(group, "displayName"),
-          "mail_nickname" => MapHelpers.optional_text(group, "mailNickname"),
-          "security_enabled" => Map.get(group, "securityEnabled"),
-          "group_types" => MapHelpers.fetch_list(group, "groupTypes")
-        })
+      provider_metadata: %{
+        "entra" =>
+          MapHelpers.compact_metadata_map(%{
+            "display_name" => MapHelpers.optional_text(group, "displayName"),
+            "mail_nickname" => MapHelpers.optional_text(group, "mailNickname"),
+            "security_enabled" => Map.get(group, "securityEnabled"),
+            "group_types" => MapHelpers.fetch_list(group, "groupTypes")
+          })
+      }
     }
   end
 
   defp disable_group(provider_id, external_id) do
-    case existing_group(provider_id, external_id) do
-      {:ok, directory_group} ->
-        with {:ok, result} <-
-               AuthZ.replace_static_group_members(directory_group.id, :directory, []),
-             :ok <-
-               upsert_group_binding(
-                 provider_id,
-                 external_id,
-                 %{},
-                 directory_group.id,
-                 "disabled"
-               ) do
-          {:ok, %{status: :group_disabled, removed_memberships: result.removed_memberships}}
-        end
+    case Directory.disable_group(provider_id, entra_group_struct(%{}, external_id)) do
+      {:ok, result} ->
+        {:ok, %{status: :group_disabled, removed_memberships: result.removed_memberships}}
 
       {:error, :not_found} ->
         {:ok, %{status: :ignored_unknown_group}}
 
       {:error, _reason} = error ->
         error
-    end
-  end
-
-  defp existing_group(provider_id, external_id) when is_binary(external_id) do
-    case AuthZ.external_group_ids(provider_id, :directory_department, external_id) do
-      [group_id | _rest] -> AuthZ.get_principal_group(group_id)
-      [] -> {:error, :not_found}
-    end
-  end
-
-  defp maybe_sync_groups(provider_id, principal_uid, opts) do
-    case Keyword.fetch(opts, :group_ids) do
-      {:ok, ids} when is_list(ids) ->
-        AuthZ.sync_external_directory_group_memberships(
-          provider_id,
-          principal_uid,
-          ids,
-          Keyword.take(opts, [:directory_group_index])
-        )
-
-      :error ->
-        {:ok, :memberships_untouched}
-    end
-  end
-
-  defp resolve_known_members(provider_id, ids) do
-    Enum.reduce_while(ids, {:ok, [], 0}, fn id, {:ok, uids, skipped} ->
-      case Principals.resolve_platform_subject_uid(provider_id, id) do
-        {:ok, uid} -> {:cont, {:ok, [uid | uids], skipped}}
-        {:error, :not_found} -> {:cont, {:ok, uids, skipped + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, uids, skipped} -> {:ok, Enum.reverse(uids), skipped}
-      error -> error
     end
   end
 
@@ -461,16 +360,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
         end
     end
   end
-
-  defp maybe_log_skipped_members(_external_id, 0), do: :ok
-
-  defp maybe_log_skipped_members(external_id, count),
-    do:
-      Logging.warning(
-        "microsoft365_adapter.identity_provider.unknown_group_members",
-        "Entra group sync skipped unknown users",
-        %{external_id: external_id, count: count}
-      )
 
   defp encode_segment(value), do: URI.encode(value, &URI.char_unreserved?/1)
 

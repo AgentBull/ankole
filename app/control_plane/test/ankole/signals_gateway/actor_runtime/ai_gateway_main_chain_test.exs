@@ -46,20 +46,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
     assert is_pid(preview_handler)
 
     assert_receive {:actor_lane, envelope}, 2_000
-    turn_start = envelope["body"]["turn_start"]
-    turn_ref = turn_start["turn"]
+    turn_start = turn_start_payload!(envelope)
+    turn_ref = turn_start.turn
 
-    assert turn_ref["actor"]["agent_uid"] == agent.uid
-    assert turn_ref["actor"]["session_id"] == actor_event.session_id
-    assert turn_ref["actor_event_id"] == actor_event.id
-    assert turn_start["actor_event"]["actor_event_id"] == actor_event.id
+    assert turn_ref.actor.agent_uid == agent.uid
+    assert turn_ref.actor.session_id == actor_event.session_id
+    assert turn_ref.actor_event_id == actor_event.id
+    assert turn_start.actor_event.actor_event_id == actor_event.id
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{
-                 "turn" => turn_ref
-               }
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert live_delivery_count(actor_event.id) == 1
 
@@ -520,12 +516,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
 
     preview_handler = wait_for_preview_handler(actor_event.id)
     assert_receive {:actor_lane, envelope}, 2_000
-    turn_ref = envelope["body"]["turn_start"]["turn"]
+    turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(%{
-               "turn_accepted" => %{"turn" => turn_ref}
-             })
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     %{
       actor_event: actor_event,
@@ -535,13 +529,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
   end
 
   defp complete_turn(turn_ref, final_response, outcome \\ "loop_finished") do
-    ActorRuntime.handle_turn_completed(%{
-      "turn_completed" => %{
-        "turn" => turn_ref,
-        "final_response_id" => "resp_#{final_response.id}",
-        "outcome" => outcome
-      }
-    })
+    ActorRuntime.handle_turn_completed(
+      turn_completed_payload(turn_ref, "resp_#{final_response.id}", outcome)
+    )
   end
 
   # StatefulResponses is an internal storage API. The caller-owned metadata

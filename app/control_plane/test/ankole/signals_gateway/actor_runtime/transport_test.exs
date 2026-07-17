@@ -60,35 +60,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
           )
         end)
 
-      assert_receive {:actor_lane,
-                      %{
-                        "body" => %{
-                          "type" => "rpc_request",
-                          "rpc_request" => request
-                        }
-                      }},
-                     200
+      assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, request}}}, 200
 
-      assert request["method"] == "test.probe"
-      assert request["payload_json"] == %{"probe" => true}
-      request_id = request["request_id"]
+      assert request.method == "test.probe"
+      assert decoded_json_bytes(request.payload_json) == %{"probe" => true}
+      request_id = request.request_id
 
       send(
         Broker,
         {:runtime_fabric_router_received, route,
-         Torque.encode!(%{
-           "protocol_version" => 1,
-           "message_id" => "worker-rpc-response",
-           "correlation_id" => request_id,
-           "lane" => "LANE_RPC",
-           "durability" => "CONTROL_EPHEMERAL",
-           "body" => %{
-             "type" => "rpc_response",
-             "rpc_response" => %{
-               "request_id" => request_id,
-               "payload_json" => %{"runtime" => "bun", "active_turns" => 0}
-             }
-           }
+         encode_fabric_envelope(%FabricProto.Envelope{
+           protocol_version: 1,
+           message_id: "worker-rpc-response",
+           correlation_id: request_id,
+           lane: :LANE_RPC,
+           durability: :CONTROL_EPHEMERAL,
+           body:
+             {:rpc_response,
+              %FabricProto.RPCResponse{
+                request_id: request_id,
+                payload_json: Torque.encode!(%{"runtime" => "bun", "active_turns" => 0})
+              }}
          })}
       )
 
@@ -108,32 +100,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
         end
       end)
 
-      request = %{
-        "request_id" => "rpc-handler-crash",
-        "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
-        "payload_json" => %{"agent_uid" => agent.uid}
+      request = %FabricProto.RPCRequest{
+        request_id: "rpc-handler-crash",
+        method: "ai_gateway.api_key_for.create_or_find_by_agent",
+        payload_json: Torque.encode!(%{"agent_uid" => agent.uid})
       }
 
       assert {:ok, response} = RPCLane.handle_request(request, "worker-route")
-      assert get_in(response, ["body", "type"]) == "rpc_error"
-      assert get_in(response, ["body", "rpc_error", "code"]) == "rpc_handler_failed"
+      assert envelope_body_type(response) == :rpc_error
+      assert envelope_body!(response, :rpc_error).code == "rpc_handler_failed"
 
       broker_pid = Process.whereis(Broker)
+      :ok = Broker.register_local_worker("worker-route", self())
+      on_exit(fn -> Broker.unregister_local_worker("worker-route") end)
 
       send(
         Broker,
         {:runtime_fabric_router_received, "worker-route",
-         Torque.encode!(%{
-           "protocol_version" => 1,
-           "message_id" => "rpc-handler-crash-envelope",
-           "correlation_id" => "rpc-handler-crash",
-           "lane" => "LANE_RPC",
-           "durability" => "CONTROL_EPHEMERAL",
-           "body" => %{"type" => "rpc_request", "rpc_request" => request}
+         encode_fabric_envelope(%FabricProto.Envelope{
+           protocol_version: 1,
+           message_id: "rpc-handler-crash-envelope",
+           correlation_id: "rpc-handler-crash",
+           lane: :LANE_RPC,
+           durability: :CONTROL_EPHEMERAL,
+           body: {:rpc_request, request}
          })}
       )
 
-      :sys.get_state(Broker)
+      assert_receive {:actor_lane,
+                      %FabricProto.Envelope{
+                        body: {:rpc_error, %FabricProto.RPCError{code: "rpc_handler_failed"}}
+                      }},
+                     500
+
       assert Process.alive?(broker_pid)
     end
 
@@ -163,7 +162,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      assert get_in(envelope, ["body", "turn_start", "model_ref", "profile"]) == "light"
+      assert turn_start_payload!(envelope).model_ref.profile == "light"
     end
 
     test "worker heartbeat and capacity update only the authenticated worker projection" do
@@ -172,11 +171,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, heartbeat_worker} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id,
-                   "monotonic_ms" => 123,
-                   "load_json" => %{"active_turns" => 1}
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id,
+                   monotonic_ms: 123,
+                   load_json: Torque.encode!(%{"active_turns" => 1})
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -185,12 +184,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, capacity_worker} =
                ActorRuntime.handle_worker_capacity(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id,
-                   "available_turn_slots" => 2,
-                   "capacity_json" => %{"available_turn_slots" => 2},
-                   "load_json" => %{"active_turns" => 0}
+                 %FabricProto.AgentComputerWorkerCapacity{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id,
+                   available_turn_slots: 2,
+                   capacity_json: Torque.encode!(%{"available_turn_slots" => 2}),
+                   load_json: Torque.encode!(%{"active_turns" => 0})
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -200,18 +199,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:error, :stale_worker_incarnation} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => "replaced-incarnation"
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: "replaced-incarnation"
                  },
                  %{authenticated?: true, transport_route: route}
                )
 
       assert {:error, :stale_transport_route} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id
                  },
                  %{authenticated?: true, transport_route: route <> "-stale"}
                )
@@ -231,11 +230,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, revalidated} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id,
-                   "monotonic_ms" => 123,
-                   "load_json" => %{"active_turns" => 0}
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id,
+                   monotonic_ms: 123,
+                   load_json: Torque.encode!(%{"active_turns" => 0})
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -257,9 +256,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, recovered} =
                ActorRuntime.handle_worker_heartbeat(
-                 %{
-                   "worker_id" => worker.worker_id,
-                   "incarnation_id" => worker.incarnation_id
+                 %FabricProto.AgentComputerWorkerHeartbeat{
+                   worker_id: worker.worker_id,
+                   incarnation_id: worker.incarnation_id
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -295,46 +294,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert_receive {:actor_lane, envelope}
 
-      turn_start = envelope["body"]["turn_start"]
-      turn_ref = turn_start["turn"]
+      turn_start = turn_start_payload!(envelope)
+      turn_ref = turn_start.turn
 
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
       assert {:ok, _wrong_worker} = admit_worker(wrong_route)
 
-      accepted_envelope = %{
-        "protocol_version" => 1,
-        "message_id" => "turn-accepted-wrong-route",
-        "correlation_id" => envelope["message_id"],
-        "lane" => "LANE_TURN",
-        "durability" => "CONTROL_REPLAYABLE",
-        "body" => %{
-          "type" => "turn_accepted",
-          "turn_accepted" => %{
-            "turn" => turn_ref
-          }
-        }
-      }
+      accepted_envelope =
+        encode_fabric_envelope(%FabricProto.Envelope{
+          protocol_version: 1,
+          message_id: "turn-accepted-wrong-route",
+          correlation_id: envelope.message_id,
+          lane: :LANE_TURN,
+          durability: :CONTROL_REPLAYABLE,
+          body: {:turn_accepted, turn_accepted_payload(turn_ref)}
+        })
 
       send(
         Broker,
-        {:runtime_fabric_router_received, wrong_route, nil, nil,
-         Torque.encode!(accepted_envelope)}
+        {:runtime_fabric_router_received, wrong_route, nil, nil, accepted_envelope}
       )
-
-      :sys.get_state(Broker)
-
-      assert %ActorEventDelivery{state: "sent"} =
-               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, Torque.encode!(accepted_envelope)}
+        {:runtime_fabric_router_received, route, nil, nil, accepted_envelope}
       )
-
-      :sys.get_state(Broker)
 
       assert %ActorEventDelivery{state: "accepted"} =
-               Repo.get_by!(ActorEventDelivery, actor_event_id: input.id)
+               wait_for_delivery_state(input.id, "accepted")
     end
 
     test "broker ignores obsolete worker final proposals" do
@@ -361,31 +348,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
-      proposal_envelope = %{
-        "protocol_version" => 1,
-        "message_id" => "obsolete-turn-final-proposal",
-        "correlation_id" => envelope["message_id"],
-        "lane" => "LANE_TURN",
-        "durability" => "CONTROL_DURABLE",
-        "body" => %{
-          "type" => "turn_final_proposal",
-          "turn_final_proposal" => %{
-            "turn" => turn_ref,
-            "messages" => [],
-            "reply" => %{"text" => "PONG"}
-          }
-        }
-      }
+      # A body type the control-plane actor lane does not handle is ignored
+      # without committing anything; undecodable bytes are already rejected by
+      # the kernel before they reach this broker.
+      proposal_envelope =
+        encode_fabric_envelope(%FabricProto.Envelope{
+          protocol_version: 1,
+          message_id: "obsolete-worker-proposal",
+          correlation_id: envelope.message_id,
+          lane: :LANE_CONTROL,
+          durability: :CONTROL_EPHEMERAL,
+          body: {:control_shutdown, %FabricProto.ControlShutdown{reason: "obsolete"}}
+        })
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, Torque.encode!(proposal_envelope)}
+        {:runtime_fabric_router_received, route, nil, nil, proposal_envelope}
       )
 
-      :sys.get_state(Broker)
+      :sys.get_state(Ankole.SignalsGateway.ActorRuntime.InboundDispatcher)
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
 
       assert %ActorEventDelivery{state: "sent"} =
@@ -393,12 +377,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       refute Repo.exists?(from(outbox in OutboxEntry))
 
-      refute Repo.exists?(
-               from(message in Message,
-                 where:
-                   fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) ==
-                     ^input.id
-               )
+      refute Message
+             |> Repo.all()
+             |> Enum.any?(
+               &(StatefulResponses.response_metadata(&1)["actor_event_id"] == input.id)
              )
     end
 
@@ -426,12 +408,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                )
 
       assert_receive {:actor_lane, envelope}, 2_000
-      turn_ref = envelope["body"]["turn_start"]["turn"]
+      turn_ref = turn_start_payload!(envelope).turn
 
       assert {:ok, [_delivery]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => turn_ref}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
       assert {:ok, %{actor_event: steer_event}} =
                emit_entry(
@@ -445,44 +425,35 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
       assert_receive {:actor_lane, mailbox_envelope}, 2_000
-      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
 
-      assert mailbox_envelope["body"]["mailbox_updated"]["actor_event"]["actor_event_id"] ==
+      assert envelope_body!(mailbox_envelope, :mailbox_updated).actor_event.actor_event_id ==
                steer_event.id
 
-      mailbox = mailbox_envelope["body"]["mailbox_updated"]
+      mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
 
       assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_id}]} =
-               ActorRuntime.handle_turn_accepted(%{
-                 "turn_accepted" => %{"turn" => mailbox["turn"]}
-               })
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
 
       assert steer_id == steer_event.id
 
-      noop_envelope = %{
-        "protocol_version" => 1,
-        "message_id" => "turn-noop-after-steer",
-        "correlation_id" => envelope["message_id"],
-        "lane" => "LANE_TURN",
-        "durability" => "CONTROL_REPLAYABLE",
-        "body" => %{
-          "type" => "turn_noop_completed",
-          "turn_noop_completed" => %{
-            "turn" => turn_ref,
-            "reason" => "ambient_silent"
-          }
-        }
-      }
+      noop_envelope =
+        encode_fabric_envelope(%FabricProto.Envelope{
+          protocol_version: 1,
+          message_id: "turn-noop-after-steer",
+          correlation_id: envelope.message_id,
+          lane: :LANE_TURN,
+          durability: :CONTROL_REPLAYABLE,
+          body: {:turn_noop_completed, turn_noop_completed_payload(turn_ref, "ambient_silent")}
+        })
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, Torque.encode!(noop_envelope)}
+        {:runtime_fabric_router_received, route, nil, nil, noop_envelope}
       )
 
-      :sys.get_state(Broker)
-
-      assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
-      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(input.id)
+      assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(steer_event.id)
     end
 
     test "worker admission rejects duplicate live route ownership" do
@@ -492,24 +463,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:error, :duplicate_worker_route} =
                ActorRuntime.admit_worker_ready(
-                 %{
+                 %FabricProto.AgentComputerWorkerReady{
                    worker_id: "other-worker-route",
                    incarnation_id: "incarnation-other-worker-route",
                    runtime: "bun",
                    version: "test",
-                   capacity: %{"available_turn_slots" => 1}
+                   capacity_json: Torque.encode!(%{"available_turn_slots" => 1})
                  },
                  %{authenticated?: true, transport_route: route}
                )
 
       assert {:ok, refreshed_worker} =
                ActorRuntime.admit_worker_ready(
-                 %{
+                 %FabricProto.AgentComputerWorkerReady{
                    worker_id: worker.worker_id,
                    incarnation_id: worker.incarnation_id,
                    runtime: "bun",
                    version: "test",
-                   capacity: %{"available_turn_slots" => 2}
+                   capacity_json: Torque.encode!(%{"available_turn_slots" => 2})
                  },
                  %{authenticated?: true, transport_route: duplicate_route}
                )
@@ -524,33 +495,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:error, {:missing, "runtime"}} =
                ActorRuntime.admit_worker_ready(
-                 %{
+                 %FabricProto.AgentComputerWorkerReady{
                    worker_id: "worker-missing-runtime",
                    incarnation_id: "incarnation-missing-runtime",
-                   version: "test",
-                   capacity: %{"available_turn_slots" => 1}
+                   version: "test"
                  },
                  %{authenticated?: true, transport_route: route}
                )
 
       assert {:error, {:missing, "version"}} =
                ActorRuntime.admit_worker_ready(
-                 %{
+                 %FabricProto.AgentComputerWorkerReady{
                    worker_id: "worker-missing-version",
                    incarnation_id: "incarnation-missing-version",
-                   runtime: "bun",
-                   capacity: %{"available_turn_slots" => 1}
+                   runtime: "bun"
                  },
                  %{authenticated?: true, transport_route: route}
                )
 
       assert {:error, {:missing, "incarnation_id"}} =
                ActorRuntime.admit_worker_ready(
-                 %{
+                 %FabricProto.AgentComputerWorkerReady{
                    worker_id: "worker-missing-incarnation",
                    runtime: "bun",
-                   version: "test",
-                   capacity: %{"available_turn_slots" => 1}
+                   version: "test"
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -573,4 +541,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
   end
 
   defp wait_for_router_endpoint(_broker, 0), do: {:error, :router_not_recovered}
+
+  defp wait_for_completed_event(actor_event_id, attempts \\ 100)
+
+  defp wait_for_completed_event(actor_event_id, attempts) when attempts > 0 do
+    case Repo.get!(ActorEvent, actor_event_id) do
+      %ActorEvent{completed_at: %DateTime{}} = event ->
+        event
+
+      %ActorEvent{} ->
+        Process.sleep(10)
+        wait_for_completed_event(actor_event_id, attempts - 1)
+    end
+  end
+
+  defp wait_for_completed_event(actor_event_id, 0) do
+    flunk("actor event #{actor_event_id} did not complete")
+  end
 end

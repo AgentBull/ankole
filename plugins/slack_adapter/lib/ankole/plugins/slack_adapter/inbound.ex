@@ -2,7 +2,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @moduledoc false
 
   alias Ankole.{Logging, Principals, SignalsGateway, WorkerFiles}
-  alias Ankole.Plugins.SlackAdapter.{Channels, Config, Emoji, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.{Channels, Config, Emoji}
   alias Ankole.SignalsGateway.{AdapterContext, Ingress}
   alias SlackOpenAPI.Event
 

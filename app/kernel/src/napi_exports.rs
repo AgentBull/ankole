@@ -86,25 +86,16 @@ pub fn authz_match_resource_pattern(pattern: String, resource: String) -> Result
     authz::pattern_matches(&pattern, &resource).map_err(napi_error)
 }
 
-/// Encodes a RuntimeFabric v1 envelope into protobuf bytes.
+/// Checks RuntimeFabric protocol invariants on host-encoded envelope bytes.
+///
+/// The worker encodes envelopes with its generated protobuf codec; this keeps
+/// the Rust kernel as the single semantic checker for received envelopes.
 #[napi(
-    js_name = "runtimeFabricEncodeEnvelope",
-    ts_args_type = "envelope: any"
+    js_name = "runtimeFabricValidateEnvelope",
+    ts_args_type = "bytes: Buffer"
 )]
-pub fn js_runtime_fabric_encode_envelope(envelope: JSONValue) -> Result<Buffer> {
-    runtime_fabric::encode_envelope(envelope)
-        .map(Buffer::from)
-        .map_err(napi_error)
-}
-
-/// Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope.
-#[napi(
-    js_name = "runtimeFabricDecodeEnvelope",
-    ts_args_type = "bytes: Buffer",
-    ts_return_type = "any"
-)]
-pub fn js_runtime_fabric_decode_envelope(bytes: Buffer) -> Result<JSONValue> {
-    runtime_fabric::decode_envelope(bytes.as_ref()).map_err(napi_error)
+pub fn js_runtime_fabric_validate_envelope(bytes: Buffer) -> Result<()> {
+    runtime_fabric::validate_envelope_bytes(bytes.as_ref()).map_err(napi_error)
 }
 
 /// Bun/Node DEALER-side RuntimeFabric client.
@@ -139,10 +130,14 @@ impl JsRuntimeFabricDealer {
             .map_err(napi_error)
     }
 
-    #[napi(ts_args_type = "envelope: any")]
-    pub fn send_envelope(&self, envelope: JSONValue) -> Result<()> {
+    #[napi(ts_args_type = "envelope: Buffer")]
+    pub fn send_envelope(&self, envelope: Buffer) -> Result<()> {
+        runtime_fabric::validate_envelope_bytes(envelope.as_ref()).map_err(|error| {
+            runtime_fabric_error(TransportError::InvalidEnvelope(error.to_string()))
+        })?;
+
         self.handle
-            .send_envelope(envelope)
+            .send_payload(envelope.to_vec())
             .map(|_| ())
             .map_err(runtime_fabric_error)
     }

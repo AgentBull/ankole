@@ -62,6 +62,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     assert %{"identity_provider_adapters" => adapters} = json_response(conn, 200)
 
     assert Enum.map(adapters, & &1["adapter_id"]) == [
+             "dingtalk",
              "entra-id",
              "google-workspace",
              "lark",
@@ -264,16 +265,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
       |> post(~p"/api/v1/identity-providers/missing-main/sync-runs", %{})
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
-  end
-
-  test "OpenAPI JSON includes identity provider console endpoints", %{conn: conn} do
-    conn = get(conn, ~p"/api/v1/openapi.json")
-    paths = json_response(conn, 200)["paths"]
-
-    assert Map.has_key?(paths, "/api/v1/identity-provider-adapters")
-    assert Map.has_key?(paths, "/api/v1/identity-providers")
-    assert Map.has_key?(paths, "/api/v1/identity-providers/{provider_id}")
-    assert Map.has_key?(paths, "/api/v1/identity-providers/{provider_id}/sync-runs")
   end
 
   defp bearer_conn(conn) do

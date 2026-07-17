@@ -4,10 +4,11 @@ use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use ankole_kernel::runtime_fabric::proto;
 use ankole_kernel::runtime_fabric::transport::{
     RouterConfig, RouterEvent, RouterEventSink, SocketOptions, start_router,
 };
-use serde_json::json;
+use prost::Message;
 
 const WORKER_ROUTE: &str = "worker-binding-roundtrip";
 const WORKER_AUTH_KEY: &str = "binding-secret";
@@ -38,24 +39,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         event => return Err(format!("unexpected initial router event: {event:?}").into()),
     }
 
-    router.send_mandatory(
-        WORKER_ROUTE,
-        json!({
-            "protocol_version": 1,
-            "message_id": "binding-roundtrip-envelope",
-            "lane": "LANE_CONTROL",
-            "durability": "CONTROL_EPHEMERAL",
-            "body": {
-                "type": "worker_ready",
-                "worker_ready": {
-                    "worker_id": "fixture",
-                    "runtime": "rust",
-                    "version": "test",
-                    "capacity_json": {"available_turn_slots": 1}
-                }
-            }
-        }),
-    )?;
+    let envelope = proto::Envelope {
+        protocol_version: 1,
+        message_id: "binding-roundtrip-envelope".to_string(),
+        correlation_id: String::new(),
+        lane: proto::Lane::Control as i32,
+        sent_at_unix_ms: 0,
+        durability: proto::DurabilityClass::ControlEphemeral as i32,
+        body: Some(proto::envelope::Body::WorkerReady(
+            proto::AgentComputerWorkerReady {
+                worker_id: "fixture".to_string(),
+                runtime: "rust".to_string(),
+                version: "test".to_string(),
+                capacity_json: br#"{"available_turn_slots":1}"#.to_vec(),
+                incarnation_id: "fixture-incarnation".to_string(),
+            },
+        )),
+    };
+    router.send_mandatory(WORKER_ROUTE, envelope.encode_to_vec())?;
     router.send_file_frame(
         WORKER_ROUTE,
         vec![

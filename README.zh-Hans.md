@@ -31,7 +31,7 @@ Ankole 适合的是需要负责人承担的工作，而不只是需要一个回�
 - **多个 agent。** 一套 Ankole 部署可以托管多个 agent，它们有不同的 mission、访问权限、工具、记忆和出站身份。
 - **Session actor。** 长期执行单元是 `actor_id = {agent_id, session_id}`。Session 是上下文、workspace state、steering、cancel 和恢复交汇的地方。
 - **自己的上下文。** Conversation、model turn、summary、signal projection、决策、纠正和未来 domain record 都留在你的基础设施里。
-- **部署者控制。** 访问控制、配置、plugin activation、actor lease、outbox side effect 和 audit surface 都由部署和运维 Ankole 的人掌握。
+- **部署者控制。** 访问控制、配置、Agent Library 默认值、Control Plane Plugin 启动状态、actor lease、outbox side effect 和 audit surface 都由部署和运维 Ankole 的人掌握。
 
 ## 产品形态
 
@@ -73,13 +73,13 @@ flowchart TB
   end
 
   SG["SignalsGateway<br/>共享工作入口 / 交付<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>配置 / plugins<br/>Control Plane"]
+  Platform["Principal / AuthZ<br/>配置 / Control Plane Plugins<br/>Control Plane"]
   Runtime["Actor Runtime<br/>长时 session / 恢复<br/>Control Plane"]
   Main["主 agents<br/>model loop · tools · skills<br/>Agent Computer"]
   Brain["Brain<br/>长期记忆<br/>策展知识 · 召回<br/>dreaming · 人工监督"]
-  Delegate["Subagent Delegation<br/>持久 · 可恢复工作<br/>Control Plane"]
+  Delegate["Background Agent Job<br/>持久 · 可恢复工作<br/>Control Plane"]
   AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态 conversation"]
-  Task["Codex subagent<br/>继承 skills · 隔离执行<br/>Agent Computer"]
+  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · 独立 Skills<br/>Agent Computer"]
   Providers["AI providers<br/>LLM · embedding · rerank · web"]
 
   subgraph Storage["持久性边界"]
@@ -95,8 +95,8 @@ flowchart TB
   Main -->|"agent AI 调用"| AI
   Main -->|"长期上下文"| Brain
   Brain -->|"模型能力"| AI
-  Main -->|"委托"| Delegate
-  Delegate -->|"隔离任务"| Task
+  Main -->|"创建 Job"| Delegate
+  Delegate -->|"隔离执行"| Task
   AI --> Providers
 
   Runtime -.-> PG
@@ -113,7 +113,7 @@ flowchart TB
 - **AIGateway 是统一 AI 边界。** 它提供 OpenResponses-compatible HTTP、SSE 和 WebSocket API，同时支持无状态请求与 Principal-scoped 有状态 conversation；LLM、embedding、rerank、web search、web fetch 都通过同一个 provider 路由面解析，上游凭证始终留在 control plane。
 - **Actor 把持久工作与执行资源分开。** Actor Runtime 拥有长时 session 与恢复语义；可替换的 Agent Computer worker 负责 model loop、tools、skills 和 sandbox。
 - **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
-- **Subagent 是持久工作，不是一个子进程。** Delegation 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒父会话。当前 task-worker 实现是 Codex，继承已启用 skills，只获得刻意收窄的平台 tool 投影。
+- **后台 Agent 任务是持久工作，不是一个子进程。** Job 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒 owner 会话。它只保存选中的 Agent Plugin IDs 和独立 Skill 名称；CodexRunner 每次 prepare 都解析当前 enabled catalog，并只投影刻意收窄的平台 tools。
 - **持久性分成两类。** PostgreSQL 拥有语义事实；共享 workspace 保存被这些状态引用的产物和可恢复文件。RuntimeFabric 只负责实时传输，共享 Rust kernel 在进程内提供 transport 和 AI data-plane primitives。
 
 ## 当前状态
@@ -124,7 +124,7 @@ Ankole 是一个完整、可自托管的 AgentOS，已在生产环境中运行�
 - **真实 IM 集成。** Lark/Feishu 和 Slack 作为第一方 provider 集成，覆盖 lifecycle、transport、main flow 和真实 LLM 的端到端测试。
 - **Brain。** curated knowledge、chat recall、dreaming（离线沉淀）、人工复核和 recovery 统一在一个子系统里，后端是 PostgreSQL 全文检索加向量检索。
 - **长时 actor runtime。** Session 可以 wake、checkpoint、stream progress、hibernate、带上下文 recover；steering 和 cancel 是 live-control 操作，不是 request/response。
-- **运维 console。** Agents、providers、model profiles、identity、signals、workers、worker 环境、brain 条目和 delegations 都可以从内置 web console 管理。
+- **运维 console。** Agents、Agent Library 全局默认与逐 Agent 覆盖、Control Plane Plugins、providers、model profiles、identity、signals、workers、worker 环境、Brain 条目和后台 Agent 任务都可以从内置 web console 管理。
 - **面向真实条件测试。** Unit 套件加上 Lark 和 Slack 的 main flow、transport、lifecycle、真实 LLM、调度、worker computer、chaos 恢复和并发/性能的专门端到端套件。
 
 Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking change。
@@ -143,16 +143,16 @@ Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking c
 
 这个仓库是 Ankole 当前活跃的 control-plane 和 runtime workspace。
 
-- `app/control_plane` - Phoenix/OTP control plane，承载 Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
+- `app/control_plane` - Phoenix/OTP control plane，承载 Principal/AuthZ、AppConfigure、setup、console、Control Plane Plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
 - `app/kernel` - 被 Elixir 和 Bun 共同加载的 Rust foundation，承载 crypto、identifier、phone/JWT helper、AuthZ evaluator、protobuf envelope 和 ZeroMQ RuntimeFabric transport。
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker，承载本地 LLM loop、provider adapters、tools、skill loading、文件、terminal state 和 worker daemon。
 - `app/webapps` - Vite + React frontend applications，提供 auth、setup、console surfaces，并构建进 Phoenix static shell。
-- `app/library` - 内置 agent skills 和 `MISSION.md`、`SOUL.md` 等 starter templates。
+- `app/library` - 内置独立 Skills、第一方 Agent Plugins 和 `MISSION.md`、`SOUL.md` 等 starter templates。
 - `app/locales` - control plane 和 browser surfaces 共用的 TOML translation catalogs。
 - `libs/uikit` - Ankole webapps 共用的 UI primitives。
 - `libs/feishu_openapi` - 本地 Lark/Feishu OpenAPI client library。
 - `libs/slack_openapi` - 本地 Slack Web API、Socket Mode 与 OIDC client library。
-- `internals/plugins` - 随仓库维护的私有第一方 provider/plugin code，但不作为公开 plugin boundary 呈现。
+- `internals/plugins` - 随仓库维护、编译进私有 release 的第一方 Control Plane Plugin code。
 - `tools/devkit` - local services、app database helpers、code generation 和 analysis 的 workspace automation。
 - `docs/design-docs` - Principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway 和 provider adapters 的当前设计文档。
 

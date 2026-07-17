@@ -4,6 +4,7 @@ defmodule Ankole.KernelTest do
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.RuntimeFabric.V1, as: V1
 
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   @aead_ciphertext "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ"
@@ -45,6 +46,48 @@ defmodule Ankole.KernelTest do
 
     assert {:error, reason} = NativeKernel.web_url_facts("not a url")
     assert reason =~ "invalid web url"
+  end
+
+  test "web_url_facts/1 matches the shared host classification vectors" do
+    vectors_path = Path.expand("../vectors/web_url_host_classification.json", __DIR__)
+    %{"addresses" => addresses} = vectors_path |> File.read!() |> Torque.decode!()
+
+    for %{"input" => input, "class" => class} <- addresses do
+      url = if String.contains?(input, ":"), do: "https://[#{input}]/", else: "https://#{input}/"
+
+      assert %{host_class: host_class} = NativeKernel.web_url_facts(url),
+             "#{input} must classify as #{class}"
+
+      assert Atom.to_string(host_class) == class, "#{input} must classify as #{class}"
+    end
+  end
+
+  test "validate_web_url/3 applies the shared SSRF policy" do
+    assert :ok = NativeKernel.validate_web_url("https://example.com/", ["https"], true)
+    assert :ok = NativeKernel.validate_web_url("http://example.com/", ["http", "https"], true)
+
+    assert {:error, :invalid} =
+             NativeKernel.validate_web_url("http://example.com/", ["https"], true)
+
+    assert {:error, :metadata} =
+             NativeKernel.validate_web_url(
+               "https://169.254.169.254/latest/",
+               ["http", "https"],
+               false
+             )
+
+    assert {:error, :private} =
+             NativeKernel.validate_web_url("https://10.0.0.8/", ["https"], true)
+
+    assert :ok = NativeKernel.validate_web_url("https://10.0.0.8/", ["https"], false)
+
+    assert {:error, :private} =
+             NativeKernel.validate_web_url("ftp://10.0.0.8/", ["https"], false)
+
+    assert {:error, :invalid} =
+             NativeKernel.validate_web_url("data:text/plain,hi", ["https"], true)
+
+    assert {:error, :invalid} = NativeKernel.validate_web_url("not a url", ["https"], true)
   end
 
   test "aead helpers encrypt and decrypt compact payloads" do
@@ -192,166 +235,132 @@ defmodule Ankole.KernelTest do
              NativeKernel.jwt_sign_pem(%{exp: 4_102_444_800}, "not a pem key", %{})
   end
 
-  test "runtime fabric helpers encode and decode protobuf envelopes" do
-    envelope = %{
+  test "runtime fabric envelope structs round trip through the generated codec" do
+    envelope = %V1.Envelope{
       protocol_version: 1,
       message_id: "turn-start-1",
       correlation_id: "corr-1",
-      lane: "LANE_TURN",
+      lane: :LANE_TURN,
       sent_at_unix_ms: 1_782_300_000_000,
-      durability: "CONTROL_REPLAYABLE",
-      body: %{
-        type: "turn_start",
-        turn_start: %{
-          turn: actor_turn_ref(),
-          actor_event: actor_event_envelope(),
-          model_ref: %{
-            profile: "chat",
-            provider_id: "openrouter-main",
-            model: "openai/gpt-5.4-mini",
-            provider_kind: "openrouter"
-          },
-          request_context: %{
-            kind: "schedule",
-            silent_success_allowed: true
-          }
-        }
-      }
+      durability: :CONTROL_REPLAYABLE,
+      body:
+        {:turn_start,
+         %V1.TurnStart{
+           turn: actor_turn_ref(),
+           actor_event: actor_event_envelope(),
+           model_ref: %V1.TurnModelRef{
+             profile: "chat",
+             provider_id: "openrouter-main",
+             model: "openai/gpt-5.4-mini",
+             provider_kind: "openrouter",
+             max_completion_tokens: 32_000
+           },
+           request_context_json: Torque.encode!(%{kind: "schedule", silent_success_allowed: true})
+         }}
     }
 
     encoded = RuntimeFabric.encode_envelope(envelope)
 
     assert is_binary(encoded)
-
-    assert %{
-             "body" => %{
-               "type" => "turn_start",
-               "turn_start" => %{
-                 "turn" => %{
-                   "actor" => %{
-                     "agent_uid" => "agent-1",
-                     "session_id" => "signal-channel:lark:dm:1"
-                   }
-                 },
-                 "actor_event" => %{
-                   "binding_name" => "lark",
-                   "payload_json" => %{"text" => "PING"},
-                   "provider_thread_id" => "thread-1",
-                   "signal_channel_id" => "lark:chat:group-a"
-                 },
-                 "model_ref" => %{"provider_kind" => "openrouter"},
-                 "request_context" => %{"silent_success_allowed" => true}
-               }
-             }
-           } = RuntimeFabric.decode_envelope(encoded)
+    assert {:ok, ^envelope} = RuntimeFabric.decode_envelope(encoded)
   end
 
-  test "runtime fabric turn_start requires one actor event" do
-    assert {:error, reason} =
-             RuntimeFabric.encode_envelope(%{
-               protocol_version: 1,
-               message_id: "turn-start-missing-event",
-               correlation_id: "turn-start-missing-event",
-               lane: "LANE_TURN",
-               durability: "CONTROL_REPLAYABLE",
-               body: %{
-                 type: "turn_start",
-                 turn_start: %{
-                   turn: actor_turn_ref()
-                 }
-               }
-             })
+  test "runtime fabric router validates envelope semantics before the socket send" do
+    assert {:ok, router} =
+             RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
+               worker_auth_key: "test-token",
+               poll_interval_ms: 1
+             )
 
-    assert reason =~ "turn_start.actor_event is required"
-  end
+    on_exit(fn -> RuntimeFabric.router_stop(router) end)
 
-  test "runtime fabric mailbox_updated requires one actor event" do
+    inline_steer = %V1.Envelope{
+      protocol_version: 1,
+      message_id: "steer-1",
+      correlation_id: "steer-1",
+      lane: :LANE_CONTROL,
+      durability: :CONTROL_DURABLE,
+      body:
+        {:turn_control,
+         %V1.TurnControl{
+           turn: actor_turn_ref(),
+           command: "steer",
+           payload_json: Torque.encode!(%{text: "inline steer is not allowed"})
+         }}
+    }
+
     assert {:error, reason} =
-             RuntimeFabric.encode_envelope(%{
-               protocol_version: 1,
-               message_id: "mailbox-updated-missing-event",
-               correlation_id: "mailbox-updated-missing-event",
-               lane: "LANE_TURN",
-               durability: "CONTROL_EPHEMERAL",
-               body: %{
-                 type: "mailbox_updated",
-                 mailbox_updated: %{
-                   turn: actor_turn_ref(),
-                   reason: "command.steer"
-                 }
-               }
-             })
+             RuntimeFabric.router_send_mandatory(router, "missing-worker", inline_steer)
+
+    assert reason =~ "invalid_envelope"
+    assert reason =~ "steer payload must be empty"
+
+    wrong_lane = %V1.Envelope{
+      protocol_version: 1,
+      message_id: "turn-start-wrong-lane",
+      correlation_id: "turn-start-wrong-lane",
+      lane: :LANE_CONTROL,
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:turn_start,
+         %V1.TurnStart{
+           turn: actor_turn_ref(),
+           actor_event: actor_event_envelope()
+         }}
+    }
+
+    assert {:error, reason} =
+             RuntimeFabric.router_send_mandatory(router, "missing-worker", wrong_lane)
+
+    assert reason =~ "turn_start must use lane LANE_TURN"
+
+    missing_event = %V1.Envelope{
+      protocol_version: 1,
+      message_id: "mailbox-updated-missing-event",
+      correlation_id: "mailbox-updated-missing-event",
+      lane: :LANE_TURN,
+      durability: :CONTROL_EPHEMERAL,
+      body:
+        {:mailbox_updated,
+         %V1.MailboxUpdated{
+           turn: actor_turn_ref(),
+           reason: "command.steer"
+         }}
+    }
+
+    assert {:error, reason} =
+             RuntimeFabric.router_send_mandatory(router, "missing-worker", missing_event)
 
     assert reason =~ "mailbox_updated.actor_event is required"
   end
 
-  test "runtime fabric encodes and decodes generic RPC envelopes" do
-    encoded =
-      RuntimeFabric.encode_envelope(%{
-        protocol_version: 1,
-        message_id: "rpc-conversation-context",
-        correlation_id: "rpc-conversation-context",
-        lane: "LANE_RPC",
-        durability: "CONTROL_EPHEMERAL",
-        body: %{
-          type: "rpc_request",
-          rpc_request: %{
-            request_id: "rpc-conversation-context",
-            method: "agent_conversation.context.resolve",
-            payload_json: %{
-              turn: %{actor: %{agent_uid: "agent-1", session_id: "signal-channel:lark:dm:1"}}
-            }
-          }
-        }
-      })
+  test "runtime fabric golden bytes decode to the same structs across runtimes" do
+    golden_dir = Path.expand("../../proto/golden", __DIR__)
 
-    assert %{
-             "body" => %{
-               "type" => "rpc_request",
-               "rpc_request" => %{"method" => "agent_conversation.context.resolve"}
-             }
-           } =
-             RuntimeFabric.decode_envelope(encoded)
-  end
+    with_field =
+      golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
 
-  test "runtime fabric turn_control steer payload must be journaled, not inline" do
-    assert {:error, reason} =
-             NativeKernel.runtime_fabric_encode_envelope(%{
-               protocol_version: 1,
-               message_id: "steer-1",
-               correlation_id: "steer-1",
-               lane: "LANE_CONTROL",
-               durability: "CONTROL_DURABLE",
-               body: %{
-                 type: "turn_control",
-                 turn_control: %{
-                   turn: actor_turn_ref(),
-                   command: "steer",
-                   payload_json: %{"text" => "inline steer is not allowed"}
-                 }
-               }
-             })
+    assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
+    assert turn_start.model_ref.max_completion_tokens == 32_000
+    assert turn_start.turn.actor.agent_uid == "agent-1"
+    assert Torque.decode!(turn_start.actor_event.payload_json) == %{"text" => "PING"}
 
-    assert reason =~ "steer payload must be empty"
-  end
+    # Bytes written before the optional field existed keep decoding, so control
+    # plane and workers can deploy separately.
+    pre_field =
+      golden_dir
+      |> Path.join("turn_start.pre_max_completion_tokens.v1.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
 
-  test "runtime fabric body must use its declared lane and durability" do
-    assert {:error, reason} =
-             NativeKernel.runtime_fabric_encode_envelope(%{
-               protocol_version: 1,
-               message_id: "turn-start-wrong-lane",
-               lane: "LANE_CONTROL",
-               durability: "CONTROL_EPHEMERAL",
-               body: %{
-                 type: "turn_start",
-                 turn_start: %{
-                   turn: actor_turn_ref(),
-                   actor_event: actor_event_envelope()
-                 }
-               }
-             })
+    assert {:turn_start, %V1.TurnStart{} = pre_field_start} = pre_field.body
+    assert pre_field_start.model_ref.max_completion_tokens == nil
 
-    assert reason =~ "turn_start must use lane LANE_TURN"
+    worker_ready =
+      golden_dir |> Path.join("worker_ready.v1.bin") |> File.read!() |> V1.Envelope.decode!()
+
+    assert {:worker_ready, %V1.AgentComputerWorkerReady{worker_id: "worker-golden"}} =
+             worker_ready.body
   end
 
   test "runtime fabric router maps mandatory unknown routes" do
@@ -942,8 +951,8 @@ defmodule Ankole.KernelTest do
   defp start_router_eventually(_endpoint, 0), do: {:error, :router_bind_not_released}
 
   defp actor_turn_ref do
-    %{
-      actor: %{
+    %V1.ActorTurnRef{
+      actor: %V1.ActorKey{
         agent_uid: "agent-1",
         session_id: "signal-channel:lark:dm:1"
       },
@@ -955,7 +964,7 @@ defmodule Ankole.KernelTest do
   end
 
   defp actor_event_envelope do
-    %{
+    %V1.ActorEventEnvelope{
       actor_event_id: "00000000-0000-0000-0000-000000000001",
       queue_sequence: 1,
       type: "im.message.addressed",
@@ -964,24 +973,23 @@ defmodule Ankole.KernelTest do
       binding_name: "lark",
       signal_channel_id: "lark:chat:group-a",
       provider_thread_id: "thread-1",
-      payload_json: %{"text" => "PING"}
+      payload_json: Torque.encode!(%{text: "PING"})
     }
   end
 
   defp turn_start_envelope do
-    %{
+    %V1.Envelope{
       protocol_version: 1,
       message_id: "turn-start-route-test",
       correlation_id: "turn-start-route-test",
-      lane: "LANE_TURN",
-      durability: "CONTROL_REPLAYABLE",
-      body: %{
-        type: "turn_start",
-        turn_start: %{
-          turn: actor_turn_ref(),
-          actor_event: actor_event_envelope()
-        }
-      }
+      lane: :LANE_TURN,
+      durability: :CONTROL_REPLAYABLE,
+      body:
+        {:turn_start,
+         %V1.TurnStart{
+           turn: actor_turn_ref(),
+           actor_event: actor_event_envelope()
+         }}
     }
   end
 end

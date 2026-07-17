@@ -1,83 +1,26 @@
 import type { AgentMessage, ReplyPresentationEvent } from '../types'
 import type {
   AgentConversationContext,
-  AgentConversationContextRequest,
   AIGatewayAPIKeyRequest,
   AIGatewayAPIKeyResponse,
-  AppConfigureResolveRequest,
-  AppConfigureResolveResponse,
-  CodexAccountAuthUpdateRequest,
-  CodexAccountAuthUpdateResponse,
-  CodexAccountResolveRequest,
-  CodexAccountResolveResponse,
-  SubagentDelegationCreateRequest,
-  SubagentDelegationTurnUpsertRequest,
-  SubagentDelegationTurnUpsertResponse,
-  SubagentDelegationGetRequest,
-  SubagentDelegationListRequest,
-  SubagentDelegationListResponse,
-  SubagentDelegationResponse,
-  SubagentDelegationStatusUpdateRequest,
-  SubagentDelegationSteerRequest,
-  SubagentDelegationStopRequest,
-  MemoryRPCRequester,
-  RPCError,
-  ScheduleRPCRequester,
-  SkillOverlayAppendRequest,
-  SkillOverlayReplaceRequest,
-  SkillOverlayRequest,
-  SkillOverlayResponse,
-  WorkerEnvResolveRequest,
-  WorkerEnvResolveResponse
+  RPCRequester
 } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
+import type { BrowserRuntime } from '../../browser-runtime'
 
 export type AIGatewayAPIKeyRequestOptions = {
   forceRefresh?: boolean
 }
 
+/**
+ * Agent-scoped AIGateway key capability. It stays separate from the generic
+ * RPC requester because the worker caches the key across model rounds and
+ * callers force a refresh after a 401 or socket open failure.
+ */
 export type AIGatewayAPIKeyRequester = (
-  request: AIGatewayAPIKeyRequest,
+  request: Omit<AIGatewayAPIKeyRequest, 'request_id'>,
   options?: AIGatewayAPIKeyRequestOptions
-) => Promise<AIGatewayAPIKeyResponse | RPCError>
-
-export type AgentConversationContextRequester = (
-  request: AgentConversationContextRequest
-) => Promise<AgentConversationContext>
-export type AppConfigureRequester = (
-  request: AppConfigureResolveRequest
-) => Promise<AppConfigureResolveResponse | RPCError>
-export type WorkerEnvRequester = (request: WorkerEnvResolveRequest) => Promise<WorkerEnvResolveResponse | RPCError>
-export type CodexAccountResolveRequester = (
-  request: CodexAccountResolveRequest
-) => Promise<CodexAccountResolveResponse | RPCError>
-export type CodexAccountAuthUpdateRequester = (
-  request: CodexAccountAuthUpdateRequest
-) => Promise<CodexAccountAuthUpdateResponse | RPCError>
-export type SubagentDelegationCreateRequester = (
-  request: SubagentDelegationCreateRequest
-) => Promise<SubagentDelegationResponse | RPCError>
-export type SubagentDelegationGetRequester = (
-  request: SubagentDelegationGetRequest
-) => Promise<SubagentDelegationResponse | RPCError>
-export type SubagentDelegationListRequester = (
-  request: SubagentDelegationListRequest
-) => Promise<SubagentDelegationListResponse | RPCError>
-export type SubagentDelegationSteerRequester = (
-  request: SubagentDelegationSteerRequest
-) => Promise<SubagentDelegationResponse | RPCError>
-export type SubagentDelegationStopRequester = (
-  request: SubagentDelegationStopRequest
-) => Promise<SubagentDelegationResponse | RPCError>
-export type SubagentDelegationTurnUpsertRequester = (
-  request: SubagentDelegationTurnUpsertRequest
-) => Promise<SubagentDelegationTurnUpsertResponse | RPCError>
-export type SubagentDelegationStatusUpdateRequester = (
-  request: SubagentDelegationStatusUpdateRequest
-) => Promise<SubagentDelegationResponse | RPCError>
-export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
-export type SkillOverlayAppendRequester = (request: SkillOverlayAppendRequest) => Promise<SkillOverlayResponse>
-export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
+) => Promise<AIGatewayAPIKeyResponse>
 
 export type TurnHandlerResult =
   | {
@@ -87,37 +30,35 @@ export type TurnHandlerResult =
     }
   | { kind: 'noop_completed'; reason: string }
 
-export type TextTurnLoopOptions = {
+/**
+ * Capabilities every worker turn receives. `rpc` is the sole channel to
+ * control-plane state; turn code names methods from `rpcMethods` and never
+ * reaches PostgreSQL-owned semantics directly.
+ */
+type SharedTurnOptions = {
   workspaceRoot: string
-  workspaceSessionsRoot?: string
-  sharedFsRoot?: string
-  userFilesRoot?: string
-  builtinSkillsRoot?: string
-  agentInstalledSkillsRoot?: string
+  builtinSkillsRoot: string
+  agentInstalledSkillsRoot: string
   internalSkillsRoot?: string
+  rpc: RPCRequester
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
-  requestAppConfigure?: AppConfigureRequester
-  requestWorkerEnv?: WorkerEnvRequester
-  resolveCodexAccount?: CodexAccountResolveRequester
-  updateCodexAccountAuth?: CodexAccountAuthUpdateRequester
-  createSubagentDelegation?: SubagentDelegationCreateRequester
-  getSubagentDelegation?: SubagentDelegationGetRequester
-  listSubagentDelegations?: SubagentDelegationListRequester
-  steerSubagentDelegation?: SubagentDelegationSteerRequester
-  stopSubagentDelegation?: SubagentDelegationStopRequester
-  upsertSubagentDelegationTurn?: SubagentDelegationTurnUpsertRequester
-  updateSubagentDelegationStatus?: SubagentDelegationStatusUpdateRequester
-  requestAgentConversationContext?: AgentConversationContextRequester
-  requestScheduleRPC?: ScheduleRPCRequester
-  requestMemoryRPC?: MemoryRPCRequester
-  requestSkillOverlay?: SkillOverlayRequester
-  appendSkillOverlay?: SkillOverlayAppendRequester
-  replaceSkillOverlay?: SkillOverlayReplaceRequester
   agentConversationContext?: AgentConversationContext
   pollSteering?: () => TurnSteerUpdate[]
-  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
-  onTurnActivity?: (description?: string) => void
-  onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
   abortSignal?: AbortSignal
+  browserRuntime?: BrowserRuntime
+}
+
+export type TextTurnLoopOptions = SharedTurnOptions & {
+  onPresentationEvent?: (event: ReplyPresentationEvent) => void | Promise<void>
   extraMessages?: AgentMessage[]
 }
+
+export type CodexJobOptions = SharedTurnOptions & {
+  workspaceSessionsRoot: string
+  sharedFsRoot: string
+  userFilesRoot: string
+  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
+  onTurnActivity?: (description?: string) => void
+}
+
+export type TurnHandlerOptions = TextTurnLoopOptions & CodexJobOptions

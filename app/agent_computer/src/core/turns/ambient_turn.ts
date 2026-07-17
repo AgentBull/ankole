@@ -33,8 +33,7 @@ export async function runAmbientMayInterveneHandler(
   }
 
   const { model } = await acquireTurnAIGatewayAccess(turnStart, {
-    requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey,
-    requestIDPrefix: 'ambient-ai-gateway-key'
+    requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey
   })
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { computeACH, type ACHInput } from '../../library/skills/deep-research/scripts/ach'
+import { computeACH, type ACHInput } from '../../library/agent-plugins/deep-research/skills/deep-research/scripts/ach'
 
 describe('@ankole/agent-computer deterministic ACH update', () => {
   it('computes multi-prior posteriors, sensitivity, and loading-evidence flags without model input', async () => {
@@ -13,6 +13,8 @@ describe('@ankole/agent-computer deterministic ACH update', () => {
       '..',
       '..',
       'library',
+      'agent-plugins',
+      'deep-research',
       'skills',
       'deep-research',
       'scripts',

@@ -13,7 +13,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Inbound
-  alias Ankole.Plugins.LarkAdapter.MapHelpers
+  alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -287,7 +287,15 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       {:ok, user_id} ->
         with {:ok, group} <- fetch_im_group(namespace(config), chat_id),
              {:ok, observed} <- upsert_member_principal(config, member_payload(content, user_id)),
-             {:ok, _membership} <- AuthZ.add_principal_to_group(observed.principal.uid, group.id) do
+             {:ok, _membership} <-
+               Repo.transact(fn repo ->
+                 AuthZStore.add_synced_group_member(
+                   repo,
+                   group.id,
+                   :im_group,
+                   observed.principal.uid
+                 )
+               end) do
           {:ok,
            %{status: :member_added, principal_uid: observed.principal.uid, group_id: group.id}}
         else
@@ -765,7 +773,9 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp remove_member_from_existing_group(context, config, chat_id, group, user_id) do
     with {:ok, principal_uid} <-
            Principals.resolve_platform_subject_uid(namespace(config), user_id) do
-      case AuthZ.remove_principal_from_group(principal_uid, group.id) do
+      case Repo.transact(fn repo ->
+             AuthZStore.remove_synced_group_member(repo, group.id, :im_group, principal_uid)
+           end) do
         {:ok, :deleted} ->
           {:ok, %{status: :member_removed, principal_uid: principal_uid, group_id: group.id}}
 

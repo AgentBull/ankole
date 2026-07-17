@@ -49,13 +49,14 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert recorded.reply_preview_source_entry_id =~ "mock-reply-"
   end
 
-  test "preview seeds visible context from a failed subagent trigger" do
-    %{subject: subject, actor_event: actor_event} = addressed_actor_event("subagent-failure")
+  test "preview seeds visible context from a failed BackgroundAgentJob trigger" do
+    %{subject: subject, actor_event: actor_event} =
+      addressed_actor_event("background-agent-job-failure")
 
     actor_event =
       actor_event
       |> ActorEvent.changeset(%{
-        type: "subagent.delegation.failed",
+        type: "background_agent_job.failed",
         payload: %{
           "data" => %{
             "title" => "第二版 deep research",
@@ -68,7 +69,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
 
     assert :sys.get_state(pid).presentation["trigger_context"] == %{
-             "kind" => "subagent_failure",
+             "kind" => "background_agent_job_failure",
              "title" => "第二版 deep research",
              "summary" => "返回 JSON Schema 少声明了必填字段"
            }

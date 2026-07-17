@@ -55,10 +55,10 @@ Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久�
 - **ActorRuntime**（Elixir）是 SignalsGateway 的子系统：把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
 - **AIGateway**（Elixir）是通用 AI 边界：管 provider 凭证和路由，外加按 Principal subject 隔离的有状态 Responses 日志，包括 model 历史、compaction 和单条 Response 的 terminal commit。它不了解 Actor、delivery 或 outbox。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
 - **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
-- **Agent Computer**（Bun worker）执行工具：shell、文件、浏览器，以及当前 turn 的 worker 本地状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
+- **Agent Computer**（Bun worker）执行 model loop、前台 shell/文件工具、enabled Skill 能力与当前 turn 的可重建状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
 - **PostgreSQL** 保存所有持久语义事实及持久文件的所有权引用。用户产物和可恢复运行时文件位于 worker 共享工作区；它们的生命周期与权威状态仍是由 Elixir 写入的 PostgreSQL 行。
 
-Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir 扩展，例如飞书和 Slack adapter（`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md`）。Subagent Delegation（`design-docs/SubagentDelegation.md`）把长时间 task-worker 工作变成会在完成后唤醒父会话的持久后台工作项；Codex 是当前的 task-worker 实现。
+Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Control Plane Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir/OTP 扩展，例如飞书和 Slack adapter（`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md`）。Background Agent Job（`design-docs/BackgroundAgentJob.md`）把长时间工作变成会在状态变化时唤醒 owner 会话的持久后台 Job；当前唯一 runner 是 CodexRunner。普通 Job 可以选择 Agent Plugin；它是标准 Codex Plugin 的超集，唯一额外包约定是可选 `workspace-template/` 目录。全局默认与稀疏 Agent 覆盖在 Console 的 Agent Library 中管理。
 
 ## 运行时拓扑
 
@@ -83,7 +83,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
                       +---------------------------------+
                       |  Agent Computer worker (Bun,    |
                       |  Docker): agent loop, tools,    |
-                      |  bubblewrap sandbox, browser,   |
+                      |  bubblewrap，rendered fetch，   |
                       |  Rust kernel (N-API): DEALER    |
                       +---------------------------------+
                              |
@@ -107,7 +107,7 @@ Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal �
 | --- | --- | --- |
 | **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway 的 ActorRuntime 调度/fence/最终提交、AIGateway provider 和有状态 Responses 日志、Brain、plugin registry | 把持久状态的归属推给 worker 或 kernel，或让 AIGateway 反向依赖 Actor |
 | **Rust kernel**（`app/kernel`） | Elixir/Bun 需要保持一致的确定性共享机制：crypto（AEAD、key derivation）、UUIDv7、JWT、phone normalization、xxh3、zstd block codec、AuthZ 和 signal filter 的 CEL 求值、protobuf envelope codec + 校验、ZeroMQ socket 所有权（ROUTER/DEALER/ZAP 线程） | 碰 PostgreSQL，持有产品生命周期状态，膨胀成领域 owner |
-| **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、终端/浏览器状态、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
+| **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、turn-local tool 状态、内部 rendered `web_fetch`、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
 
 Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（由 `app/kernel/lib/ankole/kernel.ex` 里的 `Ankole.Kernel` 包装），一次作为 Bun 的 N-API module（`app/kernel/index.js`，类型在 `index.d.ts`）。只有当逻辑是“给定明确输入的确定性函数”，并且两个 host 都需要时，才把它放进 Rust。CEL AuthZ evaluator 和 envelope codec 就是标准范例。
 
@@ -119,9 +119,9 @@ Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（�
 | `app/kernel/` | Rust kernel crate。`src/common/`（crypto/ids/jwt/zstd）、`src/authz/`（CEL）、`src/runtime_fabric/`（protobuf + ZeroMQ）、`proto/`（envelope schema）、`src/nif_exports.rs` / `src/napi_exports.rs`（绑定接口）。 |
 | `app/agent_computer/` | Bun worker。`src/main.ts` 守护进程，`src/core/` agent loop + turn，`src/tools/`，`src/prompts/`，RuntimeFabric lane（`actor_lane.ts`、`rpc_lane.ts`、`lanes/file/`）。只能在 Docker 运行时里运行。 |
 | `app/webapps/` | 三个 Vite + React SPA（`auth/`、`console/`、`setup/`），构建到 `app/control_plane/priv/static/assets/`。包含生成的 OpenAPI client。 |
-| `app/library/` | 内置 skill（`skills/nano-pdf`、`skills/jupyter-live-kernel`、`skills/powerpoint`）和 agent 起步模板（`templates/MISSION.md`、`templates/SOUL.md`）。 |
+| `app/library/` | 内置 Agent Plugin（`agent-plugins/lark`、`agent-plugins/office`、`agent-plugins/deep-research`）、`skills/nano-pdf` 等独立 Skill，以及 agent 起步模板（`templates/MISSION.md`、`templates/SOUL.md`）。 |
 | `app/locales/` | TOML 消息目录（`en-US.toml`、`zh-Hans-CN.toml`），Elixir I18n context 和 SPA 共用。 |
-| `plugins/` | 公开的第一方 Elixir plugin：`lark_adapter`、`slack_adapter`（聊天 + identity provider），以及 `china_market_ai_providers`（AIGateway provider）。 |
+| `plugins/` | 公开的第一方 Elixir Control Plane Plugin：`lark_adapter`、`slack_adapter`（聊天 + identity provider），以及 `china_market_ai_providers`（AIGateway provider）。 |
 | `internals/` | 私有的第一方资料：`plugins/`、`skills/`（例如金融数据 CLI）、`helm-chart/`、额外的 worker Dockerfile、内部测试笔记。 |
 | `libs/` | `feishu_openapi`（Elixir Lark client）、`slack_openapi`（Slack Web API、Socket Mode、OIDC）和 `uikit`（共享 React 组件、Tailwind 4）。 |
 | `tools/devkit/` | 工作区 CLI：`bun kit ...`（通过 Docker Compose 管理外部服务、codegen、分析）。 |
@@ -169,15 +169,15 @@ Wire 接口是 OpenAI Responses 形状：任意已鉴权 subject 都可连接 `G
 
 Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_completed`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。`turn_completed` 是 replayable 的单向完成声明，携带 fence、最终 `resp_*` id 和 `loop_finished | iteration_exhausted` outcome，不增加 completion ACK。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`skills.overlay.resolve` / `.append` / `.replace`、`schedule.check_back_later.*`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
+Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`app_configure.resolve`、`worker_env.resolve`、`skills.installed.replace` 与 `skills.overlay.*`；普通 Codex Job 使用 `codex.account.*`、`agent_plugin.list` 和 `background_agent_job.*`；另外还有 `schedule.check_back_later.*`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
 
 ### Agent Computer：Bun worker
 
 `app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt，组装 tool，然后驱动 `core/agent-loop.ts`。每次 execution 都从 `request_context.ai_agent.max_iterations` 创建新的本地计数器（默认 90）；每次逻辑 model call 计一次，包括 empty-response nudge，但同一次调用的 provider/transport retry、tool-result journal 和并行 tool 都不额外计数。第 90 次调用自然无工具结束时返回 `loop_finished`；只有预算耗尽后仍需继续，才追加一次预算外、无工具的总结 Response，并返回 `iteration_exhausted`，不把最终 Response 的 stop reason 篡改成 `length`。Worker 随后发送一次带真实最终 Response id 的 `turn_completed`，不等待 ACK。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；computer tool `command`、`interactive_terminal`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；异步委托工具 `subagent`（`src/tools/subagent/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；browser tool `browser_navigate`、`browser_snapshot`、`browser_find`、`browser_click`、`browser_open`、`browser_run`、`browser_extract`（`src/tools/browser/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；Brain tool `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`、`skill_replace`（`src/tools/library/`）。MCP-backed skill 通过镜像内置的 `mcporter` CLI 和现有 shell 间接调用 MCP，不向原生 model tool registry 增加 MCP tools；WorkerEnv 把 agent-scoped secret 同时提供给 main-agent command 与 Codex subagent shell。完整契约见 `design-docs/MCPBackedSkills.md`。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。
+Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；仅前台执行的 computer tool `command`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；持久异步工作工具 `background_agent_job`（`src/tools/background-agent-job/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；`web_search`、`web_fetch`（`src/tools/web/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；Brain tool `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`、`skill_replace`（`src/tools/library/`）。当 enabled inline Skill 在 `agents/openai.yaml` 声明 MCP 依赖时，worker 增加唯一的 allowlisted `mcp` tool，提供 `list`、单工具 `describe` 和单工具 `call`。它通过官方 SDK 建立用后即关的连接；WorkerEnv 只在内存中提供 HTTP bearer 与 stdio 环境。完整契约见 `design-docs/MCPBackedSkills.md`。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。`web_fetch` 可以使用内部 rendered-page fallback；这个 fallback 不会创建额外的 model 可见 computer 能力或持久状态。Web tool 边界见 `design-docs/WebTools.md`。
 
-Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` tool 的 foreground 默认是 `180s`；background run 立即返回 `backgroundId`，默认不设置 command timeout，除非调用方显式传 `timeout`。运行中的后台命令会一直被跟踪，直到进程退出、被 `kill`，或 worker 自身结束。`subagent(start)` 会创建由 PostgreSQL 持有的工作项并立即返回；独立 task-worker turn 当前通过 Codex 实现，在完成、失败或需要用户输入时唤醒父会话。委托本身没有 wall-clock timeout，worker 失活后可恢复；单次 Codex app-server 请求仍使用类别预算：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通请求为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
+Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` 仅做前台执行，默认超时 `180s`。需要交互、超出当前对话等待时间或必须异步继续的工作进入 `background_agent_job(start)`：它创建 PostgreSQL 持有的 BackgroundAgentJob 后立即返回，同一工具提供 `list` / `status` / `steer` / `stop`；CodexRunner 在完成、失败或需要用户输入时唤醒 owner session。BackgroundAgentJob 没有全局 wall-clock timeout，worker 失活后可恢复；Job 和 Plugin 不增加自己的 timer，需要截止时间的上层 workflow 自己决定何时 steer 或 stop。单次 Codex app-server 请求仍使用协议停滞边界：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通请求为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
 
 按契约，worker 进程是无状态的：它持有 WebSocket、tool 本地状态和当前 turn。持久语义状态与文件所有权引用是通过 RPC 或 AIGateway 落到 PostgreSQL 的行；产物和可恢复运行时文件位于 installation 的共享 RWX 工作区。杀掉一个 worker，turn 会在别处基于同一语义账本与共享文件重试。
 
@@ -197,9 +197,9 @@ Ankole 会持久保存 provider mirror 和 AI Gateway history，但单个 turn �
 
 `Ankole.AppConfigure`（`lib/ankole/app_configure/`）。每个运行时设置都是一个声明的 key（`AppConfigure.define/1` 或 pattern definition），存在 `app_configurations` 表里，形状是 `{scope, key, value}`，scope 为 `global` 或 `agent:<id>`；解析的回退顺序是 agent -> global -> 代码默认值。Secret 值用 kernel 的 AEAD 和按行派生的 key 封装；读路径前面有 ETS 缓存。环境变量只用于进程启动（`DATABASE_URL`、`SECRET_KEY_BASE`、fabric endpoint）；任何 operator 在运行时管理的东西都应该放这里，而不是 env。
 
-### Plugins：可信的第一方 Elixir 扩展
+### Control Plane Plugins：可信的第一方 Elixir 扩展
 
-`Ankole.Plugins`（`lib/ankole/plugins/`）。启动时，`Discovery` 从 `plugins/` 和 `internals/plugins/` 加载 plugin 源（可用 `ANKOLE_PLUGIN_PATHS` 覆盖）；plugin 是实现 `Ankole.Plugins.Plugin` behaviour 的 module：`plugin_id/0`、`api_version/0`（= 1），以及可选的 `display_name/0`、`description/0`、`app_config_definitions/0`、`app_config_patterns/0`、`setup_metadata/0`、`adapter_declarations/0`、`children/0`。Registry 校验 spec，跳过列在 `plugins.disabled_ids` 配置里的 id，注册活跃 plugin 的 config definition，启动它们受监督的 children，并按 contract id 索引 adapter declaration：聊天/provider adapter 用 `signals_gateway.adapter`，model provider 用 `ai_gateway.provider`。没有动态第三方加载，没有 marketplace，没有热激活；plugin 是随 installation 一起交付的可信代码。
+`Ankole.Plugins`（`lib/ankole/plugins/`）。启动时，`Discovery` 从 `plugins/` 和 `internals/plugins/` 加载 Control Plane Plugin 源（可用 `ANKOLE_PLUGIN_PATHS` 覆盖）；Control Plane Plugin 是实现 `Ankole.Plugins.Plugin` behaviour 的 module：`plugin_id/0`、`api_version/0`（= 1），以及可选的 `display_name/0`、`description/0`、`app_config_definitions/0`、`app_config_patterns/0`、`setup_metadata/0`、`adapter_declarations/0`、`children/0`。Registry 校验 spec，跳过列在 `plugins.disabled_ids` 配置里的 id，注册活跃 Control Plane Plugin 的 config definition，启动它们受监督的 children，并按 contract id 索引 adapter declaration：聊天/provider adapter 用 `signals_gateway.adapter`，model provider 用 `ai_gateway.provider`。没有动态第三方加载，没有 marketplace，没有热激活；Control Plane Plugin 是随 installation 一起交付的可信代码。
 
 `plugins/lark_adapter` 是参考 adapter：每个 `{domain, app_id}` 一条长连接（通过 `libs/feishu_openapi`），对 message/recall/reaction/card action 做入口归一化，提供用于 post、回复、编辑、删除、reaction 和流式 CardKit 卡片的 outbox adapter，并提供独立的 identity-provider contract（OIDC 登录 + 用户/部门同步进 Principal）。`plugins/slack_adapter` 通过 Socket Mode、Slack Web API、Block Kit、Sign in with Slack 以及用户/usergroup 目录同步实现同一组 host contract。
 
@@ -266,7 +266,7 @@ Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分�
 
 **新增 worker tool。** 在 `app/agent_computer/src/tools/` 下实现它（Zod 参数 schema + `execute`），在 `src/core/turns/text_turn.ts` 的 turn 装配里注册，并通过 bubblewrap helper 路由任何命令执行。Tool 接口是 allowlist，也是产品决策；扩大它时更新 `docs/TradeoffsAndKnownLimits.md`。持久副作用必须走 RPC 或 AIGateway API，不能写本地文件。测试要在镜像里跑：`bun run agent-computer:test`；跨边界行为放在 `tools/e2e/suites/worker_computer_e2e_test.exs`。
 
-**新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 plugin 的 `children/0` 运行。`plugins/lark_adapter` 和 `plugins/slack_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md`、`design-docs/plugins/FeishuAdapter.md` 和 `design-docs/plugins/SlackAdapter.md`。E2E 使用 `tools/e2e/support/` 下对应的 fake provider server。
+**新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir Control Plane Plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 Control Plane Plugin 的 `children/0` 运行。`plugins/lark_adapter` 和 `plugins/slack_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md`、`design-docs/plugins/FeishuAdapter.md` 和 `design-docs/plugins/SlackAdapter.md`。E2E 使用 `tools/e2e/support/` 下对应的 fake provider server。
 
 **新增 worker->control-plane RPC。** Elixir 侧的 handler 注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`；像现有 broker 一样校验 turn ref 和已认证路由。Worker 侧从 `src/rpc_lane.ts` 调用。如果负载在崩溃之后仍然重要，handler 写 PostgreSQL；worker 永远不直接写。
 
@@ -345,7 +345,7 @@ E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真
 2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态 Responses 日志、通用事件、compaction。
 3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 或 Actor 侧，包括入口、batch、ActorRuntime、completion、preview 和 outbox delivery。
 4. `design-docs/Brain.md`：如果你修改 Brain 的知识模型、可见性、检索、dreaming、审计、快照或模型工具；部署和运维时读 `operations/Brain.zh-Hans.md`。中文对应稿是 `internals/docs/Brain.zh.md`。
-5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/SubagentDelegation.md`：当你改传输、时间或持久后台工作。
+5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/BackgroundAgentJob.md`：当你改传输、时间或持久后台工作。
 6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
 
 ## Design Doc Index
@@ -359,7 +359,9 @@ E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真
 | `design-docs/SignalsGateway.md` | Ingress、ActorRuntime、completion、preview、mirror、outbox |
 | `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
 | `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
-| `design-docs/SubagentDelegation.md` | 持久后台工作、Codex resume、steer、唤醒 |
+| `design-docs/BackgroundAgentJob.md` | 持久后台工作、Codex resume、steer、唤醒 |
+| `design-docs/MCPBackedSkills.md` | 原生 MCP client、Skill 声明、allowlist、用后即关连接与 WorkerEnv secret |
+| `design-docs/WebTools.md` | Provider web search/fetch 与私有 rendered-page fallback |
 | `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |
 | `design-docs/AppConfiguration.md` | 配置 key、scope、加密 |
 | `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md` | Plugin contract、Lark 和 Slack adapter |

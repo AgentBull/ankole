@@ -4,7 +4,13 @@ import { appendFile, copyFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chunkSize, creditWindow, readBoolFrame, readU64Frame, sendFrame, u64Frame } from './codec'
 import { fileFingerprint } from './fingerprint'
-import { parseVirtualPathFrame, safeTransferID, scratchDirectoryFor, resolveFileAddress } from './path-security'
+import {
+  assertCreatableFileAddress,
+  parseVirtualPathFrame,
+  resolveFileAddress,
+  safeTransferID,
+  scratchDirectoryFor
+} from './path-security'
 import type { FileTransferContext, PutTransfer } from './types'
 
 export async function handleWriteOpen(
@@ -18,7 +24,7 @@ export async function handleWriteOpen(
 
   const address = parseVirtualPathFrame(frames[3], 'write path')
   const expectedOriginalSize = readU64Frame(frames[4], 'original_size')
-  const targetPath = resolveFileAddress(context.config, address)
+  const targetPath = assertCreatableFileAddress(context.config, address, resolveFileAddress(context.config, address))
   const tempDir = scratchDirectoryFor(context.config, transferID)
   const decodedPath = join(tempDir, 'decoded')
 

@@ -15,7 +15,6 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBrowserConfig
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
@@ -412,8 +411,6 @@ defmodule Ankole.E2E.Harness do
                })
     end
 
-    maybe_put_real_llm_browser_cdp_config!(agent.uid)
-
     primary_binding =
       upsert_lark_binding!(agent.uid, "lark-real-llm-primary", :ignore, fake_feishu,
         app_id: @primary_app_id,
@@ -439,22 +436,6 @@ defmodule Ankole.E2E.Harness do
       ambient_binding: ambient_binding,
       provider_id: provider_id
     }
-  end
-
-  defp maybe_put_real_llm_browser_cdp_config!(agent_uid) do
-    case System.get_env("ANKOLE_E2E_REMOTE_BROWSER_CDP_CONFIG") do
-      value when value in [nil, ""] ->
-        :ok
-
-      json ->
-        config = JSON.decode!(json)
-        definition = WorkerBrowserConfig.remote_cdp_config_definition()
-
-        assert :ok = WorkerBrowserConfig.ensure_registered()
-        assert {:ok, ^config} = AppConfigure.put_for_agent(agent_uid, definition, config)
-
-        :ok
-    end
   end
 
   @doc """

@@ -1,6 +1,8 @@
 defmodule Ankole.Brain.StageBTest do
   use Ankole.AIGatewayCase
 
+  alias Ecto.Adapters.SQL.Sandbox
+
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures, only: [binding_fixture: 3]
 
@@ -704,6 +706,83 @@ defmodule Ankole.Brain.StageBTest do
     refute body =~ "src:"
   end
 
+  test "source revalidation never waits on a SignalsGateway row writer" do
+    %{principal: agent} = agent_fixture()
+    _task_material = task_outcome_material!(agent.uid, "stage-b-nonblocking-source", "workflow")
+    external = external_signal_entry!()
+    test_pid = self()
+
+    plan = %{
+      "operations" => [
+        %{
+          "operation" => "create_entry",
+          "client_ref" => "nonblocking-source",
+          "name" => "Nonblocking source",
+          "type" => "topic",
+          "summary" => "",
+          "aliases" => [],
+          "properties" => %{}
+        },
+        %{
+          "operation" => "append_block",
+          "entry_ref" => "nonblocking-source",
+          "body" => "Unverified source src:#{external.entry.document_id}"
+        }
+      ],
+      "skill_updates" => []
+    }
+
+    configure_model!(agent, fn _request ->
+      send(test_pid, :nonblocking_source_curator_called)
+      response_summary(plan)
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 2})
+
+    writer =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          Repo.transact(fn repo ->
+            source =
+              repo.one!(
+                from entry in SignalEntry,
+                  where: entry.document_id == ^external.entry.document_id,
+                  lock: "FOR UPDATE"
+              )
+
+            {:ok, source} =
+              source
+              |> Ecto.Changeset.change(text: "source after edit", content_hash: "hash-v2")
+              |> repo.update()
+
+            send(test_pid, {:source_update_pending, self()})
+
+            receive do
+              :commit_source_update -> {:ok, source}
+            end
+          end)
+        end)
+      end)
+
+    try do
+      assert_receive {:source_update_pending, writer_pid}, 5_000
+
+      dreaming = Task.async(fn -> StageB.run(agent.uid) end)
+      assert_receive :nonblocking_source_curator_called, 5_000
+
+      try do
+        assert {:ok, %{status: :completed, operation_count: 2}} =
+                 Task.await(dreaming, 5_000)
+      after
+        send(writer_pid, :commit_source_update)
+      end
+
+      assert {:ok, %SignalEntry{content_hash: "hash-v2"}} = Task.await(writer, 5_000)
+    after
+      delete_external_signal_entry!(external)
+    end
+  end
+
   test "public and private materials are curated in isolated calls with one global mutation budget" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
@@ -1129,7 +1208,7 @@ defmodule Ankole.Brain.StageBTest do
              })
 
     assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
+             ModelProfiles.put_model_profile(agent.uid, "light", %{
                provider_id: provider_id,
                model: "gpt-stage-b-test"
              })
@@ -1192,25 +1271,38 @@ defmodule Ankole.Brain.StageBTest do
         ]
       ])
 
-    response_rows
-    |> Enum.with_index()
-    |> Enum.each(fn {response_items, index} ->
-      row_time = DateTime.add(completed_at, index - length(response_rows), :microsecond)
+    final_response =
+      response_rows
+      |> Enum.with_index()
+      |> Enum.reduce(nil, fn {response_items, index}, previous ->
+        row_time = DateTime.add(completed_at, index - length(response_rows), :microsecond)
 
-      %Message{inserted_at: row_time, updated_at: row_time}
-      |> Message.changeset(%{
-        subject_uid: owner_uid,
-        conversation_id: conversation.id,
-        type: "message",
-        role: "assistant",
-        status: "complete",
-        content: response_items,
-        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
-      })
-      |> Repo.insert!()
-    end)
+        %Message{inserted_at: row_time, updated_at: row_time}
+        |> Message.changeset(%{
+          subject_uid: owner_uid,
+          conversation_id: conversation.id,
+          type: "message",
+          role: "assistant",
+          status: "complete",
+          content: response_items,
+          previous_message_id: previous && previous.id,
+          metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
+        })
+        |> Repo.insert!()
+      end)
 
-    actor_event
+    case final_response do
+      nil ->
+        actor_event
+
+      %Message{id: final_id} ->
+        actor_event
+        |> ActorEvent.changeset(%{
+          final_response_id: "resp_#{final_id}",
+          turn_outcome: "loop_finished"
+        })
+        |> Repo.update!()
+    end
   end
 
   defp unroutable_task_outcome!(owner_uid, key, text) do
@@ -1291,6 +1383,84 @@ defmodule Ankole.Brain.StageBTest do
       last_seen_at: now
     })
     |> Repo.insert!()
+  end
+
+  defp external_signal_entry! do
+    suffix = Ecto.UUID.generate()
+    now = DateTime.utc_now(:microsecond)
+
+    {:ok, external} =
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.transact(fn repo ->
+          group =
+            %Group{}
+            |> Group.changeset(%{
+              name: "brain-stage-b-external-#{suffix}",
+              display_name: "Brain Stage B External",
+              domain: :im_group,
+              metadata: %{}
+            })
+            |> repo.insert!()
+
+          channel =
+            %Channel{}
+            |> Channel.changeset(%{
+              id: "brain:stage-b:external:#{suffix}",
+              kind: :im_group,
+              reply_mode: :entry,
+              name: "Brain Stage B External",
+              metadata: %{},
+              raw_payload: %{},
+              principal_group_id: group.id,
+              first_seen_at: now,
+              last_seen_at: now
+            })
+            |> repo.insert!()
+
+          entry =
+            %SignalEntry{}
+            |> SignalEntry.changeset(%{
+              signal_channel_id: channel.id,
+              source_entry_id: "external-message-#{suffix}",
+              text: "source before edit",
+              attachments: [],
+              links: [],
+              author: %{"display_name" => "Alice"},
+              mentions: [],
+              metadata: %{},
+              raw_payload: %{},
+              provider_time: now,
+              reactions: %{},
+              raw_reaction_keys: %{},
+              document_id: "signal-gateway-entry:#{String.replace(suffix, "-", "_")}",
+              content_hash: "hash-v1",
+              first_seen_at: now,
+              last_seen_at: now
+            })
+            |> repo.insert!()
+
+          {:ok, %{entry: entry, channel: channel, group: group}}
+        end)
+      end)
+
+    external
+  end
+
+  defp delete_external_signal_entry!(external) do
+    {:ok, :deleted} =
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.transact(fn repo ->
+          repo.delete_all(
+            from entry in SignalEntry, where: entry.document_id == ^external.entry.document_id
+          )
+
+          repo.delete_all(from channel in Channel, where: channel.id == ^external.channel.id)
+          repo.delete_all(from group in Group, where: group.id == ^external.group.id)
+          {:ok, :deleted}
+        end)
+      end)
+
+    :ok
   end
 
   defp principal_cursor!(owner_uid) do

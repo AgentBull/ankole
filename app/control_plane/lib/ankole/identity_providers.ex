@@ -579,6 +579,7 @@ defmodule Ankole.IdentityProviders do
   defp periodic_sync?(_reason, _source), do: false
 
   defp event_triggered_sync?("lark_contact_event"), do: true
+  defp event_triggered_sync?("dingtalk_contact_event"), do: true
   defp event_triggered_sync?(_source), do: false
 
   defp event_triggered_sync_unique_opts do

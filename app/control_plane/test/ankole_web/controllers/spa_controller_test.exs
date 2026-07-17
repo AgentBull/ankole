@@ -33,16 +33,6 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert html_response(conn, 200) =~ ~s(http://assets.test/entrypoints/setup.tsx)
   end
 
-  test "GET /setup exposes the current Ankole version to the SPA", %{conn: conn} do
-    previous_version = System.get_env("ANKOLE_VERSION")
-    System.put_env("ANKOLE_VERSION", "v26.07.8")
-    on_exit(fn -> restore_env("ANKOLE_VERSION", previous_version) end)
-
-    conn = get(conn, ~p"/setup")
-
-    assert html_response(conn, 200) =~ ~s(<meta name="ankole-version" content="v26.07.8">)
-  end
-
   test "GET /setup redirects home after completion", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
@@ -73,7 +63,4 @@ defmodule AnkoleWeb.SpaControllerTest do
       pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
     end
   end
-
-  defp restore_env(key, nil), do: System.delete_env(key)
-  defp restore_env(key, value), do: System.put_env(key, value)
 end

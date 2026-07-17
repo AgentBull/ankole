@@ -14,7 +14,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   alias Ecto.Adapters.SQL
   alias Ankole.{AuthZ, Logging, Principals, Repo, SignalsGateway}
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, Conversations, MapHelpers}
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.{Config, Conversations}
 
   alias Ankole.SignalsGateway.{
     AdapterContext,
