@@ -49,6 +49,7 @@ RUN mix local.hex --force \
 
 COPY package.json bun.lock ./
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
+COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/control_plane/package.json ./app/control_plane/package.json
 COPY app/kernel/package.json ./app/kernel/package.json
 COPY app/webapps/package.json ./app/webapps/package.json
