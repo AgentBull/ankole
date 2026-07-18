@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import {
+  RuntimeSkillSummarySchema,
+  SkillOverlayResponseSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,20 +61,23 @@ describe('@ankole/agent-computer Codex job runtime files', () => {
 
     const runtime = await materializeCodexJobRuntimeFiles({
       turn: turn(),
-      enabledSkills: [{ skill_name: 'plain-skill', source_kind: 'builtin', relative_path: 'plain-skill' }],
+      enabledSkills: [
+        create(RuntimeSkillSummarySchema, {
+          skillName: 'plain-skill',
+          sourceKind: 'builtin',
+          relativePath: 'plain-skill'
+        })
+      ],
       skillRoots: { builtinSkillsRoot, agentInstalledSkillsRoot: join(root, 'installed') },
       rpc: (async (method: unknown, payload: unknown) => {
         expect(method).toBe(rpcMethods.skillsOverlayResolve)
-        const request = payload as { skill_name: string }
-        return {
-          request_id: 'req-1',
-          agent_uid: 'agent-1',
-          session_id: 'job:job-1',
-          skill_name: request.skill_name,
-          has_overlay: true,
-          overlay_json: { text: 'Agent overlay.' },
-          content_hash: 'overlay-hash'
-        }
+        const request = payload as { skillName: string }
+        return create(SkillOverlayResponseSchema, {
+          skillName: request.skillName,
+          hasOverlay: true,
+          overlayJson: jsonBytes({ text: 'Agent overlay.' }),
+          contentHash: 'overlay-hash'
+        })
       }) as RPCRequester
     })
 
@@ -104,7 +113,13 @@ describe('@ankole/agent-computer Codex job runtime files', () => {
     await expect(
       materializeCodexJobRuntimeFiles({
         turn: turn(),
-        enabledSkills: [{ skill_name: '../invalid', source_kind: 'builtin', relative_path: '../invalid' }],
+        enabledSkills: [
+          create(RuntimeSkillSummarySchema, {
+            skillName: '../invalid',
+            sourceKind: 'builtin',
+            relativePath: '../invalid'
+          })
+        ],
         rpc: unusedRPC
       })
     ).rejects.toThrow('enabled skill has invalid name: ../invalid')

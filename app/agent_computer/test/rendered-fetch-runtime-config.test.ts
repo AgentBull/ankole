@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import { AppConfigureResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 import { resolveRenderedFetchRuntimeConfig } from '../src/core/turns/rendered_fetch_runtime_config'
@@ -9,9 +12,16 @@ function appConfigureRPC(
 ): RPCRequester {
   return (async (method: unknown, payload: unknown) => {
     expect(method).toBe(rpcMethods.appConfigureResolve)
-    const request = payload as { agent_uid: string; keys: string[] }
+    const request = payload as { keys: string[] }
     onKeys?.(request.keys)
-    return { request_id: 'req-1', agent_uid: request.agent_uid, values }
+    return create(AppConfigureResolveResponseSchema, {
+      values: Object.fromEntries(
+        Object.entries(values).map(([key, resolution]) => [
+          key,
+          { valueJson: jsonBytes(resolution.value as never), source: resolution.source }
+        ])
+      )
+    })
   }) as RPCRequester
 }
 

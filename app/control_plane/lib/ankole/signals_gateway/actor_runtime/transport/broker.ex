@@ -128,10 +128,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   resolves when the worker sends `rpc_response` or `rpc_error` back on the same
   route.
   """
-  @spec request_rpc(String.t(), String.t(), map(), keyword()) ::
-          {:ok, map()} | {:error, map() | term()}
-  def request_rpc(transport_route, method, payload \\ %{}, opts \\ [])
-      when is_binary(transport_route) and is_binary(method) and is_map(payload) and
+  @spec request_rpc(String.t(), String.t(), binary(), keyword()) ::
+          {:ok, binary()} | {:error, map() | term()}
+  def request_rpc(transport_route, method, payload \\ <<>>, opts \\ [])
+      when is_binary(transport_route) and is_binary(method) and is_binary(payload) and
              is_list(opts) do
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_rpc_timeout_ms)
 
@@ -597,9 +597,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   end
 
   defp resolve_rpc_response(state, route, %FabricProto.RPCResponse{} = response) do
-    payload = Common.decode_json_bytes(response.payload_json) || %{}
-
-    resolve_rpc_reply(state, route, response.request_id, {:ok, payload})
+    resolve_rpc_reply(state, route, response.request_id, {:ok, response.payload})
   end
 
   defp resolve_rpc_error(state, route, %FabricProto.RPCError{} = error) do
@@ -672,7 +670,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
            request_id: request_id,
            method: method,
            deadline_unix_ms: System.system_time(:millisecond) + timeout_ms,
-           payload_json: Torque.encode!(payload)
+           payload: payload
          }}
     }
   end

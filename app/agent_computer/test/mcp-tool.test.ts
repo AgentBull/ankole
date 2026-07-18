@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -27,7 +30,10 @@ describe('main-agent native MCP tool', () => {
       enabledSkills: [
         enabledSkill('enabled-one'),
         enabledSkill('enabled-two'),
-        { ...enabledSkill('background-only'), metadata: { long_running: true } }
+        create(RuntimeSkillSummarySchema, {
+          ...enabledSkill('background-only'),
+          metadataJson: jsonBytes({ long_running: true })
+        })
       ],
       skillRoots: roots
     })
@@ -534,7 +540,7 @@ function skillRoots() {
 }
 
 function enabledSkill(name: string): RuntimeSkillSummary {
-  return { skill_name: name, source_kind: 'builtin', relative_path: name }
+  return create(RuntimeSkillSummarySchema, { skillName: name, sourceKind: 'builtin', relativePath: name })
 }
 
 function writeHTTPMetadata(

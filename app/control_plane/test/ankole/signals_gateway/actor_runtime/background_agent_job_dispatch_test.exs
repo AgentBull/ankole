@@ -113,9 +113,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-               "turn" => turn_start_payload!(envelope).turn
-             })
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
 
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
 
@@ -195,9 +193,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-               "turn" => turn_start_payload!(envelope).turn
-             })
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
 
     assert {:ok, %{job: anchored}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -256,9 +252,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-               "turn" => turn_start_payload!(envelope).turn
-             })
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
 
     assert {:ok, %{job: %{status: "running"}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
@@ -391,7 +385,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              )
 
     assert {:ok, status_turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{"turn" => turn_ref})
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_ref)
 
     assert {:ok, %{job: %{status: "running"}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
@@ -505,7 +499,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     first_turn_wire = turn_start_payload!(first_envelope).turn
 
     assert {:ok, stale_turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{"turn" => first_turn_wire})
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(first_turn_wire)
 
     assert :ok = WorkerRouteAuth.authorize_turn_route(stale_turn_ref, stale_route, :write)
 
@@ -762,9 +756,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert queued.attempts == 0
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-               "turn" => turn_start_payload!(first_envelope).turn
-             })
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(first_envelope).turn)
 
     assert {:ok, %{job: stopped}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
@@ -972,9 +964,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
         if expected_attempt == 5 do
           assert {:ok, active_turn_ref} =
-                   Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-                     "turn" => turn_ref
-                   })
+                   Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_ref)
 
           assert {:ok, _turn} =
                    BackgroundAgentJobs.upsert_turn_from_worker(
@@ -1066,7 +1056,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     turn_ref = turn_start_payload!(envelope).turn
 
     assert {:ok, active_turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{"turn" => turn_ref})
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_ref)
 
     checkpoint_at = DateTime.utc_now(:microsecond)
 

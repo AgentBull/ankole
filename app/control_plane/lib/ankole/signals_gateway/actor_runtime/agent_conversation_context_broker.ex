@@ -10,20 +10,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.AIAgent.Library
   alias Ankole.Brain.RuntimeContext
   alias Ankole.Brain.Snapshot
-  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal
   alias Ankole.Repo
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SystemConfig
 
-  @spec handle_request(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_request(%TurnRef{} = turn_ref, request, _route) when is_map(request) do
-    request_id =
-      RPCWire.text(request, "request_id", trim: false) ||
-        "agent-conversation-context-#{Ecto.UUID.generate()}"
-
+  @spec handle_request(TurnRef.t(), FabricProto.AgentConversationContextRequest.t(), map()) ::
+          {:ok, FabricProto.AgentConversationContextResponse.t()} | {:error, map()}
+  def handle_request(%TurnRef{} = turn_ref, %FabricProto.AgentConversationContextRequest{}, ctx) do
     with {:ok, context} <- RuntimeContext.resolve(turn_ref),
          {:ok, brain_snapshot} <- Snapshot.get_or_create(context.conversation),
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
@@ -35,34 +33,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
       system_prompt_snapshot = AIGatewayLink.system_prompt_snapshot(context.conversation)
 
       {:ok,
-       %{
-         "request_id" => request_id,
-         "agent_uid" => turn_ref.agent_uid,
-         "session_id" => turn_ref.session_id,
-         "turn" => TurnRef.to_wire(turn_ref),
-         "agent" => agent,
-         "conversation" => conversation_payload(context.conversation, timezone),
-         "soul" => soul,
-         "mission" => mission,
-         "design" => design,
-         "skills" => skills,
-         "brain_snapshot" => brain_snapshot
-       }
-       |> maybe_put("system_prompt_snapshot", system_prompt_snapshot)}
+       %FabricProto.AgentConversationContextResponse{
+         agent: agent,
+         conversation: conversation_info(context.conversation, timezone),
+         soul: soul || "",
+         mission: mission || "",
+         design: design || "",
+         system_prompt_snapshot: system_prompt_snapshot || "",
+         brain_snapshot: brain_snapshot_message(brain_snapshot),
+         skills: Enum.map(skills, &skill_summary/1)
+       }}
     else
-      {:error, reason} -> error(request_id, reason)
+      {:error, reason} -> error(ctx.request_id, reason)
     end
   end
 
-  def handle_request(_turn_ref, _request, _route),
-    do: error("", :invalid_agent_conversation_context_request)
-
-  defp conversation_payload(conversation, timezone) do
-    %{
-      "id" => conversation.id,
-      "key" => conversation.conversation_key,
-      "started_at" => datetime(conversation.inserted_at),
-      "timezone" => timezone
+  defp conversation_info(conversation, timezone) do
+    %FabricProto.ConversationInfo{
+      id: conversation.id,
+      key: conversation.conversation_key,
+      started_at: datetime(conversation.inserted_at) || "",
+      timezone: timezone
     }
   end
 
@@ -72,9 +63,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
         agent = Repo.get(PrincipalAgent, principal.uid)
 
         {:ok,
-         %{
-           "display_name" => principal.display_name || principal.uid,
-           "role" => agent_role(agent)
+         %FabricProto.AgentProfile{
+           display_name: principal.display_name || principal.uid,
+           role: agent_role(agent)
          }}
 
       nil ->
@@ -84,6 +75,51 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
 
   defp agent_role(%PrincipalAgent{role: role}) when is_binary(role), do: role
   defp agent_role(_agent), do: ""
+
+  defp brain_snapshot_message(snapshot) when is_map(snapshot) do
+    %FabricProto.BrainSnapshot{
+      pinned_memo: snapshot_entry(RPCWire.map_value(snapshot, "pinned_memo")),
+      channel_entry: snapshot_entry(RPCWire.map_value(snapshot, "channel_entry"))
+    }
+  end
+
+  defp brain_snapshot_message(_snapshot), do: nil
+
+  defp snapshot_entry(%{} = entry) do
+    %FabricProto.BrainSnapshotEntry{
+      resident_text: RPCWire.text(entry, "resident_text", trim: false) || "",
+      truncated: RPCWire.value(entry, "truncated") == true
+    }
+  end
+
+  defp snapshot_entry(_entry), do: nil
+
+  defp skill_summary(skill) do
+    metadata = RPCWire.map_value(skill, "metadata", %{})
+
+    %FabricProto.RuntimeSkillSummary{
+      skill_name: RPCWire.text(skill, "skill_name") || "",
+      description: RPCWire.text(skill, "description", trim: false) || "",
+      default_enabled: boolean_or_nil(RPCWire.value(skill, "default_enabled")),
+      source_kind: RPCWire.text(skill, "source_kind") || "",
+      agent_plugin_id: RPCWire.text(skill, "agent_plugin_id") || "",
+      relative_path: RPCWire.text(skill, "relative_path") || "",
+      skill_root: RPCWire.text(skill, "skill_root") || "",
+      metadata_json: encode_optional_json(metadata),
+      category: RPCWire.text(skill, "category") || "",
+      tags_json: encode_optional_json(RPCWire.value(skill, "tags")),
+      skill_uri: RPCWire.text(skill, "skill_uri") || "",
+      has_agent_overlay: RPCWire.value(skill, "has_agent_overlay") == true
+    }
+  end
+
+  defp boolean_or_nil(value) when is_boolean(value), do: value
+  defp boolean_or_nil(_value), do: nil
+
+  defp encode_optional_json(nil), do: ""
+  defp encode_optional_json(value) when value == %{}, do: ""
+  defp encode_optional_json(value) when value == [], do: ""
+  defp encode_optional_json(value), do: Torque.encode!(value)
 
   defp installation_timezone do
     case SystemConfig.timezone() do
@@ -95,9 +131,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp datetime(_value), do: nil
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp error(request_id, reason) do
     {:error,

@@ -1,0 +1,542 @@
+syntax = "proto3";
+
+package ankole.runtime_fabric.v1;
+
+// Business payload messages for RuntimeFabric RPC operations.
+//
+// `RPCRequest.method` selects the request/response message pair through the
+// committed `rpc_methods.json` registry; `RPCRequest.payload` and
+// `RPCResponse.payload` carry the binary encoding of these messages. The
+// turn fence and worker_agent subject travel on the RPCRequest frame, never
+// inside these payloads, and request correlation is owned by the frame
+// `request_id`, so payloads carry no identity or correlation echoes.
+//
+// Conventions: `bytes *_json` fields are deliberately free-form JSON
+// documents where empty bytes mean absent; closed string sets (status,
+// kind, access, reasoning_effort) stay strings because the owning domain
+// layer validates them; `optional` marks scalars whose absence differs from
+// the zero value; timestamps are ISO-8601 strings.
+
+// ===== shared =====
+
+// Response family whose body is model-facing JSON owned by the Elixir
+// broker. The worker parses body_json and passes it through to the model
+// unchanged.
+message JSONPassthroughResponse {
+  bytes body_json = 1;
+}
+
+// ===== worker_agent scope =====
+
+message AIGatewayAPIKeyRequest {}
+
+message AIGatewayAPIKeyResponse {
+  // Subject echo consumed by the worker to verify a cached or refreshed key
+  // still belongs to this turn's agent.
+  string agent_uid = 1;
+  string api_key = 2;
+  string token_type = 3;
+  // Unix seconds.
+  int64 expires_at = 4;
+  int64 expires_in = 5;
+  string scope = 6;
+  string base_url = 7;
+}
+
+message AppConfigureResolveRequest {
+  repeated string keys = 1;
+}
+
+message AppConfigureResolution {
+  bytes value_json = 1;
+  string source = 2; // agent | global | default
+}
+
+message AppConfigureResolveResponse {
+  map<string, AppConfigureResolution> values = 1;
+}
+
+message WorkerEnvResolveRequest {}
+
+message WorkerEnvResolveResponse {
+  map<string, string> vars = 1;
+}
+
+// ===== agent conversation context =====
+
+message AgentConversationContextRequest {}
+
+message AgentProfile {
+  string display_name = 1;
+  string role = 2;
+}
+
+message ConversationInfo {
+  string id = 1;
+  string key = 2;
+  string started_at = 3;
+  string timezone = 4;
+}
+
+message BrainSnapshotEntry {
+  string resident_text = 1;
+  bool truncated = 2;
+}
+
+message BrainSnapshot {
+  BrainSnapshotEntry pinned_memo = 1;
+  BrainSnapshotEntry channel_entry = 2;
+}
+
+message RuntimeSkillSummary {
+  string skill_name = 1;
+  string description = 2;
+  optional bool default_enabled = 3; // absent = inherit the skill default
+  string source_kind = 4;            // builtin | installed | open set
+  string agent_plugin_id = 5;
+  string relative_path = 6;
+  string skill_root = 7;             // library | internal | open set
+  bytes metadata_json = 8;
+  string category = 9;
+  bytes tags_json = 10;
+  string skill_uri = 11;
+  bool has_agent_overlay = 12;
+}
+
+message AgentConversationContextResponse {
+  AgentProfile agent = 1;
+  ConversationInfo conversation = 2;
+  string soul = 3;
+  string mission = 4;
+  string design = 5;
+  // Exact system instructions captured by the first stored Response in this
+  // conversation.
+  string system_prompt_snapshot = 6;
+  BrainSnapshot brain_snapshot = 7;
+  repeated RuntimeSkillSummary skills = 8;
+}
+
+// ===== agent_plugin =====
+
+message AgentPluginListRequest {}
+
+message AgentPluginCatalogSkill {
+  string catalog_name = 1;
+  string codex_name = 2;
+}
+
+message AgentPluginCatalogEntry {
+  string id = 1;
+  string description = 2;
+  string version = 3;
+  string content_hash = 4;
+  repeated AgentPluginCatalogSkill skills = 5;
+}
+
+message AgentPluginListResponse {
+  repeated AgentPluginCatalogEntry agent_plugins = 1;
+}
+
+// ===== codex account =====
+
+message CodexAccountResolveRequest {
+  string job_id = 1;
+}
+
+message CodexAccountResolveResponse {
+  string account_id = 1;
+  // Opaque codex auth.json contents; already a JSON string on both ends.
+  string auth_json = 2;
+  string auth_hash = 3;
+}
+
+message CodexAccountAuthUpdateRequest {
+  string job_id = 1;
+  string auth_json = 2;
+}
+
+message CodexAccountAuthUpdateResponse {
+  string account_id = 1;
+}
+
+// ===== background_agent_job =====
+
+message BackgroundAgentJobWorkspaceMount {
+  string id = 1;
+  string source = 2;
+  string access = 3; // read_only | read_write
+}
+
+message BackgroundAgentJobCreateRequest {
+  string source_tool_call_id = 1;
+  string title = 2;
+  string task = 3;
+  string background = 4;
+  string notes = 5;
+  repeated string agent_plugin_ids = 6;
+  repeated string skill_names = 7;
+  repeated BackgroundAgentJobWorkspaceMount workspace_mounts = 8;
+  string model = 9;
+  string reasoning_effort = 10; // minimal | low | medium | high | xhigh
+}
+
+message BackgroundAgentJobGetRequest {
+  string job_id = 1;
+  optional uint32 trajectory_limit = 2;
+  string trajectory_cursor = 3;
+}
+
+message BackgroundAgentJobListRequest {}
+
+message BackgroundAgentJobSteerRequest {
+  string job_id = 1;
+  string text = 2;
+  // Record<string, string | string[]> answers keyed by question id.
+  bytes answers_json = 3;
+}
+
+message BackgroundAgentJobStopRequest {
+  string job_id = 1;
+  string reason = 2;
+}
+
+message BackgroundAgentJobTurnUpsertRequest {
+  string job_id = 1;
+  uint32 attempt = 2;
+  string runtime_thread_id = 3;
+  string runtime_turn_id = 4;
+  string kind = 5;   // agent | compaction
+  string status = 6; // in_progress | completed | failed | interrupted
+  uint32 revision = 7;
+  bytes trajectory_json = 8;
+  bytes trajectory_groups_json = 9;
+  bytes progress_json = 10;
+  bytes usage_json = 11;
+  bytes error_json = 12;
+  string started_at = 13;
+  string completed_at = 14;
+}
+
+message BackgroundAgentJobStatusUpdateRequest {
+  string job_id = 1;
+  string status = 2; // queued | running | waiting_on_user | succeeded | failed | stopped
+  string runtime_thread_id = 3;
+  bytes result_json = 4;
+  bytes error_json = 5;
+  bytes metadata_json = 6;
+}
+
+message BackgroundAgentJobAttemptHistoryEntry {
+  uint32 attempt = 1;
+  repeated string turn_statuses = 2;
+  string summary = 3;
+}
+
+message BackgroundAgentJobResultRef {
+  string type = 1; // background_agent_job
+  string job_id = 2;
+}
+
+message BackgroundAgentJobResponse {
+  string job_id = 1;
+  string agent_uid = 2;
+  string owner_session_id = 3;
+  string source_actor_event_id = 4;
+  string source_tool_call_id = 5;
+  string status = 6;
+  string runtime_thread_id = 7;
+  string codex_account_id = 8;
+  string title = 9;
+  string task = 10;
+  string background = 11;
+  string notes = 12;
+  bytes reply_route_json = 13;
+  uint32 attempts = 14;
+  repeated string agent_plugin_ids = 15;
+  repeated string skill_names = 16;
+  repeated BackgroundAgentJobWorkspaceMount workspace_mounts = 17;
+  string model = 18;
+  string reasoning_effort = 19;
+  string queued_at = 20;
+  string started_at = 21;
+  string completed_at = 22;
+  bytes result_json = 23;
+  bytes error_json = 24;
+  bytes metadata_json = 25;
+  // Rich nested execution document rendered for the model.
+  bytes execution_json = 26;
+  repeated BackgroundAgentJobAttemptHistoryEntry attempt_history = 27;
+  BackgroundAgentJobResultRef result_ref = 28;
+}
+
+message BackgroundAgentJobSummary {
+  string job_id = 1;
+  string title = 2;
+  string status = 3;
+  repeated string agent_plugin_ids = 4;
+  uint32 attempts = 5;
+  string queued_at = 6;
+  string started_at = 7;
+  string completed_at = 8;
+}
+
+message BackgroundAgentJobListResponse {
+  repeated BackgroundAgentJobSummary jobs = 1;
+}
+
+message BackgroundAgentJobTurn {
+  string id = 1;
+  uint32 attempt = 2;
+  string runtime_thread_id = 3;
+  string runtime_turn_id = 4;
+  string kind = 5;
+  string status = 6;
+  uint32 revision = 7;
+  bytes trajectory_json = 8;
+  bytes progress_json = 9;
+  bytes usage_json = 10;
+  bytes error_json = 11;
+  string started_at = 12;
+  string completed_at = 13;
+  string inserted_at = 14;
+  string updated_at = 15;
+}
+
+message BackgroundAgentJobTurnUpsertResponse {
+  string job_id = 1;
+  BackgroundAgentJobTurn turn = 2;
+}
+
+// ===== memory (requests typed, responses model-facing passthrough) =====
+
+message MemorySearchRequest {
+  string query = 1;
+  string layer = 2;         // chat | knowledge | all
+  string channel_scope = 3; // current_channel | all_channels
+  string channel_id = 4;
+  string from = 5;
+  string to = 6;
+  string store = 7;         // current | public
+  string entry_type = 8;
+  string author_kind = 9;   // human | agent | dreaming
+  optional uint32 limit = 10;
+}
+
+message MemoryBrowseRequest {
+  string document_id = 1;
+  string channel_id = 2;
+  string from = 3;
+  string to = 4;
+  string cursor = 5;
+  optional uint32 limit = 6;
+}
+
+message MemoryOpenRequest {
+  string entry_id = 1;
+  string name = 2;
+  string store = 3;
+  string block_cursor = 4;
+  optional uint32 block_limit = 5;
+}
+
+message MemoryCreateEntry {
+  string name = 1;
+  string type = 2;
+  string summary = 3;
+  repeated string aliases = 4;
+  bytes properties_json = 5;
+  string initial_body = 6;
+}
+
+message MemorySetName {
+  string entry_id = 1;
+  string name = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemorySetType {
+  string entry_id = 1;
+  string type = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemoryDeleteEntry {
+  string entry_id = 1;
+  uint32 expected_entry_lock_version = 2;
+}
+
+message MemoryAppendBlock {
+  string entry_id = 1;
+  string body = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemoryEditBlock {
+  string entry_id = 1;
+  string block_id = 2;
+  string body = 3;
+  uint32 expected_block_lock_version = 4;
+}
+
+message MemoryDeleteBlock {
+  string entry_id = 1;
+  string block_id = 2;
+  uint32 expected_block_lock_version = 3;
+}
+
+message MemorySetProperty {
+  string entry_id = 1;
+  string key = 2;
+  bytes value_json = 3;
+  uint32 expected_entry_lock_version = 4;
+}
+
+message MemoryAddRelation {
+  string entry_id = 1;
+  string target_entry_id = 2;
+  string predicate = 3;
+  uint32 expected_entry_lock_version = 4;
+}
+
+message MemoryRemoveRelation {
+  string entry_id = 1;
+  string relation_id = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemorySetSummary {
+  string entry_id = 1;
+  string summary = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemorySetAliases {
+  string entry_id = 1;
+  repeated string aliases = 2;
+  uint32 expected_entry_lock_version = 3;
+}
+
+message MemoryUpdateRequest {
+  string tool_call_id = 1;
+  // Brain audit metadata attribution; the write scope itself resolves from
+  // the frame turn fence.
+  string actor_event_id = 2;
+  oneof operation {
+    MemoryCreateEntry create_entry = 10;
+    MemoryDeleteEntry delete_entry = 11;
+    MemoryAppendBlock append_block = 12;
+    MemoryEditBlock edit_block = 13;
+    MemoryDeleteBlock delete_block = 14;
+    MemorySetProperty set_property = 15;
+    MemoryAddRelation add_relation = 16;
+    MemoryRemoveRelation remove_relation = 17;
+    MemorySetSummary set_summary = 18;
+    MemorySetAliases set_aliases = 19;
+    MemorySetName set_name = 20;
+    MemorySetType set_type = 21;
+  }
+}
+
+message MemoryHealthCheckRequest {}
+
+// ===== schedule (requests typed, responses model-facing passthrough) =====
+
+message ScheduleCheckBackLaterCreateRequest {
+  string tool_call_id = 1;
+  string idempotency_key = 2;
+  string reason = 3;
+  string check = 4;
+  string context_summary = 5;
+  bool quiet_success = 6;
+  bytes schedule_json = 7;
+  bytes reply_route_json = 8;
+}
+
+message ScheduleCheckBackLaterListRequest {
+  optional uint32 limit = 1;
+}
+
+message ScheduleCheckBackLaterTargetRequest {
+  string scheduled_event_id = 1;
+}
+
+message ScheduleCheckBackLaterUpdateRequest {
+  string scheduled_event_id = 1;
+  string tool_call_id = 2;
+  string idempotency_key = 3;
+  bytes updates_json = 4;
+  bytes reply_route_json = 5;
+}
+
+message ScheduleCronListRequest {}
+
+message ScheduleCronTargetRequest {
+  string cron_schedule_id = 1;
+}
+
+message ScheduleCronRunsRequest {
+  string cron_schedule_id = 1;
+  optional uint32 limit = 2;
+}
+
+message ScheduleCronAddRequest {
+  string binding_name = 1;
+  string name = 2;
+  bytes schedule_json = 3;
+  bytes payload_json = 4;
+  bytes delivery_json = 5;
+  string idempotency_key = 6;
+  bytes failure_policy_json = 7;
+}
+
+message ScheduleCronUpdateRequest {
+  string cron_schedule_id = 1;
+  bytes updates_json = 2;
+}
+
+// ===== skills =====
+
+message SkillOverlayResolveRequest {
+  string skill_name = 1;
+}
+
+message SkillOverlayAppendRequest {
+  string skill_name = 1;
+  string content = 2;
+}
+
+message SkillOverlayReplaceRequest {
+  string skill_name = 1;
+  string content = 2;
+  bytes overlay_json = 3;
+  string expected_content_hash = 4;
+}
+
+message SkillOverlayResponse {
+  string skill_name = 1;
+  bool has_overlay = 2;
+  bytes overlay_json = 3;
+  string content_hash = 4;
+}
+
+message InstalledSkillObservation {
+  string skill_name = 1;
+  string relative_path = 2;
+  string description = 3;
+  optional bool default_enabled = 4;
+  bytes metadata_json = 5;
+  string content_hash = 6;
+  string xxh3_128 = 7;
+  optional uint32 file_count = 8;
+}
+
+message InstalledSkillReplaceRequest {
+  repeated InstalledSkillObservation observations = 1;
+}
+
+message InstalledSkillReplaceResponse {
+  bool changed = 1;
+  uint32 skills = 2;
+  uint32 files = 3;
+  string content_hash = 4;
+}

@@ -39,7 +39,7 @@ export function modelConfigFromAIGatewayAPIKey(
   const authorization = aiGatewayAuthorization(apiKey, refreshAPIKey)
 
   return createModel({
-    apiKey: apiKey.api_key,
+    apiKey: apiKey.apiKey,
     baseURL,
     selector,
     name: modelRef.model,
@@ -61,7 +61,7 @@ export function httpClientFromAIGatewayAPIKey(
   refreshAPIKey?: AIGatewayAPIKeyRefresher
 ): AIGatewayHTTPClient {
   return {
-    baseURL: apiKey.base_url.replace(/\/+$/, ''),
+    baseURL: apiKey.baseUrl.replace(/\/+$/, ''),
     fetch: aiGatewayFetch(apiKey, refreshAPIKey)
   }
 }
@@ -89,7 +89,7 @@ function aiGatewayFetch(
 
   function sendWithKey(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) {
     const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
-    headers.set('authorization', `Bearer ${currentAPIKey.api_key}`)
+    headers.set('authorization', `Bearer ${currentAPIKey.apiKey}`)
     return fetch(input instanceof Request ? input.clone() : input, { ...init, headers })
   }
 
@@ -98,7 +98,7 @@ function aiGatewayFetch(
     const signal = init?.signal ?? (reusableInput instanceof Request ? reusableInput.signal : undefined)
 
     // Proactive refresh: rotate the key before it expires, within the local skew window.
-    if (currentAPIKey.expires_at * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs) {
+    if (Number(currentAPIKey.expiresAt) * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs) {
       currentAPIKey = await refreshAPIKeyOrThrow(refreshAPIKey)
     }
 
@@ -152,7 +152,7 @@ function aiGatewayAuthorization(initialAPIKey: AIGatewayAPIKeyResponse, refreshA
   return async (options?: AIGatewayAPIKeyRefreshOptions) => {
     const refreshed = await match({
       force: Boolean(options?.forceRefresh && refreshAPIKey),
-      stale: currentAPIKey.expires_at * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs
+      stale: Number(currentAPIKey.expiresAt) * 1000 <= Date.now() + aiGatewayAPIKeyRefreshSkewMs
     })
       .with({ force: true }, () => refreshAPIKeyOrThrow(refreshAPIKey, { forceRefresh: true }))
       .with({ stale: true }, () => refreshAPIKeyOrThrow(refreshAPIKey))
@@ -161,7 +161,7 @@ function aiGatewayAuthorization(initialAPIKey: AIGatewayAPIKeyResponse, refreshA
       currentAPIKey = refreshed
     }
 
-    return `Bearer ${currentAPIKey.api_key}`
+    return `Bearer ${currentAPIKey.apiKey}`
   }
 }
 

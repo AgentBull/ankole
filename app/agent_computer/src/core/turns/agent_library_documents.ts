@@ -1,6 +1,6 @@
 import { chmodSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import type { AgentConversationContext } from '../../lanes/rpc_lane'
+import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 import { resolveWorkspacePath } from '../workspace-paths'
 
 export const AGENT_DESIGN_DOCUMENT_PATH = '/workspace/.ankole/agent-library/DESIGN.md'
@@ -9,13 +9,18 @@ export const AGENT_DESIGN_DOCUMENT_PATH = '/workspace/.ankole/agent-library/DESI
  * Synchronizes the control-plane-owned DESIGN document into the current
  * session workspace without adding its contents to the model prompt.
  */
-export function materializeAgentLibraryDocuments(workspaceRoot: string, context: AgentConversationContext): void {
+export function materializeAgentLibraryDocuments(
+  workspaceRoot: string,
+  context: AgentConversationContextResponse
+): void {
   const designPath = resolveWorkspacePath(workspaceRoot, AGENT_DESIGN_DOCUMENT_PATH)
   const root = dirname(designPath)
   ensureRuntimeDirectory(dirname(root))
   ensureRuntimeDirectory(root)
 
-  if (typeof context.design !== 'string') {
+  // Proto3 string presence: an empty design document means the agent library
+  // has none, so the projection is removed.
+  if (!context.design) {
     rmSync(designPath, { force: true })
     return
   }

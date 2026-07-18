@@ -1,16 +1,11 @@
-import { compactRecord } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { ReplyPresentationEvent } from '../../core/types'
 import { jsonToolResult } from '../../core/tool-result'
-import {
-  rpcMethods,
-  type MemoryRPCRequestBase,
-  type MemoryRPCRequester,
-  type MemoryUpdateRequest
-} from '../../lanes/rpc_lane'
+import { jsonBytes } from '../../fabric/envelope_proto'
+import { rpcMethods, type MemoryRPCRequester, type RPCRequestInit } from '../../lanes/rpc_lane'
 
 export interface CreateMemoryToolsOptions {
   turnStart: TurnStart
@@ -209,8 +204,16 @@ export function createMemorySearchTool(
     describeActivity: () => MemoryActivity.search,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRPC(rpcMethods.memorySearch, {
-        ...memoryRequest(opts.turnStart),
-        ...compactRecord(params)
+        query: params.query,
+        layer: params.layer,
+        channelScope: params.channel_scope,
+        channelId: params.channel_id ?? '',
+        from: params.from ?? '',
+        to: params.to ?? '',
+        store: params.store ?? '',
+        entryType: params.entry_type ?? '',
+        authorKind: params.author_kind ?? '',
+        limit: params.limit
       })
       return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.search, response)])
     }
@@ -232,8 +235,11 @@ export function createMemoryOpenTool(
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       if (!params.entry_id && !params.name?.trim()) throw new Error('memory_open requires entry_id or name')
       const response = await opts.requestMemoryRPC(rpcMethods.memoryOpen, {
-        ...memoryRequest(opts.turnStart),
-        ...compactRecord(params)
+        entryId: params.entry_id ?? '',
+        name: params.name ?? '',
+        store: params.store,
+        blockCursor: params.block_cursor ?? '',
+        blockLimit: params.block_limit
       })
       return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.open, response)])
     }
@@ -254,12 +260,11 @@ export function createMemoryUpdateTool(
     describeActivity: () => MemoryActivity.update,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const operationParams = MemoryUpdateOperationParams.parse(params)
-      const request = {
-        ...memoryRequest(opts.turnStart),
-        ...operationParams,
-        tool_call_id: toolCallID
-      } as Omit<MemoryUpdateRequest, 'request_id'>
-      const response = await opts.requestMemoryRPC(rpcMethods.memoryUpdate, request)
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryUpdate, {
+        toolCallId: toolCallID,
+        actorEventId: opts.turnStart.actor_event.actor_event_id,
+        operation: memoryUpdateOperation(operationParams)
+      })
       return memoryToolResult(response, [memoryMutationReceipt(toolCallID, operationParams.operation)])
     }
   }
@@ -279,8 +284,12 @@ export function createMemoryBrowseTool(
     describeActivity: () => MemoryActivity.browse,
     async execute(toolCallID, params): Promise<AgentToolResult<MemoryToolDetails>> {
       const response = await opts.requestMemoryRPC(rpcMethods.memoryBrowse, {
-        ...memoryRequest(opts.turnStart),
-        ...compactRecord(params)
+        documentId: params.document_id ?? '',
+        channelId: params.channel_id ?? '',
+        from: params.from ?? '',
+        to: params.to ?? '',
+        cursor: params.cursor ?? '',
+        limit: params.limit
       })
       return memoryToolResult(response, [memoryLookupEvent(toolCallID, MemoryActivity.browse, response)])
     }
@@ -300,16 +309,131 @@ function createMemoryHealthCheckTool(
     isDestructive: false,
     describeActivity: () => MemoryActivity.healthCheck,
     async execute(): Promise<AgentToolResult<MemoryToolDetails>> {
-      const response = await opts.requestMemoryRPC(rpcMethods.memoryHealthCheck, memoryRequest(opts.turnStart))
+      const response = await opts.requestMemoryRPC(rpcMethods.memoryHealthCheck, {})
       return memoryToolResult(response)
     }
   }
 }
 
-function memoryRequest(turnStart: TurnStart): Omit<MemoryRPCRequestBase, 'request_id'> {
-  return {
-    turn: turnStart.turn,
-    actor_event: turnStart.actor_event
+type MemoryUpdateOperationParsed = ReturnType<typeof MemoryUpdateOperationParams.parse>
+
+/**
+ * Converts the model-facing flat operation object into the generated oneof.
+ * The zod schema stays snake_case because it is the model contract; the wire
+ * message is the only place the operation becomes structural.
+ */
+function memoryUpdateOperation(params: MemoryUpdateOperationParsed): RPCRequestInit<'memory_update'>['operation'] {
+  switch (params.operation) {
+    case 'create_entry':
+      return {
+        case: 'createEntry',
+        value: {
+          name: params.name,
+          type: params.type,
+          summary: params.summary ?? '',
+          aliases: params.aliases ?? [],
+          propertiesJson: jsonBytes(params.properties as JSONObject | undefined),
+          initialBody: params.initial_body ?? ''
+        }
+      }
+    case 'set_name':
+      return {
+        case: 'setName',
+        value: {
+          entryId: params.entry_id,
+          name: params.name,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'set_type':
+      return {
+        case: 'setType',
+        value: {
+          entryId: params.entry_id,
+          type: params.type,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'delete_entry':
+      return {
+        case: 'deleteEntry',
+        value: { entryId: params.entry_id, expectedEntryLockVersion: params.expected_entry_lock_version }
+      }
+    case 'append_block':
+      return {
+        case: 'appendBlock',
+        value: {
+          entryId: params.entry_id,
+          body: params.body,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'edit_block':
+      return {
+        case: 'editBlock',
+        value: {
+          entryId: params.entry_id,
+          blockId: params.block_id,
+          body: params.body,
+          expectedBlockLockVersion: params.expected_block_lock_version
+        }
+      }
+    case 'delete_block':
+      return {
+        case: 'deleteBlock',
+        value: {
+          entryId: params.entry_id,
+          blockId: params.block_id,
+          expectedBlockLockVersion: params.expected_block_lock_version
+        }
+      }
+    case 'set_property':
+      return {
+        case: 'setProperty',
+        value: {
+          entryId: params.entry_id,
+          key: params.key,
+          valueJson: jsonBytes(params.value as JSONObject | undefined),
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'add_relation':
+      return {
+        case: 'addRelation',
+        value: {
+          entryId: params.entry_id,
+          targetEntryId: params.target_entry_id,
+          predicate: params.predicate,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'remove_relation':
+      return {
+        case: 'removeRelation',
+        value: {
+          entryId: params.entry_id,
+          relationId: params.relation_id,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'set_summary':
+      return {
+        case: 'setSummary',
+        value: {
+          entryId: params.entry_id,
+          summary: params.summary,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
+    case 'set_aliases':
+      return {
+        case: 'setAliases',
+        value: {
+          entryId: params.entry_id,
+          aliases: params.aliases,
+          expectedEntryLockVersion: params.expected_entry_lock_version
+        }
+      }
   }
 }
 

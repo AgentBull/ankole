@@ -1,4 +1,5 @@
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonBytes } from '../fabric/envelope_proto'
 import type { TurnStart } from '../lanes/actor_lane'
 import { rpcMethods, type RPCRequester } from '../lanes/rpc_lane'
 import { scanInstalledSkills } from './installed_skills'
@@ -44,10 +45,22 @@ export async function syncInstalledSkillsForTurn(turnStart: TurnStart, opts: Ins
 
     if (installedSkillSyncMemoFresh(agentUID, scan.fingerprint, opts)) return
 
-    await opts.rpc(rpcMethods.skillsInstalledReplace, {
-      turn: turnStart.turn,
-      observations: scan.observations
-    })
+    await opts.rpc(
+      rpcMethods.skillsInstalledReplace,
+      {
+        observations: scan.observations.map(observation => ({
+          skillName: observation.skill_name,
+          relativePath: observation.relative_path ?? '',
+          description: observation.description,
+          defaultEnabled: observation.default_enabled,
+          metadataJson: jsonBytes(observation.metadata),
+          contentHash: observation.content_hash ?? '',
+          xxh3128: observation.xxh3_128 ?? '',
+          fileCount: observation.file_count
+        }))
+      },
+      { turn: turnStart.turn }
+    )
 
     installedSkillSyncMemo.set(agentUID, { fingerprint: scan.fingerprint, syncedAtMs: Date.now() })
   } catch (error) {

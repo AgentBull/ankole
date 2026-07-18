@@ -1,5 +1,5 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { decodeBackgroundAgentJobResponse, rpcMethods, type BackgroundAgentJobStatus } from '../../lanes/rpc_lane'
+import { rpcMethods, type BackgroundAgentJobStatus } from '../../lanes/rpc_lane'
 import type { CodexJobOptions, TurnHandlerResult } from '../turns/turn_options'
 import { prepareCodexJobExecution } from './setup'
 import { runCodexJobSession } from './session'
@@ -10,13 +10,9 @@ export { configureCodexSkills } from './session'
 
 export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): Promise<TurnHandlerResult> {
   const jobID = jobIDFromTurn(turnStart)
-  const response = await opts.rpc(rpcMethods.backgroundAgentJobGet, {
-    turn: turnStart.turn,
-    job_id: jobID
-  })
-  const job = decodeBackgroundAgentJobResponse(response)
+  const job = await opts.rpc(rpcMethods.backgroundAgentJobGet, { jobId: jobID }, { turn: turnStart.turn })
 
-  if (terminalStatuses.has(job.status)) {
+  if (terminalStatuses.has(job.status as BackgroundAgentJobStatus)) {
     return {
       kind: 'noop_completed',
       reason: `background_agent_job_${job.status}`

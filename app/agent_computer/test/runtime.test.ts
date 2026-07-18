@@ -18,6 +18,7 @@ import {
   jsonObjectFromBytes,
   Lane,
   MailboxUpdatedSchema,
+  RPCRequestSchema,
   TurnCompletionOutcome,
   TurnStartSchema,
   type Envelope
@@ -28,7 +29,7 @@ import {
   workerHeartbeatEnvelope,
   workerReadyEnvelope
 } from '../src/worker/config'
-import { handleWorkerRPCRequest, type RPCRequest } from '../src/lanes/rpc_lane'
+import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
@@ -283,11 +284,10 @@ describe('@ankole/agent-computer runtime', () => {
 
   it('rejects unknown control-plane-initiated worker RPC requests', async () => {
     const sent: Envelope[] = []
-    const request: RPCRequest = {
-      request_id: 'worker-rpc-1',
-      method: 'test.probe',
-      payload_json: { probe: true }
-    }
+    const request = create(RPCRequestSchema, {
+      requestId: 'worker-rpc-1',
+      method: 'test.probe'
+    })
 
     await handleWorkerRPCRequest(async envelope => {
       sent.push(envelope)
@@ -313,11 +313,10 @@ describe('@ankole/agent-computer runtime', () => {
       async envelope => {
         sent.push(envelope)
       },
-      {
-        request_id: 'worker-rpc-unknown',
-        method: 'worker.unknown',
-        payload_json: {}
-      }
+      create(RPCRequestSchema, {
+        requestId: 'worker-rpc-unknown',
+        method: 'worker.unknown'
+      })
     )
 
     expect(sent).toHaveLength(1)

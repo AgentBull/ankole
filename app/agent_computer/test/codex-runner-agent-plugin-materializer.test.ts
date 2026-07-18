@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -159,7 +161,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       expect(resumed.agentPlugins[0]).toMatchObject({
         id: 'alpha',
         version: '1.0.0',
-        content_hash: currentCatalog[0]!.content_hash
+        contentHash: currentCatalog[0]!.contentHash
       })
       expect(
         readFileSync(join(resumed.agentPlugins[0]!.materializedRoot, 'workspace-template', 'v2.txt'), 'utf8')
@@ -316,11 +318,13 @@ function createPlugin(
 }
 
 function agentPluginCatalog(libraryRoot: string, ids: string[]): AgentPluginCatalogEntry[] {
-  return ids.map(id => ({
-    id,
-    description: `${id} plugin`,
-    version: '1.0.0',
-    content_hash: computeAgentPluginContentHash(join(libraryRoot, id)),
-    skills: [{ catalog_name: `${id}-skill`, codex_name: `${id}:${id}-skill` }]
-  }))
+  return ids.map(id =>
+    create(AgentPluginCatalogEntrySchema, {
+      id,
+      description: `${id} plugin`,
+      version: '1.0.0',
+      contentHash: computeAgentPluginContentHash(join(libraryRoot, id)),
+      skills: [{ catalogName: `${id}-skill`, codexName: `${id}:${id}-skill` }]
+    })
+  )
 }

@@ -3,34 +3,34 @@ import { z } from 'zod'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
+import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import {
   rpcMethods,
-  type BackgroundAgentJobCreateRequest,
+  type BackgroundAgentJobExecution,
   type BackgroundAgentJobListResponse,
   type BackgroundAgentJobResponse,
   type AgentPluginCatalogEntry,
-  type RPCRequester
+  type RPCRequester,
+  type RPCRequestInit
 } from '../../lanes/rpc_lane'
 
 const identifier = /^[a-z][a-z0-9_-]{0,63}$/
 const contentHash = /^[a-f0-9]{64}$/
 
-const CatalogEntrySchema = z
-  .object({
-    id: z.string().regex(identifier),
-    description: z.string().min(1),
-    version: z.string().min(1),
-    content_hash: z.string().regex(contentHash),
-    skills: z.array(
-      z
-        .object({
-          catalog_name: z.string().min(1),
-          codex_name: z.string().min(1)
-        })
-        .strict()
-    )
-  })
-  .strict()
+// Validates generated catalog messages; non-strict so the message runtime
+// fields ($typeName) pass through while unknown data keys are still dropped.
+const CatalogEntrySchema = z.object({
+  id: z.string().regex(identifier),
+  description: z.string().min(1),
+  version: z.string().min(1),
+  contentHash: z.string().regex(contentHash),
+  skills: z.array(
+    z.object({
+      catalogName: z.string().min(1),
+      codexName: z.string().min(1)
+    })
+  )
+})
 
 const WorkspaceMountSchema = z
   .object({
@@ -85,7 +85,7 @@ export function createBackgroundAgentJobTool(
   }
 }
 
-function backgroundAgentJobParamsSchema(catalog: AgentPluginCatalogEntry[], standaloneSkillNames: string[]) {
+function backgroundAgentJobParamsSchema(catalog: CatalogEntry[], standaloneSkillNames: string[]) {
   const agentPluginIDs = catalog.map(agentPlugin => agentPlugin.id)
 
   return z
@@ -167,46 +167,51 @@ async function executeBackgroundAgentJob(
 
   return match(params.action)
     .with('start', async () => {
-      const request: Omit<BackgroundAgentJobCreateRequest, 'request_id'> = {
-        turn,
-        source_tool_call_id: toolCallID,
+      const request: RPCRequestInit<'background_agent_job.create'> = {
+        sourceToolCallId: toolCallID,
         title: requiredText(params.title, 'start requires title'),
         task: requiredVerbatimText(params.task, 'start requires task'),
-        ...(params.background ? { background: params.background } : {}),
-        ...(params.notes ? { notes: params.notes } : {}),
-        ...(params.agent_plugin_ids ? { agent_plugin_ids: params.agent_plugin_ids } : {}),
-        ...(params.skill_names ? { skill_names: params.skill_names } : {}),
-        ...(params.workspace_mounts ? { workspace_mounts: params.workspace_mounts } : {}),
-        ...(params.model ? { model: params.model } : {}),
-        ...(params.reasoning_effort ? { reasoning_effort: params.reasoning_effort } : {})
+        background: params.background ?? '',
+        notes: params.notes ?? '',
+        agentPluginIds: params.agent_plugin_ids ?? [],
+        skillNames: params.skill_names ?? [],
+        workspaceMounts: params.workspace_mounts ?? [],
+        model: params.model ?? '',
+        reasoningEffort: params.reasoning_effort ?? ''
       }
-      return await opts.rpc(rpcMethods.backgroundAgentJobCreate, request)
+      return await opts.rpc(rpcMethods.backgroundAgentJobCreate, request, { turn })
     })
     .with('list', async () => {
-      return await opts.rpc(rpcMethods.backgroundAgentJobList, { turn })
+      return await opts.rpc(rpcMethods.backgroundAgentJobList, {}, { turn })
     })
     .with('status', async () => {
-      return await opts.rpc(rpcMethods.backgroundAgentJobGet, {
-        turn,
-        job_id: requiredJobID(params),
-        ...(params.trajectory_limit !== undefined ? { trajectory_limit: params.trajectory_limit } : {}),
-        ...(params.trajectory_cursor ? { trajectory_cursor: params.trajectory_cursor } : {})
-      })
+      return await opts.rpc(
+        rpcMethods.backgroundAgentJobGet,
+        {
+          jobId: requiredJobID(params),
+          trajectoryLimit: params.trajectory_limit,
+          trajectoryCursor: params.trajectory_cursor ?? ''
+        },
+        { turn }
+      )
     })
     .with('steer', async () => {
-      return await opts.rpc(rpcMethods.backgroundAgentJobSteer, {
-        turn,
-        job_id: requiredJobID(params),
-        ...(params.text ? { text: params.text } : {}),
-        ...(params.answers ? { answers: params.answers } : {})
-      })
+      return await opts.rpc(
+        rpcMethods.backgroundAgentJobSteer,
+        {
+          jobId: requiredJobID(params),
+          text: params.text ?? '',
+          ...(params.answers ? { answersJson: jsonBytes(params.answers) } : {})
+        },
+        { turn }
+      )
     })
     .with('stop', async () => {
-      return await opts.rpc(rpcMethods.backgroundAgentJobStop, {
-        turn,
-        job_id: requiredJobID(params),
-        ...(params.text ? { reason: params.text } : {})
-      })
+      return await opts.rpc(
+        rpcMethods.backgroundAgentJobStop,
+        { jobId: requiredJobID(params), reason: params.text ?? '' },
+        { turn }
+      )
     })
     .exhaustive()
 }
@@ -265,15 +270,17 @@ function refineActionFields(params: BackgroundAgentJobParams, context: z.Refinem
   }
 }
 
-function parseCatalog(value: AgentPluginCatalogEntry[]): AgentPluginCatalogEntry[] {
-  const catalog = z.array(CatalogEntrySchema).max(256).parse(value) as AgentPluginCatalogEntry[]
+type CatalogEntry = z.output<typeof CatalogEntrySchema>
+
+function parseCatalog(value: AgentPluginCatalogEntry[]): CatalogEntry[] {
+  const catalog = z.array(CatalogEntrySchema).max(256).parse(value)
   uniqueSortedNames(
     catalog.map(agentPlugin => agentPlugin.id),
     'Agent Plugin'
   )
   for (const agentPlugin of catalog) {
     for (const skill of agentPlugin.skills) {
-      if (skill.codex_name !== `${agentPlugin.id}:${skill.catalog_name}`) {
+      if (skill.codexName !== `${agentPlugin.id}:${skill.catalogName}`) {
         throw new Error(`Agent Plugin ${agentPlugin.id} has an invalid namespaced Skill mapping`)
       }
     }
@@ -281,7 +288,7 @@ function parseCatalog(value: AgentPluginCatalogEntry[]): AgentPluginCatalogEntry
   return [...catalog].sort((left, right) => compareCodePoints(left.id, right.id))
 }
 
-function descriptionFor(catalog: AgentPluginCatalogEntry[], standaloneSkillNames: string[]): string {
+function descriptionFor(catalog: CatalogEntry[], standaloneSkillNames: string[]): string {
   return [
     "Manage asynchronous background work performed by this Ankole installation's Codex runner.",
     'Work directly when the user can reasonably wait for the next assistant reply; create a Job for follow-up work that completes later.',
@@ -306,14 +313,14 @@ function descriptionFor(catalog: AgentPluginCatalogEntry[], standaloneSkillNames
   ].join('\n')
 }
 
-function agentPluginCatalogDescription(catalog: AgentPluginCatalogEntry[]): string {
+function agentPluginCatalogDescription(catalog: CatalogEntry[]): string {
   if (catalog.length === 0) return 'Enabled Agent Plugin catalog: none. Omit agent_plugin_ids.'
   return boundedCatalogText(
     [
       'Enabled Agent Plugin catalog:',
       ...catalog.map(agentPlugin => {
         const skills =
-          agentPlugin.skills.map(skill => `${skill.catalog_name} -> ${skill.codex_name}`).join(', ') || 'none'
+          agentPlugin.skills.map(skill => `${skill.catalogName} -> ${skill.codexName}`).join(', ') || 'none'
         return `- ${agentPlugin.id}@${agentPlugin.version}: ${agentPlugin.description}; Agent Plugin Skills: ${skills}`
       })
     ].join('\n')
@@ -364,35 +371,42 @@ function requiredJobID(params: BackgroundAgentJobParams): string {
 }
 
 function visibleResult(details: BackgroundAgentJobToolDetails, includeTask = false): string {
-  if ('jobs' in details) {
+  if (details.$typeName === 'ankole.runtime_fabric.v1.BackgroundAgentJobListResponse') {
     if (details.jobs.length === 0) return 'No background agent Jobs are visible in this conversation or channel.'
     return details.jobs
       .map(
         item =>
-          `${item.job_id} | ${item.status} | ${item.title} | agent_plugin_ids=${item.agent_plugin_ids.join(',')} | attempts=${item.attempts}`
+          `${item.jobId} | ${item.status} | ${item.title} | agent_plugin_ids=${item.agentPluginIds.join(',')} | attempts=${item.attempts}`
       )
       .join('\n')
   }
 
+  const execution = jsonObjectFromBytes(details.executionJson, 'background_agent_job.execution_json') as
+    | BackgroundAgentJobExecution
+    | undefined
+  const result = jsonObjectFromBytes(details.resultJson, 'background_agent_job.result_json')
+  const error = jsonObjectFromBytes(details.errorJson, 'background_agent_job.error_json')
+  const metadata = jsonObjectFromBytes(details.metadataJson, 'background_agent_job.metadata_json')
+
   const lines = [
-    `background agent job ${details.job_id}`,
+    `background agent job ${details.jobId}`,
     `title: ${details.title}`,
     `status: ${details.status}`,
-    `agent_plugin_ids: ${details.agent_plugin_ids.join(',') || 'none'}`,
-    `skills: ${details.skill_names.join(',') || 'none'}`,
+    `agent_plugin_ids: ${details.agentPluginIds.join(',') || 'none'}`,
+    `skills: ${details.skillNames.join(',') || 'none'}`,
     `attempts: ${details.attempts}`
   ]
   if (includeTask) lines.push(`task_excerpt: ${boundedText(details.task)}`)
-  if (details.runtime_thread_id) lines.push(`runtime_thread_id: ${details.runtime_thread_id}`)
-  if (details.execution) {
-    const { trajectory_page: trajectoryPage, ...executionSummary } = details.execution
+  if (details.runtimeThreadId) lines.push(`runtime_thread_id: ${details.runtimeThreadId}`)
+  if (execution) {
+    const { trajectory_page: trajectoryPage, ...executionSummary } = execution
     lines.push(`execution: ${JSON.stringify(executionSummary)}`)
     lines.push(`trajectory_page: ${JSON.stringify(trajectoryPage)}`)
   }
-  if (details.result && Object.keys(details.result).length > 0) lines.push(`result: ${boundedJSON(details.result)}`)
-  if (details.error && Object.keys(details.error).length > 0) lines.push(`error: ${boundedJSON(details.error)}`)
-  if (details.status === 'waiting_on_user' && details.metadata?.pending_user_input) {
-    lines.push(`pending_user_input: ${JSON.stringify(details.metadata.pending_user_input)}`)
+  if (result && Object.keys(result).length > 0) lines.push(`result: ${boundedJSON(result)}`)
+  if (error && Object.keys(error).length > 0) lines.push(`error: ${boundedJSON(error)}`)
+  if (details.status === 'waiting_on_user' && metadata?.pending_user_input) {
+    lines.push(`pending_user_input: ${JSON.stringify(metadata.pending_user_input)}`)
   }
   return lines.join('\n')
 }

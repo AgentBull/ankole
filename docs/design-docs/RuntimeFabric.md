@@ -409,8 +409,17 @@ the retryable worker execution-failure path.
 ## RPC Lane
 
 The rpc lane also uses RuntimeFabric protobuf envelopes. Its body type is
-`rpc_request`, `rpc_response`, or `rpc_error`. Payloads are small JSON-compatible
-objects. Large file bytes do not belong in rpc payloads.
+`rpc_request`, `rpc_response`, or `rpc_error`. Business payloads are generated
+protobuf messages declared in
+`app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto`: the frame `method`
+string selects the request/response message pair, and `RPCRequest.payload` /
+`RPCResponse.payload` carry that message's binary encoding. Deliberately
+free-form documents (schedule specs, reply routes, Job trajectories, results,
+metadata) stay `bytes *_json` fields inside those messages. Model-facing
+passthrough responses (the `memory_*` and `schedule.*` families) share
+`JSONPassthroughResponse`, whose `body_json` the worker hands to the model
+unchanged. Payloads stay small; large file bytes do not belong in rpc
+payloads. `rpc_error` keeps its typed frame with free-form `details_json`.
 
 The rpc lane is request/response traffic for semantic methods. It is not tied
 to worker-owned files or actor-lane facts. Either side may initiate a bounded
@@ -441,9 +450,12 @@ Worker-to-control-plane methods are grouped by the PG-owned domain they expose:
 - `memory_*` and `schedule.*`: operate the declared memory and scheduling
   surfaces.
 
-The cross-language method/scope list is generated into
+The cross-language method registry is generated into
 `app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json` and checked by
-both the Elixir and Bun test suites.
+both the Elixir and Bun test suites. Each entry pins the method's
+authorization scope and its fully qualified request/response message names,
+so payload schema binding cannot drift between the runtimes. The kernel never
+decodes rpc payloads: they stay opaque bytes at the transport boundary.
 
 There is deliberately no conversation-history RPC and no summary-commit RPC.
 Model history is AIGateway state: each `response.create` expands it
@@ -454,19 +466,25 @@ There are currently no declared control-plane-to-worker semantic methods. The
 lane still supports bounded request/response traffic in that direction; a method
 should be added only when a real caller owns the user story.
 
-RPC requests that belong to a turn include `ActorTurnRef`. The server checks the
-route and turn fence at the method boundary. Read methods may accept the current
-live turn fence. Write methods must match the current revision.
+The turn fence and worker_agent subject are frame facts, not payload fields:
+turn-scoped requests carry `ActorTurnRef` on the `RPCRequest` frame and
+worker_agent requests carry the trusted `agent_uid` there. The server checks
+the route and turn fence before decoding the payload. Read methods may accept
+the current live turn fence. Write methods must match the current revision.
+Request correlation is owned by the frame `request_id`; payload messages carry
+no identity or correlation echoes.
 
 The rpc lane should stay coarse enough to avoid chatty PG access. A normal text
 turn resolves agent conversation context once before building the prompt.
 Skill overlays are resolved only when `skill_view` or `skill_append` needs
 them.
 
-The control-plane `RPCLane` is deliberately small. It dispatches methods and
-wraps handler results as `rpc_response` or `rpc_error`; method handlers own
-their domain checks. That keeps the transport broker from becoming a second
-application service layer.
+The control-plane `RPCLane` is deliberately small and is the single codec
+boundary: it authorizes the frame, decodes the request message named by the
+registry, and encodes the broker's response struct (or wraps a passthrough
+JSON map). Method handlers receive the decoded struct plus the frame facts
+and own their domain checks. That keeps the transport broker from becoming a
+second application service layer.
 
 The worker's RPC client is in-process and request-id based. It sends
 `rpc_request` envelopes over the same `DEALER` socket and waits for the matching

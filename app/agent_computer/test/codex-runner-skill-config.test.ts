@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { configureCodexSkills } from '../src/core/codex-runner'
 import type { PreparedAgentPlugins } from '../src/core/codex-runner/agent-plugin-materializer'
 
@@ -106,11 +108,13 @@ function preparedOfficePlugin(): PreparedAgentPlugins {
     pluginsRoot: '/workspace/plugins',
     agentPlugins: [
       {
-        id: 'office',
-        description: 'Office plugin',
-        version: '1.0.0',
-        content_hash: 'hash',
-        skills: [{ catalog_name: 'docx', codex_name: 'office:docx' }],
+        ...create(AgentPluginCatalogEntrySchema, {
+          id: 'office',
+          description: 'Office plugin',
+          version: '1.0.0',
+          contentHash: 'hash',
+          skills: [{ catalogName: 'docx', codexName: 'office:docx' }]
+        }),
         manifestName: 'office',
         skillsRelativePath: 'skills',
         sourceRoot: '/repo/app/library/agent-plugins/office',

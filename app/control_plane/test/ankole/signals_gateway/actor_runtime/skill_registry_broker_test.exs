@@ -16,42 +16,46 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
       on_exit(fn -> Broker.unregister_local_worker(route) end)
       assert {:ok, _worker} = admit_worker(route)
 
-      turn_ref =
-        agent.uid
-        |> start_turn!(route)
-        |> put_in(["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
+      turn_ref = start_turn!(agent.uid, route)
+
+      mixed_case_turn = %{
+        turn_ref
+        | actor: %{turn_ref.actor | agent_uid: " #{String.upcase(agent.uid)} "}
+      }
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 rpc_request("rpc-installed-skills-1", "skills.installed.replace", %{
-                   "request_id" => "installed-skills-1",
-                   "turn" => turn_ref,
-                   "observations" => [
-                     %{
-                       "skill_name" => "agent-notes",
-                       "relative_path" => "agent-notes",
-                       "description" => "Agent installed notes.",
-                       "default_enabled" => true,
-                       "metadata" => %{"category" => "custom"},
-                       "xxh3_128" => "7b16fe7c3e492b87d9615265f0856cec",
-                       "file_count" => 2
-                     }
-                   ]
-                 }),
+                 rpc_request(
+                   "installed-skills-1",
+                   "skills.installed.replace",
+                   %FabricProto.InstalledSkillReplaceRequest{
+                     observations: [
+                       %FabricProto.InstalledSkillObservation{
+                         skill_name: "agent-notes",
+                         relative_path: "agent-notes",
+                         description: "Agent installed notes.",
+                         default_enabled: true,
+                         metadata_json: Torque.encode!(%{"category" => "custom"}),
+                         xxh3_128: "7b16fe7c3e492b87d9615265f0856cec",
+                         file_count: 2
+                       }
+                     ]
+                   },
+                   turn: mixed_case_turn
+                 ),
                  route
                )
 
-      payload = rpc_response_payload!(envelope)
-      assert payload["request_id"] == "installed-skills-1"
-      assert payload["agent_uid"] == agent.uid
+      payload = rpc_response_payload!(envelope, FabricProto.InstalledSkillReplaceResponse)
+      assert envelope_body!(envelope, :rpc_response).request_id == "installed-skills-1"
 
-      assert payload["skills"] ==
+      assert payload.skills ==
                Repo.aggregate(
                  from(skill in AgentSkill, where: skill.agent_uid == ^agent.uid),
                  :count
                )
 
-      assert payload["files"] >= 4
+      assert payload.files >= 4
 
       assert %AgentSkill{source_kind: "installed", enabled_override: nil, default_enabled: true} =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
@@ -78,11 +82,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 rpc_request("rpc-installed-skills-rejected", "skills.installed.replace", %{
-                   "request_id" => "installed-skills-rejected",
-                   "turn" => turn_ref,
-                   "observations" => []
-                 }),
+                 rpc_request(
+                   "installed-skills-rejected",
+                   "skills.installed.replace",
+                   %FabricProto.InstalledSkillReplaceRequest{observations: []},
+                   turn: turn_ref
+                 ),
                  wrong_route
                )
 
@@ -101,15 +106,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
       assert {:ok, _worker} = admit_worker(route)
 
       turn_ref = start_turn!(agent.uid, route)
-      pre_context_turn_ref = Map.update!(turn_ref, "revision", &(&1 + 1))
+      pre_context_turn_ref = %{turn_ref | revision: turn_ref.revision + 1}
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 rpc_request("rpc-installed-skills-stale", "skills.installed.replace", %{
-                   "request_id" => "installed-skills-stale",
-                   "turn" => pre_context_turn_ref,
-                   "observations" => []
-                 }),
+                 rpc_request(
+                   "installed-skills-stale",
+                   "skills.installed.replace",
+                   %FabricProto.InstalledSkillReplaceRequest{observations: []},
+                   turn: pre_context_turn_ref
+                 ),
                  route
                )
 
@@ -131,17 +137,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       assert {:ok, envelope} =
                RPCLane.handle_request(
-                 rpc_request("rpc-installed-skills-invalid", "skills.installed.replace", %{
-                   "request_id" => "installed-skills-invalid",
-                   "turn" => turn_ref,
-                   "observations" => [
-                     %{
-                       "skill_name" => "bad-skill",
-                       "description" => "",
-                       "xxh3_128" => "not-a-fingerprint"
-                     }
-                   ]
-                 }),
+                 rpc_request(
+                   "installed-skills-invalid",
+                   "skills.installed.replace",
+                   %FabricProto.InstalledSkillReplaceRequest{
+                     observations: [
+                       %FabricProto.InstalledSkillObservation{
+                         skill_name: "bad-skill",
+                         xxh3_128: "not-a-fingerprint"
+                       }
+                     ]
+                   },
+                   turn: turn_ref
+                 ),
                  route
                )
 
@@ -171,6 +179,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
     # Keep the route registered until the RPC under test performs auth.
     assert is_binary(route)
-    turn_wire_ref(turn_start_payload!(envelope).turn)
+    turn_start_payload!(envelope).turn
   end
 end

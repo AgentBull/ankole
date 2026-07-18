@@ -5,7 +5,12 @@ import { parse } from 'yaml'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
-import { normalizeEnabledSkill, resolveSkillFilesystemRoot, type SkillFileRoots } from '../../skills/effective-skill'
+import {
+  normalizeEnabledSkill,
+  resolveSkillFilesystemRoot,
+  skillMetadata,
+  type SkillFileRoots
+} from '../../skills/effective-skill'
 import { utf8ByteLength } from '../../common/text-sanitize'
 import { compareCodePointStrings } from './ordering'
 
@@ -111,8 +116,8 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
   const skills = input.enabledSkills
     .map(normalizeEnabledSkill)
     .filter((skill): skill is RuntimeSkillSummary => skill !== undefined)
-    .filter(skill => input.includeLongRunning === true || skill.metadata?.long_running !== true)
-    .sort((left, right) => compareCodePointStrings(left.skill_name, right.skill_name))
+    .filter(skill => input.includeLongRunning === true || skillMetadata(skill).long_running !== true)
+    .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
   if (skills.length === 0) return []
   if (!input.skillRoots) throw new Error('enabled inline Skills require worker skill source roots for MCP discovery')
@@ -120,7 +125,7 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
   const declarations = await Promise.all(
     skills.map(async skill => {
       const skillRoot = resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots!, turn: input.turn })
-      return await readSkillMCPDependencies(skill.skill_name, skillRoot)
+      return await readSkillMCPDependencies(skill.skillName, skillRoot)
     })
   )
 

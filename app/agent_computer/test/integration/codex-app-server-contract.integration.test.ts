@@ -1,4 +1,11 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { jsonBytes } from '../../src/fabric/envelope_proto'
+import {
+  AIGatewayAPIKeyResponseSchema,
+  RuntimeSkillSummarySchema,
+  SkillOverlayResponseSchema
+} from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   chmodSync,
   existsSync,
@@ -412,12 +419,12 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
         revision: 0
       },
       enabledSkills: [
-        {
-          skill_name: 'pptx',
-          source_kind: 'builtin',
-          relative_path: 'pptx',
-          has_agent_overlay: true
-        }
+        create(RuntimeSkillSummarySchema, {
+          skillName: 'pptx',
+          sourceKind: 'builtin',
+          relativePath: 'pptx',
+          hasAgentOverlay: true
+        })
       ],
       skillRoots: {
         builtinSkillsRoot,
@@ -425,16 +432,13 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
       },
       rpc: (async (method: unknown, payload: unknown) => {
         if (method !== rpcMethods.skillsOverlayResolve) throw new Error(`unexpected RPC method: ${String(method)}`)
-        const request = payload as { skill_name: string }
-        return {
-          request_id: 'req-1',
-          agent_uid: 'agent-1',
-          session_id: 'job:019f0000-0000-7000-8000-000000000001',
-          skill_name: request.skill_name,
-          has_overlay: true,
-          overlay_json: { text: 'PG_OVERLAY_MARKER' },
-          content_hash: 'overlay-hash'
-        }
+        const request = payload as { skillName: string }
+        return create(SkillOverlayResponseSchema, {
+          skillName: request.skillName,
+          hasOverlay: true,
+          overlayJson: jsonBytes({ text: 'PG_OVERLAY_MARKER' }),
+          contentHash: 'overlay-hash'
+        })
       }) as RPCRequester
     }
     const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
@@ -445,16 +449,15 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
         mode: 'aigateway',
         accountID: 'aigateway',
         modelOverride: 'coding',
-        aiGatewayKey: {
-          request_id: 'key-1',
-          agent_uid: 'agent-1',
-          api_key: 'unused-test-key',
-          token_type: 'Bearer',
-          expires_at: Math.floor(Date.now() / 1_000) + 3_600,
-          expires_in: 3_600,
+        aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
+          agentUid: 'agent-1',
+          apiKey: 'unused-test-key',
+          tokenType: 'Bearer',
+          expiresAt: BigInt(Math.floor(Date.now() / 1_000) + 3_600),
+          expiresIn: 3_600n,
           scope: 'ai_gateway',
-          base_url: 'http://control.test/api/v1/ai-gateway'
-        }
+          baseUrl: 'http://control.test/api/v1/ai-gateway'
+        })
       }
     })
     let realClient: CodexAppServerClient | undefined

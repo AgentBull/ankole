@@ -9,8 +9,9 @@
  * byte within one prompt epoch while genuinely per-turn observations stay in
  * the current user message.
  */
+import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { TurnStart } from '../lanes/actor_lane'
-import type { AgentConversationContext, RuntimeSkillSummary } from '../lanes/rpc_lane'
+import type { AgentConversationContextResponse, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { match } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
@@ -21,7 +22,7 @@ const SystemPromptEpochMarker = `<!-- ankole-system-prompt-epoch:${AGENT_SYSTEM_
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
   turnStart: TurnStart
-  agentConversationContext?: AgentConversationContext
+  agentConversationContext?: AgentConversationContextResponse
   currentChannel?: CurrentChannelContext
   availableToolNames?: string[]
 }
@@ -68,7 +69,7 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     brainPolicySection(opts),
     skillPrompt.trim(),
     runtimeContextSection(opts),
-    formatAgentDurableContext(opts.agentConversationContext.brain_snapshot)
+    formatAgentDurableContext(opts.agentConversationContext.brainSnapshot)
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -80,7 +81,7 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
  * instructions of an older response chain.
  */
 export function systemPromptForConversation(opts: BuildAgentSystemPromptOptions): string {
-  const snapshot = opts.agentConversationContext?.system_prompt_snapshot
+  const snapshot = opts.agentConversationContext?.systemPromptSnapshot
   return typeof snapshot === 'string' && snapshot.trimStart().startsWith(SystemPromptEpochMarker)
     ? snapshot
     : buildAgentSystemPrompt(opts)
@@ -110,7 +111,7 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
-  const startedAt = parseDate(opts.agentConversationContext?.conversation?.started_at)
+  const startedAt = parseDate(opts.agentConversationContext?.conversation?.startedAt)
   if (startedAt) {
     lines.push(`Conversation started date: ${formatZonedDate(timezone, startedAt)}`)
   }
@@ -126,7 +127,7 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
  * Chooses the display name used in the system prompt.
  */
 function agentDisplayName(opts: BuildAgentSystemPromptOptions): string {
-  const displayName = opts.agentConversationContext?.agent?.display_name?.trim()
+  const displayName = opts.agentConversationContext?.agent?.displayName?.trim()
   return displayName || opts.turnStart.turn.actor.agent_uid
 }
 
@@ -265,15 +266,15 @@ function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPrompt
  * Drops skills that do not have enough metadata to appear in the prompt index.
  */
 export function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
-  if (!skill.skill_name || !skill.description) return null
-  const metadata = skill.metadata ?? {}
+  if (!skill.skillName || !skill.description) return null
+  const metadata = jsonObjectFromBytes(skill.metadataJson, 'runtime_skill_summary.metadata_json') ?? {}
   const disableModelInvocation =
     metadata['disable_model_invocation'] === true || metadata['disable-model-invocation'] === true
 
   return {
-    name: skill.skill_name,
+    name: skill.skillName,
     description: skill.description,
-    category: typeof skill.category === 'string' ? skill.category : undefined,
+    category: skill.category || undefined,
     disableModelInvocation,
     longRunning: metadata.long_running === true
   }

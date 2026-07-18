@@ -22,7 +22,13 @@ import {
   systemPromptForConversation
 } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
-import type { AgentConversationContext, AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
+import { create } from '@bufbuild/protobuf'
+import { jsonBytes } from '../../src/fabric/envelope_proto'
+import {
+  AgentConversationContextResponseSchema,
+  AIGatewayAPIKeyResponseSchema
+} from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import type { AgentConversationContextResponse, AIGatewayAPIKeyResponse } from '../../src/lanes/rpc_lane'
 import {
   FakeResponseSocket,
   fakeResponseSocket,
@@ -37,7 +43,7 @@ import {
 describe('@ankole/agent-computer llm helpers: transport and actor content', () => {
   it('acquires one AIGateway access handle for a turn and validates the initial key', async () => {
     const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-      requestAIGatewayAPIKey: async request => aiGatewayKeyForTest(request.agent_uid, 'agent-key')
+      requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, 'agent-key')
     })
 
     expect(access.model.selector).toBe('openrouter/z-ai/glm-5.2')
@@ -62,12 +68,12 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     try {
       const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayAPIKey: async (request, options) => {
+        requestAIGatewayAPIKey: async (agentUid, options) => {
           refreshOptions.push(options)
           keyRequests += 1
 
           return keyRequests === 1
-            ? aiGatewayKeyForTest(request.agent_uid, 'old-key')
+            ? aiGatewayKeyForTest(agentUid, 'old-key')
             : aiGatewayKeyForTest('other-agent', 'wrong-key')
         }
       })
@@ -88,16 +94,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         provider_id: 'openrouter',
         model: 'z-ai/glm-5.2'
       },
-      {
-        request_id: 'key-1',
-        agent_uid: 'agent-1',
-        api_key: 'agent-key',
-        token_type: 'Bearer',
-        expires_at: Math.floor(Date.now() / 1000) + 3_600,
-        expires_in: 3_600,
-        scope: 'ai_gateway',
-        base_url: 'https://control.test/api/v1/ai-gateway/'
-      }
+      aiGatewayKeyForTest('agent-1', 'agent-key')
     )
 
     expect(model.selector).toBe('openrouter/z-ai/glm-5.2')
@@ -148,28 +145,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
           provider_id: 'ai_gateway',
           model: 'primary'
         },
-        {
-          request_id: 'key-old',
-          agent_uid: 'agent-1',
-          api_key: 'old-key',
-          token_type: 'Bearer',
-          expires_at: Math.floor(Date.now() / 1000) + 3_600,
-          expires_in: 3_600,
-          scope: 'ai_gateway',
-          base_url: 'https://control.test/api/v1/ai-gateway'
-        },
+        aiGatewayKeyForTest('agent-1', 'old-key'),
         async options => {
           refreshOptions.push(options)
-          return {
-            request_id: 'key-new',
-            agent_uid: 'agent-1',
-            api_key: 'new-key',
-            token_type: 'Bearer',
-            expires_at: Math.floor(Date.now() / 1000) + 3_600,
-            expires_in: 3_600,
-            scope: 'ai_gateway',
-            base_url: 'https://control.test/api/v1/ai-gateway'
-          }
+          return aiGatewayKeyForTest('agent-1', 'new-key')
         }
       )
 
@@ -214,11 +193,11 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     try {
       let refreshes = 0
       const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayAPIKey: async (request, options) => {
+        requestAIGatewayAPIKey: async (agentUid, options) => {
           refreshOptions.push(options)
-          if (!options?.forceRefresh) return aiGatewayKeyForTest(request.agent_uid, 'old-key')
+          if (!options?.forceRefresh) return aiGatewayKeyForTest(agentUid, 'old-key')
           refreshes += 1
-          return aiGatewayKeyForTest(request.agent_uid, `refreshed-key-${refreshes}`)
+          return aiGatewayKeyForTest(agentUid, `refreshed-key-${refreshes}`)
         }
       })
 
@@ -243,7 +222,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
     try {
       const access = await acquireTurnAIGatewayAccess(turnStartForTest(), {
-        requestAIGatewayAPIKey: async request => aiGatewayKeyForTest(request.agent_uid, `key-${calls}`)
+        requestAIGatewayAPIKey: async agentUid => aiGatewayKeyForTest(agentUid, `key-${calls}`)
       })
       const controller = new AbortController()
       setTimeout(() => controller.abort(new Error('caller stopped AIGateway retry')), 20)
@@ -269,28 +248,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         provider_id: 'ai_gateway',
         model: 'primary'
       },
-      {
-        request_id: 'key-old',
-        agent_uid: 'agent-1',
-        api_key: 'old-key',
-        token_type: 'Bearer',
-        expires_at: Math.floor(Date.now() / 1000) + 3_600,
-        expires_in: 3_600,
-        scope: 'ai_gateway',
-        base_url: 'https://control.test/api/v1/ai-gateway'
-      },
+      aiGatewayKeyForTest('agent-1', 'old-key'),
       async options => {
         refreshOptions.push(options)
-        return {
-          request_id: 'key-new',
-          agent_uid: 'agent-1',
-          api_key: 'new-key',
-          token_type: 'Bearer',
-          expires_at: Math.floor(Date.now() / 1000) + 3_600,
-          expires_in: 3_600,
-          scope: 'ai_gateway',
-          base_url: 'https://control.test/api/v1/ai-gateway'
-        }
+        return aiGatewayKeyForTest('agent-1', 'new-key')
       }
     )
 
@@ -638,26 +599,22 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
   it('keeps durable context in the system suffix and reuses a current-epoch conversation prompt verbatim', () => {
     const turnStart = turnStartForTest() as TurnStart
-    const context: AgentConversationContext = {
-      request_id: 'context-1',
-      agent_uid: 'agent-1',
-      session_id: 'session-1',
-      turn: turnStart.turn,
-      agent: { display_name: 'Research Agent', role: 'Analyst' },
+    const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
+      agent: { displayName: 'Research Agent', role: 'Analyst' },
       conversation: {
         id: 'conversation-1',
         key: 'session-1',
-        started_at: '2026-07-15T01:00:00Z',
+        startedAt: '2026-07-15T01:00:00Z',
         timezone: 'Asia/Shanghai'
       },
       soul: 'Be precise.',
       mission: 'Help with research.',
       design: 'Use cobalt only in visual artifacts.',
-      brain_snapshot: {
-        pinned_memo: { resident_text: 'Prefer concise evidence.', truncated: false }
+      brainSnapshot: {
+        pinnedMemo: { residentText: 'Prefer concise evidence.', truncated: false }
       },
-      skills: [{ skill_name: 'financial-data', description: 'Read current market data.' }]
-    }
+      skills: [{ skillName: 'financial-data', description: 'Read current market data.' }]
+    })
     const options = {
       workspaceRoot: '/workspace',
       turnStart,
@@ -667,17 +624,26 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     }
 
     const instructions = buildAgentSystemPrompt(options)
-    const changedContext: AgentConversationContext = {
-      ...context,
-      conversation: { ...context.conversation, id: 'conversation-2', timezone: 'UTC' },
-      brain_snapshot: {
-        pinned_memo: { resident_text: 'Prefer detailed explanations.', truncated: false }
+    const changedContext: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
+      agent: { displayName: 'Research Agent', role: 'Analyst' },
+      conversation: {
+        id: 'conversation-2',
+        key: 'session-1',
+        startedAt: '2026-07-15T01:00:00Z',
+        timezone: 'UTC'
       },
-      skills: [{ skill_name: 'documents', description: 'Create documents.' }]
-    }
+      soul: 'Be precise.',
+      mission: 'Help with research.',
+      design: 'Use cobalt only in visual artifacts.',
+      brainSnapshot: {
+        pinnedMemo: { residentText: 'Prefer detailed explanations.', truncated: false }
+      },
+      skills: [{ skillName: 'documents', description: 'Create documents.' }]
+    })
+    changedContext.systemPromptSnapshot = instructions
     const changedOptions = {
       ...options,
-      agentConversationContext: { ...changedContext, system_prompt_snapshot: instructions },
+      agentConversationContext: changedContext,
       currentChannel: { kind: 'external_group' as const, id: 'group-2', platform: 'feishu' }
     }
 
@@ -694,21 +660,17 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
   it('refreshes legacy prompt snapshots when the tool contract epoch changes', () => {
     const turnStart = turnStartForTest() as TurnStart
-    const context: AgentConversationContext = {
-      request_id: 'context-legacy-prompt',
-      agent_uid: 'agent-1',
-      session_id: 'session-1',
-      turn: turnStart.turn,
+    const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
       conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' },
       skills: [
         {
-          skill_name: 'documents',
+          skillName: 'documents',
           description: 'Create and verify a Word document.',
-          metadata: { long_running: true }
+          metadataJson: jsonBytes({ long_running: true })
         }
       ],
-      system_prompt_snapshot: 'Legacy prompt with browser automation, Chromium/CDP, tmux, and interactive_terminal.'
-    }
+      systemPromptSnapshot: 'Legacy prompt with browser automation, Chromium/CDP, tmux, and interactive_terminal.'
+    })
 
     const instructions = systemPromptForConversation({
       workspaceRoot: '/workspace',
@@ -734,13 +696,9 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     const options = {
       workspaceRoot: '/workspace',
       turnStart,
-      agentConversationContext: {
-        request_id: 'context-hosted-image',
-        agent_uid: 'agent-1',
-        session_id: 'session-1',
-        turn: turnStart.turn,
+      agentConversationContext: create(AgentConversationContextResponseSchema, {
         conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' }
-      },
+      }),
       availableToolNames: ['reply_attachment']
     }
 
@@ -774,13 +732,9 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(lines).toContain('schedule_silent_success_allowed: false')
     expect(lines).toContain('schedule_payload: {"symbol":"600519.SH"}')
 
-    const context: AgentConversationContext = {
-      request_id: 'context-schedule',
-      agent_uid: 'agent-1',
-      session_id: 'session-1',
-      turn: turnStart.turn,
+    const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
       conversation: { id: 'conversation-1', key: 'session-1', timezone: 'Asia/Shanghai' }
-    }
+    })
     const instructions = buildAgentSystemPrompt({
       workspaceRoot: '/workspace',
       turnStart,
@@ -1021,14 +975,13 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 })
 
 function aiGatewayKeyForTest(agentUID: string, apiKey: string): AIGatewayAPIKeyResponse {
-  return {
-    request_id: `key-${apiKey}`,
-    agent_uid: agentUID,
-    api_key: apiKey,
-    token_type: 'Bearer',
-    expires_at: Math.floor(Date.now() / 1000) + 3_600,
-    expires_in: 3_600,
+  return create(AIGatewayAPIKeyResponseSchema, {
+    agentUid: agentUID,
+    apiKey,
+    tokenType: 'Bearer',
+    expiresAt: BigInt(Math.floor(Date.now() / 1000) + 3_600),
+    expiresIn: 3_600n,
     scope: 'ai_gateway',
-    base_url: 'https://control.test/api/v1/ai-gateway/'
-  }
+    baseUrl: 'https://control.test/api/v1/ai-gateway/'
+  })
 }

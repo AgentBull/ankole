@@ -1,10 +1,5 @@
 import type { AgentMessage, ReplyPresentationEvent } from '../types'
-import type {
-  AgentConversationContext,
-  AIGatewayAPIKeyRequest,
-  AIGatewayAPIKeyResponse,
-  RPCRequester
-} from '../../lanes/rpc_lane'
+import type { AgentConversationContextResponse, AIGatewayAPIKeyResponse, RPCRequester } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 import type { BrowserRuntime } from '../../browser-runtime'
 
@@ -18,7 +13,7 @@ export type AIGatewayAPIKeyRequestOptions = {
  * callers force a refresh after a 401 or socket open failure.
  */
 export type AIGatewayAPIKeyRequester = (
-  request: Omit<AIGatewayAPIKeyRequest, 'request_id'>,
+  agentUid: string,
   options?: AIGatewayAPIKeyRequestOptions
 ) => Promise<AIGatewayAPIKeyResponse>
 
@@ -42,7 +37,7 @@ type SharedTurnOptions = {
   internalSkillsRoot?: string
   rpc: RPCRequester
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
-  agentConversationContext?: AgentConversationContext
+  agentConversationContext?: AgentConversationContextResponse
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal
   browserRuntime?: BrowserRuntime

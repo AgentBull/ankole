@@ -9,58 +9,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker do
   """
 
   alias Ankole.AppConfigure
-  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.Principals
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
 
   @doc """
   Handles `app_configure.resolve`.
   """
-  @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_request(request, _route) when is_map(request) do
-    request_id =
-      RPCWire.text(request, "request_id") || "app-configure-resolve-#{Ecto.UUID.generate()}"
-
+  @spec handle_request(String.t() | nil, FabricProto.AppConfigureResolveRequest.t(), map()) ::
+          {:ok, FabricProto.AppConfigureResolveResponse.t()} | {:error, map()}
+  def handle_request(agent_uid, %FabricProto.AppConfigureResolveRequest{} = request, ctx) do
     result =
-      with {:ok, agent_uid} <- request_agent_uid(request),
-           {:ok, keys} <- request_keys(request),
+      with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
+           {:ok, keys} <- normalize_keys(request.keys),
            {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
            {:ok, values} <- resolve_keys(principal.uid, keys) do
-        {:ok, response_payload(request_id, principal.uid, values)}
+        {:ok, %FabricProto.AppConfigureResolveResponse{values: values}}
       end
 
     case result do
-      {:ok, payload} ->
-        {:ok, payload}
-
-      {:error, reason} ->
-        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
-
-      :disabled ->
-        {:error,
-         error_payload(request_id, RPCWire.text(request, "agent_uid") || "", :agent_disabled)}
+      {:ok, response} -> {:ok, response}
+      {:error, reason} -> {:error, error_payload(ctx.request_id, agent_uid, reason)}
+      :disabled -> {:error, error_payload(ctx.request_id, agent_uid, :agent_disabled)}
     end
   end
 
-  def handle_request(_request, _route),
-    do: {:error, error_payload("", "", :invalid_app_configure_resolve_request)}
-
-  defp request_agent_uid(request) do
-    case RPCWire.text(request, "agent_uid") do
-      nil -> {:error, :missing_agent_uid}
-      agent_uid -> Principals.normalize_uid(agent_uid)
-    end
-  end
-
-  defp request_keys(request) do
-    case RPCWire.value(request, "keys") do
-      keys when is_list(keys) ->
-        normalize_keys(keys)
-
-      _value ->
-        {:error, :invalid_app_configure_keys}
-    end
-  end
+  defp frame_agent_uid(nil), do: {:error, :missing_agent_uid}
+  defp frame_agent_uid(agent_uid), do: Principals.normalize_uid(agent_uid)
 
   defp normalize_keys(keys) do
     keys
@@ -98,18 +74,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker do
   end
 
   defp resolution_payload(resolution) do
-    %{
-      "value" => resolution.value,
-      "source" => Atom.to_string(resolution.source)
-    }
-    |> maybe_put("scope", resolution.scope)
-  end
-
-  defp response_payload(request_id, agent_uid, values) do
-    %{
-      "request_id" => request_id,
-      "agent_uid" => agent_uid,
-      "values" => values
+    %FabricProto.AppConfigureResolution{
+      value_json: Torque.encode!(resolution.value),
+      source: Atom.to_string(resolution.source)
     }
   end
 
@@ -117,10 +84,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker do
     RPCWire.error_payload(request_id, reason,
       fallback_code: "app_configure_resolve_failed",
       message_style: :tuple_inspect,
-      details_json: %{"agent_uid" => agent_uid}
+      details_json: %{"agent_uid" => agent_uid || ""}
     )
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

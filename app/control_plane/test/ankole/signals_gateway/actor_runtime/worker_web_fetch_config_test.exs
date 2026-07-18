@@ -4,11 +4,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 3,
-      rpc_response_payload!: 1,
+      rpc_request: 4,
+      rpc_response_payload!: 2,
       rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
+
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
@@ -55,24 +58,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("web-fetch-config", "app_configure.resolve", %{
-                 "request_id" => "web-fetch-config",
-                 "agent_uid" => agent.uid,
-                 "keys" => [definition.key]
-               }),
+               rpc_request(
+                 "web-fetch-config",
+                 "app_configure.resolve",
+                 %FabricProto.AppConfigureResolveRequest{keys: [definition.key]},
+                 agent_uid: agent.uid
+               ),
                "trusted-worker-route"
              )
 
-    response = rpc_response_payload!(envelope)
-    assert get_in(response, ["values", definition.key, "value"]) == ttl
+    response = rpc_response_payload!(envelope, FabricProto.AppConfigureResolveResponse)
+    assert Torque.decode!(response.values[definition.key].value_json) == ttl
 
     assert {:ok, rejected} =
              RPCLane.handle_request(
-               rpc_request("remote-browser-dormant", "app_configure.resolve", %{
-                 "request_id" => "remote-browser-dormant",
-                 "agent_uid" => agent.uid,
-                 "keys" => ["worker.remote_browser_cdp_config"]
-               }),
+               rpc_request(
+                 "remote-browser-dormant",
+                 "app_configure.resolve",
+                 %FabricProto.AppConfigureResolveRequest{keys: ["worker.remote_browser_cdp_config"]},
+                 agent_uid: agent.uid
+               ),
                "trusted-worker-route"
              )
 

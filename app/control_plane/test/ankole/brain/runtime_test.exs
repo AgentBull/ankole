@@ -8,6 +8,7 @@ defmodule Ankole.Brain.RuntimeTest do
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.RPCBroker
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Brain.RuntimeContext
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Scope
@@ -188,7 +189,7 @@ defmodule Ankole.Brain.RuntimeTest do
 
   test "RPC derives owner store and author, and opens stable block pages" do
     %{principal: agent} = agent_fixture()
-    %{principal: other} = human_fixture()
+    %{principal: _other} = human_fixture()
     session_id = "brain-rpc-session"
 
     {:ok, _conversation} =
@@ -201,17 +202,10 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:ok, create} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "request_id" => "brain-create",
-                 "operation" => "create_entry",
-                 "name" => "RPC Contract",
-                 "type" => "fact",
-                 "owner_uid" => other.uid,
-                 "store_key" => "dm:#{other.uid}",
-                 "author_kind" => "human",
-                 "author_uid" => other.uid
+               %FabricProto.MemoryUpdateRequest{
+                 operation: {:create_entry, %FabricProto.MemoryCreateEntry{name: "RPC Contract", type: "fact"}}
                },
-               "worker-route"
+               rpc_ctx("brain-create")
              )
 
     [created] = create["results"]
@@ -220,33 +214,39 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:ok, first_append} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "operation" => "append_block",
-                 "entry_id" => entry_id,
-                 "expected_entry_lock_version" => 1,
-                 "body" => "first page"
+               %FabricProto.MemoryUpdateRequest{
+                 operation:
+                   {:append_block,
+                    %FabricProto.MemoryAppendBlock{
+                      entry_id: entry_id,
+                      expected_entry_lock_version: 1,
+                      body: "first page"
+                    }}
                },
-               "worker-route"
+               rpc_ctx("brain-append-1")
              )
 
     assert {:ok, _second_append} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "operation" => "append_block",
-                 "entry_id" => entry_id,
-                 "expected_entry_lock_version" =>
-                   first_append["results"] |> hd() |> Map.fetch!("entry_lock_version"),
-                 "body" => "second page"
+               %FabricProto.MemoryUpdateRequest{
+                 operation:
+                   {:append_block,
+                    %FabricProto.MemoryAppendBlock{
+                      entry_id: entry_id,
+                      expected_entry_lock_version:
+                        first_append["results"] |> hd() |> Map.fetch!("entry_lock_version"),
+                      body: "second page"
+                    }}
                },
-               "worker-route"
+               rpc_ctx("brain-append-2")
              )
 
     assert {:ok, page_one} =
              RPCBroker.handle_open(
                turn,
-               %{"entry_id" => entry_id, "block_limit" => 1},
-               "worker-route"
+               %FabricProto.MemoryOpenRequest{entry_id: entry_id, block_limit: 1},
+               rpc_ctx("brain-open-1")
              )
 
     assert page_one["entry"]["owner_uid"] == agent.uid
@@ -265,12 +265,12 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:ok, page_two} =
              RPCBroker.handle_open(
                turn,
-               %{
-                 "entry_id" => entry_id,
-                 "block_limit" => 1,
-                 "block_cursor" => page_one["next_block_cursor"]
+               %FabricProto.MemoryOpenRequest{
+                 entry_id: entry_id,
+                 block_limit: 1,
+                 block_cursor: page_one["next_block_cursor"]
                },
-               "worker-route"
+               rpc_ctx("brain-open-2")
              )
 
     assert [%{"body" => "second page"}] = page_two["blocks"]
@@ -315,37 +315,46 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:error, %{"code" => "source_learning_operation_not_allowed"}} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "operation" => "set_summary",
-                 "entry_id" => Ecto.UUID.generate(),
-                 "summary" => "A temporary tool failure",
-                 "expected_entry_lock_version" => 1
+               %FabricProto.MemoryUpdateRequest{
+                 operation:
+                   {:set_summary,
+                    %FabricProto.MemorySetSummary{
+                      entry_id: Ecto.UUID.generate(),
+                      summary: "A temporary tool failure",
+                      expected_entry_lock_version: 1
+                    }}
                },
-               "worker-route"
+               rpc_ctx("brain-source-summary")
              )
 
     assert {:error, %{"code" => "source_learning_citation_required"}} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "operation" => "create_entry",
-                 "name" => "Unsupported runtime state",
-                 "type" => "fact",
-                 "initial_body" => "The PDF reader is currently broken."
+               %FabricProto.MemoryUpdateRequest{
+                 operation:
+                   {:create_entry,
+                    %FabricProto.MemoryCreateEntry{
+                      name: "Unsupported runtime state",
+                      type: "fact",
+                      initial_body: "The PDF reader is currently broken."
+                    }}
                },
-               "worker-route"
+               rpc_ctx("brain-source-uncited")
              )
 
     assert {:ok, result} =
              RPCBroker.handle_update(
                turn,
-               %{
-                 "operation" => "create_entry",
-                 "name" => "Supported source policy",
-                 "type" => "fact",
-                 "initial_body" => "Keep supported claims. src:#{source.document_id}"
+               %FabricProto.MemoryUpdateRequest{
+                 operation:
+                   {:create_entry,
+                    %FabricProto.MemoryCreateEntry{
+                      name: "Supported source policy",
+                      type: "fact",
+                      initial_body: "Keep supported claims. src:#{source.document_id}"
+                    }}
                },
-               "worker-route"
+               rpc_ctx("brain-source-cited")
              )
 
     [created] = result["results"]
@@ -503,12 +512,12 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:ok, old_result} =
              RPCBroker.handle_search(
                turn,
-               %{
-                 "query" => "玄武岩映射",
-                 "layer" => "chat",
-                 "channel_scope" => "current_channel"
+               %FabricProto.MemorySearchRequest{
+                 query: "玄武岩映射",
+                 layer: "chat",
+                 channel_scope: "current_channel"
                },
-               "worker-route"
+               rpc_ctx("brain-search-old")
              )
 
     assert Enum.any?(old_result["results"], fn hit ->
@@ -519,12 +528,12 @@ defmodule Ankole.Brain.RuntimeTest do
     assert {:ok, visible_result} =
              RPCBroker.handle_search(
                turn,
-               %{
-                 "query" => "云杉坐标",
-                 "layer" => "chat",
-                 "channel_scope" => "current_channel"
+               %FabricProto.MemorySearchRequest{
+                 query: "云杉坐标",
+                 layer: "chat",
+                 channel_scope: "current_channel"
                },
-               "worker-route"
+               rpc_ctx("brain-search-visible")
              )
 
     refute Enum.any?(visible_result["results"], fn hit ->
@@ -604,6 +613,8 @@ defmodule Ankole.Brain.RuntimeTest do
       })
     end)
   end
+
+  defp rpc_ctx(request_id), do: %{route: "worker-route", request_id: request_id}
 
   defp turn_ref(agent_uid, session_id, actor_event_id \\ Ecto.UUID.generate()) do
     %TurnRef{

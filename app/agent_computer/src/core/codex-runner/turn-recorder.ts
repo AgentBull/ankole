@@ -1,10 +1,10 @@
 import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
+import { jsonBytes } from '../../fabric/envelope_proto'
 import {
   RPCRejectedError,
   rpcRejectedMessage,
-  type BackgroundAgentJobTurnUpsertRequest,
   type BackgroundAgentJobTurnUpsertResponse,
   type BackgroundAgentJobTurnPlan,
   type BackgroundAgentJobTurnProgress,
@@ -13,7 +13,8 @@ import {
   type BackgroundAgentJobTurnTrajectory,
   type BackgroundAgentJobTurnTrajectoryGroup,
   type BackgroundAgentJobTurnTrajectoryMessage,
-  type BackgroundAgentJobTurnUsage
+  type BackgroundAgentJobTurnUsage,
+  type RPCRequestInit
 } from '../../lanes/rpc_lane'
 import type { JSONRPCMessage } from '../../tools/codex/app-server-client'
 import { filesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../../tools/codex/protocol'
@@ -77,7 +78,7 @@ export class BackgroundAgentJobTurnRecorder {
       attempt: number
       actorTurn: ActorTurnRef
       upsert: (
-        request: Omit<BackgroundAgentJobTurnUpsertRequest, 'request_id'>
+        request: RPCRequestInit<'background_agent_job.turn.upsert'>
       ) => Promise<BackgroundAgentJobTurnUpsertResponse>
       checkpointDelayMs?: number
     }
@@ -503,7 +504,7 @@ export class BackgroundAgentJobTurnRecorder {
       })
   }
 
-  private request(turn: RuntimeTurn): Omit<BackgroundAgentJobTurnUpsertRequest, 'request_id'> {
+  private request(turn: RuntimeTurn): RPCRequestInit<'background_agent_job.turn.upsert'> {
     const trajectoryGroups = pendingTrajectoryGroups(turn)
     for (const group of trajectoryGroups) {
       turn.enqueuedItemKeys.add(group.item_key)
@@ -514,21 +515,20 @@ export class BackgroundAgentJobTurnRecorder {
     }
 
     return {
-      turn: this.input.actorTurn,
-      job_id: this.input.jobID,
+      jobId: this.input.jobID,
       attempt: this.input.attempt,
-      runtime_thread_id: turn.runtimeThreadID,
-      runtime_turn_id: turn.runtimeTurnID,
+      runtimeThreadId: turn.runtimeThreadID,
+      runtimeTurnId: turn.runtimeTurnID,
       kind: turn.kind,
       status: turn.status,
       revision: turn.revision,
-      trajectory: trajectoryHeader(turn),
-      trajectory_groups: trajectoryGroups,
-      progress: progress(turn),
-      ...(turn.usage ? { usage: turn.usage } : {}),
-      error: turn.error,
-      started_at: turn.startedAt,
-      ...(turn.completedAt ? { completed_at: turn.completedAt } : {})
+      trajectoryJson: jsonBytes(trajectoryHeader(turn)),
+      trajectoryGroupsJson: jsonBytes(trajectoryGroups),
+      progressJson: jsonBytes(progress(turn)),
+      ...(turn.usage ? { usageJson: jsonBytes(turn.usage) } : {}),
+      errorJson: jsonBytes(turn.error),
+      startedAt: turn.startedAt,
+      ...(turn.completedAt ? { completedAt: turn.completedAt } : {})
     }
   }
 }

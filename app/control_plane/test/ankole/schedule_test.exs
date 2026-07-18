@@ -37,8 +37,7 @@ defmodule Ankole.ScheduleTest do
       decoded_request_context: 1,
       envelope_body_type: 1,
       envelope_body!: 2,
-      decoded_json_bytes: 1,
-      turn_wire_ref: 1
+      decoded_json_bytes: 1
     ]
 
   @base_time DateTime.utc_now(:microsecond)
@@ -621,16 +620,15 @@ defmodule Ankole.ScheduleTest do
         "source_entry_id" => source_event.source_entry_id
       }
 
-      request = %{
-        "request_id" => "schedule-rpc-ok",
-        "turn" => turn_ref,
-        "tool_call_id" => "checkback-call-1",
-        "idempotency_key" => "schedule-rpc-checkback-1",
-        "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"},
-        "reason" => "Deployment is still running.",
-        "check" => "Ask whether the deployment finished.",
-        "quiet_success" => true,
-        "reply_route" => reply_route
+      request = %FabricProto.ScheduleCheckBackLaterCreateRequest{
+        tool_call_id: "checkback-call-1",
+        idempotency_key: "schedule-rpc-checkback-1",
+        schedule_json:
+          Torque.encode!(%{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"}),
+        reason: "Deployment is still running.",
+        check: "Ask whether the deployment finished.",
+        quiet_success: true,
+        reply_route_json: Torque.encode!(reply_route)
       }
 
       assert {:ok,
@@ -639,7 +637,7 @@ defmodule Ankole.ScheduleTest do
                 "scheduled_event_id" => scheduled_event_id,
                 "timezone" => "Etc/UTC",
                 "quiet_success" => true
-              }} = schedule_rpc("check_back_later.create", request, route)
+              }} = schedule_rpc("check_back_later.create", request, turn_ref, route)
 
       scheduled_event = Repo.get!(ScheduledEvent, scheduled_event_id)
       assert scheduled_event.source_actor_event_id == source_event.id
@@ -654,7 +652,8 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.create",
-                 %{request | "request_id" => "schedule-rpc-duplicate", "quiet_success" => false},
+                 %{request | quiet_success: false},
+                 turn_ref,
                  route
                )
 
@@ -665,7 +664,8 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.list",
-                 %{"request_id" => "schedule-rpc-list", "turn" => turn_ref, "limit" => 5},
+                 %FabricProto.ScheduleCheckBackLaterListRequest{limit: 5},
+                 turn_ref,
                  route
                )
 
@@ -679,11 +679,10 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.get",
-                 %{
-                   "request_id" => "schedule-rpc-get",
-                   "turn" => turn_ref,
-                   "scheduled_event_id" => scheduled_event_id
+                 %FabricProto.ScheduleCheckBackLaterTargetRequest{
+                   scheduled_event_id: scheduled_event_id
                  },
+                 turn_ref,
                  route
                )
 
@@ -702,18 +701,18 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.update",
-                 %{
-                   "request_id" => "schedule-rpc-update",
-                   "turn" => turn_ref,
-                   "scheduled_event_id" => scheduled_event_id,
-                   "tool_call_id" => "checkback-call-update-1",
-                   "idempotency_key" => "schedule-rpc-checkback-update-1",
-                   "updates" => %{
-                     "check" => "Let evidence density determine the PDF length.",
-                     "context_summary" => "The user removed the 6–12 page constraint."
-                   },
-                   "reply_route" => reply_route
+                 %FabricProto.ScheduleCheckBackLaterUpdateRequest{
+                   scheduled_event_id: scheduled_event_id,
+                   tool_call_id: "checkback-call-update-1",
+                   idempotency_key: "schedule-rpc-checkback-update-1",
+                   updates_json:
+                     Torque.encode!(%{
+                       "check" => "Let evidence density determine the PDF length.",
+                       "context_summary" => "The user removed the 6–12 page constraint."
+                     }),
+                   reply_route_json: Torque.encode!(reply_route)
                  },
+                 turn_ref,
                  route
                )
 
@@ -728,22 +727,22 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.list",
-                 %{"request_id" => "schedule-rpc-list-updated", "turn" => turn_ref},
+                 %FabricProto.ScheduleCheckBackLaterListRequest{},
+                 turn_ref,
                  route
                )
 
       assert {:error, %{"code" => "unknown_checkback_update_fields"}} =
                schedule_rpc(
                  "check_back_later.update",
-                 %{
-                   "request_id" => "schedule-rpc-update-unknown-field",
-                   "turn" => turn_ref,
-                   "scheduled_event_id" => replacement_event_id,
-                   "tool_call_id" => "checkback-call-update-unknown",
-                   "idempotency_key" => "schedule-rpc-checkback-update-unknown",
-                   "updates" => %{"pages" => "unbounded"},
-                   "reply_route" => reply_route
+                 %FabricProto.ScheduleCheckBackLaterUpdateRequest{
+                   scheduled_event_id: replacement_event_id,
+                   tool_call_id: "checkback-call-update-unknown",
+                   idempotency_key: "schedule-rpc-checkback-update-unknown",
+                   updates_json: Torque.encode!(%{"pages" => "unbounded"}),
+                   reply_route_json: Torque.encode!(reply_route)
                  },
+                 turn_ref,
                  route
                )
 
@@ -754,11 +753,10 @@ defmodule Ankole.ScheduleTest do
               }} =
                schedule_rpc(
                  "check_back_later.cancel",
-                 %{
-                   "request_id" => "schedule-rpc-cancel-through-old-id",
-                   "turn" => turn_ref,
-                   "scheduled_event_id" => scheduled_event_id
+                 %FabricProto.ScheduleCheckBackLaterTargetRequest{
+                   scheduled_event_id: scheduled_event_id
                  },
+                 turn_ref,
                  route
                )
 
@@ -774,30 +772,18 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{"status" => "ok", "checkbacks" => []}} =
                schedule_rpc(
                  "check_back_later.list",
-                 %{"request_id" => "schedule-rpc-list-cancelled", "turn" => turn_ref},
+                 %FabricProto.ScheduleCheckBackLaterListRequest{},
+                 turn_ref,
                  route
                )
 
       assert {:error, %{"code" => "checkback_not_in_turn"}} =
                schedule_rpc(
                  "check_back_later.get",
-                 %{
-                   "request_id" => "schedule-rpc-get-other-session",
-                   "turn" => turn_ref,
-                   "scheduled_event_id" => other_session_event.id
+                 %FabricProto.ScheduleCheckBackLaterTargetRequest{
+                   scheduled_event_id: other_session_event.id
                  },
-                 route
-               )
-
-      assert {:error, %{"code" => "invalid_boolean"}} =
-               schedule_rpc(
-                 "check_back_later.create",
-                 %{
-                   request
-                   | "request_id" => "schedule-rpc-invalid-quiet",
-                     "idempotency_key" => "schedule-rpc-invalid-quiet",
-                     "quiet_success" => "yes"
-                 },
+                 turn_ref,
                  route
                )
 
@@ -808,32 +794,33 @@ defmodule Ankole.ScheduleTest do
                  "check_back_later.create",
                  %{
                    request
-                   | "idempotency_key" => "schedule-rpc-checkback-bad-route",
-                     "reply_route" => bad_reply_route
+                   | idempotency_key: "schedule-rpc-checkback-bad-route",
+                     reply_route_json: Torque.encode!(bad_reply_route)
                  },
+                 turn_ref,
                  route
                )
 
-      cron_request = %{
-        "request_id" => "schedule-rpc-cron-ok",
-        "turn" => turn_ref,
-        "binding_name" => source_event.binding_name,
-        "name" => "dashboard-route-cron",
-        "schedule" => %{
-          "kind" => "cron",
-          "expression" => "0 7 * * *",
-          "timezone" => "Asia/Shanghai"
-        },
-        "payload" => %{"task" => "dashboard-check"},
-        "delivery" => %{
-          "signal_channel_id" => source_event.signal_channel_id,
-          "provider_thread_id" => source_event.provider_thread_id
-        },
-        "idempotency_key" => "schedule-rpc-cron-1"
+      cron_request = %FabricProto.ScheduleCronAddRequest{
+        binding_name: source_event.binding_name,
+        name: "dashboard-route-cron",
+        schedule_json:
+          Torque.encode!(%{
+            "kind" => "cron",
+            "expression" => "0 7 * * *",
+            "timezone" => "Asia/Shanghai"
+          }),
+        payload_json: Torque.encode!(%{"task" => "dashboard-check"}),
+        delivery_json:
+          Torque.encode!(%{
+            "signal_channel_id" => source_event.signal_channel_id,
+            "provider_thread_id" => source_event.provider_thread_id
+          }),
+        idempotency_key: "schedule-rpc-cron-1"
       }
 
       assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
-               schedule_rpc("cron.add", cron_request, route)
+               schedule_rpc("cron.add", cron_request, turn_ref, route)
 
       bad_cron_delivery = %{
         "signal_channel_id" => "not-current-channel",
@@ -845,29 +832,29 @@ defmodule Ankole.ScheduleTest do
                  "cron.add",
                  %{
                    cron_request
-                   | "request_id" => "schedule-rpc-cron-bad-route",
-                     "idempotency_key" => "schedule-rpc-cron-bad-route",
-                     "delivery" => bad_cron_delivery
+                   | idempotency_key: "schedule-rpc-cron-bad-route",
+                     delivery_json: Torque.encode!(bad_cron_delivery)
                  },
+                 turn_ref,
                  route
                )
 
       assert {:error, %{"code" => "reply_route_not_in_turn"}} =
                schedule_rpc(
                  "cron.update",
-                 %{
-                   "request_id" => "schedule-rpc-cron-update-bad-route",
-                   "turn" => turn_ref,
-                   "cron_schedule_id" => cron_schedule_id,
-                   "updates" => %{"delivery" => bad_cron_delivery}
+                 %FabricProto.ScheduleCronUpdateRequest{
+                   cron_schedule_id: cron_schedule_id,
+                   updates_json: Torque.encode!(%{"delivery" => bad_cron_delivery})
                  },
+                 turn_ref,
                  route
                )
 
       assert {:error, %{"code" => "worker_not_assigned_to_turn"}} =
                schedule_rpc(
                  "check_back_later.create",
-                 %{request | "idempotency_key" => "schedule-rpc-checkback-wrong-worker"},
+                 %{request | idempotency_key: "schedule-rpc-checkback-wrong-worker"},
+                 turn_ref,
                  "wrong-worker-route"
                )
     end
@@ -925,29 +912,31 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
                schedule_rpc(
                  "cron.add",
-                 %{
-                   "request_id" => "dashboard-cron-add",
-                   "turn" => turn_ref,
-                   "binding_name" => "mock-provider",
-                   "name" => "dashboard-morning-check",
-                   "schedule" => %{
-                     "kind" => "cron",
-                     "expression" => "0 7 * * *",
-                     "timezone" => "Asia/Shanghai"
-                   },
-                   "payload" => %{
-                     "task" => "dashboard_status_check",
-                     "dashboard_url" => "https://status.internal",
-                     "services" => ["api", "billing", "search"],
-                     "report_format" =>
-                       "one line per service: green, or what's off and since when"
-                   },
-                   "delivery" => %{
-                     "signal_channel_id" => source_event.signal_channel_id,
-                     "provider_thread_id" => source_event.provider_thread_id
-                   },
-                   "idempotency_key" => "dashboard-cron-story"
+                 %FabricProto.ScheduleCronAddRequest{
+                   binding_name: "mock-provider",
+                   name: "dashboard-morning-check",
+                   schedule_json:
+                     Torque.encode!(%{
+                       "kind" => "cron",
+                       "expression" => "0 7 * * *",
+                       "timezone" => "Asia/Shanghai"
+                     }),
+                   payload_json:
+                     Torque.encode!(%{
+                       "task" => "dashboard_status_check",
+                       "dashboard_url" => "https://status.internal",
+                       "services" => ["api", "billing", "search"],
+                       "report_format" =>
+                         "one line per service: green, or what's off and since when"
+                     }),
+                   delivery_json:
+                     Torque.encode!(%{
+                       "signal_channel_id" => source_event.signal_channel_id,
+                       "provider_thread_id" => source_event.provider_thread_id
+                     }),
+                   idempotency_key: "dashboard-cron-story"
                  },
+                 turn_ref,
                  route
                )
 
@@ -1181,11 +1170,8 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{"runs" => [projected_run | _rest]}} =
                schedule_rpc(
                  "cron.runs",
-                 %{
-                   "request_id" => "cron-runs-model-projection",
-                   "turn" => turn_ref,
-                   "cron_schedule_id" => schedule.id
-                 },
+                 %FabricProto.ScheduleCronRunsRequest{cron_schedule_id: schedule.id},
+                 turn_ref,
                  route
                )
 
@@ -1199,11 +1185,8 @@ defmodule Ankole.ScheduleTest do
       assert {:error, %{"code" => "cron_origin_broad_cron_mutation_denied"}} =
                schedule_rpc(
                  "cron.pause",
-                 %{
-                   "request_id" => "cron-origin-pause-denied",
-                   "turn" => turn_ref,
-                   "cron_schedule_id" => schedule.id
-                 },
+                 %FabricProto.ScheduleCronTargetRequest{cron_schedule_id: schedule.id},
+                 turn_ref,
                  route
                )
 
@@ -1405,10 +1388,10 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp complete_turn_via_aigateway!(turn_ref, text) do
-    wire_ref = turn_wire_ref(turn_ref)
-    agent_uid = wire_ref["actor"]["agent_uid"]
-    session_id = wire_ref["actor"]["session_id"]
-    actor_event_id = wire_ref["actor_event_id"]
+    proto_ref = turn_proto_ref(turn_ref)
+    agent_uid = proto_ref.actor.agent_uid
+    session_id = proto_ref.actor.session_id
+    actor_event_id = proto_ref.actor_event_id
 
     {:ok, conversation} = StatefulResponses.ensure_conversation(agent_uid, session_id)
 
@@ -1700,15 +1683,16 @@ defmodule Ankole.ScheduleTest do
     "local-schedule-test-route-" <> Integer.to_string(System.unique_integer([:positive]))
   end
 
-  defp schedule_rpc(action, request, route) do
-    {module, function, scope} =
+  defp schedule_rpc(action, request, turn, route) do
+    {module, function, scope, _request_mod} =
       Map.fetch!(Ankole.SignalsGateway.ActorRuntime.RPCLane.operations(), "schedule." <> action)
 
     effect = if scope == :turn_read, do: :read, else: :write
+    ctx = %{route: route, request_id: "schedule-test-#{System.unique_integer([:positive])}"}
 
-    with {:ok, turn_ref} <- TurnRef.from_request(request),
+    with {:ok, turn_ref} <- TurnRef.from_proto(turn_proto_ref(turn)),
          :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
-      apply(module, function, [turn_ref, request, route])
+      apply(module, function, [turn_ref, request, ctx])
     else
       {:error, reason} -> {:error, schedule_rpc_error(reason)}
     end

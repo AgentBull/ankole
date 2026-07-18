@@ -4,11 +4,13 @@ import { z } from 'zod'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
+import { jsonBytes } from '../../fabric/envelope_proto'
 import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
   enabledSkillByName,
   resolveSkillFilesystemRoot,
   resolveSkillOverlayText,
+  skillMetadata,
   stripSkillFrontmatter,
   type SkillFileRoots
 } from '../../skills/effective-skill'
@@ -85,7 +87,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const skillRoot = skillFilesystemRoot(skill, opts)
-      if (skill.metadata?.long_running === true) {
+      if (skillMetadata(skill).long_running === true) {
         if (filePath !== 'SKILL.md') {
           throw new Error(
             `long-running Skill resources are available only inside a BackgroundAgentJob; create one with background_agent_job(start) and name ${params.name} in its task`
@@ -138,11 +140,11 @@ function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof 
     describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledInlineSkillForOverlay(params.name, opts)
-      await opts.rpc(rpcMethods.skillsOverlayAppend, {
-        turn: opts.turn,
-        skill_name: params.name,
-        content: params.content
-      })
+      await opts.rpc(
+        rpcMethods.skillsOverlayAppend,
+        { skillName: params.name, content: params.content },
+        { turn: opts.turn }
+      )
 
       const details: SkillToolDetails = { name: params.name, changed: true }
       return jsonToolResult(details)
@@ -167,17 +169,17 @@ function createSkillReplaceTool(opts: CreateSkillToolsOptions): AgentTool<typeof
     describeActivity: params => `更新 Skill：${params.name}`,
     async execute(_toolCallID, params): Promise<AgentToolResult<SkillToolDetails>> {
       enabledInlineSkillForOverlay(params.name, opts)
-      const current = await opts.rpc(rpcMethods.skillsOverlayResolve, {
-        turn: opts.turn,
-        skill_name: params.name
-      })
-      await opts.rpc(rpcMethods.skillsOverlayReplace, {
-        turn: opts.turn,
-        skill_name: params.name,
-        content: params.content,
-        overlay_json: { text: params.content },
-        expected_content_hash: current.content_hash
-      })
+      const current = await opts.rpc(rpcMethods.skillsOverlayResolve, { skillName: params.name }, { turn: opts.turn })
+      await opts.rpc(
+        rpcMethods.skillsOverlayReplace,
+        {
+          skillName: params.name,
+          content: params.content,
+          overlayJson: jsonBytes({ text: params.content }),
+          expectedContentHash: current.contentHash
+        },
+        { turn: opts.turn }
+      )
 
       return jsonToolResult({ name: params.name, changed: true })
     }
@@ -247,7 +249,7 @@ function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkill
 /** Rejects main-agent overlay writes for Skills whose complete contract belongs to a Job. */
 function enabledInlineSkillForOverlay(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   const skill = enabledSkill(name, opts)
-  if (skill.metadata?.long_running === true) {
+  if (skillMetadata(skill).long_running === true) {
     throw new Error(`long-running Skill overlays are available only inside a BackgroundAgentJob: ${name}`)
   }
   return skill

@@ -1,9 +1,56 @@
 import { describe, expect, it } from 'bun:test'
-import { jsonObject } from '@pleisto/active-support'
+import { create } from '@bufbuild/protobuf'
+import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonFromBytes } from '../src/fabric/envelope_proto'
+import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
-import type { BackgroundAgentJobTurnUpsertRequest } from '../src/lanes/rpc_lane'
+import type { RPCRequestInit } from '../src/lanes/rpc_lane'
 import { CODEX_OPT_OUT_NOTIFICATION_METHODS } from '../src/tools/codex/app-server-client'
 import { BackgroundAgentJobTurnRecorder } from '../src/core/codex-runner/turn-recorder'
+
+/**
+ * Decoded snake_case view of one recorded upsert so assertions read the JSON
+ * documents directly.
+ */
+type DecodedUpsert = {
+  job_id?: string
+  attempt?: number
+  runtime_thread_id?: string
+  runtime_turn_id?: string
+  kind?: string
+  status?: string
+  revision?: number
+  trajectory: JSONObject
+  trajectory_groups: Array<JSONObject & { messages: JSONObject[] }>
+  progress: JSONObject
+  usage?: JSONObject
+  error: JSONObject
+  started_at?: string
+  completed_at?: string
+}
+
+function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn.upsert'>): DecodedUpsert {
+  const doc = (bytes: Uint8Array | undefined) => (bytes?.length ? (jsonFromBytes(bytes) as JSONObject) : undefined)
+  const usage = doc(request.usageJson)
+  return {
+    job_id: request.jobId,
+    attempt: request.attempt,
+    runtime_thread_id: request.runtimeThreadId,
+    runtime_turn_id: request.runtimeTurnId,
+    kind: request.kind,
+    status: request.status,
+    revision: request.revision,
+    trajectory: doc(request.trajectoryJson) ?? {},
+    trajectory_groups: (doc(request.trajectoryGroupsJson) ?? []) as unknown as Array<
+      JSONObject & { messages: JSONObject[] }
+    >,
+    progress: doc(request.progressJson) ?? {},
+    ...(usage ? { usage } : {}),
+    error: doc(request.errorJson) ?? {},
+    started_at: request.startedAt,
+    ...(request.completedAt ? { completed_at: request.completedAt } : {})
+  }
+}
 
 const actorTurn: ActorTurnRef = {
   actor: { agent_uid: 'agent-1', session_id: 'job:019f0000-0000-7000-8000-000000000001' },
@@ -319,39 +366,38 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 })
 
 function fixture(delayMs = 5) {
-  const upserts: Array<Omit<BackgroundAgentJobTurnUpsertRequest, 'request_id'>> = []
+  const upserts: DecodedUpsert[] = []
   const recorder = new BackgroundAgentJobTurnRecorder({
     jobID: '019f0000-0000-7000-8000-000000000001',
     attempt: 1,
     actorTurn,
     checkpointDelayMs: delayMs,
     upsert: async request => {
-      upserts.push(request)
-      return {
-        request_id: 'req-1',
-        job_id: request.job_id,
+      upserts.push(decodedUpsert(request))
+      return create(BackgroundAgentJobTurnUpsertResponseSchema, {
+        jobId: request.jobId,
         turn: {
-          id: `stored:${request.runtime_turn_id}`,
+          id: `stored:${request.runtimeTurnId}`,
           attempt: request.attempt,
-          runtime_thread_id: request.runtime_thread_id,
-          runtime_turn_id: request.runtime_turn_id,
+          runtimeThreadId: request.runtimeThreadId,
+          runtimeTurnId: request.runtimeTurnId,
           kind: request.kind,
           status: request.status,
           revision: request.revision,
-          trajectory: request.trajectory,
-          progress: request.progress,
-          usage: request.usage ?? null,
-          error: request.error ?? {},
-          started_at: request.started_at,
-          ...(request.completed_at ? { completed_at: request.completed_at } : {})
+          trajectoryJson: request.trajectoryJson,
+          progressJson: request.progressJson,
+          usageJson: request.usageJson,
+          errorJson: request.errorJson,
+          startedAt: request.startedAt,
+          completedAt: request.completedAt ?? ''
         }
-      }
+      })
     }
   })
   return { recorder, upserts }
 }
 
-function trajectoryMessages(upserts: Array<Omit<BackgroundAgentJobTurnUpsertRequest, 'request_id'>>) {
+function trajectoryMessages(upserts: DecodedUpsert[]) {
   return upserts.flatMap(request => request.trajectory_groups.flatMap(group => group.messages))
 }
 

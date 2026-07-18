@@ -12,13 +12,13 @@ import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
 import { currentChannelFromTurnStart } from './actor_event_text'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
-import type { AgentConversationContext } from '../../lanes/rpc_lane'
+import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 
 export interface AmbientRecognizerInput {
   turnStart: TurnStart
   model: ModelConfig
   historyMessages: unknown[]
-  agentConversationContext: AgentConversationContext
+  agentConversationContext: AgentConversationContextResponse
 }
 
 export interface AmbientRecognizerResult {
@@ -39,7 +39,7 @@ export async function recognizeAmbientIntervention(
   const context = input.agentConversationContext
   const currentChannel = currentChannelFromTurnStart(turnStart)
   const timezone = context.conversation?.timezone ?? 'UTC'
-  const displayName = context.agent?.display_name ?? turnStart.turn.actor.agent_uid
+  const displayName = context.agent?.displayName ?? turnStart.turn.actor.agent_uid
   const currentTime = (opts?.currentTime ?? new Date()).toISOString()
   const conversationHistory = ambientConversationHistory(input, timezone, currentTime)
 
@@ -48,7 +48,7 @@ export async function recognizeAmbientIntervention(
       currentTime: formatZonedDateTime(currentTime, timezone),
       displayName,
       groupName: currentChannel?.name,
-      brainSnapshot: context.brain_snapshot,
+      brainSnapshot: context.brainSnapshot,
       mission: context.mission,
       platform: currentChannel?.platform,
       soul: context.soul ?? '',

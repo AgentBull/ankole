@@ -5,8 +5,11 @@ import { join } from 'node:path'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { syncInstalledSkillsForTurn } from '../src/skills/installed_skill_sync'
 import type { InstalledSkillSyncOptions } from '../src/skills/installed_skill_sync'
-import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
-import type { InstalledSkillObservation } from '../src/skills/types'
+import { create } from '@bufbuild/protobuf'
+import { InstalledSkillReplaceResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { rpcMethods, type RPCRequestInit, type RPCRequester } from '../src/lanes/rpc_lane'
+
+type PushedObservations = RPCRequestInit<'skills.installed.replace'>['observations'] & object
 
 describe('@ankole/agent-computer installed skill sync', () => {
   it('pushes installed skill observations and memoizes unchanged scans', async () => {
@@ -30,28 +33,25 @@ describe('@ankole/agent-computer installed skill sync', () => {
         ].join('\n')
       )
 
-      const pushedObservations: InstalledSkillObservation[][] = []
+      const pushedObservations: PushedObservations[] = []
       const opts: InstalledSkillSyncOptions = {
         agentInstalledSkillsRoot: root,
         rpc: (async (method: unknown, payload: unknown) => {
           expect(method).toBe(rpcMethods.skillsInstalledReplace)
-          const request = payload as { observations: InstalledSkillObservation[] }
+          const request = payload as { observations: PushedObservations }
           pushedObservations.push(request.observations)
-          return {
-            request_id: 'req-1',
-            agent_uid: agentUID,
-            session_id: 'session-1',
+          return create(InstalledSkillReplaceResponseSchema, {
             changed: true,
             skills: request.observations.length,
-            files: request.observations.reduce((sum, observation) => sum + (observation.file_count ?? 0), 0),
-            content_hash: '7b16fe7c3e492b87d9615265f0856cec'
-          }
+            files: request.observations.reduce((sum, observation) => sum + (observation.fileCount ?? 0), 0),
+            contentHash: '7b16fe7c3e492b87d9615265f0856cec'
+          })
         }) as RPCRequester
       }
 
       await syncInstalledSkillsForTurn(turnStart, opts)
       expect(pushedObservations).toHaveLength(1)
-      expect(pushedObservations[0]![0]).toMatchObject({ skill_name: 'agent-notes' })
+      expect(pushedObservations[0]![0]).toMatchObject({ skillName: 'agent-notes' })
 
       await syncInstalledSkillsForTurn(turnStart, opts)
       expect(pushedObservations).toHaveLength(1)

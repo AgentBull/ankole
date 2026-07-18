@@ -1,11 +1,11 @@
 import type { TurnStart } from '../../lanes/actor_lane'
-import { rpcMethods, type AgentConversationContext, type RPCRequester } from '../../lanes/rpc_lane'
+import { rpcMethods, type AgentConversationContextResponse, type RPCRequester } from '../../lanes/rpc_lane'
 import { materializeAgentLibraryDocuments } from './agent_library_documents'
 
 export type AgentConversationContextOptions = {
   workspaceRoot: string
   rpc: RPCRequester
-  agentConversationContext?: AgentConversationContext
+  agentConversationContext?: AgentConversationContextResponse
 }
 
 /**
@@ -18,13 +18,10 @@ export type AgentConversationContextOptions = {
 export async function resolveAgentConversationContext(
   turnStart: TurnStart,
   opts: AgentConversationContextOptions
-): Promise<AgentConversationContext> {
+): Promise<AgentConversationContextResponse> {
   const context =
     opts.agentConversationContext ??
-    (await opts.rpc(rpcMethods.agentConversationContextResolve, {
-      turn: turnStart.turn,
-      actor_event: turnStart.actor_event
-    }))
+    (await opts.rpc(rpcMethods.agentConversationContextResolve, {}, { turn: turnStart.turn }))
   materializeAgentLibraryDocuments(opts.workspaceRoot, context)
   return context
 }

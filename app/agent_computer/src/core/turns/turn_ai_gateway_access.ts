@@ -40,7 +40,7 @@ export async function acquireTurnAIGatewayAccess(
   }
 
   const requestAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
-    opts.requestAIGatewayAPIKey({ agent_uid: turnStart.turn.actor.agent_uid }, refreshOptions)
+    opts.requestAIGatewayAPIKey(turnStart.turn.actor.agent_uid, refreshOptions)
 
   const apiKey = await requestVerifiedAPIKey(turnStart, requestAPIKey(), 'AIGateway API key', opts.runStep)
   const refreshAIGatewayAPIKey = (refreshOptions?: AIGatewayAPIKeyRefreshOptions) =>
@@ -74,11 +74,11 @@ async function requestVerifiedAPIKey(
 
 function assertAIGatewayAPIKeyMatchesTurn(turnStart: TurnStart, apiKey: AIGatewayAPIKeyResponse): void {
   if (
-    apiKey.agent_uid !== turnStart.turn.actor.agent_uid ||
-    apiKey.token_type !== 'Bearer' ||
+    apiKey.agentUid !== turnStart.turn.actor.agent_uid ||
+    apiKey.tokenType !== 'Bearer' ||
     apiKey.scope !== 'ai_gateway' ||
-    !apiKey.api_key ||
-    !apiKey.base_url
+    !apiKey.apiKey ||
+    !apiKey.baseUrl
   ) {
     throw new Error('AIGateway API key response does not match turn agent or auth contract')
   }

@@ -5,14 +5,14 @@
  * so this module stays focused on policy text.
  */
 
-import type { RuntimeBrainSnapshot } from '../lanes/rpc_lane'
+import type { BrainSnapshot } from '../lanes/rpc_lane'
 import { formatAmbientDurableContext } from './durable_context'
 
 export type AmbientRecognizerSystemPromptInput = {
   currentTime: string
   displayName: string
   groupName?: string
-  brainSnapshot?: RuntimeBrainSnapshot
+  brainSnapshot?: BrainSnapshot
   mission?: string
   platform?: string
   soul: string

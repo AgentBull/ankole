@@ -19,10 +19,10 @@ type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
  * Canonical local names for the envelope codec generated from `envelope.proto`.
  *
  * The generated module keeps the upstream protoc-gen-es naming policy
- * (camelCase fields, bigint 64-bit integers); hand-written consumers import
+ * (camelCase fields, bigint 64-bit integers). Turn-lane consumers import
  * through this module and convert to the snake_case domain DTOs at the lane
- * boundary. Generated messages must never leak into RPC `payload_json`
- * contracts or the core turn runtime.
+ * boundary. RPC business payloads are the generated `rpc.proto` messages
+ * themselves, accessed through the `rpc_lane` registry without a DTO layer.
  */
 export {
   DurabilityClass,

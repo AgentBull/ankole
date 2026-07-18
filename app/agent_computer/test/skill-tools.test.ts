@@ -2,7 +2,13 @@ import { describe, expect, it } from 'bun:test'
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { create } from '@bufbuild/protobuf'
 import { createSkillTools } from '../src/tools/library/skill-tools'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import {
+  RuntimeSkillSummarySchema,
+  SkillOverlayResponseSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'
 
@@ -21,16 +27,13 @@ const unusedRPC = (async () => {
 function overlayResolveRPC(text?: string): RPCRequester {
   return (async (method: unknown, payload: unknown) => {
     expect(method).toBe(rpcMethods.skillsOverlayResolve)
-    const request = payload as { skill_name: string }
-    return {
-      request_id: 'req-1',
-      agent_uid: 'agent-1',
-      session_id: 'session-1',
-      skill_name: request.skill_name,
-      has_overlay: Boolean(text),
-      overlay_json: text ? { text } : {},
-      content_hash: 'overlay-hash'
-    }
+    const request = payload as { skillName: string }
+    return create(SkillOverlayResponseSchema, {
+      skillName: request.skillName,
+      hasOverlay: Boolean(text),
+      overlayJson: jsonBytes(text ? { text } : {}),
+      contentHash: 'overlay-hash'
+    })
   }) as RPCRequester
 }
 
@@ -72,12 +75,12 @@ describe('@ankole/agent-computer skill tools', () => {
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
-          {
-            skill_name: 'nano-pdf',
-            source_kind: 'builtin',
-            relative_path: 'nano-pdf',
-            skill_root: 'internal'
-          }
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'nano-pdf',
+            sourceKind: 'builtin',
+            relativePath: 'nano-pdf',
+            skillRoot: 'internal'
+          })
         ],
         skillRoots: {
           builtinSkillsRoot: builtinRoot,
@@ -117,12 +120,12 @@ describe('@ankole/agent-computer skill tools', () => {
         turn: testTurn,
         rpc: overlayResolveRPC(),
         enabledSkills: [
-          {
-            skill_name: 'nano-pdf',
-            source_kind: 'builtin',
-            relative_path: 'nano-pdf',
-            skill_root: 'library'
-          }
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'nano-pdf',
+            sourceKind: 'builtin',
+            relativePath: 'nano-pdf',
+            skillRoot: 'library'
+          })
         ],
         skillRoots: {
           builtinSkillsRoot: builtinRoot,
@@ -159,12 +162,12 @@ describe('@ankole/agent-computer skill tools', () => {
       const tools = createSkillTools('/workspace', {
         turn: testTurn,
         enabledSkills: [
-          {
-            skill_name: 'long-report',
-            source_kind: 'builtin',
-            relative_path: 'long-report',
-            metadata: { long_running: true }
-          }
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'long-report',
+            sourceKind: 'builtin',
+            relativePath: 'long-report',
+            metadataJson: jsonBytes({ long_running: true })
+          })
         ],
         skillRoots: {
           builtinSkillsRoot: builtinRoot,
@@ -173,15 +176,12 @@ describe('@ankole/agent-computer skill tools', () => {
         rpc: (async (method: unknown) => {
           if (method === rpcMethods.skillsOverlayResolve) {
             overlayReads += 1
-            return {
-              request_id: 'req-1',
-              agent_uid: 'agent-1',
-              session_id: 'session-1',
-              skill_name: 'long-report',
-              has_overlay: true,
-              overlay_json: { text: 'private overlay' },
-              content_hash: 'overlay-hash'
-            }
+            return create(SkillOverlayResponseSchema, {
+              skillName: 'long-report',
+              hasOverlay: true,
+              overlayJson: jsonBytes({ text: 'private overlay' }),
+              contentHash: 'overlay-hash'
+            })
           }
           overlayWrites += 1
           throw new Error('unexpected long-running Skill overlay write')
@@ -239,7 +239,13 @@ describe('@ankole/agent-computer skill tools', () => {
 
       const tools = createSkillTools('/workspace', {
         turn,
-        enabledSkills: [{ skill_name: 'enabled-skill', source_kind: 'builtin', relative_path: 'enabled-skill' }],
+        enabledSkills: [
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'enabled-skill',
+            sourceKind: 'builtin',
+            relativePath: 'enabled-skill'
+          })
+        ],
         skillRoots: {
           builtinSkillsRoot: builtinRoot,
           agentInstalledSkillsRoot: join(root, 'installed')
@@ -278,20 +284,19 @@ describe('@ankole/agent-computer skill tools', () => {
 
     const tools = createSkillTools('/workspace', {
       turn,
-      enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+      enabledSkills: [
+        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
+      ],
       rpc: (async (method: unknown, payload: unknown) => {
         expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skill_name: string; content: string }
+        const request = payload as { skillName: string; content: string }
         writes.push(request)
-        return {
-          request_id: 'req-1',
-          agent_uid: turn.actor.agent_uid,
-          session_id: turn.actor.session_id,
-          skill_name: request.skill_name,
-          has_overlay: true,
-          overlay_json: { text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.' },
-          content_hash: 'hash-2'
-        }
+        return create(SkillOverlayResponseSchema, {
+          skillName: request.skillName,
+          hasOverlay: true,
+          overlayJson: jsonBytes({ text: 'Prefer page-by-page verification.\n\nUse render output as final evidence.' }),
+          contentHash: 'hash-2'
+        })
       }) as RPCRequester
     })
 
@@ -305,7 +310,7 @@ describe('@ankole/agent-computer skill tools', () => {
 
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
-      skill_name: 'nano-pdf',
+      skillName: 'nano-pdf',
       content: 'Use render output as final evidence.'
     })
   })
@@ -322,20 +327,19 @@ describe('@ankole/agent-computer skill tools', () => {
 
     const tools = createSkillTools('/workspace', {
       turn,
-      enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+      enabledSkills: [
+        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
+      ],
       rpc: (async (method: unknown, payload: unknown) => {
         expect(method).toBe(rpcMethods.skillsOverlayAppend)
-        const request = payload as { skill_name: string; content: string }
+        const request = payload as { skillName: string; content: string }
         writes.push(request)
-        return {
-          request_id: 'req-1',
-          agent_uid: turn.actor.agent_uid,
-          session_id: turn.actor.session_id,
-          skill_name: request.skill_name,
-          has_overlay: true,
-          overlay_json: { text: request.content },
-          content_hash: 'hash-1'
-        }
+        return create(SkillOverlayResponseSchema, {
+          skillName: request.skillName,
+          hasOverlay: true,
+          overlayJson: jsonBytes({ text: request.content }),
+          contentHash: 'hash-1'
+        })
       }) as RPCRequester
     })
 
@@ -349,7 +353,7 @@ describe('@ankole/agent-computer skill tools', () => {
 
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
-      skill_name: 'nano-pdf',
+      skillName: 'nano-pdf',
       content: 'Create the first overlay note.'
     })
   })
@@ -365,32 +369,28 @@ describe('@ankole/agent-computer skill tools', () => {
     const writes: unknown[] = []
     const tools = createSkillTools('/workspace', {
       turn,
-      enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+      enabledSkills: [
+        create(RuntimeSkillSummarySchema, { skillName: 'nano-pdf', sourceKind: 'builtin', relativePath: 'nano-pdf' })
+      ],
       rpc: (async (method: unknown, payload: unknown) => {
         if (method === rpcMethods.skillsOverlayResolve) {
-          const request = payload as { skill_name: string }
-          return {
-            request_id: 'req-1',
-            agent_uid: turn.actor.agent_uid,
-            session_id: turn.actor.session_id,
-            skill_name: request.skill_name,
-            has_overlay: true,
-            overlay_json: { text: 'Old duplicated notes.' },
-            content_hash: 'current-hash'
-          }
+          const request = payload as { skillName: string }
+          return create(SkillOverlayResponseSchema, {
+            skillName: request.skillName,
+            hasOverlay: true,
+            overlayJson: jsonBytes({ text: 'Old duplicated notes.' }),
+            contentHash: 'current-hash'
+          })
         }
         expect(method).toBe(rpcMethods.skillsOverlayReplace)
-        const request = payload as { skill_name: string; overlay_json?: Record<string, unknown> }
+        const request = payload as { skillName: string; overlayJson?: Uint8Array }
         writes.push(request)
-        return {
-          request_id: 'req-1',
-          agent_uid: turn.actor.agent_uid,
-          session_id: turn.actor.session_id,
-          skill_name: request.skill_name,
-          has_overlay: true,
-          overlay_json: request.overlay_json ?? {},
-          content_hash: 'replacement-hash'
-        }
+        return create(SkillOverlayResponseSchema, {
+          skillName: request.skillName,
+          hasOverlay: true,
+          overlayJson: request.overlayJson ?? new Uint8Array(0),
+          contentHash: 'replacement-hash'
+        })
       }) as RPCRequester
     })
 
@@ -402,10 +402,13 @@ describe('@ankole/agent-computer skill tools', () => {
 
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
-      skill_name: 'nano-pdf',
+      skillName: 'nano-pdf',
       content: 'One concise current lesson.',
-      overlay_json: { text: 'One concise current lesson.' },
-      expected_content_hash: 'current-hash'
+      expectedContentHash: 'current-hash'
+    })
+    const replaceWrite = writes[0] as { overlayJson: Uint8Array }
+    expect(jsonObjectFromBytes(replaceWrite.overlayJson, 'overlay_json')).toEqual({
+      text: 'One concise current lesson.'
     })
   })
 })

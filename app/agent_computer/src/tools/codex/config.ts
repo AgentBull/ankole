@@ -35,14 +35,10 @@ export function materializeCodexConfig(input: {
   if (input.runtime.mode === 'aigateway') {
     atomicWrite(
       join(codexHome, 'config.toml'),
-      codexConfigToml(
-        input.runtime.aiGatewayKey.base_url,
-        input.enableMultiAgent ?? false,
-        input.enablePlugins ?? false
-      )
+      codexConfigToml(input.runtime.aiGatewayKey.baseUrl, input.enableMultiAgent ?? false, input.enablePlugins ?? false)
     )
     rmSync(join(codexHome, 'auth.json'), { force: true })
-    env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.api_key
+    env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.apiKey
     return { codexHome, env }
   }
 

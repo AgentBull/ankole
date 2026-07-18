@@ -6,12 +6,8 @@ import { deepString } from '@pleisto/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import {
-  rpcMethods,
-  type ScheduleCronAddRequest,
-  type ScheduleRPCRequester,
-  type TurnScopedRPCRequest
-} from '../../lanes/rpc_lane'
+import { jsonBytes } from '../../fabric/envelope_proto'
+import { rpcMethods, type RPCRequestInit, type ScheduleRPCRequester } from '../../lanes/rpc_lane'
 
 export interface CreateScheduleToolsOptions {
   turnStart: TurnStart
@@ -197,53 +193,39 @@ function createCheckBackLaterTool(
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       const operation = CheckBackLaterOperationParams.parse(params)
       const call = opts.requestScheduleRPC
-      const base: Omit<TurnScopedRPCRequest, 'request_id'> = {
-        turn: opts.turnStart.turn
-      }
 
       const response = await match(operation)
         .with({ action: 'list' }, value =>
-          call(rpcMethods.scheduleCheckBackLaterList, {
-            ...base,
-            ...(value.limit ? { limit: value.limit } : {})
-          })
+          call(rpcMethods.scheduleCheckBackLaterList, value.limit ? { limit: value.limit } : {})
         )
         .with({ action: 'get' }, value =>
-          call(rpcMethods.scheduleCheckBackLaterGet, {
-            ...base,
-            scheduled_event_id: value.scheduled_event_id
-          })
+          call(rpcMethods.scheduleCheckBackLaterGet, { scheduledEventId: value.scheduled_event_id })
         )
         .with({ action: 'create' }, value => {
           const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
           return call(rpcMethods.scheduleCheckBackLaterCreate, {
-            ...base,
-            tool_call_id: toolCallID,
-            idempotency_key: value.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, value),
+            toolCallId: toolCallID,
+            idempotencyKey: value.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, value),
             reason: value.reason,
             check: value.check,
-            context_summary: value.context_summary,
-            quiet_success: value.quiet_success === true,
-            schedule: value.schedule,
-            reply_route: replyRoute
+            contextSummary: value.context_summary ?? '',
+            quietSuccess: value.quiet_success === true,
+            scheduleJson: jsonBytes(value.schedule),
+            replyRouteJson: jsonBytes(replyRoute)
           })
         })
         .with({ action: 'update' }, value => {
           const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
           return call(rpcMethods.scheduleCheckBackLaterUpdate, {
-            ...base,
-            scheduled_event_id: value.scheduled_event_id,
-            tool_call_id: toolCallID,
-            idempotency_key: value.idempotency_key ?? defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
-            updates: value.updates,
-            reply_route: replyRoute
+            scheduledEventId: value.scheduled_event_id,
+            toolCallId: toolCallID,
+            idempotencyKey: value.idempotency_key ?? defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
+            updatesJson: jsonBytes(value.updates),
+            replyRouteJson: jsonBytes(replyRoute)
           })
         })
         .with({ action: 'cancel' }, value =>
-          call(rpcMethods.scheduleCheckBackLaterCancel, {
-            ...base,
-            scheduled_event_id: value.scheduled_event_id
-          })
+          call(rpcMethods.scheduleCheckBackLaterCancel, { scheduledEventId: value.scheduled_event_id })
         )
         .exhaustive()
 
@@ -301,15 +283,12 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
       const call = opts.requestScheduleRPC
-      const base: Omit<TurnScopedRPCRequest, 'request_id'> = {
-        turn: opts.turnStart.turn
-      }
-      const target = () => ({ ...base, cron_schedule_id: requiredCronScheduleID(params) })
+      const target = () => ({ cronScheduleId: requiredCronScheduleID(params) })
 
       // Method and payload for one action stay in a single branch so the RPC
       // contract types check each shape exactly.
       const response = await match(params.action)
-        .with('list', () => call(rpcMethods.scheduleCronList, base))
+        .with('list', () => call(rpcMethods.scheduleCronList, {}))
         .with('get', () => call(rpcMethods.scheduleCronGet, target()))
         .with('pause', () => call(rpcMethods.scheduleCronPause, target()))
         .with('resume', () => call(rpcMethods.scheduleCronResume, target()))
@@ -318,9 +297,12 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
         .with('runs', () =>
           call(rpcMethods.scheduleCronRuns, { ...target(), ...(params.limit ? { limit: params.limit } : {}) })
         )
-        .with('add', () => call(rpcMethods.scheduleCronAdd, { ...base, ...cronAddPayload(params, opts.turnStart) }))
+        .with('add', () => call(rpcMethods.scheduleCronAdd, cronAddPayload(params, opts.turnStart)))
         .with('update', () =>
-          call(rpcMethods.scheduleCronUpdate, { ...target(), updates: cronUpdates(params, opts.turnStart) })
+          call(rpcMethods.scheduleCronUpdate, {
+            ...target(),
+            updatesJson: jsonBytes(cronUpdates(params, opts.turnStart))
+          })
         )
         .exhaustive()
 
@@ -488,19 +470,19 @@ function isCronOriginTurn(turnStart: TurnStart): boolean {
 function cronAddPayload(
   params: z.output<typeof CronParams>,
   turnStart: TurnStart
-): Omit<ScheduleCronAddRequest, keyof TurnScopedRPCRequest> {
+): RPCRequestInit<'schedule.cron.add'> {
   if (!params.schedule) throw new Error('cron add requires schedule')
   const route = currentReplyRoute(turnStart)
   const bindingName = params.binding_name ?? route?.binding_name
   if (!bindingName) throw new Error('cron add requires binding_name or a current provider binding')
 
   return {
-    binding_name: bindingName,
-    name: params.name,
-    schedule: params.schedule,
-    payload: params.payload ?? {},
-    delivery: cronDelivery(params, route),
-    idempotency_key: params.idempotency_key ?? defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
+    bindingName,
+    name: params.name ?? '',
+    scheduleJson: jsonBytes(params.schedule),
+    payloadJson: jsonBytes(params.payload ?? {}),
+    deliveryJson: jsonBytes(cronDelivery(params, route)),
+    idempotencyKey: params.idempotency_key ?? defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
   }
 }
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -29,13 +31,17 @@ describe('@ankole/agent-computer Codex Job MCP config', () => {
     try {
       const servers = await resolveCodexJobMCPServers({
         enabledSkills: [
-          { skill_name: 'standalone', source_kind: 'builtin', relative_path: 'skills/standalone' },
-          {
-            skill_name: 'research',
-            source_kind: 'builtin',
-            agent_plugin_id: 'research',
-            relative_path: 'agent-plugins/research/skills/research'
-          }
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'standalone',
+            sourceKind: 'builtin',
+            relativePath: 'skills/standalone'
+          }),
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'research',
+            sourceKind: 'builtin',
+            agentPluginId: 'research',
+            relativePath: 'agent-plugins/research/skills/research'
+          })
         ],
         skillRoots: { builtinSkillsRoot: libraryRoot, agentInstalledSkillsRoot: join(root, 'installed') },
         turn: turn()
@@ -76,13 +82,17 @@ describe('@ankole/agent-computer Codex Job MCP config', () => {
       await expect(
         resolveCodexJobMCPServers({
           enabledSkills: [
-            { skill_name: 'standalone', source_kind: 'builtin', relative_path: 'skills/standalone' },
-            {
-              skill_name: 'research',
-              source_kind: 'builtin',
-              agent_plugin_id: 'research',
-              relative_path: 'agent-plugins/research/skills/research'
-            }
+            create(RuntimeSkillSummarySchema, {
+              skillName: 'standalone',
+              sourceKind: 'builtin',
+              relativePath: 'skills/standalone'
+            }),
+            create(RuntimeSkillSummarySchema, {
+              skillName: 'research',
+              sourceKind: 'builtin',
+              agentPluginId: 'research',
+              relativePath: 'agent-plugins/research/skills/research'
+            })
           ],
           skillRoots: { builtinSkillsRoot: libraryRoot, agentInstalledSkillsRoot: join(root, 'installed') },
           turn: turn()

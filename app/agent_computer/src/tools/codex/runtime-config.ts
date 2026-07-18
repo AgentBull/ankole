@@ -31,27 +31,28 @@ export async function resolveCodexRuntimeConfig(input: {
   job: BackgroundAgentJobResponse
   requesters: CodexRuntimeRequesters
 }): Promise<CodexRuntimeConfig> {
-  if (input.job.codex_account_id === 'aigateway') {
+  if (input.job.codexAccountId === 'aigateway') {
     return {
       mode: 'aigateway',
       accountID: 'aigateway',
-      aiGatewayKey: await resolveAIGatewayKey(input.job.agent_uid, input.requesters),
+      aiGatewayKey: await resolveAIGatewayKey(input.job.agentUid, input.requesters),
       modelOverride: 'coding'
     }
   }
 
-  const response = await input.requesters.rpc(rpcMethods.codexAccountResolve, {
-    turn: input.turn,
-    job_id: input.job.job_id
-  })
-  if (response.account_id !== input.job.codex_account_id) {
+  const response = await input.requesters.rpc(
+    rpcMethods.codexAccountResolve,
+    { jobId: input.job.jobId },
+    { turn: input.turn }
+  )
+  if (response.accountId !== input.job.codexAccountId) {
     throw new Error('Codex account resolve returned a different account')
   }
   return {
     mode: 'official_subscription',
-    accountID: response.account_id,
-    authJSON: response.auth_json,
-    authHash: response.auth_hash
+    accountID: response.accountId,
+    authJSON: response.authJson,
+    authHash: response.authHash
   }
 }
 
@@ -59,5 +60,5 @@ async function resolveAIGatewayKey(
   agentUID: string,
   requesters: CodexRuntimeRequesters
 ): Promise<AIGatewayAPIKeyResponse> {
-  return await requesters.requestAIGatewayAPIKey({ agent_uid: agentUID })
+  return await requesters.requestAIGatewayAPIKey(agentUID)
 }

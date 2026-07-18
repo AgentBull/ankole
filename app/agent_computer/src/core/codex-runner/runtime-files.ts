@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
-import type { RPCRequester, RuntimeBrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import type { RPCRequester, BrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { formatAgentDurableContext } from '../../prompts/durable_context'
 import {
   assertValidSkillName,
@@ -71,7 +71,7 @@ export function renderCodexJobAgents(input: {
   workspaceMounts: CodexJobWorkspaceMount[]
   soul: string
   mission: string
-  brainSnapshot?: RuntimeBrainSnapshot
+  brainSnapshot?: BrainSnapshot
   background?: string
   notes?: string
   timezone?: string | null
@@ -108,12 +108,12 @@ async function materializeSkills(
   const enabledSkills = input.enabledSkills
     .map(skill => {
       const normalized = normalizeEnabledSkill(skill)
-      if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skill_name}`)
+      if (!normalized) throw new Error(`enabled skill has invalid name: ${skill.skillName}`)
       return normalized
     })
-    .sort((left, right) => compareCodePoints(left.skill_name, right.skill_name))
+    .sort((left, right) => compareCodePoints(left.skillName, right.skillName))
 
-  if (new Set(enabledSkills.map(skill => skill.skill_name)).size !== enabledSkills.length) {
+  if (new Set(enabledSkills.map(skill => skill.skillName)).size !== enabledSkills.length) {
     throw new Error('enabled skill names must be unique')
   }
   if (enabledSkills.length > 0 && !input.skillRoots) {
@@ -122,27 +122,27 @@ async function materializeSkills(
 
   return await Promise.all(
     enabledSkills.map(async skill => {
-      assertValidSkillName(skill.skill_name)
+      assertValidSkillName(skill.skillName)
       const sourcePath = realpathSync(
         resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots!, turn: input.turn })
       )
-      if (!statSync(sourcePath).isDirectory()) throw new Error(`skill source is not a directory: ${skill.skill_name}`)
+      if (!statSync(sourcePath).isDirectory()) throw new Error(`skill source is not a directory: ${skill.skillName}`)
       const sourceSkillPath = join(sourcePath, 'SKILL.md')
-      if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skill_name}`)
+      if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skillName}`)
 
-      mkdirSync(join(skillsPlaceholderRoot, skill.skill_name), { recursive: true })
-      const overlay = await resolveSkillOverlayText(skill.skill_name, {
+      mkdirSync(join(skillsPlaceholderRoot, skill.skillName), { recursive: true })
+      const overlay = await resolveSkillOverlayText(skill.skillName, {
         turn: input.turn,
         rpc: input.rpc
       })
-      if (!overlay) return { name: skill.skill_name, sourcePath }
+      if (!overlay) return { name: skill.skillName, sourcePath }
 
-      const skillFileOverridePath = join(root, 'skill-overrides', skill.skill_name, 'SKILL.md')
-      mkdirSync(join(root, 'skill-overrides', skill.skill_name), { recursive: true })
+      const skillFileOverridePath = join(root, 'skill-overrides', skill.skillName, 'SKILL.md')
+      mkdirSync(join(root, 'skill-overrides', skill.skillName), { recursive: true })
       writeFileSync(skillFileOverridePath, composeNativeSkillFile(readFileSync(sourceSkillPath, 'utf8'), overlay), {
         mode: 0o600
       })
-      return { name: skill.skill_name, sourcePath, skillFileOverridePath }
+      return { name: skill.skillName, sourcePath, skillFileOverridePath }
     })
   )
 }
@@ -170,7 +170,7 @@ function renderTaskAgents(input: {
   workspaceMounts: CodexJobWorkspaceMount[]
   soul: string
   mission: string
-  brainSnapshot?: RuntimeBrainSnapshot
+  brainSnapshot?: BrainSnapshot
   background?: string
   notes?: string
   timezone?: string | null

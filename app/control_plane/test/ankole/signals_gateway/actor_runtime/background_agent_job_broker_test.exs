@@ -2,8 +2,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
   alias Ankole.AIAgent.CodexAccounts
-  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
 
   test "parent turn creates a durable job with server-frozen identity and reply route" do
@@ -15,37 +15,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert {:ok, envelope} =
              RPCLane.handle_request(
                rpc_request(
-                 "background-agent-job-create-envelope",
+                 "background-agent-job-create-1",
                  "background_agent_job.create",
-                 %{
-                   "request_id" => "background-agent-job-create-1",
-                   "turn" => turn_ref,
-                   "agent_uid" => "spoofed-agent",
-                   "owner_session_id" => "spoofed-session",
-                   "source_actor_event_id" => Ecto.UUID.generate(),
-                   "source_tool_call_id" => "tool-background-agent-job-1",
-                   "title" => "Prepare launch brief",
-                   "task" => "Write and verify the launch brief.",
-                   "background" => "The brief is for operators.",
-                   "notes" => "Keep the result concise.",
-                   "reply_route" => %{"binding_name" => "spoofed"}
-                 }
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-background-agent-job-1",
+                   title: "Prepare launch brief",
+                   task: "Write and verify the launch brief.",
+                   background: "The brief is for operators.",
+                   notes: "Keep the result concise."
+                 },
+                 turn: turn_ref
                ),
                route
              )
 
-    payload = rpc_payload(envelope)
-    job = BackgroundAgentJobs.get_job_for_agent(payload["job_id"], agent.uid)
+    payload = job_payload(envelope)
+    job = BackgroundAgentJobs.get_job_for_agent(payload.job_id, agent.uid)
 
-    assert payload["request_id"] == "background-agent-job-create-1"
+    assert envelope_body!(envelope, :rpc_response).request_id == "background-agent-job-create-1"
     assert job.agent_uid == agent.uid
-    assert job.owner_session_id == turn_wire_ref(turn_ref)["actor"]["session_id"]
+    assert job.owner_session_id == turn_ref.actor.session_id
     assert job.source_actor_event_id == turn_ref.actor_event_id
     assert job.task == "Write and verify the launch brief."
     assert job.background == "The brief is for operators."
     assert job.notes == "Keep the result concise."
     assert job.reply_route["binding_name"] == "bot"
-    refute job.reply_route["binding_name"] == "spoofed"
     assert job.metadata["worker_route"] == route
     assert is_binary(job.metadata["brain_owner_conversation_id"])
   end
@@ -58,25 +52,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("agent-plugin-list", "agent_plugin.list", %{"turn" => turn_ref}),
+               rpc_request(
+                 "agent-plugin-list",
+                 "agent_plugin.list",
+                 %FabricProto.AgentPluginListRequest{},
+                 turn: turn_ref
+               ),
                route
              )
 
-    assert %{"agent_plugins" => agent_plugins} = rpc_payload(envelope)
-    assert Enum.map(agent_plugins, & &1["id"]) == ["deep-research", "office"]
+    assert %FabricProto.AgentPluginListResponse{agent_plugins: agent_plugins} =
+             rpc_response_payload!(envelope, FabricProto.AgentPluginListResponse)
 
-    plugin = Enum.find(agent_plugins, &(&1["id"] == "deep-research"))
-    assert plugin["id"] == "deep-research"
-    assert plugin["version"] == "1.0.0"
-    assert plugin["content_hash"] =~ ~r/^[a-f0-9]{64}$/
+    assert Enum.map(agent_plugins, & &1.id) == ["deep-research", "office"]
 
-    assert Map.keys(plugin) |> Enum.sort() ==
-             ~w(content_hash description id skills version)
+    plugin = Enum.find(agent_plugins, &(&1.id == "deep-research"))
+    assert plugin.id == "deep-research"
+    assert plugin.version == "1.0.0"
+    assert plugin.content_hash =~ ~r/^[a-f0-9]{64}$/
 
-    assert plugin["skills"] == [
-             %{
-               "catalog_name" => "deep-research",
-               "codex_name" => "deep-research:deep-research"
+    assert plugin.skills == [
+             %FabricProto.AgentPluginCatalogSkill{
+               catalog_name: "deep-research",
+               codex_name: "deep-research:deep-research"
              }
            ]
   end
@@ -90,38 +88,54 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert {:ok, _worker} = admit_worker(wrong_route)
 
     create_request =
-      rpc_request("background-agent-job-create-auth", "background_agent_job.create", %{
-        "turn" => turn_ref,
-        "source_tool_call_id" => "tool-auth",
-        "title" => "Authorized work",
-        "task" => "Do the authorized work."
-      })
+      rpc_request(
+        "background-agent-job-create-auth",
+        "background_agent_job.create",
+        %FabricProto.BackgroundAgentJobCreateRequest{
+          source_tool_call_id: "tool-auth",
+          title: "Authorized work",
+          task: "Do the authorized work."
+        },
+        turn: turn_ref
+      )
 
     assert {:ok, rejected} = RPCLane.handle_request(create_request, wrong_route)
     assert rpc_error(rejected)["code"] == "worker_not_assigned_to_turn"
 
     assert {:ok, created} = RPCLane.handle_request(create_request, route)
-    job_id = rpc_payload(created)["job_id"]
+    job_id = job_payload(created).job_id
 
-    for {method, extra} <- [
-          {"background_agent_job.turn.upsert", turn_attrs()},
-          {"background_agent_job.status.update", %{"status" => "running"}}
-        ] do
-      assert {:ok, mutation_rejected} =
-               RPCLane.handle_request(
-                 rpc_request(
-                   "mutation-#{method}",
-                   method,
-                   Map.merge(extra, %{"turn" => turn_ref, "job_id" => job_id})
-                 ),
-                 route
-               )
+    assert {:ok, upsert_rejected} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "mutation-turn-upsert",
+                 "background_agent_job.turn.upsert",
+                 turn_upsert_request(job_id),
+                 turn: turn_ref
+               ),
+               route
+             )
 
-      assert rpc_error(mutation_rejected)["code"] == "background_agent_job_turn_mismatch"
-    end
+    assert rpc_error(upsert_rejected)["code"] == "background_agent_job_turn_mismatch"
+
+    assert {:ok, status_rejected} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "mutation-status-update",
+                 "background_agent_job.status.update",
+                 %FabricProto.BackgroundAgentJobStatusUpdateRequest{
+                   job_id: job_id,
+                   status: "running"
+                 },
+                 turn: turn_ref
+               ),
+               route
+             )
+
+    assert rpc_error(status_rejected)["code"] == "background_agent_job_turn_mismatch"
   end
 
-  test "job memory reads use only the server-validated parent session and channel scope" do
+  test "job turn memory reads resolve their scope from the server-owned job session" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
     route = unique_route()
@@ -129,16 +143,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, created} =
              RPCLane.handle_request(
-               rpc_request("background-agent-job-create-memory", "background_agent_job.create", %{
-                 "turn" => parent_turn,
-                 "source_tool_call_id" => "tool-memory",
-                 "title" => "Research prior decisions",
-                 "task" => "Search memory for prior decisions."
-               }),
+               rpc_request(
+                 "background-agent-job-create-memory",
+                 "background_agent_job.create",
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-memory",
+                   title: "Research prior decisions",
+                   task: "Search memory for prior decisions."
+                 },
+                 turn: parent_turn
+               ),
                route
              )
 
-    job_id = rpc_payload(created)["job_id"]
+    job_id = job_payload(created).job_id
     job = BackgroundAgentJobs.get_job_for_agent(job_id, agent.uid)
     actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job_id)}
 
@@ -149,64 +167,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
              )
 
     assert_receive {:actor_lane, dispatch_envelope}, 200
-    turn_start = turn_start_payload!(dispatch_envelope)
-    job_turn = turn_start.turn
+    job_turn = turn_start_payload!(dispatch_envelope).turn
 
-    base_payload = %{
-      "turn" => job_turn,
-      "actor_event" => turn_start.actor_event,
-      "job_id" => job_id,
-      "query" => "prior decisions"
-    }
-
-    assert {:ok, ignored_spoof} =
+    assert {:ok, searched} =
              RPCLane.handle_request(
                rpc_request(
-                 "memory-wrong-scope",
+                 "memory-job-scope",
                  "memory_search",
-                 Map.put(base_payload, "job_scope", %{
-                   "owner_session_id" => job.owner_session_id,
-                   "signal_channel_id" => "another-channel"
-                 })
+                 %FabricProto.MemorySearchRequest{query: "prior decisions"},
+                 turn: job_turn
                ),
                route
              )
 
-    ignored_spoof_payload = rpc_payload(ignored_spoof)
-    assert ignored_spoof_payload["status"] in ["ok", "degraded"]
+    search_payload = rpc_passthrough_payload!(searched)
+    assert search_payload["status"] in ["ok", "degraded"]
 
-    if ignored_spoof_payload["status"] == "degraded" do
-      assert ignored_spoof_payload["result_completeness"] == "incomplete"
-      assert ignored_spoof_payload["degraded_reasons"] != []
+    if search_payload["status"] == "degraded" do
+      assert search_payload["result_completeness"] == "incomplete"
+      assert search_payload["degraded_reasons"] != []
     end
-
-    assert {:ok, accepted} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "memory-correct-scope",
-                 "memory_search",
-                 Map.put(base_payload, "job_scope", %{
-                   "owner_session_id" => job.owner_session_id,
-                   "signal_channel_id" => job.reply_route["signal_channel_id"]
-                 })
-               ),
-               route
-             )
-
-    accepted_payload = rpc_payload(accepted)
-
-    assert Map.take(accepted_payload, [
-             "status",
-             "result_completeness",
-             "results",
-             "degraded_reasons"
-           ]) ==
-             Map.take(ignored_spoof_payload, [
-               "status",
-               "result_completeness",
-               "results",
-               "degraded_reasons"
-             ])
   end
 
   test "job turn resolves its frozen Codex account and writes back refreshed auth" do
@@ -234,17 +214,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
                rpc_request(
                  "background-agent-job-create-codex-account",
                  "background_agent_job.create",
-                 %{
-                   "turn" => parent_turn,
-                   "source_tool_call_id" => "tool-codex-account",
-                   "title" => "Use the subscription account",
-                   "task" => "Complete the delegated coding task."
-                 }
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-codex-account",
+                   title: "Use the subscription account",
+                   task: "Complete the delegated coding task."
+                 },
+                 turn: parent_turn
                ),
                route
              )
 
-    job_id = rpc_payload(created)["job_id"]
+    job_id = job_payload(created).job_id
     job = BackgroundAgentJobs.get_job_for_agent(job_id, agent.uid)
     assert job.codex_account_id == account_id
 
@@ -260,32 +240,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, resolved} =
              RPCLane.handle_request(
-               rpc_request("codex-account-resolve", "codex.account.resolve", %{
-                 "turn" => job_turn,
-                 "job_id" => job_id
-               }),
+               rpc_request(
+                 "codex-account-resolve",
+                 "codex.account.resolve",
+                 %FabricProto.CodexAccountResolveRequest{job_id: job_id},
+                 turn: job_turn
+               ),
                route
              )
 
-    resolved_payload = rpc_payload(resolved)
-    assert resolved_payload["account_id"] == account_id
-    assert resolved_payload["auth_json"] == initial_auth
-    assert resolved_payload["auth_hash"] == NativeKernel.generic_hash(initial_auth)
+    resolved_payload = rpc_response_payload!(resolved, FabricProto.CodexAccountResolveResponse)
+    assert resolved_payload.account_id == account_id
+    assert resolved_payload.auth_json == initial_auth
+    assert resolved_payload.auth_hash == NativeKernel.generic_hash(initial_auth)
 
     refreshed_auth = auth_json(account_id, "refreshed-token")
 
     assert {:ok, updated} =
              RPCLane.handle_request(
-               rpc_request("codex-account-update", "codex.account.auth.update", %{
-                 "turn" => job_turn,
-                 "job_id" => job_id,
-                 "auth_json" => refreshed_auth
-               }),
+               rpc_request(
+                 "codex-account-update",
+                 "codex.account.auth.update",
+                 %FabricProto.CodexAccountAuthUpdateRequest{
+                   job_id: job_id,
+                   auth_json: refreshed_auth
+                 },
+                 turn: job_turn
+               ),
                route
              )
 
-    updated_payload = rpc_payload(updated)
-    refute Map.has_key?(updated_payload, "auth_hash")
+    updated_payload = rpc_response_payload!(updated, FabricProto.CodexAccountAuthUpdateResponse)
+    assert updated_payload.account_id == account_id
 
     assert {:ok, %{auth_json: ^refreshed_auth, auth_hash: refreshed_hash}} =
              CodexAccounts.resolve_auth(account_id)
@@ -304,18 +290,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
                rpc_request(
                  "background-agent-job-create-research",
                  "background_agent_job.create",
-                 %{
-                   "turn" => parent_turn,
-                   "source_tool_call_id" => "tool-research",
-                   "agent_plugin_ids" => ["deep-research"],
-                   "title" => "Forecast the outcome",
-                   "task" => "Research and produce a forecast dossier."
-                 }
+                 %FabricProto.BackgroundAgentJobCreateRequest{
+                   source_tool_call_id: "tool-research",
+                   agent_plugin_ids: ["deep-research"],
+                   title: "Forecast the outcome",
+                   task: "Research and produce a forecast dossier."
+                 },
+                 turn: parent_turn
                ),
                route
              )
 
-    job_id = rpc_payload(created)["job_id"]
+    job_id = job_payload(created).job_id
     job = BackgroundAgentJobs.get_job_for_agent(job_id, agent.uid)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
@@ -330,12 +316,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, _running_response} =
              RPCLane.handle_request(
-               rpc_request("job-running", "background_agent_job.status.update", %{
-                 "turn" => job_turn,
-                 "job_id" => job_id,
-                 "status" => "running",
-                 "runtime_thread_id" => "thread-1"
-               }),
+               rpc_request(
+                 "job-running",
+                 "background_agent_job.status.update",
+                 %FabricProto.BackgroundAgentJobStatusUpdateRequest{
+                   job_id: job_id,
+                   status: "running",
+                   runtime_thread_id: "thread-1"
+                 },
+                 turn: job_turn
+               ),
                route
              )
 
@@ -344,75 +334,88 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
                rpc_request(
                  "turn-upsert",
                  "background_agent_job.turn.upsert",
-                 turn_attrs()
-                 |> Map.put("turn", job_turn)
-                 |> Map.put("job_id", job_id)
+                 turn_upsert_request(job_id),
+                 turn: job_turn
                ),
                route
              )
 
-    turn_payload = rpc_payload(turn_response)["turn"]
-    assert turn_payload["status"] == "in_progress"
-    assert turn_payload["runtime_turn_id"] == "turn-1"
-    assert turn_payload["trajectory"]["format"] == "ankole_chatml"
+    turn_payload =
+      rpc_response_payload!(turn_response, FabricProto.BackgroundAgentJobTurnUpsertResponse).turn
 
-    assert turn_payload["trajectory"]["messages"] == [
+    assert turn_payload.status == "in_progress"
+    assert turn_payload.runtime_turn_id == "turn-1"
+
+    trajectory = Torque.decode!(turn_payload.trajectory_json)
+    assert trajectory["format"] == "ankole_chatml"
+
+    assert trajectory["messages"] == [
              %{"role" => "assistant", "content" => "Researching."}
            ]
 
-    refute inspect(turn_payload) =~ "json_rpc"
+    refute inspect(trajectory) =~ "json_rpc"
 
     completed_at = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
 
-    completed_attrs =
-      turn_attrs()
-      |> Map.put("turn", job_turn)
-      |> Map.put("job_id", job_id)
-      |> Map.put("revision", 1)
-      |> Map.put("status", "completed")
-      |> Map.put("completed_at", completed_at)
-      |> put_in(
-        ["trajectory", "messages"],
-        [%{"role" => "assistant", "content" => "Research complete."}]
-      )
+    completed_request = %{
+      turn_upsert_request(job_id)
+      | revision: 1,
+        status: "completed",
+        completed_at: completed_at,
+        trajectory_json:
+          Torque.encode!(%{
+            "format" => "ankole_chatml",
+            "version" => 1,
+            "messages" => [%{"role" => "assistant", "content" => "Research complete."}]
+          })
+    }
 
     assert {:ok, completed_response} =
              RPCLane.handle_request(
-               rpc_request("turn-completed", "background_agent_job.turn.upsert", completed_attrs),
+               rpc_request(
+                 "turn-completed",
+                 "background_agent_job.turn.upsert",
+                 completed_request,
+                 turn: job_turn
+               ),
                route
              )
 
-    completed_turn = rpc_payload(completed_response)["turn"]
-    assert completed_turn["status"] == "completed"
-    assert completed_turn["revision"] == 1
+    completed_turn =
+      rpc_response_payload!(completed_response, FabricProto.BackgroundAgentJobTurnUpsertResponse).turn
+
+    assert completed_turn.status == "completed"
+    assert completed_turn.revision == 1
 
     assert {:ok, stale_response} =
              RPCLane.handle_request(
                rpc_request(
                  "turn-stale-retry",
                  "background_agent_job.turn.upsert",
-                 completed_attrs
-                 |> Map.put("revision", 0)
-                 |> Map.put("status", "in_progress")
-                 |> Map.delete("completed_at")
+                 %{completed_request | revision: 0, status: "in_progress", completed_at: ""},
+                 turn: job_turn
                ),
                route
              )
 
-    assert rpc_payload(stale_response)["turn"]["status"] == "completed"
+    stale_turn =
+      rpc_response_payload!(stale_response, FabricProto.BackgroundAgentJobTurnUpsertResponse).turn
+
+    assert stale_turn.status == "completed"
     assert [_single_turn] = BackgroundAgentJobs.list_turns(job_id)
 
     assert {:ok, status_response} =
              RPCLane.handle_request(
-               rpc_request("job-status", "background_agent_job.get", %{
-                 "turn" => parent_turn,
-                 "job_id" => job_id,
-                 "trajectory_limit" => 1
-               }),
+               rpc_request(
+                 "job-status",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{job_id: job_id, trajectory_limit: 1},
+                 turn: parent_turn
+               ),
                route
              )
 
-    execution = rpc_payload(status_response)["execution"]
+    execution = Torque.decode!(job_payload(status_response).execution_json)
     assert execution["lead_turn_number"] == 1
 
     assert execution["turns"] == %{
@@ -428,11 +431,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     assert {:ok, invalid_cursor_response} =
              RPCLane.handle_request(
-               rpc_request("job-invalid-cursor", "background_agent_job.get", %{
-                 "turn" => parent_turn,
-                 "job_id" => job_id,
-                 "trajectory_cursor" => "not-a-cursor"
-               }),
+               rpc_request(
+                 "job-invalid-cursor",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{
+                   job_id: job_id,
+                   trajectory_cursor: "not-a-cursor"
+                 },
+                 turn: parent_turn
+               ),
                route
              )
 
@@ -464,29 +471,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     turn_start_payload!(envelope).turn
   end
 
-  defp turn_attrs do
+  defp turn_upsert_request(job_id) do
     now = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
 
-    %{
-      "attempt" => 1,
-      "runtime_thread_id" => "thread-1",
-      "runtime_turn_id" => "turn-1",
-      "kind" => "agent",
-      "status" => "in_progress",
-      "revision" => 0,
-      "trajectory" => %{
-        "format" => "ankole_chatml",
-        "version" => 1,
-        "messages" => [%{"role" => "assistant", "content" => "Researching."}]
-      },
-      "progress" => %{
-        "completed_items" => 0,
-        "tool_calls" => 0,
-        "tools_used" => [],
-        "files_changed" => []
-      },
-      "error" => %{},
-      "started_at" => now
+    %FabricProto.BackgroundAgentJobTurnUpsertRequest{
+      job_id: job_id,
+      attempt: 1,
+      runtime_thread_id: "thread-1",
+      runtime_turn_id: "turn-1",
+      kind: "agent",
+      status: "in_progress",
+      revision: 0,
+      trajectory_json:
+        Torque.encode!(%{
+          "format" => "ankole_chatml",
+          "version" => 1,
+          "messages" => [%{"role" => "assistant", "content" => "Researching."}]
+        }),
+      progress_json:
+        Torque.encode!(%{
+          "completed_items" => 0,
+          "tool_calls" => 0,
+          "tools_used" => [],
+          "files_changed" => []
+        }),
+      error_json: Torque.encode!(%{}),
+      started_at: now
     }
   end
 
@@ -501,9 +511,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     })
   end
 
-  defp rpc_payload(envelope) do
+  defp job_payload(envelope) do
     assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
-    rpc_response_payload!(envelope)
+    rpc_response_payload!(envelope, FabricProto.BackgroundAgentJobResponse)
   end
 
   defp rpc_error(envelope) do

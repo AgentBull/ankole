@@ -4,11 +4,15 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 3,
-      rpc_response_payload!: 1,
+      rpc_request: 4,
+      rpc_response_payload!: 2,
+      rpc_passthrough_payload!: 1,
       rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
+
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
 
   import Ankole.PrincipalsFixtures
 
@@ -730,37 +734,38 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              )
 
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
-    mixed_case_turn = put_in(turn, ["actor", "agent_uid"], " #{String.upcase(agent.uid)} ")
+    mixed_case_turn = %{turn | actor: %{turn.actor | agent_uid: " #{String.upcase(agent.uid)} "}}
 
     assert {:ok, context_envelope} =
              RPCLane.handle_request(
-               rpc_request("turn-context-1", "agent_conversation.context.resolve", %{
-                 "turn" => mixed_case_turn
-               }),
+               rpc_request(
+                 "turn-context-1",
+                 "agent_conversation.context.resolve",
+                 %FabricProto.AgentConversationContextRequest{},
+                 turn: mixed_case_turn
+               ),
                route
              )
 
     assert envelope_body_type(context_envelope) == :rpc_response,
            inspect(context_envelope)
 
-    context_payload = rpc_response_payload!(context_envelope)
-    assert context_payload["agent_uid"] == agent.uid
-    assert context_payload["session_id"] == "signal-channel:context"
-    assert context_payload["agent"]["display_name"] == agent.display_name
-    assert context_payload["agent"]["role"] == "Research Analyst"
-    assert context_payload["conversation"]["key"] == "signal-channel:context"
-    assert context_payload["mission"] == "Own the next-turn research workflow."
-    assert context_payload["soul"] == "Be exact, calm, and evidence-led."
-    assert context_payload["design"] == "Use cobalt accents and generous whitespace."
-    assert Enum.any?(context_payload["skills"], &(&1["skill_name"] == "nano-pdf"))
-    refute Map.has_key?(context_payload, "request_context")
-    refute get_in(context_payload, ["conversation", "messages"])
-    refute Map.has_key?(context_payload, "system_prompt_snapshot")
+    context_payload =
+      rpc_response_payload!(context_envelope, FabricProto.AgentConversationContextResponse)
+
+    assert context_payload.agent.display_name == agent.display_name
+    assert context_payload.agent.role == "Research Analyst"
+    assert context_payload.conversation.key == "signal-channel:context"
+    assert context_payload.mission == "Own the next-turn research workflow."
+    assert context_payload.soul == "Be exact, calm, and evidence-led."
+    assert context_payload.design == "Use cobalt accents and generous whitespace."
+    assert Enum.any?(context_payload.skills, &(&1.skill_name == "nano-pdf"))
+    assert context_payload.system_prompt_snapshot == ""
 
     assert {:ok, prompt_response} =
              StatefulResponses.start_response_run(%{
                subject_uid: agent.uid,
-               conversation_id: context_payload["conversation"]["id"],
+               conversation_id: context_payload.conversation.id,
                metadata: %{"instructions" => "persisted system prompt"}
              })
 
@@ -768,41 +773,55 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, resumed_context_envelope} =
              RPCLane.handle_request(
-               rpc_request("turn-context-resumed", "agent_conversation.context.resolve", %{
-                 "turn" => mixed_case_turn
-               }),
+               rpc_request(
+                 "turn-context-resumed",
+                 "agent_conversation.context.resolve",
+                 %FabricProto.AgentConversationContextRequest{},
+                 turn: mixed_case_turn
+               ),
                route
              )
 
-    assert rpc_response_payload!(resumed_context_envelope)["system_prompt_snapshot"] ==
-             "persisted system prompt"
+    assert rpc_response_payload!(
+             resumed_context_envelope,
+             FabricProto.AgentConversationContextResponse
+           ).system_prompt_snapshot == "persisted system prompt"
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(
-               rpc_request("skill-overlay-replace-1", "skills.overlay.replace", %{
-                 "turn" => mixed_case_turn,
-                 "skill_name" => "nano-pdf",
-                 "content" => "Prefer page-by-page verification.",
-                 "expected_content_hash" => ""
-               }),
+               rpc_request(
+                 "skill-overlay-replace-1",
+                 "skills.overlay.replace",
+                 %FabricProto.SkillOverlayReplaceRequest{
+                   skill_name: "nano-pdf",
+                   content: "Prefer page-by-page verification.",
+                   expected_content_hash: ""
+                 },
+                 turn: mixed_case_turn
+               ),
                route
              )
 
-    replace_payload = rpc_response_payload!(replace_envelope)
-    assert replace_payload["has_overlay"]
-    assert replace_payload["overlay_json"] == %{"text" => "Prefer page-by-page verification."}
+    replace_payload = rpc_response_payload!(replace_envelope, FabricProto.SkillOverlayResponse)
+    assert replace_payload.has_overlay
+
+    assert Torque.decode!(replace_payload.overlay_json) ==
+             %{"text" => "Prefer page-by-page verification."}
 
     assert {:ok, resolve_envelope} =
              RPCLane.handle_request(
-               rpc_request("skill-overlay-resolve-1", "skills.overlay.resolve", %{
-                 "turn" => mixed_case_turn,
-                 "skill_name" => "nano-pdf"
-               }),
+               rpc_request(
+                 "skill-overlay-resolve-1",
+                 "skills.overlay.resolve",
+                 %FabricProto.SkillOverlayResolveRequest{skill_name: "nano-pdf"},
+                 turn: mixed_case_turn
+               ),
                route
              )
 
-    assert rpc_response_payload!(resolve_envelope)["overlay_json"] ==
-             %{"text" => "Prefer page-by-page verification."}
+    assert Torque.decode!(
+             rpc_response_payload!(resolve_envelope, FabricProto.SkillOverlayResponse).overlay_json
+           ) == %{"text" => "Prefer page-by-page verification."}
   end
 
   test "runtime RPCLane rejects agent conversation context requests from an unassigned worker route" do
@@ -817,9 +836,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("turn-context-wrong-route", "agent_conversation.context.resolve", %{
-                 "turn" => target_turn
-               }),
+               rpc_request(
+                 "turn-context-wrong-route",
+                 "agent_conversation.context.resolve",
+                 %FabricProto.AgentConversationContextRequest{},
+                 turn: target_turn
+               ),
                other_route
              )
 
@@ -833,26 +855,32 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
-    turn["activation_uid"]
+    turn.activation_uid
     |> then(&Repo.get_by!(ActorSessionActivation, activation_uid: &1))
     |> Ecto.Changeset.change(%{revision: 1})
     |> Repo.update!()
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("skill-overlay-after-steer", "skills.overlay.replace", %{
-                 "turn" => turn,
-                 "skill_name" => "nano-pdf",
-                 "content" => "Prefer page-by-page verification after steer.",
-                 "expected_content_hash" => ""
-               }),
+               rpc_request(
+                 "skill-overlay-after-steer",
+                 "skills.overlay.replace",
+                 %FabricProto.SkillOverlayReplaceRequest{
+                   skill_name: "nano-pdf",
+                   content: "Prefer page-by-page verification after steer.",
+                   expected_content_hash: ""
+                 },
+                 turn: turn
+               ),
                route
              )
 
     assert envelope_body_type(envelope) == :rpc_response, inspect(envelope)
-    payload = rpc_response_payload!(envelope)
-    assert payload["has_overlay"]
-    assert payload["overlay_json"] == %{"text" => "Prefer page-by-page verification after steer."}
+    payload = rpc_response_payload!(envelope, FabricProto.SkillOverlayResponse)
+    assert payload.has_overlay
+
+    assert Torque.decode!(payload.overlay_json) ==
+             %{"text" => "Prefer page-by-page verification after steer."}
   end
 
   test "worker auth key is global AppConfigure state" do
@@ -977,12 +1005,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     })
 
     {route,
-     %{
-       "actor" => %{"agent_uid" => agent_uid, "session_id" => session_id},
-       "activation_uid" => activation_uid,
-       "actor_epoch" => 1,
-       "actor_event_id" => actor_event.id,
-       "revision" => 0
+     %FabricProto.ActorTurnRef{
+       actor: %FabricProto.ActorKey{agent_uid: agent_uid, session_id: session_id},
+       activation_uid: activation_uid,
+       actor_epoch: 1,
+       actor_event_id: actor_event.id,
+       revision: 0
      }}
   end
 end

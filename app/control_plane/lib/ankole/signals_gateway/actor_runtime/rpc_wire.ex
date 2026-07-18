@@ -1,9 +1,12 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.RPCWire do
   @moduledoc """
-  Shared helpers for RuntimeFabric RPC broker payloads.
+  Shared helpers for RuntimeFabric RPC broker error payloads and the JSON
+  documents carried inside `*_json` payload fields.
 
-  Brokers still own domain validation and context calls. This module keeps the
-  repeated string/atom-key wire reads and `rpc_error` payload shape consistent.
+  Request and response payloads themselves are generated protobuf structs
+  decoded by `RPCLane`; these map readers exist only for the deliberately
+  free-form documents (reply routes, metadata, library projections) and keep
+  the `rpc_error` payload shape consistent.
   """
 
   @type error_message_style :: :default | :tuple_reason | :inspect_tuple_reason | :tuple_inspect

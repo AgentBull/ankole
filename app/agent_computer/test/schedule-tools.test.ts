@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { rpcMethods, type ScheduleRPCMethod } from '../src/lanes/rpc_lane'
 import { createScheduleTools } from '../src/tools/schedule/schedule-tools'
@@ -10,7 +11,7 @@ describe('schedule tools', () => {
     const requests: JSONObject[] = []
     const tools = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         expect(method).toBe(rpcMethods.scheduleCheckBackLaterCreate)
         requests.push(request)
         return { status: 'scheduled' }
@@ -35,13 +36,13 @@ describe('schedule tools', () => {
     await checkBackLater!.execute('call_retry', params)
 
     expect(requests).toHaveLength(2)
-    expect(requests[0]!.tool_call_id).toBe('call_first')
-    expect(requests[1]!.tool_call_id).toBe('call_retry')
-    expect(requests[0]!.quiet_success).toBe(false)
-    expect(requests[1]!.quiet_success).toBe(false)
-    expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
+    expect(requests[0]!.toolCallId).toBe('call_first')
+    expect(requests[1]!.toolCallId).toBe('call_retry')
+    expect(requests[0]!.quietSuccess).toBe(false)
+    expect(requests[1]!.quietSuccess).toBe(false)
+    expect(requests[0]!.idempotencyKey).toBe(requests[1]!.idempotencyKey)
     expect(
-      String(requests[0]!.idempotency_key).startsWith('check_back_later:00000000-0000-0000-0000-000000000123:')
+      String(requests[0]!.idempotencyKey).startsWith('check_back_later:00000000-0000-0000-0000-000000000123:')
     ).toBe(true)
     expect(result.presentation).toEqual([
       expect.objectContaining({
@@ -55,9 +56,9 @@ describe('schedule tools', () => {
     const requests: JSONObject[] = []
     const checkBackLater = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         requests.push(request)
-        return { status: 'scheduled', quiet_success: request.quiet_success }
+        return { status: 'scheduled', quiet_success: request.quietSuccess }
       }
     }).find(tool => tool.name === 'check_back_later')
 
@@ -75,17 +76,17 @@ describe('schedule tools', () => {
     await checkBackLater!.execute('call_false', { ...params, quiet_success: false })
     await checkBackLater!.execute('call_true', { ...params, quiet_success: true })
 
-    expect(requests.map(request => request.quiet_success)).toEqual([false, false, true])
-    expect(requests[0]!.idempotency_key).toBe('check_back_later:00000000-0000-0000-0000-000000000123:6059cf6dc9b5f7ff')
-    expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
-    expect(requests[2]!.idempotency_key).not.toBe(requests[0]!.idempotency_key)
+    expect(requests.map(request => request.quietSuccess)).toEqual([false, false, true])
+    expect(requests[0]!.idempotencyKey).toBe('check_back_later:00000000-0000-0000-0000-000000000123:6059cf6dc9b5f7ff')
+    expect(requests[0]!.idempotencyKey).toBe(requests[1]!.idempotencyKey)
+    expect(requests[2]!.idempotencyKey).not.toBe(requests[0]!.idempotencyKey)
   })
 
   it('keeps explicit check_back_later idempotency keys unchanged', async () => {
     const requests: JSONObject[] = []
     const [checkBackLater] = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'scheduled' }
       }
@@ -99,14 +100,14 @@ describe('schedule tools', () => {
       idempotency_key: 'operator-provided-key'
     })
 
-    expect(requests[0]!.idempotency_key).toBe('operator-provided-key')
+    expect(requests[0]!.idempotencyKey).toBe('operator-provided-key')
   })
 
   it('lists, inspects, updates, and cancels durable checkbacks through distinct RPC methods', async () => {
     const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
     const checkBackLater = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         calls.push({ method, request })
         return { status: method.endsWith('.cancel') ? 'cancelled' : 'ok' }
       }
@@ -138,21 +139,21 @@ describe('schedule tools', () => {
       rpcMethods.scheduleCheckBackLaterCancel
     ])
     expect(calls[0]!.request.limit).toBe(5)
-    expect(calls[1]!.request.scheduled_event_id).toBe(scheduledEventID)
-    expect(calls[2]!.request.updates).toEqual({
+    expect(calls[1]!.request.scheduledEventId).toBe(scheduledEventID)
+    expect(jsonFromBytes(calls[2]!.request.updatesJson as Uint8Array)).toEqual({
       check: 'Let the evidence determine the PDF length.',
       context_summary: 'The user removed the 6–12 page constraint.'
     })
-    expect(String(calls[2]!.request.idempotency_key)).toStartWith(
+    expect(String(calls[2]!.request.idempotencyKey)).toStartWith(
       `check_back_later:update:${scheduledEventID}:00000000-0000-0000-0000-000000000123:`
     )
-    expect(calls[2]!.request.reply_route).toEqual({
+    expect(jsonFromBytes(calls[2]!.request.replyRouteJson as Uint8Array)).toEqual({
       binding_name: 'mock',
       signal_channel_id: 'mock:chat:schedule',
       provider_thread_id: 'thread-1',
       source_entry_id: 'entry-1'
     })
-    expect(calls[3]!.request.scheduled_event_id).toBe(scheduledEventID)
+    expect(calls[3]!.request.scheduledEventId).toBe(scheduledEventID)
     expect(listed.presentation).toEqual([])
     expect(inspected.presentation).toEqual([])
     expect(updated.presentation).toEqual([
@@ -211,7 +212,7 @@ describe('schedule tools', () => {
     const requests: JSONObject[] = []
     const tools = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         expect(method).toBe(rpcMethods.scheduleCronAdd)
         requests.push(request)
         return { status: 'created' }
@@ -237,8 +238,8 @@ describe('schedule tools', () => {
     await cron!.execute('call_retry', params)
 
     expect(requests).toHaveLength(2)
-    expect(requests[0]!.idempotency_key).toBe(requests[1]!.idempotency_key)
-    expect(String(requests[0]!.idempotency_key).startsWith('cron:add:00000000-0000-0000-0000-000000000123:')).toBe(true)
+    expect(requests[0]!.idempotencyKey).toBe(requests[1]!.idempotencyKey)
+    expect(String(requests[0]!.idempotencyKey).startsWith('cron:add:00000000-0000-0000-0000-000000000123:')).toBe(true)
     expect(result.presentation).toEqual([
       {
         kind: 'effect.receipt',
@@ -258,7 +259,7 @@ describe('schedule tools', () => {
     const requests: JSONObject[] = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
-      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'created' }
       }
@@ -275,14 +276,14 @@ describe('schedule tools', () => {
       idempotency_key: 'operator-cron-key'
     })
 
-    expect(requests[0]!.idempotency_key).toBe('operator-cron-key')
+    expect(requests[0]!.idempotencyKey).toBe('operator-cron-key')
   })
 
   it('makes cron-origin turns read-only to prevent recursive schedule mutation', async () => {
     const requests: JSONObject[] = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool({ cronOrigin: true }),
-      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (_method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         requests.push(request)
         return { status: 'created' }
       }
@@ -307,7 +308,7 @@ describe('schedule tools', () => {
     const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool({ cronOrigin: true }),
-      requestScheduleRPC: async (method: ScheduleRPCMethod, request: JSONObject): Promise<JSONObject> => {
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
         calls.push({ method, request })
         return { status: 'ok', runs: [] }
       }
@@ -320,10 +321,9 @@ describe('schedule tools', () => {
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe(rpcMethods.scheduleCronRuns)
-    expect(calls[0]!.request.cron_schedule_id).toBe('00000000-0000-0000-0000-000000000999')
+    expect(calls[0]!.request.cronScheduleId).toBe('00000000-0000-0000-0000-000000000999')
     expect(result.presentation).toEqual([])
   })
-
 })
 
 function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStart {

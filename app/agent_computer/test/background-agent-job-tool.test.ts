@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
 import {
   createBackgroundAgentJobTool,
   type BackgroundAgentJobToolOptions
 } from '../src/tools/background-agent-job/background-agent-job-tool'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import {
+  AgentPluginCatalogEntrySchema,
+  BackgroundAgentJobListResponseSchema,
+  BackgroundAgentJobResponseSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   rpcMethods,
-  type BackgroundAgentJobCreateRequest,
   type BackgroundAgentJobResponse,
   type AgentPluginCatalogEntry,
   type RPCRequester
@@ -41,12 +47,12 @@ describe('@ankole/agent-computer background agent job tool', () => {
   })
 
   it('sends only the intrinsic start fields to the control plane', async () => {
-    const starts: Array<Omit<BackgroundAgentJobCreateRequest, 'request_id'>> = []
+    const starts: Array<Record<string, unknown>> = []
     const tool = createBackgroundAgentJobTool(
       toolOptions({
         rpc: (async (method: unknown, payload: unknown) => {
           expect(method).toBe(rpcMethods.backgroundAgentJobCreate)
-          starts.push(payload as Omit<BackgroundAgentJobCreateRequest, 'request_id'>)
+          starts.push(payload as Record<string, unknown>)
           return response()
         }) as RPCRequester
       })
@@ -71,27 +77,26 @@ describe('@ankole/agent-computer background agent job tool', () => {
 
     expect(starts).toHaveLength(1)
     expect(starts[0]).toMatchObject({
-      source_tool_call_id: 'call-1',
+      sourceToolCallId: 'call-1',
       title: 'Research',
       task: '  Preserve this task verbatim.  ',
-      agent_plugin_ids: ['deep-research'],
-      skill_names: ['coding'],
+      agentPluginIds: ['deep-research'],
+      skillNames: ['coding'],
       model: 'gpt-5.4',
-      reasoning_effort: 'high'
+      reasoningEffort: 'high'
     })
     expect(Object.keys(starts[0]!).sort()).toEqual(
       [
         'background',
         'model',
         'notes',
-        'agent_plugin_ids',
-        'reasoning_effort',
-        'skill_names',
-        'source_tool_call_id',
+        'agentPluginIds',
+        'reasoningEffort',
+        'skillNames',
+        'sourceToolCallId',
         'task',
         'title',
-        'turn',
-        'workspace_mounts'
+        'workspaceMounts'
       ].sort()
     )
     expect(result.content[0]).toMatchObject({ type: 'text' })
@@ -100,13 +105,14 @@ describe('@ankole/agent-computer background agent job tool', () => {
   it('keeps the catalog capacity separate from the sixteen-Plugin Job limit', () => {
     const catalog = Array.from(
       { length: 17 },
-      (_, index): AgentPluginCatalogEntry => ({
-        id: `plugin-${index}`,
-        description: `Plugin ${index}`,
-        version: '1.0.0',
-        content_hash: String(index).padStart(64, 'a').slice(-64),
-        skills: []
-      })
+      (_, index): AgentPluginCatalogEntry =>
+        create(AgentPluginCatalogEntrySchema, {
+          id: `plugin-${index}`,
+          description: `Plugin ${index}`,
+          version: '1.0.0',
+          contentHash: String(index).padStart(64, 'a').slice(-64),
+          skills: []
+        })
     )
     const tool = createBackgroundAgentJobTool(toolOptions({ agentPluginCatalog: catalog, standaloneSkillNames: [] }))
 
@@ -133,10 +139,10 @@ describe('@ankole/agent-computer background agent job tool', () => {
       createBackgroundAgentJobTool(
         toolOptions({
           agentPluginCatalog: [
-            {
-              ...pluginCatalog()[0]!,
-              skills: [{ catalog_name: 'deep-research', codex_name: 'wrong:name' }]
-            }
+            create(AgentPluginCatalogEntrySchema, {
+              ...catalogInit(),
+              skills: [{ catalogName: 'deep-research', codexName: 'wrong:name' }]
+            })
           ]
         })
       )
@@ -146,10 +152,10 @@ describe('@ankole/agent-computer background agent job tool', () => {
   it('enforces action-specific fields', () => {
     const schema = createBackgroundAgentJobTool(toolOptions()).schema
     expect(schema.safeParse({ action: 'status' }).success).toBe(false)
-    expect(schema.safeParse({ action: 'status', job_id: response().job_id }).success).toBe(true)
+    expect(schema.safeParse({ action: 'status', job_id: response().jobId }).success).toBe(true)
     expect(schema.safeParse({ action: 'list', title: 'Not allowed' }).success).toBe(false)
-    expect(schema.safeParse({ action: 'steer', job_id: response().job_id }).success).toBe(false)
-    expect(schema.safeParse({ action: 'steer', job_id: response().job_id, text: 'Continue.' }).success).toBe(true)
+    expect(schema.safeParse({ action: 'steer', job_id: response().jobId }).success).toBe(false)
+    expect(schema.safeParse({ action: 'steer', job_id: response().jobId, text: 'Continue.' }).success).toBe(true)
   })
 })
 
@@ -160,42 +166,41 @@ function toolOptions(overrides: Partial<BackgroundAgentJobToolOptions> = {}): Ba
     agentPluginCatalog: pluginCatalog(),
     standaloneSkillNames: ['coding'],
     rpc: (async (method: unknown) => {
-      if (method === rpcMethods.backgroundAgentJobList) return { request_id: 'req-1', jobs: [] }
+      if (method === rpcMethods.backgroundAgentJobList)
+        return create(BackgroundAgentJobListResponseSchema, { jobs: [] })
       return job
     }) as RPCRequester,
     ...overrides
   }
 }
 
+function catalogInit() {
+  return {
+    id: 'deep-research',
+    description: 'Evidence-backed research with forecast and retrospect workflows.',
+    version: '1.0.0',
+    contentHash: 'a'.repeat(64),
+    skills: [{ catalogName: 'deep-research', codexName: 'deep-research:deep-research' }]
+  }
+}
+
 function pluginCatalog(): AgentPluginCatalogEntry[] {
-  return [
-    {
-      id: 'deep-research',
-      description: 'Evidence-backed research with forecast and retrospect workflows.',
-      version: '1.0.0',
-      content_hash: 'a'.repeat(64),
-      skills: [{ catalog_name: 'deep-research', codex_name: 'deep-research:deep-research' }]
-    }
-  ]
+  return [create(AgentPluginCatalogEntrySchema, catalogInit())]
 }
 
 function response(): BackgroundAgentJobResponse {
-  return {
-    request_id: 'background-agent-job-response-1',
-    job_id: '019f0000-0000-7000-8000-000000000001',
-    agent_uid: 'agent-1',
-    owner_session_id: 'session-1',
+  return create(BackgroundAgentJobResponseSchema, {
+    jobId: '019f0000-0000-7000-8000-000000000001',
+    agentUid: 'agent-1',
+    ownerSessionId: 'session-1',
     status: 'queued',
-    codex_account_id: 'aigateway',
+    codexAccountId: 'aigateway',
     title: 'Research',
     task: 'Write the report.',
-    reply_route: { binding_name: 'lark', signal_channel_id: 'chat-1' },
+    replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),
     attempts: 0,
-    agent_plugin_ids: ['deep-research'],
-    skill_names: ['coding'],
-    workspace_mounts: [{ id: 'workspace', source: '/workspace/user-files/project', access: 'read_write' }],
-    result: {},
-    error: {},
-    metadata: {}
-  }
+    agentPluginIds: ['deep-research'],
+    skillNames: ['coding'],
+    workspaceMounts: [{ id: 'workspace', source: '/workspace/user-files/project', access: 'read_write' }]
+  })
 }

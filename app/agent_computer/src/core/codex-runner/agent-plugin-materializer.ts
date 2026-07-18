@@ -191,15 +191,15 @@ function validateAgentPluginRef(
     throw new Error(`Agent Plugin version mismatch for ${ref.id}: ${version} != ${ref.version}`)
 
   const contentHash = computeAgentPluginContentHash(sourceRoot)
-  if (contentHash !== ref.content_hash) {
-    throw new Error(`Agent Plugin content hash mismatch for ${ref.id}: ${contentHash} != ${ref.content_hash}`)
+  if (contentHash !== ref.contentHash) {
+    throw new Error(`Agent Plugin content hash mismatch for ${ref.id}: ${contentHash} != ${ref.contentHash}`)
   }
 
   const materializedRoot = join(materializedPluginsRoot, ref.id)
   const memberSkillNames = agentPluginSkillDirectoryNames(sourceRoot, skillsRelativePath)
-  const enabledSkillNames = ref.skills.map(skill => skill.catalog_name).sort(compareCodePoints)
+  const enabledSkillNames = ref.skills.map(skill => skill.catalogName).sort(compareCodePoints)
   assertEnabledSkillSelection(ref, memberSkillNames, manifestName)
-  const enabledCodexSkillNames = ref.skills.map(skill => skill.codex_name).sort(compareCodePoints)
+  const enabledCodexSkillNames = ref.skills.map(skill => skill.codexName).sort(compareCodePoints)
   return {
     ...ref,
     manifestName,
@@ -410,7 +410,7 @@ function assertEnabledSkillSelection(
   memberSkillNames: string[],
   manifestName: string
 ): void {
-  const enabledNames = new Set(ref.skills.map(skill => skill.catalog_name))
+  const enabledNames = new Set(ref.skills.map(skill => skill.catalogName))
   if (enabledNames.size !== ref.skills.length) {
     throw new Error(`Agent Plugin ${ref.id} catalog contains duplicate Skill names`)
   }
@@ -421,8 +421,8 @@ function assertEnabledSkillSelection(
   }
 
   const invalidCodexNames = ref.skills
-    .filter(skill => skill.codex_name !== `${manifestName}:${skill.catalog_name}`)
-    .map(skill => skill.codex_name)
+    .filter(skill => skill.codexName !== `${manifestName}:${skill.catalogName}`)
+    .map(skill => skill.codexName)
     .sort(compareCodePoints)
   if (invalidCodexNames.length > 0) {
     throw new Error(`Agent Plugin ${ref.id} catalog has invalid Codex Skill names: ${invalidCodexNames.join(', ')}`)

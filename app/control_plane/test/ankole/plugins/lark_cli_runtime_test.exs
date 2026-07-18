@@ -4,7 +4,9 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 3,
-      rpc_response_payload!: 1,
+      rpc_request: 3,
+      rpc_request: 4,
+      rpc_response_payload!: 2,
       rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
@@ -191,14 +193,17 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("lark-worker-env", "worker_env.resolve", %{
-                 "request_id" => "lark-worker-env",
-                 "agent_uid" => agent.uid
-               }),
+               rpc_request(
+                 "lark-worker-env",
+                 "worker_env.resolve",
+                 %Ankole.RuntimeFabric.V1.WorkerEnvResolveRequest{},
+                 agent_uid: agent.uid
+               ),
                "trusted-worker-route"
              )
 
-    rpc_vars = rpc_response_payload!(envelope)["vars"]
+    rpc_vars =
+      rpc_response_payload!(envelope, Ankole.RuntimeFabric.V1.WorkerEnvResolveResponse).vars
     assert rpc_vars["LARKSUITE_CLI_APP_ID"] == "cli_worker"
     refute Map.has_key?(rpc_vars, "LARKSUITE_CLI_APP_SECRET")
     assert rpc_vars["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "tenant-token"

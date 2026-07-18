@@ -147,12 +147,6 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Projects a job into the named Console API contract."
   defdelegate console_projection(job), to: Queries
 
-  @doc "Projects a job into the worker-facing RuntimeFabric RPC payload."
-  defdelegate rpc_projection(job), to: Queries
-
-  @doc "Projects a job into the bounded RPC list summary."
-  defdelegate rpc_summary(job), to: Queries
-
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
 

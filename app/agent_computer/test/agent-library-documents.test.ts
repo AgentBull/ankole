@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { create } from '@bufbuild/protobuf'
 import { AGENT_DESIGN_DOCUMENT_PATH, materializeAgentLibraryDocuments } from '../src/core/turns/agent_library_documents'
+import { AgentConversationContextResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('agent library document projection', () => {
   test('atomically projects DESIGN.md at the stable read-only model path', () => {
@@ -32,7 +34,7 @@ describe('agent library document projection', () => {
       materializeAgentLibraryDocuments(workspaceRoot, context('Use cobalt accents.'))
       expect(existsSync(designPath)).toBeTrue()
 
-      materializeAgentLibraryDocuments(workspaceRoot, { ...context(''), design: undefined })
+      materializeAgentLibraryDocuments(workspaceRoot, context(''))
       expect(existsSync(designPath)).toBeFalse()
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true })
@@ -61,17 +63,5 @@ describe('agent library document projection', () => {
 })
 
 function context(design: string) {
-  return {
-    request_id: 'context-1',
-    agent_uid: 'agent-1',
-    session_id: 'session-1',
-    turn: {
-      actor: { agent_uid: 'agent-1', session_id: 'session-1' },
-      activation_uid: 'activation-1',
-      actor_epoch: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000101',
-      revision: 0
-    },
-    design
-  }
+  return create(AgentConversationContextResponseSchema, { design })
 }

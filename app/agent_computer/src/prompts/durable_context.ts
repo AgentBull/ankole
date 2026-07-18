@@ -1,7 +1,7 @@
-import type { RuntimeBrainSnapshot, RuntimeBrainSnapshotEntry } from '../lanes/rpc_lane'
+import type { BrainSnapshot, BrainSnapshotEntry } from '../lanes/rpc_lane'
 
 /** Renders saved resident context for a tool-capable agent run. */
-export function formatAgentDurableContext(snapshot: RuntimeBrainSnapshot | undefined): string {
+export function formatAgentDurableContext(snapshot: BrainSnapshot | undefined): string {
   return formatDurableContext(
     snapshot,
     'This is saved durable context for the current agent and channel. Use an item only if it remains valid, is supported with sufficient confidence, and is directly relevant to the current topic; otherwise ignore it.',
@@ -10,7 +10,7 @@ export function formatAgentDurableContext(snapshot: RuntimeBrainSnapshot | undef
 }
 
 /** Renders saved resident context for the tool-free ambient intervention decision. */
-export function formatAmbientDurableContext(snapshot: RuntimeBrainSnapshot | undefined): string {
+export function formatAmbientDurableContext(snapshot: BrainSnapshot | undefined): string {
   return formatDurableContext(
     snapshot,
     'Use this saved context only to decide whether to speak. You cannot retrieve memory; stay silent if missing or newer context could change the decision.',
@@ -19,13 +19,13 @@ export function formatAmbientDurableContext(snapshot: RuntimeBrainSnapshot | und
 }
 
 function formatDurableContext(
-  snapshot: RuntimeBrainSnapshot | undefined,
+  snapshot: BrainSnapshot | undefined,
   guidance: string,
   incompleteGuidance: string
 ): string {
   const entries = [
-    durableEntry('agent_context', snapshot?.pinned_memo),
-    durableEntry('group_context', snapshot?.channel_entry)
+    durableEntry('agent_context', snapshot?.pinnedMemo),
+    durableEntry('group_context', snapshot?.channelEntry)
   ].filter((entry): entry is RenderedDurableEntry => entry !== undefined)
   if (entries.length === 0) return ''
 
@@ -47,10 +47,10 @@ type RenderedDurableEntry = {
 
 function durableEntry(
   tag: 'agent_context' | 'group_context',
-  entry: RuntimeBrainSnapshotEntry | null | undefined
+  entry: BrainSnapshotEntry | undefined
 ): RenderedDurableEntry | undefined {
   if (!entry) return undefined
-  const content = entry.resident_text.trim()
+  const content = entry.residentText.trim()
   if (!content) return undefined
 
   return {

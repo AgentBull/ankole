@@ -1,6 +1,9 @@
 import { join, normalize } from 'node:path'
+import { create } from '@bufbuild/protobuf'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { ActorTurnRef } from '../lanes/actor_lane'
-import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../lanes/rpc_lane'
+import { rpcMethods, RuntimeSkillSummarySchema, type RPCRequester, type RuntimeSkillSummary } from '../lanes/rpc_lane'
 
 export interface SkillFileRoots {
   builtinSkillsRoot: string
@@ -15,36 +18,43 @@ export function enabledSkillByName(
   assertValidSkillName(name)
   if (!enabledSkills) throw new Error('skill tools require RuntimeFabric enabled skill metadata')
 
-  const skill = enabledSkills.map(normalizeEnabledSkill).find(candidate => candidate?.skill_name === name)
+  const skill = enabledSkills.map(normalizeEnabledSkill).find(candidate => candidate?.skillName === name)
   if (!skill) throw new Error(`skill is not enabled for this turn: ${name}`)
   return skill
 }
 
 export function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkillSummary | undefined {
   if (typeof skill === 'string') {
-    return isValidSkillName(skill) ? { skill_name: skill, source_kind: 'builtin', relative_path: skill } : undefined
+    return isValidSkillName(skill)
+      ? create(RuntimeSkillSummarySchema, { skillName: skill, sourceKind: 'builtin', relativePath: skill })
+      : undefined
   }
 
-  return typeof skill.skill_name === 'string' && isValidSkillName(skill.skill_name) ? skill : undefined
+  return typeof skill.skillName === 'string' && isValidSkillName(skill.skillName) ? skill : undefined
+}
+
+/** Parses the free-form skill metadata document; empty bytes mean no metadata. */
+export function skillMetadata(skill: RuntimeSkillSummary): JSONObject {
+  return jsonObjectFromBytes(skill.metadataJson, 'runtime_skill_summary.metadata_json') ?? {}
 }
 
 export function resolveSkillFilesystemRoot(
   skill: RuntimeSkillSummary,
   input: { skillRoots: SkillFileRoots; turn?: ActorTurnRef }
 ): string {
-  const relativePath = normalizeSkillRelativePath(skill.relative_path || skill.skill_name)
-  const sourceKind = skill.source_kind || 'builtin'
+  const relativePath = normalizeSkillRelativePath(skill.relativePath || skill.skillName)
+  const sourceKind = skill.sourceKind || 'builtin'
   if (sourceKind === 'builtin') {
     const rootName = skillRootName(skill)
     if (rootName === 'internal') {
       if (!input.skillRoots.internalSkillsRoot) {
-        throw new Error(`internal skill root is not configured for builtin skill: ${skill.skill_name}`)
+        throw new Error(`internal skill root is not configured for builtin skill: ${skill.skillName}`)
       }
       return join(input.skillRoots.internalSkillsRoot, relativePath)
     }
 
     if (rootName && rootName !== 'library') {
-      throw new Error(`unsupported builtin skill root ${rootName}: ${skill.skill_name}`)
+      throw new Error(`unsupported builtin skill root ${rootName}: ${skill.skillName}`)
     }
     return join(input.skillRoots.builtinSkillsRoot, relativePath)
   }
@@ -61,11 +71,9 @@ export async function resolveSkillOverlayText(
   name: string,
   input: { turn: ActorTurnRef; rpc: RPCRequester }
 ): Promise<string> {
-  const response = await input.rpc(rpcMethods.skillsOverlayResolve, {
-    turn: input.turn,
-    skill_name: name
-  })
-  const text = response.overlay_json?.text
+  const response = await input.rpc(rpcMethods.skillsOverlayResolve, { skillName: name }, { turn: input.turn })
+  const overlay = jsonObjectFromBytes(response.overlayJson, 'skill_overlay.overlay_json')
+  const text = overlay?.text
   return typeof text === 'string' ? text.trim() : ''
 }
 
@@ -90,8 +98,8 @@ export function isValidSkillName(name: string): boolean {
 }
 
 function skillRootName(skill: RuntimeSkillSummary): string | undefined {
-  if (typeof skill.skill_root === 'string' && skill.skill_root.length > 0) return skill.skill_root
-  const metadataRoot = skill.metadata?.['skill_root']
+  if (skill.skillRoot.length > 0) return skill.skillRoot
+  const metadataRoot = skillMetadata(skill)['skill_root']
   return typeof metadataRoot === 'string' && metadataRoot.length > 0 ? metadataRoot : undefined
 }
 

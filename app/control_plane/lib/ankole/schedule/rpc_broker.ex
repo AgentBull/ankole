@@ -6,19 +6,27 @@ defmodule Ankole.Schedule.RPCBroker do
   after turn authorization.
   """
 
+  alias Ankole.Repo
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.Repo
-  alias Ankole.Schedule
+  alias Ankole.SignalsGateway.AIGatewayLink
 
-  @spec handle_check_back_later_create(TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_create(
+          TurnRef.t(),
+          FabricProto.ScheduleCheckBackLaterCreateRequest.t(),
+          map()
+        ) ::
           {:ok, map()} | {:error, map()}
-  def handle_check_back_later_create(%TurnRef{} = turn_ref, request, route) do
-    respond(request, fn ->
-      with {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
-           {:ok, attrs} <- checkback_attrs(request, turn_ref, source, route),
+  def handle_check_back_later_create(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      reply_route = Common.decode_json_bytes(request.reply_route_json)
+
+      with {:ok, source} <- validate_reply_route(turn_ref, reply_route),
+           {:ok, attrs} <- checkback_attrs(request, turn_ref, source, ctx, reply_route),
            {:ok, %{status: status, scheduled_event: event}} <-
              Schedule.create_check_back_later(attrs) do
         {:ok,
@@ -33,10 +41,14 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_check_back_later_list(TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_list(
+          TurnRef.t(),
+          FabricProto.ScheduleCheckBackLaterListRequest.t(),
+          map()
+        ) ::
           {:ok, map()} | {:error, map()}
-  def handle_check_back_later_list(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  def handle_check_back_later_list(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       {:ok,
        %{
          "status" => "ok",
@@ -44,30 +56,40 @@ defmodule Ankole.Schedule.RPCBroker do
            turn_ref.agent_uid
            |> Schedule.list_pending_checkbacks(
              turn_ref.session_id,
-             list_limit(request, "limit", 10)
+             list_limit(request.limit, 10)
            )
            |> Enum.map(&Schedule.event_model_projection/1)
        }}
     end)
   end
 
-  @spec handle_check_back_later_get(TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_get(
+          TurnRef.t(),
+          FabricProto.ScheduleCheckBackLaterTargetRequest.t(),
+          map()
+        ) ::
           {:ok, map()} | {:error, map()}
-  def handle_check_back_later_get(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
-      with {:ok, event} <- checkback_from_turn(request, turn_ref) do
+  def handle_check_back_later_get(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      with {:ok, event} <- checkback_from_turn(request.scheduled_event_id, turn_ref) do
         {:ok, %{"status" => "ok", "checkback" => Schedule.event_model_projection(event)}}
       end
     end)
   end
 
-  @spec handle_check_back_later_update(TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_update(
+          TurnRef.t(),
+          FabricProto.ScheduleCheckBackLaterUpdateRequest.t(),
+          map()
+        ) ::
           {:ok, map()} | {:error, map()}
-  def handle_check_back_later_update(%TurnRef{} = turn_ref, request, route) do
-    respond(request, fn ->
-      with {:ok, event} <- checkback_from_turn(request, turn_ref),
-           {:ok, source} <- validate_reply_route(turn_ref, RPCWire.value(request, "reply_route")),
-           {:ok, attrs} <- checkback_update_attrs(request, turn_ref, source, route),
+  def handle_check_back_later_update(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      reply_route = Common.decode_json_bytes(request.reply_route_json)
+
+      with {:ok, event} <- checkback_from_turn(request.scheduled_event_id, turn_ref),
+           {:ok, source} <- validate_reply_route(turn_ref, reply_route),
+           {:ok, attrs} <- checkback_update_attrs(request, turn_ref, source, ctx, reply_route),
            {:ok, %{status: status, previous_scheduled_event: previous, scheduled_event: updated}} <-
              Schedule.update_checkback(event.id, attrs) do
         {:ok,
@@ -80,11 +102,15 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_check_back_later_cancel(TurnRef.t(), map(), String.t()) ::
+  @spec handle_check_back_later_cancel(
+          TurnRef.t(),
+          FabricProto.ScheduleCheckBackLaterTargetRequest.t(),
+          map()
+        ) ::
           {:ok, map()} | {:error, map()}
-  def handle_check_back_later_cancel(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
-      with {:ok, event} <- checkback_from_turn(request, turn_ref),
+  def handle_check_back_later_cancel(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      with {:ok, event} <- checkback_from_turn(request.scheduled_event_id, turn_ref),
            {:ok, cancelled} <- Schedule.cancel_checkback(event.id) do
         {:ok,
          %{
@@ -95,9 +121,10 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_cron_list(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_list(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_list(TurnRef.t(), FabricProto.ScheduleCronListRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_list(%TurnRef{} = turn_ref, _request, ctx) do
+    respond(ctx, fn ->
       {:ok,
        %{
          "status" => "ok",
@@ -109,34 +136,37 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_cron_get(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_get(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
-      with {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref) do
+  @spec handle_cron_get(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_get(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      with {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref) do
         {:ok, %{"status" => "ok", "schedule" => Schedule.cron_projection(schedule)}}
       end
     end)
   end
 
-  @spec handle_cron_runs(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_runs(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
-      with {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref) do
+  @spec handle_cron_runs(TurnRef.t(), FabricProto.ScheduleCronRunsRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_runs(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
+      with {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref) do
         {:ok,
          %{
            "status" => "ok",
            "runs" =>
              schedule.id
-             |> Schedule.list_cron_runs(list_limit(request, "limit", 25))
+             |> Schedule.list_cron_runs(list_limit(request.limit, 25))
              |> Enum.map(&Schedule.event_model_projection/1)
          }}
       end
     end)
   end
 
-  @spec handle_cron_add(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_add(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_add(TurnRef.t(), FabricProto.ScheduleCronAddRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_add(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
            {:ok, attrs} <- cron_attrs(request, turn_ref),
            created_by <- turn_created_by(turn_ref),
@@ -151,12 +181,13 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_cron_update(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_update(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_update(TurnRef.t(), FabricProto.ScheduleCronUpdateRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_update(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-           {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
-           updates <- RPCWire.value(request, "updates") || %{},
+           {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
+           updates <- Common.decode_json_bytes(request.updates_json) || %{},
            :ok <- validate_cron_update_delivery_route(turn_ref, schedule.binding_name, updates),
            {:ok, updated} <- Schedule.update_cron_schedule(schedule.id, updates) do
         {:ok, %{"status" => "updated", "schedule" => Schedule.cron_projection(updated)}}
@@ -164,32 +195,36 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_cron_pause(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_pause(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_pause(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_pause(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       mutate_cron_from_turn(request, turn_ref, "paused", &Schedule.pause_cron_schedule/1)
     end)
   end
 
-  @spec handle_cron_resume(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_resume(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_resume(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_resume(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       mutate_cron_from_turn(request, turn_ref, "resumed", &Schedule.resume_cron_schedule/1)
     end)
   end
 
-  @spec handle_cron_remove(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_remove(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_remove(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_remove(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       mutate_cron_from_turn(request, turn_ref, "removed", &Schedule.remove_cron_schedule/1)
     end)
   end
 
-  @spec handle_cron_run(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_cron_run(%TurnRef{} = turn_ref, request, _route) do
-    respond(request, fn ->
+  @spec handle_cron_run(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+          {:ok, map()} | {:error, map()}
+  def handle_cron_run(%TurnRef{} = turn_ref, request, ctx) do
+    respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-           {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
+           {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
            {:ok, %{status: status, scheduled_event: event}} <-
              Schedule.run_cron_schedule(schedule.id) do
         {:ok,
@@ -201,25 +236,23 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  defp respond(request, fun) do
-    request_id = RPCWire.text(request, "request_id") || "schedule-rpc-#{Ecto.UUID.generate()}"
-
+  defp respond(ctx, fun) do
     case fun.() do
-      {:ok, payload} -> {:ok, Map.put_new(payload, "request_id", request_id)}
-      {:error, reason} -> {:error, error_payload(request_id, reason)}
+      {:ok, payload} -> {:ok, payload}
+      {:error, reason} -> {:error, error_payload(ctx.request_id, reason)}
     end
   end
 
-  defp cron_schedule_from_turn(request, %TurnRef{} = turn_ref) do
-    with {:ok, cron_schedule_id} <- required_text(request, "cron_schedule_id"),
+  defp cron_schedule_from_turn(cron_schedule_id, %TurnRef{} = turn_ref) do
+    with {:ok, cron_schedule_id} <- required_text(cron_schedule_id, :cron_schedule_id),
          {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
          :ok <- cron_belongs_to_turn(schedule, turn_ref) do
       {:ok, schedule}
     end
   end
 
-  defp checkback_from_turn(request, %TurnRef{} = turn_ref) do
-    with {:ok, scheduled_event_id} <- required_text(request, "scheduled_event_id"),
+  defp checkback_from_turn(scheduled_event_id, %TurnRef{} = turn_ref) do
+    with {:ok, scheduled_event_id} <- required_text(scheduled_event_id, :scheduled_event_id),
          {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
          :ok <- checkback_belongs_to_turn(event, turn_ref) do
       {:ok, event}
@@ -228,40 +261,35 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp mutate_cron_from_turn(request, %TurnRef{} = turn_ref, status, fun) do
     with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, schedule} <- cron_schedule_from_turn(request, turn_ref),
+         {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
          {:ok, updated} <- fun.(schedule.id) do
       {:ok, %{"status" => status, "schedule" => Schedule.cron_projection(updated)}}
     end
   end
 
-  defp checkback_attrs(request, %TurnRef{} = turn_ref, source, route) do
-    reply_route = RPCWire.value(request, "reply_route") || %{}
-
-    with {:ok, quiet_success} <- optional_boolean(request, "quiet_success", false),
-         {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
+  defp checkback_attrs(request, %TurnRef{} = turn_ref, source, ctx, reply_route) do
+    with {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, ctx, reply_route || %{}) do
       {:ok,
        Map.merge(attrs, %{
-         "schedule" => RPCWire.value(request, "schedule"),
-         "reason" => RPCWire.text(request, "reason"),
-         "check" => RPCWire.text(request, "check"),
-         "context_summary" => RPCWire.text(request, "context_summary"),
-         "quiet_success" => quiet_success
+         "schedule" => Common.decode_json_bytes(request.schedule_json),
+         "reason" => presence(request.reason),
+         "check" => presence(request.check),
+         "context_summary" => presence(request.context_summary),
+         "quiet_success" => request.quiet_success
        })}
     end
   end
 
-  defp checkback_update_attrs(request, %TurnRef{} = turn_ref, source, route) do
-    reply_route = RPCWire.value(request, "reply_route") || %{}
-
+  defp checkback_update_attrs(request, %TurnRef{} = turn_ref, source, ctx, reply_route) do
     with {:ok, updates} <- checkback_updates(request),
-         {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
+         {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, ctx, reply_route || %{}) do
       {:ok, Map.merge(updates, attrs)}
     end
   end
 
-  defp checkback_turn_attrs(request, turn_ref, source, route, reply_route) do
-    with {:ok, tool_call_id} <- required_text(request, "tool_call_id"),
-         {:ok, idempotency_key} <- required_text(request, "idempotency_key") do
+  defp checkback_turn_attrs(request, turn_ref, source, ctx, reply_route) do
+    with {:ok, tool_call_id} <- required_text(request.tool_call_id, :tool_call_id),
+         {:ok, idempotency_key} <- required_text(request.idempotency_key, :idempotency_key) do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
@@ -275,8 +303,8 @@ defmodule Ankole.Schedule.RPCBroker do
          "origin_ai_message_id" => current_ai_message_id(turn_ref),
          "source_actor_event_id" => source.actor_event_id,
          "source_provenance" => %{
-           "rpc_request_id" => RPCWire.text(request, "request_id"),
-           "transport_route" => route,
+           "rpc_request_id" => ctx.request_id,
+           "transport_route" => ctx.route,
            # Source table: these fence values are copied from the turn_ref
            # originally produced from actor_session_activations.
            "activation_uid" => turn_ref.activation_uid,
@@ -288,7 +316,7 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp checkback_updates(request) do
-    case RPCWire.value(request, "updates") do
+    case Common.decode_json_bytes(request.updates_json) do
       updates when is_map(updates) and map_size(updates) > 0 ->
         updates = RPCWire.stringify_keys(updates)
         allowed = ~w(reason check context_summary quiet_success schedule)
@@ -304,21 +332,22 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp cron_attrs(request, %TurnRef{} = turn_ref) do
-    with {:ok, idempotency_key} <- required_text(request, "idempotency_key"),
-         {:ok, binding_name} <- required_text(request, "binding_name"),
-         delivery <- RPCWire.value(request, "delivery"),
+    delivery = Common.decode_json_bytes(request.delivery_json)
+
+    with {:ok, idempotency_key} <- required_text(request.idempotency_key, :idempotency_key),
+         {:ok, binding_name} <- required_text(request.binding_name, :binding_name),
          :ok <- validate_cron_delivery_route(turn_ref, binding_name, delivery) do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
          "session_id" => turn_ref.session_id,
          "binding_name" => binding_name,
-         "name" => RPCWire.text(request, "name"),
-         "schedule" => RPCWire.value(request, "schedule"),
-         "payload" => RPCWire.value(request, "payload") || %{},
+         "name" => presence(request.name),
+         "schedule" => Common.decode_json_bytes(request.schedule_json),
+         "payload" => Common.decode_json_bytes(request.payload_json) || %{},
          "delivery" => delivery,
          "idempotency_key" => idempotency_key,
-         "failure_policy" => RPCWire.value(request, "failure_policy") || %{}
+         "failure_policy" => Common.decode_json_bytes(request.failure_policy_json) || %{}
        }}
     end
   end
@@ -464,8 +493,8 @@ defmodule Ankole.Schedule.RPCBroker do
   defp cron_create_status(:created), do: "created"
   defp cron_create_status(:already_exists), do: "already_exists"
 
-  defp list_limit(map, key, default) do
-    case integer(map, key) do
+  defp list_limit(value, default) do
+    case value do
       value when is_integer(value) and value > 0 -> min(value, 100)
       _value -> default
     end
@@ -478,37 +507,21 @@ defmodule Ankole.Schedule.RPCBroker do
     )
   end
 
-  defp required_text(map, key) do
-    case RPCWire.text(map, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing_text, key}}
+  defp required_text(value, key) do
+    case presence(value) do
+      text when is_binary(text) -> {:ok, text}
+      nil -> {:error, {:missing_text, key}}
     end
   end
 
-  defp optional_boolean(map, key, default) do
-    case RPCWire.value(map, key) do
-      nil -> {:ok, default}
-      value when is_boolean(value) -> {:ok, value}
-      _value -> {:error, {:invalid_boolean, key}}
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
+
+  defp presence(_value), do: nil
 
   defp nullable_text(map, key), do: RPCWire.text(map, key)
-
-  defp integer(map, key) when is_map(map) do
-    case RPCWire.value(map, key) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
-  end
-
-  defp integer(_map, _key), do: nil
-
-  defp parse_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> nil
-    end
-  end
 end

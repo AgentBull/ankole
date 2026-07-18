@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { create } from '@bufbuild/protobuf'
+import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { commandEnv, injectableWorkerEnv } from '../src/tools/computer/env'
 import { resolveWorkerEnv } from '../src/core/turns/worker_env'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
@@ -49,18 +51,16 @@ describe('commandEnv worker env layering', () => {
 describe('resolveWorkerEnv', () => {
   it('resolves the flat map for the turn agent and drops non-string values', async () => {
     const requests: unknown[] = []
-    const rpc = (async (method: unknown, payload: unknown) => {
+    const rpc = (async (method: unknown, _payload: unknown, frame: unknown) => {
       expect(method).toBe(rpcMethods.workerEnvResolve)
-      requests.push(payload)
-      return {
-        request_id: 'req-1',
-        agent_uid: 'agent-a',
+      requests.push(frame)
+      return create(WorkerEnvResolveResponseSchema, {
         vars: { NPM_TOKEN: 'token', BROKEN: 42 as unknown as string }
-      }
+      })
     }) as RPCRequester
 
     expect(await resolveWorkerEnv(turnStart, rpc)).toEqual({ NPM_TOKEN: 'token' })
     expect(requests).toHaveLength(1)
-    expect((requests[0] as { agent_uid: string }).agent_uid).toBe('agent-a')
+    expect((requests[0] as { agentUid: string }).agentUid).toBe('agent-a')
   })
 })

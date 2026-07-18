@@ -3,16 +3,39 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCodexJob } from '../src/core/codex-runner'
+import { create } from '@bufbuild/protobuf'
+import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
+import {
+  AgentConversationContextResponseSchema,
+  AgentPluginListResponseSchema,
+  AIGatewayAPIKeyResponseSchema,
+  AppConfigureResolveResponseSchema,
+  BackgroundAgentJobResponseSchema,
+  BackgroundAgentJobTurnUpsertResponseSchema,
+  WorkerEnvResolveResponseSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   rpcMethods,
   type BackgroundAgentJobResponse,
-  type BackgroundAgentJobStatusUpdateRequest,
-  type BackgroundAgentJobTurnUpsertRequest,
-  type RPCRequester
+  type RPCRequester,
+  type RPCRequestInit
 } from '../src/lanes/rpc_lane'
 
-type RecordedStatusUpdate = Omit<BackgroundAgentJobStatusUpdateRequest, 'request_id'>
-type RecordedTurnUpsert = Omit<BackgroundAgentJobTurnUpsertRequest, 'request_id'>
+type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'> & {
+  metadataJson?: Uint8Array
+  resultJson?: Uint8Array
+}
+type RecordedTurnUpsert = RPCRequestInit<'background_agent_job.turn.upsert'> & {
+  trajectoryJson?: Uint8Array
+  progressJson?: Uint8Array
+  usageJson?: Uint8Array
+  errorJson?: Uint8Array
+}
+
+function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
+  return bytes ? jsonObjectFromBytes(bytes, 'test fixture json') : undefined
+}
 import type { TurnStart } from '../src/lanes/actor_lane'
 import type { CodexJobOptions } from '../src/core/turns/turn_options'
 import { BrowserRuntime } from '../src/browser-runtime'
@@ -37,7 +60,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
-      expect(statusUpdates[0]?.metadata).toMatchObject({
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
         codex_user_agent: 'codex-cli 0.144.5',
         job_project_cwd: '/workspace',
         workspace_mounts: [{ mount_id: 'workspace', path: '/workspace/workspaces/workspace', access: 'read_write' }],
@@ -52,17 +75,17 @@ describe('@ankole/agent-computer Codex job runner', () => {
           'request_parent_input'
         ]
       })
-      expect(statusUpdates[0]?.metadata).not.toHaveProperty('agent_plugins')
-      expect(statusUpdates[0]?.metadata).not.toHaveProperty('input_snapshots_materialized')
-      expect(statusUpdates.at(-1)?.result).toMatchObject({
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('agent_plugins')
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('input_snapshots_materialized')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).toMatchObject({
         output_text: 'done',
         stop_reason: 'completed',
         attempt: 1,
         runtime_thread_id: 'thread-1',
         codex_turn_status: 'completed'
       })
-      expect(statusUpdates.at(-1)?.result).not.toHaveProperty('verification')
-      expect(statusUpdates.at(-1)?.result).not.toHaveProperty('artifacts')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).not.toHaveProperty('verification')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).not.toHaveProperty('artifacts')
       expect(turnUpserts.some(update => update.status === 'completed')).toBe(true)
       expect(readFileSync(join(jobProjectFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
       const browserEnv = JSON.parse(
@@ -103,7 +126,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
-      expect(statusUpdates.at(-1)?.result?.output_text).toBe('final response after retry')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('final response after retry')
       expect(readFileSync(join(jobProjectFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
     } finally {
       fixture.cleanup()
@@ -114,10 +137,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const fixture = prepareFixture('unused')
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
-    const opts = options(fixture.root, statusUpdates, turnUpserts, () => ({
-      ...response(),
-      agent_plugin_ids: ['office']
-    }))
+    const opts = options(fixture.root, statusUpdates, turnUpserts, () =>
+      create(BackgroundAgentJobResponseSchema, { ...response(), agentPluginIds: ['office'] })
+    )
 
     try {
       await expect(runCodexJob(turnStart(), opts)).rejects.toThrow('Selected Agent Plugin is unavailable: office')
@@ -135,24 +157,24 @@ describe('@ankole/agent-computer Codex job runner', () => {
       await runCodexJob(turnStart(), options(fixture.root, [], []))
 
       const statusUpdates: RecordedStatusUpdate[] = []
-      const opts = options(fixture.root, statusUpdates, [], () => ({
-        ...response(),
-        status: 'running',
-        attempts: 2,
-        runtime_thread_id: 'missing-thread'
-      }))
+      const opts = options(fixture.root, statusUpdates, [], () =>
+        create(BackgroundAgentJobResponseSchema, {
+          ...response(),
+          status: 'running',
+          attempts: 2,
+          runtimeThreadId: 'missing-thread'
+        })
+      )
 
       await runCodexJob(turnStart(), opts)
 
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
-      expect(statusUpdates[0]).toMatchObject({
-        runtime_thread_id: 'thread-1',
-        metadata: {
-          runtime_checkpoint_recreated: true,
-          runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
-        }
+      expect(statusUpdates[0]).toMatchObject({ runtimeThreadId: 'thread-1' })
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
+        runtime_checkpoint_recreated: true,
+        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
       })
-      expect(statusUpdates.at(-1)?.result?.runtime_thread_id).toBe('thread-1')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.runtime_thread_id).toBe('thread-1')
     } finally {
       fixture.cleanup()
     }
@@ -169,12 +191,14 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
     try {
       await runCodexJob(turnStart(), options(fixture.root, [], []))
-      const opts = options(fixture.root, [], [], () => ({
-        ...response(),
-        status: 'running',
-        attempts: 2,
-        runtime_thread_id: 'thread-1'
-      }))
+      const opts = options(fixture.root, [], [], () =>
+        create(BackgroundAgentJobResponseSchema, {
+          ...response(),
+          status: 'running',
+          attempts: 2,
+          runtimeThreadId: 'thread-1'
+        })
+      )
 
       await expect(runCodexJob(turnStart(), opts)).rejects.toMatchObject({
         code: 'codex_job_transient',
@@ -210,22 +234,20 @@ function options(
     builtinSkillsRoot: join(root, 'builtin-skills'),
     agentInstalledSkillsRoot: join(root, 'installed-skills'),
     browserRuntime,
-    requestAIGatewayAPIKey: async request => ({
-      request_id: 'req-1',
-      agent_uid: request.agent_uid,
-      api_key: 'unused',
-      token_type: 'Bearer',
-      expires_at: Math.floor(Date.now() / 1000) + 3_600,
-      expires_in: 3_600,
-      scope: 'ai_gateway',
-      base_url: 'http://unused.test/v1'
-    }),
+    requestAIGatewayAPIKey: async agentUid =>
+      create(AIGatewayAPIKeyResponseSchema, {
+        agentUid,
+        apiKey: 'unused',
+        tokenType: 'Bearer',
+        expiresAt: BigInt(Math.floor(Date.now() / 1000) + 3_600),
+        expiresIn: 3_600n,
+        scope: 'ai_gateway',
+        baseUrl: 'http://unused.test/v1'
+      }),
     rpc: (async (method: unknown, payload: unknown) => {
       switch (method) {
         case rpcMethods.workerEnvResolve:
-          return {
-            request_id: 'req-1',
-            agent_uid: 'agent-1',
+          return create(WorkerEnvResolveResponseSchema, {
             vars: {
               SAFE_VALUE: 'kept',
               BROWSER_BACKEND_JSON: JSON.stringify({
@@ -234,9 +256,9 @@ function options(
                 args: ['--from-final-material']
               })
             }
-          }
+          })
         case rpcMethods.appConfigureResolve:
-          return { request_id: 'req-1', agent_uid: 'agent-1', values: {} }
+          return create(AppConfigureResolveResponseSchema, { values: {} })
         case rpcMethods.backgroundAgentJobGet:
           return currentJob()
         case rpcMethods.backgroundAgentJobTurnUpsert: {
@@ -247,24 +269,20 @@ function options(
         case rpcMethods.backgroundAgentJobStatusUpdate: {
           const request = payload as RecordedStatusUpdate
           statusUpdates.push(request)
-          return { ...currentJob(), status: request.status, runtime_thread_id: request.runtime_thread_id }
+          return create(BackgroundAgentJobResponseSchema, {
+            ...currentJob(),
+            status: request.status ?? '',
+            runtimeThreadId: request.runtimeThreadId ?? ''
+          })
         }
-        case rpcMethods.agentConversationContextResolve: {
-          const request = payload as { turn: TurnStart['turn'] }
-          return {
-            request_id: 'req-1',
-            agent_uid: 'agent-1',
-            session_id: `job:${jobID}`,
-            turn: request.turn,
-            conversation: {},
+        case rpcMethods.agentConversationContextResolve:
+          return create(AgentConversationContextResponseSchema, {
             soul: 'SOUL',
             mission: 'MISSION',
-            skills: [],
-            brain_snapshot: {}
-          }
-        }
+            skills: []
+          })
         case rpcMethods.agentPluginList:
-          return { request_id: 'req-1', agent_uid: 'agent-1', agent_plugins: [] }
+          return create(AgentPluginListResponseSchema, { agentPlugins: [] })
         case rpcMethods.codexAccountResolve:
         case rpcMethods.codexAccountAuthUpdate:
           throw new Error('official Codex account is not used by this fixture')
@@ -276,32 +294,28 @@ function options(
 }
 
 function response(): BackgroundAgentJobResponse {
-  return {
-    request_id: 'get-1',
-    job_id: jobID,
-    agent_uid: 'agent-1',
-    owner_session_id: 'parent-session',
+  return create(BackgroundAgentJobResponseSchema, {
+    jobId: jobID,
+    agentUid: 'agent-1',
+    ownerSessionId: 'parent-session',
     status: 'queued',
-    codex_account_id: 'aigateway',
+    codexAccountId: 'aigateway',
     title: 'Prepare launch brief',
     task: 'Write and verify the launch brief.',
     background: 'The launch brief is for operators.',
     notes: 'Keep the handoff concise.',
-    reply_route: { binding_name: 'lark', signal_channel_id: 'chat-1' },
+    replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),
     attempts: 1,
-    agent_plugin_ids: [],
-    skill_names: [],
-    workspace_mounts: [
+    agentPluginIds: [],
+    skillNames: [],
+    workspaceMounts: [
       {
         id: 'workspace',
         source: `/workspace/user-files/background-agent-jobs/${jobID}/workspace`,
         access: 'read_write'
       }
-    ],
-    result: {},
-    error: {},
-    metadata: {}
-  }
+    ]
+  })
 }
 
 function turnStart(): TurnStart {
@@ -330,25 +344,24 @@ function turnStart(): TurnStart {
 }
 
 function turnUpsertResponse(request: RecordedTurnUpsert) {
-  return {
-    request_id: 'req-1',
-    job_id: request.job_id,
+  return create(BackgroundAgentJobTurnUpsertResponseSchema, {
+    jobId: request.jobId,
     turn: {
-      id: `stored:${request.runtime_turn_id}`,
+      id: `stored:${request.runtimeTurnId}`,
       attempt: request.attempt,
-      runtime_thread_id: request.runtime_thread_id,
-      runtime_turn_id: request.runtime_turn_id,
+      runtimeThreadId: request.runtimeThreadId,
+      runtimeTurnId: request.runtimeTurnId,
       kind: request.kind,
       status: request.status,
       revision: request.revision,
-      trajectory: request.trajectory,
-      progress: request.progress,
-      usage: request.usage ?? null,
-      error: request.error ?? {},
-      started_at: request.started_at,
-      ...(request.completed_at ? { completed_at: request.completed_at } : {})
+      trajectoryJson: request.trajectoryJson,
+      progressJson: request.progressJson,
+      usageJson: request.usageJson,
+      errorJson: request.errorJson,
+      startedAt: request.startedAt,
+      completedAt: request.completedAt ?? ''
     }
-  }
+  })
 }
 
 function prepareFixture(

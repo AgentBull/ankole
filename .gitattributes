@@ -1,6 +1,7 @@
 # GitHub Linguist overrides.
 app/agent_computer/src/**/generated/** linguist-generated
 app/kernel/proto/golden/*.bin binary linguist-generated
+app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json linguist-generated
 app/webapps/openapi/** linguist-generated
 app/webapps/**/generated/** linguist-generated
 app/library/skills/** linguist-vendored

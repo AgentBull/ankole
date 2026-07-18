@@ -28,7 +28,7 @@ import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { rpcMethods, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { memoryRPCRequester, rpcMethods, scheduleRPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 const silentSuccessMarker = '<silent_success/>'
@@ -71,7 +71,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         ? createSourceLearningTurnTools({
             turnStart,
             workspaceRoot: opts.workspaceRoot,
-            requestMemoryRPC: opts.rpc
+            requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
           })
         : undefined
     const userPrompt = userMessage(
@@ -130,11 +130,11 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         ...computerTools,
         ...createScheduleTools({
           turnStart,
-          requestScheduleRPC: opts.rpc
+          requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
         }),
         ...createMemoryTools({
           turnStart,
-          requestMemoryRPC: opts.rpc
+          requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
         }),
         ...webTools,
         ...mcpTools,
@@ -204,13 +204,13 @@ async function resolveBackgroundAgentJobTools(
   opts: TextTurnLoopOptions,
   skills: RuntimeSkillSummary[]
 ): Promise<AgentTool[]> {
-  const response = await opts.rpc(rpcMethods.agentPluginList, { turn: turnStart.turn })
+  const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
 
   return [
     createBackgroundAgentJobTool({
       turnStart,
-      agentPluginCatalog: response.agent_plugins,
-      standaloneSkillNames: skills.filter(skill => !skill.agent_plugin_id).map(skill => skill.skill_name),
+      agentPluginCatalog: response.agentPlugins,
+      standaloneSkillNames: skills.filter(skill => !skill.agentPluginId).map(skill => skill.skillName),
       rpc: opts.rpc
     })
   ]

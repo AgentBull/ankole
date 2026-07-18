@@ -193,12 +193,20 @@ message RPCRequest {
   string request_id = 1;
   string method = 2;
   int64 deadline_unix_ms = 3;
-  bytes payload_json = 4;
+  // Binary encoding of the method's request message from rpc.proto; the
+  // method string selects the schema through the committed rpc_methods.json
+  // registry on both sides. Opaque to the kernel transport.
+  bytes payload = 4;
+  // Turn fence for turn-scoped methods, checked before payload decode.
+  ActorTurnRef turn = 5;
+  // Trusted subject for worker_agent-scoped methods.
+  string agent_uid = 6;
 }
 
 message RPCResponse {
   string request_id = 1;
-  bytes payload_json = 2;
+  // Binary encoding of the method's response message from rpc.proto.
+  bytes payload = 2;
 }
 
 message RPCError {

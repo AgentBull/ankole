@@ -4,7 +4,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 3,
-      rpc_response_payload!: 1,
+      rpc_request: 4,
+      rpc_response_payload!: 2,
       rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
@@ -12,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
   import Ecto.Query
 
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
@@ -313,27 +315,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("worker-env-1", "worker_env.resolve", %{
-                 "request_id" => "worker-env-1",
-                 "agent_uid" => agent.uid
-               }),
+               rpc_request("worker-env-1", "worker_env.resolve", %FabricProto.WorkerEnvResolveRequest{},
+                 agent_uid: agent.uid
+               ),
                "trusted-worker-route"
              )
 
-    response = rpc_response_payload!(envelope)
-    assert response["request_id"] == "worker-env-1"
-    assert response["agent_uid"] == agent.uid
-    assert response["vars"][plain] == "plain-value"
-    assert response["vars"][secret] == "rpc-secret"
+    response = rpc_response_payload!(envelope, FabricProto.WorkerEnvResolveResponse)
+    assert envelope_body!(envelope, :rpc_response).request_id == "worker-env-1"
+    assert response.vars[plain] == "plain-value"
+    assert response.vars[secret] == "rpc-secret"
   end
 
   test "RuntimeFabric worker_env.resolve rejects unknown agents and bad payloads" do
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("worker-env-missing-agent", "worker_env.resolve", %{
-                 "request_id" => "worker-env-missing-agent",
-                 "agent_uid" => "agent-missing"
-               }),
+               rpc_request(
+                 "worker-env-missing-agent",
+                 "worker_env.resolve",
+                 %FabricProto.WorkerEnvResolveRequest{},
+                 agent_uid: "agent-missing"
+               ),
                "trusted-worker-route"
              )
 
@@ -341,9 +343,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("worker-env-invalid", "worker_env.resolve", %{
-                 "request_id" => "worker-env-invalid"
-               }),
+               rpc_request("worker-env-invalid", "worker_env.resolve", %FabricProto.WorkerEnvResolveRequest{}),
                "trusted-worker-route"
              )
 

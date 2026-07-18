@@ -2,6 +2,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-suppo
 import { genericHash } from '@ankole/kernel'
 import { readFileSync } from 'node:fs'
 import { errorMessage } from '../../common/errors'
+import { jsonBytes } from '../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import {
   rpcMethods,
@@ -70,14 +71,15 @@ class CodexJobSession {
   private readonly completedCompactionTurnIDs = new Set<string>()
 
   constructor(private readonly input: PreparedCodexJobExecution) {
-    this.runtimeThreadID = input.job.runtime_thread_id
+    this.runtimeThreadID = input.job.runtimeThreadId || undefined
     this.threadModel =
       input.job.model ?? (input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelOverride : undefined)
     this.turnRecorder = new BackgroundAgentJobTurnRecorder({
       jobID: input.jobID,
       attempt: input.job.attempts,
       actorTurn: input.turnStart.turn,
-      upsert: request => input.opts.rpc(rpcMethods.backgroundAgentJobTurnUpsert, request)
+      upsert: request =>
+        input.opts.rpc(rpcMethods.backgroundAgentJobTurnUpsert, request, { turn: input.turnStart.turn })
     })
     this.done = new Promise<void>((resolve, reject) => {
       this.resolveDone = resolve
@@ -224,33 +226,36 @@ class CodexJobSession {
   private async publishRunningStatus(initializeResponse: JSONObject, expectedSkillNames: string[]): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available')
     const { opts, turnStart, jobID, job, sandbox, jobProject, mcpServers, projection } = this.input
-    await opts.rpc(rpcMethods.backgroundAgentJobStatusUpdate, {
-      turn: turnStart.turn,
-      job_id: jobID,
-      status: 'running',
-      runtime_thread_id: this.runtimeThreadID,
-      metadata: {
-        codex_account_id: job.codex_account_id,
-        codex_user_agent: stringValue(initializeResponse.userAgent),
-        job_project_cwd: sandbox.codexCwd,
-        job_project_owner_path: jobProject.ownerModelPath,
-        workspace_mounts: jobProject.workspaceMounts.map(mount => ({
-          mount_id: mount.id,
-          path: mount.modelPath,
-          access: mount.access
-        })),
-        mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePoints),
-        ...(this.recreatedThreadOnResume
-          ? {
-              runtime_checkpoint_recreated: true,
-              runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
-            }
-          : {}),
-        projected_tool_names: projection.dynamicTools.map(tool => tool.name),
-        quarantined_tool_names: projection.quarantinedTools,
-        shared_skill_count: expectedSkillNames.length
-      }
-    })
+    await opts.rpc(
+      rpcMethods.backgroundAgentJobStatusUpdate,
+      {
+        jobId: jobID,
+        status: 'running',
+        runtimeThreadId: this.runtimeThreadID,
+        metadataJson: jsonBytes({
+          codex_account_id: job.codexAccountId,
+          codex_user_agent: stringValue(initializeResponse.userAgent),
+          job_project_cwd: sandbox.codexCwd,
+          job_project_owner_path: jobProject.ownerModelPath,
+          workspace_mounts: jobProject.workspaceMounts.map(mount => ({
+            mount_id: mount.id,
+            path: mount.modelPath,
+            access: mount.access
+          })),
+          mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePoints),
+          ...(this.recreatedThreadOnResume
+            ? {
+                runtime_checkpoint_recreated: true,
+                runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+              }
+            : {}),
+          projected_tool_names: projection.dynamicTools.map(tool => tool.name),
+          quarantined_tool_names: projection.quarantinedTools,
+          shared_skill_count: expectedSkillNames.length
+        })
+      },
+      { turn: turnStart.turn }
+    )
   }
 
   private reconcileCodexAuth(): Promise<JSONObject> {
@@ -287,13 +292,18 @@ class CodexJobSession {
       await this.turnRecorder.flush()
       if (this.input.runtimeConfig.mode === 'official_subscription') await this.reconcileCodexAuth()
 
-      await this.input.opts.rpc(rpcMethods.backgroundAgentJobStatusUpdate, {
-        turn: this.input.turnStart.turn,
-        job_id: this.input.jobID,
-        status,
-        ...(this.runtimeThreadID ? { runtime_thread_id: this.runtimeThreadID } : {}),
-        ...details
-      })
+      await this.input.opts.rpc(
+        rpcMethods.backgroundAgentJobStatusUpdate,
+        {
+          jobId: this.input.jobID,
+          status,
+          ...(this.runtimeThreadID ? { runtimeThreadId: this.runtimeThreadID } : {}),
+          ...(details.result ? { resultJson: jsonBytes(details.result) } : {}),
+          ...(details.error ? { errorJson: jsonBytes(details.error) } : {}),
+          ...(details.metadata ? { metadataJson: jsonBytes(details.metadata) } : {})
+        },
+        { turn: this.input.turnStart.turn }
+      )
       this.resolveDone()
     } catch (error) {
       const failure = /background_agent_job_pending_steer/.test(errorMessage(error))
@@ -350,7 +360,7 @@ class CodexJobSession {
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
         ...(this.threadModel ? { model: this.threadModel } : {}),
-        ...(this.input.job.reasoning_effort ? { effort: this.input.job.reasoning_effort } : {})
+        ...(this.input.job.reasoningEffort ? { effort: this.input.job.reasoningEffort } : {})
       })
     )
     this.codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
@@ -381,13 +391,16 @@ class CodexJobSession {
 
   private async persistRuntimeThreadAnchor(reason: string): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available for persistence')
-    await this.input.opts.rpc(rpcMethods.backgroundAgentJobStatusUpdate, {
-      turn: this.input.turnStart.turn,
-      job_id: this.input.jobID,
-      status: 'running',
-      runtime_thread_id: this.runtimeThreadID,
-      metadata: { runtime_thread_recreated_reason: reason }
-    })
+    await this.input.opts.rpc(
+      rpcMethods.backgroundAgentJobStatusUpdate,
+      {
+        jobId: this.input.jobID,
+        status: 'running',
+        runtimeThreadId: this.runtimeThreadID,
+        metadataJson: jsonBytes({ runtime_thread_recreated_reason: reason })
+      },
+      { turn: this.input.turnStart.turn }
+    )
   }
 
   private async handleTurnCompleted(
@@ -753,11 +766,11 @@ async function writebackCodexAuth(input: {
   let lastError: unknown
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      await input.rpc(rpcMethods.codexAccountAuthUpdate, {
-        turn: input.turnStart.turn,
-        job_id: input.jobID,
-        auth_json: authJSON
-      })
+      await input.rpc(
+        rpcMethods.codexAccountAuthUpdate,
+        { jobId: input.jobID, authJson: authJSON },
+        { turn: input.turnStart.turn }
+      )
       return { changed: true, auth_hash: finalHash }
     } catch (error) {
       lastError = error
@@ -779,10 +792,10 @@ function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): strin
     const steering = [text, answerText ? `Answers to your questions:\n${answerText}` : undefined]
       .filter((line): line is string => Boolean(line))
       .join('\n\n')
-    input = job.runtime_thread_id
+    input = job.runtimeThreadId
       ? steering
       : `${job.task}\n\nAdditional instructions from the caller:\n${steering}`.trim()
-  } else if (job.attempts > 1 && job.runtime_thread_id) {
+  } else if (job.attempts > 1 && job.runtimeThreadId) {
     input = 'Continue the Job task. Re-check the acceptance criteria in the original task before finishing.'
   } else {
     input = job.task
@@ -824,8 +837,8 @@ function retryContinuationInput(): string {
 }
 
 function recreatedThreadInput(job: BackgroundAgentJobResponse, continuation: string): string {
-  const priorAttempts = job.attempt_history?.length
-    ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(job.attempt_history, null, 2)}`
+  const priorAttempts = job.attemptHistory?.length
+    ? `\n\nBounded history from prior execution attempts:\n${JSON.stringify(job.attemptHistory, null, 2)}`
     : ''
   return `${job.task}\n\nThe previous Codex thread could not be resumed. Inspect the existing working directory and continue from durable artifacts.${priorAttempts}\n\nCurrent continuation instructions:\n${continuation}\n\nRe-check every acceptance criterion before finishing.`.trim()
 }

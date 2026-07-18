@@ -3,7 +3,9 @@ import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { createModel } from '../src/core/llm'
 import { recognizeAmbientIntervention } from '../src/core/turns/ambient_recognizer'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import type { AgentConversationContext } from '../src/lanes/rpc_lane'
+import { create } from '@bufbuild/protobuf'
+import { AgentConversationContextResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import type { AgentConversationContextResponse } from '../src/lanes/rpc_lane'
 import { turnStartForTest } from './support/llm'
 
 describe('ambient intervention recognizer', () => {
@@ -64,15 +66,10 @@ describe('ambient intervention recognizer', () => {
       }
     } as TurnStart
 
-    const context: AgentConversationContext = {
-      request_id: 'ambient-time-test',
-      agent_uid: turnStart.turn.actor.agent_uid,
-      session_id: turnStart.turn.actor.session_id,
-      turn: turnStart.turn,
-      agent: { display_name: 'Research Agent' },
-      conversation: { timezone: 'Asia/Singapore' },
-      soul: ''
-    }
+    const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
+      agent: { displayName: 'Research Agent' },
+      conversation: { timezone: 'Asia/Singapore' }
+    })
 
     await recognizeAmbientIntervention(
       {

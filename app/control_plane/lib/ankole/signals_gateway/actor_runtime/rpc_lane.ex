@@ -3,18 +3,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   Dispatches RuntimeFabric RPC requests on the control-plane side.
 
   `@rpc_operations` is the Elixir side of the cross-language RPC contract:
-  one row per operation mapping the wire method to its broker function and
-  scope. Turn-scoped operations read the turn fence from the payload `turn`
-  key and are authorized through `WorkerRouteAuth` with the effect carried by
-  the scope atom; `worker_agent` operations carry no turn fence by design.
+  one row per operation mapping the wire method to its broker function, scope,
+  and generated request message module. Payload shapes are the generated
+  messages from `app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto`. The
+  turn fence and worker_agent subject travel on the `RPCRequest` frame:
+  turn-scoped operations are authorized through `WorkerRouteAuth` before the
+  payload is decoded, and `worker_agent` operations trust the frame
+  `agent_uid` by design.
 
   The Bun side of the contract lives in `app/agent_computer/src/lanes/rpc_lane.ts`;
   both sides are pinned to `app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json`
-  by package-local parity tests. Adding an operation means one row here plus one
-  broker function, and the matching Bun contract entries.
+  by package-local parity tests. Adding an operation means: messages in
+  `rpc.proto` plus `bun run gen:proto`, the Bun table entries plus
+  `bun run gen:rpc-contract`, and one dispatch row plus one broker function
+  clause here.
 
-  Method handlers return method payloads. This module is the only control-plane
-  code that wraps those results as `rpc_response` or `rpc_error` envelopes.
+  This module is the single control-plane codec boundary for RPC payloads.
+  Brokers receive the decoded request struct plus a `ctx` map carrying the
+  frame facts (`route`, `request_id`) and return either a response struct
+  (encoded directly), a plain map (wrapped as model-facing
+  `JSONPassthroughResponse`), or an error payload map (wrapped as
+  `rpc_error`).
   """
 
   alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
@@ -27,7 +36,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
   alias Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker
-  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker
@@ -38,74 +46,113 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
   @type scope :: :worker_agent | :turn_read | :turn_write
 
+  @typedoc "Frame facts handed to every broker beside the decoded request."
+  @type ctx :: %{route: String.t(), request_id: String.t()}
+
   @rpc_operations %{
     "ai_gateway.api_key_for.create_or_find_by_agent" =>
-      {AIGatewayAPIKeyBroker, :handle_request, :worker_agent},
+      {AIGatewayAPIKeyBroker, :handle_request, :worker_agent, FabricProto.AIGatewayAPIKeyRequest},
     "agent_conversation.context.resolve" =>
-      {AgentConversationContextBroker, :handle_request, :turn_read},
-    "app_configure.resolve" => {AppConfigureBroker, :handle_request, :worker_agent},
-    "codex.account.resolve" => {CodexAccountBroker, :handle_resolve, :turn_read},
-    "codex.account.auth.update" => {CodexAccountBroker, :handle_update_auth, :turn_write},
-    "agent_plugin.list" => {AgentPluginBroker, :handle_list, :turn_read},
-    "background_agent_job.create" => {BackgroundAgentJobBroker, :handle_create, :turn_write},
-    "background_agent_job.get" => {BackgroundAgentJobBroker, :handle_get, :turn_read},
-    "background_agent_job.list" => {BackgroundAgentJobBroker, :handle_list, :turn_read},
-    "background_agent_job.steer" => {BackgroundAgentJobBroker, :handle_steer, :turn_write},
-    "background_agent_job.stop" => {BackgroundAgentJobBroker, :handle_stop, :turn_write},
+      {AgentConversationContextBroker, :handle_request, :turn_read,
+       FabricProto.AgentConversationContextRequest},
+    "app_configure.resolve" =>
+      {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
+    "codex.account.resolve" =>
+      {CodexAccountBroker, :handle_resolve, :turn_read, FabricProto.CodexAccountResolveRequest},
+    "codex.account.auth.update" =>
+      {CodexAccountBroker, :handle_update_auth, :turn_write,
+       FabricProto.CodexAccountAuthUpdateRequest},
+    "agent_plugin.list" =>
+      {AgentPluginBroker, :handle_list, :turn_read, FabricProto.AgentPluginListRequest},
+    "background_agent_job.create" =>
+      {BackgroundAgentJobBroker, :handle_create, :turn_write,
+       FabricProto.BackgroundAgentJobCreateRequest},
+    "background_agent_job.get" =>
+      {BackgroundAgentJobBroker, :handle_get, :turn_read,
+       FabricProto.BackgroundAgentJobGetRequest},
+    "background_agent_job.list" =>
+      {BackgroundAgentJobBroker, :handle_list, :turn_read,
+       FabricProto.BackgroundAgentJobListRequest},
+    "background_agent_job.steer" =>
+      {BackgroundAgentJobBroker, :handle_steer, :turn_write,
+       FabricProto.BackgroundAgentJobSteerRequest},
+    "background_agent_job.stop" =>
+      {BackgroundAgentJobBroker, :handle_stop, :turn_write,
+       FabricProto.BackgroundAgentJobStopRequest},
     "background_agent_job.turn.upsert" =>
-      {BackgroundAgentJobBroker, :handle_upsert_turn, :turn_write},
+      {BackgroundAgentJobBroker, :handle_upsert_turn, :turn_write,
+       FabricProto.BackgroundAgentJobTurnUpsertRequest},
     "background_agent_job.status.update" =>
-      {BackgroundAgentJobBroker, :handle_update_status, :turn_write},
-    "memory_search" => {BrainRPCBroker, :handle_search, :turn_read},
-    "memory_open" => {BrainRPCBroker, :handle_open, :turn_read},
-    "memory_update" => {BrainRPCBroker, :handle_update, :turn_write},
-    "memory_browse" => {BrainRPCBroker, :handle_browse, :turn_read},
-    "memory_health_check" => {BrainRPCBroker, :handle_health_check, :turn_read},
+      {BackgroundAgentJobBroker, :handle_update_status, :turn_write,
+       FabricProto.BackgroundAgentJobStatusUpdateRequest},
+    "memory_search" => {BrainRPCBroker, :handle_search, :turn_read, FabricProto.MemorySearchRequest},
+    "memory_open" => {BrainRPCBroker, :handle_open, :turn_read, FabricProto.MemoryOpenRequest},
+    "memory_update" => {BrainRPCBroker, :handle_update, :turn_write, FabricProto.MemoryUpdateRequest},
+    "memory_browse" => {BrainRPCBroker, :handle_browse, :turn_read, FabricProto.MemoryBrowseRequest},
+    "memory_health_check" =>
+      {BrainRPCBroker, :handle_health_check, :turn_read, FabricProto.MemoryHealthCheckRequest},
     "schedule.check_back_later.create" =>
-      {ScheduleRPCBroker, :handle_check_back_later_create, :turn_write},
+      {ScheduleRPCBroker, :handle_check_back_later_create, :turn_write,
+       FabricProto.ScheduleCheckBackLaterCreateRequest},
     "schedule.check_back_later.list" =>
-      {ScheduleRPCBroker, :handle_check_back_later_list, :turn_read},
+      {ScheduleRPCBroker, :handle_check_back_later_list, :turn_read,
+       FabricProto.ScheduleCheckBackLaterListRequest},
     "schedule.check_back_later.get" =>
-      {ScheduleRPCBroker, :handle_check_back_later_get, :turn_read},
+      {ScheduleRPCBroker, :handle_check_back_later_get, :turn_read,
+       FabricProto.ScheduleCheckBackLaterTargetRequest},
     "schedule.check_back_later.update" =>
-      {ScheduleRPCBroker, :handle_check_back_later_update, :turn_write},
+      {ScheduleRPCBroker, :handle_check_back_later_update, :turn_write,
+       FabricProto.ScheduleCheckBackLaterUpdateRequest},
     "schedule.check_back_later.cancel" =>
-      {ScheduleRPCBroker, :handle_check_back_later_cancel, :turn_write},
-    "schedule.cron.list" => {ScheduleRPCBroker, :handle_cron_list, :turn_read},
-    "schedule.cron.get" => {ScheduleRPCBroker, :handle_cron_get, :turn_read},
-    "schedule.cron.runs" => {ScheduleRPCBroker, :handle_cron_runs, :turn_read},
-    "schedule.cron.add" => {ScheduleRPCBroker, :handle_cron_add, :turn_write},
-    "schedule.cron.update" => {ScheduleRPCBroker, :handle_cron_update, :turn_write},
-    "schedule.cron.pause" => {ScheduleRPCBroker, :handle_cron_pause, :turn_write},
-    "schedule.cron.resume" => {ScheduleRPCBroker, :handle_cron_resume, :turn_write},
-    "schedule.cron.remove" => {ScheduleRPCBroker, :handle_cron_remove, :turn_write},
-    "schedule.cron.run" => {ScheduleRPCBroker, :handle_cron_run, :turn_write},
-    "skills.installed.replace" => {SkillRegistryBroker, :handle_replace, :turn_write},
-    "skills.overlay.resolve" => {SkillOverlayBroker, :handle_resolve, :turn_read},
-    "skills.overlay.append" => {SkillOverlayBroker, :handle_append, :turn_write},
-    "skills.overlay.replace" => {SkillOverlayBroker, :handle_replace, :turn_write},
-    "worker_env.resolve" => {WorkerEnvBroker, :handle_request, :worker_agent}
+      {ScheduleRPCBroker, :handle_check_back_later_cancel, :turn_write,
+       FabricProto.ScheduleCheckBackLaterTargetRequest},
+    "schedule.cron.list" =>
+      {ScheduleRPCBroker, :handle_cron_list, :turn_read, FabricProto.ScheduleCronListRequest},
+    "schedule.cron.get" =>
+      {ScheduleRPCBroker, :handle_cron_get, :turn_read, FabricProto.ScheduleCronTargetRequest},
+    "schedule.cron.runs" =>
+      {ScheduleRPCBroker, :handle_cron_runs, :turn_read, FabricProto.ScheduleCronRunsRequest},
+    "schedule.cron.add" =>
+      {ScheduleRPCBroker, :handle_cron_add, :turn_write, FabricProto.ScheduleCronAddRequest},
+    "schedule.cron.update" =>
+      {ScheduleRPCBroker, :handle_cron_update, :turn_write, FabricProto.ScheduleCronUpdateRequest},
+    "schedule.cron.pause" =>
+      {ScheduleRPCBroker, :handle_cron_pause, :turn_write, FabricProto.ScheduleCronTargetRequest},
+    "schedule.cron.resume" =>
+      {ScheduleRPCBroker, :handle_cron_resume, :turn_write, FabricProto.ScheduleCronTargetRequest},
+    "schedule.cron.remove" =>
+      {ScheduleRPCBroker, :handle_cron_remove, :turn_write, FabricProto.ScheduleCronTargetRequest},
+    "schedule.cron.run" =>
+      {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronTargetRequest},
+    "skills.installed.replace" =>
+      {SkillRegistryBroker, :handle_replace, :turn_write, FabricProto.InstalledSkillReplaceRequest},
+    "skills.overlay.resolve" =>
+      {SkillOverlayBroker, :handle_resolve, :turn_read, FabricProto.SkillOverlayResolveRequest},
+    "skills.overlay.append" =>
+      {SkillOverlayBroker, :handle_append, :turn_write, FabricProto.SkillOverlayAppendRequest},
+    "skills.overlay.replace" =>
+      {SkillOverlayBroker, :handle_replace, :turn_write, FabricProto.SkillOverlayReplaceRequest},
+    "worker_env.resolve" =>
+      {WorkerEnvBroker, :handle_request, :worker_agent, FabricProto.WorkerEnvResolveRequest}
   }
 
   @doc false
-  @spec operations() :: %{String.t() => {module(), atom(), scope()}}
+  @spec operations() :: %{String.t() => {module(), atom(), scope(), module()}}
   def operations, do: @rpc_operations
 
   @spec handle_request(FabricProto.RPCRequest.t(), String.t()) ::
           {:ok, FabricProto.Envelope.t()} | {:error, term()}
   def handle_request(%FabricProto.RPCRequest{} = request, route) when is_binary(route) do
     request_id = presence(request.request_id) || "rpc-#{Ecto.UUID.generate()}"
-    method = request.method
+    ctx = %{route: route, request_id: request_id}
 
-    payload =
-      case Common.decode_json_bytes(request.payload_json) do
-        %{} = payload -> Map.put_new(payload, "request_id", request_id)
-        _payload -> %{"request_id" => request_id}
-      end
+    case dispatch_method_safely(request, ctx) do
+      {:ok, %_{} = response_struct} ->
+        {:ok, rpc_response_envelope(request_id, encode_payload(response_struct))}
 
-    case dispatch_method_safely(method, payload, route) do
-      {:ok, response_payload} ->
-        {:ok, rpc_response_envelope(request_id, response_payload)}
+      {:ok, response_payload} when is_map(response_payload) ->
+        passthrough = %FabricProto.JSONPassthroughResponse{body_json: Torque.encode!(response_payload)}
+        {:ok, rpc_response_envelope(request_id, encode_payload(passthrough))}
 
       {:error, error_payload} when is_map(error_payload) ->
         {:ok, rpc_error_envelope(request_id, error_payload)}
@@ -121,11 +168,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     end
   end
 
+  defp presence(_value), do: nil
+
   # RuntimeFabric's Broker owns the shared ROUTER for every worker. A defect or
   # unexpected database failure in one semantic method must fail that RPC, not
   # terminate the transport owner and disconnect the whole worker pool.
-  defp dispatch_method_safely(method, payload, route) do
-    case dispatch_method(method, payload, route) do
+  defp dispatch_method_safely(request, ctx) do
+    case dispatch_method(request, ctx) do
+      {:ok, %_{}} = result ->
+        result
+
       {:ok, response_payload} = result when is_map(response_payload) ->
         result
 
@@ -133,33 +185,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
         result
 
       _unexpected ->
-        log_invalid_handler_result(method, route)
-        {:error, handler_failure_payload(payload, method)}
+        log_invalid_handler_result(request.method, ctx.route)
+        {:error, handler_failure_payload(ctx.request_id, request.method)}
     end
   rescue
     exception ->
-      log_handler_failure(method, route, :error, exception, __STACKTRACE__)
-      {:error, handler_failure_payload(payload, method)}
+      log_handler_failure(request.method, ctx.route, :error, exception, __STACKTRACE__)
+      {:error, handler_failure_payload(ctx.request_id, request.method)}
   catch
     kind, reason ->
-      log_handler_failure(method, route, kind, reason, __STACKTRACE__)
-      {:error, handler_failure_payload(payload, method)}
+      log_handler_failure(request.method, ctx.route, kind, reason, __STACKTRACE__)
+      {:error, handler_failure_payload(ctx.request_id, request.method)}
   end
 
-  defp dispatch_method(method, payload, route) do
-    case Map.fetch(@rpc_operations, method) do
-      {:ok, {module, function, :worker_agent}} ->
-        apply(module, function, [payload, route])
+  defp dispatch_method(request, ctx) do
+    case Map.fetch(@rpc_operations, request.method) do
+      {:ok, {module, function, :worker_agent, request_mod}} ->
+        with {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
+          apply(module, function, [presence(request.agent_uid), payload, ctx])
+        end
 
-      {:ok, {module, function, scope}} ->
-        dispatch_turn_method(module, function, scope_effect(scope), payload, route)
+      {:ok, {module, function, scope, request_mod}} ->
+        with {:ok, turn_ref} <- request_turn_ref(request, ctx),
+             :ok <- authorize_turn(turn_ref, ctx, scope_effect(scope)),
+             {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
+          apply(module, function, [turn_ref, payload, ctx])
+        end
 
       :error ->
         {:error,
          %{
            "code" => "unknown_rpc_method",
-           "message" => "unknown RPC method: #{method}",
-           "details_json" => %{"method" => method}
+           "message" => "unknown RPC method: #{request.method}",
+           "details_json" => %{"method" => request.method}
          }}
     end
   end
@@ -167,13 +225,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   defp scope_effect(:turn_read), do: :read
   defp scope_effect(:turn_write), do: :write
 
-  defp dispatch_turn_method(module, function, effect, payload, route) do
-    with {:ok, turn_ref} <- TurnRef.from_request(payload),
-         :ok <- WorkerRouteAuth.authorize_turn_route(turn_ref, route, effect) do
-      apply(module, function, [turn_ref, payload, route])
-    else
-      {:error, reason} -> {:error, error_payload(payload, reason)}
+  defp request_turn_ref(request, ctx) do
+    case TurnRef.from_proto(request.turn) do
+      {:ok, turn_ref} -> {:ok, turn_ref}
+      {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
     end
+  end
+
+  defp authorize_turn(turn_ref, ctx, effect) do
+    case WorkerRouteAuth.authorize_turn_route(turn_ref, ctx.route, effect) do
+      :ok -> :ok
+      {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
+    end
+  end
+
+  defp decode_payload(request_mod, payload, ctx) do
+    case request_mod.decode(payload) do
+      {:ok, decoded} ->
+        {:ok, decoded}
+
+      {:error, reason} ->
+        {:error,
+         %{
+           "request_id" => ctx.request_id,
+           "code" => "invalid_rpc_payload",
+           "message" => "RPC payload does not decode as #{inspect(request_mod)}",
+           "details_json" => %{"reason" => inspect(reason)}
+         }}
+    end
+  end
+
+  defp encode_payload(struct) do
+    {iodata, _size} = struct.__struct__.encode!(struct)
+    IO.iodata_to_binary(iodata)
   end
 
   defp rpc_response_envelope(request_id, payload) do
@@ -188,7 +272,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
         {:rpc_response,
          %FabricProto.RPCResponse{
            request_id: request_id,
-           payload_json: Torque.encode!(payload)
+           payload: payload
          }}
     }
   end
@@ -212,16 +296,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     }
   end
 
-  defp error_payload(payload, reason) do
-    RPCWire.error_payload(RPCWire.text(payload, "request_id") || "", reason,
+  defp auth_error_payload(ctx, reason) do
+    RPCWire.error_payload(ctx.request_id, reason,
       fallback_code: "rpc_request_failed",
       details_json: %{"reason" => inspect(reason)}
     )
   end
 
-  defp handler_failure_payload(payload, method) do
+  defp handler_failure_payload(request_id, method) do
     %{
-      "request_id" => RPCWire.text(payload, "request_id") || "",
+      "request_id" => request_id,
       "code" => "rpc_handler_failed",
       "message" => "RPC handler failed",
       "details_json" => %{"method" => method}

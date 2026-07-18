@@ -1,11 +1,10 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import {
+  memoryRPCRequester,
   rpcMethods,
   type AIGatewayAPIKeyResponse,
   type AgentPluginCatalogEntry,
   type BackgroundAgentJobResponse,
-  type MemoryRPCMethod,
-  type RPCSchemaByMethod,
   type RuntimeSkillSummary
 } from '../../lanes/rpc_lane'
 import { prepareActorWorkspace } from '../../worker/workspace'
@@ -26,7 +25,7 @@ import { resolveWorkerEnv } from '../turns/worker_env'
 import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
 import { assertAgentPluginProjectResumeState, prepareAgentPlugins } from './agent-plugin-materializer'
-import { codexJobProjectLocation, prepareCodexJobProject } from './job-project'
+import { codexJobProjectLocation, prepareCodexJobProject, type CodexJobWorkspaceMountInput } from './job-project'
 import { resolveCodexJobMCPServers } from './mcp-config'
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig } from './project-config'
@@ -47,13 +46,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       workspaceSessionsRoot: opts.workspaceSessionsRoot,
       userFilesRoot: opts.userFilesRoot
     },
-    { agent_uid: job.agent_uid, session_id: job.owner_session_id }
+    { agent_uid: job.agentUid, session_id: job.ownerSessionId }
   )
   const agentContext = await resolveAgentConversationContext(turnStart, opts)
   const availableSkills = agentContext.skills ?? []
-  const enabledSkills = selectCurrentStandaloneSkills(job.skill_names, availableSkills)
-  const agentPluginCatalogResponse = await opts.rpc(rpcMethods.agentPluginList, { turn: turnStart.turn })
-  const selectedAgentPlugins = selectCurrentAgentPlugins(job.agent_plugin_ids, agentPluginCatalogResponse.agent_plugins)
+  const enabledSkills = selectCurrentStandaloneSkills(job.skillNames, availableSkills)
+  const agentPluginCatalogResponse = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
+  const selectedAgentPlugins = selectCurrentAgentPlugins(job.agentPluginIds, agentPluginCatalogResponse.agentPlugins)
   const agentPluginSkills = selectCurrentAgentPluginSkills(selectedAgentPlugins, availableSkills)
   const skillRoots = {
     builtinSkillsRoot: opts.builtinSkillsRoot,
@@ -61,7 +60,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     ...(opts.internalSkillsRoot ? { internalSkillsRoot: opts.internalSkillsRoot } : {})
   }
   const projectLocation = codexJobProjectLocation(opts.userFilesRoot, jobID)
-  if (job.runtime_thread_id) assertAgentPluginProjectResumeState(projectLocation.hostPath)
+  if (job.runtimeThreadId) assertAgentPluginProjectResumeState(projectLocation.hostPath)
 
   // Validate every caller-owned mount before Agent Plugin recovery may rebuild
   // the private project that sits beside those mounts.
@@ -70,16 +69,16 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     ownerModelPath: projectLocation.ownerModelPath,
     ownerWorkspaceRoot: parentWorkspaceRoot,
     allowedSourceRoots: [opts.userFilesRoot],
-    workspaceMounts: job.workspace_mounts
+    workspaceMounts: jobWorkspaceMounts(job)
   })
-  const initializeProject = !job.runtime_thread_id
+  const initializeProject = !job.runtimeThreadId
   const agentsContent = initializeProject
     ? renderCodexJobAgents({
         guidanceWorkspaceRoot: parentWorkspaceRoot,
         workspaceMounts: preflightProject.workspaceMounts,
         soul: agentContext.soul ?? '',
         mission: agentContext.mission ?? '',
-        brainSnapshot: agentContext.brain_snapshot,
+        brainSnapshot: agentContext.brainSnapshot,
         background: job.background,
         notes: job.notes,
         timezone: agentContext.conversation?.timezone
@@ -96,7 +95,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     ownerModelPath: projectLocation.ownerModelPath,
     ownerWorkspaceRoot: parentWorkspaceRoot,
     allowedSourceRoots: [opts.userFilesRoot],
-    workspaceMounts: job.workspace_mounts
+    workspaceMounts: jobWorkspaceMounts(job)
   })
   const mcpServers = await resolveCodexJobMCPServers({
     enabledSkills: [...enabledSkills, ...agentPluginSkills],
@@ -118,7 +117,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     projectRoot: jobProject.root,
     execution: {
       ...(job.model ? { model: job.model } : {}),
-      ...(job.reasoning_effort ? { reasoningEffort: job.reasoning_effort } : {})
+      ...(job.reasoningEffort ? { reasoningEffort: job.reasoningEffort } : {})
     },
     mcpServers,
     pluginsEnabled: selectedAgentPlugins.length > 0
@@ -142,22 +141,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   })
   const projectedTools = [
     ...baseWebTools,
+    // Brain attributes job-issued memory operations to the job because the
+    // turn fence session is the job session; no extra scope payload is needed.
     ...createMemoryTools({
       turnStart,
-      // Memory operations issued inside the job are re-scoped to the owning
-      // session so Brain attributes them to the job, not the parent turn.
-      requestMemoryRPC: <M extends MemoryRPCMethod>(
-        method: M,
-        payload: Omit<RPCSchemaByMethod[M]['request'], 'request_id'>
-      ) =>
-        opts.rpc(method, {
-          ...payload,
-          job_id: jobID,
-          job_scope: {
-            session_id: job.owner_session_id,
-            signal_channel_id: stringValue(job.reply_route.signal_channel_id)
-          }
-        })
+      requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
     })
   ]
   const projection = buildCodexJobProjection({ tools: projectedTools })
@@ -233,13 +221,11 @@ export type PreparedCodexJobExecution = Awaited<ReturnType<typeof prepareCodexJo
 function selectCurrentStandaloneSkills(names: string[], available: RuntimeSkillSummary[]): RuntimeSkillSummary[] {
   const byName = new Map<string, RuntimeSkillSummary>()
   for (const skill of available) {
-    if (skill.agent_plugin_id) continue
-    if (!skill.skill_name || byName.has(skill.skill_name)) {
-      throw new Error(
-        `Agent conversation Skill catalog has duplicate or invalid name: ${skill.skill_name || '<empty>'}`
-      )
+    if (skill.agentPluginId) continue
+    if (!skill.skillName || byName.has(skill.skillName)) {
+      throw new Error(`Agent conversation Skill catalog has duplicate or invalid name: ${skill.skillName || '<empty>'}`)
     }
-    byName.set(skill.skill_name, skill)
+    byName.set(skill.skillName, skill)
   }
   return [...names].sort(compareCodePoints).map(name => {
     const skill = byName.get(name)
@@ -272,22 +258,22 @@ function selectCurrentAgentPluginSkills(
 ): RuntimeSkillSummary[] {
   const byOwnerAndName = new Map<string, RuntimeSkillSummary>()
   for (const skill of available) {
-    if (!skill.agent_plugin_id) continue
-    const key = `${skill.agent_plugin_id}\0${skill.skill_name}`
-    if (!skill.skill_name || byOwnerAndName.has(key)) {
+    if (!skill.agentPluginId) continue
+    const key = `${skill.agentPluginId}\0${skill.skillName}`
+    if (!skill.skillName || byOwnerAndName.has(key)) {
       throw new Error(
-        `Agent conversation Plugin Skill catalog has duplicate or invalid member: ${skill.agent_plugin_id}/${skill.skill_name || '<empty>'}`
+        `Agent conversation Plugin Skill catalog has duplicate or invalid member: ${skill.agentPluginId}/${skill.skillName || '<empty>'}`
       )
     }
     byOwnerAndName.set(key, skill)
   }
   return selectedAgentPlugins.flatMap(agentPlugin =>
     [...agentPlugin.skills]
-      .sort((left, right) => compareCodePoints(left.catalog_name, right.catalog_name))
+      .sort((left, right) => compareCodePoints(left.catalogName, right.catalogName))
       .map(member => {
-        const skill = byOwnerAndName.get(`${agentPlugin.id}\0${member.catalog_name}`)
+        const skill = byOwnerAndName.get(`${agentPlugin.id}\0${member.catalogName}`)
         if (!skill)
-          throw new Error(`Current Agent Plugin Skill is unavailable: ${agentPlugin.id}/${member.catalog_name}`)
+          throw new Error(`Current Agent Plugin Skill is unavailable: ${agentPlugin.id}/${member.catalogName}`)
         return skill
       })
   )
@@ -298,7 +284,16 @@ async function requestProjectionAIGatewayKey(
   opts: CodexJobOptions,
   options?: { forceRefresh?: boolean }
 ): Promise<AIGatewayAPIKeyResponse> {
-  return await opts.requestAIGatewayAPIKey({ agent_uid: turnStart.turn.actor.agent_uid }, options)
+  return await opts.requestAIGatewayAPIKey(turnStart.turn.actor.agent_uid, options)
+}
+
+function jobWorkspaceMounts(job: BackgroundAgentJobResponse): CodexJobWorkspaceMountInput[] {
+  return job.workspaceMounts.map(mount => {
+    if (mount.access !== 'read_only' && mount.access !== 'read_write') {
+      throw new Error(`invalid workspace mount access: ${mount.access}`)
+    }
+    return { id: mount.id, source: mount.source, access: mount.access }
+  })
 }
 
 function compareCodePoints(left: string, right: string): number {

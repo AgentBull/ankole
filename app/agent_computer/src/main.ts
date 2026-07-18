@@ -8,14 +8,7 @@ import {
   turnNoopCompletedEnvelope,
   workerProgressEnvelope
 } from './fabric/envelopes'
-import {
-  RuntimeRPCClient,
-  handleWorkerRPCRequest,
-  rpcErrorFromProto,
-  rpcMethods,
-  rpcRequestFromProto,
-  rpcResponseFromProto
-} from './lanes/rpc_lane'
+import { RuntimeRPCClient, handleWorkerRPCRequest, rpcMethods } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import { connectRuntimeFabric, isRuntimeFabricTransportError, type EnvelopeSender } from './fabric/fabric'
@@ -188,12 +181,12 @@ async function handleEnvelope(
 
   return match(body)
     .with({ case: 'rpcResponse' }, ({ value }) => {
-      rpcClient.resolve(rpcResponseFromProto(value))
+      rpcClient.resolve(value)
     })
     .with({ case: 'rpcError' }, ({ value }) => {
-      rpcClient.resolve(rpcErrorFromProto(value))
+      rpcClient.resolve(value)
     })
-    .with({ case: 'rpcRequest' }, ({ value }) => handleWorkerRPCRequest(sendEnvelope, rpcRequestFromProto(value)))
+    .with({ case: 'rpcRequest' }, ({ value }) => handleWorkerRPCRequest(sendEnvelope, value))
     .with({ case: 'turnStart' }, () =>
       startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, envelope)
     )
@@ -368,7 +361,7 @@ async function runActiveTurn(
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     internalSkillsRoot: config.internalSkillsRoot,
     rpc,
-    requestAIGatewayAPIKey: (request, options) => requestAIGatewayAPIKey(rpcClient, request, options),
+    requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
     pollSteering: () => active.steeringUpdates.splice(0),
     onSteeringApplied: update =>
       sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),

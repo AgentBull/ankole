@@ -4,11 +4,14 @@ defmodule Ankole.AIGateway.CredentialTest do
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
       rpc_request: 3,
-      rpc_response_payload!: 1,
+      rpc_request: 4,
+      rpc_response_payload!: 2,
       rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
+
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
 
   test "agent API key JWT carries the AIGateway audience, scope, subject, and 30 day expiry" do
     %{principal: agent} = agent_fixture()
@@ -35,25 +38,20 @@ defmodule Ankole.AIGateway.CredentialTest do
                rpc_request(
                  "ai-gateway-key-1",
                  "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %{
-                   "request_id" => "ai-gateway-key-1",
-                   "agent_uid" => agent.uid
-                 }
+                 %FabricProto.AIGatewayAPIKeyRequest{},
+                 agent_uid: agent.uid
                ),
                "trusted-worker-route"
              )
 
-    response = rpc_response_payload!(envelope)
-    assert response["request_id"] == "ai-gateway-key-1"
-    assert response["agent_uid"] == agent.uid
-    refute Map.has_key?(response, "session_id")
-    assert response["token_type"] == "Bearer"
-    assert response["scope"] == "ai_gateway"
-    assert response["expires_in"] == 30 * 24 * 60 * 60
-    assert String.ends_with?(response["base_url"], "/api/v1/ai-gateway")
-    refute Map.has_key?(response, "credential")
-    refute Map.has_key?(response, "provider_id")
-    assert {:ok, claims} = AIGatewayTokens.verify_api_key(response["api_key"])
+    response = rpc_response_payload!(envelope, FabricProto.AIGatewayAPIKeyResponse)
+    assert envelope_body!(envelope, :rpc_response).request_id == "ai-gateway-key-1"
+    assert response.agent_uid == agent.uid
+    assert response.token_type == "Bearer"
+    assert response.scope == "ai_gateway"
+    assert response.expires_in == 30 * 24 * 60 * 60
+    assert String.ends_with?(response.base_url, "/api/v1/ai-gateway")
+    assert {:ok, claims} = AIGatewayTokens.verify_api_key(response.api_key)
     assert claims["sub"] == agent.uid
   end
 
@@ -69,17 +67,15 @@ defmodule Ankole.AIGateway.CredentialTest do
                rpc_request(
                  "ai-gateway-worker-url",
                  "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %{
-                   "request_id" => "ai-gateway-worker-url",
-                   "agent_uid" => agent.uid
-                 }
+                 %FabricProto.AIGatewayAPIKeyRequest{},
+                 agent_uid: agent.uid
                ),
                "trusted-worker-route"
              )
 
-    response = rpc_response_payload!(envelope)
+    response = rpc_response_payload!(envelope, FabricProto.AIGatewayAPIKeyResponse)
 
-    assert response["base_url"] ==
+    assert response.base_url ==
              "http://host.docker.internal:49321/api/v1/ai-gateway"
   end
 
@@ -89,10 +85,7 @@ defmodule Ankole.AIGateway.CredentialTest do
                rpc_request(
                  "missing-agent-uid",
                  "ai_gateway.api_key_for.create_or_find_by_agent",
-                 %{
-                   "request_id" => "missing-agent-uid",
-                   "session_id" => "signal-channel:ignored"
-                 }
+                 %FabricProto.AIGatewayAPIKeyRequest{}
                ),
                "trusted-worker-route"
              )
@@ -108,11 +101,13 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("unknown-method-rpc", "definitely.not_a_declared_method", %{
-                 "turn" => turn,
-                 "agent_uid" => agent.uid,
-                 "session_id" => "signal-channel:no-provider-secret-rpc"
-               }),
+               rpc_request(
+                 "unknown-method-rpc",
+                 "definitely.not_a_declared_method",
+                 %FabricProto.AIGatewayAPIKeyRequest{},
+                 turn: turn,
+                 agent_uid: agent.uid
+               ),
                route
              )
 

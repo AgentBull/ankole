@@ -50,12 +50,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       :ok = Broker.register_local_worker(route, self())
       on_exit(fn -> Broker.unregister_local_worker(route) end)
 
+      probe_payload = encode_proto!(%FabricProto.WorkerEnvResolveRequest{})
+
       task =
         Task.async(fn ->
           Broker.request_rpc(
             route,
             "test.probe",
-            %{"probe" => true},
+            probe_payload,
             timeout_ms: 200
           )
         end)
@@ -63,7 +65,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, request}}}, 200
 
       assert request.method == "test.probe"
-      assert decoded_json_bytes(request.payload_json) == %{"probe" => true}
+      assert request.payload == probe_payload
       request_id = request.request_id
 
       send(
@@ -79,12 +81,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
              {:rpc_response,
               %FabricProto.RPCResponse{
                 request_id: request_id,
-                payload_json: Torque.encode!(%{"runtime" => "bun", "active_turns" => 0})
+                payload: encode_proto!(%FabricProto.WorkerEnvResolveResponse{vars: %{"runtime" => "bun"}})
               }}
          })}
       )
 
-      assert {:ok, %{"runtime" => "bun", "active_turns" => 0}} = Task.await(task, 500)
+      assert {:ok, payload} = Task.await(task, 500)
+
+      assert {:ok, %FabricProto.WorkerEnvResolveResponse{vars: %{"runtime" => "bun"}}} =
+               FabricProto.WorkerEnvResolveResponse.decode(payload)
     end
 
     test "a crashing RPC handler returns rpc_error without terminating the transport broker" do
@@ -103,7 +108,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       request = %FabricProto.RPCRequest{
         request_id: "rpc-handler-crash",
         method: "ai_gateway.api_key_for.create_or_find_by_agent",
-        payload_json: Torque.encode!(%{"agent_uid" => agent.uid})
+        payload: encode_proto!(%FabricProto.AIGatewayAPIKeyRequest{}),
+        agent_uid: agent.uid
       }
 
       assert {:ok, response} = RPCLane.handle_request(request, "worker-route")

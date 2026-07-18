@@ -4,51 +4,51 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
   """
 
   alias Ankole.AIAgent.CodexAccounts
-  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
 
-  @spec handle_resolve(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_resolve(%TurnRef{} = turn_ref, request, _route) do
-    request_id = request_id(request, "resolve")
-    job_id = RPCWire.text(request, "job_id") || ""
-
-    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, job_id),
+  @spec handle_resolve(TurnRef.t(), FabricProto.CodexAccountResolveRequest.t(), map()) ::
+          {:ok, FabricProto.CodexAccountResolveResponse.t()} | {:error, map()}
+  def handle_resolve(%TurnRef{} = turn_ref, %FabricProto.CodexAccountResolveRequest{} = request, ctx) do
+    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, request.job_id),
          :ok <- require_subscription_account(job.codex_account_id),
          {:ok, resolved} <- CodexAccounts.resolve_auth(job.codex_account_id) do
       {:ok,
-       %{
-         "request_id" => request_id,
-         "account_id" => resolved.account_id,
-         "auth_json" => resolved.auth_json,
-         "auth_hash" => resolved.auth_hash
+       %FabricProto.CodexAccountResolveResponse{
+         account_id: resolved.account_id,
+         auth_json: resolved.auth_json,
+         auth_hash: resolved.auth_hash
        }}
     else
-      {:error, reason} -> error(request_id, turn_ref.agent_uid, reason)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
 
-  @spec handle_update_auth(TurnRef.t(), map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_update_auth(%TurnRef{} = turn_ref, request, _route) do
-    request_id = request_id(request, "update")
-    job_id = RPCWire.text(request, "job_id") || ""
-    auth_json = RPCWire.text(request, "auth_json")
-
-    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, job_id),
+  @spec handle_update_auth(TurnRef.t(), FabricProto.CodexAccountAuthUpdateRequest.t(), map()) ::
+          {:ok, FabricProto.CodexAccountAuthUpdateResponse.t()} | {:error, map()}
+  def handle_update_auth(%TurnRef{} = turn_ref, %FabricProto.CodexAccountAuthUpdateRequest{} = request, ctx) do
+    with {:ok, %Job{} = job} <- job_for_turn(turn_ref, request.job_id),
          :ok <- require_subscription_account(job.codex_account_id),
-         auth_json when is_binary(auth_json) <- auth_json,
+         auth_json when is_binary(auth_json) <- presence(request.auth_json),
          {:ok, account} <- CodexAccounts.update_auth(job.codex_account_id, auth_json) do
-      {:ok,
-       %{
-         "request_id" => request_id,
-         "account_id" => account.account_id
-       }}
+      {:ok, %FabricProto.CodexAccountAuthUpdateResponse{account_id: account.account_id}}
     else
-      nil -> error(request_id, turn_ref.agent_uid, :codex_auth_json_missing)
-      {:error, reason} -> error(request_id, turn_ref.agent_uid, reason)
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :codex_auth_json_missing)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
+
+  defp presence(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      _trimmed -> value
+    end
+  end
+
+  defp presence(_value), do: nil
 
   defp job_for_turn(%TurnRef{} = turn_ref, job_id) do
     with {:ok, ^job_id} <- BackgroundAgentJobs.parse_job_session_id(turn_ref.session_id),
@@ -64,10 +64,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
   defp require_subscription_account("aigateway"), do: {:error, :codex_account_not_configured}
   defp require_subscription_account(account_id) when is_binary(account_id), do: :ok
   defp require_subscription_account(_account_id), do: {:error, :codex_account_not_configured}
-
-  defp request_id(request, action) do
-    RPCWire.text(request, "request_id") || "codex-account-#{action}-#{Ecto.UUID.generate()}"
-  end
 
   defp error(request_id, agent_uid, reason) do
     {:error,

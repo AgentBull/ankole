@@ -8,61 +8,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
   """
 
   alias Ankole.Principals
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
 
   @doc """
   Handles `worker_env.resolve`.
   """
-  @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
-  def handle_request(request, _route) when is_map(request) do
-    request_id =
-      RPCWire.text(request, "request_id") || "worker-env-resolve-#{Ecto.UUID.generate()}"
-
+  @spec handle_request(String.t() | nil, FabricProto.WorkerEnvResolveRequest.t(), map()) ::
+          {:ok, FabricProto.WorkerEnvResolveResponse.t()} | {:error, map()}
+  def handle_request(agent_uid, %FabricProto.WorkerEnvResolveRequest{}, ctx) do
     result =
-      with {:ok, agent_uid} <- request_agent_uid(request),
+      with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
            {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
            {:ok, vars} <- WorkerEnv.effective_env(principal.uid) do
-        {:ok, response_payload(request_id, principal.uid, vars)}
+        {:ok, %FabricProto.WorkerEnvResolveResponse{vars: vars}}
       end
 
     case result do
-      {:ok, payload} ->
-        {:ok, payload}
-
-      {:error, reason} ->
-        {:error, error_payload(request_id, RPCWire.text(request, "agent_uid") || "", reason)}
-
-      :disabled ->
-        {:error,
-         error_payload(request_id, RPCWire.text(request, "agent_uid") || "", :agent_disabled)}
+      {:ok, response} -> {:ok, response}
+      {:error, reason} -> {:error, error_payload(ctx.request_id, agent_uid, reason)}
+      :disabled -> {:error, error_payload(ctx.request_id, agent_uid, :agent_disabled)}
     end
   end
 
-  def handle_request(_request, _route),
-    do: {:error, error_payload("", "", :invalid_worker_env_resolve_request)}
-
-  defp request_agent_uid(request) do
-    case RPCWire.text(request, "agent_uid") do
-      nil -> {:error, :missing_agent_uid}
-      agent_uid -> Principals.normalize_uid(agent_uid)
-    end
-  end
-
-  defp response_payload(request_id, agent_uid, vars) do
-    %{
-      "request_id" => request_id,
-      "agent_uid" => agent_uid,
-      "vars" => vars
-    }
-  end
+  defp frame_agent_uid(nil), do: {:error, :missing_agent_uid}
+  defp frame_agent_uid(agent_uid), do: Principals.normalize_uid(agent_uid)
 
   defp error_payload(request_id, agent_uid, reason) do
     RPCWire.error_payload(request_id, reason,
       fallback_code: "worker_env_resolve_failed",
       message_style: :tuple_inspect,
-      details_json: %{"agent_uid" => agent_uid}
+      details_json: %{"agent_uid" => agent_uid || ""}
     )
   end
 end

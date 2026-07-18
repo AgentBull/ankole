@@ -265,9 +265,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
       assert decoded_request_context(turn_start_payload!(first_envelope))["attempts"] == 1
 
       assert {:ok, first_turn_ref} =
-               Ankole.SignalsGateway.ActorRuntime.TurnRef.from_request(%{
-                 "turn" => turn_start_payload!(first_envelope).turn
-               })
+               Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(first_envelope).turn)
 
       assert {:ok, %{job: running}} =
                BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{

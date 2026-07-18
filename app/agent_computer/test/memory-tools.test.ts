@@ -63,14 +63,14 @@ describe('Brain memory tools', () => {
       payload: {
         query: 'launch decision',
         layer: 'all',
-        channel_scope: 'all_channels',
+        channelScope: 'all_channels',
         store: 'public',
         limit: 25
       }
     })
     expect(calls[1]).toMatchObject({
       method: 'memory_browse',
-      payload: { document_id: 'signal-gateway-entry:abc', limit: 5 }
+      payload: { documentId: 'signal-gateway-entry:abc', limit: 5 }
     })
   })
 
@@ -113,7 +113,7 @@ describe('Brain memory tools', () => {
     await execute(tools, 'memory_open', { name: 'Project Alpha', store: 'public', block_limit: 20 })
     expect(calls[0]).toMatchObject({
       method: 'memory_open',
-      payload: { name: 'Project Alpha', store: 'public', block_limit: 20 }
+      payload: { name: 'Project Alpha', store: 'public', blockLimit: 20 }
     })
 
     const open = toolNamed(tools, 'memory_open')
@@ -145,12 +145,16 @@ describe('Brain memory tools', () => {
     expect(calls[0]).toMatchObject({
       method: 'memory_update',
       payload: {
-        operation: 'edit_block',
-        entry_id: entryID,
-        block_id: blockID,
-        body: 'Current corrected guidance.',
-        expected_block_lock_version: 3,
-        tool_call_id: 'call-memory_update'
+        operation: {
+          case: 'editBlock',
+          value: {
+            entryId: entryID,
+            blockId: blockID,
+            body: 'Current corrected guidance.',
+            expectedBlockLockVersion: 3
+          }
+        },
+        toolCallId: 'call-memory_update'
       }
     })
     expect(calls[0]!.payload.owner_uid).toBeUndefined()
@@ -182,7 +186,7 @@ describe('Brain memory tools', () => {
 
     expect(calls[0]).toMatchObject({
       method: 'memory_update',
-      payload: { expected_entry_lock_version: 1 }
+      payload: { operation: { case: 'setSummary', value: { expectedEntryLockVersion: 1 } } }
     })
 
     const update = toolNamed(tools, 'memory_update')

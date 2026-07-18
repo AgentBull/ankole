@@ -290,7 +290,7 @@ fn accepts_rpc_request_and_rejects_correlation_mismatch() {
             request_id: "rpc-conversation-context-1".into(),
             method: "agent_conversation.context.resolve".into(),
             deadline_unix_ms: 1_782_300_001_000,
-            payload_json: br#"{"turn":{"actor":{"agent_uid":"agent-1"}}}"#.to_vec(),
+            ..Default::default()
         }),
     );
     validate_envelope_bytes(&envelope.encode_to_vec()).expect("rpc_request must validate");
@@ -302,7 +302,7 @@ fn accepts_rpc_request_and_rejects_correlation_mismatch() {
         proto::DurabilityClass::ControlEphemeral,
         RPCResponseBody(proto::RPCResponse {
             request_id: "rpc-1".into(),
-            payload_json: br#"{"ok":true}"#.to_vec(),
+            payload: b"\x0a\x02ok".to_vec(),
         }),
     ));
     assert!(error.contains("correlation_id must equal request_id"));

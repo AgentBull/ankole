@@ -117,8 +117,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  @rpc_summary_keys ~w(job_id title status agent_plugin_ids attempts queued_at started_at completed_at)
-
   @spec console_projection(Job.t()) :: map()
   def console_projection(%Job{} = job) do
     job
@@ -130,28 +128,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     })
   end
 
-  @spec rpc_projection(Job.t()) :: map()
-  def rpc_projection(%Job{} = job) do
-    job
-    |> base_projection()
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new(fn
-      {:id, value} -> {"job_id", value}
-      {key, value} -> {Atom.to_string(key), value}
-    end)
-  end
-
-  @spec rpc_summary(Job.t()) :: map()
-  def rpc_summary(%Job{} = job) do
-    job
-    |> rpc_projection()
-    |> Map.take(@rpc_summary_keys)
-  end
-
-  # Single field list shared by the Console and RuntimeFabric RPC views. The
-  # Console keeps every key (its OpenAPI schema is closed with required
-  # nullable keys) and adds audit timestamps; the RPC view drops nil values
-  # and renames `id` to `job_id` per the `background_agent_job` tool contract.
+  # Console field list; the RuntimeFabric RPC view is the generated
+  # BackgroundAgentJobResponse message built by the RPC broker.
   defp base_projection(%Job{} = job) do
     %{
       id: job.id,

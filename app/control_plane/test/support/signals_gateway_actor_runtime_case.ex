@@ -115,15 +115,10 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
   end
 
   @doc """
-  Normalizes a domain, generated, or wire-map turn fence into the proto struct.
+  Normalizes a domain or generated turn fence into the proto struct.
   """
   def turn_proto_ref(%TurnRef{} = turn_ref), do: TurnRef.to_proto(turn_ref)
   def turn_proto_ref(%FabricProto.ActorTurnRef{} = turn_ref), do: turn_ref
-
-  def turn_proto_ref(%{} = turn_ref) do
-    {:ok, domain_ref} = TurnRef.from_wire(turn_ref)
-    TurnRef.to_proto(domain_ref)
-  end
 
   def turn_accepted_payload(turn_ref) do
     %FabricProto.TurnAccepted{turn: turn_proto_ref(turn_ref)}
@@ -195,18 +190,49 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     do: Ankole.Kernel.RuntimeFabric.encode_envelope(envelope)
 
   @doc """
-  Builds a worker-originated RPC request struct with a JSON payload map.
+  Builds a worker-originated RPC request frame carrying an encoded payload
+  message. `opts` supply the frame facts: `turn:` (domain or generated fence)
+  for turn-scoped methods, `agent_uid:` for worker_agent methods.
   """
-  def rpc_request(request_id, method, payload) when is_map(payload) do
+  def rpc_request(request_id, method, payload, opts \\ [])
+
+  def rpc_request(request_id, method, %_{} = payload, opts) do
     %FabricProto.RPCRequest{
       request_id: request_id,
       method: method,
-      payload_json: Torque.encode!(payload)
+      payload: encode_proto!(payload),
+      turn:
+        case Keyword.get(opts, :turn) do
+          nil -> nil
+          turn -> turn_proto_ref(turn)
+        end,
+      agent_uid: Keyword.get(opts, :agent_uid, "")
     }
   end
 
-  def rpc_response_payload!(envelope),
-    do: decoded_json_bytes(envelope_body!(envelope, :rpc_response).payload_json) || %{}
+  @doc """
+  Encodes one generated message struct into its binary payload bytes.
+  """
+  def encode_proto!(%_{} = message) do
+    {iodata, _size} = message.__struct__.encode!(message)
+    IO.iodata_to_binary(iodata)
+  end
+
+  @doc """
+  Decodes an `rpc_response` payload with the method's response module.
+  """
+  def rpc_response_payload!(envelope, module) do
+    {:ok, decoded} = module.decode(envelope_body!(envelope, :rpc_response).payload)
+    decoded
+  end
+
+  @doc """
+  Decodes a model-facing passthrough response into its JSON map.
+  """
+  def rpc_passthrough_payload!(envelope) do
+    body = rpc_response_payload!(envelope, FabricProto.JSONPassthroughResponse)
+    decoded_json_bytes(body.body_json) || %{}
+  end
 
   def rpc_error_payload!(envelope) do
     error = envelope_body!(envelope, :rpc_error)
@@ -218,18 +244,6 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       "details_json" => decoded_json_bytes(error.details_json) || %{}
     }
   end
-
-  @doc """
-  Converts any turn fence representation into the RPC payload wire map.
-  """
-  def turn_wire_ref(%TurnRef{} = turn_ref), do: TurnRef.to_wire(turn_ref)
-
-  def turn_wire_ref(%FabricProto.ActorTurnRef{} = turn_ref) do
-    {:ok, domain_ref} = TurnRef.from_proto(turn_ref)
-    TurnRef.to_wire(domain_ref)
-  end
-
-  def turn_wire_ref(%{} = turn_ref), do: turn_ref
 
   def agent_fixture(attrs \\ %{}) do
     %{principal: agent} = fixture = Ankole.PrincipalsFixtures.agent_fixture(attrs)

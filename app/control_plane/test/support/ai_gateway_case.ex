@@ -327,12 +327,12 @@ defmodule Ankole.AIGatewayCase do
     })
 
     {route,
-     %{
-       "actor" => %{"agent_uid" => agent_uid, "session_id" => session_id},
-       "activation_uid" => activation_uid,
-       "actor_epoch" => 1,
-       "actor_event_id" => actor_event.id,
-       "revision" => 0
+     %Ankole.RuntimeFabric.V1.ActorTurnRef{
+       actor: %Ankole.RuntimeFabric.V1.ActorKey{agent_uid: agent_uid, session_id: session_id},
+       activation_uid: activation_uid,
+       actor_epoch: 1,
+       actor_event_id: actor_event.id,
+       revision: 0
      }}
   end
 end
