@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 26.07.33 (2026-07-18)
+
+- Reject BackgroundAgentJobs whose self-contained task still names caller-local `/workspace/user-files` or `/workspace/temp` paths before durable acceptance. File-dependent work must expose durable inputs through `workspace_mounts`, use the isolated `/workspace/workspaces/<mount-id>` path, and recreate temporary intermediates inside the Job, so a cheap model cannot enqueue work that is unreachable by construction.
+- Keep `bun dev` shutdown quiet and complete on constrained Unix hosts that reject process-group signals with `EPERM`: process-group termination remains the preferred cleanup path, but devkit now falls back to signaling the managed direct child handle instead of letting the signal handler print an uncaught stack trace while the remaining cleanup continues.
+
 ## Version 26.07.32 (2026-07-18)
 
 - Let databases that ran the unreleased destructive BackgroundAgentJob migration drafts upgrade in place when PostgreSQL can prove that no legacy Job was ever accepted: the compatibility guard now checks both surviving Job rows and durable Job actor events, materializes an empty immutable archive only when both evidence sources are empty, and keeps fail-closed backup recovery for every database with possible deleted history. This preserves unrelated local Agent, provider, Signal binding, channel, and worker history without rebuilding the application database.

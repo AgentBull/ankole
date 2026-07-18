@@ -525,6 +525,60 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 0
   end
 
+  test "creation rejects caller-local task paths before journaling work" do
+    %{principal: agent} = agent_fixture()
+
+    for {task, path, index} <- [
+          {"Read /workspace/user-files/inbox/report.pdf.", "/workspace/user-files", 1},
+          {"Use /workspace/temp for intermediate pages.", "/workspace/temp", 2},
+          {"Inspect /workspace/user-files, then report what exists.", "/workspace/user-files", 3}
+        ] do
+      assert {:error, {:background_agent_job_caller_local_task_path, message}} =
+               BackgroundAgentJobs.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => "parent-session-invalid-task-path-#{index}",
+                 "source_tool_call_id" => "tool-background-agent-job-invalid-task-path-#{index}",
+                 "title" => "Invalid task path",
+                 "task" => task,
+                 "reply_route" => %{"binding_name" => "lark"}
+               })
+
+      assert message =~ path
+      assert message =~ "workspace_mounts"
+      assert message =~ "/workspace/workspaces/<mount-id>/"
+    end
+
+    assert Repo.aggregate(Job, :count) == 0
+    assert Repo.aggregate(ActorEvent, :count) == 0
+
+    attrs = %{
+      "agent_uid" => agent.uid,
+      "owner_session_id" => "parent-session-near-task-path",
+      "source_tool_call_id" => "tool-background-agent-job-near-task-path",
+      "title" => "Valid private directory",
+      "task" => "Create /workspace/user-files-archive in the private Job project.",
+      "reply_route" => %{"binding_name" => "lark"}
+    }
+
+    assert {:ok, %{job: %Job{} = job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
+
+    assert Repo.aggregate(Job, :count) == 1
+    assert Repo.aggregate(ActorEvent, :count) == 1
+
+    legacy_task = "Read the previously accepted input from /workspace/temp/legacy.txt."
+    from(row in Job, where: row.id == ^job.id) |> Repo.update_all(set: [task: legacy_task])
+
+    assert {:ok, %{job: replayed}} =
+             attrs
+             |> Map.put("task", legacy_task)
+             |> BackgroundAgentJobs.create_with_dispatch()
+
+    assert replayed.id == job.id
+    assert replayed.task == legacy_task
+    assert Repo.aggregate(Job, :count) == 1
+    assert Repo.aggregate(ActorEvent, :count) == 1
+  end
+
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
     %{principal: agent} = agent_fixture()
     waiting = create_job!(agent.uid, "waiting")

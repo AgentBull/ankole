@@ -31,6 +31,12 @@ now and continue durably. The tool has five actions:
 - optional explicit `workspace_mounts`;
 - optional `model` and `reasoning_effort`.
 
+The self-contained task must use paths visible inside the isolated Job. Caller
+paths under `/workspace/user-files` and `/workspace/temp` are rejected before
+the Job commits: durable caller resources must be supplied through
+`workspace_mounts` and referenced as `/workspace/workspaces/<mount-id>/...`,
+while temporary intermediates must be recreated inside the Job project.
+
 Owner identity, reply routing, runtime IDs, and lifecycle state are derived from
 the authorized parent Turn. Owner conversation history is not copied into the
 Job, so `task` must contain the requirements and acceptance criteria needed by

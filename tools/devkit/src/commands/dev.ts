@@ -330,14 +330,24 @@ async function stopChild(child: ChildProcess | undefined): Promise<void> {
   })
 }
 
-function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+export function signalChild(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  killProcess: typeof process.kill = process.kill,
+  platform: NodeJS.Platform = process.platform
+): void {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
 
   try {
-    if (process.platform === 'win32') child.kill(signal)
-    else process.kill(-child.pid, signal)
+    if (platform === 'win32') child.kill(signal)
+    else killProcess(-child.pid, signal)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EPERM' && platform !== 'win32') {
+      child.kill(signal)
+      return
+    }
+    if (code !== 'ESRCH') throw error
   }
 }
 

@@ -19,6 +19,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
 
+  @caller_local_task_path_pattern ~r{/workspace/(user-files|temp)(?:/|$|[^A-Za-z0-9_-])}u
+
   @supported_create_fields ~w(
     agent_uid
     background
@@ -55,7 +57,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   defp prepare_new_job(attrs, agent_uid, now) do
-    with {:ok, reply_route} <- reply_route(attrs),
+    with :ok <- reject_caller_local_task_paths(Attrs.text(attrs, "task")),
+         {:ok, reply_route} <- reply_route(attrs),
          {:ok, codex_account_id} <- codex_account_id(agent_uid) do
       attrs
       |> Map.put("reply_route", reply_route)
@@ -63,6 +66,22 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       |> create_new_job(agent_uid, now)
     end
   end
+
+  defp reject_caller_local_task_paths(task) when is_binary(task) do
+    case Regex.run(@caller_local_task_path_pattern, task, capture: :all_but_first) do
+      [path_segment] ->
+        path = "/workspace/#{path_segment}"
+
+        {:error,
+         {:background_agent_job_caller_local_task_path,
+          "#{path} is caller-local and unavailable inside an isolated Job. Mount durable input with workspace_mounts and use /workspace/workspaces/<mount-id>/...; recreate temporary files inside the Job project."}}
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp reject_caller_local_task_paths(_task), do: :ok
 
   defp create_new_job(attrs, agent_uid, now) do
     with {:ok, agent_plugin_ids} <- validate_agent_plugin_ids(agent_uid, attrs),
