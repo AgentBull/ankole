@@ -12,7 +12,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
 
   @spec handle_resolve(TurnRef.t(), FabricProto.CodexAccountResolveRequest.t(), map()) ::
           {:ok, FabricProto.CodexAccountResolveResponse.t()} | {:error, map()}
-  def handle_resolve(%TurnRef{} = turn_ref, %FabricProto.CodexAccountResolveRequest{} = request, ctx) do
+  def handle_resolve(
+        %TurnRef{} = turn_ref,
+        %FabricProto.CodexAccountResolveRequest{} = request,
+        ctx
+      ) do
     with {:ok, %Job{} = job} <- job_for_turn(turn_ref, request.job_id),
          :ok <- require_subscription_account(job.codex_account_id),
          {:ok, resolved} <- CodexAccounts.resolve_auth(job.codex_account_id) do
@@ -29,7 +33,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker do
 
   @spec handle_update_auth(TurnRef.t(), FabricProto.CodexAccountAuthUpdateRequest.t(), map()) ::
           {:ok, FabricProto.CodexAccountAuthUpdateResponse.t()} | {:error, map()}
-  def handle_update_auth(%TurnRef{} = turn_ref, %FabricProto.CodexAccountAuthUpdateRequest{} = request, ctx) do
+  def handle_update_auth(
+        %TurnRef{} = turn_ref,
+        %FabricProto.CodexAccountAuthUpdateRequest{} = request,
+        ctx
+      ) do
     with {:ok, %Job{} = job} <- job_for_turn(turn_ref, request.job_id),
          :ok <- require_subscription_account(job.codex_account_id),
          auth_json when is_binary(auth_json) <- presence(request.auth_json),

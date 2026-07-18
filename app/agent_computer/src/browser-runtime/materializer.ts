@@ -269,8 +269,9 @@ async function fingerprintDirectory(root: string): Promise<string> {
       if (!info.isFile()) throw new Error(`browser profile seed contains unsupported entry: ${name}`)
       files += 1
       bytes += info.size
-      if (files > maxSeedFiles || bytes > maxSeedBytes)
+      if (files > maxSeedFiles || bytes > maxSeedBytes) {
         throw new Error('browser profile seed exceeds materialization limits')
+      }
       hash.update(`f\0${name}\0${info.size}\0`)
       for await (const chunk of createReadStream(path)) hash.update(chunk)
     }

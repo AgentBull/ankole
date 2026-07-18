@@ -444,8 +444,9 @@ export class SessionActor {
   }
 
   private assertBeforeDeadline(deadline: number): void {
-    if (Date.now() >= deadline)
+    if (Date.now() >= deadline) {
       throw new BrowserDataError('timeout', 'browser request deadline expired', { retryable: true })
+    }
   }
 
   private requireMaterial(): BrowserMaterial {

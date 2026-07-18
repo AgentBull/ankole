@@ -96,7 +96,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
           FabricProto.AgentComputerWorkerReady,
           Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
         ),
-        auth
+        auth,
+        Ankole.Kernel.RuntimeFabric.protocol_version()
       )
 
     # The ready message carries no load; a worker reports it through the
@@ -483,7 +484,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   def worker_ready_envelope do
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
       message_id: "worker-ready-test",
       lane: :LANE_CONTROL,
       durability: :CONTROL_EPHEMERAL,

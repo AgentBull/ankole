@@ -40,8 +40,9 @@ const MCPParams = z
       return
     }
 
-    if (!params.server)
+    if (!params.server) {
       context.addIssue({ code: 'custom', path: ['server'], message: `${params.action} requires server` })
+    }
     if (!params.tool) context.addIssue({ code: 'custom', path: ['tool'], message: `${params.action} requires tool` })
     if (params.action === 'describe' && params.arguments) {
       context.addIssue({ code: 'custom', path: ['arguments'], message: 'describe does not accept arguments' })
@@ -182,8 +183,9 @@ function modelResult(details: unknown): AgentToolResult<unknown> {
 
 export function boundedMCPResultValue(value: unknown, secrets: string[], depth = 0): unknown {
   if (depth >= MAX_VALUE_DEPTH) return '[depth limit]'
-  if (typeof value === 'string')
+  if (typeof value === 'string') {
     return boundedString(redactSecrets(sanitizeBinaryOutput(value), secrets), MAX_STRING_BYTES)
+  }
   if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
   if (typeof value === 'bigint') return value.toString()
   if (value === undefined) return null

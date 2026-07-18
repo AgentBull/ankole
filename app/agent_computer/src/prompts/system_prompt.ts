@@ -4,10 +4,10 @@
  * This is a prompt-engineering artifact. Literal strings here are the contract
  * with the model; surrounding code only decides which blocks are present and in
  * what order. Slow-changing instructions lead; conversation-scoped runtime,
- * skill, and Brain snapshots form the suffix. AIGateway persists the first
- * rendered prompt with the response chain, so later turns reuse it byte for
- * byte within one prompt epoch while genuinely per-turn observations stay in
- * the current user message.
+ * skill, and Brain snapshots form the suffix. AIGateway retains prior request
+ * instructions for audit, but every turn renders the current PostgreSQL-backed
+ * Agent context; genuinely per-turn observations stay in the current user
+ * message.
  */
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { TurnStart } from '../lanes/actor_lane'
@@ -76,15 +76,15 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
 }
 
 /**
- * Reuses the exact current-epoch prompt already observed by this conversation.
- * A missing or legacy snapshot is rebuilt so removed tools never remain in the
- * instructions of an older response chain.
+ * Uses a stored prompt only when it is byte-identical to the prompt rendered
+ * from the current Agent context. MISSION, SOUL, enabled skills, tools, and
+ * durable context are next-turn state, so an older snapshot must not override
+ * their current PostgreSQL values.
  */
 export function systemPromptForConversation(opts: BuildAgentSystemPromptOptions): string {
+  const current = buildAgentSystemPrompt(opts)
   const snapshot = opts.agentConversationContext?.systemPromptSnapshot
-  return typeof snapshot === 'string' && snapshot.trimStart().startsWith(SystemPromptEpochMarker)
-    ? snapshot
-    : buildAgentSystemPrompt(opts)
+  return snapshot === current ? snapshot : current
 }
 
 /** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */

@@ -248,6 +248,30 @@ defmodule Ankole.Brain.Knowledge do
 
   def restore_audits(_scope, _audit_ids, _actor, _opts), do: {:error, :invalid_arguments}
 
+  @doc false
+  @spec restore_mechanical_audit(Scope.t(), Ecto.UUID.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def restore_mechanical_audit(scope, audit_id, metadata, opts \\ [])
+
+  def restore_mechanical_audit(%Scope{} = scope, audit_id, metadata, opts)
+      when is_map(metadata) and is_list(opts) do
+    with {:ok, audit_id} <- cast_uuid(audit_id, :audit_id),
+         {:ok, metadata} <- normalize_mechanical_metadata(metadata) do
+      run = fn repo ->
+        restore_audit_in_tx(repo, scope, audit_id, %{kind: nil, uid: nil}, metadata)
+      end
+
+      case Keyword.get(opts, :repo) do
+        nil -> Repo.transact(run)
+        repo when is_atom(repo) -> run.(repo)
+        _invalid -> {:error, :invalid_repo}
+      end
+    end
+  end
+
+  def restore_mechanical_audit(_scope, _audit_id, _metadata, _opts),
+    do: {:error, :invalid_arguments}
+
   defp restore_audit_in_tx(repo, scope, audit_id, actor, metadata) do
     with %AuditLog{} = source_audit <- fetch_audit_for_write(repo, scope, audit_id),
          {:ok, restore_result, before_snapshot, after_snapshot, touched} <-

@@ -245,7 +245,8 @@ Blocks exist for attribution, not layout. Dreaming output must be filterable wit
 
 The author is the last editor of a block. Earlier edits live only in the audit log.
 Mechanical actions do not author blocks: conversation bootstrap creates an empty entry,
-and source withdrawal deletes an existing block. Their audit rows have no actor and use
+and source withdrawal either reverses an unchanged causally attributed mutation or
+deletes an existing cited block. Their audit rows have no actor and use
 `metadata.surface` to record the exact cause.
 Judgments include attribution and date in prose, for example:
 
@@ -324,9 +325,13 @@ messages. Console uses the same id as a clickable message address.
 The quotation is itself a defense. If the original becomes unreachable, the page
 still preserves what was cited and when.
 
-A recalled source has one additional best-effort behavior: blocks containing its
-`src:` identifier are deleted, while audit data remains recoverable. Uncited blocks
-are preserved.
+A recalled source has two conservative best-effort behaviors. If one completed
+ActorEvent's current input set contains only that source, Brain reverses unchanged
+`memory_update` audits carrying that ActorEvent ID; the inverse mutations are actorless
+and remain recoverable in the audit log. Mixed-input ActorEvents and mutations whose
+same fact changed later are preserved because their attribution is ambiguous. Brain
+then deletes blocks containing the source's `src:` identifier. Other uncited blocks
+and non-Brain side effects are preserved.
 
 When a person explicitly asks Brain to learn a URL, PDF, file, or pasted text, Brain
 first stores the exact bytes as an immutable `brain_retained_sources` row. Capture is
@@ -403,13 +408,14 @@ the current projection and retries. There is no lock service or write queue.
 Console uses the same contract. Prose uses a text editor, while relations, properties,
 and aliases use structured controls.
 
-### 5.6 Current State Plus a Write-Only Audit Log
+### 5.6 Current State Plus an Append-Only Audit Log
 
 Brain has no version chain. Entries and blocks update in place, and every searchable
 surface exposes only the current state.
 
 Each mutation appends an audit record. Runtime search, recall, injection, and default
-views never read audit history.
+views never read audit history. Explicit recovery and source withdrawal may read exact
+audit IDs or causal keys to apply a checked inverse.
 
 Audit is a fuse for attribution, accidental deletion recovery, and batch recovery from
 a bad dreaming run. It is not a second memory system.
@@ -846,10 +852,11 @@ brain_audit_log
 `delete_entry`, `append_block`, `edit_block`, `delete_block`, `set_property`,
 `add_relation`, `remove_relation`, `set_summary`, and `set_aliases`.
 
-The audit log is append-only and absent from runtime reads. It exists for attribution,
-single-change restore, and batch recovery. Actorless mechanical rows remain explicit:
+The audit log is append-only and absent from normal search, recall, injection, and
+default views. It exists for attribution, single-change restore, batch recovery, and
+checked source-withdrawal compensation. Actorless mechanical rows remain explicit:
 `conversation_snapshot` identifies empty pinned-entry bootstrap and `source_withdrawal`
-identifies exact-source deletion.
+identifies an exact-source causal reversal or cited-block deletion.
 
 ### 11.4 Brain Review Skill
 
@@ -934,7 +941,7 @@ succeeded outbox. They do not snapshot prompt wording.
 | 4 | Dreaming consolidates repeated evidence; a second run with no new material writes nothing | Attribution and self-output exclusion |
 | 5 | Review surfaces stale or conflicting content and applies a person's spoken decision | Human oversight closes the loop |
 | 6 | A human correction becomes a skill note visible on the next skill load | Procedural self-improvement |
-| 7 | Recalling a cited message deletes matching blocks, preserves uncited blocks, and leaves recoverable audit | Best-effort source withdrawal |
+| 7 | Recalling a message reverses its unchanged single-input `memory_update` writes, deletes matching cited blocks, preserves ambiguous or later-conflicted state, and leaves recoverable audit | Conservative source withdrawal without model cooperation |
 
 Research benchmarks and Honcho comparisons are separate future work.
 
@@ -988,7 +995,7 @@ direct correction, and audit recovery bound that cost.
 **Question:** Should an edited entry preserve searchable historical versions?
 
 **Options:** an immutable version chain; or in-place replacement plus an audit stream
-that runtime never reads.
+that normal knowledge reads never consume.
 
 **Decision:** in-place replacement plus audit.
 
@@ -1068,7 +1075,9 @@ current knowledge version. The quotation remains readable if a source disappears
 the id opens it while it exists.
 
 **Accepted cost:** most source changes are reconciled later by dreaming or review.
-Provider recall retains the narrower best-effort withdrawal behavior.
+Provider recall mechanically reverses only unchanged writes attributable to one
+single-source ActorEvent, plus exact cited blocks; ambiguous mixed-input or later
+conflicted state remains for review.
 
 ### 15.8 Dreaming Is Required and Owns Episode Generation
 
@@ -1265,7 +1274,9 @@ ActorRuntime creates or continues AIGateway conversations with Brain metadata de
 from channel kind and DM peer Principal.
 
 Brain RPC resolves the conversation and trusts only that durable declaration. Workers
-cannot supply owner, store, or author as authority.
+cannot supply owner, store, or author as authority. `memory_update` audit attribution
+uses the validated RuntimeFabric TurnRef's ActorEvent ID, never the request payload's
+redundant echo.
 
 The current conversation kinds are group and DM. A future kind must declare whether it
 maps to public or DM semantics rather than adding another store model.
@@ -1318,8 +1329,12 @@ material. Entry-side trigger checks also exclude dreaming-authored blocks.
 Provider recall deletes the mirror row inside the existing ingress lifecycle transaction
 and enqueues source withdrawal with the row's `document_id`.
 
-The withdrawal job removes blocks containing the exact `src:<document_id>` marker and
-leaves recoverable audit. Source rehydration covers the scan-to-write race.
+Ingress also passes completed ActorEvent IDs whose current input set is exactly the
+removed provider entry. The withdrawal job uses `memory_update` audit metadata to
+reverse only unchanged mutations from those events, then removes blocks containing the
+exact `src:<document_id>` marker. Every inverse remains recoverable audit. Mixed-source
+events, later conflicts, skill overlays, and external tool effects are not inferred or
+reverted. Source rehydration covers the scan-to-write race.
 
 AIGateway's existing pre-compaction nudge points the worker at the Brain write tools.
 

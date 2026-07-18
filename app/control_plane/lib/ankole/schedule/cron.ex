@@ -15,12 +15,11 @@ defmodule Ankole.Schedule.Cron do
   def create_cron_schedule(attrs, opts \\ []) when is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts),
-           {:ok, result} <- insert_cron_schedule_in_tx(repo, attrs, now, opts) do
-        {:ok, result}
-      end
-    end)
+    with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts) do
+      Repo.transact(fn repo ->
+        insert_cron_schedule_in_tx(repo, attrs, now, opts)
+      end)
+    end
   end
 
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::

@@ -286,12 +286,15 @@ bun run control-plane:dev        # Phoenix on :4000 (serves built SPAs)
 bun run webapps:dev              # optional: Vite on :3035 with HMR
 
 # Worker image (required for worker tests and e2e)
-docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
+docker build \
+  --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
+  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 
 # Render the docker run command for an external worker against local fabric
 cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap \
-  --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
+  --endpoint tcp://127.0.0.1:6010 --worker-id worker-a \
+  --image ankole-agent-computer:0.1.0
 ```
 
 测试分层：保持快路径快，并在正确的层验证运行时声明（见 `docs/TradeoffsAndKnownLimits.md` § Worker E2E）：

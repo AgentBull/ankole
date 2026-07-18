@@ -89,6 +89,10 @@ function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
   features.tool_suggest = false
   features.plugins = pluginsEnabled
   features.remote_plugin = false
+
+  const multiAgent = tableAt(features, 'multi_agent_v2')
+  multiAgent.enabled = true
+  multiAgent.hide_spawn_agent_metadata = true
 }
 
 function readToml(path: string): TomlTable {

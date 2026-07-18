@@ -198,18 +198,30 @@ defmodule Ankole.Brain.RuntimeTest do
       )
 
     turn = turn_ref(agent.uid, session_id)
+    untrusted_actor_event_id = Ecto.UUID.generate()
 
     assert {:ok, create} =
              RPCBroker.handle_update(
                turn,
                %FabricProto.MemoryUpdateRequest{
-                 operation: {:create_entry, %FabricProto.MemoryCreateEntry{name: "RPC Contract", type: "fact"}}
+                 actor_event_id: untrusted_actor_event_id,
+                 operation:
+                   {:create_entry,
+                    %FabricProto.MemoryCreateEntry{name: "RPC Contract", type: "fact"}}
                },
                rpc_ctx("brain-create")
              )
 
     [created] = create["results"]
     entry_id = created["entry_id"]
+
+    {:ok, scope} = Scope.for_store(agent.uid, "public")
+
+    assert {:ok, [create_audit]} =
+             Knowledge.list_audit(scope, action: "create_entry", entry_id: entry_id, limit: 1)
+
+    assert create_audit.metadata["actor_event_id"] == turn.actor_event_id
+    refute create_audit.metadata["actor_event_id"] == untrusted_actor_event_id
 
     assert {:ok, first_append} =
              RPCBroker.handle_update(

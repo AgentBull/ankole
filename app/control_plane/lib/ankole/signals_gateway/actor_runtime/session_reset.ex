@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
+  alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.Repo
   alias Ankole.SystemConfig
   alias Ankole.TimeZone
@@ -195,11 +196,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
+      with :ok <- Actors.lock_actor_session_in_tx(repo, input.agent_uid, input.session_id),
+           %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            false <- TurnLifecycle.live_delivery_for_session?(repo, actor_key),
            {:ok, closed_conversation} <- close_current_session_for_reset(repo, actor_key, now),
            {:ok, conversation} <-
              ensure_successor_conversation(repo, actor_key, closed_conversation),
+           {:ok, superseded_interactions} <-
+             ReplyInteractions.supersede_for_session_reset_in_tx(repo, input, now),
            {:ok, completed_event} <-
              Actors.complete_session_lifecycle_event_in_tx(repo, input, completed_at: now) do
         {:ok,
@@ -208,6 +212,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionReset do
            reset_event: input,
            closed_conversation: closed_conversation,
            conversation: conversation,
+           superseded_reply_interactions: length(superseded_interactions),
            actor_event: completed_event
          }}
       else

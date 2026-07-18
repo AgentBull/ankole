@@ -19,8 +19,6 @@ import {
   Lane,
   RPCErrorSchema,
   RPCRequestSchema,
-  RPCResponseSchema,
-  type Envelope,
   type RPCErrorMessage,
   type RPCRequestMessage,
   type RPCResponseMessage

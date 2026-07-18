@@ -33,8 +33,9 @@ defmodule AnkoleWeb.AppConfigurationController do
   # Casts and validates params/body against the `operation/2` specs below before
   # any action runs; on a schema mismatch it short-circuits with a 422 rendered in
   # our console error envelope instead of the OpenAPISpex default JSON.
-  plug OpenAPISpex.Plug.CastAndValidate,
+  plug(OpenAPISpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
+  )
 
   operation(:index,
     summary: "List console-visible AppConfigure entries",
@@ -195,6 +196,10 @@ defmodule AnkoleWeb.AppConfigurationController do
 
   defp error(conn, {:pattern_key_not_editable, _key}) do
     error(conn, 422, "not_editable", "pattern key must exist globally before console editing")
+  end
+
+  defp error(conn, {:pattern_key_managed_by_owner, _key}) do
+    error(conn, 422, "not_editable", "app configuration is managed through its owning API")
   end
 
   defp error(conn, :not_encrypted) do

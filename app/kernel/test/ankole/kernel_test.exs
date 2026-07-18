@@ -237,7 +237,7 @@ defmodule Ankole.KernelTest do
 
   test "runtime fabric envelope structs round trip through the generated codec" do
     envelope = %V1.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-1",
       correlation_id: "corr-1",
       lane: :LANE_TURN,
@@ -275,7 +275,7 @@ defmodule Ankole.KernelTest do
     on_exit(fn -> RuntimeFabric.router_stop(router) end)
 
     inline_steer = %V1.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "steer-1",
       correlation_id: "steer-1",
       lane: :LANE_CONTROL,
@@ -296,7 +296,7 @@ defmodule Ankole.KernelTest do
     assert reason =~ "steer payload must be empty"
 
     wrong_lane = %V1.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-wrong-lane",
       correlation_id: "turn-start-wrong-lane",
       lane: :LANE_CONTROL,
@@ -315,7 +315,7 @@ defmodule Ankole.KernelTest do
     assert reason =~ "turn_start must use lane LANE_TURN"
 
     missing_event = %V1.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "mailbox-updated-missing-event",
       correlation_id: "mailbox-updated-missing-event",
       lane: :LANE_TURN,
@@ -332,21 +332,39 @@ defmodule Ankole.KernelTest do
              RuntimeFabric.router_send_mandatory(router, "missing-worker", missing_event)
 
     assert reason =~ "mailbox_updated.actor_event is required"
+
+    legacy_v1 =
+      Path.expand("../../proto/golden", __DIR__)
+      |> Path.join("worker_ready.v1.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:error, reason} =
+             RuntimeFabric.router_send_mandatory(router, "missing-worker", legacy_v1)
+
+    assert reason =~ "unsupported runtime fabric protocol version: 1"
   end
 
   test "runtime fabric golden bytes decode to the same structs across runtimes" do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v2.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
     assert turn_start.model_ref.max_completion_tokens == 32_000
     assert turn_start.turn.actor.agent_uid == "agent-1"
     assert Torque.decode!(turn_start.actor_event.payload_json) == %{"text" => "PING"}
 
-    # Bytes written before the optional field existed keep decoding, so control
-    # plane and workers can deploy separately.
+    assert with_field.protocol_version == RuntimeFabric.protocol_version()
+
+    # Version 1 bytes remain structurally decodable, but the native transport
+    # rejects them before an old worker can be admitted against typed RPC v2.
+    legacy =
+      golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
+
+    assert legacy.protocol_version == 1
+
     pre_field =
       golden_dir
       |> Path.join("turn_start.pre_max_completion_tokens.v1.bin")
@@ -357,10 +375,12 @@ defmodule Ankole.KernelTest do
     assert pre_field_start.model_ref.max_completion_tokens == nil
 
     worker_ready =
-      golden_dir |> Path.join("worker_ready.v1.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("worker_ready.v2.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:worker_ready, %V1.AgentComputerWorkerReady{worker_id: "worker-golden"}} =
              worker_ready.body
+
+    assert worker_ready.protocol_version == RuntimeFabric.protocol_version()
   end
 
   test "runtime fabric router maps mandatory unknown routes" do
@@ -979,7 +999,7 @@ defmodule Ankole.KernelTest do
 
   defp turn_start_envelope do
     %V1.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "turn-start-route-test",
       correlation_id: "turn-start-route-test",
       lane: :LANE_TURN,

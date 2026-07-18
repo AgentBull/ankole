@@ -2,6 +2,7 @@ import { match, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { backgroundAgentJobPathHandoff, boundedBackgroundAgentJobPaths } from '../../core/background-agent-job-handoff'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { jsonBytes, jsonObjectFromBytes } from '../../fabric/envelope_proto'
 import {
@@ -403,7 +404,42 @@ function visibleResult(details: BackgroundAgentJobToolDetails, includeTask = fal
     lines.push(`execution: ${JSON.stringify(executionSummary)}`)
     lines.push(`trajectory_page: ${JSON.stringify(trajectoryPage)}`)
   }
-  if (result && Object.keys(result).length > 0) lines.push(`result: ${boundedJSON(result)}`)
+  if (result && Object.keys(result).length > 0) {
+    const projectPath = typeof result.project_path === 'string' ? result.project_path : undefined
+    const artifactHandoff = backgroundAgentJobPathHandoff(result.artifacts)
+    const artifactRoots =
+      backgroundAgentJobPathHandoff(result.artifact_roots) ??
+      boundedBackgroundAgentJobPaths([
+        ...(projectPath ? [projectPath] : []),
+        ...details.workspaceMounts.filter(mount => mount.access === 'read_write').map(mount => mount.source)
+      ])
+    if (projectPath) lines.push(boundedText(`project_path: ${projectPath}`))
+    if (artifactHandoff) {
+      lines.push(
+        `artifact_handoff: total_count=${artifactHandoff.total_count} shown_count=${artifactHandoff.paths.length} truncated=${artifactHandoff.truncated}`
+      )
+      if (artifactHandoff.paths.length > 0) {
+        lines.push(boundedText(`artifact_paths:\n${artifactHandoff.paths.map(path => `- ${path}`).join('\n')}`))
+      }
+      if (artifactHandoff.truncated) {
+        lines.push('artifact_discovery: inspect artifact_roots to find deliverables outside this bounded handoff')
+      }
+    }
+    if (artifactRoots.total_count > 0) {
+      lines.push(
+        `artifact_roots: total_count=${artifactRoots.total_count} shown_count=${artifactRoots.paths.length} truncated=${artifactRoots.truncated}`
+      )
+      if (artifactRoots.paths.length > 0) {
+        lines.push(boundedText(`artifact_root_paths:\n${artifactRoots.paths.map(path => `- ${path}`).join('\n')}`))
+      }
+      if (artifactRoots.truncated) {
+        for (const mount of details.workspaceMounts.filter(mount => mount.access === 'read_write')) {
+          lines.push(boundedText(`configured_workspace_root: ${mount.source}`))
+        }
+      }
+    }
+    lines.push(`result: ${boundedJSON(result)}`)
+  }
   if (error && Object.keys(error).length > 0) lines.push(`error: ${boundedJSON(error)}`)
   if (details.status === 'waiting_on_user' && metadata?.pending_user_input) {
     lines.push(`pending_user_input: ${JSON.stringify(metadata.pending_user_input)}`)

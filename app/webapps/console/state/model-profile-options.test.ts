@@ -46,6 +46,10 @@ describe('model profile options', () => {
       model: 'gpt-5',
       context_length: 131072
     })
+    expect(modelProfileRequestFields('vision_fallback', { model: 'gpt-5-vision', contextLength: '' })).toEqual({
+      model: 'gpt-5-vision',
+      context_length: undefined
+    })
   })
 
   test('filters configured providers by the profile capability declared in ProviderDSL', () => {
@@ -67,6 +71,10 @@ describe('model profile options', () => {
     ]
 
     expect(providersForProfile(providers, kinds, 'primary').map(item => item.provider_id)).toEqual([
+      'openai-main',
+      'openrouter-images'
+    ])
+    expect(providersForProfile(providers, kinds, 'vision_fallback').map(item => item.provider_id)).toEqual([
       'openai-main',
       'openrouter-images'
     ])
@@ -97,7 +105,13 @@ describe('model profile options', () => {
           id: 'openai-main/gpt-5',
           name: 'GPT-5',
           description: 'General model',
-          architecture: { output_modalities: ['text'] },
+          architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+          supported_parameters: ['tools']
+        },
+        {
+          id: 'openai-main/gpt-5-vision',
+          name: 'GPT-5 Vision',
+          architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
           supported_parameters: ['tools']
         },
         {
@@ -128,7 +142,11 @@ describe('model profile options', () => {
     }
 
     expect(modelOptionsForProfile(catalog, 'openai-main', 'primary')).toEqual([
-      { value: 'gpt-5', label: 'GPT-5', description: 'gpt-5' }
+      { value: 'gpt-5', label: 'GPT-5', description: 'gpt-5' },
+      { value: 'gpt-5-vision', label: 'GPT-5 Vision', description: 'gpt-5-vision' }
+    ])
+    expect(modelOptionsForProfile(catalog, 'openai-main', 'vision_fallback')).toEqual([
+      { value: 'gpt-5-vision', label: 'GPT-5 Vision', description: 'gpt-5-vision' }
     ])
     expect(modelOptionsForProfile(catalog, 'jina-main', 'embedding')).toEqual([
       { value: 'jina-embeddings-v3', label: 'Jina Embeddings v3', description: 'jina-embeddings-v3' }

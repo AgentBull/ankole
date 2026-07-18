@@ -64,6 +64,23 @@ defmodule Ankole.Plugins.Config do
     end
   end
 
+  @doc """
+  Persists one plugin's next-start enablement without replacing other plugin choices.
+  """
+  @spec put_configured_enabled(String.t(), boolean()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def put_configured_enabled(plugin_id, enabled)
+      when is_binary(plugin_id) and is_boolean(enabled) do
+    with :ok <- ensure_registered() do
+      AppConfigure.update_global(disabled_ids_definition(), fn disabled_ids ->
+        {:ok, update_disabled_ids(disabled_ids, plugin_id, enabled)}
+      end)
+    end
+  end
+
+  def put_configured_enabled(_plugin_id, _enabled),
+    do: {:error, :invalid_plugin_configuration}
+
   # Validate at write time so a malformed disable list is rejected when an
   # operator sets it, not silently mishandled at boot. The value must be an array
   # of well-formed, unique plugin ids; ids need not correspond to a plugin that
@@ -82,6 +99,15 @@ defmodule Ankole.Plugins.Config do
       {:ok, _seen, ids} -> {:ok, Enum.reverse(ids)}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp update_disabled_ids(disabled_ids, plugin_id, true),
+    do: Enum.reject(disabled_ids, &(&1 == plugin_id))
+
+  defp update_disabled_ids(disabled_ids, plugin_id, false) do
+    [plugin_id | disabled_ids]
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp collect_disabled_id(value, {:ok, seen, ids}) when is_binary(value) do

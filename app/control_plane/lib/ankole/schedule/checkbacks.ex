@@ -15,12 +15,11 @@ defmodule Ankole.Schedule.Checkbacks do
   def create_check_back_later(attrs, opts \\ []) when is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with {:ok, attrs} <- Normalizer.checkback_attrs(attrs, now, opts),
-           {:ok, result} <- Store.insert_event_and_wake_in_tx(repo, attrs, opts) do
-        {:ok, result}
-      end
-    end)
+    with {:ok, attrs} <- Normalizer.checkback_attrs(attrs, now, opts) do
+      Repo.transact(fn repo ->
+        Store.insert_event_and_wake_in_tx(repo, attrs, opts)
+      end)
+    end
   end
 
   @spec update_checkback(Ecto.UUID.t(), map(), keyword()) ::

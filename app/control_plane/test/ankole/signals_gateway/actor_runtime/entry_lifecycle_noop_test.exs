@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.SignalsGateway.ReplyPresentation
 
   setup do
     route = unique_route()
@@ -335,6 +336,100 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute_retracted_note("covered-remove-event")
   end
 
+  test "removing the source entry supersedes its pending clarification" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    input =
+      create_signal_input!(agent.uid, %{
+        source_event_id: "clarification-source-event",
+        source_entry_id: "clarification-source-message",
+        text: "request needing clarification",
+        explicit: true
+      })
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+
+    _answer =
+      start_and_commit_round!(
+        agent.uid,
+        input.id,
+        conversation_id: conversation.id,
+        request_items: [user_item("request needing clarification")],
+        terminal_items: [assistant_item("Please choose one option")],
+        complete_turn: true
+      )
+
+    open_pending_interaction!(input)
+    lifecycle_event = emit_removed_lifecycle!(agent.uid, input, "clarification-recalled")
+
+    assert {:ok, %{status: :entry_lifecycle_ignored}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+
+    checkpoint = Repo.get!(ActorEvent, input.id).reply_preview_checkpoint
+    interaction = checkpoint["interactions"]["clarify:call-1"]
+
+    assert interaction["state"] == "superseded"
+    assert interaction["superseded_by_actor_event_id"] == lifecycle_event.id
+    assert checkpoint["presentation"]["interaction_status"] == "superseded"
+    assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
+  end
+
+  test "removing an unrelated source entry preserves a pending clarification" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    old_input =
+      create_signal_input!(agent.uid, %{
+        source_event_id: "unrelated-source-event",
+        source_entry_id: "unrelated-source-message",
+        text: "an older completed request",
+        explicit: true
+      })
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, old_input.session_id)
+
+    old_answer =
+      start_and_commit_round!(
+        agent.uid,
+        old_input.id,
+        conversation_id: conversation.id,
+        request_items: [user_item("an older completed request")],
+        terminal_items: [assistant_item("older answer")],
+        complete_turn: true
+      )
+
+    clarification_input =
+      create_signal_input!(agent.uid, %{
+        source_event_id: "current-clarification-event",
+        source_entry_id: "current-clarification-message",
+        text: "a later request needing clarification",
+        explicit: true,
+        provider_time: DateTime.add(@base_time, 2, :second)
+      })
+
+    _clarification_answer =
+      start_and_commit_round!(
+        agent.uid,
+        clarification_input.id,
+        previous_response_id: "resp_#{old_answer.id}",
+        request_items: [user_item("a later request needing clarification")],
+        terminal_items: [assistant_item("Please choose one option")],
+        complete_turn: true
+      )
+
+    open_pending_interaction!(clarification_input)
+    _lifecycle_event = emit_removed_lifecycle!(agent.uid, old_input, "unrelated-recalled")
+
+    assert {:ok, %{status: :entry_lifecycle_ignored}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+    checkpoint = Repo.get!(ActorEvent, clarification_input.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
+    assert checkpoint["presentation"]["interaction_status"] == "pending"
+    refute Enum.any?(checkpoint["presentation"]["actions"], & &1["disabled"])
+  end
+
   defp create_signal_input!(agent_uid, overrides) do
     assert {:ok, %{actor_event: input}} =
              emit_entry(
@@ -379,6 +474,46 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
              )
 
     lifecycle_event
+  end
+
+  defp open_pending_interaction!(input) do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "Which option should I use?",
+        "controls" => [
+          %{
+            "id" => "operators",
+            "type" => "button",
+            "label" => "Operators",
+            "interaction_id" => "clarify:call-1",
+            "source_actor_event_id" => input.id,
+            "control_id" => "clarify-choice",
+            "selected_option_id" => "operators",
+            "option_value" => "Operators",
+            "revision" => 1
+          }
+        ]
+      })
+
+    checkpoint = %{
+      "schema_version" => 1,
+      "adapter" => "lark",
+      "card_id" => "card-#{input.id}",
+      "message_id" => "card-message-#{input.id}",
+      "streaming_state" => "closed",
+      "presentation" => ReplyPresentation.checkpoint(presentation),
+      "interactions" => %{
+        "clarify:call-1" => %{
+          "interaction_id" => "clarify:call-1",
+          "state" => "pending",
+          "opened_at" => DateTime.to_iso8601(@base_time)
+        }
+      }
+    }
+
+    assert {:ok, _updated} = Actors.put_reply_preview_checkpoint(input.id, checkpoint)
   end
 
   defp start_and_commit_round!(agent_uid, actor_event_id, opts) do

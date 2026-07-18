@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   alias Ankole.RuntimeEvents
   alias Ankole.Ecto.JSONPayload
   alias Ankole.SignalsGateway.Adapters
+  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.OutboxAdapter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Projection
@@ -246,24 +247,12 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   @doc """
-  Commits a durable failure notice for an actor event that reached dead-letter.
+  Commits a dead-letter failure notice inside the transaction that marks the
+  ActorEvent dead-lettered.
 
-  Terminal delivery is outbox-owned, so a dead-lettered addressed message still
-  reaches the user through the same finalize path as a successful reply: it edits
-  the reply preview in place when one exists, otherwise posts a fresh message.
-  This is the durable counterpart to the transient preview, which is stopped
-  without a final edit once a turn is dead-lettered.
-  """
-  @spec commit_dead_letter_notice_outbox(ActorEvent.t(), String.t()) ::
-          {:ok, OutboxEntry.t()} | {:error, term()}
-  def commit_dead_letter_notice_outbox(%ActorEvent{} = actor_event, text) do
-    Repo.transact(fn repo ->
-      commit_dead_letter_notice_outbox_in_tx(repo, actor_event, text)
-    end)
-  end
-
-  @doc """
-  Commits a dead-letter failure notice inside a caller-owned transaction.
+  Terminal delivery is outbox-owned, so the notice edits an existing preview or
+  posts a fresh reply after commit. There is deliberately no standalone wrapper:
+  the dead-letter state must never commit without its user-visible intent.
   """
   @spec commit_dead_letter_notice_outbox_in_tx(module(), ActorEvent.t(), String.t()) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
@@ -594,6 +583,10 @@ defmodule Ankole.SignalsGateway.Outbox do
               @reply_preview_settle_timeout_ms
             )
 
+          # The durable terminal intent is also the recovery owner. If the
+          # lifecycle process exited after commit but before its best-effort
+          # stop cast, startup hydration can still complete the handoff.
+          AIReplyPreview.stop(outbox.source_actor_event_id)
           await_reply_preview_stop(outbox.source_actor_event_id, timeout_ms)
         else
           :ok

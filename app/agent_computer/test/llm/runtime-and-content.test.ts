@@ -597,7 +597,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice (chatbot)'])
   })
 
-  it('keeps durable context in the system suffix and reuses a current-epoch conversation prompt verbatim', () => {
+  it('keeps durable context in the system suffix and refreshes a stale conversation prompt', () => {
     const turnStart = turnStartForTest() as TurnStart
     const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
       agent: { displayName: 'Research Agent', role: 'Analyst' },
@@ -652,8 +652,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).toContain('financial-data')
     expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
     expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
-    expect(buildAgentSystemPrompt(changedOptions)).not.toBe(instructions)
-    expect(systemPromptForConversation(changedOptions)).toBe(instructions)
+    const changedInstructions = buildAgentSystemPrompt(changedOptions)
+    expect(changedInstructions).not.toBe(instructions)
+    expect(systemPromptForConversation(changedOptions)).toBe(changedInstructions)
+    expect(systemPromptForConversation(options)).toBe(instructions)
     expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
     expect(instructions.indexOf('<runtime_context>')).toBeLessThan(instructions.indexOf('<durable_context>'))
   })

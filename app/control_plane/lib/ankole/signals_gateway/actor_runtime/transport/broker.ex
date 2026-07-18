@@ -658,7 +658,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   defp rpc_request_envelope(request_id, method, payload, timeout_ms) do
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "rpc-request-#{Ecto.UUID.generate()}",
       correlation_id: request_id,
       lane: :LANE_RPC,

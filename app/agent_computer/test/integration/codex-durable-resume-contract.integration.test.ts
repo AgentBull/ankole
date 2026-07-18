@@ -20,6 +20,51 @@ import type { TurnSteerResponse } from '../../src/tools/codex/generated/protocol
 import { PARENT_INPUT_TOOL_NAME, parentInputToolSpec } from '../../src/core/codex-runner/parent-input'
 
 describe('@ankole/agent-computer Codex durable resume contract', () => {
+  it('rejects cross-process resume before a thread has started its first turn', async () => {
+    const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
+    const root = mkdtempSync(join(sharedRoot, 'ankole-codex-empty-thread-contract-'))
+    const workspace = join(root, 'workspace')
+    const codexHome = join(root, 'shared-codex-home')
+    const provider = createFakeResponsesProvider([])
+    if (typeof provider.port !== 'number') throw new Error('fake Responses provider did not bind a TCP port')
+    let firstClient: CodexAppServerClient | undefined
+    let resumedClient: CodexAppServerClient | undefined
+
+    try {
+      mkdirSync(workspace, { recursive: true })
+      mkdirSync(codexHome, { recursive: true })
+      writeCodexConfig(codexHome, provider.port)
+      firstClient = codexClient({ workspace, codexHome, notifications: [], toolCalls: [] })
+      await firstClient.initialize()
+
+      const started = (await firstClient.request('thread/start', {
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandbox: 'danger-full-access',
+        threadSource: 'ankole',
+        dynamicTools: []
+      } satisfies ThreadStartParams)) as ThreadStartResponse
+      await firstClient.close()
+      firstClient = undefined
+
+      resumedClient = codexClient({ workspace, codexHome, notifications: [], toolCalls: [] })
+      await resumedClient.initialize()
+      await expect(
+        resumedClient.request('thread/resume', {
+          ['threadId']: started.thread.id,
+          cwd: workspace,
+          approvalPolicy: 'never',
+          sandbox: 'danger-full-access'
+        } satisfies ThreadResumeParams)
+      ).rejects.toThrow('no rollout found for thread id')
+    } finally {
+      await firstClient?.close()
+      await resumedClient?.close()
+      await provider.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 30_000)
+
   it('keeps tools and stable user-message identity across interrupt and cross-process resume', async () => {
     const sharedRoot = process.env.ANKOLE_CODEX_CONTRACT_SHARED_ROOT ?? tmpdir()
     const root = mkdtempSync(join(sharedRoot, 'ankole-codex-resume-contract-'))

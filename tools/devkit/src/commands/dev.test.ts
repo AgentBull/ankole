@@ -6,6 +6,7 @@ import {
   buildControlPlaneEnv,
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
+  buildWorkerImageBuildArgs,
   buildWorkerDockerArgs,
   parseDockerContainerIDs
 } from './dev'
@@ -91,6 +92,16 @@ describe('managed worker cleanup args', () => {
   test('removes only ids returned by the guarded lookup', () => {
     expect(parseDockerContainerIDs('abc\n\n def \n')).toEqual(['abc', 'def'])
     expect(buildManagedWorkerRmArgs(['abc', 'def'])).toEqual(['rm', '-f', 'abc', 'def'])
+  })
+})
+
+describe('worker image build args', () => {
+  test('requires an explicit digest-pinned development base image', () => {
+    const baseImage = `ghcr.io/agentbull/ankole-agent-os-base@sha256:${'a'.repeat(64)}`
+    const args = buildWorkerImageBuildArgs('ankole-agent-computer:test', 'source-hash', baseImage)
+
+    expect(args).toContain(`BASE_IMAGE=${baseImage}`)
+    expect(args).not.toContain('main-latest')
   })
 })
 

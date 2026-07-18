@@ -18,8 +18,10 @@ describe('RuntimeFabric generated codec contract', () => {
   })
 
   it('decodes the golden turn_start bytes into the worker DTO', () => {
-    const turnStart = turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_start.v1.bin')))
+    const envelope = decodeEnvelope(goldenBytes('turn_start.v2.bin'))
+    const turnStart = turnStartFromEnvelope(envelope)
 
+    expect(envelope.protocolVersion).toBe(2)
     expect(turnStart.turn).toEqual({
       actor: { agent_uid: 'agent-1', session_id: 'signal-channel:lark:dm:1' },
       activation_uid: 'activation-1',
@@ -33,16 +35,19 @@ describe('RuntimeFabric generated codec contract', () => {
     expect(turnStart.hosted_tools).toEqual([{ type: 'image_generation' }])
   })
 
-  it('decodes pre-max_completion_tokens v1 bytes for rolling deploys', () => {
-    const turnStart = turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_start.pre_max_completion_tokens.v1.bin')))
+  it('keeps legacy v1 bytes structurally decodable for diagnostics', () => {
+    const envelope = decodeEnvelope(goldenBytes('turn_start.pre_max_completion_tokens.v1.bin'))
+    const turnStart = turnStartFromEnvelope(envelope)
 
+    expect(envelope.protocolVersion).toBe(1)
     expect(turnStart.model_ref?.max_completion_tokens).toBeUndefined()
     expect(turnStart.model_ref?.model).toBe('openai/gpt-5.4-mini')
   })
 
   it('decodes the golden worker_ready lifecycle bytes', () => {
-    const envelope = decodeEnvelope(goldenBytes('worker_ready.v1.bin'))
+    const envelope = decodeEnvelope(goldenBytes('worker_ready.v2.bin'))
 
+    expect(envelope.protocolVersion).toBe(2)
     if (envelope.body.case !== 'workerReady') throw new Error('expected workerReady body')
     expect(envelope.body.value.workerId).toBe('worker-golden')
     expect(envelope.body.value.incarnationId).toBe('incarnation-golden')

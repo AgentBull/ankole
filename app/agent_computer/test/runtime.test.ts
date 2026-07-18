@@ -13,6 +13,7 @@ import {
   DurabilityClass,
   encodeEnvelope,
   envelopeHeader,
+  envelopeProtocolVersion,
   EnvelopeSchema,
   jsonBytes,
   jsonObjectFromBytes,
@@ -66,6 +67,8 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
+    expect(envelopeProtocolVersion).toBe(2)
+    expect(ready.protocolVersion).toBe(envelopeProtocolVersion)
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(capacity.body.value).toMatchObject({ incarnationId: 'incarnation-a' })

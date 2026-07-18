@@ -39,37 +39,11 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @doc """
-  Stores a raw database envelope after a successful AppConfigure write.
-  """
-  @spec put_row(String.t(), String.t(), map()) :: :ok
-  def put_row(scope, key, value) do
-    GenServer.call(__MODULE__, {:put, scope, key, {:row, value}})
-  end
+  Loads the current concrete row from PostgreSQL.
 
-  @doc """
-  Marks a concrete row as absent after delete or lazy load.
-  """
-  @spec put_absent(String.t(), String.t()) :: :ok
-  def put_absent(scope, key) do
-    GenServer.call(__MODULE__, {:put, scope, key, :absent})
-  end
-
-  @doc """
-  Caches a storage error for a concrete row.
-
-  This prevents a bad row from being treated as missing and silently falling back
-  to a broader scope.
-  """
-  @spec put_error(String.t(), String.t(), term()) :: :ok
-  def put_error(scope, key, reason) do
-    GenServer.call(__MODULE__, {:put, scope, key, {:error, reason}})
-  end
-
-  @doc """
-  Loads one concrete row from PostgreSQL on cache miss.
-
-  There is no public refresh API. This function exists so a cold cache can be
-  filled lazily while AppConfigure remains the only write path.
+  Reads use it on a cache miss. The AppConfigure write owner also uses it after
+  commit so delayed publishers cannot replace a newer database value with an
+  older captured envelope.
   """
   @spec load(String.t(), String.t()) :: {:ok, row_state()} | {:error, term()}
   def load(scope, key) do
@@ -84,6 +58,12 @@ defmodule Ankole.AppConfigure.Cache do
     GenServer.call(__MODULE__, :clear_for_test)
   end
 
+  @doc false
+  @spec fail_next_load_for_test(term()) :: :ok
+  def fail_next_load_for_test(reason) do
+    GenServer.call(__MODULE__, {:fail_next_load_for_test, reason})
+  end
+
   @impl true
   def init(_opts) do
     :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
@@ -92,20 +72,27 @@ defmodule Ankole.AppConfigure.Cache do
   end
 
   @impl true
-  def handle_call({:put, scope, key, state}, _from, server_state) do
-    write_state(scope, key, state)
-    {:reply, :ok, server_state}
+  def handle_call(
+        {:load, scope, key},
+        _from,
+        %{fail_next_load: reason} = server_state
+      ) do
+    :ets.delete(@table, {scope, key})
+    {:reply, {:error, reason}, Map.delete(server_state, :fail_next_load)}
   end
 
-  @impl true
   def handle_call({:load, scope, key}, _from, server_state) do
     {:reply, load_one(scope, key), server_state}
   end
 
+  def handle_call({:fail_next_load_for_test, reason}, _from, server_state) do
+    {:reply, :ok, Map.put(server_state, :fail_next_load, reason)}
+  end
+
   @impl true
-  def handle_call(:clear_for_test, _from, server_state) do
+  def handle_call(:clear_for_test, _from, _server_state) do
     :ets.delete_all_objects(@table)
-    {:reply, :ok, server_state}
+    {:reply, :ok, %{}}
   end
 
   defp safe_lookup(key) do
@@ -155,7 +142,6 @@ defmodule Ankole.AppConfigure.Cache do
   rescue
     error ->
       reason = {:load_failed, scope, key, Exception.message(error)}
-      write_state(scope, key, {:error, reason})
       {:error, reason}
   end
 

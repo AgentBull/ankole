@@ -33,6 +33,8 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
           required(:supports_streaming) => boolean()
         }
 
+  @type configuration_error :: :image_model_unavailable | :image_model_catalog_unavailable
+
   @spec select_endpoint(map(), String.t(), map(), non_neg_integer(), keyword()) ::
           {:ok, selection()} | {:error, OpenAIError.t()}
   def select_endpoint(runtime, requested_model, tool, reference_count, opts \\ []) do
@@ -53,6 +55,36 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
          provider_slug: provider_slug,
          supports_streaming: Map.get(endpoint, "supports_streaming") == true
        }}
+    end
+  end
+
+  @doc """
+  Validates that a configured image profile resolves to a definitive endpoint.
+
+  The general OpenRouter model catalog is discovery metadata only. Persisted
+  image profiles use the same image-model and endpoint catalogs as runtime
+  dispatch, so a model with no usable endpoint is rejected before it becomes
+  agent configuration.
+  """
+  @spec validate_configured_model(Provider.t(), String.t(), keyword()) ::
+          :ok | {:error, configuration_error()}
+  def validate_configured_model(%Provider{} = provider, requested_model, opts \\ []) do
+    runtime = %{
+      "provider_id" => provider.provider_id,
+      "provider_kind" => provider.provider_kind,
+      "provider" => provider,
+      "model" => requested_model
+    }
+
+    case select_endpoint(runtime, requested_model, %{}, 0, opts) do
+      {:ok, _selection} ->
+        :ok
+
+      {:error, %OpenAIError{code: code}} when code in ["model_not_found", "unsupported_value"] ->
+        {:error, :image_model_unavailable}
+
+      {:error, %OpenAIError{}} ->
+        {:error, :image_model_catalog_unavailable}
     end
   end
 

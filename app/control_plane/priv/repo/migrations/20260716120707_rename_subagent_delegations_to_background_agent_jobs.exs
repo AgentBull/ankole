@@ -11,6 +11,7 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
     {"source_delegation_id", "source_job_id"}
   ]
   @turn_columns [{"delegation_id", "job_id"}]
+  @legacy_event_columns [{"delegation_id", "job_id"}]
 
   @job_constraints [
     {"subagent_delegations_pkey", "background_agent_jobs_pkey"},
@@ -73,6 +74,48 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
     {"subagent_delegation_turns_timeline_index", "background_agent_job_turns_timeline_index"}
   ]
 
+  @legacy_event_constraints [
+    {"subagent_delegation_events_pkey", "background_agent_job_legacy_events_pkey"},
+    {"subagent_delegation_events_id_not_null", "background_agent_job_legacy_events_id_not_null"},
+    {"subagent_delegation_events_delegation_id_fkey",
+     "background_agent_job_legacy_events_job_id_fkey"},
+    {"subagent_delegation_events_delegation_id_not_null",
+     "background_agent_job_legacy_events_job_id_not_null"},
+    {"subagent_delegation_events_agent_uid_fkey",
+     "background_agent_job_legacy_events_agent_uid_fkey"},
+    {"subagent_delegation_events_agent_uid_not_null",
+     "background_agent_job_legacy_events_agent_uid_not_null"},
+    {"subagent_delegation_events_seq_not_null",
+     "background_agent_job_legacy_events_seq_not_null"},
+    {"subagent_delegation_events_direction_check",
+     "background_agent_job_legacy_events_direction_check"},
+    {"subagent_delegation_events_direction_not_null",
+     "background_agent_job_legacy_events_direction_not_null"},
+    {"subagent_delegation_events_event_type_not_null",
+     "background_agent_job_legacy_events_event_type_not_null"},
+    {"subagent_delegation_events_payload_not_null",
+     "background_agent_job_legacy_events_payload_not_null"},
+    {"subagent_delegation_events_payload_object",
+     "background_agent_job_legacy_events_payload_object"},
+    {"subagent_delegation_events_redaction_not_null",
+     "background_agent_job_legacy_events_redaction_not_null"},
+    {"subagent_delegation_events_redaction_object",
+     "background_agent_job_legacy_events_redaction_object"},
+    {"subagent_delegation_events_occurred_at_not_null",
+     "background_agent_job_legacy_events_occurred_at_not_null"},
+    {"subagent_delegation_events_inserted_at_not_null",
+     "background_agent_job_legacy_events_inserted_at_not_null"},
+    {"subagent_delegation_events_updated_at_not_null",
+     "background_agent_job_legacy_events_updated_at_not_null"}
+  ]
+
+  @legacy_event_indexes [
+    {"subagent_delegation_events_delegation_seq_index",
+     "background_agent_job_legacy_events_job_seq_index"},
+    {"subagent_delegation_events_agent_inserted_index",
+     "background_agent_job_legacy_events_agent_inserted_index"}
+  ]
+
   @session_columns [
     {"actor_events", "session_id"},
     {"actor_event_deliveries", "session_id"},
@@ -90,12 +133,24 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
     execute("ALTER TABLE subagent_delegations RENAME TO background_agent_jobs")
     execute("ALTER TABLE subagent_delegation_turns RENAME TO background_agent_job_turns")
 
+    execute(
+      "ALTER TABLE subagent_delegation_legacy_events RENAME TO background_agent_job_legacy_events"
+    )
+
     rename_columns("background_agent_jobs", @job_columns)
     rename_columns("background_agent_job_turns", @turn_columns)
+    rename_columns("background_agent_job_legacy_events", @legacy_event_columns)
     rename_constraints("background_agent_jobs", @job_constraints)
     rename_indexes(@job_indexes)
     rename_constraints("background_agent_job_turns", @turn_constraints)
     rename_indexes(@turn_indexes)
+    rename_constraints("background_agent_job_legacy_events", @legacy_event_constraints)
+    rename_indexes(@legacy_event_indexes)
+
+    execute("""
+    COMMENT ON TABLE background_agent_job_legacy_events IS
+      'Control-plane-owned immutable archive of pre-Turn BackgroundAgentJob runtime events. No runtime reader or writer owns this table; retain it until an explicit export or retention migration proves the history is no longer operationally useful.'
+    """)
 
     rewrite_actor_events_up()
     rewrite_session_keys("subagent:", "job:")
@@ -113,10 +168,27 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
 
     rename_indexes(reverse(@turn_indexes))
     rename_constraints("background_agent_job_turns", reverse(@turn_constraints))
+    rename_indexes(reverse(@legacy_event_indexes))
+
+    rename_constraints(
+      "background_agent_job_legacy_events",
+      reverse(@legacy_event_constraints)
+    )
+
     rename_indexes(reverse(@job_indexes))
     rename_constraints("background_agent_jobs", reverse(@job_constraints))
     rename_columns("background_agent_job_turns", reverse(@turn_columns))
+    rename_columns("background_agent_job_legacy_events", reverse(@legacy_event_columns))
     rename_columns("background_agent_jobs", reverse(@job_columns))
+
+    execute(
+      "ALTER TABLE background_agent_job_legacy_events RENAME TO subagent_delegation_legacy_events"
+    )
+
+    execute("""
+    COMMENT ON TABLE subagent_delegation_legacy_events IS
+      'Control-plane-owned immutable archive of pre-Turn SubagentDelegation runtime events. No runtime reader or writer owns this table; retain it until an explicit export or retention migration proves the history is no longer operationally useful.'
+    """)
 
     execute("ALTER TABLE background_agent_job_turns RENAME TO subagent_delegation_turns")
     execute("ALTER TABLE background_agent_jobs RENAME TO subagent_delegations")
@@ -167,28 +239,29 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
       "background-agent-job:",
       "subagent_delegation:",
       "background_agent_job:"
-    )
+    ) ++ rewrite_initial_dispatch_id_sqls(table, :up)
   end
 
   def actor_event_rewrite_sqls(:down, table) do
     table = validate_table!(table)
 
-    build_actor_events_rewrite_sqls(
-      table,
-      "background_agent_job.",
-      "subagent.delegation.",
-      "job_id",
-      "delegation_id",
-      "owner_session_id",
-      "parent_session_id",
-      "background_agent_job:",
-      "subagent_delegation:",
-      "control-plane://subagent/delegation",
-      "background-agent-job:",
-      "subagent-delegation:",
-      "background_agent_job:",
-      "subagent_delegation:"
-    )
+    rewrite_initial_dispatch_id_sqls(table, :down) ++
+      build_actor_events_rewrite_sqls(
+        table,
+        "background_agent_job.",
+        "subagent.delegation.",
+        "job_id",
+        "delegation_id",
+        "owner_session_id",
+        "parent_session_id",
+        "background_agent_job:",
+        "subagent_delegation:",
+        "control-plane://subagent/delegation",
+        "background-agent-job:",
+        "subagent-delegation:",
+        "background_agent_job:",
+        "subagent_delegation:"
+      )
   end
 
   defp build_actor_events_rewrite_sqls(
@@ -266,6 +339,58 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
         '#{new_source_event_id_prefix}'
       )
       WHERE source_event_id LIKE '#{old_source_event_id_prefix}%'
+      """
+    ]
+  end
+
+  defp rewrite_initial_dispatch_id_sqls(table, direction) do
+    {source_pattern, target_expression, collision_target_expression} =
+      case direction do
+        :up ->
+          {
+            "^background_agent_job:[^:]+:dispatch:0$",
+            "regexp_replace(source_event_id, ':dispatch:0$', ':dispatch')",
+            "regexp_replace(source.source_event_id, ':dispatch:0$', ':dispatch')"
+          }
+
+        :down ->
+          {
+            "^background_agent_job:[^:]+:dispatch$",
+            "source_event_id || ':0'",
+            "source.source_event_id || ':0'"
+          }
+      end
+
+    [
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM #{table} AS source
+          JOIN #{table} AS target
+            ON target.source_event_id = #{collision_target_expression}
+          WHERE source.type = 'background_agent_job.dispatch'
+            AND source.source_event_id ~ '#{source_pattern}'
+        ) THEN
+          RAISE EXCEPTION
+            'Cannot normalize the legacy BackgroundAgentJob dispatch id because its canonical id already exists'
+            USING ERRCODE = 'unique_violation';
+        END IF;
+      END
+      $$
+      """,
+      """
+      UPDATE #{table}
+      SET
+        source_event_id = #{target_expression},
+        payload = jsonb_set(
+          payload,
+          '{id}',
+          to_jsonb(#{target_expression})
+        )
+      WHERE type = 'background_agent_job.dispatch'
+        AND source_event_id ~ '#{source_pattern}'
       """
     ]
   end

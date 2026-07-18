@@ -179,6 +179,17 @@ LLM profiles. Their public selectors are `embedding.default`,
 `rerank.default`, `web_search.default`, `web_fetch.default`, and
 `image_generate.default`.
 
+The general `/models` projection is discovery metadata and may include an
+OpenRouter model whose advertised output modalities contain `image` even when
+that model currently has no image-generation endpoint. Saving
+`image_generate` therefore verifies the model against OpenRouter's definitive
+image-model and per-model endpoint catalogs through `ImageModelCatalog`. A
+candidate with no usable endpoint is rejected with
+`image_model_unavailable`; an unavailable definitive catalog is rejected with
+`image_model_catalog_unavailable`. Neither case persists the profile. Runtime
+dispatch repeats the same fail-closed endpoint selection because availability
+may change after configuration.
+
 The binding map is owned by `Ankole.AIAgent.ModelProfiles`, because profiles
 configure worker behavior rather than the gateway itself. A `coding` profile
 may instead select a named Codex subscription account. That account-shaped

@@ -61,7 +61,8 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.memories).toBe(false)
       expect(config.features.plugins).toBe(true)
       expect(config.features.multi_agent_v2).toEqual({
-        enabled: false,
+        enabled: true,
+        hide_spawn_agent_metadata: true,
         max_concurrent_threads_per_session: 99
       })
       expect(config.agents).toBeUndefined()
@@ -112,7 +113,10 @@ describe('@ankole/agent-computer Codex job project config', () => {
       })
       const config = parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
       expect(config.features.plugins).toBe(false)
-      expect(config.features.multi_agent_v2).toBeUndefined()
+      expect(config.features.multi_agent_v2).toEqual({
+        enabled: true,
+        hide_spawn_agent_metadata: true
+      })
       expect(config.mcp_servers).toBeUndefined()
     } finally {
       rmSync(root, { recursive: true, force: true })

@@ -18,7 +18,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiArrowDownSLine, RiSave3Line } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import {
@@ -29,11 +29,18 @@ import type {
   AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  CodexAccountItem
+  CodexAccountItem,
+  ModelProfileWriteRequest
 } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
 import { LabeledField } from '../console-shell'
-import { ModelProfilesModel, PROFILE_NAMES, type ProfileDraft, type ProfileName } from '../state/model-profiles-model'
+import {
+  ModelProfilesModel,
+  PROFILE_NAMES,
+  type ModelProfileSubmission,
+  type ProfileDraft,
+  type ProfileName
+} from '../state/model-profiles-model'
 import {
   modelOptionsForProfile,
   modelProfileRequestFields,
@@ -74,19 +81,60 @@ export function ModelProfilesEditor({
   useSignals()
   const { t } = useTranslation()
   const model = useModel(ModelProfilesModel)
+  const currentAgentUID = useRef(agent.uid)
+  currentAgentUID.current = agent.uid
+  const pendingSaveSubmissions = useRef(new Map<string, ModelProfileSubmission>())
+  const pendingClearSubmissions = useRef(new Map<string, ModelProfileSubmission>())
+
+  const finishPersistence = (
+    savedAgentUID: string,
+    profile: ProfileName,
+    submission: ModelProfileSubmission,
+    persistedProfile: unknown,
+    action: 'saved' | 'cleared'
+  ) => {
+    if (currentAgentUID.current === savedAgentUID) {
+      const result = model.markSaved(profile, draftFromProfile(recordValue(persistedProfile) ?? {}), submission)
+      const messageKey = result.hasUnsavedChanges ? `${action}_with_unsaved_changes` : action
+
+      if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile }))
+      else toast.success(t(`console.models.${messageKey}`, { profile }))
+    }
+    onChanged()
+  }
+
   const saveProfile = useMutation({
     ...ankoleWebAgentControllerPutModelProfileMutation(),
-    onSuccess: (_data, variables) => {
-      toast.success(t('console.models.saved', { profile: variables.path.profile }))
-      onChanged()
+    onSuccess: (response, variables) => {
+      const profile = variables.path.profile as ProfileName
+      const key = profileSubmissionKey(variables.path.agent_uid, profile)
+      const submission = pendingSaveSubmissions.current.get(key)
+      pendingSaveSubmissions.current.delete(key)
+      if (submission) {
+        finishPersistence(variables.path.agent_uid, profile, submission, response.model_profile, 'saved')
+      } else onChanged()
+    },
+    onError: (_error, variables) => {
+      pendingSaveSubmissions.current.delete(
+        profileSubmissionKey(variables.path.agent_uid, variables.path.profile as ProfileName)
+      )
     }
   })
   const clearProfile = useMutation({
     ...ankoleWebAgentControllerDeleteModelProfileMutation(),
-    onSuccess: (_data, variables) => {
-      toast.success(t('console.models.cleared', { profile: variables.path.profile }))
-      model.clear(variables.path.profile as ProfileName)
-      onChanged()
+    onSuccess: (response, variables) => {
+      const profile = variables.path.profile as ProfileName
+      const key = profileSubmissionKey(variables.path.agent_uid, profile)
+      const submission = pendingClearSubmissions.current.get(key)
+      pendingClearSubmissions.current.delete(key)
+      if (submission) {
+        finishPersistence(variables.path.agent_uid, profile, submission, response.model_profile, 'cleared')
+      } else onChanged()
+    },
+    onError: (_error, variables) => {
+      pendingClearSubmissions.current.delete(
+        profileSubmissionKey(variables.path.agent_uid, variables.path.profile as ProfileName)
+      )
     }
   })
 
@@ -102,13 +150,23 @@ export function ModelProfilesEditor({
 
   const updateDraft = (profile: ProfileName, patch: Partial<ProfileDraft>) => model.update(profile, patch)
 
+  const persistProfile = (profile: ProfileName, submission: ModelProfileSubmission, body: ModelProfileWriteRequest) => {
+    pendingSaveSubmissions.current.set(profileSubmissionKey(agent.uid, profile), submission)
+    saveProfile.mutate({ body, path: { agent_uid: agent.uid, profile } })
+  }
+
+  const clear = (profile: ProfileName) => {
+    const submission = model.submission(profile)
+    pendingClearSubmissions.current.set(profileSubmissionKey(agent.uid, profile), submission)
+    clearProfile.mutate({ path: { agent_uid: agent.uid, profile } })
+  }
+
   const submit = (profile: ProfileName) => {
     const draft = model.snapshot(profile)
     if (profile === 'coding' && draft.codexAccountID) {
-      saveProfile.mutate({
-        body: { codex_account_id: draft.codexAccountID },
-        path: { agent_uid: agent.uid, profile }
-      })
+      updateDraft(profile, { error: undefined })
+      const submission = model.submission(profile)
+      persistProfile(profile, submission, { codex_account_id: submission.draft.codexAccountID })
       return
     }
 
@@ -126,15 +184,16 @@ export function ModelProfilesEditor({
       updateDraft(profile, { error: builtOptions.error })
       return
     }
-    saveProfile.mutate({
-      body: {
-        provider_id: draft.providerID,
-        ...modelProfileRequestFields(profile, draft),
-        provider_options: builtOptions.value
-      },
-      path: { agent_uid: agent.uid, profile }
+    updateDraft(profile, { error: undefined })
+    const submission = model.submission(profile)
+    persistProfile(profile, submission, {
+      provider_id: submission.draft.providerID,
+      ...modelProfileRequestFields(profile, submission.draft),
+      provider_options: builtOptions.value
     })
   }
+
+  const persistencePending = saveProfile.isPending || clearProfile.isPending
 
   return (
     <section className="grid gap-4">
@@ -185,22 +244,28 @@ export function ModelProfilesEditor({
                   {REQUIRED_PROFILES.has(profile) ? (
                     <span className="text-xs text-muted-foreground">{t('console.models.required')}</span>
                   ) : null}
+                  {draft.dirty.value ? (
+                    <span className="text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
+                  ) : null}
                 </div>
                 <div className="flex gap-2">
-                  <Button disabled={saveProfile.isPending} size="xs" type="button" onClick={() => submit(profile)}>
+                  <Button disabled={persistencePending} size="xs" type="button" onClick={() => submit(profile)}>
                     <RiSave3Line data-icon="inline-start" />
                     {t('common.save')}
                   </Button>
                   <Button
-                    disabled={REQUIRED_PROFILES.has(profile) || !configured || clearProfile.isPending}
+                    disabled={REQUIRED_PROFILES.has(profile) || !configured || persistencePending}
                     size="xs"
                     type="button"
                     variant="ghost"
-                    onClick={() => clearProfile.mutate({ path: { agent_uid: agent.uid, profile } })}>
+                    onClick={() => clear(profile)}>
                     {t('console.models.clear')}
                   </Button>
                 </div>
               </div>
+              {profile === 'vision_fallback' ? (
+                <p className="text-xs leading-5 text-muted-foreground">{t('console.models.vision_fallback_hint')}</p>
+              ) : null}
               {draft.error.value ? <ErrorBlock error={draft.error.value} /> : null}
               {profile === 'coding' ? (
                 <LabeledField
@@ -353,4 +418,8 @@ function settingValidationMessage(t: TFunction, field: string, error: SettingVal
     case 'selection':
       return t('common.must_be_valid_selection', { field })
   }
+}
+
+function profileSubmissionKey(agentUID: string, profile: ProfileName): string {
+  return `${agentUID}:${profile}`
 }

@@ -204,7 +204,7 @@ describe('schedule tools', () => {
     const modelSchema = JSON.stringify(zodToJSONSchema(checkBackLater!.schema))
     expect(modelSchema).toContain('"type":"object"')
     for (const action of ['create', 'list', 'get', 'update', 'cancel']) {
-      expect(modelSchema).toContain(`\"${action}\"`)
+      expect(modelSchema).toContain(`"${action}"`)
     }
   })
 

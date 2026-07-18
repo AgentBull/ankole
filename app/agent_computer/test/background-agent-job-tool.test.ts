@@ -157,6 +157,42 @@ describe('@ankole/agent-computer background agent job tool', () => {
     expect(schema.safeParse({ action: 'steer', job_id: response().jobId }).success).toBe(false)
     expect(schema.safeParse({ action: 'steer', job_id: response().jobId, text: 'Continue.' }).success).toBe(true)
   })
+
+  it('keeps owner-visible artifact paths explicit when the bounded result body is truncated', async () => {
+    const projectPath = `/workspace/user-files/background-agent-jobs/${response().jobId}/project`
+    const artifactPath = `${projectPath}/handoff.txt`
+    const job = create(BackgroundAgentJobResponseSchema, {
+      ...response(),
+      status: 'succeeded',
+      resultJson: jsonBytes({
+        output_text: 'x'.repeat(20_000),
+        files_changed: { total_count: 1, paths: ['handoff.txt'], truncated: false },
+        project_path: projectPath,
+        artifacts: { total_count: 50_000, paths: [artifactPath], truncated: true },
+        artifact_roots: {
+          total_count: 2,
+          paths: [projectPath],
+          truncated: true
+        }
+      })
+    })
+    const tool = createBackgroundAgentJobTool(toolOptions({ rpc: (async () => job) as RPCRequester }))
+
+    const result = await tool.execute(
+      'call-status',
+      { action: 'status', job_id: job.jobId },
+      new AbortController().signal
+    )
+    const visible = result.content[0]?.type === 'text' ? result.content[0].text : ''
+
+    expect(visible).toContain(`project_path: ${projectPath}`)
+    expect(visible).toContain('artifact_handoff: total_count=50000 shown_count=1 truncated=true')
+    expect(visible).toContain(`artifact_paths:\n- ${artifactPath}`)
+    expect(visible).toContain('artifact_roots: total_count=2 shown_count=1 truncated=true')
+    expect(visible).toContain('configured_workspace_root: /workspace/user-files/project')
+    expect(visible).toContain('artifact_discovery: inspect artifact_roots')
+    expect(visible).toContain('...[truncated]')
+  })
 })
 
 function toolOptions(overrides: Partial<BackgroundAgentJobToolOptions> = {}): BackgroundAgentJobToolOptions {
@@ -166,8 +202,9 @@ function toolOptions(overrides: Partial<BackgroundAgentJobToolOptions> = {}): Ba
     agentPluginCatalog: pluginCatalog(),
     standaloneSkillNames: ['coding'],
     rpc: (async (method: unknown) => {
-      if (method === rpcMethods.backgroundAgentJobList)
+      if (method === rpcMethods.backgroundAgentJobList) {
         return create(BackgroundAgentJobListResponseSchema, { jobs: [] })
+      }
       return job
     }) as RPCRequester,
     ...overrides

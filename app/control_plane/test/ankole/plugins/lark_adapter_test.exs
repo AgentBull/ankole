@@ -9,6 +9,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
+  alias Ankole.AuthZ.Store, as: AuthZStore
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
@@ -1065,10 +1066,60 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  consumer
                ])
 
+      assert %Channel{kind: :im_group} = Repo.get(Channel, "lark:oc_group")
+
       refute Repo.get_by(Entry,
                signal_channel_id: "lark:oc_group",
                source_entry_id: "om_1"
              )
+    end
+
+    test "recall without chat_type preserves an observed DM channel kind" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      dm_event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_dm_recall",
+              "chat_id" => "oc_dm_recall",
+              "chat_type" => "p2p",
+              "content" => ~s({"text":"Remember this message"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", dm_event, [consumer])
+
+      assert %Channel{kind: :im_dm} = Repo.get(Channel, "lark:oc_dm_recall")
+
+      assert {:ok, [%{deleted_mirror_entries: 1}]} =
+               Inbound.handle_message_removed(
+                 "im.message.recalled_v1",
+                 recall_event("om_dm_recall", "oc_dm_recall"),
+                 [consumer]
+               )
+
+      assert %Channel{kind: :im_dm} = Repo.get(Channel, "lark:oc_dm_recall")
+    end
+
+    test "recall without prior channel evidence keeps the channel kind unknown" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      assert {:ok, [%{deleted_mirror_entries: 0}]} =
+               Inbound.handle_message_removed(
+                 "im.message.recalled_v1",
+                 recall_event("om_unseen", "oc_unseen"),
+                 [consumer]
+               )
+
+      assert %Channel{kind: :unknown} = Repo.get(Channel, "lark:oc_unseen")
     end
 
     test "card action emits action input instead of fake text" do
@@ -1932,6 +1983,12 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     )
   end
 
+  defp add_im_group_member(group_id, principal_uid) do
+    Repo.transact(fn repo ->
+      AuthZStore.add_synced_group_member(repo, group_id, :im_group, principal_uid)
+    end)
+  end
+
   defp im_chat_event(chat_id) do
     %Event{
       id: "evt_im_#{chat_id}",
@@ -2091,7 +2148,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     }
   end
 
-  defp recall_event do
+  defp recall_event(message_id \\ "om_1", chat_id \\ "oc_group") do
     %Event{
       id: "evt_recall",
       type: "im.message.recalled_v1",
@@ -2099,9 +2156,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       app_id: "cli_test",
       created_at: @base_time,
       content: %{
-        "message_id" => "om_1",
-        "chat_id" => "oc_group",
-        "chat_type" => "group",
+        "message_id" => message_id,
+        "chat_id" => chat_id,
         "recall_time" => Integer.to_string(@base_ms)
       },
       raw: %{}

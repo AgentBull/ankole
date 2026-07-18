@@ -4,6 +4,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -15,6 +16,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
+    ModelMetadataCache.clear_for_test()
 
     :ok = SetupConfig.ensure_registered()
     {:ok, false} = SetupConfig.put_completed(false)
@@ -167,6 +169,113 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
+  end
+
+  test "image profiles reject catalog candidates without definitive endpoints", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    provider_id = "openrouter-image-profile"
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/ai-gateway/providers/#{provider_id}", %{
+        "provider_kind" => "openrouter",
+        "connection_options" => %{"api_key" => "sk-test"}
+      })
+
+    assert %{"ai_gateway_provider" => %{"provider_id" => ^provider_id}} =
+             json_response(conn, 200)
+
+    :ok =
+      ModelMetadataCache.put(
+        {:model_metadata_source, provider_id, :openrouter, "models?output_modalities=all"},
+        [
+          %{
+            "id" => "openrouter/auto",
+            "name" => "OpenRouter Auto",
+            "architecture" => %{"output_modalities" => ["image"]}
+          },
+          %{
+            "id" => "google/gemini-3.1-flash-lite-image",
+            "name" => "Gemini Flash Image",
+            "architecture" => %{"output_modalities" => ["image"]}
+          }
+        ],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_catalog, provider_id, "images/models"},
+        [
+          %{"id" => "openrouter/auto"},
+          %{"id" => "google/gemini-3.1-flash-lite-image"}
+        ],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_endpoints, provider_id, "images/models/openrouter/auto/endpoints"},
+        [],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_endpoints, provider_id,
+         "images/models/google/gemini-3.1-flash-lite-image/endpoints"},
+        [
+          %{
+            "provider_slug" => "google",
+            "provider_tag" => "google/gemini-3.1-flash-lite-image:google",
+            "supported_parameters" => %{}
+          }
+        ],
+        60_000
+      )
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/ai-gateway/models")
+
+    assert %{"data" => candidates} = json_response(conn, 200)
+    assert Enum.any?(candidates, &(&1["id"] == "#{provider_id}/openrouter/auto"))
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/image_generate", %{
+        "provider_id" => provider_id,
+        "model" => "openrouter/auto"
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "image_model_unavailable",
+               "message" => "selected image model has no usable image-generation endpoint"
+             }
+           } = json_response(conn, 422)
+
+    assert {:error, :model_profile_not_configured} =
+             ModelProfiles.get_model_profile(agent.uid, "image_generate")
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/image_generate", %{
+        "provider_id" => provider_id,
+        "model" => "google/gemini-3.1-flash-lite-image"
+      })
+
+    assert %{
+             "model_profile" => %{
+               "configured" => true,
+               "model" => "google/gemini-3.1-flash-lite-image",
+               "provider_id" => ^provider_id
+             }
+           } = json_response(conn, 200)
   end
 
   test "admin manages named Codex accounts and assigns one through the coding model profile", %{

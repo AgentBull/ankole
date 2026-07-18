@@ -81,7 +81,9 @@ export const ActorTurnRefSchema: GenMessage<ActorTurnRef> = /*@__PURE__*/
  */
 export type Envelope = Message<"ankole.runtime_fabric.v1.Envelope"> & {
   /**
-   * Bump only when wire-compatibility changes. Additive fields keep version 1.
+   * Version 2 introduced method-specific protobuf RPC payloads. Additive fields
+   * keep the current version; changing an existing field's wire meaning requires
+   * another bump so mixed worker/control-plane versions fail before admission.
    *
    * @generated from field: uint32 protocol_version = 1;
    */
@@ -895,4 +897,3 @@ export enum TurnCompletionOutcome {
  */
 export const TurnCompletionOutcomeSchema: GenEnum<TurnCompletionOutcome> = /*@__PURE__*/
   enumDesc(file_ankole_runtime_fabric_v1_envelope, 2);
-

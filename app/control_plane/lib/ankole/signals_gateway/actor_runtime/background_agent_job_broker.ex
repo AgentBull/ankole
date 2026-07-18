@@ -24,7 +24,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_create(TurnRef.t(), FabricProto.BackgroundAgentJobCreateRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_create(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobCreateRequest{} = request, ctx) do
+  def handle_create(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobCreateRequest{} = request,
+        ctx
+      ) do
     with :ok <- require_owner_turn(turn_ref),
          {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
          {:ok, conversation} <- fetch_owner_conversation(turn_ref),
@@ -46,7 +50,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_get(TurnRef.t(), FabricProto.BackgroundAgentJobGetRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_get(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobGetRequest{} = request, ctx) do
+  def handle_get(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobGetRequest{} = request,
+        ctx
+      ) do
     with {:ok,
           %{
             job: %Job{} = job,
@@ -92,9 +100,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     end
   end
 
-  @spec handle_upsert_turn(TurnRef.t(), FabricProto.BackgroundAgentJobTurnUpsertRequest.t(), map()) ::
+  @spec handle_upsert_turn(
+          TurnRef.t(),
+          FabricProto.BackgroundAgentJobTurnUpsertRequest.t(),
+          map()
+        ) ::
           {:ok, FabricProto.BackgroundAgentJobTurnUpsertResponse.t()} | {:error, map()}
-  def handle_upsert_turn(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobTurnUpsertRequest{} = request, ctx) do
+  def handle_upsert_turn(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobTurnUpsertRequest{} = request,
+        ctx
+      ) do
     attrs =
       %{
         "attempt" => request.attempt,
@@ -131,9 +147,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     end
   end
 
-  @spec handle_update_status(TurnRef.t(), FabricProto.BackgroundAgentJobStatusUpdateRequest.t(), map()) ::
+  @spec handle_update_status(
+          TurnRef.t(),
+          FabricProto.BackgroundAgentJobStatusUpdateRequest.t(),
+          map()
+        ) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_update_status(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobStatusUpdateRequest{} = request, ctx) do
+  def handle_update_status(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobStatusUpdateRequest{} = request,
+        ctx
+      ) do
     attrs =
       %{"status" => request.status}
       |> put_present("runtime_thread_id", request.runtime_thread_id)
@@ -159,7 +183,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_stop(TurnRef.t(), FabricProto.BackgroundAgentJobStopRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_stop(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobStopRequest{} = request, ctx) do
+  def handle_stop(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobStopRequest{} = request,
+        ctx
+      ) do
     with %Job{} = job <-
            BackgroundAgentJobs.get_job_for_agent(request.job_id, turn_ref.agent_uid),
          :ok <- authorize_visible_job(turn_ref, job),
@@ -179,7 +207,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_steer(TurnRef.t(), FabricProto.BackgroundAgentJobSteerRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_steer(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobSteerRequest{} = request, ctx) do
+  def handle_steer(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobSteerRequest{} = request,
+        ctx
+      ) do
     with %Job{} = job <-
            BackgroundAgentJobs.get_job_for_agent(request.job_id, turn_ref.agent_uid),
          :ok <- authorize_visible_job(turn_ref, job),

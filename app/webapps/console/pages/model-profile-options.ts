@@ -64,7 +64,8 @@ export function modelOptionsForProfile(
   const capability = profileCapability(profile)
   const visibleEntries = entries.filter(entry => {
     const inferred = inferredCapability(entry)
-    return inferred === capability || inferred === 'unknown'
+    const matchesCapability = inferred === capability || inferred === 'unknown'
+    return matchesCapability && (profile !== 'vision_fallback' || supportsImageInput(entry) !== false)
   })
   const options = new Map<string, CreatableComboboxOption>()
 
@@ -127,6 +128,12 @@ function inferredCapability(entry: CatalogEntry): CatalogCapability {
   if (outputModalities.includes('text')) return 'llm'
   if (outputModalities.length > 0) return 'other'
   return 'unknown'
+}
+
+function supportsImageInput(entry: CatalogEntry): boolean | undefined {
+  const inputModalities = stringArray(entry.architecture?.input_modalities)
+  if (inputModalities.length === 0) return undefined
+  return inputModalities.includes('image')
 }
 
 function stringArray(value: unknown): string[] {

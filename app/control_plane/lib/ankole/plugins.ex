@@ -24,6 +24,7 @@ defmodule Ankole.Plugins do
   defdelegate disabled_ids_definition(), to: Config
   defdelegate disabled_ids(), to: Config
   defdelegate put_disabled_ids(disabled_ids), to: Config
+  defdelegate put_configured_enabled(plugin_id, enabled), to: Config
   defdelegate list_discovered(), to: Registry
   defdelegate list_active(), to: Registry
   defdelegate get(id), to: Registry

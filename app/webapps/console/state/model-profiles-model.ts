@@ -5,6 +5,7 @@ export const PROFILE_NAMES = [
   'light',
   'heavy',
   'coding',
+  'vision_fallback',
   'embedding',
   'rerank',
   'web_search',
@@ -23,6 +24,15 @@ export type ProfileDraft = {
 }
 
 type ProfileDraftInput = Partial<ProfileDraft>
+
+export type ModelProfileSubmission = {
+  draft: ProfileDraft
+  revision: number
+}
+
+export type ModelProfilePersistenceResult = {
+  hasUnsavedChanges: boolean
+}
 
 export function emptyProfileDraft(): ProfileDraft {
   return {
@@ -43,45 +53,81 @@ export const ModelProfilesModel = createModel(() => {
   >
 
   function apply(name: ProfileName, input: ProfileDraftInput) {
-    const draft = { ...emptyProfileDraft(), ...input }
+    const draft = normalizedProfileDraft(input)
     const profile = profiles[name]
-    profile.codexAccountID.value = draft.codexAccountID
-    profile.providerID.value = draft.providerID
-    profile.model.value = draft.model
-    profile.contextLength.value = draft.contextLength
-    profile.providerOptions.value = draft.providerOptions
-    profile.error.value = draft.error
+    profile.source.value = draft
+    writeProfileDraft(profile, draft)
+    profile.dirty.value = false
+    profile.revision.value += 1
+  }
+
+  function read(name: ProfileName): ProfileDraft {
+    const profile = profiles[name]
+    return {
+      codexAccountID: profile.codexAccountID.value,
+      providerID: profile.providerID.value,
+      model: profile.model.value,
+      contextLength: profile.contextLength.value,
+      providerOptions: profile.providerOptions.value,
+      error: profile.error.value
+    }
   }
 
   return {
     sourceKey,
     profiles,
     initialize(nextSourceKey: string, drafts: Partial<Record<ProfileName, ProfileDraftInput>>) {
-      if (sourceKey.value === nextSourceKey) return
       batch(() => {
-        sourceKey.value = nextSourceKey
-        for (const name of PROFILE_NAMES) apply(name, drafts[name] ?? {})
+        const sameSource = sourceKey.value === nextSourceKey
+        if (!sameSource) sourceKey.value = nextSourceKey
+
+        for (const name of PROFILE_NAMES) {
+          if (!sameSource || !profiles[name].dirty.value) apply(name, drafts[name] ?? {})
+        }
       })
     },
     update(name: ProfileName, patch: ProfileDraftInput) {
       const profile = profiles[name]
-      if (patch.codexAccountID !== undefined) profile.codexAccountID.value = patch.codexAccountID
-      if (patch.providerID !== undefined) profile.providerID.value = patch.providerID
-      if (patch.model !== undefined) profile.model.value = patch.model
-      if (patch.contextLength !== undefined) profile.contextLength.value = patch.contextLength
-      if (patch.providerOptions !== undefined) profile.providerOptions.value = patch.providerOptions
-      if ('error' in patch) profile.error.value = patch.error
+      const current = read(name)
+      const next = { ...current, ...patch }
+      const valuesChanged = !sameProfileValues(current, next)
+
+      batch(() => {
+        writeProfileDraft(profile, next)
+        if (valuesChanged) profile.revision.value += 1
+        profile.dirty.value = !sameProfileValues(next, profile.source.value)
+      })
     },
     snapshot(name: ProfileName): ProfileDraft {
+      return read(name)
+    },
+    submission(name: ProfileName): ModelProfileSubmission {
+      return { draft: read(name), revision: profiles[name].revision.value }
+    },
+    markSaved(
+      name: ProfileName,
+      input: ProfileDraftInput,
+      submission: ModelProfileSubmission
+    ): ModelProfilePersistenceResult {
       const profile = profiles[name]
-      return {
-        codexAccountID: profile.codexAccountID.value,
-        providerID: profile.providerID.value,
-        model: profile.model.value,
-        contextLength: profile.contextLength.value,
-        providerOptions: profile.providerOptions.value,
-        error: profile.error.value
-      }
+      const saved = normalizedProfileDraft(input)
+      const current = read(name)
+      const hasUnsavedChanges = profile.revision.value !== submission.revision && !sameProfileValues(current, saved)
+
+      batch(() => {
+        profile.source.value = saved
+        profile.revision.value += 1
+
+        if (hasUnsavedChanges) {
+          profile.dirty.value = true
+          return
+        }
+
+        writeProfileDraft(profile, saved)
+        profile.dirty.value = false
+      })
+
+      return { hasUnsavedChanges }
     },
     clear(name: ProfileName) {
       batch(() => apply(name, {}))
@@ -92,11 +138,37 @@ export const ModelProfilesModel = createModel(() => {
 function createProfileSignals() {
   const initial = emptyProfileDraft()
   return {
+    source: signal(initial),
     codexAccountID: signal(initial.codexAccountID),
     providerID: signal(initial.providerID),
     model: signal(initial.model),
     contextLength: signal(initial.contextLength),
     providerOptions: signal(initial.providerOptions),
-    error: signal<string>()
+    error: signal<string>(),
+    dirty: signal(false),
+    revision: signal(0)
   }
+}
+
+function normalizedProfileDraft(input: ProfileDraftInput): ProfileDraft {
+  return { ...emptyProfileDraft(), ...input, error: input.error }
+}
+
+function writeProfileDraft(profile: ReturnType<typeof createProfileSignals>, draft: ProfileDraft) {
+  profile.codexAccountID.value = draft.codexAccountID
+  profile.providerID.value = draft.providerID
+  profile.model.value = draft.model
+  profile.contextLength.value = draft.contextLength
+  profile.providerOptions.value = draft.providerOptions
+  profile.error.value = draft.error
+}
+
+function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
+  return (
+    left.codexAccountID === right.codexAccountID &&
+    left.providerID === right.providerID &&
+    left.model === right.model &&
+    left.contextLength === right.contextLength &&
+    JSON.stringify(left.providerOptions) === JSON.stringify(right.providerOptions)
+  )
 }

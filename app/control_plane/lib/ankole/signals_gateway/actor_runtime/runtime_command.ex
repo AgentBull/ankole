@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -592,7 +593,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
         actor_key.session_id
       )
 
-    actor_source = latest_completed_retry_source(repo, actor_key, command_event)
+    actor_source = latest_terminal_retry_source(repo, actor_key, command_event)
 
     case choose_retry_source(aigateway_source, actor_source) do
       {:aigateway, retry_source} ->
@@ -719,15 +720,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
   defp prepare_retry_response_graph(_repo, _command_event, _retry_source, _now), do: :ok
 
-  defp latest_completed_retry_source(repo, actor_key, command_event) do
+  defp latest_terminal_retry_source(repo, actor_key, command_event) do
     candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])
 
     ActorEvent
     |> where([event], event.agent_uid == ^actor_key.agent_uid)
     |> where([event], event.session_id == ^actor_key.session_id)
     |> where([event], event.queue_sequence < ^command_event.queue_sequence)
-    |> where([event], event.input_state == "open")
-    |> where([event], not is_nil(event.completed_at))
+    |> where(
+      [event],
+      (event.input_state == "open" and not is_nil(event.completed_at)) or
+        (event.input_state == "dead_letter" and not is_nil(event.dead_letter_at))
+    )
     |> where([event], event.type in ^candidate_types)
     |> where(
       [event],
@@ -738,18 +742,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     |> limit(1)
     |> lock("FOR UPDATE")
     |> repo.one()
-    |> select_retry_source()
+    |> select_retry_source(repo)
   end
 
-  defp select_retry_source(%ActorEvent{type: "command.new"} = event) do
+  defp select_retry_source(%ActorEvent{type: "command.new"} = event, _repo) do
     case command_args(event) do
       "" -> :conversation_boundary
       _args -> event
     end
   end
 
-  defp select_retry_source(%ActorEvent{} = event), do: event
-  defp select_retry_source(nil), do: nil
+  defp select_retry_source(%ActorEvent{input_state: "dead_letter"} = event, repo) do
+    if dead_letter_source_retained?(repo, event), do: event, else: :conversation_boundary
+  end
+
+  defp select_retry_source(%ActorEvent{} = event, _repo), do: event
+  defp select_retry_source(nil, _repo), do: nil
+
+  defp dead_letter_source_retained?(_repo, %ActorEvent{signal_channel_id: nil}), do: true
+
+  defp dead_letter_source_retained?(repo, %ActorEvent{} = event) do
+    source_entry_ids = ActorEvent.source_entry_ids(event)
+
+    if source_entry_ids == [] do
+      true
+    else
+      retained_source_entry_ids =
+        Entry
+        |> where([entry], entry.signal_channel_id == ^event.signal_channel_id)
+        |> where([entry], entry.source_entry_id in ^source_entry_ids)
+        |> select([entry], entry.source_entry_id)
+        |> repo.all()
+        |> MapSet.new()
+
+      Enum.all?(source_entry_ids, &MapSet.member?(retained_source_entry_ids, &1))
+    end
+  end
 
   defp publish_cancelled_turn_event({:ok, %{cancelled_turn: %{} = response}} = result) do
     _ = AIGatewayLink.publish_failed_response(response)

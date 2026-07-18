@@ -2,13 +2,17 @@ import { jsonObject, match } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { JSONRPCMessage } from './app-server-client'
 import type { BackgroundAgentJobStatus, BackgroundAgentJobTurnUsage } from '../../lanes/rpc_lane'
+import {
+  boundedBackgroundAgentJobPaths,
+  type BackgroundAgentJobPathHandoff
+} from '../../core/background-agent-job-handoff'
 
 export type CodexNotificationProjection =
   | { type: 'stderr'; params: JSONObject }
   | { type: 'turn_started'; turnID?: string }
   | { type: 'agent_completed'; text: string }
   | { type: 'token_usage'; usage: BackgroundAgentJobTurnUsage }
-  | { type: 'turn_diff'; filesChanged: string[] }
+  | { type: 'turn_diff'; filesChanged: BackgroundAgentJobPathHandoff }
   | {
       type: 'turn_completed'
       codexTurnStatus: string
@@ -41,7 +45,7 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
   }
 
   if (method === 'turn/diff/updated' && typeof params.diff === 'string') {
-    return { type: 'turn_diff', filesChanged: filesChangedFromCodexDiff(params.diff) }
+    return { type: 'turn_diff', filesChanged: boundedFilesChangedFromCodexDiff(params.diff) }
   }
 
   if (method === 'turn/completed') {
@@ -79,14 +83,20 @@ export function normalizeCodexThreadUsage(value: unknown): BackgroundAgentJobTur
   }
 }
 
-export function filesChangedFromCodexDiff(diff: string): string[] {
-  const files = new Set<string>()
-  for (const line of diff.split('\n')) {
-    const match = /^(?:\+\+\+|---)\s+(?:[ab]\/)?([^\t]+)(?:\t.*)?$/.exec(line)
-    const path = match?.[1]
-    if (path && path !== '/dev/null') files.add(path)
+export function boundedFilesChangedFromCodexDiff(diff: string): BackgroundAgentJobPathHandoff {
+  const handoff = boundedBackgroundAgentJobPaths(codexChangedPaths(diff))
+  return { ...handoff, paths: [...handoff.paths].sort(compareCodePoints) }
+}
+
+function* codexChangedPaths(diff: string): Generator<string> {
+  const fileHeader =
+    /^---\s+(?:[ab]\/)?([^\t\r\n]+)(?:\t[^\r\n]*)?\r?\n\+\+\+\s+(?:[ab]\/)?([^\t\r\n]+)(?:\t[^\r\n]*)?\r?$/gm
+  for (const match of diff.matchAll(fileHeader)) {
+    const oldPath = match[1]
+    const newPath = match[2]
+    const path = newPath && newPath !== '/dev/null' ? newPath : oldPath
+    if (path && path !== '/dev/null') yield path
   }
-  return [...files].sort()
 }
 
 function usageBreakdown(value: unknown): BackgroundAgentJobTurnUsage['thread_total'] | undefined {
@@ -116,6 +126,10 @@ function usageBreakdown(value: unknown): BackgroundAgentJobTurnUsage['thread_tot
 
 function nonnegativeInteger(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+function compareCodePoints(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 export function approvalRequestMethod(method: string): boolean {

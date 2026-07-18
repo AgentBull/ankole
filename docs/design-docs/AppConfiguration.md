@@ -97,6 +97,11 @@ runtime, for example plugin-owned provider instances. Exact definitions take
 precedence over patterns. If more than one pattern matches one key, the key is
 rejected so validation and encryption policy never depend on load order.
 
+A pattern may set `console_writable: false` when another subsystem owns its
+mutation contract. Existing concrete rows remain visible and readable through
+AppConfigure, but generic Console PUT and DELETE requests reject them. The
+owning subsystem keeps the only write path that can enforce its wider invariant.
+
 Unknown keys are rejected before persistence. This keeps the runtime
 configuration surface bounded and prevents typo-created database rows.
 Duplicate exact keys and duplicate pattern ids are rejected at registration
@@ -235,8 +240,12 @@ through `Ankole.Kernel.derive_key/3` from the bootstrap root secret plus `scope`
 and `key`, seal the serialized value through `Ankole.Kernel.aead_encrypt/2`, and
 store the sealed string in a `cipher` envelope.
 
-After a successful write, the process-local cache is updated or evicted for the
-affected `{scope, key}`. PostgreSQL remains the durable source of truth.
+PostgreSQL commit is the write success boundary. After commit, AppConfigure
+refreshes the process-local cache from the current database row rather than a
+captured envelope. A refresh failure is logged but cannot turn the committed
+write into an API failure or suppress later owner callbacks. The failed key is
+left uncached so a later read retries PostgreSQL; PostgreSQL remains the durable
+source of truth.
 
 ## Cache
 
@@ -247,11 +256,11 @@ Normal reads do not query PostgreSQL on every call. The effective read path
 checks cached concrete rows in fallback order and only uses the definition
 default when no scoped row exists.
 
-The ETS projection stores row state, not only successful values. A row that
-exists but cannot be decrypted, decoded, or validated is cached as a storage
-error marker for that `{scope, key}`. Effective resolution must stop on that
-marker instead of treating the row as missing and falling through to the next
-scope.
+The ETS projection stores row envelopes, not only successfully decoded values.
+A row that exists but cannot be decrypted, decoded, or validated remains the
+selected row and effective resolution returns a storage error instead of
+treating it as missing and falling through to the next scope. A PostgreSQL load
+failure leaves the key as a cache miss so later reads can retry and converge.
 
 The cache has no TTL by default. Configuration is a small declared surface, not
 a request cache. Updates happen through AppConfigure writes and deletes.

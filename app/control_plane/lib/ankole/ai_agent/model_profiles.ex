@@ -9,9 +9,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.ImageModelCatalog
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIAgent.CodexAccounts
   alias Ankole.Principals
@@ -200,7 +201,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
          {:ok, provider_options} <-
            normalize_provider_options(Map.get(attrs, "provider_options", %{})),
          {:ok, context_length} <- normalize_context_length(Map.get(attrs, "context_length")),
-         :ok <- validate_provider_options(provider, provider_options) do
+         :ok <- validate_provider_options(provider, provider_options),
+         :ok <- validate_profile_model(profile, provider, model) do
       profile = %{
         "provider_id" => provider.provider_id,
         "model" => model,
@@ -219,6 +221,11 @@ defmodule Ankole.AIAgent.ModelProfiles do
       false -> {:error, {:provider_kind_missing_capability, capability}}
     end
   end
+
+  defp validate_profile_model("image_generate", provider, model),
+    do: ImageModelCatalog.validate_configured_model(provider, model)
+
+  defp validate_profile_model(_profile, _provider, _model), do: :ok
 
   defp normalize_provider_options(options) when is_map(options), do: {:ok, options}
   defp normalize_provider_options(_options), do: {:error, :invalid_provider_options}

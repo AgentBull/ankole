@@ -113,7 +113,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
+               turn_start_payload!(envelope).turn
+             )
 
     assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
 
@@ -193,7 +195,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
+               turn_start_payload!(envelope).turn
+             )
 
     assert {:ok, %{job: anchored}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -252,7 +256,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(envelope).turn)
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
+               turn_start_payload!(envelope).turn
+             )
 
     assert {:ok, %{job: %{status: "running"}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(
@@ -756,7 +762,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert queued.attempts == 0
 
     assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(turn_start_payload!(first_envelope).turn)
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
+               turn_start_payload!(first_envelope).turn
+             )
 
     assert {:ok, %{job: stopped}} =
              BackgroundAgentJobs.commit_status_with_wakeup(

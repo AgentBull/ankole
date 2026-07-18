@@ -72,7 +72,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
         Broker,
         {:runtime_fabric_router_received, route,
          encode_fabric_envelope(%FabricProto.Envelope{
-           protocol_version: 1,
+           protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
            message_id: "worker-rpc-response",
            correlation_id: request_id,
            lane: :LANE_RPC,
@@ -81,7 +81,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
              {:rpc_response,
               %FabricProto.RPCResponse{
                 request_id: request_id,
-                payload: encode_proto!(%FabricProto.WorkerEnvResolveResponse{vars: %{"runtime" => "bun"}})
+                payload:
+                  encode_proto!(%FabricProto.WorkerEnvResolveResponse{
+                    vars: %{"runtime" => "bun"}
+                  })
               }}
          })}
       )
@@ -124,7 +127,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
         Broker,
         {:runtime_fabric_router_received, "worker-route",
          encode_fabric_envelope(%FabricProto.Envelope{
-           protocol_version: 1,
+           protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
            message_id: "rpc-handler-crash-envelope",
            correlation_id: "rpc-handler-crash",
            lane: :LANE_RPC,
@@ -308,7 +311,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       accepted_envelope =
         encode_fabric_envelope(%FabricProto.Envelope{
-          protocol_version: 1,
+          protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
           message_id: "turn-accepted-wrong-route",
           correlation_id: envelope.message_id,
           lane: :LANE_TURN,
@@ -362,7 +365,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       # the kernel before they reach this broker.
       proposal_envelope =
         encode_fabric_envelope(%FabricProto.Envelope{
-          protocol_version: 1,
+          protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
           message_id: "obsolete-worker-proposal",
           correlation_id: envelope.message_id,
           lane: :LANE_CONTROL,
@@ -445,7 +448,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       noop_envelope =
         encode_fabric_envelope(%FabricProto.Envelope{
-          protocol_version: 1,
+          protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
           message_id: "turn-noop-after-steer",
           correlation_id: envelope.message_id,
           lane: :LANE_TURN,
@@ -476,7 +479,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    version: "test",
                    capacity_json: Torque.encode!(%{"available_turn_slots" => 1})
                  },
-                 %{authenticated?: true, transport_route: route}
+                 %{authenticated?: true, transport_route: route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
                )
 
       assert {:ok, refreshed_worker} =
@@ -488,7 +492,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    version: "test",
                    capacity_json: Torque.encode!(%{"available_turn_slots" => 2})
                  },
-                 %{authenticated?: true, transport_route: duplicate_route}
+                 %{authenticated?: true, transport_route: duplicate_route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
                )
 
       assert refreshed_worker.worker_id == worker.worker_id
@@ -506,7 +511,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    incarnation_id: "incarnation-missing-runtime",
                    version: "test"
                  },
-                 %{authenticated?: true, transport_route: route}
+                 %{authenticated?: true, transport_route: route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
                )
 
       assert {:error, {:missing, "version"}} =
@@ -516,7 +522,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    incarnation_id: "incarnation-missing-version",
                    runtime: "bun"
                  },
-                 %{authenticated?: true, transport_route: route}
+                 %{authenticated?: true, transport_route: route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
                )
 
       assert {:error, {:missing, "incarnation_id"}} =
@@ -526,7 +533,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    runtime: "bun",
                    version: "test"
                  },
-                 %{authenticated?: true, transport_route: route}
+                 %{authenticated?: true, transport_route: route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
+               )
+
+      assert Repo.aggregate(AgentComputerWorker, :count) == 0
+    end
+
+    test "worker admission rejects a mismatched RuntimeFabric protocol before projection" do
+      route = unique_route()
+      expected_protocol = Ankole.Kernel.RuntimeFabric.protocol_version()
+
+      assert expected_protocol == 2
+
+      assert {:error, {:unsupported_runtime_fabric_protocol, 1, ^expected_protocol}} =
+               ActorRuntime.admit_worker_ready(
+                 %FabricProto.AgentComputerWorkerReady{
+                   worker_id: "worker-protocol-v1",
+                   incarnation_id: "incarnation-protocol-v1",
+                   runtime: "bun",
+                   version: "26.07.7"
+                 },
+                 %{authenticated?: true, transport_route: route},
+                 1
                )
 
       assert Repo.aggregate(AgentComputerWorker, :count) == 0

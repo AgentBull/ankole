@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   @live_turn_command_types ~w(command.new command.stop command.retry command.steer command.compress)
   @interaction_preserving_turn_types ~w(
     signal.entry.removed
+    session.reset_due
     check_back_later.wakeup
     cron.fire
     background_agent_job.completed

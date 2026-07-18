@@ -27,11 +27,10 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
         {interaction_id, initial_interaction(interaction_id, now, superseded_by)}
       end)
 
-    Map.put(
-      checkpoint,
-      "interactions",
-      initialize_interactions(interactions, initialized)
-    )
+    checkpoint
+    |> Map.put("presentation", ReplyPresentation.checkpoint(presentation))
+    |> Map.put("interactions", initialize_interactions(interactions, initialized))
+    |> project_checkpoint_transition()
   end
 
   @spec pending_interaction_ids(checkpoint()) :: [String.t()]

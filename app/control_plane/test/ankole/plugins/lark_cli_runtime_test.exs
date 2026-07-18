@@ -3,13 +3,8 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
-      rpc_request: 3,
-      rpc_request: 3,
       rpc_request: 4,
-      rpc_response_payload!: 2,
-      rpc_error_payload!: 1,
-      envelope_body_type: 1,
-      envelope_body!: 2
+      rpc_response_payload!: 2
     ]
 
   import Ankole.PrincipalsFixtures
@@ -19,7 +14,9 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias FeishuOpenAPI.TokenStore
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
+  alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
@@ -128,6 +125,142 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, :released} = Task.await(task, 1_000)
   end
 
+  test "concurrent Lark binding saves validate app ownership from committed database state" do
+    %{principal: first_agent} = agent_fixture()
+    %{principal: second_agent} = agent_fixture()
+    shared_config = lark_config("cli_concurrent_shared")
+    first_config_key = Config.chat_config_key(first_agent.uid)
+    cache_pid = Process.whereis(AppConfigureCache)
+    parent = self()
+
+    assert {:ok, %{binding: %Binding{}}} =
+             Bindings.put_binding(
+               first_agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(lark_config("cli_concurrent_initial"))
+             )
+
+    assert {:ok, %{"appID" => "cli_concurrent_initial"}} =
+             AppConfigure.get_by_key(first_config_key)
+
+    assert {:ok, {:row, _envelope}} = AppConfigureCache.lookup("global", first_config_key)
+    :ok = :sys.suspend(cache_pid)
+
+    on_exit(fn ->
+      if Process.alive?(cache_pid), do: :sys.resume(cache_pid)
+    end)
+
+    first_save =
+      Task.async(fn ->
+        send(parent, {:ready, self()})
+        receive do: (:save -> :ok)
+
+        Bindings.put_binding(
+          first_agent.uid,
+          "lark",
+          "lark-main",
+          binding_attrs(shared_config)
+        )
+      end)
+
+    assert_receive {:ready, first_save_pid}, 1_000
+    assert first_save_pid == first_save.pid
+    :erlang.trace(first_save.pid, true, [:send])
+    send(first_save.pid, :save)
+
+    assert_receive {:trace, ^first_save_pid, :send,
+                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                   1_000
+
+    second_save =
+      Task.async(fn ->
+        Bindings.put_binding(
+          second_agent.uid,
+          "lark",
+          "lark-main",
+          binding_attrs(shared_config)
+        )
+      end)
+
+    second_result = Task.yield(second_save, 500)
+    :ok = :sys.resume(cache_pid)
+
+    assert {:ok, %{binding: %Binding{agent_uid: first_agent_uid}}} = Task.await(first_save, 1_000)
+    assert first_agent_uid == first_agent.uid
+
+    second_result = second_result || {:ok, Task.await(second_save, 1_000)}
+
+    assert {:ok, {:error, {:lark_app_already_bound, "cli_concurrent_shared", rejected_owner_uid}}} =
+             second_result
+
+    assert rejected_owner_uid == first_agent.uid
+    refute Repo.get_by(Binding, agent_uid: second_agent.uid, name: "lark-main")
+  end
+
+  test "Lark binding ownership fails closed when an enabled owner's config is unavailable" do
+    %{principal: owner} = agent_fixture()
+    %{principal: claimant} = agent_fixture()
+    owner_config_key = Config.chat_config_key(owner.uid)
+    claimed_config = lark_config("cli_claimed_while_owner_unknown")
+
+    assert {:ok, %Binding{}} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: owner.uid,
+               name: "lark-main",
+               adapter: "lark",
+               config_ref: "app-config://#{owner_config_key}",
+               filters: %{},
+               unaddressed_group_message_policy: :ignore,
+               enabled: true
+             })
+
+    assert {:error, {:lark_binding_config_unavailable, owner_uid, :missing}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+
+    put_raw_global_config(owner_config_key, %{"type" => "cipher", "value" => "invalid"})
+
+    assert {:error,
+            {:lark_binding_config_unavailable, owner_uid,
+             {:storage_error, "global", ^owner_config_key, _decrypt_reason}}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+
+    assert {:ok, invalid_config_ciphertext} =
+             AppConfigureCrypto.seal(%{"appID" => "incomplete"}, "global", owner_config_key)
+
+    put_raw_global_config(owner_config_key, %{
+      "type" => "cipher",
+      "value" => invalid_config_ciphertext
+    })
+
+    assert {:error,
+            {:lark_binding_config_unavailable, owner_uid,
+             {:storage_error, "global", ^owner_config_key, {:missing, "appSecret"}}}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+    refute Repo.get_by(Binding, agent_uid: claimant.uid, name: "lark-main")
+  end
+
   test "a rolled-back binding config write is never published to the AppConfigure cache" do
     %{principal: agent} = agent_fixture()
     config_key = Config.chat_config_key(agent.uid)
@@ -146,6 +279,37 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              end)
 
     assert :error = AppConfigure.get_by_key(config_key)
+  end
+
+  test "a cache refresh fault cannot turn a committed binding into failure or skip follow-up work" do
+    %{principal: agent} = agent_fixture()
+    config_key = Config.chat_config_key(agent.uid)
+
+    assert :ok = AppConfigureCache.fail_next_load_for_test(:injected_binding_refresh_failure)
+
+    assert {:ok, %{binding: %Binding{} = binding}} =
+             Bindings.put_binding(
+               agent.uid,
+               "lark",
+               "lark-main",
+               binding_attrs(lark_config("cli_after_commit"))
+             )
+
+    assert binding.agent_uid == agent.uid
+    assert :miss = AppConfigureCache.lookup("global", config_key)
+
+    assert {:ok, %{"appID" => "cli_after_commit"}} =
+             AppConfigure.get_by_key(config_key)
+
+    assert_enqueued(
+      worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups,
+      args: %{
+        "agent_uid" => agent.uid,
+        "binding_name" => "lark-main",
+        "reason" => "binding_saved",
+        "source" => "signal_binding"
+      }
+    )
   end
 
   test "Lark Agent Plugin enablement gates the binding identity and tenant token" do
@@ -204,6 +368,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     rpc_vars =
       rpc_response_payload!(envelope, Ankole.RuntimeFabric.V1.WorkerEnvResolveResponse).vars
+
     assert rpc_vars["LARKSUITE_CLI_APP_ID"] == "cli_worker"
     refute Map.has_key?(rpc_vars, "LARKSUITE_CLI_APP_SECRET")
     assert rpc_vars["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "tenant-token"
@@ -302,6 +467,16 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
       "platformSubjectNamespace" => "lark-main",
       "userName" => "Lark Bot"
     }
+  end
+
+  defp put_raw_global_config(key, envelope) do
+    AppConfig
+    |> where([row], row.scope == "global" and row.key == ^key)
+    |> Repo.delete_all()
+
+    %AppConfig{}
+    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    |> Repo.insert!()
   end
 
   defp seed_tenant_token(config, token) do

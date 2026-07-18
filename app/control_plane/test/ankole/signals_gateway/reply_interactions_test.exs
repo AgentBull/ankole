@@ -247,6 +247,42 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert checkpoint["presentation"]["interaction_status"] == "pending"
   end
 
+  test "a queued session reset preserves the card but rejects an answer that would cross the barrier" do
+    %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
+
+    assert {:ok, reset_event} =
+             Repo.transact(fn repo ->
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: source_event.agent_uid,
+                 binding_name: "__session_lifecycle__",
+                 session_id: source_event.session_id,
+                 source_event_id: unique_uid("session-reset"),
+                 type: "session.reset_due",
+                 available_at: @now,
+                 payload: %{"type" => "session.reset_due", "data" => %{"reset" => %{}}}
+               })
+             end)
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
+    assert checkpoint["presentation"]["interaction_status"] == "pending"
+
+    assert {:ok, %{status: :stale_action}} =
+             Ingress.emit_action(
+               agent.uid,
+               "mock",
+               action_input(action, human.uid, "answer-after-reset-barrier"),
+               now: DateTime.add(@now, 1, :second)
+             )
+
+    checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+    interaction = checkpoint["interactions"]["clarify:call-1"]
+    assert interaction["state"] == "superseded"
+    assert interaction["superseded_by_actor_event_id"] == reset_event.id
+    assert checkpoint["presentation"]["interaction_status"] == "superseded"
+    assert action_event_count(agent.uid) == 0
+  end
+
   test "a background job result does not supersede an unrelated clarification" do
     %{event: source_event} = setup_interaction()
 

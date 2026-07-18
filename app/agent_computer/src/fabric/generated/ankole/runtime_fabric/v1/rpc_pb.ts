@@ -2361,4 +2361,3 @@ export type InstalledSkillReplaceResponse = Message<"ankole.runtime_fabric.v1.In
  */
 export const InstalledSkillReplaceResponseSchema: GenMessage<InstalledSkillReplaceResponse> = /*@__PURE__*/
   messageDesc(file_ankole_runtime_fabric_v1_rpc, 70);
-

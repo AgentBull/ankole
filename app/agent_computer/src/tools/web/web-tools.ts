@@ -205,7 +205,7 @@ async function renderedFallbackFetch(
   signal?: AbortSignal,
   fallbackReason?: string
 ): Promise<JSONObject> {
-  const results: Array<JSONObject | undefined> = new Array(urls.length)
+  const results: Array<JSONObject | undefined> = Array.from({ length: urls.length })
   const accepted: Array<{ url: string; index: number }> = []
 
   for (const [index, url] of urls.entries()) {

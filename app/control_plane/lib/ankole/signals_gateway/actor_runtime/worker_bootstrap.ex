@@ -11,17 +11,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Spec
 
-  @default_image "ghcr.io/agentbull/ankole-agent-computer-worker:main-latest"
-
   @doc """
   Builds the shared Agent Computer container contract without worker identity.
 
   Package tests use this contract because they run inside the worker image but
-  do not connect a worker process to RuntimeFabric.
+  do not connect a worker process to RuntimeFabric. Published control-plane
+  images provide their same-revision worker through
+  `ANKOLE_AGENT_COMPUTER_IMAGE`; source callers must pass `:image` explicitly.
   """
   @spec container_spec(keyword()) :: {:ok, Spec.t()} | {:error, term()}
   def container_spec(opts \\ []) do
-    with {:ok, image} <- non_empty(Keyword.get(opts, :image, @default_image), :image) do
+    image = Keyword.get(opts, :image) || System.get_env("ANKOLE_AGENT_COMPUTER_IMAGE")
+
+    with {:ok, image} <- non_empty(image, :image) do
       {:ok,
        %Spec{
          contract_version: 2,

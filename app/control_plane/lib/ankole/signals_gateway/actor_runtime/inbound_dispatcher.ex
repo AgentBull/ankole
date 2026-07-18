@@ -56,12 +56,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.InboundDispatcher do
   end
 
   defp dispatch_envelope(
-         {:ok, route, %FabricProto.Envelope{body: {:worker_ready, worker_ready}}},
+         {:ok, route,
+          %FabricProto.Envelope{
+            protocol_version: protocol_version,
+            body: {:worker_ready, worker_ready}
+          }},
          authenticated_route
        ) do
     WorkerAdmission.admit_worker_ready(
       worker_ready,
-      route_auth(route, authenticated_route)
+      route_auth(route, authenticated_route),
+      protocol_version
     )
     |> log_result("worker_ready", route)
   end

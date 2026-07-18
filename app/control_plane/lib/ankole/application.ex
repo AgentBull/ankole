@@ -19,6 +19,8 @@ defmodule Ankole.Application do
     #   - Repo before AppConfigure: durable config is read from PostgreSQL.
     #   - AppConfigure.Registry + Cache before Plugins/I18n: those subsystems read
     #     and register AppConfigure definitions during their own `init/1`.
+    #   - I18n before Plugins/SignalsGateway: adapter startup and recovered Actor
+    #     replies may render user-facing text immediately during their own startup.
     #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
     #     activates plugins, then the supervisor reads that active set to know
     #     which plugin-contributed children to start (snapshot taken once at boot).
@@ -39,6 +41,7 @@ defmodule Ankole.Application do
         {Task.Supervisor, name: Ankole.Brain.TaskSupervisor},
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
+        Ankole.I18n.Catalog,
         Ankole.Setup.Bootstrap,
         {Oban, Application.fetch_env!(:ankole, Oban)},
         {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
@@ -66,7 +69,6 @@ defmodule Ankole.Application do
       children ++
         [
           Ankole.AIGateway.ModelMetadata.Cache,
-          Ankole.I18n.Catalog,
           {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
           AnkoleWeb.Endpoint
         ]

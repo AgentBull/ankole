@@ -49,6 +49,47 @@ describe('main-agent native MCP tool', () => {
     expect(servers[0]?.generation).toMatch(/^[a-f0-9]{64}$/)
   })
 
+  it('discovers an internal BullX Skill declaration and exposes the native MCP tool', async () => {
+    const roots = skillRoots()
+    const internalSkillsRoot = join(dirname(roots.builtinSkillsRoot), 'internal')
+    writeHTTPMetadata(
+      internalSkillsRoot,
+      'bullx-financial-data',
+      'bullx-financial-data',
+      'https://ai.agentbull.cn/api/v1/financial-data/mcp',
+      'BULLX_FINANCIAL_DATA_MCP_API_KEY',
+      'BullX Financial Data MCP server'
+    )
+    const enabledBullXSkill = create(RuntimeSkillSummarySchema, {
+      skillName: 'bullx-financial-data',
+      sourceKind: 'builtin',
+      relativePath: 'bullx-financial-data',
+      skillRoot: 'internal'
+    })
+    const skillRootsWithInternal = { ...roots, internalSkillsRoot }
+
+    const servers = await loadEnabledSkillMCPServers({
+      enabledSkills: [enabledBullXSkill],
+      skillRoots: skillRootsWithInternal
+    })
+    expect(servers).toEqual([
+      expect.objectContaining({
+        name: 'bullx-financial-data',
+        transport: 'streamable_http',
+        url: 'https://ai.agentbull.cn/api/v1/financial-data/mcp',
+        bearerTokenEnvVar: 'BULLX_FINANCIAL_DATA_MCP_API_KEY',
+        sourceSkills: ['bullx-financial-data']
+      })
+    ])
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledBullXSkill],
+      skillRoots: skillRootsWithInternal,
+      workerEnv: { BULLX_FINANCIAL_DATA_MCP_API_KEY: 'test-token' }
+    })
+    expect(tools.map(tool => tool.name)).toEqual(['mcp'])
+  })
+
   it('selects the model timeout before the server timeout and the 360-second default', () => {
     expect(resolveMCPTimeoutMs(900_000, 600_000)).toBe(900_000)
     expect(resolveMCPTimeoutMs(undefined, 600_000)).toBe(600_000)

@@ -23,4 +23,4 @@ pub mod transport;
 pub(crate) use codec::decode_envelope_view;
 pub use codec::validate_envelope_bytes;
 
-const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;

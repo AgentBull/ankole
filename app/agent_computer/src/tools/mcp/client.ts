@@ -124,9 +124,10 @@ function createTransport(server: MCPServerConfig, workerEnv?: Record<string, str
       throw new Error(`MCP server ${server.name} requires WorkerEnv variable ${server.bearerTokenEnvVar}`)
     }
 
-    return new StreamableHTTPClientTransport(new URL(server.url), {
-      ...(token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : {})
-    })
+    return new StreamableHTTPClientTransport(
+      new URL(server.url),
+      token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : {}
+    )
   }
 
   return new StdioClientTransport({

@@ -2,6 +2,8 @@ defmodule Ankole.Repo.Migrations.ReplaceSubagentEventsWithTurns do
   use Ecto.Migration
 
   def up do
+    execute(live_job_guard_sql())
+
     create table(:subagent_delegation_turns, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -80,56 +82,105 @@ defmodule Ankole.Repo.Migrations.ReplaceSubagentEventsWithTurns do
              """
            )
 
-    # Deep Research briefly used a separate raw Codex rollout archive while
-    # this unreleased migration series was in flight. It is not a trajectory
-    # model and must not survive databases that applied that earlier draft.
-    drop_if_exists table(:subagent_trajectory_archives)
-    drop table(:subagent_delegation_events)
+    # Raw runtime events do not have a lossless one-to-one mapping to semantic
+    # Turns. Keep them as a control-plane-owned archive instead of inventing a
+    # backfill or discarding production history. A later explicit retention or
+    # export migration may remove the archive after proving it is no longer
+    # operationally useful.
+    execute(
+      "ALTER TABLE subagent_delegation_events DROP CONSTRAINT subagent_delegation_events_delegation_id_fkey"
+    )
+
+    execute("""
+    ALTER TABLE subagent_delegation_events
+    ADD CONSTRAINT subagent_delegation_events_delegation_id_fkey
+    FOREIGN KEY (delegation_id) REFERENCES subagent_delegations(id) ON DELETE RESTRICT
+    """)
+
+    execute(
+      "ALTER TABLE subagent_delegation_events DROP CONSTRAINT subagent_delegation_events_agent_uid_fkey"
+    )
+
+    execute("""
+    ALTER TABLE subagent_delegation_events
+    ADD CONSTRAINT subagent_delegation_events_agent_uid_fkey
+    FOREIGN KEY (agent_uid) REFERENCES principals(uid) ON DELETE RESTRICT
+    """)
+
+    execute("ALTER TABLE subagent_delegation_events RENAME TO subagent_delegation_legacy_events")
+
+    execute("""
+    COMMENT ON TABLE subagent_delegation_legacy_events IS
+      'Control-plane-owned immutable archive of pre-Turn SubagentDelegation runtime events. No runtime reader or writer owns this table; retain it until an explicit export or retention migration proves the history is no longer operationally useful.'
+    """)
   end
 
   def down do
-    create table(:subagent_delegation_events, primary_key: false) do
-      add :id, :uuid, primary_key: true
+    execute("""
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM subagent_delegation_turns) THEN
+        RAISE EXCEPTION
+          'Cannot restore raw SubagentDelegation events after semantic Turns have been recorded'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END
+    $$
+    """)
 
-      add :delegation_id,
-          references(:subagent_delegations, type: :uuid, on_delete: :delete_all),
-          null: false
+    execute("ALTER TABLE subagent_delegation_legacy_events RENAME TO subagent_delegation_events")
 
-      add :agent_uid,
-          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
-          null: false
+    execute("COMMENT ON TABLE subagent_delegation_events IS NULL")
 
-      add :seq, :bigint, null: false
-      add :direction, :text, null: false
-      add :event_type, :text, null: false
-      add :payload, :map, null: false
-      add :redaction, :map, null: false, default: %{}
-      add :occurred_at, :utc_datetime_usec, null: false
+    execute(
+      "ALTER TABLE subagent_delegation_events DROP CONSTRAINT subagent_delegation_events_delegation_id_fkey"
+    )
 
-      timestamps(type: :utc_datetime_usec)
-    end
+    execute("""
+    ALTER TABLE subagent_delegation_events
+    ADD CONSTRAINT subagent_delegation_events_delegation_id_fkey
+    FOREIGN KEY (delegation_id) REFERENCES subagent_delegations(id) ON DELETE CASCADE
+    """)
 
-    create unique_index(:subagent_delegation_events, [:delegation_id, :seq],
-             name: :subagent_delegation_events_delegation_seq_index
-           )
+    execute(
+      "ALTER TABLE subagent_delegation_events DROP CONSTRAINT subagent_delegation_events_agent_uid_fkey"
+    )
 
-    create index(:subagent_delegation_events, [:agent_uid, :inserted_at],
-             name: :subagent_delegation_events_agent_inserted_index
-           )
-
-    create constraint(:subagent_delegation_events, :subagent_delegation_events_direction_check,
-             check:
-               "direction IN ('client_to_server', 'server_to_client', 'server_request', 'client_response', 'process', 'queue', 'audit', 'tool')"
-           )
-
-    create constraint(:subagent_delegation_events, :subagent_delegation_events_payload_object,
-             check: "jsonb_typeof(payload) = 'object'"
-           )
-
-    create constraint(:subagent_delegation_events, :subagent_delegation_events_redaction_object,
-             check: "jsonb_typeof(redaction) = 'object'"
-           )
+    execute("""
+    ALTER TABLE subagent_delegation_events
+    ADD CONSTRAINT subagent_delegation_events_agent_uid_fkey
+    FOREIGN KEY (agent_uid) REFERENCES principals(uid) ON DELETE CASCADE
+    """)
 
     drop table(:subagent_delegation_turns)
+  end
+
+  @doc false
+  def live_job_guard_sql(table \\ "subagent_delegations") do
+    table = validate_table!(table)
+
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM #{table}
+        WHERE status IN ('queued', 'running', 'waiting_on_user')
+      ) THEN
+        RAISE EXCEPTION
+          'BackgroundAgentJob Turn migration requires zero non-terminal V1 jobs'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END
+    $$
+    """
+  end
+
+  defp validate_table!(table) do
+    if is_binary(table) and Regex.match?(~r/\A[a-z_][a-z0-9_]*\z/, table) do
+      table
+    else
+      raise ArgumentError, "invalid migration table name"
+    end
   end
 end

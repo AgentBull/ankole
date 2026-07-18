@@ -10,8 +10,10 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   setup :use_mock_signal_provider_plugin
@@ -403,6 +405,101 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert is_binary(checkpoint["conversation_id"])
   end
 
+  test "stop cannot overwrite an equal-revision durable clarification checkpoint" do
+    %{subject: subject, actor_event: actor_event} =
+      addressed_actor_event("durable-clarification-wins")
+
+    %{conversation: conversation, pid: pid} =
+      start_dispatched_preview(subject.uid, actor_event)
+
+    stale_working =
+      ReplyPresentation.new(state: "working")
+      |> Map.put("revision", 1)
+
+    clarification =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "Which option should I use?",
+        "controls" => [
+          %{
+            "id" => "operators",
+            "type" => "button",
+            "label" => "Operators",
+            "interaction_id" => "clarify:call-1",
+            "source_actor_event_id" => actor_event.id,
+            "control_id" => "clarify-choice",
+            "revision" => 1
+          }
+        ]
+      })
+      |> ReplyPresentation.checkpoint()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request -> {:ok, %{}} end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | reply_preview_adapter: adapter,
+          silent_rich_pending: false,
+          presentation: stale_working,
+          dirty: false
+      }
+    end)
+
+    assert {:ok, _updated} =
+             Actors.put_reply_preview_checkpoint(actor_event.id, %{
+               "subject_uid" => subject.uid,
+               "conversation_id" => conversation.id,
+               "streaming_state" => "closed",
+               "presentation" => clarification,
+               "interactions" => %{
+                 "clarify:call-1" => %{
+                   "interaction_id" => "clarify:call-1",
+                   "state" => "pending"
+                 }
+               }
+             })
+
+    monitor = Process.monitor(pid)
+    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+
+    checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert checkpoint["presentation"]["state"] == "awaiting_input"
+    assert checkpoint["presentation"]["interaction_status"] == "pending"
+    assert [%{"interaction_id" => "clarify:call-1"}] = checkpoint["presentation"]["actions"]
+  end
+
+  test "dead-letter checkpoint notifications cannot restart a working preview" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("dead-letter-recover")
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+
+    checkpoint = %{
+      "subject_uid" => subject.uid,
+      "conversation_id" => conversation.id,
+      "streaming_state" => "open",
+      "presentation" => ReplyPresentation.checkpoint(ReplyPresentation.new(state: "working"))
+    }
+
+    actor_event
+    |> ActorEvent.changeset(%{
+      input_state: "dead_letter",
+      dead_letter_at: DateTime.utc_now(:microsecond),
+      reply_preview_checkpoint: checkpoint
+    })
+    |> Repo.update!()
+
+    assert {:error, :reply_preview_not_recoverable} = AIReplyPreview.recover(actor_event.id)
+    assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id) == []
+  end
+
   test "stop drains an in-flight rich provider mutation before terminal outbox takes over" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-drain")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
@@ -447,6 +544,76 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     send(task_pid, :finish_rich_update)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+  end
+
+  test "terminal handoff bounds a hung rich mutation and fences a late working update" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-timeout")
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    owner = self()
+
+    assert {:ok, %{"sequence" => working_sequence}} =
+             Actors.prepare_reply_preview_mutation(
+               actor_event.id,
+               "working",
+               "working-digest",
+               Ecto.UUID.generate()
+             )
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request ->
+        send(owner, {:hung_rich_update_started, self()})
+
+        receive do
+          :never_finish -> {:ok, %{}}
+        end
+      end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    assert :ok =
+             AIReplyPreview.presentation_event(actor_event.id, %{
+               "kind" => "plan.snapshot",
+               "payload" => %{
+                 "operation_id" => "timeout",
+                 "revision" => 1,
+                 "items" => [
+                   %{"id" => "wait", "content" => "等待慢请求", "status" => "in_progress"}
+                 ]
+               }
+             })
+
+    send(pid, :flush_edit)
+    assert_receive {:hung_rich_update_started, task_pid}
+
+    monitor = Process.monitor(pid)
+    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 6_000
+    refute Process.alive?(task_pid)
+
+    checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+
+    assert get_in(checkpoint, ["presentation", "plan", "items"]) == [
+             %{
+               "id" => "wait",
+               "content" => "等待慢请求",
+               "status" => "in_progress"
+             }
+           ]
+
+    assert {:ok, %{"sequence" => terminal_sequence}} =
+             Actors.prepare_reply_preview_mutation(
+               actor_event.id,
+               "terminal",
+               "terminal-digest",
+               Ecto.UUID.generate()
+             )
+
+    assert terminal_sequence > working_sequence
   end
 
   defp addressed_actor_event(suffix) do

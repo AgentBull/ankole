@@ -99,8 +99,9 @@ export class SnapshotStore {
     const normalized = explicitRef?.[1] ?? input
     const target = this.refs.get(normalized)
     if (!target) {
-      if (explicitRef)
+      if (explicitRef) {
         throw new BrowserDataError('stale_ref', `ref ${normalized} is not present in the latest snapshot`)
+      }
       return rawFrame.locator(input)
     }
     const frames = page.frames()
@@ -112,8 +113,9 @@ export class SnapshotStore {
       target.backendDOMNodeId === undefined
         ? frame.locator(target.selector)
         : await locatorForBackendNode(page, frame, target.backendDOMNodeId, normalized)
-    if ((await locator.count()) !== 1)
+    if ((await locator.count()) !== 1) {
       throw new BrowserDataError('stale_ref', `ref ${normalized} no longer resolves uniquely`)
+    }
     if (target.backendDOMNodeId !== undefined) return locator
     const fingerprint = await locator.evaluate(element => {
       const explicit = element.getAttribute('role')?.trim()

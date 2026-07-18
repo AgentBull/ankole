@@ -3,6 +3,7 @@ defmodule Ankole.AppConfigureTest do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
@@ -84,6 +85,171 @@ defmodule Ankole.AppConfigureTest do
 
     assert :ok = AppConfigure.delete_global(definition)
     assert {:ok, %{"enabled" => false, "limit" => 0}} = AppConfigure.get(definition)
+  end
+
+  test "committed put, update, and delete stay successful across cache refresh faults", %{
+    prefix: prefix
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "after-commit-cache-fault"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.object(),
+        default_value: %{}
+      )
+
+    assert :ok = AppConfigure.register_definitions([definition])
+    assert {:ok, :absent} = Cache.load("global", definition.key)
+
+    assert :ok = Cache.fail_next_load_for_test(:injected_put_refresh_failure)
+    assert {:ok, %{"put" => true}} = AppConfigure.put_global(definition, %{"put" => true})
+    assert :miss = Cache.lookup("global", definition.key)
+    assert {:ok, %{"put" => true}} = AppConfigure.get(definition)
+
+    assert :ok = Cache.fail_next_load_for_test(:injected_update_refresh_failure)
+
+    assert {:ok, %{"put" => true, "update" => true}} =
+             AppConfigure.update_global(definition, fn current ->
+               {:ok, Map.put(current, "update", true)}
+             end)
+
+    assert :miss = Cache.lookup("global", definition.key)
+    assert {:ok, %{"put" => true, "update" => true}} = AppConfigure.get(definition)
+
+    assert :ok = Cache.fail_next_load_for_test(:injected_delete_refresh_failure)
+    assert :ok = AppConfigure.delete_global(definition)
+    assert :miss = Cache.lookup("global", definition.key)
+    assert {:ok, %{}} = AppConfigure.get(definition)
+  end
+
+  @tag ownership_timeout: 10_000
+  test "serializes concurrent global updates against the current database value", %{
+    prefix: prefix
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "atomic-update"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.object(),
+        default_value: %{}
+      )
+
+    assert :ok = AppConfigure.register_definitions([definition])
+    test_pid = self()
+
+    on_exit(fn -> delete_unboxed_global_row(definition.key) end)
+
+    first =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          AppConfigure.update_global(definition, fn current ->
+            send(test_pid, {:global_update_entered, :first, current, self()})
+
+            receive do
+              :finish_first_global_update ->
+                {:ok, Map.put(current, "alpha", false)}
+            end
+          end)
+        end)
+      end)
+
+    assert_receive {:global_update_entered, :first, %{}, first_pid}, 5_000
+
+    second =
+      Task.async(fn ->
+        Sandbox.unboxed_run(Repo, fn ->
+          AppConfigure.update_global(definition, fn current ->
+            send(test_pid, {:global_update_entered, :second, current})
+            {:ok, Map.put(current, "beta", false)}
+          end)
+        end)
+      end)
+
+    refute_receive {:global_update_entered, :second, _current}, 200
+    send(first_pid, :finish_first_global_update)
+
+    assert {:ok, %{"alpha" => false}} = Task.await(first, 5_000)
+
+    assert_receive {:global_update_entered, :second, %{"alpha" => false}}, 5_000
+
+    assert {:ok, %{"alpha" => false, "beta" => false}} = Task.await(second, 5_000)
+    assert {:ok, %{"alpha" => false, "beta" => false}} = AppConfigure.get(definition)
+  end
+
+  test "publishing committed writes out of order refreshes the current database row", %{
+    prefix: prefix
+  } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "cache-publish-order"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.object(),
+        default_value: %{}
+      )
+
+    assert :ok = AppConfigure.register_definitions([definition])
+
+    assert {:ok, first_write} =
+             Repo.transact(fn repo ->
+               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{"alpha" => false})
+             end)
+
+    assert {:ok, second_write} =
+             Repo.transact(fn repo ->
+               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{
+                 "alpha" => false,
+                 "beta" => false
+               })
+             end)
+
+    Cache.clear_for_test()
+
+    assert {:ok, %{"alpha" => false, "beta" => false}} =
+             AppConfigure.cache_committed_write(second_write)
+
+    assert {:ok, %{"alpha" => false}} = AppConfigure.cache_committed_write(first_write)
+
+    assert {:ok, %{"alpha" => false, "beta" => false}} = AppConfigure.get(definition)
+  end
+
+  test "committed write publication respects later database truth without changing commit result",
+       %{
+         prefix: prefix
+       } do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "cache-publish-db-truth"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.object(),
+        default_value: %{"default" => true}
+      )
+
+    assert :ok = AppConfigure.register_definitions([definition])
+
+    assert {:ok, committed_write} =
+             Repo.transact(fn repo ->
+               AppConfigure.put_global_by_key_in_tx(repo, definition.key, %{"stored" => true})
+             end)
+
+    Repo.delete_all(
+      from(row in AppConfig,
+        where: row.scope == "global" and row.key == ^definition.key
+      )
+    )
+
+    assert {:ok, %{"stored" => true}} = AppConfigure.cache_committed_write(committed_write)
+    assert {:ok, %{"default" => true}} = AppConfigure.get(definition)
+
+    insert_row!("global", definition.key, %{"type" => "plaintext", "value" => "bad"})
+
+    assert {:ok, %{"stored" => true}} = AppConfigure.cache_committed_write(committed_write)
+
+    assert {:error, {:storage_error, "global", _, :not_json_object}} =
+             AppConfigure.get(definition)
   end
 
   test "resolves current agent, global, then code default", %{prefix: prefix} do
@@ -287,7 +453,7 @@ defmodule Ankole.AppConfigureTest do
     assert :error = AppConfigure.get(definition)
 
     refute Repo.exists?(
-             from row in AppConfig, where: row.scope == "global" and row.key == ^definition.key
+             from(row in AppConfig, where: row.scope == "global" and row.key == ^definition.key)
            )
   end
 
@@ -301,12 +467,18 @@ defmodule Ankole.AppConfigureTest do
   end
 
   defp get_row!(scope, key) do
-    Repo.one!(from row in AppConfig, where: row.scope == ^scope and row.key == ^key)
+    Repo.one!(from(row in AppConfig, where: row.scope == ^scope and row.key == ^key))
   end
 
   defp insert_row!(scope, key, value) do
     %AppConfig{}
     |> AppConfig.changeset(%{scope: scope, key: key, value: value})
     |> Repo.insert!()
+  end
+
+  defp delete_unboxed_global_row(key) do
+    Sandbox.unboxed_run(Repo, fn ->
+      Repo.delete_all(from(row in AppConfig, where: row.scope == "global" and row.key == ^key))
+    end)
   end
 end

@@ -486,7 +486,53 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
       # The actor event id is embedded so an operator can trace the failure.
       assert notice.fallback_visible_text =~ poison_event.id
+      refute notice.fallback_visible_text =~ "worker_loop_failed"
       assert is_nil(notice.target_source_entry_id)
+
+      # Startup hydration and an at-least-once duplicate wakeup both resolve the
+      # same durable key. Only the first dispatch may reach the provider.
+      outbox_channel = Ankole.RuntimeEvents.outbox_due_channel()
+
+      assert [{^outbox_channel, %{"outbound_key" => outbound_key}}] =
+               SignalsGateway.runtime_event_snapshot()
+               |> Enum.filter(fn {_channel, payload} ->
+                 payload["outbound_key"] == notice.outbound_key
+               end)
+
+      parent = self()
+
+      adapter = %{
+        capabilities: [:post_entry, :reply_entry, :edit_entry],
+        send: fn dispatched ->
+          send(parent, {:dead_letter_notice_sent, dispatched})
+          {:ok, %{created_source_entry_id: "provider-dead-letter-#{poison_event.id}"}}
+        end
+      }
+
+      assert {:ok, %OutboxEntry{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 notice.agent_uid,
+                 notice.binding_name,
+                 outbound_key,
+                 adapter
+               )
+
+      assert {:error, :outbox_not_dispatchable} =
+               SignalsGateway.dispatch_outbox(
+                 notice.agent_uid,
+                 notice.binding_name,
+                 outbound_key,
+                 adapter
+               )
+
+      assert_receive {:dead_letter_notice_sent,
+                      %OutboxEntry{payload: %{"reply_presentation" => %{"state" => "failed"}}}}
+
+      refute_receive {:dead_letter_notice_sent, _duplicate}, 100
+
+      refute Enum.any?(SignalsGateway.runtime_event_snapshot(), fn {_channel, payload} ->
+               payload["outbound_key"] == outbound_key
+             end)
 
       assert {:ok, %{turn_ref: next_turn_ref}} =
                process_ready_events_once(
@@ -542,6 +588,59 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert notice.operation == :edit
       assert notice.target_source_entry_id == preview_source_entry_id
       assert is_nil(notice.reply_to_source_entry_id)
+    end
+
+    test "dead-letter state and notice roll back together when the transaction fails" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: poison_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "atomic poison", explicit: true}),
+                 now: @base_time
+               )
+
+      now = DateTime.add(@base_time, 2, :second)
+
+      assert {:ok, %{turn_ref: turn_ref_from_result}} =
+               process_ready_events_once(now: now, lease_seconds: @long_lease_seconds)
+
+      assert_receive {:actor_lane, envelope}, 2_000
+      turn_ref = turn_start_payload!(envelope).turn
+      assert turn_ref.actor_event_id == turn_ref_from_result.actor_event_id
+
+      payload = turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{})
+
+      assert {:error, :forced_transaction_rollback} =
+               Ankole.SignalsGateway.ActorRuntime.TurnLifecycle.handle_turn_error(payload,
+                 now: now,
+                 compensate_turn_error_in_tx: fn _repo, _event, _reason, _at ->
+                   {:error, :forced_transaction_rollback}
+                 end
+               )
+
+      assert %ActorEvent{input_state: "open", dead_letter_at: nil} =
+               Repo.get!(ActorEvent, poison_event.id)
+
+      refute Repo.get_by(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
+
+      assert %ActorEventDelivery{state: state} =
+               Repo.get_by!(ActorEventDelivery, actor_event_id: poison_event.id)
+
+      assert state in ActorEventDelivery.live_states()
+
+      assert {:ok, %{status: :turn_dead_lettered}} =
+               ActorRuntime.handle_turn_error(payload, now: DateTime.add(now, 1, :second))
+
+      assert %ActorEvent{input_state: "dead_letter"} = Repo.get!(ActorEvent, poison_event.id)
+      assert Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{poison_event.id}")
     end
 
     test "retryable turn_error backs off then dead-letters at the attempt limit" do

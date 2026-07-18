@@ -401,7 +401,7 @@ export class BrowserSession {
   }
 
   private async fetch(urls: string[], deadline: number): Promise<Record<string, unknown>> {
-    const results: Array<Record<string, unknown> | undefined> = new Array(urls.length)
+    const results: Array<Record<string, unknown> | undefined> = Array.from({ length: urls.length })
     const workerCount = Math.min(2, urls.length)
     const waves = Math.ceil(urls.length / workerCount)
     const perURLBudget = Math.max(2_000, Math.min(15_000, Math.floor((deadline - Date.now() - 500) / waves)))

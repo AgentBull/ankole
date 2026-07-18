@@ -157,3 +157,57 @@ describe('@ankole/agent-computer background agent job failure input', () => {
     expect(text).not.toContain('background_agent_job(start)')
   })
 })
+
+describe('@ankole/agent-computer background agent job completion input', () => {
+  it('hands owner-visible artifact paths directly to reply_attachment', () => {
+    const projectPath = '/workspace/user-files/background-agent-jobs/019f64b1-4198-7200-9e22-6fb8fa8a3db8/project'
+    const artifactPath = `${projectPath}/report/report.md`
+    const text = actorEventText(
+      {
+        data: {
+          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          title: 'Market classification research',
+          result_summary: 'Research complete.',
+          project_path: projectPath,
+          artifacts: { total_count: 1, paths: [artifactPath], truncated: false }
+        }
+      },
+      'background_agent_job.completed'
+    )
+
+    expect(text).toContain(`Project path: ${projectPath}`)
+    expect(text).toContain(`Artifacts ready for reply_attachment:\n- ${artifactPath}`)
+    expect(text).toContain('Send the relevant files with reply_attachment')
+  })
+
+  it('bounds a hostile artifact list while preserving handoff after a long summary', () => {
+    const projectPath = '/workspace/user-files/background-agent-jobs/019f64b1-4198-7200-9e22-6fb8fa8a3db8/project'
+    const mountedOutputRoot = '/workspace/user-files/research-output'
+    const paths = Array.from({ length: 50_000 }, (_, index) => `${projectPath}/report/artifact-${index}.pdf`)
+    const text = actorEventText(
+      {
+        data: {
+          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          result_summary: '大'.repeat(20_000),
+          project_path: projectPath,
+          artifacts: { total_count: paths.length, paths, truncated: false },
+          artifact_roots: {
+            total_count: 2,
+            paths: [projectPath, mountedOutputRoot],
+            truncated: false
+          }
+        }
+      },
+      'background_agent_job.completed'
+    )
+
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(32_768)
+    expect(text).toContain('...[truncated]')
+    expect(text).toContain(`Project path: ${projectPath}`)
+    expect(text).toContain(`Artifact discovery roots:\n- ${projectPath}\n- ${mountedOutputRoot}`)
+    expect(text).toContain('Artifact handoff: showing 32 of 50000 paths (truncated).')
+    expect(text).toContain(paths[0]!)
+    expect(text).not.toContain(paths.at(-1)!)
+    expect(text).toContain('Use background_agent_job(status)')
+  })
+})

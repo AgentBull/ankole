@@ -578,7 +578,18 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, %{job: succeeded, wakeup_event: %ActorEvent{} = completed_event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "succeeded",
-               "result" => %{"summary" => "Launch brief written and verified."}
+               "result" => %{
+                 "summary" => "Launch brief written and verified.",
+                 "project_path" =>
+                   "/workspace/user-files/background-agent-jobs/#{waiting.id}/project",
+                 "artifacts" => %{
+                   "total_count" => 1,
+                   "paths" => [
+                     "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+                   ],
+                   "truncated" => false
+                 }
+               }
              })
 
     assert succeeded.status == "succeeded"
@@ -587,6 +598,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert get_in(completed_event.payload, ["data", "result_summary"]) ==
              "Launch brief written and verified."
+
+    assert get_in(completed_event.payload, ["data", "project_path"]) ==
+             "/workspace/user-files/background-agent-jobs/#{waiting.id}/project"
+
+    assert get_in(completed_event.payload, ["data", "artifacts"]) == %{
+             "total_count" => 1,
+             "paths" => [
+               "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+             ],
+             "truncated" => false
+           }
 
     failed = create_job!(agent.uid, "failed")
 
@@ -762,6 +784,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert waiting_stopped.status == "stopped"
+    refute Map.has_key?(waiting_stopped.metadata, "pending_user_input")
 
     refute Repo.exists?(
              from event in ActorEvent,
@@ -893,7 +916,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.get!(Job, job.id).status == running.status
   end
 
-  test "parent wakeup summaries are bounded to 16KB of valid UTF-8" do
+  test "parent wakeup bounds artifacts and keeps their handoff after a long summary" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "bounded-wakeup")
 
@@ -906,16 +929,69 @@ defmodule Ankole.BackgroundAgentJobsTest do
     running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-bounded-wakeup", "turn-bounded-wakeup", "completed")
 
-    assert {:ok, %{wakeup_event: wakeup}} =
+    project_path = "/workspace/user-files/background-agent-jobs/#{job.id}/project"
+
+    artifact_paths =
+      for index <- 1..50_000 do
+        "#{project_path}/report/artifact-#{index}.pdf"
+      end
+
+    changed_paths =
+      for index <- 1..8 do
+        "#{index}-#{String.duplicate("x", 3_000)}.tmp"
+      end
+
+    assert {:ok, %{job: succeeded, wakeup_event: wakeup}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "succeeded",
-               "result" => %{"summary" => String.duplicate("大", 20_000)}
+               "result" => %{
+                 summary: String.duplicate("大", 20_000),
+                 project_path: project_path,
+                 files_changed: %{
+                   total_count: length(changed_paths),
+                   paths: changed_paths,
+                   truncated: false
+                 },
+                 artifacts: %{
+                   total_count: length(artifact_paths),
+                   paths: artifact_paths,
+                   truncated: false
+                 },
+                 artifact_roots: %{
+                   total_count: 2,
+                   paths: [project_path, "/workspace/user-files/research-output"],
+                   truncated: false
+                 }
+               }
              })
 
     summary = get_in(wakeup.payload, ["data", "result_summary"])
     assert String.valid?(summary)
     assert byte_size(summary) <= 16_384
     assert String.ends_with?(summary, "...[truncated]")
+
+    handoff = get_in(wakeup.payload, ["data", "artifacts"])
+    assert handoff == succeeded.result["artifacts"]
+    assert handoff["total_count"] == 50_000
+    assert length(handoff["paths"]) == 32
+    assert hd(handoff["paths"]) == hd(artifact_paths)
+    assert handoff["truncated"]
+    assert byte_size(Ankole.JSON.encode!(handoff["paths"])) <= 8_192
+
+    changed = succeeded.result["files_changed"]
+    assert changed["total_count"] == length(changed_paths)
+    assert length(changed["paths"]) < length(changed_paths)
+    assert byte_size(Ankole.JSON.encode!(changed["paths"])) <= 8_192
+    assert changed["truncated"]
+
+    roots = succeeded.result["artifact_roots"]
+    assert roots == get_in(wakeup.payload, ["data", "artifact_roots"])
+    assert roots["total_count"] == 2
+    assert roots["paths"] == [project_path, "/workspace/user-files/research-output"]
+    refute roots["truncated"]
+
+    assert get_in(wakeup.payload, ["data", "project_path"]) == project_path
+    assert byte_size(Ankole.JSON.encode!(wakeup.payload)) <= 32_768
   end
 
   test "only normalized ankole_chatml trajectories can be stored as Turns" do

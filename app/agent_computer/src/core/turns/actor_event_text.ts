@@ -10,11 +10,15 @@ import {
   stringArg
 } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { CurrentChannelContext } from '../../prompts/system_prompt'
+import { backgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 
 const REPLY_REFERENCE_TEXT_MAX_CHARS = 24_000
 const REPLY_REFERENCE_TEXT_TAIL_CHARS = 6_000
+const BACKGROUND_AGENT_JOB_SUMMARY_MAX_BYTES = 16_384
+const BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX = '...[truncated]'
 
 /**
  * Renders a journaled actor event into the primary user text for the model.
@@ -176,23 +180,42 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
   const data = objectPath(payload, ['data'])
   const jobID = stringArg(data, 'job_id')
   const title = stringArg(data, 'title')
-  const summary = stringArg(data, 'result_summary')
+  const summary = boundedBackgroundAgentJobSummary(stringArg(data, 'result_summary'))
   const attempts = firstNumber(data, ['attempts'])
   const deliveryStatus = stringArg(data, 'delivery_status')
   const deliveryIssueCount = firstNumber(data, ['delivery_issue_count'])
+  const projectPath = stringArg(data, 'project_path')
+  const artifactHandoff = backgroundAgentJobPathHandoff(data?.artifacts)
+  const artifactPaths = artifactHandoff?.paths ?? []
+  const artifactRoots = backgroundAgentJobPathHandoff(data?.artifact_roots)
 
   if (type === 'background_agent_job.completed') {
     return [
       'A BackgroundAgentJob completed.',
       jobID ? `Job: ${jobID}` : undefined,
       title ? `Title: ${title}` : undefined,
+      projectPath ? `Project path: ${projectPath}` : undefined,
+      artifactHandoff
+        ? `Artifact handoff: showing ${artifactPaths.length} of ${artifactHandoff.total_count} paths${artifactHandoff.truncated ? ' (truncated)' : ''}.`
+        : undefined,
+      artifactPaths.length > 0
+        ? `Artifacts ready for reply_attachment:\n${artifactPaths.map(path => `- ${path}`).join('\n')}`
+        : undefined,
+      artifactRoots && artifactRoots.paths.length > 0
+        ? `Artifact discovery roots:\n${artifactRoots.paths.map(path => `- ${path}`).join('\n')}`
+        : undefined,
       summary ? `Reported result: ${summary}` : undefined,
       deliveryStatus
         ? `Delivery observation: ${deliveryStatus}${deliveryIssueCount ? ` (${deliveryIssueCount} issues)` : ''}`
         : undefined,
       'Use background_agent_job(status) for full details. Verify the deliverables yourself before reporting.',
+      artifactHandoff?.truncated
+        ? 'The artifact handoff is truncated. Inspect the Artifact discovery roots, and use background_agent_job(status) to recover configured workspace mounts before replying.'
+        : undefined,
       'If the task still needs work, make a small mechanical correction directly when that is sufficient, or call background_agent_job(steer) when the work benefits from the existing Job runtime context.',
-      'Use the generic artifact observations from status to identify and verify user-visible deliverables. Send those files with reply_attachment, then report the outcome to the user.'
+      artifactPaths.length > 0
+        ? 'Verify the owner-visible artifact paths above. Send the relevant files with reply_attachment, then report the outcome to the user.'
+        : 'Use the generic artifact observations from status to identify and verify user-visible deliverables. Send those files with reply_attachment, then report the outcome to the user.'
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n')
@@ -222,6 +245,14 @@ function backgroundAgentJobWakeupInputText(payload: JSONObject | undefined, type
   ]
     .filter((line): line is string => Boolean(line))
     .join('\n')
+}
+
+function boundedBackgroundAgentJobSummary(summary: string | undefined): string | undefined {
+  if (!summary || utf8ByteLength(summary) <= BACKGROUND_AGENT_JOB_SUMMARY_MAX_BYTES) return summary
+  return `${truncateUTF8Safe(
+    summary,
+    BACKGROUND_AGENT_JOB_SUMMARY_MAX_BYTES - utf8ByteLength(BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX)
+  )}${BACKGROUND_AGENT_JOB_TRUNCATION_SUFFIX}`
 }
 
 /**

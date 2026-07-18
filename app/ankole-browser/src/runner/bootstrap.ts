@@ -118,7 +118,7 @@ function installDialogPolicy(
   context.on('page', install)
   return {
     settle: async () => {
-      await Promise.allSettled([...pending])
+      await Promise.allSettled(pending)
       controller.signal.throwIfAborted()
     }
   }
@@ -151,8 +151,9 @@ async function waitForStart(signal: AbortSignal): Promise<void> {
   signal.throwIfAborted()
   await new Promise<void>((resolveStart, reject) => {
     const onMessage = (message: unknown): void => {
-      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'runner.start')
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'runner.start') {
         finish(resolveStart)
+      }
     }
     const onAbort = (): void => finish(() => reject(signal.reason))
     const onDisconnect = (): void => finish(() => reject(new Error('runner parent disconnected before start')))

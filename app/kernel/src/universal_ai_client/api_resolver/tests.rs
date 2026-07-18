@@ -483,6 +483,75 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
 }
 
 #[test]
+fn openai_chat_build_body_coalesces_interleaved_system_messages_at_the_front() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "instructions": "base instructions",
+                "input": [
+                    {"role": "developer", "content": "permissions"},
+                    {"role": "user", "content": "start the job"},
+                    {
+                        "type": "function_call",
+                        "call_id": "call_read",
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"README.md\"}"
+                    },
+                    {
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "job guidance"}]
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_read",
+                        "output": "# Ankole"
+                    },
+                    {"role": "assistant", "content": "working"},
+                    {"role": "system", "content": "late runtime policy"},
+                    {"role": "user", "content": "continue"}
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(
+        messages[0],
+        json!({
+            "role": "system",
+            "content": "base instructions\n\npermissions\n\njob guidance\n\nlate runtime policy"
+        })
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message["role"] == "system")
+            .count(),
+        1
+    );
+    assert_eq!(
+        messages[1],
+        json!({"role": "user", "content": "start the job"})
+    );
+    assert_eq!(messages[2]["role"], "assistant");
+    assert_eq!(messages[2]["tool_calls"][0]["id"], "call_read");
+    assert_eq!(messages[3]["role"], "tool");
+    assert_eq!(messages[3]["tool_call_id"], "call_read");
+    assert_eq!(
+        messages[4],
+        json!({"role": "assistant", "content": "working"})
+    );
+    assert_eq!(messages[5], json!({"role": "user", "content": "continue"}));
+}
+
+#[test]
 fn openai_chat_build_body_repairs_trailing_function_call_history() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,

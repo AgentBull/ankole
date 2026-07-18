@@ -8,6 +8,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
   `*_json` bytes here and nowhere else.
   """
 
+  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
@@ -40,7 +41,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
       end
 
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
       lane: :LANE_TURN,
@@ -68,7 +69,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     message_id = "mailbox-updated-" <> Ecto.UUID.generate()
 
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
       lane: :LANE_TURN,
@@ -95,7 +96,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
     message_id = "turn-control-" <> Ecto.UUID.generate()
 
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: message_id,
       correlation_id: message_id,
       lane: :LANE_CONTROL,

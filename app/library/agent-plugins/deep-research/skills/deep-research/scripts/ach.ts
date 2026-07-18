@@ -216,13 +216,16 @@ export function computeACH(input: ACHInput): ACHOutput {
 
 export function validateACHInput(input: ACHInput): void {
   if (!input || typeof input !== 'object') throw new Error('ACH input must be an object')
-  if (!Array.isArray(input.hypotheses) || input.hypotheses.length < 3)
+  if (!Array.isArray(input.hypotheses) || input.hypotheses.length < 3) {
     throw new Error('ACH requires at least three hypotheses')
+  }
   const hypothesisIDs = new Set(input.hypotheses.map(item => item.id))
-  if (hypothesisIDs.size !== input.hypotheses.length || hypothesisIDs.has(''))
+  if (hypothesisIDs.size !== input.hypotheses.length || hypothesisIDs.has('')) {
     throw new Error('hypothesis ids must be non-empty and unique')
-  if (input.hypotheses.some(item => !['base_rate', 'mechanism', 'residual'].includes(item.kind ?? '')))
+  }
+  if (input.hypotheses.some(item => !['base_rate', 'mechanism', 'residual'].includes(item.kind ?? ''))) {
     throw new Error('every ACH hypothesis requires a valid kind')
+  }
   if (!input.hypotheses.some(item => item.kind === 'base_rate')) throw new Error('ACH requires a base_rate hypothesis')
   if (!input.hypotheses.some(item => item.kind === 'residual')) throw new Error('ACH requires a residual hypothesis')
   if (!input.priors || Object.keys(input.priors).sort().join(',') !== [...requiredPriorNames].sort().join(',')) {
@@ -231,31 +234,39 @@ export function validateACHInput(input: ACHInput): void {
   for (const name of requiredPriorNames) {
     const prior = input.priors?.[name]
     if (!prior) throw new Error(`ACH requires the ${name} prior`)
-    if (Object.keys(prior).sort().join(',') !== [...hypothesisIDs].sort().join(','))
+    if (Object.keys(prior).sort().join(',') !== [...hypothesisIDs].sort().join(',')) {
       throw new Error(`prior ${name} must contain exactly the live hypotheses`)
+    }
     const sum = Object.values(prior).reduce((total, value) => total + value, 0)
     if (Math.abs(sum - 1) > 1e-6) throw new Error(`prior ${name} must sum to 1`)
     for (const id of hypothesisIDs) {
-      if (!Number.isFinite(prior[id]) || prior[id]! <= 0)
+      if (!Number.isFinite(prior[id]) || prior[id]! <= 0) {
         throw new Error(`prior ${name} is missing positive mass for ${id}`)
+      }
     }
   }
-  if (input.canonical_prior && !requiredPriorNames.includes(input.canonical_prior))
+  if (input.canonical_prior && !requiredPriorNames.includes(input.canonical_prior)) {
     throw new Error('canonical_prior must name one of the three required priors')
-  if (input.conclusion_scale !== undefined && (!(input.conclusion_scale > 0) || input.conclusion_scale > 1))
+  }
+  if (input.conclusion_scale !== undefined && (!(input.conclusion_scale > 0) || input.conclusion_scale > 1)) {
     throw new Error('conclusion_scale must be greater than 0 and at most 1')
+  }
   const evidenceIDs = new Set<string>()
   for (const evidence of input.evidence ?? []) {
-    if (!evidence.id || !evidence.source_id || !evidence.cluster || !evidence.independence_key)
+    if (!evidence.id || !evidence.source_id || !evidence.cluster || !evidence.independence_key) {
       throw new Error('evidence requires id, source_id, cluster, and independence_key')
+    }
     if (evidenceIDs.has(evidence.id)) throw new Error(`duplicate evidence id ${evidence.id}`)
     evidenceIDs.add(evidence.id)
-    if (!['new', 'repeated', 'unknown'].includes(evidence.newness))
+    if (!['new', 'repeated', 'unknown'].includes(evidence.newness)) {
       throw new Error(`invalid newness for evidence ${evidence.id}`)
-    if (!['unabsorbed', 'partially_absorbed', 'absorbed', 'unknown'].includes(evidence.absorbed))
+    }
+    if (!['unabsorbed', 'partially_absorbed', 'absorbed', 'unknown'].includes(evidence.absorbed)) {
       throw new Error(`invalid absorbed value for evidence ${evidence.id}`)
-    if (!['full', 'partial', 'none'].includes(evidence.horizon_weight))
+    }
+    if (!['full', 'partial', 'none'].includes(evidence.horizon_weight)) {
       throw new Error(`invalid horizon_weight for evidence ${evidence.id}`)
+    }
     validateGrades(evidence.grades, hypothesisIDs, `evidence ${evidence.id}`)
   }
   const evidenceByID = new Map(input.evidence.map(evidence => [evidence.id, evidence]))
@@ -263,8 +274,9 @@ export function validateACHInput(input: ACHInput): void {
     if (!Array.isArray(evidence.corroborated_by)) throw new Error(`evidence ${evidence.id} requires corroborated_by`)
     for (const corroboratorID of evidence.corroborated_by) {
       if (corroboratorID === evidence.id) throw new Error(`evidence ${evidence.id} cannot corroborate itself`)
-      if (!evidenceByID.has(corroboratorID))
+      if (!evidenceByID.has(corroboratorID)) {
         throw new Error(`evidence ${evidence.id} references unknown corroborator ${corroboratorID}`)
+      }
     }
   }
   for (const cluster of new Set(input.evidence.map(evidence => evidence.cluster))) {
@@ -292,12 +304,14 @@ export function validateACHInput(input: ACHInput): void {
   }
   const discriminatorIDs = new Set<string>()
   for (const discriminator of input.unresolved_discriminators ?? []) {
-    if (!discriminator.id || discriminator.outcomes.length !== 2)
+    if (!discriminator.id || discriminator.outcomes.length !== 2) {
       throw new Error('each unresolved discriminator requires exactly two named outcomes')
+    }
     if (discriminatorIDs.has(discriminator.id)) throw new Error(`duplicate discriminator id ${discriminator.id}`)
     discriminatorIDs.add(discriminator.id)
-    if (new Set(discriminator.outcomes.map(outcome => outcome.id)).size !== discriminator.outcomes.length)
+    if (new Set(discriminator.outcomes.map(outcome => outcome.id)).size !== discriminator.outcomes.length) {
       throw new Error(`discriminator ${discriminator.id} outcome ids must be unique`)
+    }
     for (const outcome of discriminator.outcomes) {
       if (!outcome.id) throw new Error(`discriminator ${discriminator.id} outcome requires id`)
       validateGrades(outcome.grades, hypothesisIDs, `discriminator ${discriminator.id}/${outcome.id}`)
@@ -451,8 +465,9 @@ function ranking(values: Record<string, number>): string[] {
 }
 
 function validateGrades(grades: Record<string, Grade>, ids: Set<string>, label: string): void {
-  if (!grades || Object.keys(grades).sort().join(',') !== [...ids].sort().join(','))
+  if (!grades || Object.keys(grades).sort().join(',') !== [...ids].sort().join(',')) {
     throw new Error(`${label} grades must contain exactly the live hypotheses`)
+  }
   for (const id of ids) if (!(grades?.[id] in gradeWeight)) throw new Error(`invalid grade for ${label}/${id}`)
 }
 

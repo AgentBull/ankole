@@ -12,6 +12,12 @@ export type AgentLibraryDocumentSnapshot = {
 
 export type AgentLibraryDocumentsSnapshot = Record<AgentLibraryDocumentKind, AgentLibraryDocumentSnapshot>
 
+export type AgentLibraryDocumentSubmission = {
+  content: string
+  expectedContentHash: string
+  revision: number
+}
+
 function createDocumentState() {
   return {
     sourceContent: signal(''),
@@ -19,7 +25,8 @@ function createDocumentState() {
     draft: signal(''),
     editing: signal(false),
     error: signal<string>(),
-    conflict: signal(false)
+    conflict: signal(false),
+    revision: signal(0)
   }
 }
 
@@ -32,6 +39,7 @@ function replaceDocumentState(state: DocumentState, document: AgentLibraryDocume
   state.editing.value = false
   state.error.value = undefined
   state.conflict.value = false
+  state.revision.value += 1
 }
 
 export const AgentLibraryEditorModel = createModel(() => {
@@ -66,10 +74,16 @@ export const AgentLibraryEditorModel = createModel(() => {
         state.editing.value = true
         state.error.value = undefined
         state.conflict.value = false
+        state.revision.value += 1
       })
     },
     setDraft(kind: AgentLibraryDocumentKind, content: string) {
-      documents[kind].draft.value = content
+      const state = documents[kind]
+      if (state.draft.value === content) return
+      batch(() => {
+        state.draft.value = content
+        state.revision.value += 1
+      })
     },
     cancel(kind: AgentLibraryDocumentKind) {
       const state = documents[kind]
@@ -78,10 +92,32 @@ export const AgentLibraryEditorModel = createModel(() => {
         state.editing.value = false
         state.error.value = undefined
         state.conflict.value = false
+        state.revision.value += 1
       })
     },
-    markSaved(kind: AgentLibraryDocumentKind, document: AgentLibraryDocumentSnapshot) {
-      batch(() => replaceDocumentState(documents[kind], document))
+    markSaved(
+      kind: AgentLibraryDocumentKind,
+      document: AgentLibraryDocumentSnapshot,
+      submission: AgentLibraryDocumentSubmission
+    ) {
+      const state = documents[kind]
+      const hasUnsavedChanges =
+        state.editing.value && state.revision.value !== submission.revision && state.draft.value !== document.content
+
+      batch(() => {
+        if (!hasUnsavedChanges) {
+          replaceDocumentState(state, document)
+          return
+        }
+
+        state.sourceContent.value = document.content
+        state.contentHash.value = document.content_hash
+        state.error.value = undefined
+        state.conflict.value = false
+        state.revision.value += 1
+      })
+
+      return { hasUnsavedChanges }
     },
     setError(kind: AgentLibraryDocumentKind, error: string, conflict = false) {
       batch(() => {
@@ -92,10 +128,11 @@ export const AgentLibraryEditorModel = createModel(() => {
     reload(kind: AgentLibraryDocumentKind, document: AgentLibraryDocumentSnapshot) {
       batch(() => replaceDocumentState(documents[kind], document))
     },
-    snapshot(kind: AgentLibraryDocumentKind) {
+    snapshot(kind: AgentLibraryDocumentKind): AgentLibraryDocumentSubmission {
       return {
         content: documents[kind].draft.value,
-        expectedContentHash: documents[kind].contentHash.value
+        expectedContentHash: documents[kind].contentHash.value,
+        revision: documents[kind].revision.value
       }
     }
   }

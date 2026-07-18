@@ -152,6 +152,11 @@ shutdown, worker loss, and backpressure visible while the runtime is still
 small. Callers may tune them, but they should not depend on unbounded ZeroMQ
 queues for correctness.
 
+ROUTER initialization is also bounded. If the host times out before receiving a
+router handle, it marks the not-yet-returned socket thread stopped; a late bind
+must release its endpoint instead of becoming an ownerless router. Losing the
+host command sender is likewise a terminal condition for the socket loop.
+
 ZeroMQ send errors are mapped into actor-runtime language:
 
 - `EHOSTUNREACH` becomes `unknown_route`;
@@ -197,6 +202,10 @@ implementation details:
 `worker_id` identifies the stable operator-managed worker slot, not one OS
 process. Every Agent Computer process generates a fresh `incarnation_id` and
 includes it in `worker_ready`, `worker_heartbeat`, and `worker_capacity`.
+Before `worker_ready` can create or refresh that projection, the Rust kernel
+requires the envelope's `protocol_version` to match the control plane and the
+Elixir admission boundary checks the same header again. A mismatched worker is
+never placed in the ready pool.
 Admitting a new incarnation for the same worker atomically supersedes the old
 process projection and releases delivery fences still owned by that old
 incarnation, so a crash/restart can resume immediately instead of waiting for a
@@ -242,7 +251,7 @@ commit a newer turn because write effects are checked against PG-owned turn refs
 and revisions.
 
 CURVE/TLS and public worker admission are not part of the current mainline.
-That keeps the v1 implementation tied to the actual deployment assumption:
+That keeps the implementation tied to the actual deployment assumption:
 operator-launched Docker workers, private fabric endpoints, an AppConfigure
 global worker key, and control-plane-owned durability.
 
@@ -264,7 +273,7 @@ the Rust kernel stays the single semantic checker: it validates these
 invariants on every send and receive path before bytes cross the wire or reach
 normal Elixir or Bun handlers:
 
-- `protocol_version` must be `1`;
+- `protocol_version` must be `2`;
 - every envelope must have `message_id`, `lane`, `durability`, and exactly one
   body;
 - body type fixes the allowed lane and durability class;
@@ -274,20 +283,52 @@ normal Elixir or Bun handlers:
   payload channel;
 - `worker_progress.kind` is limited to control-plane-visible progress classes.
 
-`*_json` bytes fields carry UTF-8 JSON text produced by the sending host's
-JSON serializer; empty bytes mean "absent". Hosts decode them at the lane
-boundary and treat invalid JSON as a producer bug rather than degrading.
-Generated messages stay at that boundary: the snake_case JSON DTOs (for
-example the `ActorTurnRef` fence carried inside RPC `payload_json`) remain the
-shape of RPC payload contracts and the core turn runtime.
+`*_json` bytes fields carry UTF-8 JSON text produced by the sending host's JSON
+serializer; empty bytes mean "absent". Hosts decode them at the lane boundary
+and treat invalid JSON as a producer bug rather than degrading. RPC frame
+payloads are no longer JSON: protocol version 2 gives field 4 of `RPCRequest`
+and field 2 of `RPCResponse` method-specific protobuf meaning, with turn and
+agent identity on the request frame. Reusing those v1 field numbers changed
+their application-level wire meaning, so version 1 and version 2 runtimes are
+intentionally incompatible.
 
 Cross-language conformance is anchored by golden fixtures under
 `app/kernel/proto/golden/`: the committed bytes are decoded read-only by the
-Rust, Elixir, and TypeScript suites, including a pre-`max_completion_tokens`
-fixture that proves additive fields keep older v1 bytes decodable across
-rolling deploys. Regenerate them with
+Rust, Elixir, and TypeScript suites. Current `*.v2.bin` fixtures must pass the
+kernel validator. Retained `*.v1.bin` fixtures remain structurally decodable for
+diagnostics but must fail semantic validation before worker admission. This
+means a v1-to-v2 deployment is a coordinated control-plane and worker rollout,
+not a mixed-version rolling deploy. The generated package namespace remains
+`ankole.runtime_fabric.v1`; compatibility admission is owned by the envelope
+header, not by the code-generation namespace. Regenerate current fixtures with
 `cargo test --no-default-features regenerate_golden_envelope_fixtures -- --ignored`
 after an intentional protocol change.
+
+### Image pairing and protocol rollout
+
+`.github/workflows/runtime-images.yml` is the only main-branch publisher for
+the control-plane and Agent Computer runtime images. One run builds both from
+the same Git SHA, publishes each final multi-platform tag at that SHA at most
+once, and labels both architectures with the release SHA and RuntimeFabric
+protocol version. The pair gate stays closed until both images exist and match
+those labels; it then emits a JSON pair record plus two Helm values files that
+pin the verified manifest digests. The order in which the control-plane and
+worker manifests finish publishing cannot expose a deployable half-pair.
+
+The Helm chart accepts only digest-pinned images, the matching 40-character
+release revision, and an explicit rollout phase. Its pre-install/pre-upgrade
+hook pulls both images and checks their baked release revision and protocol
+version before either Deployment changes. The `control-plane` phase keeps the
+worker at zero replicas and uses `Recreate` for the control plane; after that
+phase succeeds with `--wait`, the `worker` phase starts the paired worker. Drain
+the old worker before the first phase. Rollback uses the previous verified pair
+through the same two phases; never roll back only one side.
+
+An incompatible transition between two singleton processes necessarily has a
+bounded zero-worker maintenance window. The rollout contract makes that window
+explicit instead of serving a mixed protocol. Accepted ActorEvents and
+BackgroundAgentJobs remain PostgreSQL facts and resume after the paired worker
+is admitted; RuntimeFabric itself is not the recovery source.
 
 The protobuf lane values are transport-level lanes shared by the whole
 RuntimeFabric connection. They are lower-level than the product lane names and

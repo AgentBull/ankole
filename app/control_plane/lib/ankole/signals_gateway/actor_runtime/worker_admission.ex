@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -50,13 +51,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   authenticated. The worker payload names the stable worker id and one concrete
   process incarnation; the route proves where replies should be sent.
   """
-  @spec admit_worker_ready(FabricProto.AgentComputerWorkerReady.t(), String.t() | map()) ::
+  @spec admit_worker_ready(
+          FabricProto.AgentComputerWorkerReady.t(),
+          String.t() | map(),
+          non_neg_integer()
+        ) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   def admit_worker_ready(
         %FabricProto.AgentComputerWorkerReady{} = worker_ready,
-        authenticated_route
+        authenticated_route,
+        protocol_version
       ) do
-    with {:ok, auth} <- authenticated_route(authenticated_route),
+    with :ok <- supported_protocol_version(protocol_version),
+         {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, attrs} <- worker_ready_attrs(worker_ready, auth.route),
          :ok <- authenticated_worker_matches(auth, attrs.worker_id) do
       record_worker_ready(attrs, auth.route)
@@ -66,9 +73,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   @doc """
   Records a worker-ready projection.
 
-  Workers are homogeneous because they boot from the same image. The projection
-  therefore records liveness, route, version, capacity, and load, but it does
-  not negotiate per-worker features.
+  Admitted workers already match the one RuntimeFabric protocol version. The
+  projection records product/runtime observability, liveness, route, capacity,
+  and load; it does not negotiate per-worker features.
   """
   @spec record_worker_ready(map(), String.t() | nil) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -589,8 +596,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   defp authenticated_worker_matches(_auth, _worker_id),
     do: {:error, :worker_auth_identity_mismatch}
 
-  # Extracts only the data needed to place homogeneous workers. Runtime and
-  # version stay as observability metadata instead of becoming scheduling axes.
+  defp supported_protocol_version(protocol_version) do
+    expected = RuntimeFabric.protocol_version()
+
+    if protocol_version == expected do
+      :ok
+    else
+      {:error, {:unsupported_runtime_fabric_protocol, protocol_version, expected}}
+    end
+  end
+
+  # Extracts only the data needed to place protocol-compatible workers. Runtime
+  # and product version stay as observability metadata, not scheduling axes.
   defp worker_ready_attrs(%FabricProto.AgentComputerWorkerReady{} = worker_ready, route) do
     with {:ok, worker_id} <- required_text(worker_ready.worker_id, "worker_id"),
          {:ok, incarnation_id} <- required_text(worker_ready.incarnation_id, "incarnation_id"),

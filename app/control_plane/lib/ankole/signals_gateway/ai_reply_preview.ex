@@ -44,6 +44,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @cardkit_flush_interval_ms 250
   @cardkit_creation_debounce_ms 350
   @cardkit_retry_max_ms 30_000
+  @terminal_handoff_timeout_ms 5_000
 
   @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer check_back_later.wakeup cron.fire background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
 
@@ -133,6 +134,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         refresh_checkpoint(event)
 
       %ActorEvent{
+        input_state: "open",
         completed_at: nil,
         reply_preview_checkpoint: %{
           "subject_uid" => subject_uid,
@@ -294,6 +296,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       rich_retry_ms: 1_000,
       rich_retry_at: nil,
       stopping: false,
+      terminal_handoff_timer: nil,
       silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
       # Worker phase and tool events arrive before a quiet scheduled turn can
       # choose `<silent_success/>`. Do not let those events open a visible card.
@@ -307,6 +310,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @impl GenServer
   def handle_cast(:stop, state) do
     state
+    |> ensure_terminal_handoff_timer()
     |> Map.merge(%{stopping: true, rich_retry_at: nil})
     |> settle_rich_stop()
   end
@@ -378,14 +382,44 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     Process.demonitor(ref, [:flush])
     state = finish_rich_sync(state, result)
 
-    if state.stopping, do: settle_rich_stop(state), else: {:noreply, state}
+    if state.stopping do
+      settle_after_terminal_sync(state, result)
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
-    state = finish_rich_sync(state, {:error, {:reply_preview_task_exit, reason}})
+    result = {:error, {:reply_preview_task_exit, reason}}
+    state = finish_rich_sync(state, result)
 
-    if state.stopping, do: settle_rich_stop(state), else: {:noreply, state}
+    if state.stopping do
+      settle_after_terminal_sync(state, result)
+    else
+      {:noreply, state}
+    end
   end
+
+  def handle_info(:terminal_handoff_timeout, %{stopping: true} = state) do
+    Logging.warning(
+      "signals_gateway.ai_reply_preview.terminal_handoff_timeout",
+      "AI reply preview exceeded the terminal handoff deadline",
+      preview_fields(state, %{})
+    )
+
+    shutdown_rich_task_now(state.rich_task)
+
+    state
+    |> Map.merge(%{
+      rich_task: nil,
+      rich_task_presentation: nil,
+      dirty: false,
+      terminal_handoff_timer: nil
+    })
+    |> finish_rich_stop()
+  end
+
+  def handle_info(:terminal_handoff_timeout, state), do: {:noreply, state}
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -687,10 +721,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       case Actors.lock_actor_event_in_tx(repo, state.actor_event.id) do
         %ActorEvent{} = event ->
           checkpoint = event.reply_preview_checkpoint || %{}
-          stored_presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+          stored_checkpoint = checkpoint["presentation"]
+          stored_presentation = ReplyPresentation.normalize(stored_checkpoint)
 
-          if presentation_revision(latest_presentation) >=
-               presentation_revision(stored_presentation) do
+          if not is_map(stored_checkpoint) or
+               presentation_revision(latest_presentation) >
+                 presentation_revision(stored_presentation) do
             checkpoint =
               checkpoint
               |> Map.put_new("subject_uid", state.subject_uid)
@@ -722,12 +758,11 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp checkpoint_latest_rich_presentation(_state), do: :ok
 
   # A normal Actor lifecycle stop is also the ownership handoff from the
-  # transient preview to the durable terminal outbox. Never interrupt an
-  # in-flight provider mutation at that boundary: the provider may commit it
-  # before the task persists its acknowledged checkpoint, leaving terminal
-  # delivery to diff against stale state and create duplicate elements or
-  # messages. Drain the latest dirty projection (including retryable failures)
-  # and stop only after no rich mutation remains in flight.
+  # transient preview to the durable terminal outbox. Give one in-flight
+  # mutation a bounded chance to settle. On failure or timeout, checkpoint the
+  # latest semantic projection and let the durable terminal mutation supersede
+  # it with a higher CardKit sequence; retrying transient work indefinitely here
+  # would leave an accepted message stuck on a working card forever.
   defp settle_rich_stop(
          %{
            reply_preview_adapter: %ReplyPreviewAdapter{},
@@ -746,10 +781,37 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp settle_rich_stop(state), do: finish_rich_stop(state)
 
+  defp settle_after_terminal_sync(state, {:ok, result}) when is_map(result),
+    do: settle_rich_stop(state)
+
+  defp settle_after_terminal_sync(state, _failed_result), do: finish_rich_stop(state)
+
   defp finish_rich_stop(state) do
+    cancel_terminal_handoff_timer(state.terminal_handoff_timer)
     checkpoint_latest_rich_presentation(state)
 
-    {:stop, :normal, %{state | rich_task: nil, rich_task_presentation: nil, dirty: false}}
+    {:stop, :normal,
+     %{
+       state
+       | rich_task: nil,
+         rich_task_presentation: nil,
+         dirty: false,
+         terminal_handoff_timer: nil
+     }}
+  end
+
+  defp ensure_terminal_handoff_timer(%{terminal_handoff_timer: nil} = state) do
+    timer = Process.send_after(self(), :terminal_handoff_timeout, @terminal_handoff_timeout_ms)
+    %{state | terminal_handoff_timer: timer}
+  end
+
+  defp ensure_terminal_handoff_timer(state), do: state
+
+  defp cancel_terminal_handoff_timer(nil), do: :ok
+
+  defp cancel_terminal_handoff_timer(timer) do
+    Process.cancel_timer(timer, async: true, info: false)
+    :ok
   end
 
   defp shutdown_rich_task(%Task{} = task) do
@@ -758,6 +820,13 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp shutdown_rich_task(_task), do: :ok
+
+  defp shutdown_rich_task_now(%Task{} = task) do
+    _ = Task.shutdown(task, :brutal_kill)
+    :ok
+  end
+
+  defp shutdown_rich_task_now(_task), do: :ok
 
   defp handle_tool_activity(%{silent_success_allowed: true} = state, _stage, _payload),
     do: state

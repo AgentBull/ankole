@@ -53,14 +53,15 @@ describe('AgentLibraryEditorModel', () => {
     expect(model.documents.mission.draft.value).toBe('Mission A')
     expect(model.documents.soul.draft.value).toBe('Soul draft')
 
-    model.markSaved('soul', { kind: 'soul', content: 'Soul saved', content_hash: 'soul:saved' })
+    const soulSubmission = model.snapshot('soul')
+    model.markSaved('soul', { kind: 'soul', content: 'Soul saved', content_hash: 'soul:saved' }, soulSubmission)
     expect(model.documents.soul.sourceContent.value).toBe('Soul saved')
     expect(model.documents.soul.editing.value).toBeFalse()
 
     model.beginEdit('mission')
     model.setDraft('mission', 'Conflicting draft')
     model.setError('mission', 'Changed elsewhere', true)
-    expect(model.snapshot('mission')).toEqual({
+    expect(model.snapshot('mission')).toMatchObject({
       content: 'Conflicting draft',
       expectedContentHash: 'mission:Mission A'
     })
@@ -70,6 +71,32 @@ describe('AgentLibraryEditorModel', () => {
     expect(model.documents.mission.draft.value).toBe('Latest mission')
     expect(model.documents.mission.editing.value).toBeFalse()
     expect(model.documents.mission.conflict.value).toBeFalse()
+    model[Symbol.dispose]()
+  })
+
+  test('applies a saved source without discarding edits made after submission', () => {
+    const model = new AgentLibraryEditorModel()
+    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.beginEdit('mission')
+    model.setDraft('mission', 'Submitted mission')
+    const submission = model.snapshot('mission')
+
+    model.setDraft('mission', 'Newer unsaved mission')
+    const result = model.markSaved(
+      'mission',
+      { kind: 'mission', content: 'Submitted mission', content_hash: 'mission:submitted' },
+      submission
+    )
+
+    expect(result).toEqual({ hasUnsavedChanges: true })
+    expect(model.documents.mission.sourceContent.value).toBe('Submitted mission')
+    expect(model.documents.mission.contentHash.value).toBe('mission:submitted')
+    expect(model.documents.mission.draft.value).toBe('Newer unsaved mission')
+    expect(model.documents.mission.editing.value).toBeTrue()
+    expect(model.snapshot('mission')).toMatchObject({
+      content: 'Newer unsaved mission',
+      expectedContentHash: 'mission:submitted'
+    })
     model[Symbol.dispose]()
   })
 })

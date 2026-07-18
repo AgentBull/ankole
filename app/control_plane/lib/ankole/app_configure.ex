@@ -5,6 +5,7 @@ defmodule Ankole.AppConfigure do
 
   import Ecto.Query
 
+  alias Ecto.Adapters.SQL
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Codec
@@ -12,6 +13,7 @@ defmodule Ankole.AppConfigure do
   alias Ankole.AppConfigure.PatternDefinition
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Resolution
+  alias Ankole.Logging
   alias Ankole.Repo
 
   @global_scope "global"
@@ -19,7 +21,7 @@ defmodule Ankole.AppConfigure do
 
   @type definition :: Definition.t() | PatternDefinition.t()
   @type console_item :: map()
-  @opaque committed_write :: {term(), String.t(), String.t(), map()}
+  @opaque committed_write :: {term(), String.t(), String.t()}
 
   @doc """
   Builds an exact AppConfigure definition and raises on invalid declaration data.
@@ -141,12 +143,57 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc """
+  Atomically transforms one installation-wide value under a per-key database lock.
+
+  The callback receives the current PostgreSQL value, or the registered default
+  when no row exists, and must return `{:ok, next_value}` or `{:error, reason}`.
+  It runs exactly once while a short transaction holds the key lock, so it must
+  only compute the replacement value and must not perform external I/O.
+  """
+  @spec update_global(Definition.t(), (term() -> {:ok, term()} | {:error, term()})) ::
+          {:ok, term()} | {:error, term()}
+  def update_global(%Definition{} = definition, updater) when is_function(updater, 1) do
+    with {:ok, registered} <- Registry.require_definition(definition) do
+      case Repo.transact(fn repo ->
+             with :ok <- lock_global_key(repo, registered.key),
+                  {:ok, current} <- current_global_value_in_tx(repo, registered),
+                  {:ok, next_value} <- run_global_updater(updater, current),
+                  {:ok, committed_write} <-
+                    put_row(repo, @global_scope, registered.key, registered, next_value) do
+               {:ok, committed_write}
+             end
+           end) do
+        {:ok, committed_write} -> cache_committed_write(committed_write)
+        {:error, _reason} = error -> error
+      end
+    end
+  end
+
+  @doc """
   Stores a validated value for a concrete exact or pattern-backed key in `global`.
   """
   @spec put_global_by_key(String.t(), term()) :: {:ok, term()} | {:error, term()}
   def put_global_by_key(key, value) when is_binary(key) do
     with {:ok, registered} <- Registry.require_key(key) do
       put(@global_scope, key, registered, value)
+    end
+  end
+
+  @doc false
+  @spec get_global_by_key_in_tx(module(), String.t()) ::
+          {:ok, term()} | :error | {:error, term()}
+  def get_global_by_key_in_tx(repo, key) when is_atom(repo) and is_binary(key) do
+    with {:ok, registered} <- Registry.require_key(key) do
+      case repo.get_by(AppConfig, scope: @global_scope, key: key) do
+        %AppConfig{value: envelope} ->
+          case Codec.load(registered, @global_scope, key, envelope) do
+            {:ok, value} -> {:ok, value}
+            {:error, reason} -> {:error, {:storage_error, @global_scope, key, reason}}
+          end
+
+        nil ->
+          :error
+      end
     end
   end
 
@@ -161,8 +208,8 @@ defmodule Ankole.AppConfigure do
 
   @doc false
   @spec cache_committed_write(committed_write()) :: {:ok, term()}
-  def cache_committed_write({parsed, scope, key, envelope}) do
-    :ok = Cache.put_row(scope, key, envelope)
+  def cache_committed_write({parsed, scope, key}) do
+    refresh_cache_after_commit(scope, key)
     {:ok, parsed}
   end
 
@@ -275,7 +322,7 @@ defmodule Ankole.AppConfigure do
   """
   @spec console_detail_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
   def console_detail_by_key(key) when is_binary(key) do
-    with {:ok, {kind, definition}} <- editable_console_definition(key) do
+    with {:ok, {kind, definition}} <- console_definition(key) do
       {:ok, console_definition_item(definition, global_row(key), kind, key)}
     end
   end
@@ -285,7 +332,7 @@ defmodule Ankole.AppConfigure do
   """
   @spec console_put_global_by_key(String.t(), term()) :: {:ok, console_item()} | {:error, term()}
   def console_put_global_by_key(key, value) when is_binary(key) do
-    with {:ok, {_kind, _definition}} <- editable_console_definition(key),
+    with {:ok, {_kind, _definition}} <- writable_console_definition(key),
          {:ok, _value} <- put_global_by_key(key, value) do
       console_detail_by_key(key)
     end
@@ -302,8 +349,13 @@ defmodule Ankole.AppConfigure do
           {:ok, console_item()} | {:error, term()}
   def console_update_global_by_key(key, attrs) when is_binary(key) and is_map(attrs) do
     case fetch_console_update_value(attrs) do
-      {:ok, value} -> console_put_global_by_key(key, value)
-      :error -> preserve_encrypted_console_value(key)
+      {:ok, value} ->
+        console_put_global_by_key(key, value)
+
+      :error ->
+        with {:ok, {_kind, _definition}} <- writable_console_definition(key) do
+          preserve_encrypted_console_value(key)
+        end
     end
   end
 
@@ -312,7 +364,7 @@ defmodule Ankole.AppConfigure do
   """
   @spec console_delete_global_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
   def console_delete_global_by_key(key) when is_binary(key) do
-    with {:ok, {kind, definition}} <- editable_console_definition(key),
+    with {:ok, {kind, definition}} <- writable_console_definition(key),
          :ok <- delete_global_by_key(key) do
       deleted_console_item(kind, definition, key)
     end
@@ -323,7 +375,7 @@ defmodule Ankole.AppConfigure do
   """
   @spec console_decrypt_by_key(String.t()) :: {:ok, term()} | {:error, term()}
   def console_decrypt_by_key(key) when is_binary(key) do
-    with {:ok, {_kind, %{encrypted: true}}} <- editable_console_definition(key),
+    with {:ok, {_kind, %{encrypted: true}}} <- console_definition(key),
          {:ok, value} <- get_by_key(key) do
       {:ok, value}
     else
@@ -418,7 +470,6 @@ defmodule Ankole.AppConfigure do
         {:ok, %Resolution{value: value, source: source_for_scope(scope), scope: scope}}
 
       {:error, reason} ->
-        Cache.put_error(scope, key, reason)
         {:error, {:storage_error, scope, key, reason}}
     end
   end
@@ -445,7 +496,7 @@ defmodule Ankole.AppConfigure do
     with :ok <- ensure_scope(definition, scope),
          {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
          :ok <- upsert_row(repo, scope, key, envelope) do
-      {:ok, {parsed, scope, key, envelope}}
+      {:ok, {parsed, scope, key}}
     end
   end
 
@@ -475,8 +526,78 @@ defmodule Ankole.AppConfigure do
     |> where([row], row.scope == ^scope and row.key == ^key)
     |> Repo.delete_all()
 
-    Cache.put_absent(scope, key)
+    refresh_cache_after_commit(scope, key)
+    :ok
   end
+
+  defp refresh_cache_after_commit(scope, key) do
+    result =
+      try do
+        with {:ok, state} <- Cache.load(scope, key),
+             :ok <- validate_refreshed_state(scope, key, state) do
+          :ok
+        end
+      catch
+        :exit, reason -> {:error, {:cache_unavailable, reason}}
+      end
+
+    case result do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logging.warning(
+          "app_configure.cache.after_commit_refresh_failed",
+          "app configure commit succeeded but cache refresh failed",
+          %{scope: scope, key: key, reason: inspect(reason)}
+        )
+    end
+  end
+
+  defp lock_global_key(repo, key) do
+    lock_key = "app_configure:#{@global_scope}:#{key}"
+
+    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp current_global_value_in_tx(repo, definition) do
+    case get_global_by_key_in_tx(repo, definition.key) do
+      {:ok, value} -> {:ok, value}
+      :error -> definition_default(definition)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp definition_default(%{default?: true, default_value: value}), do: {:ok, value}
+
+  defp definition_default(definition),
+    do: {:error, {:missing_global_value, definition_key(definition)}}
+
+  defp run_global_updater(updater, current) do
+    case updater.(current) do
+      {:ok, _value} = result -> result
+      {:error, _reason} = error -> error
+      other -> {:error, {:invalid_global_update_result, other}}
+    end
+  end
+
+  defp validate_refreshed_state(scope, key, {:row, envelope}) do
+    with {:ok, definition} <- Registry.require_key(key) do
+      case Codec.load(definition, scope, key, envelope) do
+        {:ok, _value} ->
+          :ok
+
+        {:error, reason} ->
+          {:error, {:storage_error, scope, key, reason}}
+      end
+    end
+  end
+
+  defp validate_refreshed_state(_scope, _key, :absent), do: :ok
+  defp validate_refreshed_state(_scope, _key, {:error, reason}), do: {:error, reason}
 
   defp definition_key(%Definition{key: key}), do: key
   defp definition_key(%PatternDefinition{id: id}), do: id
@@ -486,10 +607,29 @@ defmodule Ankole.AppConfigure do
 
   defp ensure_scope(_definition, _scope), do: :ok
 
-  defp editable_console_definition(key) do
+  defp console_definition(key) do
     case Registry.classify_key(key) do
       {:ok, {:exact, definition}} ->
         {:ok, {:exact, definition}}
+
+      {:ok, {:pattern, pattern}} ->
+        case global_row(key) do
+          %AppConfig{} -> {:ok, {:pattern_concrete, pattern}}
+          nil -> {:error, {:pattern_key_not_editable, key}}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp writable_console_definition(key) do
+    case Registry.classify_key(key) do
+      {:ok, {:exact, definition}} ->
+        {:ok, {:exact, definition}}
+
+      {:ok, {:pattern, %PatternDefinition{console_writable: false}}} ->
+        {:error, {:pattern_key_managed_by_owner, key}}
 
       {:ok, {:pattern, pattern}} ->
         case global_row(key) do
@@ -535,7 +675,7 @@ defmodule Ankole.AppConfigure do
       description: definition.description,
       encrypted: definition.encrypted,
       scope: Atom.to_string(definition.scope),
-      editable: true,
+      editable: definition.console_writable,
       default_present: definition.default?,
       overridden: not is_nil(row)
     }

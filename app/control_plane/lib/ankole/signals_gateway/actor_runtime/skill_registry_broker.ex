@@ -15,7 +15,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker do
 
   @spec handle_replace(TurnRef.t(), FabricProto.InstalledSkillReplaceRequest.t(), map()) ::
           {:ok, FabricProto.InstalledSkillReplaceResponse.t()} | {:error, map()}
-  def handle_replace(%TurnRef{} = turn_ref, %FabricProto.InstalledSkillReplaceRequest{} = request, ctx) do
+  def handle_replace(
+        %TurnRef{} = turn_ref,
+        %FabricProto.InstalledSkillReplaceRequest{} = request,
+        ctx
+      ) do
     observations = Enum.map(request.observations, &observation_attrs/1)
 
     case Library.replace_installed_skill_observations(turn_ref.agent_uid, observations) do
