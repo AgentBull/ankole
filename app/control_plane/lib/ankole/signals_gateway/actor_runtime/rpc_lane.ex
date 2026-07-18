@@ -27,6 +27,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   """
 
   alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
+  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
@@ -85,10 +86,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "background_agent_job.status.update" =>
       {BackgroundAgentJobBroker, :handle_update_status, :turn_write,
        FabricProto.BackgroundAgentJobStatusUpdateRequest},
-    "memory_search" => {BrainRPCBroker, :handle_search, :turn_read, FabricProto.MemorySearchRequest},
+    "memory_search" =>
+      {BrainRPCBroker, :handle_search, :turn_read, FabricProto.MemorySearchRequest},
     "memory_open" => {BrainRPCBroker, :handle_open, :turn_read, FabricProto.MemoryOpenRequest},
-    "memory_update" => {BrainRPCBroker, :handle_update, :turn_write, FabricProto.MemoryUpdateRequest},
-    "memory_browse" => {BrainRPCBroker, :handle_browse, :turn_read, FabricProto.MemoryBrowseRequest},
+    "memory_update" =>
+      {BrainRPCBroker, :handle_update, :turn_write, FabricProto.MemoryUpdateRequest},
+    "memory_browse" =>
+      {BrainRPCBroker, :handle_browse, :turn_read, FabricProto.MemoryBrowseRequest},
     "memory_health_check" =>
       {BrainRPCBroker, :handle_health_check, :turn_read, FabricProto.MemoryHealthCheckRequest},
     "schedule.check_back_later.create" =>
@@ -125,7 +129,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "schedule.cron.run" =>
       {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronTargetRequest},
     "skills.installed.replace" =>
-      {SkillRegistryBroker, :handle_replace, :turn_write, FabricProto.InstalledSkillReplaceRequest},
+      {SkillRegistryBroker, :handle_replace, :turn_write,
+       FabricProto.InstalledSkillReplaceRequest},
     "skills.overlay.resolve" =>
       {SkillOverlayBroker, :handle_resolve, :turn_read, FabricProto.SkillOverlayResolveRequest},
     "skills.overlay.append" =>
@@ -151,7 +156,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
         {:ok, rpc_response_envelope(request_id, encode_payload(response_struct))}
 
       {:ok, response_payload} when is_map(response_payload) ->
-        passthrough = %FabricProto.JSONPassthroughResponse{body_json: Torque.encode!(response_payload)}
+        passthrough = %FabricProto.JSONPassthroughResponse{
+          body_json: Torque.encode!(response_payload)
+        }
+
         {:ok, rpc_response_envelope(request_id, encode_payload(passthrough))}
 
       {:error, error_payload} when is_map(error_payload) ->
@@ -262,7 +270,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   defp rpc_response_envelope(request_id, payload) do
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "rpc-response-#{Ecto.UUID.generate()}",
       correlation_id: request_id,
       lane: :LANE_RPC,
@@ -279,7 +287,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   defp rpc_error_envelope(request_id, error_payload) do
     %FabricProto.Envelope{
-      protocol_version: 1,
+      protocol_version: RuntimeFabric.protocol_version(),
       message_id: "rpc-error-#{Ecto.UUID.generate()}",
       correlation_id: request_id,
       lane: :LANE_RPC,

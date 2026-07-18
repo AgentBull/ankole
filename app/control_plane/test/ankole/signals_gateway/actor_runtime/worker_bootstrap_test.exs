@@ -24,6 +24,25 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
               }} =
                WorkerBootstrap.container_spec(image: "ankole-agent-computer:0.1.0")
     end
+
+    test "uses only the release-paired image configured by the control-plane image" do
+      previous = System.get_env("ANKOLE_AGENT_COMPUTER_IMAGE")
+
+      on_exit(fn ->
+        if previous,
+          do: System.put_env("ANKOLE_AGENT_COMPUTER_IMAGE", previous),
+          else: System.delete_env("ANKOLE_AGENT_COMPUTER_IMAGE")
+      end)
+
+      System.delete_env("ANKOLE_AGENT_COMPUTER_IMAGE")
+      assert {:error, {:invalid, :image}} = WorkerBootstrap.container_spec()
+
+      revision = String.duplicate("a", 40)
+      image = "ghcr.io/agentbull/ankole-agent-computer-worker:#{revision}"
+      System.put_env("ANKOLE_AGENT_COMPUTER_IMAGE", image)
+
+      assert {:ok, %Spec{image: ^image}} = WorkerBootstrap.container_spec()
+    end
   end
 
   describe "worker_spec/1" do
@@ -113,6 +132,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                WorkerBootstrap.worker_spec(
                  endpoint: "tcp://127.0.0.1:6010",
                  worker_id: "worker-app-config",
+                 image: "ankole-agent-computer:test",
                  workspace_root: "/tmp/ankole-worker"
                )
 
@@ -125,6 +145,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                WorkerBootstrap.worker_spec(
                  endpoint: "tcp://127.0.0.1:6010",
                  worker_id: "worker-a",
+                 image: "ankole-agent-computer:test",
                  auth_key: "secret"
                )
 
@@ -132,6 +153,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                WorkerBootstrap.worker_spec(
                  endpoint: "tcp://127.0.0.1:6010",
                  worker_id: "worker-a",
+                 image: "ankole-agent-computer:test",
                  auth_key: "",
                  workspace_root: "/tmp/ankole-worker"
                )
@@ -140,6 +162,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                WorkerBootstrap.worker_spec(
                  endpoint: "http://127.0.0.1:6010",
                  worker_id: "worker-a",
+                 image: "ankole-agent-computer:test",
                  auth_key: "secret",
                  workspace_root: "/tmp/ankole-worker"
                )

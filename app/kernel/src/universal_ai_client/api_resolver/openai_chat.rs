@@ -722,12 +722,8 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
     let mut messages = Vec::new();
     let input = request.get("input");
 
-    if let Some(instructions) = request
-        .get("instructions")
-        .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
-    {
-        messages.push(json!({ "role": "system", "content": instructions }));
+    if let Some(system_content) = chat_system_content(request, input) {
+        messages.push(json!({ "role": "system", "content": system_content }));
     }
 
     match input {
@@ -737,6 +733,10 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
             for item in items {
                 match item {
                     Value::Object(map) => {
+                        if is_chat_system_message(map) {
+                            continue;
+                        }
+
                         match map.get("type").and_then(Value::as_str) {
                             Some("function_call") => {
                                 pending_tool_calls.push(chat_function_call(map));
@@ -778,6 +778,40 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
     }
 
     Value::Array(messages)
+}
+
+// Several OpenAI-compatible chat backends accept only one system message at
+// index zero, so preserve all higher-priority text in one leading message.
+fn chat_system_content(request: &Map<String, Value>, input: Option<&Value>) -> Option<String> {
+    let mut contents = Vec::new();
+
+    if let Some(instructions) = request.get("instructions") {
+        let text = chat_text_content(instructions);
+        if !text.is_empty() {
+            contents.push(text);
+        }
+    }
+
+    if let Some(Value::Array(items)) = input {
+        contents.extend(items.iter().filter_map(|item| {
+            let map = item.as_object()?;
+            if !is_chat_system_message(map) {
+                return None;
+            }
+
+            let text = chat_text_content(map.get("content").unwrap_or(&Value::Null));
+            (!text.is_empty()).then_some(text)
+        }));
+    }
+
+    (!contents.is_empty()).then(|| contents.join("\n\n"))
+}
+
+fn is_chat_system_message(map: &Map<String, Value>) -> bool {
+    matches!(
+        map.get("role").and_then(Value::as_str),
+        Some("developer" | "system")
+    )
 }
 
 fn flush_chat_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec<Value>) {

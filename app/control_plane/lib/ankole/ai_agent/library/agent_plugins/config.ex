@@ -55,10 +55,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
   def put_skill_default(_skill_id, _enabled), do: {:error, :invalid_skill_default}
 
   defp update_default(definition, id, enabled) do
-    with :ok <- ensure_registered(),
-         {:ok, values} <- AppConfigure.get(definition),
-         {:ok, updated} <- AppConfigure.put_global(definition, Map.put(values, id, enabled)) do
-      {:ok, updated}
+    with :ok <- ensure_registered() do
+      AppConfigure.update_global(definition, fn values ->
+        {:ok, Map.put(values, id, enabled)}
+      end)
     end
   end
 

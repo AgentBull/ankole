@@ -14,7 +14,6 @@ export function materializeCodexConfig(input: {
   sharedFsRoot: string
   jobID: string
   runtime: CodexRuntimeConfig
-  enableMultiAgent?: boolean
   enablePlugins?: boolean
 }): MaterializedCodexConfig {
   const safeJobID = sanitizePathSegment(input.jobID, { replacement: '_' })
@@ -35,17 +34,14 @@ export function materializeCodexConfig(input: {
   if (input.runtime.mode === 'aigateway') {
     atomicWrite(
       join(codexHome, 'config.toml'),
-      codexConfigToml(input.runtime.aiGatewayKey.baseUrl, input.enableMultiAgent ?? false, input.enablePlugins ?? false)
+      codexConfigToml(input.runtime.aiGatewayKey.baseUrl, input.enablePlugins ?? false)
     )
     rmSync(join(codexHome, 'auth.json'), { force: true })
     env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.apiKey
     return { codexHome, env }
   }
 
-  atomicWrite(
-    join(codexHome, 'config.toml'),
-    codexConfigToml(undefined, input.enableMultiAgent ?? false, input.enablePlugins ?? false)
-  )
+  atomicWrite(join(codexHome, 'config.toml'), codexConfigToml(undefined, input.enablePlugins ?? false))
   const authPath = join(codexHome, 'auth.json')
   atomicWrite(authPath, input.runtime.authJSON)
   return {
@@ -67,7 +63,7 @@ export function codexConfigCLIOverrides(): string[] {
   ]
 }
 
-function codexConfigToml(baseURL: string | undefined, enableMultiAgent: boolean, enablePlugins: boolean): string {
+function codexConfigToml(baseURL: string | undefined, enablePlugins: boolean): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -83,15 +79,10 @@ enable_mcp_apps = false
 tool_suggest = false
 plugins = ${enablePlugins}
 remote_plugin = false
-${
-  enableMultiAgent
-    ? `
+
 [features.multi_agent_v2]
 enabled = true
 hide_spawn_agent_metadata = true
-`
-    : ''
-}
 
 [projects."/workspace"]
 trust_level = "trusted"

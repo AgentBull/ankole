@@ -13,7 +13,18 @@ defmodule Ankole.Kernel.RuntimeFabric do
   alias Ankole.Kernel
   alias Ankole.RuntimeFabric.V1.Envelope
 
+  @protocol_version 2
+
   @type router :: reference()
+
+  @doc """
+  Returns the only RuntimeFabric protocol version this runtime admits.
+
+  A wire-incompatible worker or control plane must fail before worker
+  scheduling; RuntimeFabric does not negotiate mixed protocol versions.
+  """
+  @spec protocol_version() :: pos_integer()
+  def protocol_version, do: @protocol_version
 
   @doc """
   Encodes a RuntimeFabric envelope struct as protobuf bytes.

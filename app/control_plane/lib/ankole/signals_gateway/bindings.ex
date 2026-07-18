@@ -216,13 +216,24 @@ defmodule Ankole.SignalsGateway.Bindings do
     end
   end
 
-  defp validate_binding_assignment(%Definition{} = definition, agent_uid, binding_name, config) do
+  defp validate_binding_assignment(
+         %Definition{} = definition,
+         repo,
+         agent_uid,
+         binding_name,
+         config
+       ) do
     case definition.config_module do
       module when is_atom(module) and not is_nil(module) ->
-        if function_exported?(module, :validate_binding_assignment, 3) do
-          module.validate_binding_assignment(agent_uid, binding_name, config)
-        else
-          :ok
+        cond do
+          function_exported?(module, :validate_binding_assignment, 4) ->
+            module.validate_binding_assignment(repo, agent_uid, binding_name, config)
+
+          function_exported?(module, :validate_binding_assignment, 3) ->
+            module.validate_binding_assignment(agent_uid, binding_name, config)
+
+          true ->
+            :ok
         end
 
       nil ->
@@ -243,6 +254,7 @@ defmodule Ankole.SignalsGateway.Bindings do
                 :ok <-
                   validate_binding_assignment(
                     definition,
+                    repo,
                     agent_uid,
                     binding_name,
                     normalized_config
@@ -263,9 +275,8 @@ defmodule Ankole.SignalsGateway.Bindings do
            end
          end) do
       {:ok, {binding, committed_config}} ->
-        with {:ok, _stored_config} <- AppConfigure.cache_committed_write(committed_config) do
-          {:ok, binding}
-        end
+        AppConfigure.cache_committed_write(committed_config)
+        {:ok, binding}
 
       {:error, _reason} = error ->
         error

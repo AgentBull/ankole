@@ -208,10 +208,11 @@ defmodule Ankole.SignalsGateway.Ingress do
   # Removal is the inverse of accept and does several things atomically:
   # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
   # 2) remove the source from any open inbound batch, 3) remove the mirror row,
-  # 4) cancel or retry any still-open actor event for that entry, and 5) for an
-  # event the agent already completed, append a lifecycle "removed" event that
-  # ActorRuntime consumes as a no-op while cancelling related checkbacks.
-  # Steps 2-4 cover work that has not committed yet; step 5 records the provider
+  # 4) enqueue Brain withdrawal with exact completed-event causality, 5) cancel
+  # or retry any still-open actor event for that entry, and 6) for an event the
+  # agent already completed, append a lifecycle "removed" event that ActorRuntime
+  # consumes as a no-op while cancelling related checkbacks. Steps 2-5 cover
+  # committed and uncommitted internal work; step 6 records the provider
   # lifecycle edge without deriving a retraction note.
   defp accept_lifecycle(binding, fact, now) do
     Repo.transact(fn repo ->
@@ -223,16 +224,22 @@ defmodule Ankole.SignalsGateway.Ingress do
            {deleted_count, _rows} <- Projection.delete_mirror_entry(repo, fact),
            source_document_id <-
              Projection.entry_document_id(fact.signal_channel_id, fact.source_entry_id),
-           {:ok, withdrawal_job} <- SourceWithdrawal.enqueue(source_document_id),
-           {:ok, runtime_retractions} <-
-             TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
            completed_events <-
-             Actors.actor_events_for_entry(
+             Actors.actor_events_for_entry_in_tx(
+               repo,
                fact.agent_uid,
                fact.binding_name,
                fact.signal_channel_id,
                fact.source_entry_id
              ),
+           causal_actor_event_ids <-
+             completed_events
+             |> Enum.filter(&sole_current_source?(&1, fact.source_entry_id))
+             |> Enum.map(& &1.id),
+           {:ok, withdrawal_job} <-
+             SourceWithdrawal.enqueue(source_document_id, causal_actor_event_ids),
+           {:ok, runtime_retractions} <-
+             TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
            {:ok, lifecycle_events} <-
              append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
         {:ok,
@@ -394,6 +401,32 @@ defmodule Ankole.SignalsGateway.Ingress do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp sole_current_source?(%ActorEvent{} = event, source_entry_id) do
+    current_source_entry_ids(event) == [source_entry_id]
+  end
+
+  defp current_source_entry_ids(%ActorEvent{
+         source_entry_id: primary_source_entry_id,
+         payload: %{"data" => %{"entries" => entries}}
+       })
+       when is_list(entries) and entries != [] do
+    [
+      primary_source_entry_id
+      | Enum.map(entries, fn
+          %{"source_entry_id" => source_entry_id} -> source_entry_id
+          _entry -> nil
+        end)
+    ]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp current_source_entry_ids(%ActorEvent{source_entry_id: source_entry_id})
+       when is_binary(source_entry_id) and source_entry_id != "",
+       do: [source_entry_id]
+
+  defp current_source_entry_ids(%ActorEvent{}), do: []
 
   defp append_lifecycle_events(_repo, _binding, _fact, [], _channel, _now), do: {:ok, []}
 

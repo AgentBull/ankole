@@ -75,7 +75,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
                rpc_request(
                  "remote-browser-dormant",
                  "app_configure.resolve",
-                 %FabricProto.AppConfigureResolveRequest{keys: ["worker.remote_browser_cdp_config"]},
+                 %FabricProto.AppConfigureResolveRequest{
+                   keys: ["worker.remote_browser_cdp_config"]
+                 },
                  agent_uid: agent.uid
                ),
                "trusted-worker-route"

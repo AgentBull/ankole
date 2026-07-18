@@ -9,6 +9,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.SourceReader
+  alias Ankole.AppConfigure.Cache
   alias Ankole.Repo
 
   setup do
@@ -142,6 +143,16 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:error, :skill_file_not_found} =
              Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
+  end
+
+  test "skill overlay writes resolve cold AppConfigure defaults before opening a transaction" do
+    %{principal: agent} = agent_fixture()
+
+    on_exit(fn -> Cache.clear_for_test() end)
+    Cache.clear_for_test()
+
+    assert {:ok, %AgentSkillOverlay{overlay_json: %{"text" => "Cold-cache guidance."}}} =
+             Library.skill_append(agent.uid, "nano-pdf", "Cold-cache guidance.")
   end
 
   test "agent-installed skills are recorded from worker file observations" do

@@ -347,13 +347,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert turn_payload.runtime_turn_id == "turn-1"
 
     trajectory = Torque.decode!(turn_payload.trajectory_json)
-    assert trajectory["format"] == "ankole_chatml"
-
-    assert trajectory["messages"] == [
-             %{"role" => "assistant", "content" => "Researching."}
-           ]
+    assert trajectory == %{"format" => "ankole_chatml", "version" => 1, "messages" => []}
 
     refute inspect(trajectory) =~ "json_rpc"
+
+    assert {:ok, in_progress_response} =
+             RPCLane.handle_request(
+               rpc_request(
+                 "job-in-progress",
+                 "background_agent_job.get",
+                 %FabricProto.BackgroundAgentJobGetRequest{job_id: job_id, trajectory_limit: 1},
+                 turn: parent_turn
+               ),
+               route
+             )
+
+    in_progress_execution = Torque.decode!(job_payload(in_progress_response).execution_json)
+
+    assert in_progress_execution["trajectory_page"]["messages"] == [
+             %{"role" => "assistant", "content" => "Researching."}
+           ]
 
     completed_at = DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
 
@@ -362,12 +375,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
       | revision: 1,
         status: "completed",
         completed_at: completed_at,
-        trajectory_json:
-          Torque.encode!(%{
-            "format" => "ankole_chatml",
-            "version" => 1,
-            "messages" => [%{"role" => "assistant", "content" => "Research complete."}]
-          })
+        trajectory_groups_json:
+          Torque.encode!([
+            %{
+              "position" => 1,
+              "item_key" => "assistant:research-complete",
+              "messages" => [%{"role" => "assistant", "content" => "Research complete."}]
+            }
+          ])
     }
 
     assert {:ok, completed_response} =
@@ -486,8 +501,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
         Torque.encode!(%{
           "format" => "ankole_chatml",
           "version" => 1,
-          "messages" => [%{"role" => "assistant", "content" => "Researching."}]
+          "messages" => []
         }),
+      trajectory_groups_json:
+        Torque.encode!([
+          %{
+            "position" => 0,
+            "item_key" => "assistant:researching",
+            "messages" => [%{"role" => "assistant", "content" => "Researching."}]
+          }
+        ]),
       progress_json:
         Torque.encode!(%{
           "completed_items" => 0,

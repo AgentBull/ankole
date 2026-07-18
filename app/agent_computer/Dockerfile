@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG BASE_IMAGE=ghcr.io/agentbull/ankole-agent-os-base:main-latest
+ARG BASE_IMAGE
 
 FROM node:24.15.0-bookworm-slim AS browser-node
 
@@ -70,6 +70,8 @@ FROM ${BASE_IMAGE}
 
 ARG LARK_CLI_VERSION=v1.0.69
 ARG TARGETARCH
+ARG ANKOLE_RELEASE_REVISION=development
+ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=2
 
 WORKDIR /repo
 
@@ -121,6 +123,7 @@ COPY app/library ./app/library
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/src ./app/agent_computer/src
+COPY app/agent_computer/matplotlibrc /etc/ankole/matplotlibrc
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/ankole-browser/src ./app/ankole-browser/src
 
@@ -157,6 +160,8 @@ RUN set -eux; \
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
+ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
+ENV ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION}
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
 ENV LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1
 ENV LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
@@ -175,6 +180,7 @@ ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
 ENV ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
 ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers
+ENV MATPLOTLIBRC=/etc/ankole/matplotlibrc
 ENV PATH="/opt/ankole-python/bin:/root/.cargo/bin:${PATH}"
 
 ENTRYPOINT ["tini", "-g", "--"]

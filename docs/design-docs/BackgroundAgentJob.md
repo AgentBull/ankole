@@ -31,6 +31,12 @@ now and continue durably. The tool has five actions:
 - optional explicit `workspace_mounts`;
 - optional `model` and `reasoning_effort`.
 
+The self-contained task must use paths visible inside the isolated Job. Caller
+paths under `/workspace/user-files` and `/workspace/temp` are rejected before
+the Job commits: durable caller resources must be supplied through
+`workspace_mounts` and referenced as `/workspace/workspaces/<mount-id>/...`,
+while temporary intermediates must be recreated inside the Job project.
+
 Owner identity, reply routing, runtime IDs, and lifecycle state are derived from
 the authorized parent Turn. Owner conversation history is not copied into the
 Job, so `task` must contain the requirements and acceptance criteria needed by
@@ -141,15 +147,45 @@ owner.
 A stopped Job cannot resume. A succeeded or failed Job can continue only when
 its `runtime_thread_id` anchors resumable Codex state.
 
+Terminal Jobs retained from the pre-V2 delegation schema remain queryable, but
+their old thread and host workdir do not satisfy the V2 runtime contract. The
+migration preserves those values in the `background_agent_job_v1` metadata
+snapshot, clears the live `runtime_thread_id`, and marks V2 resume as
+unsupported. The snapshot is informational user-visible metadata, not trusted
+downgrade provenance, so the V2 migration has no automatic down path. Its
+canonical workspace mount is a schema placeholder: the
+migration neither materializes nor marks that path as managed, so cleanup must
+not treat it as owned storage. The immutable pre-Turn event archive remains
+control-plane-owned until an explicit export or retention migration removes it.
+Both archive foreign keys use `RESTRICT`. Databases that already recorded an
+older destructive draft fail closed when retained Job rows or durable actor
+events prove that the draft may have deleted history. When both sources prove
+that no Job was ever accepted, the compatibility guard materializes the only
+valid archive for that history: an empty one with the same final constraints.
+Ankole does not infer or fabricate missing Jobs or events.
+
 Terminal commit and owner wakeup occur in one control-plane transaction.
 Success or `waiting_on_user` also requires the lead Job Turn to be durably
 closed. Native Codex child Turns are observations of the same execution graph
 and do not own the Job terminal state.
 
 Job activity is governed by the actor lease. Worker loss causes recovery and
-redispatch; a worker that already persisted the thread ID resumes that thread.
+redispatch; a worker that already persisted the thread ID first resumes that
+thread. If Codex reports the checkpoint as unknown, including after a crash
+between `thread/start` and the first `turn/start`, the runner creates one
+replacement thread and replays the original task with bounded attempt history.
 Codex JSON-RPC request timeouts protect individual protocol calls and are not a
 maximum Job duration.
+
+CodexRunner separately bounds a model-repair failure that has no legitimate
+long-work interpretation: five consecutive completed model calls on the same
+Codex thread without an observable item start/completion, plan update, diff, or
+tool request interrupt the lead Turn and fail the Job with `codex_no_progress`.
+Any such semantic progress resets that thread's streak, so a long-running
+command, an active child agent, or an otherwise healthy long Job is not a wall-
+clock timeout. The failure preserves the latest usage and consecutive-call
+count for operator diagnosis instead of silently spending an unbounded number
+of model calls on malformed tool output.
 
 ## Start and dispatch
 
@@ -240,8 +276,10 @@ it:
 5. records lead and native child Turns as append-only `ankole_chatml` trajectory,
    progress, and usage observations;
 6. accepts steering, stopping, and `request_user_input`;
-7. stores that non-empty Codex final response as the generic Job result and
-   wakes the owner session so the main Agent can continue.
+7. stores that non-empty Codex final response as the generic Job result, along
+   with the stable owner-visible project path and any existing owner-visible
+   files observed in `files_changed`, then wakes the owner session so the main
+   Agent can continue.
 
 Trajectory groups are appended to PostgreSQL by stable item key and position.
 There is no per-Turn item-count or total-byte eviction. The Turn row separately
@@ -263,9 +301,24 @@ before a group crosses the worker boundary.
 If the first completed Turn has no final response, the runner requests one
 generic final report once. A second empty completion fails the Job. The runner
 does not interpret package-specific files or run package-specific result code.
-Job success does not require standardized `artifacts`, `verification`, or a
-separate owner-side acceptance object. Files, reports, commits, and pull requests
-are ordinary task outputs that Codex describes in its final response.
+Job success does not require artifacts, `verification`, or a separate owner-side
+acceptance object. The worker reads each aggregate Codex diff as a stream of
+file blocks; it retains at most 32 paths and 8 KiB of serialized path data in
+session and Turn progress instead of collecting, sorting, or `stat`-ing the full
+diff. The generic result includes `project_path`; `files_changed`, `artifacts`,
+and `artifact_roots` use the bounded `{total_count, paths, truncated}` shape.
+`total_count` preserves the number of observed changed-path candidates across
+completed turns, while `artifacts.paths` contains only retained candidates that
+resolve to existing owner-visible files. `artifact_roots` contains the private
+project plus every writable owner workspace mount, so an omitted key artifact
+remains discoverable even when it was written outside `project_path`.
+
+The same 32-entry and 8 KiB path bound is reapplied before worker transport,
+durable commit, owner wakeup, status rendering, and model projection. When a
+handoff is truncated, the owner uses the existing Job status lookup and inspects
+the reported artifact roots; Ankole does not add a separate artifact pagination
+lifecycle. Files, reports, commits, and pull requests remain ordinary task
+outputs rather than package-specific lifecycle state.
 
 `request_user_input` closes the current Turn resumably, puts the Job in
 `waiting_on_user`, and wakes the owner. The owner's answer returns through
@@ -298,9 +351,10 @@ the main Agent.
 Deep Research selects `agent_plugin_ids: ["deep-research"]`. Its Skill and
 workspace template tell Codex how to research and to produce a self-contained
 `report/report.md`. The Job host does not parse that report or give Deep
-Research a separate lifecycle. Codex reports the outcome and relevant path in
-its final response; the owner wakeup resumes the main Agent, which decides the
-next user-facing step through the ordinary Agent loop.
+Research a separate lifecycle. The generic artifact projection exposes the
+report's stable owner-visible path when Codex reports it as changed; the owner
+wakeup resumes the main Agent, which decides the next user-facing step through
+the ordinary Agent loop.
 
 ## Validation plan
 

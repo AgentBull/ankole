@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use prost::Message;
 
-use crate::runtime_fabric::proto;
+use crate::runtime_fabric::{PROTOCOL_VERSION, proto};
 
 use super::dealer::{DealerInbox, emit_dealer_frames};
 use super::framing::FILE_TRANSFER_PROTOCOL;
@@ -288,7 +288,7 @@ fn wait_for_dealer_file_frame(dealer: &DealerHandle) -> Option<Vec<Vec<u8>>> {
 
 fn worker_ready_envelope_bytes() -> Vec<u8> {
     proto::Envelope {
-        protocol_version: 1,
+        protocol_version: PROTOCOL_VERSION,
         message_id: "worker-ready-test".to_string(),
         correlation_id: String::new(),
         lane: proto::Lane::Control as i32,
@@ -309,7 +309,7 @@ fn worker_ready_envelope_bytes() -> Vec<u8> {
 
 fn turn_start_envelope_bytes() -> Vec<u8> {
     proto::Envelope {
-        protocol_version: 1,
+        protocol_version: PROTOCOL_VERSION,
         message_id: "turn-start-test".to_string(),
         correlation_id: "turn-start-test".to_string(),
         lane: proto::Lane::Turn as i32,

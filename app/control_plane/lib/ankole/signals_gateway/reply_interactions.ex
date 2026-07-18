@@ -58,30 +58,64 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     if ActorEventTypes.supersedes_pending_interaction?(newer_event.type) do
       newer_event
       |> older_reply_interaction_events(repo)
-      |> Enum.reduce_while({:ok, []}, fn event, {:ok, updated} ->
-        case ReplyInteractionState.supersede(
-               event.reply_preview_checkpoint || %{},
-               newer_event,
-               now
-             ) do
-          :noop ->
-            {:cont, {:ok, updated}}
-
-          {:ok, checkpoint} ->
-            case Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint) do
-              {:ok, event} -> {:cont, {:ok, [event | updated]}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-        end
-      end)
-      |> case do
-        {:ok, events} -> {:ok, Enum.reverse(events)}
-        {:error, _reason} = error -> error
-      end
+      |> supersede_events_in_tx(repo, newer_event, now)
     else
       {:ok, []}
     end
   end
+
+  @doc """
+  Supersedes pending interactions anchored to one removed provider entry.
+
+  Provider lifecycle events remain globally interaction-preserving. The caller
+  owns the actor-session lock, so only completed source ActorEvents that contain
+  the removed entry can lose their pending interaction; unrelated cards in the
+  same session remain actionable.
+  """
+  @spec supersede_removed_source_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+          {:ok, [ActorEvent.t()]} | {:error, term()}
+  def supersede_removed_source_in_tx(
+        repo,
+        %ActorEvent{type: "signal.entry.removed", source_entry_id: source_entry_id} =
+          removed_event,
+        %DateTime{} = now
+      )
+      when is_binary(source_entry_id) and source_entry_id != "" do
+    Actors.actor_events_for_entry_in_tx(
+      repo,
+      removed_event.agent_uid,
+      removed_event.binding_name,
+      removed_event.signal_channel_id,
+      source_entry_id
+    )
+    |> Enum.filter(&(&1.session_id == removed_event.session_id))
+    |> Enum.map(&Actors.lock_actor_event_in_tx(repo, &1.id))
+    |> Enum.reject(&is_nil/1)
+    |> supersede_events_in_tx(repo, removed_event, now)
+  end
+
+  def supersede_removed_source_in_tx(_repo, %ActorEvent{}, %DateTime{}), do: {:ok, []}
+
+  @doc """
+  Supersedes predecessor interactions when a queued reset actually rolls the session.
+
+  Enqueuing `session.reset_due` remains interaction-preserving because the reset
+  may wait behind running work. Once the reset executes, its predecessor
+  conversation is no longer available to interpret an isolated card answer.
+  """
+  @spec supersede_for_session_reset_in_tx(module(), ActorEvent.t(), DateTime.t()) ::
+          {:ok, [ActorEvent.t()]} | {:error, term()}
+  def supersede_for_session_reset_in_tx(
+        repo,
+        %ActorEvent{type: "session.reset_due"} = reset_event,
+        %DateTime{} = now
+      ) do
+    reset_event
+    |> older_reply_interaction_events(repo)
+    |> supersede_events_in_tx(repo, reset_event, now)
+  end
+
+  def supersede_for_session_reset_in_tx(_repo, %ActorEvent{}, %DateTime{}), do: {:ok, []}
 
   @doc """
   Validates and records a managed reply action inside the ingress transaction.
@@ -229,7 +263,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
 
     case ReplyInteractionState.interaction(checkpoint, callback.interaction_id) do
       %{"state" => "pending"} ->
-        accept_current_answer(repo, event, checkpoint, fact, callback, now)
+        accept_pending_answer(repo, event, checkpoint, fact, callback, now)
 
       %{"state" => "answered", "answer" => answer} ->
         if answer == callback.answer, do: {:ok, :duplicate}, else: {:ok, :stale}
@@ -239,6 +273,19 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
 
       _missing_or_invalid ->
         {:ok, :stale}
+    end
+  end
+
+  defp accept_pending_answer(repo, event, checkpoint, fact, callback, now) do
+    case first_newer_session_reset(repo, event) do
+      %ActorEvent{} = reset_event ->
+        with {:ok, _superseded} <-
+               supersede_events_in_tx([event], repo, reset_event, now) do
+          {:ok, :stale}
+        end
+
+      nil ->
+        accept_current_answer(repo, event, checkpoint, fact, callback, now)
     end
   end
 
@@ -341,6 +388,29 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     |> repo.all()
   end
 
+  defp supersede_events_in_tx(events, repo, newer_event, now) do
+    Enum.reduce_while(events, {:ok, []}, fn event, {:ok, updated} ->
+      case ReplyInteractionState.supersede(
+             event.reply_preview_checkpoint || %{},
+             newer_event,
+             now
+           ) do
+        :noop ->
+          {:cont, {:ok, updated}}
+
+        {:ok, checkpoint} ->
+          case Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint) do
+            {:ok, event} -> {:cont, {:ok, [event | updated]}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+      end
+    end)
+    |> case do
+      {:ok, updated} -> {:ok, Enum.reverse(updated)}
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp first_newer_conversation_event(repo, %ActorEvent{} = event) do
     passive_types = ActorEventTypes.interaction_preserving_turn_types()
 
@@ -349,6 +419,18 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     |> where([candidate], candidate.session_id == ^event.session_id)
     |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
     |> where([candidate], candidate.type not in ^passive_types)
+    |> order_by([candidate], asc: candidate.queue_sequence)
+    |> limit(1)
+    |> repo.one()
+  end
+
+  defp first_newer_session_reset(repo, %ActorEvent{} = event) do
+    ActorEvent
+    |> where([candidate], candidate.agent_uid == ^event.agent_uid)
+    |> where([candidate], candidate.session_id == ^event.session_id)
+    |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
+    |> where([candidate], candidate.type == "session.reset_due")
+    |> where([candidate], candidate.input_state == "open")
     |> order_by([candidate], asc: candidate.queue_sequence)
     |> limit(1)
     |> repo.one()

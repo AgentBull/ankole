@@ -37,7 +37,9 @@ enum DurabilityClass {
 }
 
 message Envelope {
-  // Bump only when wire-compatibility changes. Additive fields keep version 1.
+  // Version 2 introduced method-specific protobuf RPC payloads. Additive fields
+  // keep the current version; changing an existing field's wire meaning requires
+  // another bump so mixed worker/control-plane versions fail before admission.
   uint32 protocol_version = 1;
   string message_id = 2;
   string correlation_id = 3;

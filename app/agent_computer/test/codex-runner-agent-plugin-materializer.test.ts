@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { jsonBytes } from '../src/fabric/envelope_proto'
+import {
+  AgentPluginCatalogEntrySchema,
+  RuntimeSkillSummarySchema,
+  SkillOverlayResponseSchema
+} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,9 +14,11 @@ import {
   computeAgentPluginContentHash,
   assertAgentPluginProjectResumeState,
   installAndTrustAgentPlugins,
+  materializeAgentPluginSkillOverlays,
   prepareAgentPlugins
 } from '../src/core/codex-runner/agent-plugin-materializer'
-import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
+import type { ActorTurnRef } from '../src/lanes/actor_lane'
+import { rpcMethods, type AgentPluginCatalogEntry, type RPCRequester } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
   it('validates identity, copies templates once, and never recopies them on resume', () => {
@@ -232,6 +239,60 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
+  it('applies a Plugin member Skill overlay only to the Job-local package copy', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-member-overlay-'))
+    const libraryRoot = join(root, 'library')
+    const projectRoot = join(root, 'project')
+    createPlugin(libraryRoot, 'alpha', {})
+
+    try {
+      const prepared = prepareAgentPlugins({
+        projectRoot,
+        agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        libraryRoot,
+        initializeProject: true,
+        agentsContent: 'job guidance'
+      })
+      const sourceSkillPath = join(libraryRoot, 'alpha', 'skills', 'alpha-skill', 'SKILL.md')
+      const sourceContent = readFileSync(sourceSkillPath, 'utf8')
+      const memberSkill = create(RuntimeSkillSummarySchema, {
+        skillName: 'alpha-skill',
+        sourceKind: 'builtin',
+        relativePath: 'agent-plugins/alpha/skills/alpha-skill',
+        agentPluginId: 'alpha'
+      })
+
+      await materializeAgentPluginSkillOverlays({
+        prepared,
+        enabledSkills: [memberSkill],
+        turn: turn(),
+        rpc: (async (method: unknown, payload: unknown) => {
+          expect(method).toBe(rpcMethods.skillsOverlayResolve)
+          expect(payload).toEqual({ skillName: 'alpha-skill' })
+          return create(SkillOverlayResponseSchema, {
+            skillName: 'alpha-skill',
+            hasOverlay: true,
+            overlayJson: jsonBytes({ text: 'PLUGIN_OVERLAY_MARKER' }),
+            contentHash: 'overlay-hash'
+          })
+        }) as RPCRequester
+      })
+
+      const materializedSkillPath = join(
+        prepared.agentPlugins[0]!.materializedRoot,
+        'skills',
+        'alpha-skill',
+        'SKILL.md'
+      )
+      const materializedContent = readFileSync(materializedSkillPath, 'utf8')
+      expect(materializedContent).toContain('Agent-specific additions:')
+      expect(materializedContent).toContain('PLUGIN_OVERLAY_MARKER')
+      expect(readFileSync(sourceSkillPath, 'utf8')).toBe(sourceContent)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('calls official install on every prepare and trusts selected hooks idempotently', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-install-'))
     const libraryRoot = join(root, 'library')
@@ -327,4 +388,14 @@ function agentPluginCatalog(libraryRoot: string, ids: string[]): AgentPluginCata
       skills: [{ catalogName: `${id}-skill`, codexName: `${id}:${id}-skill` }]
     })
   )
+}
+
+function turn(): ActorTurnRef {
+  return {
+    actor: { agent_uid: 'agent-1', session_id: 'job:job-1' },
+    activation_uid: 'activation-1',
+    actor_epoch: 1,
+    actor_event_id: '00000000-0000-0000-0000-000000000001',
+    revision: 0
+  }
 }

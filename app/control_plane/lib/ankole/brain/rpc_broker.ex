@@ -81,7 +81,7 @@ defmodule Ankole.Brain.RPCBroker do
                operation,
                %{kind: :agent, uid: turn_ref.agent_uid},
                write_context: write_context,
-               metadata: update_metadata(request, write_context)
+               metadata: update_metadata(request, write_context, turn_ref.actor_event_id)
              ) do
         {:ok,
          %{
@@ -289,11 +289,11 @@ defmodule Ankole.Brain.RPCBroker do
     end
   end
 
-  defp update_metadata(request, write_context) do
+  defp update_metadata(request, write_context, actor_event_id) do
     %{
       "surface" => "memory_update",
       "tool_call_id" => presence(request.tool_call_id),
-      "actor_event_id" => presence(request.actor_event_id),
+      "actor_event_id" => actor_event_id,
       "source_document_id" => source_document_id(write_context)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)

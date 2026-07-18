@@ -165,8 +165,16 @@ worker_image_hash() {
 
 build_worker_image() {
   local source_hash="$1"
+  local base_image
+
+  base_image="$(tr -d '\r\n' < "$ROOT_DIR/app/agent_computer/base-image.lock")"
+  if [[ ! "$base_image" =~ ^ghcr\.io/agentbull/ankole-agent-os-base@sha256:[0-9a-f]{64}$ ]]; then
+    echo "[e2e] Invalid worker base image lock: app/agent_computer/base-image.lock" >&2
+    exit 1
+  fi
 
   docker build \
+    --build-arg "BASE_IMAGE=$base_image" \
     --label "ankole.e2e.source_hash=$source_hash" \
     -f "$ROOT_DIR/app/agent_computer/Dockerfile" \
     -t "$WORKER_IMAGE" \

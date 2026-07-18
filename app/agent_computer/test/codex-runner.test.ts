@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCodexJob } from '../src/core/codex-runner'
+import { maxConsecutiveModelCallsWithoutProgress } from '../src/core/codex-runner/no-progress-guard'
 import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
@@ -25,12 +26,20 @@ import {
 type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'> & {
   metadataJson?: Uint8Array
   resultJson?: Uint8Array
+  errorJson?: Uint8Array
 }
 type RecordedTurnUpsert = RPCRequestInit<'background_agent_job.turn.upsert'> & {
   trajectoryJson?: Uint8Array
   progressJson?: Uint8Array
   usageJson?: Uint8Array
   errorJson?: Uint8Array
+}
+
+type FakeCodexBehavior = {
+  resumeError?: string | Record<string, unknown>
+  artifactPath?: string
+  diffPathCount?: number
+  noProgressModelCalls?: number
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -50,8 +59,8 @@ afterEach(() => {
 })
 
 describe('@ankole/agent-computer Codex job runner', () => {
-  it('commits the ordinary Codex final response as the generic Job result', async () => {
-    const fixture = prepareFixture('done')
+  it('commits owner-visible artifacts with the ordinary Codex final response', async () => {
+    const fixture = prepareFixture('done', { artifactPath: 'handoff.txt' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
 
@@ -82,12 +91,27 @@ describe('@ankole/agent-computer Codex job runner', () => {
         stop_reason: 'completed',
         attempt: 1,
         runtime_thread_id: 'thread-1',
-        codex_turn_status: 'completed'
+        codex_turn_status: 'completed',
+        files_changed: { total_count: 1, paths: ['handoff.txt'], truncated: false },
+        project_path: `/workspace/user-files/background-agent-jobs/${jobID}/project`,
+        artifacts: {
+          total_count: 1,
+          paths: [`/workspace/user-files/background-agent-jobs/${jobID}/project/handoff.txt`],
+          truncated: false
+        },
+        artifact_roots: {
+          total_count: 2,
+          paths: [
+            `/workspace/user-files/background-agent-jobs/${jobID}/project`,
+            `/workspace/user-files/background-agent-jobs/${jobID}/workspace`
+          ],
+          truncated: false
+        }
       })
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).not.toHaveProperty('verification')
-      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)).not.toHaveProperty('artifacts')
       expect(turnUpserts.some(update => update.status === 'completed')).toBe(true)
-      expect(readFileSync(join(jobProjectFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
+      expect(readFileSync(join(jobProjectFor(fixture.root), 'handoff.txt'), 'utf8')).toBe('artifact')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toBe(response().task)
       const browserEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>
@@ -117,6 +141,29 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('bounds a hostile aggregate diff before Turn progress and artifact inspection', async () => {
+    const fixture = prepareFixture('done after a hostile diff', { diffPathCount: 50_000 })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+
+    try {
+      await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+
+      const result = parsedJSON(statusUpdates.at(-1)?.resultJson)
+      expect(result?.files_changed).toMatchObject({ total_count: 50_000, truncated: true })
+      expect((result?.files_changed as JSONObject | undefined)?.paths).toHaveLength(32)
+      expect(result?.artifacts).toMatchObject({ total_count: 50_000, truncated: true })
+      expect(result?.artifact_roots).toMatchObject({ total_count: 2, truncated: false })
+
+      const completedTurn = [...turnUpserts].reverse().find(update => update.status === 'completed')
+      const progress = parsedJSON(completedTurn?.progressJson)
+      expect(progress?.files_changed).toHaveLength(32)
+      expect(new TextEncoder().encode(JSON.stringify(progress?.files_changed)).byteLength).toBeLessThanOrEqual(8_192)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('asks Codex once for a missing final response and then succeeds', async () => {
     const fixture = prepareFixture('')
     const statusUpdates: RecordedStatusUpdate[] = []
@@ -127,7 +174,31 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('final response after retry')
-      expect(readFileSync(join(jobProjectFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('fails a Codex turn after bounded completed model calls produce no observable progress', async () => {
+    const fixture = prepareFixture('unused', {
+      noProgressModelCalls: maxConsecutiveModelCallsWithoutProgress
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+
+    try {
+      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+
+      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'failed'])
+      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)).toMatchObject({
+        code: 'codex_no_progress',
+        consecutive_model_calls: maxConsecutiveModelCallsWithoutProgress,
+        runtime_thread_id: 'thread-1'
+      })
+      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)?.summary).toContain('without an observable item')
+      expect(turnUpserts.some(update => parsedJSON(update.errorJson)?.code === 'codex_no_progress')).toBe(true)
     } finally {
       fixture.cleanup()
     }
@@ -180,6 +251,51 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('replays the original task after a crash between the durable thread anchor and the first turn', async () => {
+    const fixture = prepareFixture('done after crash recovery', { resumeError: 'No rollout found for thread' })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+    let currentJob = response()
+    let crashAfterAnchor = true
+
+    try {
+      const opts = options(
+        fixture.root,
+        statusUpdates,
+        turnUpserts,
+        () => currentJob,
+        update => {
+          if (!crashAfterAnchor || update.status !== 'running' || !update.runtimeThreadId) return
+          crashAfterAnchor = false
+          currentJob = create(BackgroundAgentJobResponseSchema, {
+            ...currentJob,
+            status: 'running',
+            attempts: 2,
+            runtimeThreadId: update.runtimeThreadId
+          })
+          throw new Error('simulated worker crash after durable thread anchor')
+        }
+      )
+
+      await expect(runCodexJob(turnStart(), opts)).rejects.toThrow('simulated worker crash after durable thread anchor')
+      expect(currentJob.runtimeThreadId).toBe('thread-1')
+      expect(statusUpdates.map(update => update.status)).toEqual(['running'])
+      expect(turnUpserts).toEqual([])
+      expect(() => readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toThrow()
+
+      await runCodexJob(turnStart(), opts)
+
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'running', 'succeeded'])
+      expect(parsedJSON(statusUpdates[1]?.metadataJson)).toMatchObject({
+        runtime_checkpoint_recreated: true,
+        runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
+      })
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-input.txt'), 'utf8')).toContain(response().task)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('hands a structured transient resume failure back to the durable Job lease', async () => {
     const fixture = prepareFixture('done before retry', {
       resumeError: {
@@ -214,7 +330,8 @@ function options(
   root: string,
   statusUpdates: RecordedStatusUpdate[],
   turnUpserts: RecordedTurnUpsert[],
-  jobOverride?: () => BackgroundAgentJobResponse
+  jobOverride?: () => BackgroundAgentJobResponse,
+  onStatusUpdate?: (update: RecordedStatusUpdate) => void
 ): CodexJobOptions {
   const job = response()
   const currentJob = () => jobOverride?.() ?? job
@@ -269,6 +386,7 @@ function options(
         case rpcMethods.backgroundAgentJobStatusUpdate: {
           const request = payload as RecordedStatusUpdate
           statusUpdates.push(request)
+          onStatusUpdate?.(request)
           return create(BackgroundAgentJobResponseSchema, {
             ...currentJob(),
             status: request.status ?? '',
@@ -364,10 +482,7 @@ function turnUpsertResponse(request: RecordedTurnUpsert) {
   })
 }
 
-function prepareFixture(
-  firstResponse: string,
-  behavior: { resumeError?: string | Record<string, unknown> } = {}
-): { root: string; cleanup(): void } {
+function prepareFixture(firstResponse: string, behavior: FakeCodexBehavior = {}): { root: string; cleanup(): void } {
   const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-runner-'))
   const fakeCodex = join(root, 'fake-codex')
   const fakeBwrap = join(root, 'fake-bwrap')
@@ -380,11 +495,7 @@ function prepareFixture(
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) }
 }
 
-function writeFakeCodex(
-  path: string,
-  firstResponse: string,
-  behavior: { resumeError?: string | Record<string, unknown> }
-): void {
+function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodexBehavior): void {
   writeFileSync(
     path,
     `#!/usr/bin/env bun
@@ -406,6 +517,9 @@ let buffer = ''
 let turnCount = 0
 const firstResponse = ${JSON.stringify(firstResponse)}
 const resumeError = ${JSON.stringify(behavior.resumeError)}
+const artifactPath = ${JSON.stringify(behavior.artifactPath)}
+const diffPathCount = ${JSON.stringify(behavior.diffPathCount)}
+const noProgressModelCalls = ${JSON.stringify(behavior.noProgressModelCalls)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.method === 'initialize') return write({ id: message.id, result: { userAgent: 'codex-cli 0.144.5' } })
@@ -427,18 +541,61 @@ function handle(message) {
   }
   if (message.method === 'turn/start') {
     turnCount += 1
-    writeFileSync('turn-count.txt', String(turnCount))
+    writeFileSync(process.env.CODEX_HOME + '/turn-count.txt', String(turnCount))
     const input = Array.isArray(message.params.input) ? message.params.input[0]?.text : ''
-    if (turnCount === 1) writeFileSync('turn-input.txt', input || '')
+    if (turnCount === 1) writeFileSync(process.env.CODEX_HOME + '/turn-input.txt', input || '')
     const turnID = 'turn-' + turnCount
     write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } })
+    if (noProgressModelCalls) {
+      for (let index = 1; index <= noProgressModelCalls; index += 1) {
+        setTimeout(() => {
+          const totalTokens = index * 100
+          write({
+            method: 'thread/tokenUsage/updated',
+            params: {
+              threadId: 'thread-1',
+              tokenUsage: {
+                total: {
+                  totalTokens,
+                  inputTokens: totalTokens - 10,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0
+                },
+                last: {
+                  totalTokens: 100,
+                  inputTokens: 90,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0
+                },
+                modelContextWindow: 1000
+              }
+            }
+          })
+        }, index * 2)
+      }
+      return
+    }
     const text = turnCount === 1 ? firstResponse : 'final response after retry'
     setTimeout(() => {
+      if (artifactPath) {
+        writeFileSync(artifactPath, 'artifact')
+        write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff: '--- /dev/null\\n+++ b/' + artifactPath + '\\n' } })
+      }
+      if (diffPathCount) {
+        let diff = ''
+        for (let index = 0; index < diffPathCount; index += 1) {
+          diff += '--- /dev/null\\n+++ b/report/artifact-' + index + '.pdf\\n'
+        }
+        write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff } })
+      }
       write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'agentMessage', id: 'message-' + turnCount, text } } })
       write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
     }, 10)
     return
   }
+  if (message.method === 'turn/interrupt') return write({ id: message.id, result: {} })
   if (message.id !== undefined) write({ id: message.id, result: {} })
 }
 process.stdin.setEncoding('utf8')
@@ -505,4 +662,8 @@ function jobProjectFor(root: string): string {
 
 function jobWorkspaceFor(root: string): string {
   return join(root, 'user-files', 'background-agent-jobs', jobID, 'workspace')
+}
+
+function codexHomeFor(root: string): string {
+  return join(root, 'shared', '.ankole', 'background-agent-jobs', jobID, 'codex-home')
 }

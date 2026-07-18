@@ -26,6 +26,7 @@ const defaultWorkspaceRoot = 'var/ankole-dev/worker'
 const defaultContainerName = 'ankole-dev-agent-computer'
 const managedLabel = 'ankole.dev.managed'
 const sourceHashLabel = 'ankole.dev.source_hash'
+const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
 const workerSourceMountTarget = '/repo/app/agent_computer/src'
 const workerInternalSkillsMountTarget = '/repo/internals/skills'
 const workerDevCommand = 'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
@@ -126,6 +127,8 @@ export async function workerImageSourceHash(): Promise<string> {
 async function workerImageInputFiles(): Promise<string[]> {
   const inputs = [
     'app/agent_computer/Dockerfile',
+    'app/agent_computer/base-image.lock',
+    'app/agent_computer/matplotlibrc',
     'app/agent_computer/package.json',
     'app/agent_computer/tsconfig.json',
     'app/kernel',
@@ -161,8 +164,14 @@ async function ensureWorkerImage(image: string, allowBuild: boolean): Promise<vo
     throw new Error(`Worker image ${image} is missing or stale and --no-build was given.`)
   }
 
-  await runChild('docker', [
+  await runChild('docker', buildWorkerImageBuildArgs(image, sourceHash, readWorkerBaseImageLock()))
+}
+
+export function buildWorkerImageBuildArgs(image: string, sourceHash: string, baseImage: string): string[] {
+  return [
     'build',
+    '--build-arg',
+    `BASE_IMAGE=${baseImage}`,
     '--label',
     `${sourceHashLabel}=${sourceHash}`,
     '-f',
@@ -170,7 +179,15 @@ async function ensureWorkerImage(image: string, allowBuild: boolean): Promise<vo
     '-t',
     image,
     repoRootPath
-  ])
+  ]
+}
+
+function readWorkerBaseImageLock(): string {
+  const image = readFileSync(workerBaseImageLock, 'utf8').trim()
+  if (!/^ghcr\.io\/agentbull\/ankole-agent-os-base@sha256:[0-9a-f]{64}$/.test(image)) {
+    throw new Error(`Worker base image lock is invalid: ${workerBaseImageLock}`)
+  }
+  return image
 }
 
 async function requireDocker(): Promise<void> {
@@ -313,14 +330,24 @@ async function stopChild(child: ChildProcess | undefined): Promise<void> {
   })
 }
 
-function signalChild(child: ChildProcess, signal: NodeJS.Signals): void {
+export function signalChild(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+  killProcess: typeof process.kill = process.kill,
+  platform: NodeJS.Platform = process.platform
+): void {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
 
   try {
-    if (process.platform === 'win32') child.kill(signal)
-    else process.kill(-child.pid, signal)
+    if (platform === 'win32') child.kill(signal)
+    else killProcess(-child.pid, signal)
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EPERM' && platform !== 'win32') {
+      child.kill(signal)
+      return
+    }
+    if (code !== 'ESRCH') throw error
   }
 }
 

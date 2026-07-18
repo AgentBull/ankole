@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycle do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.ReplyInteractions
   alias Ankole.Repo
   alias Ankole.Schedule
 
@@ -11,7 +12,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycle do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
+      with :ok <- Actors.lock_actor_session_in_tx(repo, input.agent_uid, input.session_id),
+           %ActorEvent{} = input <- Actors.lock_actor_event_in_tx(repo, input.id),
            {:ok, cancelled_checkbacks} <-
              Schedule.cancel_checkbacks_for_provider_entry_in_tx(
                repo,
@@ -22,8 +24,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycle do
                  "source_entry_id" => input.source_entry_id
                },
                now
-             ) do
-        ignore_lifecycle_event(repo, input, cancelled_checkbacks, now)
+             ),
+           {:ok, superseded_interactions} <-
+             ReplyInteractions.supersede_removed_source_in_tx(repo, input, now) do
+        ignore_lifecycle_event(
+          repo,
+          input,
+          cancelled_checkbacks,
+          superseded_interactions,
+          now
+        )
       else
         nil -> {:ok, %{status: :idle}}
         {:error, _reason} = error -> error
@@ -31,7 +41,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycle do
     end)
   end
 
-  defp ignore_lifecycle_event(repo, %ActorEvent{} = input, cancelled_checkbacks, now) do
+  defp ignore_lifecycle_event(
+         repo,
+         %ActorEvent{} = input,
+         cancelled_checkbacks,
+         superseded_interactions,
+         now
+       ) do
     with {:ok, aigateway_deletions} <- hard_delete_visible_aigateway_tail(repo, input, now),
          {:ok, completed_event} <- complete_lifecycle_event(repo, input, now) do
       {:ok,
@@ -39,6 +55,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycle do
          status: :entry_lifecycle_ignored,
          lifecycle_event: input,
          cancelled_checkbacks: cancelled_checkbacks,
+         superseded_reply_interactions: length(superseded_interactions),
          aigateway_deletions: aigateway_deletions,
          actor_event: completed_event
        }}

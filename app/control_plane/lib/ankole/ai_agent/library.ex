@@ -385,16 +385,16 @@ defmodule Ankole.AIAgent.Library do
       when is_map(overlay_json) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    repo.transact(fn repo ->
-      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
-           {:ok, _result} <-
-             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
-        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
-      end
-    end)
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
+      repo.transact(fn repo ->
+        with {:ok, _result} <-
+               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts) do
+          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
+        end
+      end)
+    end
   end
 
   def replace_skill_overlay(_agent_uid, _skill_name, _overlay_json, _opts),
@@ -427,22 +427,22 @@ defmodule Ankole.AIAgent.Library do
       when is_binary(expected_content_hash) and is_map(overlay_json) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    repo.transact(fn repo ->
-      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
-           {:ok, _result} <-
-             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
-           :ok <- lock_skill_overlay(repo, agent_uid, skill_name),
-           :ok <-
-             verify_overlay_hash(
-               active_skill_overlay(repo, agent_uid, skill_name),
-               expected_content_hash
-             ) do
-        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
-      end
-    end)
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
+      repo.transact(fn repo ->
+        with {:ok, _result} <-
+               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
+             :ok <- lock_skill_overlay(repo, agent_uid, skill_name),
+             :ok <-
+               verify_overlay_hash(
+                 active_skill_overlay(repo, agent_uid, skill_name),
+                 expected_content_hash
+               ) do
+          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
+        end
+      end)
+    end
   end
 
   def replace_skill_overlay_cas(
@@ -464,24 +464,24 @@ defmodule Ankole.AIAgent.Library do
   def skill_append(agent_uid, skill_name, content, opts) when is_binary(content) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    repo.transact(fn repo ->
-      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
-           {:ok, _result} <-
-             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
-           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
-           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
-           :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
-        existing =
-          repo
-          |> active_skill_overlay(agent_uid, skill_name)
-          |> skill_overlay_text()
+    with {:ok, agent_uid, sources, opts} <- prepare_skill_overlay_write(agent_uid, opts) do
+      repo.transact(fn repo ->
+        with {:ok, _result} <-
+               sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+             {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+             {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name, opts),
+             :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
+          existing =
+            repo
+            |> active_skill_overlay(agent_uid, skill_name)
+            |> skill_overlay_text()
 
-        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, %{
-          "text" => append_skill_overlay_text(existing, content)
-        })
-      end
-    end)
+          replace_skill_overlay_in_tx(repo, agent_uid, skill_name, %{
+            "text" => append_skill_overlay_text(existing, content)
+          })
+        end
+      end)
+    end
   end
 
   def skill_append(_agent_uid, _skill_name, _content, _opts), do: {:error, :invalid_content}
@@ -628,6 +628,14 @@ defmodule Ankole.AIAgent.Library do
          installed: [],
          installed_authoritative?: false
        }}
+    end
+  end
+
+  defp prepare_skill_overlay_write(agent_uid, opts) do
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, sources} <- agent_skill_sources(agent_uid, opts),
+         {:ok, defaults} <- library_defaults(opts) do
+      {:ok, agent_uid, sources, Keyword.put(opts, :agent_library_defaults, defaults)}
     end
   end
 

@@ -218,7 +218,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         source_entry_id: source_entry_id,
         provider_thread_id: message_thread_id(chat_id, message),
         channel: %{
-          kind: channel_kind(message),
+          kind: removed_message_channel_kind(message),
           reply_mode: :entry,
           raw_payload: compact_map(message)
         },
@@ -912,6 +912,14 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     case optional_text(message, "chat_type") do
       value when value in ["p2p", "private", "dm"] -> :im_dm
       _value -> :im_group
+    end
+  end
+
+  defp removed_message_channel_kind(message) do
+    case optional_text(message, "chat_type") do
+      value when value in ["p2p", "private", "dm"] -> :im_dm
+      "group" -> :im_group
+      _value -> :unknown
     end
   end
 

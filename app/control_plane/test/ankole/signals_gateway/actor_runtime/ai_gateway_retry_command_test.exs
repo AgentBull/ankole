@@ -51,6 +51,160 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
   end
 
+  test "retry command copies the latest dead-lettered request and preserves terminal history" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    assert {:ok, %{actor_event: input}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "RETRY DEAD LETTER", explicit: true}),
+               now: @base_time
+             )
+
+    assert {:ok, %{turn_ref: turn_ref}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    assert turn_start_payload!(envelope).turn.actor_event_id == turn_ref.actor_event_id
+
+    dead_letter_at = DateTime.add(@base_time, 2, :second)
+
+    assert {:ok, %{status: :turn_dead_lettered}} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{}),
+               now: dead_letter_at
+             )
+
+    assert {:ok, %{actor_event: retry_command}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "/retry", explicit: true}),
+               now: DateTime.add(@base_time, 3, :second)
+             )
+
+    assert {:ok, %{status: :command_consumed, retry_actor_event: retry_event}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+    terminal = Repo.get!(ActorEvent, input.id)
+    assert terminal.input_state == "dead_letter"
+    assert terminal.dead_letter_at == dead_letter_at
+    assert is_nil(terminal.completed_at)
+
+    retry_event = Repo.get!(ActorEvent, retry_event.id)
+    assert retry_event.id != input.id
+    assert retry_event.session_id == input.session_id
+    assert retry_event.input_state == "open"
+    assert retry_event.source_entry_id == retry_command.source_entry_id
+    assert get_in(retry_event.payload, ["data", "entry", "text"]) == "RETRY DEAD LETTER"
+    assert get_in(retry_event.payload, ["data", "entry", "retry_of_actor_event_id"]) == input.id
+    assert get_in(retry_event.payload, ["data", "entry", "retry_reason"]) == "command.retry"
+
+    assert Repo.aggregate(
+             from(event in ActorEvent,
+               where: event.source_event_id == ^"retry:#{retry_command.id}"
+             ),
+             :count
+           ) == 1
+
+    assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
+
+    assert_receive {:actor_lane, retry_envelope}
+    assert turn_start_payload!(retry_envelope).actor_event.actor_event_id == retry_event.id
+  end
+
+  test "retry command does not revive a withdrawn dead-lettered request" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    source_entry_id = "withdrawn-dead-letter"
+    signal_channel_id = "lark:chat:group-a"
+
+    assert {:ok, %{actor_event: input}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{
+                 source_event_id: "withdrawn-dead-letter-received",
+                 source_entry_id: source_entry_id,
+                 signal_channel_id: signal_channel_id,
+                 text: "WITHDRAW BEFORE RETRY",
+                 explicit: true
+               }),
+               now: @base_time
+             )
+
+    assert {:ok, %{turn_ref: turn_ref}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}
+    assert turn_start_payload!(envelope).turn.actor_event_id == turn_ref.actor_event_id
+
+    assert {:ok, %{status: :turn_dead_lettered}} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{}),
+               now: DateTime.add(@base_time, 2, :second)
+             )
+
+    assert {:ok, %{status: :accepted}} =
+             Ingress.emit_entry_removed(
+               agent.uid,
+               "bot",
+               lifecycle_entry(%{
+                 source_event_id: "withdrawn-dead-letter-removed",
+                 source_entry_id: source_entry_id,
+                 signal_channel_id: signal_channel_id
+               }),
+               now: DateTime.add(@base_time, 3, :second)
+             )
+
+    refute Repo.get_by(Entry,
+             signal_channel_id: signal_channel_id,
+             source_entry_id: source_entry_id
+           )
+
+    assert {:ok, %{actor_event: retry_command}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{text: "/retry", explicit: true}),
+               now: DateTime.add(@base_time, 4, :second)
+             )
+
+    assert {:ok, %{status: :command_consumed, feedback: feedback}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
+
+    assert feedback == Ankole.I18n.t("signals_gateway.reply.nothing_to_retry")
+    assert Repo.get!(ActorEvent, input.id).input_state == "dead_letter"
+
+    refute Repo.exists?(
+             from(event in ActorEvent,
+               where: event.source_event_id == ^"retry:#{retry_command.id}"
+             )
+           )
+  end
+
   test "retry command without a prior request is consumed with visible feedback" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)

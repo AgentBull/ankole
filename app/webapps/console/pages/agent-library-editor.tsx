@@ -17,6 +17,7 @@ import {
   AgentLibraryEditorModel,
   type AgentLibraryDocumentKind,
   type AgentLibraryDocumentSnapshot,
+  type AgentLibraryDocumentSubmission,
   type AgentLibraryDocumentsSnapshot
 } from '../state/agent-library-editor-model'
 
@@ -27,17 +28,25 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   const queryClient = useQueryClient()
   const currentAgentUID = useRef(agentUID)
   currentAgentUID.current = agentUID
+  const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
   const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
   const replaceDocument = useMutation({
     ...ankoleWebAgentLibraryControllerUpdateMutation(),
     onSuccess: (response, variables) => {
       const savedAgentUID = variables.path.agent_uid
+      const kind = variables.path.document_kind as AgentLibraryDocumentKind
+      const submissionKey = documentSubmissionKey(savedAgentUID, kind)
+      const submission = pendingSubmissions.current.get(submissionKey)
+      pendingSubmissions.current.delete(submissionKey)
       const document = response.library_document as AgentLibraryDocumentSnapshot
 
-      if (currentAgentUID.current === savedAgentUID) {
-        model.markSaved(document.kind, document)
-        toast.success(t('console.agent_library.saved', { kind: document.kind.toUpperCase() }))
+      if (currentAgentUID.current === savedAgentUID && submission) {
+        const result = model.markSaved(document.kind, document, submission)
+        const messageKey = result.hasUnsavedChanges ? 'saved_with_unsaved_changes' : 'saved'
+        const message = t(`console.agent_library.${messageKey}`, { kind: document.kind.toUpperCase() })
+        if (result.hasUnsavedChanges) toast.info(message)
+        else toast.success(message)
       }
 
       void queryClient.invalidateQueries({
@@ -45,8 +54,10 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
       })
     },
     onError: (error, variables) => {
-      if (currentAgentUID.current !== variables.path.agent_uid) return
+      const savedAgentUID = variables.path.agent_uid
       const kind = variables.path.document_kind as AgentLibraryDocumentKind
+      pendingSubmissions.current.delete(documentSubmissionKey(savedAgentUID, kind))
+      if (currentAgentUID.current !== savedAgentUID) return
       const conflict = requestErrorCode(error) === 'agent_library_document_conflict'
       model.setError(kind, conflict ? t('console.agent_library.conflict') : requestErrorMessage(error), conflict)
     }
@@ -62,6 +73,7 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
   const save = (kind: AgentLibraryDocumentKind) => {
     const draft = model.snapshot(kind)
     model.setError(kind, '')
+    pendingSubmissions.current.set(documentSubmissionKey(agentUID, kind), draft)
     replaceDocument.mutate({
       body: {
         content: draft.content,
@@ -179,6 +191,10 @@ export function AgentLibraryEditor({ agentUID }: { agentUID: string }) {
 
 function isDocumentKind(value: string): value is AgentLibraryDocumentKind {
   return AGENT_LIBRARY_DOCUMENT_KINDS.some(kind => kind === value)
+}
+
+function documentSubmissionKey(agentUID: string, kind: AgentLibraryDocumentKind): string {
+  return `${agentUID}:${kind}`
 }
 
 function requestErrorCode(error: unknown): string | undefined {

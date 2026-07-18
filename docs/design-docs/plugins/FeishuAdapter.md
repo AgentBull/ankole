@@ -204,7 +204,12 @@ adapter-scoped transaction advisory lock, so concurrent saves cannot both pass
 the one-agent/one-app checks. The config row and binding commit together; the
 AppConfigure cache is published only after that transaction commits. Existing
 bindings remain readable through their persisted `config_ref` until they are
-saved again.
+saved again. If an enabled binding's referenced config is missing, unreadable,
+or invalid, a new assignment fails explicitly rather than treating the unknown
+app identity as a non-match. The chat pattern is read-only through the generic
+AppConfigure Console API, so PUT and DELETE cannot bypass the binding owner.
+Once the transaction commits, a cache refresh failure is logged without turning
+the save into a false failure or suppressing binding-saved follow-up work.
 
 An available Lark binding also gives that agent bot-only `lark-cli` capability.
 Agent Computer is a trusted first-party worker. The adapter uses the binding's

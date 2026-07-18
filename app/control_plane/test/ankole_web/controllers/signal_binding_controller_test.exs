@@ -4,9 +4,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.Plugins.DingTalkAdapter
+  alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
@@ -21,6 +24,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     :ok = SetupConfig.ensure_registered()
     :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
     {:ok, true} = SetupConfig.put_completed(true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
@@ -105,6 +109,207 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert %{"error" => %{"code" => "not_found", "message" => "signal adapter was not found"}} =
              json_response(conn, 404)
+  end
+
+  test "generic AppConfigure updates cannot bypass Lark binding assignment ownership", %{
+    conn: conn
+  } do
+    %{principal: first_agent} = agent_fixture()
+    %{principal: second_agent} = agent_fixture()
+    conn = bearer_conn(conn)
+
+    conn =
+      put_binding(conn, first_agent.uid, "lark", "lark-main", %{
+        "appID" => "cli_shared_lark",
+        "appSecret" => "secret-first-lark"
+      })
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put_binding(second_agent.uid, "lark", "lark-main", %{
+        "appID" => "cli_second_lark",
+        "appSecret" => "secret-second-lark"
+      })
+
+    assert response(conn, 200)
+    config_key = LarkConfig.chat_config_key(second_agent.uid)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+        "value" => %{
+          "appID" => "cli_shared_lark",
+          "appSecret" => "secret-bypassed-lark"
+        }
+      })
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+
+    assert {:ok, %{"appID" => "cli_second_lark", "appSecret" => "secret-second-lark"}} =
+             LarkConfig.load_chat_config_ref(config_key)
+
+    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert {:ok, %{"appID" => "cli_second_lark"}} = LarkConfig.load_chat_config_ref(config_key)
+  end
+
+  test "generic AppConfigure updates cannot bypass DingTalk binding assignment ownership", %{
+    conn: conn
+  } do
+    %{principal: first_agent} = agent_fixture()
+    %{principal: second_agent} = agent_fixture()
+    conn = bearer_conn(conn)
+
+    conn =
+      put_binding(conn, first_agent.uid, "dingtalk", "dingtalk-main", %{
+        "clientId" => "ding_shared",
+        "clientSecret" => "secret-first-dingtalk"
+      })
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put_binding(second_agent.uid, "dingtalk", "dingtalk-main", %{
+        "clientId" => "ding_second",
+        "clientSecret" => "secret-second-dingtalk"
+      })
+
+    assert response(conn, 200)
+    config_key = DingTalkConfig.chat_config_key(second_agent.uid)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/#{config_key}", %{
+        "value" => %{
+          "clientId" => "ding_shared",
+          "clientSecret" => "secret-bypassed-dingtalk"
+        }
+      })
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+
+    assert {:ok,
+            %{
+              "clientId" => "ding_second",
+              "clientSecret" => "secret-second-dingtalk"
+            }} = DingTalkConfig.load_chat_config_ref(config_key)
+
+    conn = conn |> recycle_api() |> delete(~p"/api/v1/app-configurations/#{config_key}")
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert {:ok, %{"clientId" => "ding_second"}} = DingTalkConfig.load_chat_config_ref(config_key)
+  end
+
+  test "owner-managed adapter keys reject missing and corrupt rows before generic writes", %{
+    conn: conn
+  } do
+    unique = System.unique_integer([:positive])
+
+    cases = [
+      {LarkConfig.chat_config_key("missing-#{unique}"),
+       %{"appID" => "cli_missing", "appSecret" => "secret"}},
+      {DingTalkConfig.chat_config_key("missing-#{unique}"),
+       %{"clientId" => "ding_missing", "clientSecret" => "secret"}}
+    ]
+
+    Enum.reduce(cases, bearer_conn(conn), fn {config_key, config}, conn ->
+      conn = put_generic_config(conn, config_key, config)
+
+      assert %{
+               "error" => %{
+                 "code" => "not_editable",
+                 "message" => "app configuration is managed through its owning API"
+               }
+             } = json_response(conn, 422)
+
+      refute Repo.get_by(AppConfig, scope: "global", key: config_key)
+
+      invalid_envelope = %{"type" => "cipher", "value" => "invalid"}
+      put_raw_global_config(config_key, invalid_envelope)
+
+      conn = conn |> recycle_api() |> put_generic_config(config_key, config)
+
+      assert %{
+               "error" => %{
+                 "code" => "not_editable",
+                 "message" => "app configuration is managed through its owning API"
+               }
+             } = json_response(conn, 422)
+
+      assert %AppConfig{value: ^invalid_envelope} =
+               Repo.get_by(AppConfig, scope: "global", key: config_key)
+
+      assert {:error, {:storage_error, "global", ^config_key, _decrypt_reason}} =
+               AppConfigure.get_by_key(config_key)
+
+      recycle_api(conn)
+    end)
+  end
+
+  test "concurrent generic writes cannot race owner-managed Lark and DingTalk configs" do
+    %{principal: lark_agent} = agent_fixture()
+    %{principal: dingtalk_agent} = agent_fixture()
+    lark_key = LarkConfig.chat_config_key(lark_agent.uid)
+    dingtalk_key = DingTalkConfig.chat_config_key(dingtalk_agent.uid)
+
+    assert {:ok, _result} =
+             SignalsGateway.put_binding(lark_agent.uid, "lark", "lark-main", %{
+               "config" => %{"appID" => "cli_concurrent_owner", "appSecret" => "secret"}
+             })
+
+    assert {:ok, _result} =
+             SignalsGateway.put_binding(dingtalk_agent.uid, "dingtalk", "dingtalk-main", %{
+               "config" => %{
+                 "clientId" => "ding_concurrent_owner",
+                 "clientSecret" => "secret"
+               },
+               "group_message_mode" => "addressed_only"
+             })
+
+    parent = self()
+
+    tasks =
+      [
+        {lark_key, %{"value" => %{"appID" => "cli_bypass_a", "appSecret" => "secret"}}},
+        {lark_key, %{"value" => %{"appID" => "cli_bypass_b", "appSecret" => "secret"}}},
+        {dingtalk_key,
+         %{"value" => %{"clientId" => "ding_bypass_a", "clientSecret" => "secret"}}},
+        {dingtalk_key, %{"value" => %{"clientId" => "ding_bypass_b", "clientSecret" => "secret"}}}
+      ]
+      |> Enum.map(fn {key, attrs} ->
+        Task.async(fn ->
+          send(parent, {:generic_writer_ready, self()})
+          receive do: (:write -> AppConfigure.console_update_global_by_key(key, attrs))
+        end)
+      end)
+
+    task_pids = MapSet.new(tasks, & &1.pid)
+
+    Enum.each(tasks, fn _task ->
+      assert_receive {:generic_writer_ready, pid}, 1_000
+      assert MapSet.member?(task_pids, pid)
+    end)
+
+    Enum.each(tasks, &send(&1.pid, :write))
+
+    assert Enum.all?(tasks, fn task ->
+             match?(
+               {:error, {:pattern_key_managed_by_owner, _key}},
+               Task.await(task, 1_000)
+             )
+           end)
+
+    assert {:ok, %{"appID" => "cli_concurrent_owner"}} =
+             LarkConfig.load_chat_config_ref(lark_key)
+
+    assert {:ok, %{"clientId" => "ding_concurrent_owner"}} =
+             DingTalkConfig.load_chat_config_ref(dingtalk_key)
   end
 
   test "admin lists signal adapter catalog with provider fields and common group mode field", %{
@@ -203,6 +408,30 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     after
       true = Process.register(registry, Ankole.Plugins.Registry)
     end
+  end
+
+  defp put_binding(conn, agent_uid, adapter_id, binding_name, config) do
+    attrs =
+      case adapter_id do
+        "dingtalk" -> %{"config" => config, "group_message_mode" => "addressed_only"}
+        _adapter_id -> %{"config" => config}
+      end
+
+    put(
+      conn,
+      ~p"/api/v1/agents/#{agent_uid}/signal-bindings/#{adapter_id}/#{binding_name}",
+      attrs
+    )
+  end
+
+  defp put_generic_config(conn, config_key, config) do
+    put(conn, ~p"/api/v1/app-configurations/#{config_key}", %{"value" => config})
+  end
+
+  defp put_raw_global_config(key, envelope) do
+    %AppConfig{}
+    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    |> Repo.insert!()
   end
 
   defp bearer_conn(conn) do

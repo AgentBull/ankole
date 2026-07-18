@@ -21,6 +21,18 @@ const generatedDir = path.join(packageRoot, 'src', 'fabric', 'generated')
 const sidecarPath = path.join(generatedDir, 'envelope.proto.hash')
 const protoNames = ['envelope', 'rpc'] as const
 
+function generatedRelative(name: (typeof protoNames)[number]): string {
+  return path.join('src', 'fabric', 'generated', 'ankole', 'runtime_fabric', 'v1', `${name}_pb.ts`)
+}
+
+function normalizeGeneratedFiles(root: string): void {
+  for (const name of protoNames) {
+    const generatedPath = path.join(root, generatedRelative(name))
+    const generated = readFileSync(generatedPath, 'utf8')
+    writeFileSync(generatedPath, generated.replace(/\n+$/u, '\n'))
+  }
+}
+
 export function generationFingerprint(): string {
   const hash = createHash('sha256')
   for (const name of protoNames) {
@@ -66,18 +78,11 @@ if (import.meta.main) {
     const scratch = mkdtempSync(path.join(tmpdir(), 'ankole-fabric-proto-'))
     try {
       generate(scratch)
+      normalizeGeneratedFiles(scratch)
       for (const name of protoNames) {
-        const generatedRelative = path.join(
-          'src',
-          'fabric',
-          'generated',
-          'ankole',
-          'runtime_fabric',
-          'v1',
-          `${name}_pb.ts`
-        )
-        const fresh = readFileSync(path.join(scratch, generatedRelative), 'utf8')
-        const committed = readFileSync(path.join(packageRoot, generatedRelative), 'utf8')
+        const relativePath = generatedRelative(name)
+        const fresh = readFileSync(path.join(scratch, relativePath), 'utf8')
+        const committed = readFileSync(path.join(packageRoot, relativePath), 'utf8')
         if (fresh !== committed) {
           console.error(`generated ${name}_pb.ts is stale; run \`bun run gen:proto\``)
           process.exit(1)
@@ -94,6 +99,7 @@ if (import.meta.main) {
   } else {
     rmSync(generatedDir, { recursive: true, force: true })
     generate()
+    normalizeGeneratedFiles(packageRoot)
     writeFileSync(sidecarPath, `${generationFingerprint()}\n`)
     console.warn(`wrote ${path.relative(packageRoot, generatedDir)} and refreshed the sidecar hash`)
   }

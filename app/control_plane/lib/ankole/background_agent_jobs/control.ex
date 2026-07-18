@@ -81,6 +81,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     metadata =
       job.metadata
       |> Kernel.||(%{})
+      |> Map.delete("pending_user_input")
       |> Map.merge(
         Attrs.reject_nil_values(%{
           "cancel_requested_by" => Attrs.text(attrs, "cancel_requested_by"),

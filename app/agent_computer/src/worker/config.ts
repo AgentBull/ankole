@@ -147,8 +147,8 @@ export function parseRuntimeFabricURL(value: string): Pick<WorkerConfig, 'endpoi
 /**
  * Builds the first lifecycle envelope sent after the DEALER connects.
  *
- * Runtime and version are observability metadata. They are not used as
- * feature negotiation because the worker pool is homogeneous by image.
+ * Runtime and product version are observability metadata. Protocol compatibility
+ * is enforced by the envelope header before this worker can enter the ready pool.
  */
 export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = config.maxConcurrentTurns): Envelope {
   const available = clampAvailableSlots(config, availableTurnSlots)

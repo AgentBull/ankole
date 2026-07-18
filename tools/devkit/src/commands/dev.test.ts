@@ -6,9 +6,12 @@ import {
   buildControlPlaneEnv,
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
+  buildWorkerImageBuildArgs,
   buildWorkerDockerArgs,
-  parseDockerContainerIDs
+  parseDockerContainerIDs,
+  signalChild
 } from './dev'
+import type { ChildProcess } from 'node:child_process'
 import type { WorkerBootstrapSpec } from '../worker-bootstrap'
 import { mixCommand } from '../utils'
 
@@ -91,6 +94,38 @@ describe('managed worker cleanup args', () => {
   test('removes only ids returned by the guarded lookup', () => {
     expect(parseDockerContainerIDs('abc\n\n def \n')).toEqual(['abc', 'def'])
     expect(buildManagedWorkerRmArgs(['abc', 'def'])).toEqual(['rm', '-f', 'abc', 'def'])
+  })
+})
+
+describe('managed child shutdown', () => {
+  test('falls back to the owned child handle when a Unix process-group signal is denied', () => {
+    const directSignals: NodeJS.Signals[] = []
+    const child = {
+      pid: 1234,
+      exitCode: null,
+      signalCode: null,
+      kill: (signal: NodeJS.Signals) => {
+        directSignals.push(signal)
+        return true
+      }
+    } as ChildProcess
+    const deniedGroupKill = (() => {
+      throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' })
+    }) as typeof process.kill
+
+    signalChild(child, 'SIGTERM', deniedGroupKill, 'darwin')
+
+    expect(directSignals).toEqual(['SIGTERM'])
+  })
+})
+
+describe('worker image build args', () => {
+  test('requires an explicit digest-pinned development base image', () => {
+    const baseImage = `ghcr.io/agentbull/ankole-agent-os-base@sha256:${'a'.repeat(64)}`
+    const args = buildWorkerImageBuildArgs('ankole-agent-computer:test', 'source-hash', baseImage)
+
+    expect(args).toContain(`BASE_IMAGE=${baseImage}`)
+    expect(args).not.toContain('main-latest')
   })
 })
 

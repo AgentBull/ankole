@@ -134,6 +134,24 @@ impl Drop for RouterHandle {
 /// ZeroMQ sockets are thread-affine. Commands cross into the socket thread over
 /// channels, while received envelopes return to the host through the sink.
 pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult<RouterHandle> {
+    start_router_with_runner(config, sink, run_router)
+}
+
+fn start_router_with_runner<Runner>(
+    config: RouterConfig,
+    sink: RouterEventSink,
+    runner: Runner,
+) -> KernelResult<RouterHandle>
+where
+    Runner: FnOnce(
+            RouterConfig,
+            mpsc::Receiver<RouterCommand>,
+            mpsc::SyncSender<Result<String, TransportError>>,
+            RouterEventSink,
+            Arc<AtomicBool>,
+        ) + Send
+        + 'static,
+{
     config
         .validate()
         .map_err(|error| KernelError::new(error.ffi_message()))?;
@@ -146,13 +164,22 @@ pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult
 
     thread::Builder::new()
         .name("ankole-runtime-fabric-router".to_string())
-        .spawn(move || run_router(config, command_rx, init_tx, sink, thread_stop))
+        .spawn(move || runner(config, command_rx, init_tx, sink, thread_stop))
         .map_err(|error| KernelError::new(format!("failed to spawn router thread: {error}")))?;
 
-    let endpoint = init_rx
-        .recv_timeout(command_timeout)
-        .map_err(|_| KernelError::new("timed out starting actor lane router"))?
-        .map_err(|error| KernelError::new(error.ffi_message()))?;
+    let endpoint = match init_rx.recv_timeout(command_timeout) {
+        Ok(result) => result.map_err(|error| KernelError::new(error.ffi_message()))?,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            stop.store(true, Ordering::SeqCst);
+            return Err(KernelError::new("timed out starting actor lane router"));
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            stop.store(true, Ordering::SeqCst);
+            return Err(KernelError::new(
+                "actor lane router stopped before initialization",
+            ));
+        }
+    };
 
     Ok(RouterHandle {
         endpoint,
@@ -171,6 +198,10 @@ fn run_router(
     sink: RouterEventSink,
     stop: Arc<AtomicBool>,
 ) {
+    if stop.load(Ordering::SeqCst) {
+        return;
+    }
+
     let context = zmq::Context::new();
     let zap_stop = Arc::clone(&stop);
     let auth_routes = Arc::new(Mutex::new(AuthenticatedRouteState::default()));
@@ -224,6 +255,10 @@ fn run_router(
         }
     };
 
+    if stop.load(Ordering::SeqCst) {
+        return;
+    }
+
     let _ = init.send(Ok(endpoint));
     let poll_interval = config.poll_interval();
 
@@ -248,32 +283,34 @@ fn run_router(
 }
 
 fn drain_router_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<RouterCommand>) -> bool {
-    while let Ok(command) = commands.try_recv() {
-        match command {
-            RouterCommand::Send {
-                route,
-                payload,
-                reply,
-            } => {
-                let outcome = send_router_payload(socket, route, payload);
-                let _ = reply.send(outcome);
-            }
-            RouterCommand::SendFileFrame {
-                route,
-                frames,
-                reply,
-            } => {
-                let outcome = send_router_file_frame(socket, route, frames);
-                let _ = reply.send(outcome);
-            }
-            RouterCommand::Stop { reply } => {
-                let _ = reply.send(Ok(()));
-                return false;
-            }
+    loop {
+        match commands.try_recv() {
+            Ok(command) => match command {
+                RouterCommand::Send {
+                    route,
+                    payload,
+                    reply,
+                } => {
+                    let outcome = send_router_payload(socket, route, payload);
+                    let _ = reply.send(outcome);
+                }
+                RouterCommand::SendFileFrame {
+                    route,
+                    frames,
+                    reply,
+                } => {
+                    let outcome = send_router_file_frame(socket, route, frames);
+                    let _ = reply.send(outcome);
+                }
+                RouterCommand::Stop { reply } => {
+                    let _ = reply.send(Ok(()));
+                    return false;
+                }
+            },
+            Err(mpsc::TryRecvError::Empty) => return true,
+            Err(mpsc::TryRecvError::Disconnected) => return false,
         }
     }
-
-    true
 }
 
 // Sends the ROUTER multipart frame shape: worker route identity followed by the
@@ -378,5 +415,87 @@ fn emit_router_frames(
             transport_route: route.unwrap_or_default(),
             reason: error.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpListener;
+
+    use super::*;
+    use crate::runtime_fabric::transport::SocketOptions;
+
+    #[test]
+    fn initialization_timeout_stops_late_router_and_releases_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("reserve test port");
+        let endpoint = format!(
+            "tcp://127.0.0.1:{}",
+            listener.local_addr().expect("test address").port()
+        );
+        drop(listener);
+
+        let config = router_config(endpoint.clone());
+        let mut replacement_config = config.clone();
+        replacement_config.command_timeout_ms = Some(1_000);
+        let (release_tx, release_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+
+        let result = start_router_with_runner(
+            config,
+            event_sink(),
+            move |config, commands, init, sink, stop| {
+                release_rx
+                    .recv()
+                    .expect("release delayed router initialization");
+                run_router(config, commands, init, sink, stop);
+                let _ = finished_tx.send(());
+            },
+        );
+
+        let error = match result {
+            Ok(router) => {
+                let _ = router.stop();
+                panic!("delayed router unexpectedly started")
+            }
+            Err(error) => error,
+        };
+        assert_eq!(error.to_string(), "timed out starting actor lane router");
+
+        release_tx
+            .send(())
+            .expect("release delayed router initialization");
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("timed-out router thread must stop");
+
+        let replacement =
+            start_router(replacement_config, event_sink()).expect("endpoint must be reusable");
+        assert_eq!(replacement.endpoint(), endpoint);
+        replacement.stop().expect("stop replacement router");
+    }
+
+    #[test]
+    fn disconnected_command_channel_stops_router_loop() {
+        let context = zmq::Context::new();
+        let socket = context.socket(zmq::ROUTER).expect("router socket");
+        let (command_tx, command_rx) = mpsc::channel();
+        drop(command_tx);
+
+        assert!(!drain_router_commands(&socket, &command_rx));
+    }
+
+    fn router_config(endpoint: String) -> RouterConfig {
+        RouterConfig {
+            endpoint,
+            worker_auth_key: None,
+            zap_domain: None,
+            socket: SocketOptions::default(),
+            poll_interval_ms: Some(1),
+            command_timeout_ms: Some(10),
+        }
+    }
+
+    fn event_sink() -> RouterEventSink {
+        Arc::new(|_event| {})
     }
 }

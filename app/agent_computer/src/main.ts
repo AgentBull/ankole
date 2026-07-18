@@ -8,7 +8,7 @@ import {
   turnNoopCompletedEnvelope,
   workerProgressEnvelope
 } from './fabric/envelopes'
-import { RuntimeRPCClient, handleWorkerRPCRequest, rpcMethods } from './lanes/rpc_lane'
+import { RuntimeRPCClient, handleWorkerRPCRequest } from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import { connectRuntimeFabric, isRuntimeFabricTransportError, type EnvelopeSender } from './fabric/fabric'

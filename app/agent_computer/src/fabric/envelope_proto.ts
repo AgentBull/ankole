@@ -65,7 +65,7 @@ export type {
   WorkerProgress as WorkerProgressMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
 
-export const envelopeProtocolVersion = 1
+export const envelopeProtocolVersion = 2
 
 export function encodeEnvelope(envelope: Envelope): Buffer {
   return Buffer.from(toBinary(EnvelopeSchema, envelope))

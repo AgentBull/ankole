@@ -9,8 +9,9 @@ defmodule Ankole.Brain.Jobs.WithdrawSource do
   alias Ankole.Brain.SourceWithdrawal
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"document_id" => document_id}}) when is_binary(document_id) do
-    case SourceWithdrawal.withdraw(document_id) do
+  def perform(%Oban.Job{args: %{"document_id" => document_id} = args})
+      when is_binary(document_id) do
+    case SourceWithdrawal.withdraw(document_id, Map.get(args, "actor_event_ids", [])) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end

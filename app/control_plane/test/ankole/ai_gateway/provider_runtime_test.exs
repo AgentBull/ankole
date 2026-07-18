@@ -17,6 +17,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
@@ -558,6 +559,27 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "openrouter-turn-hosted-tools",
                model: "openai/gpt-4o-mini"
              })
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_catalog, "openrouter-turn-hosted-tools", "images/models"},
+        [%{"id" => "openai/gpt-image-1"}],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_endpoints, "openrouter-turn-hosted-tools",
+         "images/models/openai/gpt-image-1/endpoints"},
+        [
+          %{
+            "provider_slug" => "openai",
+            "provider_tag" => "openai/gpt-image-1:openai",
+            "supported_parameters" => %{}
+          }
+        ],
+        60_000
+      )
 
     actor_key = %{agent_uid: agent.uid, session_id: "session-turn-hosted-tools"}
 

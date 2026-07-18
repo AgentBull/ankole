@@ -273,5 +273,5 @@ if (import.meta.main) {
     process.exit(1)
   }
 
-  console.log(`validated bot identity for Lark skill examples with lark-cli ${supportedLarkCLIVersion}`)
+  process.stdout.write(`validated bot identity for Lark skill examples with lark-cli ${supportedLarkCLIVersion}\n`)
 }

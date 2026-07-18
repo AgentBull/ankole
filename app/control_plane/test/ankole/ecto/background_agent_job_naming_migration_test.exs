@@ -30,10 +30,18 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
       "type" => "subagent.delegation.dispatch"
     }
 
+    retry_payload =
+      historical_payload
+      |> put_in(["data", "attempts"], 1)
+      |> Map.put(
+        "id",
+        "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1"
+      )
+
     Repo.query!("""
     CREATE TEMPORARY TABLE #{@table} (
       type text NOT NULL,
-      source_event_id text NOT NULL,
+      source_event_id text NOT NULL UNIQUE,
       payload jsonb NOT NULL
     ) ON COMMIT DROP
     """)
@@ -50,13 +58,32 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
       ]
     )
 
+    Repo.query!(
+      """
+      INSERT INTO #{@table} (type, source_event_id, payload)
+      VALUES ($1, $2, $3)
+      """,
+      [
+        retry_payload["type"],
+        "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
+        retry_payload
+      ]
+    )
+
     run_rewrite(:up)
 
     assert [
-             "background_agent_job.dispatch",
-             "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
-             migrated_payload
-           ] = event_row()
+             [
+               "background_agent_job.dispatch",
+               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch",
+               migrated_payload
+             ],
+             [
+               "background_agent_job.dispatch",
+               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
+               migrated_retry_payload
+             ]
+           ] = event_rows()
 
     assert migrated_payload == %{
              historical_payload
@@ -66,19 +93,34 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
                  "owner_session_id" => "signal:lark:chat-1",
                  "workdir" => "/workspace/user-files/subagent-runs/019f6aa0"
                },
-               "id" => "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
+               "id" => "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch",
                "source" => "control-plane://background-agent-job",
                "subject" => "background-agent-job:019f6aa0-3f4d-7573-b4a8-bde808f3011f",
                "type" => "background_agent_job.dispatch"
            }
 
+    assert migrated_retry_payload ==
+             migrated_payload
+             |> put_in(["data", "attempts"], 1)
+             |> Map.put(
+               "id",
+               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1"
+             )
+
     run_rewrite(:down)
 
     assert [
-             "subagent.delegation.dispatch",
-             "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
-             ^historical_payload
-           ] = event_row()
+             [
+               "subagent.delegation.dispatch",
+               "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
+               ^historical_payload
+             ],
+             [
+               "subagent.delegation.dispatch",
+               "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
+               ^retry_payload
+             ]
+           ] = event_rows()
   end
 
   defp run_rewrite(direction) do
@@ -87,8 +129,11 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
     |> Enum.each(&Repo.query!/1)
   end
 
-  defp event_row do
-    Repo.query!("SELECT type, source_event_id, payload FROM #{@table}").rows
-    |> List.first()
+  defp event_rows do
+    Repo.query!("""
+    SELECT type, source_event_id, payload
+    FROM #{@table}
+    ORDER BY source_event_id
+    """).rows
   end
 end

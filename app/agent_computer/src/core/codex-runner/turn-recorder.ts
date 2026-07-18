@@ -17,8 +17,9 @@ import {
   type RPCRequestInit
 } from '../../lanes/rpc_lane'
 import type { JSONRPCMessage } from '../../tools/codex/app-server-client'
-import { filesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../../tools/codex/protocol'
+import { boundedFilesChangedFromCodexDiff, normalizeCodexThreadUsage } from '../../tools/codex/protocol'
 import type { ThreadItem } from '../../tools/codex/generated/protocol/v2/ThreadItem'
+import { boundedBackgroundAgentJobPaths } from '../background-agent-job-handoff'
 
 const checkpointDelayMs = 5_000
 const maxStringBytes = 16 * 1_024
@@ -341,9 +342,12 @@ export class BackgroundAgentJobTurnRecorder {
     const turn = this.turn(params)
     const diff = stringValue(params.diff)
     if (!turn || diff === undefined) return
-    const before = turn.filesChanged.size
-    for (const path of filesChangedFromCodexDiff(diff)) turn.filesChanged.add(path)
-    if (turn.filesChanged.size !== before) this.markDirty(turn, false)
+    const handoff = boundedFilesChangedFromCodexDiff(diff)
+    const before = JSON.stringify([...turn.filesChanged].sort())
+    const wasTruncated = turn.contentTruncated
+    turn.filesChanged = new Set(handoff.paths)
+    turn.contentTruncated ||= handoff.truncated
+    if (JSON.stringify(handoff.paths) !== before || turn.contentTruncated !== wasTruncated) this.markDirty(turn, false)
   }
 
   private turn(params: JSONObject): RuntimeTurn | undefined {
@@ -422,7 +426,9 @@ export class BackgroundAgentJobTurnRecorder {
     const name = toolName(item)
     if (name) turn.toolItemNames.set(id, name)
     if (item.type === 'fileChange') {
-      for (const path of fileChangePaths(item.changes)) turn.filesChanged.add(path)
+      const handoff = boundedBackgroundAgentJobPaths([...turn.filesChanged, ...fileChangePaths(item.changes)])
+      turn.filesChanged = new Set(handoff.paths)
+      turn.contentTruncated ||= handoff.truncated
     }
     return true
   }

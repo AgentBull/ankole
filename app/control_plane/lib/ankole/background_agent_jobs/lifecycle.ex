@@ -26,6 +26,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @max_running_per_agent 3
   @max_execution_attempts 5
   @max_event_payload_bytes 16_384
+  @artifact_path_limit 32
+  @artifact_path_bytes 8_192
+  @path_handoff_keys [
+    {"files_changed", :files_changed},
+    {"artifacts", :artifacts},
+    {"artifact_roots", :artifact_roots}
+  ]
   @truncation_suffix "...[truncated]"
   @terminal_statuses Job.terminal_statuses()
   @running_statuses Job.running_statuses()
@@ -181,6 +188,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
          attrs <- Attrs.normalize(attrs),
+         attrs <- bound_result_path_handoffs(attrs),
          :ok <- enforce_status_transition(job, attrs),
          :ok <- enforce_running_limit(repo, job, attrs),
          :ok <- enforce_no_unapplied_terminal_steer(repo, job, attrs, turn_ref),
@@ -575,7 +583,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "result_summary" => result_summary(job),
           "delivery_status" => delivery_status(job),
           "delivery_issue_count" => delivery_issue_count(job),
-          "artifacts" => Map.get(job.result || %{}, "artifacts"),
+          "artifacts" => bounded_path_handoff(Map.get(job.result || %{}, "artifacts")),
+          "artifact_roots" => bounded_path_handoff(Map.get(job.result || %{}, "artifact_roots")),
           "project_path" => Map.get(job.result || %{}, "project_path"),
           "reply_route" => job.reply_route || %{},
           "pending_user_input" => get_in(job.metadata || %{}, ["pending_user_input"])
@@ -607,6 +616,94 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   defp delivery_issue_count(%Job{}), do: nil
+
+  defp bound_result_path_handoffs(%{"result" => result} = attrs) when is_map(result) do
+    result =
+      Enum.reduce(@path_handoff_keys, result, fn {key, atom_key}, bounded ->
+        case Map.fetch(bounded, key) do
+          {:ok, value} ->
+            bounded
+            |> Map.delete(atom_key)
+            |> Map.put(key, bounded_path_handoff(value))
+
+          :error ->
+            case Map.fetch(bounded, atom_key) do
+              {:ok, value} ->
+                bounded
+                |> Map.delete(atom_key)
+                |> Map.put(key, bounded_path_handoff(value))
+
+              :error ->
+                bounded
+            end
+        end
+      end)
+
+    Map.put(attrs, "result", result)
+  end
+
+  defp bound_result_path_handoffs(attrs), do: attrs
+
+  defp bounded_path_handoff(paths) when is_list(paths),
+    do: build_path_handoff(paths, nil, false)
+
+  defp bounded_path_handoff(%{} = handoff) do
+    build_path_handoff(
+      path_handoff_value(handoff, "paths", :paths, []),
+      path_handoff_value(handoff, "total_count", :total_count),
+      path_handoff_value(handoff, "truncated", :truncated) == true
+    )
+  end
+
+  defp bounded_path_handoff(_value), do: nil
+
+  defp build_path_handoff(paths, declared_total, declared_truncated) when is_list(paths) do
+    observed_count = length(paths)
+    paths = Enum.filter(paths, &(is_binary(&1) and &1 != ""))
+    invalid_paths = length(paths) != observed_count
+    total_count = max(observed_count, valid_total_count(declared_total))
+
+    {selected, _serialized_bytes} =
+      Enum.reduce_while(paths, {[], 2}, fn path, {selected, serialized_bytes} ->
+        if path in selected do
+          {:cont, {selected, serialized_bytes}}
+        else
+          if length(selected) >= @artifact_path_limit do
+            {:halt, {selected, serialized_bytes}}
+          else
+            added_bytes =
+              byte_size(Ankole.JSON.encode!(path)) + if(selected == [], do: 0, else: 1)
+
+            if serialized_bytes + added_bytes <= @artifact_path_bytes do
+              {:cont, {[path | selected], serialized_bytes + added_bytes}}
+            else
+              {:cont, {selected, serialized_bytes}}
+            end
+          end
+        end
+      end)
+
+    selected = Enum.reverse(selected)
+
+    %{
+      "total_count" => total_count,
+      "paths" => selected,
+      "truncated" => declared_truncated or invalid_paths or length(selected) < total_count
+    }
+  end
+
+  defp build_path_handoff(_paths, declared_total, _declared_truncated),
+    do: build_path_handoff([], declared_total, true)
+
+  defp valid_total_count(value) when is_integer(value) and value >= 0, do: value
+  defp valid_total_count(_value), do: 0
+
+  defp path_handoff_value(handoff, key, atom_key, default \\ nil) do
+    case Map.fetch(handoff, key) do
+      {:ok, value} -> value
+      :error -> Map.get(handoff, atom_key, default)
+    end
+  end
 
   defp map_summary(value, preferred_keys) when is_map(value) do
     preferred_keys

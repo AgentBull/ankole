@@ -71,7 +71,14 @@ Identity provider (`principals.identity_providers.dingtalk.<id>`) adds
 `sync.contacts` is off.
 
 One agent gets at most one enabled DingTalk binding, and one `clientId` cannot be
-assigned to two agents (`Config.validate_binding_assignment/3`).
+assigned to two agents (`Config.validate_binding_assignment/4`). Assignment
+validation reads binding and config rows in the same adapter-locked transaction
+that persists the save. An enabled binding whose referenced config is missing,
+unreadable, or invalid blocks a new assignment with an explicit error.
+The chat pattern is read-only through the generic AppConfigure Console API, so
+PUT and DELETE must go through the signal-binding owner. Once that transaction
+commits, cache refresh is best-effort and cannot suppress binding-saved
+follow-up work.
 
 ## Runtime Connection
 

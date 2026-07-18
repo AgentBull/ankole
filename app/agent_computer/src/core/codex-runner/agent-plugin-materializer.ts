@@ -12,7 +12,9 @@ import {
   writeFileSync
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import type { AgentPluginCatalogEntry } from '../../lanes/rpc_lane'
+import type { ActorTurnRef } from '../../lanes/actor_lane'
+import type { AgentPluginCatalogEntry, RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { composeNativeSkillFile, resolveSkillOverlayText } from '../../skills/effective-skill'
 import type { CodexAppServerClient } from '../../tools/codex/app-server-client'
 import { sanitizePathSegment } from '../workspace-paths'
 
@@ -87,6 +89,43 @@ export function prepareAgentPlugins(input: {
     pluginsRoot,
     agentPlugins,
     expectedSkillNames: agentPlugins.flatMap(agentPlugin => agentPlugin.enabledCodexSkillNames).sort(compareCodePoints)
+  }
+}
+
+/** Applies current DB-backed overlays to the Job-local copies of enabled Plugin Skills. */
+export async function materializeAgentPluginSkillOverlays(input: {
+  prepared: PreparedAgentPlugins
+  enabledSkills: RuntimeSkillSummary[]
+  turn: ActorTurnRef
+  rpc: RPCRequester
+}): Promise<void> {
+  const pluginsByID = new Map(input.prepared.agentPlugins.map(agentPlugin => [agentPlugin.id, agentPlugin]))
+  const seen = new Set<string>()
+
+  for (const skill of [...input.enabledSkills].sort(compareAgentPluginSkills)) {
+    const agentPluginID = skill.agentPluginId
+    const key = `${agentPluginID}\0${skill.skillName}`
+    if (!agentPluginID || !skill.skillName || seen.has(key)) {
+      throw new Error(
+        `Agent Plugin overlay input has duplicate or invalid member: ${agentPluginID || '<empty>'}/${skill.skillName || '<empty>'}`
+      )
+    }
+    seen.add(key)
+
+    const agentPlugin = pluginsByID.get(agentPluginID)
+    if (!agentPlugin || !agentPlugin.enabledSkillNames.includes(skill.skillName)) {
+      throw new Error(`Agent Plugin overlay input is unavailable: ${agentPluginID}/${skill.skillName}`)
+    }
+
+    const overlay = await resolveSkillOverlayText(skill.skillName, { turn: input.turn, rpc: input.rpc })
+    if (!overlay) continue
+
+    const relativeSkillPath = [...agentPlugin.skillsRelativePath.split('/'), skill.skillName, 'SKILL.md']
+    const sourceSkillPath = join(agentPlugin.sourceRoot, ...relativeSkillPath)
+    const materializedSkillPath = join(agentPlugin.materializedRoot, ...relativeSkillPath)
+    writeFileSync(materializedSkillPath, composeNativeSkillFile(readFileSync(sourceSkillPath, 'utf8'), overlay), {
+      mode: lstatSync(sourceSkillPath).mode & 0o777
+    })
   }
 }
 
@@ -187,8 +226,9 @@ function validateAgentPluginRef(
     `Agent Plugin ${ref.id} manifest skills`
   )
   if (manifestName !== ref.id) throw new Error(`Agent Plugin id/manifest name mismatch: ${ref.id}/${manifestName}`)
-  if (version !== ref.version)
+  if (version !== ref.version) {
     throw new Error(`Agent Plugin version mismatch for ${ref.id}: ${version} != ${ref.version}`)
+  }
 
   const contentHash = computeAgentPluginContentHash(sourceRoot)
   if (contentHash !== ref.contentHash) {
@@ -486,4 +526,10 @@ function requiredString(value: unknown, label: string): string {
 
 function compareCodePoints(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
+}
+
+function compareAgentPluginSkills(left: RuntimeSkillSummary, right: RuntimeSkillSummary): number {
+  return (
+    compareCodePoints(left.agentPluginId, right.agentPluginId) || compareCodePoints(left.skillName, right.skillName)
+  )
 }

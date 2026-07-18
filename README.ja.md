@@ -181,7 +181,9 @@ bun control-plane:dev
 bun control-plane:test
 
 # Agent Computer container image and tests
-docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
+docker build \
+  --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
+  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 bun run agent-computer:test
 bun run agent-computer:type-check
 

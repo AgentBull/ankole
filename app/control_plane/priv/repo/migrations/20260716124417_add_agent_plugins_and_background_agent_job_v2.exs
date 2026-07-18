@@ -1,9 +1,11 @@
 defmodule Ankole.Repo.Migrations.AddAgentPluginsAndBackgroundAgentJobV2 do
   use Ecto.Migration
 
+  @legacy_snapshot_key "background_agent_job_v1"
+
   def up do
     execute(require_no_live_jobs_sql("upgrade"))
-    execute("DELETE FROM background_agent_jobs")
+    execute(legacy_job_v2_guard_sql())
 
     create table(:agent_plugin_overrides, primary_key: false) do
       add(:id, :uuid, primary_key: true)
@@ -60,9 +62,15 @@ defmodule Ankole.Repo.Migrations.AddAgentPluginsAndBackgroundAgentJobV2 do
     alter table(:background_agent_jobs) do
       add(:agent_plugin_ids, {:array, :text}, null: false, default: [])
       add(:skill_names, {:array, :text}, null: false, default: [])
-      add(:workspace_mounts, :map, null: false)
+      add(:workspace_mounts, :map)
       add(:model, :text)
       add(:reasoning_effort, :text)
+    end
+
+    execute(legacy_job_v2_backfill_sql())
+
+    alter table(:background_agent_jobs) do
+      modify(:workspace_mounts, :map, null: false)
     end
 
     create(
@@ -128,101 +136,68 @@ defmodule Ankole.Repo.Migrations.AddAgentPluginsAndBackgroundAgentJobV2 do
   end
 
   def down do
-    execute(require_no_live_jobs_sql("downgrade"))
-    execute("DELETE FROM background_agent_jobs")
-    execute(rename_rendered_fetch_ttl_down_sql())
+    raise "BackgroundAgentJob V2 cannot be downgraded: V1 runtime and workspace fields are retained only as untrusted informational metadata, not schema-private restoration provenance"
+  end
 
-    alter table(:background_agent_jobs) do
-      add(:runtime, :text, null: false, default: "task_worker")
-      add(:mode, :text)
+  @doc false
+  def legacy_snapshot_key, do: @legacy_snapshot_key
 
-      add(
-        :source_job_id,
-        references(:background_agent_jobs, type: :uuid, on_delete: :restrict)
-      )
+  @doc false
+  def legacy_job_v2_guard_sql(table \\ "background_agent_jobs") do
+    table = validate_table!(table)
 
-      add(:actual_outcome, :boolean)
-      add(:workdir, :text, null: false)
-      add(:workspace_retention_days, :integer)
-      add(:workspace_cleaned_at, :utc_datetime_usec)
-    end
+    """
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1
+        FROM #{table}
+        WHERE metadata ? '#{@legacy_snapshot_key}'
+      ) THEN
+        RAISE EXCEPTION
+          'BackgroundAgentJob V2 migration snapshot key already exists'
+          USING ERRCODE = 'check_violation';
+      END IF;
+    END
+    $$
+    """
+  end
 
-    create(
-      index(:background_agent_jobs, [:source_job_id],
-        name: :background_agent_jobs_source_job_index,
-        where: "source_job_id IS NOT NULL"
-      )
-    )
+  @doc false
+  def legacy_job_v2_backfill_sql(table \\ "background_agent_jobs") do
+    table = validate_table!(table)
 
-    create(
-      constraint(:background_agent_jobs, :background_agent_jobs_runtime_check,
-        check: "runtime IN ('task_worker', 'deep_research')"
-      )
-    )
-
-    create(
-      constraint(:background_agent_jobs, :background_agent_jobs_research_contract_check,
-        check: """
-        (runtime = 'task_worker' AND mode IS NULL AND source_job_id IS NULL AND actual_outcome IS NULL)
-        OR
-        (runtime = 'deep_research' AND mode IN ('general', 'forecast', 'retrospect') AND
-          ((mode = 'retrospect' AND source_job_id IS NOT NULL) OR
-           (mode <> 'retrospect' AND source_job_id IS NULL AND actual_outcome IS NULL)))
-        """
-      )
-    )
-
-    create(
-      constraint(:background_agent_jobs, :background_agent_jobs_workspace_retention_check,
-        check:
-          "(runtime = 'task_worker' AND workspace_retention_days IS NULL) OR (runtime = 'deep_research' AND workspace_retention_days BETWEEN 1 AND 3650)"
-      )
-    )
-
-    create(
-      index(:background_agent_jobs, [:completed_at],
-        name: :background_agent_jobs_research_workspace_cleanup_index,
-        where:
-          "runtime = 'deep_research' AND workspace_cleaned_at IS NULL AND completed_at IS NOT NULL"
-      )
-    )
-
-    drop(constraint(:background_agent_jobs, :background_agent_jobs_reasoning_effort_check))
-    drop(constraint(:background_agent_jobs, :background_agent_jobs_model_present))
-    drop(constraint(:background_agent_jobs, :background_agent_jobs_workspace_mounts_array))
-    drop(constraint(:background_agent_jobs, :background_agent_jobs_skill_names_valid))
-    drop(constraint(:background_agent_jobs, :background_agent_jobs_agent_plugin_ids_valid))
-
-    alter table(:background_agent_jobs) do
-      remove(:reasoning_effort)
-      remove(:model)
-      remove(:workspace_mounts)
-      remove(:skill_names)
-      remove(:agent_plugin_ids)
-    end
-
-    drop(constraint(:agent_skills, :agent_skills_agent_plugin_id_format))
-
-    drop(
-      index(:agent_skills, [:agent_uid, :enabled_override],
-        name: :agent_skills_agent_enabled_override_index
-      )
-    )
-
-    execute(
-      "UPDATE agent_skills SET enabled_override = default_enabled WHERE enabled_override IS NULL"
-    )
-
-    alter table(:agent_skills) do
-      remove(:agent_plugin_id)
-      modify(:enabled_override, :boolean, null: false)
-    end
-
-    rename(table(:agent_skills), :enabled_override, to: :enabled)
-
-    create(index(:agent_skills, [:agent_uid, :enabled], name: :agent_skills_agent_enabled_index))
-
-    drop(table(:agent_plugin_overrides))
+    """
+    UPDATE #{table}
+    SET
+      metadata = metadata || jsonb_build_object(
+        '#{@legacy_snapshot_key}',
+        jsonb_strip_nulls(jsonb_build_object(
+          'runtime', runtime,
+          'runtime_thread_id', runtime_thread_id,
+          'workdir', workdir,
+          'mode', mode,
+          'source_job_id', source_job_id,
+          'actual_outcome', actual_outcome,
+          'workspace_retention_days', workspace_retention_days,
+          'workspace_cleaned_at', workspace_cleaned_at,
+          'v2_resume_supported', false,
+          'v2_resume_disabled_reason', 'pre_v2_runtime_state_is_not_resumable',
+          'v2_workspace_mount_materialized', false
+        ))
+      ),
+      agent_plugin_ids = CASE
+        WHEN runtime = 'deep_research' THEN ARRAY['deep-research']::text[]
+        ELSE ARRAY[]::text[]
+      END,
+      skill_names = ARRAY[]::text[],
+      workspace_mounts = jsonb_build_array(jsonb_build_object(
+        'id', 'workspace',
+        'source', '/workspace/user-files/background-agent-jobs/' || id::text || '/workspace',
+        'access', 'read_write'
+      )),
+      runtime_thread_id = NULL
+    """
   end
 
   defp require_no_live_jobs_sql(direction) do
@@ -243,17 +218,18 @@ defmodule Ankole.Repo.Migrations.AddAgentPluginsAndBackgroundAgentJobV2 do
     """
   end
 
+  defp validate_table!(table) do
+    if is_binary(table) and Regex.match?(~r/\A[a-z_][a-z0-9_]*\z/, table) do
+      table
+    else
+      raise ArgumentError, "invalid migration table name"
+    end
+  end
+
   defp rename_rendered_fetch_ttl_up_sql do
     rename_app_config_key_sql(
       "worker.local_browser_idle_ttl_ms",
       "worker.rendered_fetch_idle_ttl_ms"
-    )
-  end
-
-  defp rename_rendered_fetch_ttl_down_sql do
-    rename_app_config_key_sql(
-      "worker.rendered_fetch_idle_ttl_ms",
-      "worker.local_browser_idle_ttl_ms"
     )
   end
 

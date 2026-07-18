@@ -13,7 +13,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Repo
   alias Ankole.SignalsGateway.Binding
   alias DingTalkOpenAPI.Client
 
@@ -37,6 +36,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
         id: "signals_gateway.dingtalk.bindings.*",
         key_pattern: @chat_key_pattern,
         encrypted: true,
+        console_writable: false,
+        scope: :global,
         schema: Schema.new(&validate_chat_config/1),
         description: "Encrypted DingTalk chat binding configuration."
       ),
@@ -97,12 +98,17 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   Enforces the one-agent/one-DingTalk-app assignment. Updating the current
   binding is allowed; disabled bindings do not reserve an app.
   """
-  @spec validate_binding_assignment(String.t(), String.t(), chat_config()) ::
+  @spec validate_binding_assignment(module(), String.t(), String.t(), chat_config()) ::
           :ok | {:error, term()}
-  def validate_binding_assignment(agent_uid, binding_name, config)
-      when is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
-    with :ok <- ensure_single_enabled_binding(agent_uid, binding_name),
-         :ok <- ensure_app_not_bound_to_another_agent(agent_uid, Map.fetch!(config, "clientId")) do
+  def validate_binding_assignment(repo, agent_uid, binding_name, config)
+      when is_atom(repo) and is_binary(agent_uid) and is_binary(binding_name) and is_map(config) do
+    with :ok <- ensure_single_enabled_binding(repo, agent_uid, binding_name),
+         :ok <-
+           ensure_app_not_bound_to_another_agent(
+             repo,
+             agent_uid,
+             Map.fetch!(config, "clientId")
+           ) do
       :ok
     end
   end
@@ -209,7 +215,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   defp app_config_key("app-config:" <> key), do: {:ok, key}
   defp app_config_key(key) when is_binary(key), do: {:ok, key}
 
-  defp ensure_single_enabled_binding(agent_uid, binding_name) do
+  defp load_chat_config_ref_in_tx(repo, config_ref) do
+    with {:ok, key} <- app_config_key(config_ref),
+         {:ok, value} <- AppConfigure.get_global_by_key_in_tx(repo, key) do
+      validate_chat_config(value)
+    end
+  end
+
+  defp ensure_single_enabled_binding(repo, agent_uid, binding_name) do
     existing? =
       Binding
       |> where(
@@ -217,26 +230,32 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
         binding.agent_uid == ^agent_uid and binding.adapter == "dingtalk" and
           binding.enabled == true and binding.name != ^binding_name
       )
-      |> Repo.exists?()
+      |> repo.exists?()
 
     if existing?, do: {:error, :dingtalk_binding_already_exists}, else: :ok
   end
 
-  defp ensure_app_not_bound_to_another_agent(agent_uid, client_id) do
+  defp ensure_app_not_bound_to_another_agent(repo, agent_uid, client_id) do
     Binding
     |> where(
       [binding],
       binding.adapter == "dingtalk" and binding.enabled == true and
         binding.agent_uid != ^agent_uid
     )
-    |> Repo.all()
+    |> repo.all()
     |> Enum.reduce_while(:ok, fn binding, :ok ->
-      case load_chat_config_ref(binding.config_ref) do
+      case load_chat_config_ref_in_tx(repo, binding.config_ref) do
         {:ok, %{"clientId" => ^client_id}} ->
           {:halt, {:error, {:dingtalk_app_already_bound, client_id, binding.agent_uid}}}
 
-        _other ->
+        {:ok, %{"clientId" => _other_client_id}} ->
           {:cont, :ok}
+
+        :error ->
+          {:halt, {:error, {:dingtalk_binding_config_unavailable, binding.agent_uid, :missing}}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:dingtalk_binding_config_unavailable, binding.agent_uid, reason}}}
       end
     end)
   end

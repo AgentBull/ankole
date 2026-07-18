@@ -4,7 +4,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
+  alias Ankole.AppConfigure.Crypto, as: AppConfigureCrypto
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.AuthZ
   alias Ankole.Plugins.DingTalkAdapter
@@ -12,7 +14,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
   alias Ankole.Plugins.DingTalkAdapter.Outbox
   alias Ankole.Principals
+  alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.OutboxEntry
   alias DingTalkOpenAPI.Event
 
@@ -42,12 +47,149 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     end
   end
 
+  test "concurrent DingTalk binding saves validate app ownership from committed database state" do
+    setup_dingtalk_config_registry()
+    %{principal: first_agent} = agent_fixture()
+    %{principal: second_agent} = agent_fixture()
+    shared_config = dingtalk_config("ding_concurrent_shared")
+    first_config_key = Config.chat_config_key(first_agent.uid)
+    cache_pid = Process.whereis(AppConfigureCache)
+    parent = self()
+
+    assert {:ok, %{binding: %Binding{}}} =
+             Bindings.put_binding(
+               first_agent.uid,
+               "dingtalk",
+               "dingtalk-main",
+               dingtalk_binding_attrs(dingtalk_config("ding_concurrent_initial"))
+             )
+
+    assert {:ok, %{"clientId" => "ding_concurrent_initial"}} =
+             AppConfigure.get_by_key(first_config_key)
+
+    assert {:ok, {:row, _envelope}} = AppConfigureCache.lookup("global", first_config_key)
+    :ok = :sys.suspend(cache_pid)
+
+    on_exit(fn ->
+      if Process.alive?(cache_pid), do: :sys.resume(cache_pid)
+    end)
+
+    first_save =
+      Task.async(fn ->
+        send(parent, {:ready, self()})
+        receive do: (:save -> :ok)
+
+        Bindings.put_binding(
+          first_agent.uid,
+          "dingtalk",
+          "dingtalk-main",
+          dingtalk_binding_attrs(shared_config)
+        )
+      end)
+
+    assert_receive {:ready, first_save_pid}, 1_000
+    assert first_save_pid == first_save.pid
+    :erlang.trace(first_save.pid, true, [:send])
+    send(first_save.pid, :save)
+
+    assert_receive {:trace, ^first_save_pid, :send,
+                    {:"$gen_call", _from, {:load, "global", ^first_config_key}}, ^cache_pid},
+                   1_000
+
+    second_save =
+      Task.async(fn ->
+        Bindings.put_binding(
+          second_agent.uid,
+          "dingtalk",
+          "dingtalk-main",
+          dingtalk_binding_attrs(shared_config)
+        )
+      end)
+
+    second_result = Task.yield(second_save, 500)
+    :ok = :sys.resume(cache_pid)
+
+    assert {:ok, %{binding: %Binding{agent_uid: first_agent_uid}}} = Task.await(first_save, 1_000)
+    assert first_agent_uid == first_agent.uid
+
+    second_result = second_result || {:ok, Task.await(second_save, 1_000)}
+
+    assert {:ok,
+            {:error, {:dingtalk_app_already_bound, "ding_concurrent_shared", rejected_owner_uid}}} =
+             second_result
+
+    assert rejected_owner_uid == first_agent.uid
+    refute Repo.get_by(Binding, agent_uid: second_agent.uid, name: "dingtalk-main")
+  end
+
+  test "DingTalk binding ownership fails closed when an enabled owner's config is unavailable" do
+    setup_dingtalk_config_registry()
+    %{principal: owner} = agent_fixture()
+    %{principal: claimant} = agent_fixture()
+    owner_config_key = Config.chat_config_key(owner.uid)
+    claimed_config = dingtalk_config("ding_claimed_while_owner_unknown")
+
+    assert {:ok, %Binding{}} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: owner.uid,
+               name: "dingtalk-main",
+               adapter: "dingtalk",
+               config_ref: "app-config://#{owner_config_key}",
+               filters: %{},
+               unaddressed_group_message_policy: :ignore,
+               enabled: true
+             })
+
+    assert {:error, {:dingtalk_binding_config_unavailable, owner_uid, :missing}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "dingtalk",
+               "dingtalk-main",
+               dingtalk_binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+
+    put_raw_global_config(owner_config_key, %{"type" => "cipher", "value" => "invalid"})
+
+    assert {:error,
+            {:dingtalk_binding_config_unavailable, owner_uid,
+             {:storage_error, "global", ^owner_config_key, _decrypt_reason}}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "dingtalk",
+               "dingtalk-main",
+               dingtalk_binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+
+    assert {:ok, invalid_config_ciphertext} =
+             AppConfigureCrypto.seal(%{"clientId" => "incomplete"}, "global", owner_config_key)
+
+    put_raw_global_config(owner_config_key, %{
+      "type" => "cipher",
+      "value" => invalid_config_ciphertext
+    })
+
+    assert {:error,
+            {:dingtalk_binding_config_unavailable, owner_uid,
+             {:storage_error, "global", ^owner_config_key, {:missing, "clientSecret"}}}} =
+             Bindings.put_binding(
+               claimant.uid,
+               "dingtalk",
+               "dingtalk-main",
+               dingtalk_binding_attrs(claimed_config)
+             )
+
+    assert owner_uid == owner.uid
+    refute Repo.get_by(Binding, agent_uid: claimant.uid, name: "dingtalk-main")
+  end
+
   # --- outbox ----------------------------------------------------------------
 
   defp setup_chat_binding(extra_config \\ %{}) do
-    AppConfigureRegistry.clear_for_test()
-    AppConfigureCache.clear_for_test()
-    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
+    setup_dingtalk_config_registry()
 
     config_id = "dingtalk-outbox-#{System.unique_integer([:positive])}"
 
@@ -69,6 +211,28 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       })
 
     binding
+  end
+
+  defp setup_dingtalk_config_registry do
+    AppConfigureRegistry.clear_for_test()
+    AppConfigureCache.clear_for_test()
+    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
+  end
+
+  defp dingtalk_binding_attrs(config) do
+    %{"config" => config, "group_message_mode" => "addressed_only"}
+  end
+
+  defp dingtalk_config(client_id), do: %{"clientId" => client_id, "clientSecret" => "secret"}
+
+  defp put_raw_global_config(key, envelope) do
+    AppConfig
+    |> where([row], row.scope == "global" and row.key == ^key)
+    |> Repo.delete_all()
+
+    %AppConfig{}
+    |> AppConfig.changeset(%{scope: "global", key: key, value: envelope})
+    |> Repo.insert!()
   end
 
   defp outbox_entry(binding, attrs) do
@@ -184,21 +348,20 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   test "an unlisted attachment extension fails explicitly before touching the worker" do
     binding = setup_chat_binding()
 
-    pptx_entry =
+    unsupported_entry =
       outbox_entry(binding, %{
         operation: :post,
         payload: %{
           "attachments" => [
-            %{"user_files_relative_path" => "outbox-test/deck.pptx", "name" => "deck.pptx"}
+            %{"user_files_relative_path" => "outbox-test/program.exe", "name" => "program.exe"}
           ]
         }
       })
 
-    # The sampleFile type list is treated as a whitelist until the smoke test
-    # settles design §13.5 — unlisted extensions fail loudly, never silently,
-    # and the gate runs before any worker file read.
+    # The sampleFile type list is a strict whitelist: unlisted extensions fail
+    # before any worker file read.
     assert {:error, :unsupported_file_type} =
-             Outbox.send(pptx_entry, client: outbox_client(self(), &ok_send_responder/1))
+             Outbox.send(unsupported_entry, client: outbox_client(self(), &ok_send_responder/1))
 
     refute_received {:api_call, _method, _path, _body}
   end

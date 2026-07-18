@@ -4,10 +4,10 @@ use std::io;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use ankole_kernel::runtime_fabric::proto;
 use ankole_kernel::runtime_fabric::transport::{
     RouterConfig, RouterEvent, RouterEventSink, SocketOptions, start_router,
 };
+use ankole_kernel::runtime_fabric::{PROTOCOL_VERSION, proto};
 use prost::Message;
 
 const WORKER_ROUTE: &str = "worker-binding-roundtrip";
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let envelope = proto::Envelope {
-        protocol_version: 1,
+        protocol_version: PROTOCOL_VERSION,
         message_id: "binding-roundtrip-envelope".to_string(),
         correlation_id: String::new(),
         lane: proto::Lane::Control as i32,

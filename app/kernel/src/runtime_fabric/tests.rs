@@ -330,13 +330,13 @@ fn turn_lane_bodies_require_correlation_id() {
 #[test]
 fn rejects_envelope_header_violations() {
     let mut wrong_version = base_envelope(
-        "version-2",
+        "version-1",
         "",
         proto::Lane::Control,
         proto::DurabilityClass::ControlEphemeral,
         proto::envelope::Body::ControlShutdown(proto::ControlShutdown::default()),
     );
-    wrong_version.protocol_version = 2;
+    wrong_version.protocol_version = 1;
     assert!(validate_error(wrong_version).contains("unsupported runtime fabric protocol version"));
 
     let missing_message_id = base_envelope(
@@ -561,17 +561,12 @@ fn regenerate_golden_envelope_fixtures() {
     std::fs::create_dir_all(&dir).expect("golden dir");
 
     std::fs::write(
-        dir.join("turn_start.v1.bin"),
+        dir.join("turn_start.v2.bin"),
         golden_turn_start(Some(32_000)).encode_to_vec(),
     )
     .expect("turn_start fixture");
     std::fs::write(
-        dir.join("turn_start.pre_max_completion_tokens.v1.bin"),
-        golden_turn_start(None).encode_to_vec(),
-    )
-    .expect("pre-field turn_start fixture");
-    std::fs::write(
-        dir.join("worker_ready.v1.bin"),
+        dir.join("worker_ready.v2.bin"),
         golden_worker_ready().encode_to_vec(),
     )
     .expect("worker_ready fixture");
@@ -580,28 +575,61 @@ fn regenerate_golden_envelope_fixtures() {
 #[test]
 fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
     let with_field =
-        std::fs::read(golden_dir().join("turn_start.v1.bin")).expect("turn_start fixture");
+        std::fs::read(golden_dir().join("turn_start.v2.bin")).expect("turn_start fixture");
     validate_envelope_bytes(&with_field).expect("turn_start fixture must validate");
     assert_eq!(
         proto::Envelope::decode(with_field.as_slice()).expect("turn_start fixture decodes"),
         golden_turn_start(Some(32_000))
     );
 
-    // Bytes written before the optional max_completion_tokens field existed
-    // must keep decoding, so control plane and workers can deploy separately.
-    let pre_field = std::fs::read(golden_dir().join("turn_start.pre_max_completion_tokens.v1.bin"))
-        .expect("pre-field fixture");
-    validate_envelope_bytes(&pre_field).expect("pre-field fixture must validate");
-    assert_eq!(
-        proto::Envelope::decode(pre_field.as_slice()).expect("pre-field fixture decodes"),
-        golden_turn_start(None)
-    );
-
     let worker_ready =
-        std::fs::read(golden_dir().join("worker_ready.v1.bin")).expect("worker_ready fixture");
+        std::fs::read(golden_dir().join("worker_ready.v2.bin")).expect("worker_ready fixture");
     validate_envelope_bytes(&worker_ready).expect("worker_ready fixture must validate");
     assert_eq!(
         proto::Envelope::decode(worker_ready.as_slice()).expect("worker_ready fixture decodes"),
         golden_worker_ready()
+    );
+
+    // Version 1 remains structurally decodable by Protobuf, but the semantic
+    // validator must reject it before an old worker can enter the ready pool or
+    // exchange typed RPC payloads with a version 2 control plane.
+    let legacy_turn =
+        std::fs::read(golden_dir().join("turn_start.v1.bin")).expect("legacy turn fixture");
+    assert_eq!(
+        proto::Envelope::decode(legacy_turn.as_slice())
+            .expect("legacy turn fixture decodes structurally")
+            .protocol_version,
+        1
+    );
+    assert!(
+        validate_envelope_bytes(&legacy_turn)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 1")
+    );
+
+    let pre_field = std::fs::read(golden_dir().join("turn_start.pre_max_completion_tokens.v1.bin"))
+        .expect("pre-field fixture");
+    let pre_field = proto::Envelope::decode(pre_field.as_slice())
+        .expect("pre-field fixture decodes structurally");
+    assert_eq!(pre_field.protocol_version, 1);
+    assert_eq!(
+        pre_field
+            .body
+            .and_then(|body| match body {
+                proto::envelope::Body::TurnStart(turn_start) => turn_start.model_ref,
+                _ => None,
+            })
+            .and_then(|model_ref| model_ref.max_completion_tokens),
+        None
+    );
+
+    let legacy_worker =
+        std::fs::read(golden_dir().join("worker_ready.v1.bin")).expect("legacy worker fixture");
+    assert!(
+        validate_envelope_bytes(&legacy_worker)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 1")
     );
 }

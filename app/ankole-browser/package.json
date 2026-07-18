@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=node --outdir dist --external playwright-core",
-    "type-check": "tsgo -p tsconfig.json --noEmit",
+    "type-check": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",

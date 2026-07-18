@@ -56,14 +56,30 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert {:ok, %Message{status: "error"} = failed_message} =
              wait_for_turn_status(container, input.id, "failed", deadline(45_000))
 
-    assert [] =
-             OutboxEntry
-             |> where([outbox], outbox.source_actor_event_id == ^input.id)
-             |> Repo.all()
+    assert %ActorEvent{input_state: "dead_letter", dead_letter_at: %DateTime{}} =
+             Repo.get!(ActorEvent, input.id)
 
-    # A failed turn leaves the event open for retry; delete it so the queue for
-    # later scenarios stays clean.
-    if open_input = Repo.get(ActorEvent, input.id), do: Repo.delete!(open_input)
+    expected_notice =
+      Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => input.id})
+
+    refute expected_notice == "signals_gateway.reply.dead_letter"
+
+    notice =
+      Repo.get_by!(OutboxEntry,
+        source_actor_event_id: input.id,
+        outbound_key: "ai-dead-letter:#{input.id}"
+      )
+
+    assert notice.fallback_visible_text == expected_notice
+
+    dispatch_and_assert_lark_outbox(
+      fake_feishu,
+      notice,
+      expected_notice,
+      :reply,
+      "om_malformed_stream_1"
+    )
+
     %{input: input, message: failed_message}
   end
 

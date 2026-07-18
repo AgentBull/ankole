@@ -139,6 +139,183 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       assert reset_event.payload["data"]["reset"]["boundary_at"] == "2026-06-25T16:00:00Z"
     end
 
+    test "completed reset makes a predecessor clarification callback stale without a successor turn" do
+      %{principal: agent} = agent_fixture()
+      %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+      binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: source_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   source_event_id: "reset-clarification-source",
+                   signal_channel_id: "lark:chat:reset-clarification",
+                   source_entry_id: "reset-clarification-message",
+                   provider_thread_id: "thread-reset-clarification",
+                   text: "Prepare the report.",
+                   explicit: true
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{conversation: predecessor_conversation}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, source_envelope}
+      source_turn_ref = turn_start_payload!(source_envelope).turn
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(source_turn_ref))
+
+      response =
+        complete_aigateway_turn!(source_turn_ref, "",
+          request_items: [
+            %{
+              "type" => "message",
+              "role" => "user",
+              "content" => [%{"type" => "input_text", "text" => "Prepare the report."}]
+            }
+          ],
+          output_items: [
+            %{
+              "type" => "function_call",
+              "call_id" => "call-reset-audience",
+              "name" => "clarify",
+              "arguments" => "{}"
+            },
+            %{
+              "type" => "function_call_output",
+              "call_id" => "call-reset-audience",
+              "output" => %{
+                "tool" => "clarify",
+                "ok" => true,
+                "question" => "Who should receive the report?",
+                "choices" => [
+                  %{"label" => "Operators"},
+                  %{"label" => "Executives"}
+                ]
+              }
+            }
+          ]
+        )
+
+      assert {:ok, %{status: :turn_completed, outboxes: %{clarify: clarify_outbox}}} =
+               ActorRuntime.handle_turn_completed(
+                 turn_completed_payload(
+                   source_turn_ref,
+                   "resp_#{response.id}",
+                   "loop_finished"
+                 )
+               )
+
+      assert clarify_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
+
+      card_message_id = "clarification-card-before-reset"
+
+      assert {:ok, %{status: :succeeded}} =
+               SignalsGateway.dispatch_outbox(
+                 clarify_outbox.agent_uid,
+                 clarify_outbox.binding_name,
+                 clarify_outbox.outbound_key,
+                 %{
+                   capabilities: [:post_entry, :reply_entry, :edit_entry],
+                   send: fn _outbox ->
+                     {:ok, %{created_source_entry_id: card_message_id}}
+                   end
+                 },
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      adapter_checkpoint =
+        source_event.id
+        |> then(&Repo.get!(ActorEvent, &1).reply_preview_checkpoint)
+        |> Map.merge(%{
+          "card_id" => "card-before-reset",
+          "message_id" => card_message_id,
+          "streaming_state" => "closed",
+          "cards" => [
+            %{
+              "index" => 0,
+              "card_id" => "card-before-reset",
+              "message_id" => card_message_id,
+              "state" => "open"
+            }
+          ]
+        })
+
+      assert {:ok, _event} =
+               Actors.put_reply_preview_checkpoint(source_event.id, adapter_checkpoint)
+
+      assert :ok =
+               Actors.record_reply_preview_source_entry(source_event.id, card_message_id)
+
+      pending_checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+
+      assert pending_checkpoint["interactions"]["clarify:call-reset-audience"]["state"] ==
+               "pending"
+
+      assert {:ok, reset_event} =
+               append_runtime_actor_event(agent.uid, source_event.session_id, "session.reset_due",
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint["interactions"][
+               "clarify:call-reset-audience"
+             ]["state"] == "pending"
+
+      assert {:ok,
+              %{
+                status: :session_reset,
+                closed_conversation: closed_conversation,
+                conversation: successor_conversation,
+                superseded_reply_interactions: 1
+              }} = process_ready_events_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert closed_conversation.id == predecessor_conversation.id
+      assert successor_conversation.id != predecessor_conversation.id
+
+      resolved_checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
+      interaction = resolved_checkpoint["interactions"]["clarify:call-reset-audience"]
+      assert interaction["state"] == "superseded"
+      assert interaction["superseded_by_actor_event_id"] == reset_event.id
+      assert resolved_checkpoint["presentation"]["interaction_status"] == "superseded"
+      assert Enum.all?(resolved_checkpoint["presentation"]["actions"], & &1["disabled"])
+      assert resolved_checkpoint["refresh_pending"]
+
+      assert {:ok, %{status: :stale_action}} =
+               Ingress.emit_action(
+                 agent.uid,
+                 "bot",
+                 clarification_action_input(
+                   source_event,
+                   human.uid,
+                   card_message_id,
+                   "callback-after-reset"
+                 ),
+                 now: DateTime.add(@base_time, 5, :second)
+               )
+
+      refute Repo.exists?(
+               from(event in ActorEvent,
+                 where: event.agent_uid == ^agent.uid and event.type == "signal.action.invoked"
+               )
+             )
+
+      assert {:ok, %{status: :idle}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 6, :second))
+
+      refute_receive {:actor_lane, _successor_envelope}, 100
+    end
+
     test "session reset_due waits for running work and preserves queued cron work" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
@@ -292,5 +469,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       later_start = turn_start_payload!(later_envelope)
       assert later_start.actor_event.actor_event_id == later_input.id
     end
+  end
+
+  defp clarification_action_input(source_event, principal_uid, card_message_id, source_event_id) do
+    %{
+      source_event_id: source_event_id,
+      action_id: source_event_id,
+      signal_channel_id: source_event.signal_channel_id,
+      source_entry_id: card_message_id,
+      provider_thread_id: source_event.provider_thread_id,
+      action: %{
+        "name" => "clarify-choice",
+        "operator_principal_uid" => principal_uid,
+        "value" => %{
+          "version" => "ankole.interactive_output.action.v1",
+          "answerKind" => "choice",
+          "interactionId" => "clarify:call-reset-audience",
+          "interactionVersion" => 1,
+          "controlId" => "clarify-choice",
+          "selectedOptionId" => "operators",
+          "optionValue" => "Operators",
+          "sourceActorEventId" => source_event.id
+        }
+      }
+    }
   end
 end

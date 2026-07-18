@@ -8,7 +8,7 @@
   "sideEffects": false,
   "scripts": {
     "bin": "bun run src/main.ts",
-    "type-check": "tsgo -p tsconfig.json --noEmit",
+    "type-check": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
@@ -30,7 +30,7 @@
     "jscpd": "5.0.12",
     "knip": "^6.26.0",
     "konsistent": "1.0.0-beta.3",
-    "typescript": "^7.0.2"
+    "typescript": "6.0.3"
   },
   "optionalDependencies": {
     "cpd-darwin-arm64": "5.0.11",

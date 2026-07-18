@@ -217,8 +217,15 @@ not mutable files in the worker workspace.
 Build from the repository root:
 
 ```shell
-docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
+docker build \
+  --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
+  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 ```
+
+`base-image.lock` is the digest-pinned development base. Production publication
+does not use that lock: the paired runtime-image workflow builds the base from
+the same Git revision and passes its resolved digest explicitly. A development
+lock update is an explicit follow-up to a verified base publication.
 
 The image includes Bun, the built kernel N-API module, bubblewrap, a private
 Node runtime with pinned Playwright and matching Chromium for
@@ -247,7 +254,8 @@ worker auth key from AppConfigure and renders the mount contract:
 cd app/control_plane
 mix ankole.actor_runtime.worker_bootstrap \
   --endpoint tcp://127.0.0.1:6010 \
-  --worker-id worker-a
+  --worker-id worker-a \
+  --image ankole-agent-computer:0.1.0
 ```
 
 The task resolves the current worker auth key and renders the versioned
@@ -276,7 +284,9 @@ then add only the local `src/`/`test/` mounts and Bun test command. Build the
 image once before running them:
 
 ```shell
-docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
+docker build \
+  --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
+  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 bun run agent-computer:test
 ```
 

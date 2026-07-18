@@ -553,10 +553,11 @@ function CapabilityGrid({
   loading: boolean
 }) {
   if (loading) return <LoadingCards />
-  if (empty)
+  if (empty) {
     return (
       <p className="border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{emptyText}</p>
     )
+  }
   return <div className="grid gap-4 xl:grid-cols-2">{children}</div>
 }
 

@@ -1,6 +1,7 @@
 import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { genericHash } from '@ankole/kernel'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { posix, resolve } from 'node:path'
 import { errorMessage } from '../../common/errors'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
@@ -14,13 +15,20 @@ import {
 import { CodexAppServerClient, CodexAppServerRPCError, type JSONRPCMessage } from '../../tools/codex/app-server-client'
 import type { DynamicToolCallParams } from '../../tools/codex/generated/protocol/v2/DynamicToolCallParams'
 import {
+  boundedBackgroundAgentJobPaths,
+  emptyBackgroundAgentJobPathHandoff,
+  mergeBackgroundAgentJobPathHandoffs,
+  type BackgroundAgentJobPathHandoff
+} from '../background-agent-job-handoff'
+import { pathIsWithin } from '../path-boundary'
+import {
   approvalAcceptance,
   approvalRequestMethod,
   projectCodexNotification,
   stringValue,
   textInput
 } from '../../tools/codex/protocol'
-import type { CodexJobOptions, TurnHandlerResult } from '../turns/turn_options'
+import type { TurnHandlerResult } from '../turns/turn_options'
 import { installAndTrustAgentPlugins, type PreparedAgentPlugins } from './agent-plugin-materializer'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
@@ -32,6 +40,7 @@ import {
 import { CODEX_JOB_SKILLS_SANDBOX_ROOT } from './runtime-files'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
+import { CodexNoProgressGuard, type CodexNoProgressViolation } from './no-progress-guard'
 
 const steerPollIntervalMs = 250
 
@@ -51,7 +60,8 @@ class CodexJobSession {
   private codexTurnID: string | undefined
   private outputText = ''
   private latestTokenUsage: BackgroundAgentJobTurnUsage | undefined
-  private readonly latestFilesChanged = new Set<string>()
+  private completedFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
+  private activeFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
   private waitingOnUserInput = false
   private recoveryInFlight = false
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
@@ -69,6 +79,8 @@ class CodexJobSession {
   private compactingThreadID: string | undefined
   private compactionTurnID: string | undefined
   private readonly completedCompactionTurnIDs = new Set<string>()
+  private readonly noProgressGuard = new CodexNoProgressGuard()
+  private noProgressFailureInFlight = false
 
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
@@ -428,6 +440,8 @@ class CodexJobSession {
         return
       }
 
+      const filesChanged = this.completedFilesChanged
+      const artifactPaths = ownerVisibleArtifactPaths(this.input.jobProject, filesChanged.paths)
       await this.commit('succeeded', {
         result: {
           output_text: this.outputText,
@@ -436,7 +450,13 @@ class CodexJobSession {
           ...(this.runtimeThreadID ? { runtime_thread_id: this.runtimeThreadID } : {}),
           codex_turn_status: codexTurnStatus,
           ...(this.latestTokenUsage ? { usage: this.latestTokenUsage } : {}),
-          files_changed: [...this.latestFilesChanged].sort(compareCodePoints)
+          files_changed: filesChanged,
+          project_path: this.input.jobProject.ownerModelPath,
+          artifacts: boundedBackgroundAgentJobPaths(artifactPaths, {
+            totalCount: filesChanged.total_count,
+            truncated: filesChanged.truncated || artifactPaths.length < filesChanged.paths.length
+          }),
+          artifact_roots: artifactDiscoveryRoots(this.input.jobProject)
         }
       })
       return
@@ -502,6 +522,11 @@ class CodexJobSession {
   private readonly handleNotification = (message: JSONRPCMessage): void => {
     if (this.finalizing) return
     this.turnRecorder.handleNotification(message)
+    const noProgressViolation = this.noProgressGuard.recordNotification(message, this.runtimeThreadID)
+    if (noProgressViolation && !this.noProgressFailureInFlight) {
+      this.noProgressFailureInFlight = true
+      void this.failNoProgress(noProgressViolation)
+    }
     const params = jsonObject(message.params)
     const notificationThreadID = stringValue(params.threadId)
     const isLeadNotification = !notificationThreadID || notificationThreadID === this.runtimeThreadID
@@ -521,6 +546,11 @@ class CodexJobSession {
     }
 
     if (projection.type === 'turn_started') {
+      this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
+        this.completedFilesChanged,
+        this.activeFilesChanged
+      )
+      this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
       if (this.resolveCompaction && projection.turnID) this.compactionTurnID = projection.turnID
     } else if (projection.type === 'agent_completed') {
@@ -528,7 +558,7 @@ class CodexJobSession {
     } else if (projection.type === 'token_usage') {
       this.latestTokenUsage = projection.usage
     } else if (projection.type === 'turn_diff') {
-      for (const path of projection.filesChanged) this.latestFilesChanged.add(path)
+      this.activeFilesChanged = projection.filesChanged
     } else if (projection.type === 'turn_completed' && !this.finalizing && !this.waitingOnUserInput) {
       const completedTurnID = stringValue(jsonObject(jsonObject(message.params).turn).id)
       if (completedTurnID && this.completedCompactionTurnIDs.delete(completedTurnID)) return
@@ -541,6 +571,11 @@ class CodexJobSession {
         )
         return
       }
+      this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
+        this.completedFilesChanged,
+        this.activeFilesChanged
+      )
+      this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
       void this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error)
     }
   }
@@ -554,6 +589,7 @@ class CodexJobSession {
     if (message.id === undefined) return
     const params = jsonObject(message.params)
     const requestThreadID = stringValue(params.threadId)
+    this.noProgressGuard.recordProgress(requestThreadID ?? this.runtimeThreadID)
     const isLeadRequest = !requestThreadID || requestThreadID === this.runtimeThreadID
     this.input.opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
 
@@ -629,6 +665,20 @@ class CodexJobSession {
           metadata: { stop_reason: abortReason(this.input.opts.abortSignal) }
         })
       )
+  }
+
+  private async failNoProgress(violation: CodexNoProgressViolation): Promise<void> {
+    this.input.opts.onTurnActivity?.('codex:no_progress')
+    await this.interrupt().catch(() => undefined)
+    await this.commit('failed', {
+      error: {
+        code: 'codex_no_progress',
+        summary: `Codex made ${violation.consecutiveModelCalls} consecutive model calls without an observable item, plan, diff, or tool request.`,
+        consecutive_model_calls: violation.consecutiveModelCalls,
+        ...(violation.threadID ? { runtime_thread_id: violation.threadID } : {}),
+        usage: violation.usage
+      }
+    })
   }
 
   private startSteeringPoll(): void {
@@ -802,6 +852,68 @@ function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): strin
   }
   const pendingSteering = pendingSteeringInput(turnStart)
   return pendingSteering ? `${input}\n\nPending instructions for this job:\n${pendingSteering}`.trim() : input
+}
+
+function ownerVisibleArtifactPaths(project: PreparedCodexJobExecution['jobProject'], filesChanged: string[]): string[] {
+  const artifacts = new Set<string>()
+  for (const path of filesChanged) {
+    const artifact = ownerVisibleArtifactPath(project, path)
+    if (artifact) artifacts.add(artifact)
+  }
+  return [...artifacts].sort(compareCodePoints)
+}
+
+function artifactDiscoveryRoots(project: PreparedCodexJobExecution['jobProject']): BackgroundAgentJobPathHandoff {
+  return boundedBackgroundAgentJobPaths([
+    project.ownerModelPath,
+    ...project.workspaceMounts.filter(mount => mount.access === 'read_write').map(mount => mount.ownerModelPath)
+  ])
+}
+
+function ownerVisibleArtifactPath(
+  project: PreparedCodexJobExecution['jobProject'],
+  changedPath: string
+): string | undefined {
+  const relativePath = codexProjectRelativePath(changedPath)
+  if (!relativePath) return undefined
+
+  let hostRoot = project.root
+  let ownerRoot = project.ownerModelPath
+  let pathWithinRoot = relativePath
+  for (const mount of project.workspaceMounts) {
+    const prefix = `workspaces/${mount.id}/`
+    if (!relativePath.startsWith(prefix)) continue
+    hostRoot = mount.sourcePath
+    ownerRoot = mount.ownerModelPath
+    pathWithinRoot = relativePath.slice(prefix.length)
+    break
+  }
+
+  if (!pathWithinRoot || !ownerVisibleUserFilesPath(ownerRoot)) return undefined
+  const hostPath = resolve(hostRoot, pathWithinRoot)
+  if (!existsSync(hostPath)) return undefined
+
+  try {
+    const realRoot = realpathSync(hostRoot)
+    const realPath = realpathSync(hostPath)
+    if (!pathIsWithin(realRoot, realPath) || !statSync(realPath).isFile()) return undefined
+  } catch {
+    return undefined
+  }
+
+  return posix.join(ownerRoot, pathWithinRoot)
+}
+
+function codexProjectRelativePath(path: string): string | undefined {
+  const relativePath = posix.relative('/workspace', posix.resolve('/workspace', path))
+  if (!relativePath || relativePath === '..' || relativePath.startsWith('../') || posix.isAbsolute(relativePath)) {
+    return undefined
+  }
+  return relativePath
+}
+
+function ownerVisibleUserFilesPath(path: string): boolean {
+  return path === '/workspace/user-files' || path.startsWith('/workspace/user-files/')
 }
 
 function turnClientUserMessageID(turnStart: TurnStart): string | undefined {

@@ -315,7 +315,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("worker-env-1", "worker_env.resolve", %FabricProto.WorkerEnvResolveRequest{},
+               rpc_request(
+                 "worker-env-1",
+                 "worker_env.resolve",
+                 %FabricProto.WorkerEnvResolveRequest{},
                  agent_uid: agent.uid
                ),
                "trusted-worker-route"
@@ -343,7 +346,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
-               rpc_request("worker-env-invalid", "worker_env.resolve", %FabricProto.WorkerEnvResolveRequest{}),
+               rpc_request(
+                 "worker-env-invalid",
+                 "worker_env.resolve",
+                 %FabricProto.WorkerEnvResolveRequest{}
+               ),
                "trusted-worker-route"
              )
 

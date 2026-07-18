@@ -12,7 +12,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
 
   @spec handle_resolve(TurnRef.t(), FabricProto.SkillOverlayResolveRequest.t(), map()) ::
           {:ok, FabricProto.SkillOverlayResponse.t()} | {:error, map()}
-  def handle_resolve(%TurnRef{} = turn_ref, %FabricProto.SkillOverlayResolveRequest{} = request, ctx) do
+  def handle_resolve(
+        %TurnRef{} = turn_ref,
+        %FabricProto.SkillOverlayResolveRequest{} = request,
+        ctx
+      ) do
     with_skill(ctx, request.skill_name, fn skill_name ->
       case Library.skill_overlay(turn_ref.agent_uid, skill_name) do
         {:ok, overlay} -> {:ok, response(skill_name, overlay)}
@@ -23,7 +27,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
 
   @spec handle_append(TurnRef.t(), FabricProto.SkillOverlayAppendRequest.t(), map()) ::
           {:ok, FabricProto.SkillOverlayResponse.t()} | {:error, map()}
-  def handle_append(%TurnRef{} = turn_ref, %FabricProto.SkillOverlayAppendRequest{} = request, ctx) do
+  def handle_append(
+        %TurnRef{} = turn_ref,
+        %FabricProto.SkillOverlayAppendRequest{} = request,
+        ctx
+      ) do
     with_skill(ctx, request.skill_name, fn skill_name ->
       case request.content do
         content when is_binary(content) and content != "" ->
@@ -40,7 +48,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker do
 
   @spec handle_replace(TurnRef.t(), FabricProto.SkillOverlayReplaceRequest.t(), map()) ::
           {:ok, FabricProto.SkillOverlayResponse.t()} | {:error, map()}
-  def handle_replace(%TurnRef{} = turn_ref, %FabricProto.SkillOverlayReplaceRequest{} = request, ctx) do
+  def handle_replace(
+        %TurnRef{} = turn_ref,
+        %FabricProto.SkillOverlayReplaceRequest{} = request,
+        ctx
+      ) do
     with_skill(ctx, request.skill_name, fn skill_name ->
       overlay_json =
         case Common.decode_json_bytes(request.overlay_json) do

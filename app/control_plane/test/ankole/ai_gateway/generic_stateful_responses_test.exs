@@ -67,7 +67,16 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
         metadata: %{"request_metadata" => %{"request" => "one"}}
       })
 
-    {:ok, completed} = StatefulResponses.commit_complete(response, [])
+    {:ok, completed} =
+      StatefulResponses.commit_complete(response, [
+        %{
+          "type" => "function_call",
+          "call_id" => "call_1",
+          "name" => "generic_tool",
+          "arguments" => "{}",
+          "status" => "completed"
+        }
+      ])
 
     {:ok, journal} =
       StatefulResponses.record_tool_results(%{

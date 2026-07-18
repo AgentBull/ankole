@@ -34,10 +34,7 @@ defmodule Ankole.ScheduleTest do
       turn_completed_payload: 3,
       turn_noop_completed_payload: 2,
       turn_start_payload!: 1,
-      decoded_request_context: 1,
-      envelope_body_type: 1,
-      envelope_body!: 2,
-      decoded_json_bytes: 1
+      decoded_request_context: 1
     ]
 
   @base_time DateTime.utc_now(:microsecond)
@@ -624,7 +621,10 @@ defmodule Ankole.ScheduleTest do
         tool_call_id: "checkback-call-1",
         idempotency_key: "schedule-rpc-checkback-1",
         schedule_json:
-          Torque.encode!(%{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"}),
+          Torque.encode!(%{
+            "after" => %{"value" => 5, "unit" => "minute"},
+            "timezone" => "Etc/UTC"
+          }),
         reason: "Deployment is still running.",
         check: "Ask whether the deployment finished.",
         quiet_success: true,
@@ -1675,7 +1675,8 @@ defmodule Ankole.ScheduleTest do
         FabricProto.AgentComputerWorkerReady,
         Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
       ),
-      %{authenticated?: true, transport_route: route}
+      %{authenticated?: true, transport_route: route},
+      Ankole.Kernel.RuntimeFabric.protocol_version()
     )
   end
 

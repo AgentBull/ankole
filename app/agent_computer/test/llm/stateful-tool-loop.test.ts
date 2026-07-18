@@ -12,6 +12,9 @@ import {
   toolResultsRecordedFrame
 } from '../support/llm'
 
+const toolImageDataURL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
+
 describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations', () => {
   it('records a turn-ending clarify result without making another empty model call', async () => {
     const sentPayloads: JSONObject[] = []
@@ -299,7 +302,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           execute: async () => ({
             content: [
               { type: 'text', text: 'screenshot ready' },
-              { type: 'image', image: 'data:image/png;base64,AAA=' }
+              { type: 'image', image: toolImageDataURL }
             ],
             details: { ok: true }
           })
@@ -317,11 +320,12 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(continuation[0]).toMatchObject({ type: 'function_call_output', call_id: 'call_image' })
     expect(continuation[0]!.output).toContain('screenshot ready')
     expect(continuation[0]!.output).toContain('[1 image result attached as follow-up user input]')
+    expect(continuation[0]!.output).not.toContain('data:image/')
     expect(continuation[1]).toEqual({
       role: 'user',
       content: [
         { type: 'input_text', text: 'Tool returned image content.' },
-        { type: 'input_image', image_url: 'data:image/png;base64,AAA=', detail: 'auto' }
+        { type: 'input_image', image_url: expect.stringMatching(/^data:image\/webp;base64,/), detail: 'auto' }
       ]
     })
     expect(sentPayloads[2]).toMatchObject({
@@ -412,7 +416,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           execute: async () => ({
             content: [
               { type: 'text', text: 'screenshot ready' },
-              { type: 'image', image: 'data:image/png;base64,AAA=' }
+              { type: 'image', image: toolImageDataURL }
             ],
             details: { ok: true }
           })
@@ -429,6 +433,8 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     })
     expect(continuation[0]).toMatchObject({ type: 'function_call_output', call_id: 'call_summary' })
     expect(continuation[0]!.output).toContain('screenshot ready')
+    expect(continuation[0]!.output).toContain('[1 image result attached as follow-up user input]')
+    expect(continuation[0]!.output).not.toContain('data:image/')
     expect(continuation[1]!.role).toBe('user')
     expect(continuation[1]!.content).toContain("The tool result attached an image. Here's what it contains")
     expect(continuation[1]!.content).toContain('The tool image shows a dashboard.')

@@ -525,6 +525,60 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 0
   end
 
+  test "creation rejects caller-local task paths before journaling work" do
+    %{principal: agent} = agent_fixture()
+
+    for {task, path, index} <- [
+          {"Read /workspace/user-files/inbox/report.pdf.", "/workspace/user-files", 1},
+          {"Use /workspace/temp for intermediate pages.", "/workspace/temp", 2},
+          {"Inspect /workspace/user-files, then report what exists.", "/workspace/user-files", 3}
+        ] do
+      assert {:error, {:background_agent_job_caller_local_task_path, message}} =
+               BackgroundAgentJobs.create_with_dispatch(%{
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => "parent-session-invalid-task-path-#{index}",
+                 "source_tool_call_id" => "tool-background-agent-job-invalid-task-path-#{index}",
+                 "title" => "Invalid task path",
+                 "task" => task,
+                 "reply_route" => %{"binding_name" => "lark"}
+               })
+
+      assert message =~ path
+      assert message =~ "workspace_mounts"
+      assert message =~ "/workspace/workspaces/<mount-id>/"
+    end
+
+    assert Repo.aggregate(Job, :count) == 0
+    assert Repo.aggregate(ActorEvent, :count) == 0
+
+    attrs = %{
+      "agent_uid" => agent.uid,
+      "owner_session_id" => "parent-session-near-task-path",
+      "source_tool_call_id" => "tool-background-agent-job-near-task-path",
+      "title" => "Valid private directory",
+      "task" => "Create /workspace/user-files-archive in the private Job project.",
+      "reply_route" => %{"binding_name" => "lark"}
+    }
+
+    assert {:ok, %{job: %Job{} = job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
+
+    assert Repo.aggregate(Job, :count) == 1
+    assert Repo.aggregate(ActorEvent, :count) == 1
+
+    legacy_task = "Read the previously accepted input from /workspace/temp/legacy.txt."
+    from(row in Job, where: row.id == ^job.id) |> Repo.update_all(set: [task: legacy_task])
+
+    assert {:ok, %{job: replayed}} =
+             attrs
+             |> Map.put("task", legacy_task)
+             |> BackgroundAgentJobs.create_with_dispatch()
+
+    assert replayed.id == job.id
+    assert replayed.task == legacy_task
+    assert Repo.aggregate(Job, :count) == 1
+    assert Repo.aggregate(ActorEvent, :count) == 1
+  end
+
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
     %{principal: agent} = agent_fixture()
     waiting = create_job!(agent.uid, "waiting")
@@ -578,7 +632,18 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, %{job: succeeded, wakeup_event: %ActorEvent{} = completed_event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "succeeded",
-               "result" => %{"summary" => "Launch brief written and verified."}
+               "result" => %{
+                 "summary" => "Launch brief written and verified.",
+                 "project_path" =>
+                   "/workspace/user-files/background-agent-jobs/#{waiting.id}/project",
+                 "artifacts" => %{
+                   "total_count" => 1,
+                   "paths" => [
+                     "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+                   ],
+                   "truncated" => false
+                 }
+               }
              })
 
     assert succeeded.status == "succeeded"
@@ -587,6 +652,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert get_in(completed_event.payload, ["data", "result_summary"]) ==
              "Launch brief written and verified."
+
+    assert get_in(completed_event.payload, ["data", "project_path"]) ==
+             "/workspace/user-files/background-agent-jobs/#{waiting.id}/project"
+
+    assert get_in(completed_event.payload, ["data", "artifacts"]) == %{
+             "total_count" => 1,
+             "paths" => [
+               "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+             ],
+             "truncated" => false
+           }
 
     failed = create_job!(agent.uid, "failed")
 
@@ -762,6 +838,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert waiting_stopped.status == "stopped"
+    refute Map.has_key?(waiting_stopped.metadata, "pending_user_input")
 
     refute Repo.exists?(
              from event in ActorEvent,
@@ -893,7 +970,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.get!(Job, job.id).status == running.status
   end
 
-  test "parent wakeup summaries are bounded to 16KB of valid UTF-8" do
+  test "parent wakeup bounds artifacts and keeps their handoff after a long summary" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "bounded-wakeup")
 
@@ -906,16 +983,69 @@ defmodule Ankole.BackgroundAgentJobsTest do
     running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-bounded-wakeup", "turn-bounded-wakeup", "completed")
 
-    assert {:ok, %{wakeup_event: wakeup}} =
+    project_path = "/workspace/user-files/background-agent-jobs/#{job.id}/project"
+
+    artifact_paths =
+      for index <- 1..50_000 do
+        "#{project_path}/report/artifact-#{index}.pdf"
+      end
+
+    changed_paths =
+      for index <- 1..8 do
+        "#{index}-#{String.duplicate("x", 3_000)}.tmp"
+      end
+
+    assert {:ok, %{job: succeeded, wakeup_event: wakeup}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "succeeded",
-               "result" => %{"summary" => String.duplicate("大", 20_000)}
+               "result" => %{
+                 summary: String.duplicate("大", 20_000),
+                 project_path: project_path,
+                 files_changed: %{
+                   total_count: length(changed_paths),
+                   paths: changed_paths,
+                   truncated: false
+                 },
+                 artifacts: %{
+                   total_count: length(artifact_paths),
+                   paths: artifact_paths,
+                   truncated: false
+                 },
+                 artifact_roots: %{
+                   total_count: 2,
+                   paths: [project_path, "/workspace/user-files/research-output"],
+                   truncated: false
+                 }
+               }
              })
 
     summary = get_in(wakeup.payload, ["data", "result_summary"])
     assert String.valid?(summary)
     assert byte_size(summary) <= 16_384
     assert String.ends_with?(summary, "...[truncated]")
+
+    handoff = get_in(wakeup.payload, ["data", "artifacts"])
+    assert handoff == succeeded.result["artifacts"]
+    assert handoff["total_count"] == 50_000
+    assert length(handoff["paths"]) == 32
+    assert hd(handoff["paths"]) == hd(artifact_paths)
+    assert handoff["truncated"]
+    assert byte_size(Ankole.JSON.encode!(handoff["paths"])) <= 8_192
+
+    changed = succeeded.result["files_changed"]
+    assert changed["total_count"] == length(changed_paths)
+    assert length(changed["paths"]) < length(changed_paths)
+    assert byte_size(Ankole.JSON.encode!(changed["paths"])) <= 8_192
+    assert changed["truncated"]
+
+    roots = succeeded.result["artifact_roots"]
+    assert roots == get_in(wakeup.payload, ["data", "artifact_roots"])
+    assert roots["total_count"] == 2
+    assert roots["paths"] == [project_path, "/workspace/user-files/research-output"]
+    refute roots["truncated"]
+
+    assert get_in(wakeup.payload, ["data", "project_path"]) == project_path
+    assert byte_size(Ankole.JSON.encode!(wakeup.payload)) <= 32_768
   end
 
   test "only normalized ankole_chatml trajectories can be stored as Turns" do

@@ -66,6 +66,14 @@ describe('@ankole/agent-computer vision helpers', () => {
     }
   })
 
+  it('rejects malformed image bytes instead of forwarding an opaque data URL', async () => {
+    await expect(
+      modelImageAdaptation([{ type: 'image', image: 'data:image/png;base64,AAA=' }], {
+        input_modalities: ['text', 'image']
+      })
+    ).resolves.toEqual({ kind: 'unavailable' })
+  })
+
   it('summarizes normalized images through the configured fallback without a local output cap', async () => {
     const fallbackBodies: JSONObject[] = []
     const fallbackModel = fallbackModelForTest('A visible dashboard.', fallbackBodies)

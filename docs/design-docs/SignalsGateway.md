@@ -65,7 +65,10 @@ explainable from these surfaces:
   `input_state in (open, dead_letter)` and completion is the `completed_at`
   timestamp. `dead_letter` is reserved for true poison events: ActorRuntime sets
   it only after the same actor event repeatedly reaches worker `turn_error`;
-  transport send failures remain retryable delivery failures.
+  transport send failures remain retryable delivery failures. For an IM-visible
+  event, the dead-letter transition and its localized failure-notice outbox row
+  commit in one transaction. The notice exposes only a retry suggestion and the
+  ActorEvent correlation id; delivery rows retain the structured internal cause.
 - `actor_event_deliveries`: per-session delivery attempts. A live delivery row
   is what "this session is running something" means.
 - `signal_gateway_outbox_entries`: durable provider-visible side-effect execution
@@ -1062,11 +1065,19 @@ Every production ActorEvent append passes through the SignalsGateway facade and
 the actor-session advisory lock. Before the new event can wake the next turn,
 that transaction supersedes pending interactions on lower `queue_sequence`
 events. Passive provider lifecycle mirrors such as `signal.entry.removed` opt
-out because they do not advance the visible conversation. A managed button or
-form callback takes the same session lock, re-authorizes the current human,
-locks the source ActorEvent, validates the card surface and control revision,
-then records the answer and appends one normalized action event. Whichever of a
-new turn or an answer obtains the lock first is final.
+out because they do not advance the visible conversation. When a removal is
+consumed, it supersedes only pending interactions on completed ActorEvents that
+contain the removed `source_entry_id`; a removal for an unrelated entry leaves
+the current clarification pending. `session.reset_due` also preserves cards
+when it is merely enqueued, but a callback cannot cross that queued barrier:
+the server makes the predecessor interaction stale instead of appending an
+answer that would run in the successor conversation. When the reset actually
+rolls the conversation, it supersedes every still-pending predecessor
+interaction. A managed button or form callback takes the same session lock,
+re-authorizes the current human, locks the source ActorEvent, validates the card
+surface and control revision, then records the answer and appends one normalized
+action event. Whichever of a relevant removal, a reset barrier, a new turn, or
+an answer obtains the lock first is final.
 
 Delayed provider writes cannot reopen a terminal interaction. Checkpoint merge
 keeps the PostgreSQL terminal state, projects disabled or removed controls, and
@@ -1319,7 +1330,10 @@ time into the event payload for idempotency and diagnostics. Runtime execution o
 the event does not re-interpret freshness: when `session.reset_due` reaches the
 head of the session queue, ActorRuntime rolls the current active session. It does
 not change provider mirror identity and it does not require a gateway-owned queue
-separate from `actor_events`. The current default actor identity remains:
+separate from `actor_events`. The roll supersedes predecessor reply interactions
+because their original questions are deliberately not copied into the successor
+conversation; a late card callback is accepted as a stale no-op and cannot
+produce a successor TurnStart. The current default actor identity remains:
 
 ```text
 actor_id = {agent_uid, session_id}
@@ -1375,7 +1389,7 @@ keeps `queue_sequence` as open-queue append order.
 | Command | ActorEvent type | Runtime policy | Executor |
 | --- | --- | --- | --- |
 | `/stop` | `command.stop` | `control_now`: cancel the active generation and send a control signal; it does not start a second turn | Control plane |
-| `/retry` | `command.retry` | `control_now`: cancel an active generation, or re-run a completed event from its last `complete` row; it does not start a second turn | Control plane |
+| `/retry` | `command.retry` | `control_now`: cancel an active generation, or append a new event that replays the latest completed or dead-lettered request in the current conversation; a withdrawn source and an empty `/new` boundary are not crossed | Control plane |
 | `/new` | `command.new` | `control_now`: roll the session window, cancelling the active generation when needed | Control plane |
 | `/steer` | `command.steer` | `checkpoint_nudge`: stays in the actor event queue, and while a turn is active may be delivered to the worker as `mailbox_updated` for checkpoint consumption | Worker turn |
 | `/compress` | `command.compress` | `control_now`: run a control-plane compaction; no worker turn starts | Control plane (AIGateway compaction) |
@@ -1778,6 +1792,18 @@ to conversation-scoped AIGateway events and filters them using the opaque
   decide whether the Agent Turn ended;
 - successful completion, noop, dead-letter, or explicit stop terminates it;
   retryable `turn_error` may retain the same handler.
+
+Terminal handoff is bounded. The preview gets one chance to drain its current
+provider mutation; a failed or stuck mutation cannot keep a working card alive
+indefinitely. SignalsGateway checkpoints the latest semantic projection, stops
+the transient owner, and lets the durable terminal outbox take over. CardKit's
+PostgreSQL sequence high-water mark gives that terminal mutation a higher
+sequence than any abandoned working mutation, so a late working update cannot
+reverse the failure notice. A preview stop may replace a persisted presentation
+only with a strictly newer revision; at equal revision the PostgreSQL
+clarification or other terminal projection wins. Checkpoint notifications may
+restart a working preview only while the ActorEvent remains `open` and
+incomplete; a dead-letter event cannot be revived into a working card.
 
 Preview continuity is best-effort, not a durable guarantee. The provider-side
 preview id is never written to AIGateway. If the preview process dies

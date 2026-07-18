@@ -279,6 +279,24 @@ defmodule AnkoleWeb.AgentController do
   defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :not_agent), do: error(conn, 404, "not_found", "agent was not found")
 
+  defp error(conn, :image_model_unavailable) do
+    error(
+      conn,
+      422,
+      "image_model_unavailable",
+      "selected image model has no usable image-generation endpoint"
+    )
+  end
+
+  defp error(conn, :image_model_catalog_unavailable) do
+    error(
+      conn,
+      422,
+      "image_model_catalog_unavailable",
+      "image model availability could not be verified; try again later"
+    )
+  end
+
   defp error(conn, {:missing, key}) do
     error(conn, 422, "validation_failed", "#{key} is required")
   end

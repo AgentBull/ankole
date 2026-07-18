@@ -426,6 +426,79 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert ai_message_id == message.id
     end
 
+    test "startup outbox recovery reclaims an orphan preview before terminal delivery" do
+      %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
+
+      assert {:ok, completed} =
+               StatefulResponses.commit_complete(message, assistant_content("recovered final"))
+
+      assert [{existing_preview_pid, _value}] =
+               Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, event.id)
+
+      existing_preview_monitor = Process.monitor(existing_preview_pid)
+      assert :ok = AIReplyPreview.stop(event.id)
+      assert_receive {:DOWN, ^existing_preview_monitor, :process, ^existing_preview_pid, :normal}
+
+      assert_turn_completed(turn_ref, completed)
+      outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
+      preview_source_entry_id = "provider-preview-recovered"
+
+      # Simulate a lifecycle process exiting after the terminal transaction
+      # committed but before its stop cast reached the transient preview.
+      preview_pid =
+        start_supervised!(
+          Supervisor.child_spec(
+            {LateReplyPreview, {self(), event.id, preview_source_entry_id}},
+            restart: :temporary
+          )
+        )
+
+      parent = self()
+
+      adapter = %{
+        capabilities: [:edit_entry],
+        send: fn dispatched ->
+          send(parent, {:recovered_preview_final_dispatched, dispatched})
+          {:ok, %{created_source_entry_id: "ignored-for-edit"}}
+        end
+      }
+
+      dispatch =
+        Task.async(fn ->
+          SignalsGateway.dispatch_outbox(
+            outbox.agent_uid,
+            outbox.binding_name,
+            outbox.outbound_key,
+            adapter,
+            reply_preview_settle_timeout_ms: 1_000
+          )
+        end)
+
+      assert_receive {:late_reply_preview_stop_requested, ^preview_pid}
+      refute_receive {:recovered_preview_final_dispatched, _outbox}, 100
+      send(preview_pid, :settle)
+
+      assert {:ok,
+              %OutboxEntry{
+                status: :succeeded,
+                operation: :edit,
+                target_source_entry_id: ^preview_source_entry_id
+              }} = Task.await(dispatch, 2_000)
+
+      assert_receive {:recovered_preview_final_dispatched,
+                      %OutboxEntry{target_source_entry_id: ^preview_source_entry_id}}
+
+      assert {:error, :outbox_not_dispatchable} =
+               SignalsGateway.dispatch_outbox(
+                 outbox.agent_uid,
+                 outbox.binding_name,
+                 outbox.outbound_key,
+                 adapter
+               )
+
+      refute_receive {:recovered_preview_final_dispatched, _duplicate}, 100
+    end
+
     test "a preview settle timeout leaves the final reply untouched and retryable" do
       %{message: message, event: event, turn_ref: turn_ref} = start_im_visible_response_run()
 

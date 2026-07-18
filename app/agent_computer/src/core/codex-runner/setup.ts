@@ -9,7 +9,6 @@ import {
 } from '../../lanes/rpc_lane'
 import { prepareActorWorkspace } from '../../worker/workspace'
 import { materializeCodexConfig } from '../../tools/codex/config'
-import { stringValue } from '../../tools/codex/protocol'
 import { resolveCodexRuntimeConfig } from '../../tools/codex/runtime-config'
 import { codexAppServerSandboxSpec } from '../../tools/codex/sandbox'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
@@ -24,7 +23,11 @@ import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from '../turns/
 import { resolveWorkerEnv } from '../turns/worker_env'
 import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
-import { assertAgentPluginProjectResumeState, prepareAgentPlugins } from './agent-plugin-materializer'
+import {
+  assertAgentPluginProjectResumeState,
+  materializeAgentPluginSkillOverlays,
+  prepareAgentPlugins
+} from './agent-plugin-materializer'
 import { codexJobProjectLocation, prepareCodexJobProject, type CodexJobWorkspaceMountInput } from './job-project'
 import { resolveCodexJobMCPServers } from './mcp-config'
 import { parentInputToolSpec } from './parent-input'
@@ -89,6 +92,12 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     agentPlugins: selectedAgentPlugins,
     initializeProject,
     ...(agentsContent ? { agentsContent } : {})
+  })
+  await materializeAgentPluginSkillOverlays({
+    prepared: preparedAgentPlugins,
+    enabledSkills: agentPluginSkills,
+    turn: turnStart.turn,
+    rpc: opts.rpc
   })
   const jobProject = prepareCodexJobProject({
     jobProjectRoot: projectLocation.hostPath,
@@ -272,8 +281,9 @@ function selectCurrentAgentPluginSkills(
       .sort((left, right) => compareCodePoints(left.catalogName, right.catalogName))
       .map(member => {
         const skill = byOwnerAndName.get(`${agentPlugin.id}\0${member.catalogName}`)
-        if (!skill)
+        if (!skill) {
           throw new Error(`Current Agent Plugin Skill is unavailable: ${agentPlugin.id}/${member.catalogName}`)
+        }
         return skill
       })
   )

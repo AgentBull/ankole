@@ -73,13 +73,16 @@ process.stdout.write(
 )
 
 function validate(value: Request): void {
-  if (!value.workdir || !value.input_path || !value.slug || !value.source)
+  if (!value.workdir || !value.input_path || !value.slug || !value.source) {
     throw new Error('archive request is incomplete')
-  if (!['data_source', 'internal', 'task_fixture', 'source_forecast'].includes(value.archive_kind))
+  }
+  if (!['data_source', 'internal', 'task_fixture', 'source_forecast'].includes(value.archive_kind)) {
     throw new Error('unsupported archive_kind')
+  }
   if (Number.isNaN(Date.parse(value.retrieved_at))) throw new Error('retrieved_at must be ISO-8601')
-  if (value.archive_kind === 'data_source' && (!value.provenance?.skill || value.provenance.query === undefined))
+  if (value.archive_kind === 'data_source' && (!value.provenance?.skill || value.provenance.query === undefined)) {
     throw new Error('data_source archive requires provenance.skill and provenance.query')
+  }
 }
 
 function writeImmutableArchive(path: string, bytes: Buffer): void {

@@ -285,6 +285,75 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
              )
   end
 
+  test "configured profiles require a definitive usable endpoint", %{runtime: runtime} do
+    client = fn request ->
+      cond do
+        String.ends_with?(request.url, "/images/models") ->
+          {:ok,
+           %{
+             "status" => 200,
+             "body" => %{
+               "data" => [
+                 %{"id" => "openrouter/auto"},
+                 %{"id" => "google/gemini-3.1-flash-lite-image"}
+               ]
+             }
+           }}
+
+        String.ends_with?(request.url, "/images/models/openrouter/auto/endpoints") ->
+          {:ok, %{"status" => 200, "body" => %{"endpoints" => []}}}
+
+        String.ends_with?(
+          request.url,
+          "/images/models/google/gemini-3.1-flash-lite-image/endpoints"
+        ) ->
+          {:ok,
+           %{
+             "status" => 200,
+             "body" => %{
+               "endpoints" => [
+                 %{
+                   "provider_slug" => "google",
+                   "provider_tag" => "google/gemini-3.1-flash-lite-image:google",
+                   "supported_parameters" => %{}
+                 }
+               ]
+             }
+           }}
+      end
+    end
+
+    provider = runtime["provider"]
+
+    assert {:error, :image_model_unavailable} =
+             ImageModelCatalog.validate_configured_model(provider, "openrouter/auto",
+               http_client: client,
+               force_refresh: true
+             )
+
+    assert :ok =
+             ImageModelCatalog.validate_configured_model(
+               provider,
+               "google/gemini-3.1-flash-lite-image",
+               http_client: client,
+               force_refresh: true
+             )
+
+    Cache.clear_for_test()
+
+    assert {:error, :image_model_catalog_unavailable} =
+             ImageModelCatalog.validate_configured_model(provider, "openrouter/auto",
+               http_client: fn _request ->
+                 {:ok,
+                  %{
+                    "status" => 404,
+                    "body" => %{"error" => "private provider detail must not escape"}
+                  }}
+               end,
+               force_refresh: true
+             )
+  end
+
   defp catalog_client(supported_overrides \\ %{}) do
     fn request ->
       assert {"authorization", "Bearer sk-image-test"} in request.headers

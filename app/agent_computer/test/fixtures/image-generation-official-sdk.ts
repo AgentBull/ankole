@@ -121,12 +121,12 @@ await Promise.race([
   new Promise<never>((_, reject) => setTimeout(() => reject(new Error('ResponsesWS close timed out')), 1_000))
 ])
 
-console.log(
-  JSON.stringify({
+process.stdout.write(
+  `${JSON.stringify({
     file_id: file.id,
     response_id: response.id,
     image_id: image.id,
     stream_events: streamEvents,
     websocket_reused_image_id: firstImage.id
-  })
+  })}\n`
 )

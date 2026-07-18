@@ -390,7 +390,7 @@ grep -q '# PPTX' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
 grep -q 'PG_OVERLAY_MARKER' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
 grep -q 'CALLER_MOUNT_MARKER' /workspace/workspaces/workspace/caller-visible.txt
 printf 'command path works\n' > /workspace/workspaces/workspace/command-probe.txt
-test "$(bun -e \"const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))\")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
+test "$(bun -e "const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md
 if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/null; then exit 22; fi
 `
