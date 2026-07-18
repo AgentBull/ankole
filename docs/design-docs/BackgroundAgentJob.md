@@ -152,8 +152,11 @@ migration neither materializes nor marks that path as managed, so cleanup must
 not treat it as owned storage. The immutable pre-Turn event archive remains
 control-plane-owned until an explicit export or retention migration removes it.
 Both archive foreign keys use `RESTRICT`. Databases that already recorded an
-older destructive draft of either migration fail closed and must be restored
-from a pre-draft backup; Ankole does not fabricate deleted Jobs or event history.
+older destructive draft fail closed when retained Job rows or durable actor
+events prove that the draft may have deleted history. When both sources prove
+that no Job was ever accepted, the compatibility guard materializes the only
+valid archive for that history: an empty one with the same final constraints.
+Ankole does not infer or fabricate missing Jobs or events.
 
 Terminal commit and owner wakeup occur in one control-plane transaction.
 Success or `waiting_on_user` also requires the lead Job Turn to be durably
@@ -167,6 +170,16 @@ between `thread/start` and the first `turn/start`, the runner creates one
 replacement thread and replays the original task with bounded attempt history.
 Codex JSON-RPC request timeouts protect individual protocol calls and are not a
 maximum Job duration.
+
+CodexRunner separately bounds a model-repair failure that has no legitimate
+long-work interpretation: five consecutive completed model calls on the same
+Codex thread without an observable item start/completion, plan update, diff, or
+tool request interrupt the lead Turn and fail the Job with `codex_no_progress`.
+Any such semantic progress resets that thread's streak, so a long-running
+command, an active child agent, or an otherwise healthy long Job is not a wall-
+clock timeout. The failure preserves the latest usage and consecutive-call
+count for operator diagnosis instead of silently spending an unbounded number
+of model calls on malformed tool output.
 
 ## Start and dispatch
 

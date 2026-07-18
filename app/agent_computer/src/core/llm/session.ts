@@ -69,6 +69,7 @@ const firstResponseEventDiagnosticMs = 300_000
 const standardResponseEventStaleMs = 180_000
 const largeResponseEventStaleMs = 300_000
 const largeResponseRequestTokenThreshold = 100_000
+const responseAdmissionFrameTypes = new Set(['response.created', 'response.queued', 'response.in_progress'])
 
 export function createModelTurn(model: ModelConfig, options: ModelTurnOptions): ModelTurn {
   return new AIGatewayResponsesTurn(model, options)
@@ -204,7 +205,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
         abortError: () => webSocketTransportError('LLM provider call aborted', 'aborted', false),
         staleError: () =>
           webSocketTransportError(
-            `AIGateway response stream stale for ${staleTimeoutMs}ms after a valid response event`,
+            `AIGateway response stream stale for ${staleTimeoutMs}ms after output progress`,
             'event_stale',
             true
           ),
@@ -476,7 +477,7 @@ async function* watchedResponsesStream(
     abortListener = () => reject(options.abortError())
     options.signal.addEventListener('abort', abortListener, { once: true })
   })
-  let sawValidResponseEvent = false
+  let sawOutputProgress = false
   let staleDeadlineMs: number | undefined
   let slowFirstEventDiagnosticAtMs = Date.now() + firstResponseEventDiagnosticMs
 
@@ -489,7 +490,7 @@ async function* watchedResponsesStream(
 
       for (;;) {
         let timer: ReturnType<typeof setTimeout> | undefined
-        const remainingMs = sawValidResponseEvent
+        const remainingMs = sawOutputProgress
           ? Math.max(0, (staleDeadlineMs ?? Date.now()) - Date.now())
           : slowFirstEventDiagnosticAtMs === Number.POSITIVE_INFINITY
             ? undefined
@@ -505,7 +506,7 @@ async function* watchedResponsesStream(
         if (timer) clearTimeout(timer)
 
         if (outcome === 'timer') {
-          if (sawValidResponseEvent) throw options.staleError()
+          if (sawOutputProgress) throw options.staleError()
           options.onSlowFirstEvent()
           slowFirstEventDiagnosticAtMs = Number.POSITIVE_INFINITY
           continue
@@ -516,8 +517,8 @@ async function* watchedResponsesStream(
       }
 
       if (next.done) return
-      if (isValidResponseEvent(next.value)) {
-        sawValidResponseEvent = true
+      if (responseEventRefreshesStaleDeadline(next.value, sawOutputProgress)) {
+        sawOutputProgress = true
         staleDeadlineMs = Date.now() + options.staleTimeoutMs
       }
       yield next.value
@@ -527,10 +528,17 @@ async function* watchedResponsesStream(
   }
 }
 
-function isValidResponseEvent(event: ResponsesStreamMessage): boolean {
+function responseEventRefreshesStaleDeadline(event: ResponsesStreamMessage, staleDeadlineArmed: boolean): boolean {
   if (event.type !== 'message') return false
   const frame = recordValue(event.message)
-  return typeof frame?.type === 'string' && (frame.type === 'error' || frame.type.startsWith('response.'))
+  return responseFrameRefreshesStaleDeadline(frame?.type, staleDeadlineArmed)
+}
+
+export function responseFrameRefreshesStaleDeadline(frameType: unknown, staleDeadlineArmed: boolean): boolean {
+  if (typeof frameType !== 'string') return false
+  if (frameType !== 'error' && !frameType.startsWith('response.')) return false
+
+  return staleDeadlineArmed || !responseAdmissionFrameTypes.has(frameType)
 }
 
 async function* abortableResponsesStream(

@@ -40,6 +40,7 @@ import {
 import { CODEX_JOB_SKILLS_SANDBOX_ROOT } from './runtime-files'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
+import { CodexNoProgressGuard, type CodexNoProgressViolation } from './no-progress-guard'
 
 const steerPollIntervalMs = 250
 
@@ -78,6 +79,8 @@ class CodexJobSession {
   private compactingThreadID: string | undefined
   private compactionTurnID: string | undefined
   private readonly completedCompactionTurnIDs = new Set<string>()
+  private readonly noProgressGuard = new CodexNoProgressGuard()
+  private noProgressFailureInFlight = false
 
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
@@ -519,6 +522,11 @@ class CodexJobSession {
   private readonly handleNotification = (message: JSONRPCMessage): void => {
     if (this.finalizing) return
     this.turnRecorder.handleNotification(message)
+    const noProgressViolation = this.noProgressGuard.recordNotification(message, this.runtimeThreadID)
+    if (noProgressViolation && !this.noProgressFailureInFlight) {
+      this.noProgressFailureInFlight = true
+      void this.failNoProgress(noProgressViolation)
+    }
     const params = jsonObject(message.params)
     const notificationThreadID = stringValue(params.threadId)
     const isLeadNotification = !notificationThreadID || notificationThreadID === this.runtimeThreadID
@@ -581,6 +589,7 @@ class CodexJobSession {
     if (message.id === undefined) return
     const params = jsonObject(message.params)
     const requestThreadID = stringValue(params.threadId)
+    this.noProgressGuard.recordProgress(requestThreadID ?? this.runtimeThreadID)
     const isLeadRequest = !requestThreadID || requestThreadID === this.runtimeThreadID
     this.input.opts.onTurnActivity?.(`codex:${method || 'server_request'}`)
 
@@ -656,6 +665,20 @@ class CodexJobSession {
           metadata: { stop_reason: abortReason(this.input.opts.abortSignal) }
         })
       )
+  }
+
+  private async failNoProgress(violation: CodexNoProgressViolation): Promise<void> {
+    this.input.opts.onTurnActivity?.('codex:no_progress')
+    await this.interrupt().catch(() => undefined)
+    await this.commit('failed', {
+      error: {
+        code: 'codex_no_progress',
+        summary: `Codex made ${violation.consecutiveModelCalls} consecutive model calls without an observable item, plan, diff, or tool request.`,
+        consecutive_model_calls: violation.consecutiveModelCalls,
+        ...(violation.threadID ? { runtime_thread_id: violation.threadID } : {}),
+        usage: violation.usage
+      }
+    })
   }
 
   private startSteeringPoll(): void {

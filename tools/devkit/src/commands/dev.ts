@@ -128,6 +128,7 @@ async function workerImageInputFiles(): Promise<string[]> {
   const inputs = [
     'app/agent_computer/Dockerfile',
     'app/agent_computer/base-image.lock',
+    'app/agent_computer/matplotlibrc',
     'app/agent_computer/package.json',
     'app/agent_computer/tsconfig.json',
     'app/kernel',

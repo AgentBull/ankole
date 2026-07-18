@@ -123,6 +123,7 @@ COPY app/library ./app/library
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/src ./app/agent_computer/src
+COPY app/agent_computer/matplotlibrc /etc/ankole/matplotlibrc
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
 COPY app/ankole-browser/src ./app/ankole-browser/src
 
@@ -179,6 +180,7 @@ ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js
 ENV ANKOLE_BROWSER_RUNNER=/opt/ankole-browser/dist/runner/bootstrap.js
 ENV ANKOLE_BROWSER_CHROMIUM_EXECUTABLE=/opt/ankole-browser/browsers/chromium/chrome-headless-shell
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers
+ENV MATPLOTLIBRC=/etc/ankole/matplotlibrc
 ENV PATH="/opt/ankole-python/bin:/root/.cargo/bin:${PATH}"
 
 ENTRYPOINT ["tini", "-g", "--"]

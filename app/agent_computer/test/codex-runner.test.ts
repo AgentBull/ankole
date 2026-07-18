@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, w
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCodexJob } from '../src/core/codex-runner'
+import { maxConsecutiveModelCallsWithoutProgress } from '../src/core/codex-runner/no-progress-guard'
 import { create } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
@@ -25,6 +26,7 @@ import {
 type RecordedStatusUpdate = RPCRequestInit<'background_agent_job.status.update'> & {
   metadataJson?: Uint8Array
   resultJson?: Uint8Array
+  errorJson?: Uint8Array
 }
 type RecordedTurnUpsert = RPCRequestInit<'background_agent_job.turn.upsert'> & {
   trajectoryJson?: Uint8Array
@@ -37,6 +39,7 @@ type FakeCodexBehavior = {
   resumeError?: string | Record<string, unknown>
   artifactPath?: string
   diffPathCount?: number
+  noProgressModelCalls?: number
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -172,6 +175,30 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('final response after retry')
       expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('fails a Codex turn after bounded completed model calls produce no observable progress', async () => {
+    const fixture = prepareFixture('unused', {
+      noProgressModelCalls: maxConsecutiveModelCallsWithoutProgress
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+
+    try {
+      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
+
+      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'failed'])
+      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)).toMatchObject({
+        code: 'codex_no_progress',
+        consecutive_model_calls: maxConsecutiveModelCallsWithoutProgress,
+        runtime_thread_id: 'thread-1'
+      })
+      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)?.summary).toContain('without an observable item')
+      expect(turnUpserts.some(update => parsedJSON(update.errorJson)?.code === 'codex_no_progress')).toBe(true)
     } finally {
       fixture.cleanup()
     }
@@ -492,6 +519,7 @@ const firstResponse = ${JSON.stringify(firstResponse)}
 const resumeError = ${JSON.stringify(behavior.resumeError)}
 const artifactPath = ${JSON.stringify(behavior.artifactPath)}
 const diffPathCount = ${JSON.stringify(behavior.diffPathCount)}
+const noProgressModelCalls = ${JSON.stringify(behavior.noProgressModelCalls)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.method === 'initialize') return write({ id: message.id, result: { userAgent: 'codex-cli 0.144.5' } })
@@ -518,6 +546,37 @@ function handle(message) {
     if (turnCount === 1) writeFileSync(process.env.CODEX_HOME + '/turn-input.txt', input || '')
     const turnID = 'turn-' + turnCount
     write({ id: message.id, result: { turn: { id: turnID, status: 'in_progress' } } })
+    if (noProgressModelCalls) {
+      for (let index = 1; index <= noProgressModelCalls; index += 1) {
+        setTimeout(() => {
+          const totalTokens = index * 100
+          write({
+            method: 'thread/tokenUsage/updated',
+            params: {
+              threadId: 'thread-1',
+              tokenUsage: {
+                total: {
+                  totalTokens,
+                  inputTokens: totalTokens - 10,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0
+                },
+                last: {
+                  totalTokens: 100,
+                  inputTokens: 90,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0
+                },
+                modelContextWindow: 1000
+              }
+            }
+          })
+        }, index * 2)
+      }
+      return
+    }
     const text = turnCount === 1 ? firstResponse : 'final response after retry'
     setTimeout(() => {
       if (artifactPath) {
@@ -536,6 +595,7 @@ function handle(message) {
     }, 10)
     return
   }
+  if (message.method === 'turn/interrupt') return write({ id: message.id, result: {} })
   if (message.id !== undefined) write({ id: message.id, result: {} })
 }
 process.stdin.setEncoding('utf8')

@@ -3,12 +3,15 @@ import { fileURLToPath } from 'node:url'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { parse as parseToml } from 'smol-toml'
-import { defineConfig, type Plugin, type UserConfig } from 'vite'
+import { defineConfig, type Plugin, type UserConfig, type ViteDevServer } from 'vite'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 const outputPath = path.resolve(dirname, '../control_plane/priv/static/assets')
 const devServerOrigin = 'http://127.0.0.1:3035'
+const phoenixShutdownGraceMs = 2_000
+const phoenixRestartGuardKey = Symbol.for('ankole.vite.phoenix-restart-guard')
+let phoenixShutdownGuardInstalled = false
 
 const entries = {
   auth: path.resolve(dirname, 'entrypoints/auth.tsx'),
@@ -51,11 +54,13 @@ function manualChunks(moduleID: string): string | undefined {
 function phoenixShellPlugin(): Plugin {
   return {
     name: 'ankole-phoenix-shell',
-    configureServer() {
+    configureServer(server) {
       // Phoenix starts Vite as a watcher process. Keep stdin active so Vite can
       // notice when the parent port closes and exit instead of leaving the port
       // occupied after mix phx.server stops.
       process.stdin.resume()
+      installPhoenixShutdownGuard()
+      installPhoenixRestartGuard(server)
     },
     handleHotUpdate({ file, modules }) {
       if (!/app\/control_plane\/lib\/ankole_web\/.*\.(eex|ex|heex)$/.test(file)) return
@@ -66,6 +71,43 @@ function phoenixShellPlugin(): Plugin {
       return [...modules].flatMap(module => (module.file === file ? [...module.importers] : [module]))
     }
   }
+}
+
+function installPhoenixShutdownGuard(): void {
+  if (phoenixShutdownGuardInstalled) return
+  phoenixShutdownGuardInstalled = true
+
+  const forceExitAfterGrace = () => {
+    forcedExitTimer()
+  }
+  process.once('SIGTERM', forceExitAfterGrace)
+  process.stdin.once('end', forceExitAfterGrace)
+}
+
+function installPhoenixRestartGuard(server: ViteDevServer): void {
+  const guarded = server as typeof server & { [key: symbol]: boolean | undefined }
+  if (guarded[phoenixRestartGuardKey]) return
+  guarded[phoenixRestartGuardKey] = true
+
+  // A fresh watcher process is safer than a half-closed server: Phoenix owns
+  // recreation, while Vite's in-process restart can wait forever on HMR peers.
+  const restart = server.restart.bind(server)
+  server.restart = async forceOptimize => {
+    const timer = forcedExitTimer()
+    try {
+      await restart(forceOptimize)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+}
+
+function forcedExitTimer(): ReturnType<typeof setTimeout> {
+  // Phoenix treats a clean watcher exit as intentional and does not respawn it.
+  // A non-zero fallback exit asks the watcher supervisor to recreate the child.
+  const timer = setTimeout(() => process.exit(1), phoenixShutdownGraceMs)
+  timer.unref()
+  return timer
 }
 
 function tomlPlugin(): Plugin {

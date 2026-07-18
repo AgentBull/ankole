@@ -4,13 +4,17 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
-import { estimateResponseRequestTokens, responseEventStaleTimeoutMs } from '../../src/core/llm/session'
+import {
+  estimateResponseRequestTokens,
+  responseEventStaleTimeoutMs,
+  responseFrameRefreshesStaleDeadline
+} from '../../src/core/llm/session'
 import { buildResponseCreateParams } from '../../src/core/llm/wire'
 
 import { fakeResponseSocket } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire shape', () => {
-  it('uses a 300-second post-first-event stale window only above 100k estimated request tokens', () => {
+  it('uses a 300-second post-output stale window only above 100k estimated request tokens', () => {
     expect(responseEventStaleTimeoutMs(100_000)).toBe(180_000)
     expect(responseEventStaleTimeoutMs(100_001)).toBe(300_000)
 
@@ -20,6 +24,18 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     })
     expect(estimated).toBeGreaterThan(100_000)
     expect(responseEventStaleTimeoutMs(estimated)).toBe(300_000)
+  })
+
+  it('does not arm the post-output stale window from admission-only response frames', () => {
+    for (const frameType of ['response.created', 'response.queued', 'response.in_progress']) {
+      expect(responseFrameRefreshesStaleDeadline(frameType, false)).toBeFalse()
+      expect(responseFrameRefreshesStaleDeadline(frameType, true)).toBeTrue()
+    }
+
+    expect(responseFrameRefreshesStaleDeadline('response.output_item.added', false)).toBeTrue()
+    expect(responseFrameRefreshesStaleDeadline('response.output_text.delta', false)).toBeTrue()
+    expect(responseFrameRefreshesStaleDeadline('error', false)).toBeTrue()
+    expect(responseFrameRefreshesStaleDeadline('open', false)).toBeFalse()
   })
 
   it('keys the reusable prompt prefix independently of dynamic messages and tool insertion order', () => {
