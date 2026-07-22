@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { createServer, type Server } from 'node:net'
 import { dirname, join } from 'node:path'
 import { BrowserRouteMaterializer } from '../src/browser-runtime/materializer'
-import { BrowserWebFetchAdapter } from '../src/browser-runtime/web-fetch-adapter'
+import { BrowserWebFetchAdapter, type BrowserWebFetchFailureEvent } from '../src/browser-runtime/web-fetch-adapter'
 
 const roots: string[] = []
 const previousCLI = process.env.ANKOLE_BROWSER_CLI
@@ -115,38 +115,40 @@ console.log(JSON.stringify({
     })
     let ensureCalls = 0
     let purgeCommand: unknown
-    const adapter = new BrowserWebFetchAdapter(materializer, async () => {
-      ensureCalls += 1
-      const server = createServer(socket => {
-        let buffer = ''
-        socket.on('data', chunk => {
-          buffer += String(chunk)
-          const newline = buffer.indexOf('\n')
-          if (newline === -1) return
-          const request = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>
-          purgeCommand = request.command
-          socket.end(
-            `${JSON.stringify({
-              v: 1,
-              id: request.id,
-              ok: true,
-              route: request.route,
-              session: request.session,
-              data: { purged: true },
-              warnings: []
-            })}\n`
-          )
+    const adapter = new BrowserWebFetchAdapter(materializer, {
+      ensureDaemon: async () => {
+        ensureCalls += 1
+        const server = createServer(socket => {
+          let buffer = ''
+          socket.on('data', chunk => {
+            buffer += String(chunk)
+            const newline = buffer.indexOf('\n')
+            if (newline === -1) return
+            const request = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>
+            purgeCommand = request.command
+            socket.end(
+              `${JSON.stringify({
+                v: 1,
+                id: request.id,
+                ok: true,
+                route: request.route,
+                session: request.session,
+                data: { purged: true },
+                warnings: []
+              })}\n`
+            )
+          })
         })
-      })
-      servers.push(server)
-      await mkdir(dirname(socketPath), { recursive: true })
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(socketPath, () => {
-          server.removeListener('error', reject)
-          resolve()
+        servers.push(server)
+        await mkdir(dirname(socketPath), { recursive: true })
+        await new Promise<void>((resolve, reject) => {
+          server.once('error', reject)
+          server.listen(socketPath, () => {
+            server.removeListener('error', reject)
+            resolve()
+          })
         })
-      })
+      }
     })
 
     const result = await adapter.fetch(['https://example.com'], { ssrfFilter: true })
@@ -154,5 +156,124 @@ console.log(JSON.stringify({
     expect(result).toMatchObject({ results: [{ text: 'rendered' }] })
     expect(ensureCalls).toBe(1)
     expect(purgeCommand).toEqual({ name: 'lifecycle', args: { verb: 'purge' } })
+  })
+
+  test('reports a remote backend failure without endpoint or credential material', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-web-fetch-remote-failure-')
+    roots.push(root)
+    const fakeCLI = join(root, 'fake-ankole-browser')
+    await writeFile(
+      fakeCLI,
+      `#!/usr/bin/env bun
+console.log(JSON.stringify({
+  v: 1,
+  id: 'fake-fetch',
+  ok: false,
+  error: {
+    code: 'backend_unavailable',
+    message: 'remote Chromium connection failed',
+    retryable: true,
+    details: {
+      endpoint: 'wss://remote-user:endpoint-secret@remote.example:9222',
+      headers: { authorization: 'Bearer header-secret' }
+    }
+  }
+}))
+`
+    )
+    await chmod(fakeCLI, 0o755)
+    process.env.ANKOLE_BROWSER_CLI = fakeCLI
+    const failures: BrowserWebFetchFailureEvent[] = []
+    const adapter = new BrowserWebFetchAdapter(new BrowserRouteMaterializer({ root: join(root, 'runtime') }), {
+      onFailure: event => failures.push(event)
+    })
+
+    await expect(
+      adapter.fetch(['https://example.com'], {
+        ssrfFilter: true,
+        workerEnv: {
+          BROWSER_BACKEND_JSON: JSON.stringify({
+            kind: 'remote_cdp',
+            endpoint: 'wss://remote-user:endpoint-secret@remote.example:9222',
+            headers: { authorization: 'Bearer header-secret' },
+            session_identity: 'remote-test'
+          })
+        }
+      })
+    ).rejects.toMatchObject({ code: 'backend_unavailable' })
+
+    expect(failures).toEqual([
+      {
+        backendKind: 'remote_cdp',
+        stage: 'invoke',
+        errorCode: 'backend_unavailable',
+        errorMessage: 'remote Chromium connection failed',
+        retryable: true
+      }
+    ])
+    expect(JSON.stringify(failures)).not.toContain('endpoint-secret')
+    expect(JSON.stringify(failures)).not.toContain('header-secret')
+  })
+
+  test('reports a remote page failure by index without logging its URL', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-web-fetch-remote-page-')
+    roots.push(root)
+    const fakeCLI = join(root, 'fake-ankole-browser')
+    await writeFile(
+      fakeCLI,
+      `#!/usr/bin/env bun
+import { readFileSync } from 'node:fs'
+const material = JSON.parse(readFileSync(process.env.ANKOLE_BROWSER_MATERIAL, 'utf8'))
+console.log(JSON.stringify({
+  v: 1,
+  id: 'fake-fetch',
+  ok: true,
+  route: material.route_id,
+  session: process.env.ANKOLE_BROWSER_SESSION,
+  data: {
+    success: false,
+    results: [{
+      url: 'https://example.com/private?token=url-secret',
+      error: 'page.goto: Timeout 14000ms exceeded at https://example.com/private?token=url-secret\\nCall log',
+      error_code: 'timeout',
+      retryable: true
+    }]
+  },
+  warnings: []
+}))
+`
+    )
+    await chmod(fakeCLI, 0o755)
+    process.env.ANKOLE_BROWSER_CLI = fakeCLI
+    const failures: BrowserWebFetchFailureEvent[] = []
+    const adapter = new BrowserWebFetchAdapter(new BrowserRouteMaterializer({ root: join(root, 'runtime') }), {
+      onFailure: event => failures.push(event)
+    })
+
+    await adapter.fetch(['https://example.com/private?token=url-secret'], {
+      ssrfFilter: true,
+      workerEnv: {
+        BROWSER_BACKEND_JSON: JSON.stringify({
+          kind: 'remote_cdp',
+          endpoint: 'wss://remote-user:endpoint-secret@remote.example:9222',
+          headers: { authorization: 'Bearer header-secret' },
+          session_identity: 'remote-test'
+        })
+      }
+    })
+
+    expect(failures).toEqual([
+      {
+        backendKind: 'remote_cdp',
+        stage: 'url',
+        errorCode: 'timeout',
+        errorMessage: 'page.goto: Timeout 14000ms exceeded at [redacted endpoint]',
+        retryable: true,
+        urlIndex: 0
+      }
+    ])
+    expect(JSON.stringify(failures)).not.toContain('url-secret')
+    expect(JSON.stringify(failures)).not.toContain('endpoint-secret')
+    expect(JSON.stringify(failures)).not.toContain('header-secret')
   })
 })

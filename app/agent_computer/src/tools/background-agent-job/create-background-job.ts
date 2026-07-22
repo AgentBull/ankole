@@ -45,7 +45,7 @@ export function createCreateBackgroundJobTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => 'create background agent job',
+    describeActivity: () => '创建后台 Agent 任务',
     async execute(toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.create'> = {
         sourceToolCallId: toolCallID,

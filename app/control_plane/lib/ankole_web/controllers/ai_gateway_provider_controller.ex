@@ -56,7 +56,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   )
 
   operation(:delete_provider,
-    summary: "Disable one AIGateway provider",
+    summary: "Disable or delete one AIGateway provider",
     parameters: [provider_id: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},

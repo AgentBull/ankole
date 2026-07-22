@@ -129,18 +129,24 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Disables a provider after checking active model-profile references.
+  Disables an active provider or deletes a provider that is already disabled.
+
+  Both operations require the provider to have no active model-profile references.
   """
   @spec delete_provider(String.t()) :: provider_result()
   def delete_provider(provider_id) when is_binary(provider_id) do
-    now = DateTime.utc_now(:microsecond)
-
     Repo.transact(fn repo ->
       with %Provider{} = provider <- lock_provider(repo, provider_id),
            [] <- provider_references(repo, provider.provider_id) do
-        provider
-        |> Provider.changeset(%{disabled_at: now})
-        |> repo.update()
+        case provider.disabled_at do
+          nil ->
+            provider
+            |> Provider.changeset(%{disabled_at: DateTime.utc_now(:microsecond)})
+            |> repo.update()
+
+          %DateTime{} ->
+            repo.delete(provider)
+        end
       else
         nil -> {:error, :not_found}
         references when is_list(references) -> {:error, {:provider_in_use, references}}

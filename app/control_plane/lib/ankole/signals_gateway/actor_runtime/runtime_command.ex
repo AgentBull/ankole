@@ -282,8 +282,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     case TurnRetry.retry_live_turn_in_tx(repo, actor_key, input, now) do
       {:ok, :no_live_turn} ->
         case append_retry_event(repo, actor_key, input, now) do
-          {:ok, %ActorEvent{} = retry_event} ->
-            with {:ok, completed_event} <- consume_command_without_feedback(repo, input, now) do
+          {:ok, %ActorEvent{} = retry_event, outbox_intents} ->
+            with {:ok, completed_event} <-
+                   consume_command_without_feedback(repo, input, now, outbox_intents) do
               {:ok,
                %{
                  status: :command_consumed,
@@ -554,9 +555,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp consume_command_without_feedback(repo, %ActorEvent{} = input, now) do
+    consume_command_without_feedback(repo, input, now, [])
+  end
+
+  defp consume_command_without_feedback(repo, %ActorEvent{} = input, now, outbox_intents) do
     Actors.complete_command_event_in_tx(repo, input,
       completed_at: now,
-      outbox_intents: []
+      outbox_intents: outbox_intents
     )
   end
 
@@ -627,29 +632,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
   defp append_aigateway_retry_event(repo, command_event, retry_source, now) do
     case prepare_retry_response_graph(repo, command_event, retry_source, now) do
-      :ok ->
-        SignalsGateway.append_actor_event_in_tx(repo, %{
-          agent_uid: command_event.agent_uid,
-          binding_name: command_event.binding_name,
-          session_id: command_event.session_id,
-          source_event_id: "retry:#{command_event.id}",
-          signal_channel_id: command_event.signal_channel_id,
-          provider_thread_id: command_event.provider_thread_id,
-          source_entry_id: command_event.source_entry_id,
-          type: "im.message.addressed",
-          available_at: now,
-          sender_key: command_event.sender_key,
-          payload: %{
-            "type" => "im.message.addressed",
-            "data" => %{
-              "entry" => %{
-                "text" => retry_source.text,
-                "retry_of_actor_event_id" => retry_source.actor_event_id,
-                "retry_of_message_id" => retry_source.message_id
-              }
-            }
-          }
-        })
+      {:ok, outbox_intents} ->
+        with {:ok, retry_event} <-
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: command_event.agent_uid,
+                 binding_name: command_event.binding_name,
+                 session_id: command_event.session_id,
+                 source_event_id: "retry:#{command_event.id}",
+                 signal_channel_id: command_event.signal_channel_id,
+                 provider_thread_id: command_event.provider_thread_id,
+                 source_entry_id: command_event.source_entry_id,
+                 type: "im.message.addressed",
+                 available_at: now,
+                 sender_key: command_event.sender_key,
+                 payload: %{
+                   "type" => "im.message.addressed",
+                   "data" => %{
+                     "entry" => %{
+                       "text" => retry_source.text,
+                       "retry_of_actor_event_id" => retry_source.actor_event_id,
+                       "retry_of_message_id" => retry_source.message_id
+                     }
+                   }
+                 }
+               }) do
+          {:ok, retry_event, outbox_intents}
+        end
 
       {:noop, _reason} ->
         {:ok, :nothing_to_retry}
@@ -676,20 +684,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
       |> Map.put("time", DateTime.to_iso8601(now))
 
     case prepare_retry_response_graph(repo, command_event, retry_source, now) do
-      :ok ->
-        SignalsGateway.append_actor_event_in_tx(repo, %{
-          agent_uid: command_event.agent_uid,
-          binding_name: command_event.binding_name,
-          session_id: command_event.session_id,
-          source_event_id: "retry:#{command_event.id}",
-          signal_channel_id: command_event.signal_channel_id,
-          provider_thread_id: command_event.provider_thread_id,
-          source_entry_id: command_event.source_entry_id,
-          type: source.type,
-          available_at: now,
-          sender_key: command_event.sender_key,
-          payload: payload
-        })
+      {:ok, outbox_intents} ->
+        with {:ok, retry_event} <-
+               SignalsGateway.append_actor_event_in_tx(repo, %{
+                 agent_uid: command_event.agent_uid,
+                 binding_name: command_event.binding_name,
+                 session_id: command_event.session_id,
+                 source_event_id: "retry:#{command_event.id}",
+                 signal_channel_id: command_event.signal_channel_id,
+                 provider_thread_id: command_event.provider_thread_id,
+                 source_entry_id: command_event.source_entry_id,
+                 type: source.type,
+                 available_at: now,
+                 sender_key: command_event.sender_key,
+                 payload: payload
+               }) do
+          {:ok, retry_event, outbox_intents}
+        end
 
       {:noop, _reason} ->
         {:ok, :nothing_to_retry}
@@ -712,13 +723,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
            actor_event_id,
            now
          ) do
-      {:ok, %{status: :retracted}} -> :ok
-      {:ok, %{status: :noop, reason: reason}} -> {:noop, reason}
-      {:error, _reason} = error -> error
+      {:ok, %{status: :retracted, retracted_message_ids: message_ids}} ->
+        {:ok, retry_retraction_outbox_intents(repo, message_ids)}
+
+      {:ok, %{status: :noop, reason: reason}} ->
+        {:noop, reason}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp prepare_retry_response_graph(_repo, _command_event, _retry_source, _now), do: :ok
+  defp prepare_retry_response_graph(_repo, _command_event, _retry_source, _now), do: {:ok, []}
+
+  defp retry_retraction_outbox_intents(repo, message_ids) do
+    Entry
+    |> where([entry], entry.ai_message_id in ^message_ids)
+    |> order_by([entry], asc: entry.signal_channel_id, asc: entry.source_entry_id)
+    |> repo.all()
+    |> Enum.map(fn entry ->
+      outbound_key = "ai-reply-retraction:#{entry.ai_message_id}:#{entry.source_entry_id}"
+
+      %{
+        outbound_key: outbound_key,
+        operation: :delete,
+        signal_channel_id: entry.signal_channel_id,
+        provider_thread_id: entry.provider_thread_id,
+        reply_to_source_entry_id: nil,
+        target_source_entry_id: entry.source_entry_id,
+        ai_message_id: entry.ai_message_id,
+        idempotency_key: outbound_key
+      }
+    end)
+  end
 
   defp latest_terminal_retry_source(repo, actor_key, command_event) do
     candidate_types = Enum.uniq(["command.new" | AIReplyPreview.im_visible_event_types()])

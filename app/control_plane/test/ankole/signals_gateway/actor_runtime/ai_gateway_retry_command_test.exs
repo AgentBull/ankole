@@ -352,6 +352,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
 
     assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
 
+    assert {:ok, %Entry{}} =
+             Ankole.SignalsGateway.Projection.mirror_receive_entry(
+               Repo,
+               %{
+                 signal_channel_id: input.signal_channel_id,
+                 source_entry_id: "provider-completed-reply",
+                 reply_to_source_entry_id: input.source_entry_id,
+                 provider_thread_id: input.provider_thread_id,
+                 text: "OLD ANSWER",
+                 formatted_content: %{},
+                 attachments: [],
+                 links: [],
+                 author: %{"agent_uid" => agent.uid},
+                 mentions: [],
+                 metadata: %{"source" => "ai_gateway_final_reply"},
+                 raw_payload: %{},
+                 provider_time: DateTime.add(@base_time, 1, :second),
+                 ai_message_id: completed.id
+               },
+               DateTime.add(@base_time, 1, :second)
+             )
+
     assert {:ok, %{actor_event: retry_command}} =
              emit_entry(
                agent.uid,
@@ -378,10 +400,29 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
 
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
 
-    refute Repo.exists?(
-             from(outbox in OutboxEntry,
-               where: outbox.source_actor_event_id == ^retry_command.id
+    delete_outbox =
+      Repo.get_by!(OutboxEntry,
+        source_actor_event_id: retry_command.id,
+        operation: :delete
+      )
+
+    assert delete_outbox.status == :created
+    assert delete_outbox.target_source_entry_id == "provider-completed-reply"
+    assert delete_outbox.ai_message_id == completed.id
+    assert delete_outbox.reply_to_source_entry_id == nil
+
+    assert {:ok, %OutboxEntry{status: :succeeded}} =
+             SignalsGateway.dispatch_outbox(
+               delete_outbox.agent_uid,
+               delete_outbox.binding_name,
+               delete_outbox.outbound_key,
+               outbox_adapter([:delete_entry], fn _outbox -> {:ok, %{}} end),
+               now: DateTime.add(@base_time, 3, :second)
              )
+
+    refute Repo.get_by(Entry,
+             signal_channel_id: input.signal_channel_id,
+             source_entry_id: "provider-completed-reply"
            )
 
     refute_receive {:actor_lane, _turn_control}, 50

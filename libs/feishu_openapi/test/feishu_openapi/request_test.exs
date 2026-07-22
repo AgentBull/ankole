@@ -515,6 +515,31 @@ defmodule FeishuOpenAPI.RequestTest do
       assert Agent.get(counter, & &1) == 2
     end
 
+    test "persistent HTTP 200 CardKit code 200400 becomes a rate-limited error", %{client: client} do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
+        Agent.update(counter, &(&1 + 1))
+
+        Req.Test.json(conn, %{
+          "code" => 200_400,
+          "msg" => "frequency limit triggered, please try again later"
+        })
+      end)
+
+      assert {:error,
+              %FeishuOpenAPI.Error{
+                code: :rate_limited,
+                http_status: 200
+              }} =
+               FeishuOpenAPI.post(client, "/open-apis/cardkit/v1/cards/card_x/batch_update",
+                 access_token_type: nil,
+                 body: %{}
+               )
+
+      assert Agent.get(counter, & &1) == 2
+    end
+
     test "x-ogw-ratelimit-reset wins over retry-after when both are present", %{client: client} do
       me = self()
 

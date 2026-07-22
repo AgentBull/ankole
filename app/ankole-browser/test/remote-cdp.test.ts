@@ -15,6 +15,41 @@ afterEach(async () => {
 })
 
 describe('remote session ownership', () => {
+  test('redacts userinfo from direct remote CDP attach failures', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-remote-redaction-')
+    roots.push(root)
+    const material: BrowserMaterial = {
+      protocol_version: 1,
+      route_id: 'br_1234567890abcdef',
+      data_root: join(root, 'data'),
+      artifact_root: join(root, 'artifacts'),
+      immutable_fingerprint: 'sha256:test',
+      material_generation: 0,
+      profile: { mode: 'persistent_user_data_dir' },
+      backend: {
+        kind: 'remote_cdp',
+        endpoint: 'ws://remote-user:remote-password@127.0.0.1:1',
+        headers: {},
+        connect_timeout_ms: 250,
+        session_identity: 'test-direct-session'
+      },
+      navigation: { ssrf_filter: true, allow_file_urls: false },
+      idle_ttl_ms: 60_000
+    }
+
+    const failure = await connectRemoteChromium(material, 'default').then(
+      () => undefined,
+      error => error
+    )
+
+    expect(failure).toMatchObject({
+      code: 'backend_unavailable',
+      details: { endpoint: 'ws://127.0.0.1:1/…' }
+    })
+    expect(JSON.stringify(failure)).not.toContain('remote-user')
+    expect(JSON.stringify(failure)).not.toContain('remote-password')
+  }, 5_000)
+
   test('cleans up a newly created remote session when CDP attach fails', async () => {
     let cleanupCalls = 0
     const server = createServer((request, response) => {

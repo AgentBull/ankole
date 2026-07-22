@@ -43,11 +43,10 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
     'ANKOLE_BROWSER_RUNNER',
     false
   )
-  assertFile(
-    process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell',
-    'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE',
-    true
-  )
+  const chromiumExecutable =
+    process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE ?? '/opt/ankole-browser/browsers/chromium/chrome-headless-shell'
+  assertFile(chromiumExecutable, 'ANKOLE_BROWSER_CHROMIUM_EXECUTABLE', true)
+  assertExecutable(chromiumExecutable)
 }
 
 /**

@@ -122,6 +122,11 @@ new message.
 `CardKit` can open, update, finish, and refresh a preview. It keeps an ordered
 chain of cards for each visible Agent turn.
 
+The preview coalesces CardKit changes and starts at most one provider sync for a
+turn each second. A shared limiter keeps at least one second between CardKit
+write requests for the same application. Requests for different applications
+do not block each other.
+
 The ActorEvent checkpoint is the durable CardKit ledger. It records card IDs,
 message IDs, source pages, the active page, stream state, the last confirmed
 presentation, and the sequence high-water mark. A restarted process continues

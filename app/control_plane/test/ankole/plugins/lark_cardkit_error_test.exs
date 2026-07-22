@@ -30,6 +30,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitErrorTest do
 
   test "network and rate-limit failures stay retryable" do
     assert ErrorPolicy.action(:timeout) == :retry
+    assert ErrorPolicy.action(%Error{code: :rate_limited, msg: "frequency limited"}) == :retry
     assert ErrorPolicy.action(%Error{http_status: 429, msg: "slow down"}) == :retry
     assert ErrorPolicy.action(%Error{http_status: 503, msg: "unavailable"}) == :retry
   end

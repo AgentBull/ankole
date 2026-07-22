@@ -65,7 +65,7 @@ export function createShowBackgroundJobDetailsTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => 'show background agent job details',
+    describeActivity: () => '查看后台 Agent 任务详情',
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.get'> = {
         jobId: modelIntegerIDToWire(params.job_id),

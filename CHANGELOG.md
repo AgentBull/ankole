@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 26.07.37 (2026-07-23)
+
+- Make the rendered Browser fallback return readable content after the main document commits, even when a page never reaches `DOMContentLoaded`. Per-URL failures now carry a Browser error code and retryable state, and Agent Computer logs a bounded, redacted warning with the backend kind, failure stage, and URL index without exposing URLs, CDP endpoints, headers, credentials, or error details. Install the Chromium system libraries in the Agent Computer image, verify that the packaged executable can run, and cover remote-CDP ownership, secret redaction, and the commit-before-load path with real Browser tests.
+
+- Keep Feishu CardKit writes within the provider limit: coalesce preview syncs to one start per second for each turn, and queue all card creation, content update, and batch update requests behind a shared one-second limiter for each application without blocking other applications. Treat CardKit business code `200400` as a retryable rate limit beside `99991400`, retain the SDK's single bounded retry, and test both the SDK classification and per-application queue spacing.
+
+- Delete the previous provider-visible Agent reply when `/retry` retracts a completed AIGateway Response. The command transaction now stores one durable delete outbox intent for each mirrored provider message linked to a retracted `ai_message_id`; a deletion failure does not stop the replacement turn, and the Lark adapter sends the delete through the Feishu message endpoint.
+
+- Make AIGateway provider removal an explicit two-step lifecycle. The first DELETE request disables an active, unreferenced provider; a second request permanently deletes the already disabled provider configuration and credentials. Update the Console confirmation, result message, translations, OpenAPI description, generated client, and controller coverage so the operator sees which operation will occur.
+
+- Align the Console worker-file browser with Agent-scoped file roots. Load the Agent list, select an Agent before listing or uploading files, build each `sessions`, `user-files`, and `installed-skills` path under that Agent UID, keep breadcrumbs inside the selected root, and validate path-to-Agent recovery in a focused utility test.
+
+- Reset Actor Schedule storage once to restore JavaScript-safe identity IDs after the unreleased UUID draft. Record the draft UUID shape in the original migration, then add an irreversible correction that deletes scheduled events, cron schedules, and their Oban fire jobs; it converts either UUID or existing identity stores to a `bigint` identity that starts at `1000` and keeps the existing upper-bound constraint, while unrelated Oban jobs remain intact.
+
+- Show the six BackgroundAgentJob tool activities in Chinese so create, list, inspect, message, respawn, and stop operations use the same user-facing language as the active Agent experience.
+
+- Update Turbo from `2.10.5` to `2.10.6` with all platform packages in `bun.lock`, and apply the formatter-only block cleanup to Memory source-marker scrubbing without changing its behavior.
+
 ## Version 26.07.36 (2026-07-23)
 
 - After the RuntimeFabric workflow verifies the immutable image pair, publish the control-plane and Agent Computer manifests through the `main-latest` channel. This lets a manually started internal deployment use the most recent successful OSS pair without rebuilding OSS images or selecting a Git SHA.

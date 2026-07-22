@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { join, resolve } from 'node:path'
 import { browserClientContextFromEnv, sendBrowserCommand, type BrowserClientContext } from '../../src/client'
 import { runBrowserCode } from '../../src/cli/run-command'
@@ -54,7 +56,8 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
       material_generation: 0,
       profile: { mode: 'persistent_user_data_dir' },
       backend: { kind: 'local_chromium', executable: chromiumExecutable, args: [] },
-      navigation: { ssrf_filter: true, allow_file_urls: true },
+      // The remote-CDP test attaches to this context and reads a local hanging page.
+      navigation: { ssrf_filter: false, allow_file_urls: true },
       idle_ttl_ms: 60_000
     }
     await writeFile(materialPath, `${JSON.stringify(material)}\n`, { mode: 0o600 })
@@ -213,7 +216,26 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     expect(status.ok && (status.data as { state: string }).state).toBe('ready')
   }, 20_000)
 
-  test('remote CDP disconnect does not close the physical browser', async () => {
+  test('remote CDP fetch does not wait for DOMContentLoaded and disconnect leaves Chrome running', async () => {
+    const pageServer = createServer((request, response) => {
+      if (request.url === '/never.js') {
+        response.writeHead(200, { 'content-type': 'application/javascript' })
+        response.write(' ')
+        return
+      }
+      response.writeHead(200, { 'content-type': 'text/html' })
+      response.end(
+        '<!doctype html><title>Committed page</title><body>Committed remote text<script src="/never.js"></script></body>'
+      )
+    })
+    await new Promise<void>((resolveListen, reject) => {
+      pageServer.once('error', reject)
+      pageServer.listen(0, '127.0.0.1', () => {
+        pageServer.removeListener('error', reject)
+        resolveListen()
+      })
+    })
+    const pageAddress = pageServer.address() as AddressInfo
     const live = JSON.parse(await readFile(join(root, 'data', 'sessions', 'default', 'live.json'), 'utf8')) as {
       endpoint: string
     }
@@ -232,7 +254,7 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
         connect_timeout_ms: 10_000,
         session_identity: 'test-remote-session'
       },
-      navigation: { ssrf_filter: true, allow_file_urls: true },
+      navigation: { ssrf_filter: false, allow_file_urls: true },
       idle_ttl_ms: 60_000
     })
     const remoteContext: BrowserClientContext = {
@@ -243,10 +265,26 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
       artifactRoot: material.artifact_root,
       timeoutMs: 10_000
     }
-    const attached = await sendBrowserCommand(remoteContext, { name: 'open', args: {} })
-    expect(attached.ok).toBe(true)
-    const purged = await sendBrowserCommand(remoteContext, { name: 'lifecycle', args: { verb: 'purge' } })
-    expect(purged.ok).toBe(true)
+    try {
+      const attached = await sendBrowserCommand(remoteContext, { name: 'open', args: {} })
+      expect(attached.ok).toBe(true)
+      const fetched = await sendBrowserCommand(remoteContext, {
+        name: 'fetch',
+        args: { urls: [`http://127.0.0.1:${pageAddress.port}/`] }
+      })
+      expect(fetched).toMatchObject({
+        ok: true,
+        data: {
+          success: true,
+          results: [{ title: 'Committed page', text: 'Committed remote text' }]
+        }
+      })
+    } finally {
+      await sendBrowserCommand(remoteContext, { name: 'lifecycle', args: { verb: 'purge' } }).catch(() => undefined)
+      const closed = new Promise<void>(resolveClose => pageServer.close(() => resolveClose()))
+      pageServer.closeAllConnections()
+      await closed
+    }
 
     const stillAlive = await sendBrowserCommand(context, { name: 'snapshot', args: { interactive: true } })
     expect(stillAlive).toMatchObject({ ok: true })

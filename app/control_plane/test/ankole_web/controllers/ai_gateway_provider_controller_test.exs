@@ -171,6 +171,42 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
   end
 
+  test "admin disables an active provider and deletes it on the next request", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/ai-gateway/providers/openrouter-unused", %{
+        "provider_kind" => "openrouter",
+        "connection_options" => %{"api_key" => "sk-test"}
+      })
+
+    assert %{"ai_gateway_provider" => %{"disabled_at" => nil}} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/ai-gateway/providers/openrouter-unused")
+
+    assert %{"ai_gateway_provider" => %{"disabled_at" => disabled_at}} = json_response(conn, 200)
+    assert is_binary(disabled_at)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/ai-gateway/providers/openrouter-unused")
+
+    assert %{"ai_gateway_provider" => %{"provider_id" => "openrouter-unused"}} =
+             json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/ai-gateway/providers")
+
+    assert %{"ai_gateway_providers" => providers} = json_response(conn, 200)
+    refute Enum.any?(providers, &(&1["provider_id"] == "openrouter-unused"))
+  end
+
   test "image profiles reject catalog candidates without definitive endpoints", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     provider_id = "openrouter-image-profile"

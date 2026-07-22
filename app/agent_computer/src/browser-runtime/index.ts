@@ -6,7 +6,7 @@ import {
   type MaterializedBrowserRuntime,
   type RenderedFetchBrowserMaterializeSettings
 } from './materializer'
-import { BrowserWebFetchAdapter } from './web-fetch-adapter'
+import { BrowserWebFetchAdapter, type BrowserWebFetchFailureEvent } from './web-fetch-adapter'
 
 export class BrowserRuntime {
   readonly materializer: BrowserRouteMaterializer
@@ -21,6 +21,7 @@ export class BrowserRuntime {
     runnerPath?: string
     localChromiumExecutable?: string
     onDaemonEvent?: (event: BrowserDaemonEvent) => void
+    onWebFetchFailure?: (event: BrowserWebFetchFailureEvent) => void
   }) {
     const root = join(options.runtimeRoot, 'browser')
     this.materializer = new BrowserRouteMaterializer({
@@ -36,7 +37,10 @@ export class BrowserRuntime {
       daemonEntry: options.daemonEntry,
       onEvent: options.onDaemonEvent
     })
-    this.webFetch = new BrowserWebFetchAdapter(this.materializer, () => this.supervisor.start())
+    this.webFetch = new BrowserWebFetchAdapter(this.materializer, {
+      ensureDaemon: () => this.supervisor.start(),
+      onFailure: options.onWebFetchFailure
+    })
   }
 
   start(): Promise<void> {
@@ -81,6 +85,7 @@ export class BrowserRuntime {
 }
 
 export { browserSandboxRuntime, type BrowserSandboxRuntime } from './sandbox-runtime'
+export type { BrowserWebFetchFailureEvent } from './web-fetch-adapter'
 export {
   BrowserMaterialSourceEnvNames,
   withoutBrowserMaterialSourceEnv,

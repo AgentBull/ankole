@@ -1610,7 +1610,7 @@ export const ankoleWebAiGatewayFilesControllerCreateMutation = (
 }
 
 /**
- * Disable one AIGateway provider
+ * Disable or delete one AIGateway provider
  */
 export const ankoleWebAiGatewayProviderControllerDeleteProviderMutation = (
   options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>>

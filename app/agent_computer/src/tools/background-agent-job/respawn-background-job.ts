@@ -49,7 +49,7 @@ export function createRespawnBackgroundJobTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => 'respawn background agent job',
+    describeActivity: () => '重新启动后台 Agent 任务',
     async execute(toolCallID, params) {
       const source = await opts.rpc(
         rpcMethods.backgroundAgentJobGet,

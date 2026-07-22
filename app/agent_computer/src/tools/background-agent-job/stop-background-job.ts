@@ -41,7 +41,7 @@ export function createStopBackgroundJobTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: true,
-    describeActivity: () => 'stop background agent job',
+    describeActivity: () => '停止后台 Agent 任务',
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.stop'> = { jobId: modelIntegerIDToWire(params.job_id) }
       const response = await opts.rpc(rpcMethods.backgroundAgentJobStop, request, { turn: opts.turnStart.turn })

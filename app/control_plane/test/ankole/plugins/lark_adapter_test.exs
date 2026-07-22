@@ -245,6 +245,45 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute provider_uuid == Outbox.provider_message_uuid(long_key <> ":different")
     end
 
+    test "deletes a retracted Agent reply through the Feishu message endpoint" do
+      parent = self()
+
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
+        {:json, 200, %{"code" => 0, "data" => %{}}}
+      end)
+
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-retry-retraction"
+      config = chat_config(%{"appID" => "cli_retry_retraction"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "ai-reply-retraction:message-id:om_retracted_reply",
+        operation: :delete,
+        signal_channel_id: "lark:oc_group",
+        target_source_entry_id: "om_retracted_reply",
+        payload: %{},
+        idempotency_key: "ai-reply-retraction:message-id:om_retracted_reply"
+      }
+
+      assert {:ok, %{raw_payload: %{"code" => 0}}} = Outbox.send(outbox)
+
+      assert_receive {:lark_outbox_request,
+                      %{
+                        method: :delete,
+                        request_path: "/open-apis/im/v1/messages/om_retracted_reply"
+                      }}
+    end
+
     test "durable final edit falls back to a new message after Feishu edit budget exhaustion" do
       parent = self()
 

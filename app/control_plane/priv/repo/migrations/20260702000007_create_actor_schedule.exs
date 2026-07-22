@@ -86,7 +86,7 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     # Concrete fire attempts survive terminal state for audit, retry, and idempotency checks.
     create table(:actor_scheduled_events, primary_key: false) do
-      add :id, :identity, primary_key: true, start_value: 1000
+      add :id, :uuid, primary_key: true
       add :kind, :text, null: false
       add :status, :text, null: false
 
@@ -165,10 +165,6 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     create constraint(:actor_scheduled_events, :actor_scheduled_events_kind_check,
              check: "kind IN ('check_back_later', 'cron_fire')"
-           )
-
-    create constraint(:actor_scheduled_events, :actor_scheduled_events_id_range,
-             check: "id >= 1000 AND id <= 9007199254740991"
            )
 
     create constraint(:actor_scheduled_events, :actor_scheduled_events_status_check,

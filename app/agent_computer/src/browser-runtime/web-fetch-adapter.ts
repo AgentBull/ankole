@@ -1,6 +1,12 @@
 import { spawn } from 'node:child_process'
 import { rm } from 'node:fs/promises'
-import { BrowserDataError, BrowserResponseSchema, sendBrowserCommand } from '@ankole/browser'
+import {
+  BrowserDataError,
+  BrowserErrorCodeSchema,
+  BrowserResponseSchema,
+  sendBrowserCommand,
+  type BrowserErrorCode
+} from '@ankole/browser'
 import type {
   BrowserRouteMaterializer,
   MaterializedBrowserRuntime,
@@ -9,10 +15,24 @@ import type {
 
 const maxCLIOutputBytes = 8 * 1024 * 1024
 
+export type BrowserWebFetchFailureEvent = {
+  backendKind: MaterializedBrowserRuntime['material']['backend']['kind']
+  stage: 'invoke' | 'url'
+  errorCode: BrowserErrorCode
+  errorMessage: string
+  retryable: boolean
+  urlIndex?: number
+}
+
+type BrowserWebFetchAdapterOptions = {
+  ensureDaemon?: () => Promise<void>
+  onFailure?: (event: BrowserWebFetchFailureEvent) => void
+}
+
 export class BrowserWebFetchAdapter {
   constructor(
     readonly materializer: BrowserRouteMaterializer,
-    private readonly ensureDaemon?: () => Promise<void>
+    private readonly options: BrowserWebFetchAdapterOptions = {}
   ) {}
 
   async fetch(
@@ -22,11 +42,45 @@ export class BrowserWebFetchAdapter {
   ): Promise<unknown> {
     const runtime = await this.materializer.materializeEphemeral({ settings })
     try {
-      return await invokeBrowserFetchCLI(runtime, urls, signal)
+      let result: unknown
+      try {
+        result = await invokeBrowserFetchCLI(runtime, urls, signal)
+      } catch (error) {
+        if (!signal?.aborted) this.reportFailure(runtime, { stage: 'invoke', ...observedFailure(error) })
+        throw error
+      }
+      this.reportResultFailures(runtime, result)
+      return result
     } finally {
       await this.purge(runtime)
       await runtime.cleanup()
       await rm(runtime.artifactRoot, { recursive: true, force: true })
+    }
+  }
+
+  private reportResultFailures(runtime: MaterializedBrowserRuntime, value: unknown): void {
+    if (!isRecord(value) || !Array.isArray(value.results)) return
+    for (const [urlIndex, result] of value.results.entries()) {
+      if (!isRecord(result) || typeof result.error !== 'string') continue
+      const parsedCode = BrowserErrorCodeSchema.safeParse(result.error_code)
+      this.reportFailure(runtime, {
+        stage: 'url',
+        errorCode: parsedCode.success ? parsedCode.data : 'internal',
+        errorMessage: redactedErrorMessage(result.error),
+        retryable: result.retryable === true,
+        urlIndex
+      })
+    }
+  }
+
+  private reportFailure(
+    runtime: MaterializedBrowserRuntime,
+    failure: Omit<BrowserWebFetchFailureEvent, 'backendKind'>
+  ): void {
+    try {
+      this.options.onFailure?.({ backendKind: runtime.material.backend.kind, ...failure })
+    } catch {
+      // Observability must not change fetch behavior.
     }
   }
 
@@ -50,8 +104,8 @@ export class BrowserWebFetchAdapter {
     try {
       await send()
     } catch {
-      if (!this.ensureDaemon) return
-      await this.ensureDaemon().catch(() => undefined)
+      if (!this.options.ensureDaemon) return
+      await this.options.ensureDaemon().catch(() => undefined)
       await send().catch(() => undefined)
     }
   }
@@ -130,4 +184,29 @@ function appendBounded(current: Buffer, chunk: Buffer): Buffer {
   const next = Buffer.concat([current, chunk])
   if (next.length <= maxCLIOutputBytes) return next
   return next.subarray(next.length - maxCLIOutputBytes)
+}
+
+function observedFailure(
+  error: unknown
+): Pick<BrowserWebFetchFailureEvent, 'errorCode' | 'errorMessage' | 'retryable'> {
+  return {
+    errorCode: error instanceof BrowserDataError ? error.code : 'internal',
+    errorMessage: redactedErrorMessage(error instanceof Error ? error.message : String(error)),
+    retryable: error instanceof BrowserDataError && error.retryable
+  }
+}
+
+function redactedErrorMessage(value: string): string {
+  const firstLine = value.split(/\r?\n/)[0]?.trim() || 'browser fetch failed'
+  return firstLine
+    .replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, '[redacted endpoint]')
+    .replace(
+      /\b(authorization|proxy-authorization|cookie|set-cookie|x-api-key|api-key)\s*[:=]\s*[^\s,;]+/gi,
+      '$1=[redacted]'
+    )
+    .slice(0, 500)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }

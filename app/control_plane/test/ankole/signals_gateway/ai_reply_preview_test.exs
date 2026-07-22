@@ -342,6 +342,33 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
   end
 
+  test "CardKit coalesces preview changes for one second between syncs" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-sync-throttle")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    owner = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn request ->
+        send(owner, {:rich_sync, request.presentation["answer"]})
+        {:ok, %{}}
+      end,
+      finalize_fun: fn _request -> {:ok, %{}} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "first"})
+    send(pid, :flush_edit)
+    assert_receive {:rich_sync, "first"}
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: " second"})
+    refute_receive {:rich_sync, "first second"}, 700
+    assert_receive {:rich_sync, "first second"}, 1_500
+  end
+
   test "lifecycle stop returns while the preview process is busy" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("nonblocking-stop")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)

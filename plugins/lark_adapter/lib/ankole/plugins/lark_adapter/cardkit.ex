@@ -14,6 +14,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   alias Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
+  alias Ankole.Plugins.LarkAdapter.CardKit.WriteLimiter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Logging
@@ -1019,8 +1020,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp create_card(client, card, request_fun) do
-    case request_fun.(client, :post, "cardkit/v1/cards",
-           body: %{type: "card_json", data: Ankole.JSON.encode!(card)}
+    case cardkit_request(
+           client,
+           :post,
+           "cardkit/v1/cards",
+           [body: %{type: "card_json", data: Ankole.JSON.encode!(card)}],
+           request_fun
          ) do
       {:ok, %{"data" => %{"card_id" => card_id}}}
       when is_binary(card_id) and card_id != "" ->
@@ -1314,12 +1319,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              content_digest,
              Ecto.UUID.generate()
            ) do
-      request_fun.(
+      cardkit_request(
         client,
         :put,
         "cardkit/v1/cards/:card_id/elements/:element_id/content",
-        path_params: %{card_id: card_id, element_id: "answer"},
-        body: %{content: content, sequence: sequence, uuid: uuid}
+        [
+          path_params: %{card_id: card_id, element_id: "answer"},
+          body: %{content: content, sequence: sequence, uuid: uuid}
+        ],
+        request_fun
       )
       |> case do
         {:ok, _body} -> :ok
@@ -1384,16 +1392,28 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp batch_update_json(client, card_id, actions_json, sequence, uuid, request_fun) do
-    case request_fun.(client, :post, "cardkit/v1/cards/:card_id/batch_update",
-           path_params: %{card_id: card_id},
-           body: %{
-             actions: actions_json,
-             sequence: sequence,
-             uuid: uuid
-           }
+    case cardkit_request(
+           client,
+           :post,
+           "cardkit/v1/cards/:card_id/batch_update",
+           [
+             path_params: %{card_id: card_id},
+             body: %{
+               actions: actions_json,
+               sequence: sequence,
+               uuid: uuid
+             }
+           ],
+           request_fun
          ) do
       {:ok, _body} -> :ok
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp cardkit_request(client, method, path, opts, request_fun) do
+    with :ok <- WriteLimiter.wait(client.app_id) do
+      request_fun.(client, method, path, opts)
     end
   end
 

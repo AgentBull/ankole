@@ -65,7 +65,16 @@ async function runWorker(): Promise<void> {
     ...(process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE
       ? { localChromiumExecutable: process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE }
       : {}),
-    onDaemonEvent: event => workerLogger.info(`browser.daemon_${event.kind}`, 'browser daemon lifecycle', event)
+    onDaemonEvent: event => workerLogger.info(`browser.daemon_${event.kind}`, 'browser daemon lifecycle', event),
+    onWebFetchFailure: event =>
+      workerLogger.warning('browser.rendered_fetch_failed', 'rendered browser fetch failed', {
+        backend_kind: event.backendKind,
+        stage: event.stage,
+        error_code: event.errorCode,
+        error_message: event.errorMessage,
+        retryable: event.retryable,
+        ...(event.urlIndex === undefined ? {} : { url_index: event.urlIndex })
+      })
   })
   let stopping = false
 

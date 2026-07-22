@@ -281,6 +281,11 @@ resend could create a duplicate message.
 After provider success, SignalsGateway updates its copy of the provider message.
 It also links a final reply to `ai_message_id` when available.
 
+When `/retry` retracts a completed Response, the same actor transaction stores
+one delete outbox intent for each provider message linked to the retracted
+`ai_message_id`. A provider deletion failure does not stop the replacement turn.
+The outbox records its retries and final result.
+
 ## Show Progress before the Final Reply
 
 A live preview can show model progress, but Ankole can lose it. It is not the

@@ -76,10 +76,15 @@ caller cancels the request, Agent Computer sends `SIGTERM` to the CLI process.
 The browser accepts at most five URLs and opens at most two pages at once. Each
 URL has a fixed time limit.
 
-The browser waits for `domcontentloaded`. It then waits briefly for the readable
-text to stop changing.
+The browser waits until the main document commits. It does not wait for
+`DOMContentLoaded`. It then waits briefly for the readable text to stop changing.
 
 One failed URL does not remove successful results. The result order matches the request order.
+
+If the rendered fetch fails, Agent Computer logs the backend kind, failure
+stage, error code, retryable state, and failed URL index. It does not log the
+URL, browser endpoint, connection headers, credentials, or browser error details.
+The model continues to receive a neutral rendered-fallback error.
 
 After the call, Agent Computer closes the browser route and removes its files.
 It can restart the daemon once if cleanup fails.
@@ -144,6 +149,8 @@ Tests verify:
 - route material injection and source-variable removal
 - partial URL failure and result order
 - bounded extraction and cancellation
+- document-commit extraction while `DOMContentLoaded` remains pending
 - HTTPS and SSRF checks
 - route cleanup and daemon recovery
+- redacted backend failure logs
 - neutral model-visible errors

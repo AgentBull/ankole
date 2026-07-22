@@ -38,6 +38,7 @@ import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useSearchParams } from 'react-router'
 import {
+  ankoleWebAgentControllerIndexOptions,
   ankoleWebAgentComputerWorkerControllerIndexOptions,
   ankoleWebWorkerFileControllerDeleteMutation,
   ankoleWebWorkerFileControllerIndexOptions,
@@ -49,9 +50,12 @@ import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/
 import { requestErrorMessage } from '../../common/request-errors'
 import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
 import { matchesResourceSearch } from '../state/resource-search'
-
-const ROOTS = ['agent_sessions', 'user_files', 'agent_installed_skills'] as const
-type FileRoot = (typeof ROOTS)[number]
+import {
+  agentUIDFromWorkerFilePath,
+  workerFileRootPath,
+  WORKER_FILE_ROOTS,
+  type WorkerFileRoot
+} from '../state/worker-file-path'
 
 export function WorkersListPage() {
   const { t } = useTranslation()
@@ -162,16 +166,26 @@ export function WorkerFilesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const root = rootOrDefault(searchParams.get('root'))
-  const path = searchParams.get('path') ?? ''
+  const requestedPath = searchParams.get('path') ?? ''
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const pathAgentUID = agentUIDFromWorkerFilePath(root, requestedPath)
+  const agentUID = pathAgentUID ?? agents.data?.agents[0]?.uid ?? ''
+  const path = pathAgentUID ? requestedPath : agentUID ? workerFileRootPath(root, agentUID) : ''
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
 
-  const files = useQuery(
-    ankoleWebWorkerFileControllerIndexOptions({
+  const files = useQuery({
+    ...ankoleWebWorkerFileControllerIndexOptions({
       path: { worker_id: workerID },
       query: { root, path }
-    })
-  )
+    }),
+    enabled: Boolean(path)
+  })
+
+  useEffect(() => {
+    if (!path || path === requestedPath) return
+    setSearchParams({ root, path }, { replace: true })
+  }, [path, requestedPath, root, setSearchParams])
 
   const allEntries = files.data?.file_listing.entries ?? []
   const entries = allEntries.filter(entry =>
@@ -208,9 +222,13 @@ export function WorkerFilesPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const setRoot = (next: FileRoot) => {
+  const setRoot = (next: WorkerFileRoot) => {
     setQuery('')
-    setSearchParams({ root: next, path: '' })
+    setSearchParams({ root: next, path: agentUID ? workerFileRootPath(next, agentUID) : '' })
+  }
+  const setAgent = (next: string) => {
+    setQuery('')
+    setSearchParams({ root, path: workerFileRootPath(root, next) })
   }
   const enterPath = (next: string) => {
     setQuery('')
@@ -227,7 +245,7 @@ export function WorkerFilesPage() {
           <UploadDialog
             root={root}
             currentPath={path}
-            disabled={upload.isPending}
+            disabled={!path || upload.isPending}
             onUpload={(body, workerPath) =>
               upload.mutate({
                 path: { worker_id: workerID },
@@ -237,7 +255,16 @@ export function WorkerFilesPage() {
           />
         </div>
       </div>
-      <Breadcrumbs root={root} path={path} onNavigate={enterPath} onRootChange={setRoot} t={t} />
+      <Breadcrumbs
+        root={root}
+        path={path}
+        agents={agents.data?.agents ?? []}
+        agentUID={agentUID}
+        onNavigate={enterPath}
+        onAgentChange={setAgent}
+        onRootChange={setRoot}
+        t={t}
+      />
       <ResourceSearch
         label={t('console.worker_files.search')}
         placeholder={t('console.worker_files.search_placeholder')}
@@ -259,7 +286,7 @@ export function WorkerFilesPage() {
         t('console.worker_files.size'),
         t('console.worker_files.modified')
       ]}
-      isLoading={files.isLoading}
+      isLoading={agents.isLoading || files.isLoading}
       isEmpty={entries.length === 0}
       emptyTitle={t('console.worker_files.empty_title')}
       emptyDescription={t('console.worker_files.empty_description')}
@@ -271,7 +298,7 @@ export function WorkerFilesPage() {
         ) : undefined
       }
       isFiltered={Boolean(query.trim())}
-      error={files.error}>
+      error={agents.error ?? files.error}>
       {entries.map(entry => (
         <FileRow
           key={entry.relative_path}
@@ -298,33 +325,42 @@ export function WorkerFilesPage() {
   )
 }
 
-function rootOrDefault(value: string | null): FileRoot {
-  return ROOTS.includes(value as FileRoot) ? (value as FileRoot) : 'agent_sessions'
+function rootOrDefault(value: string | null): WorkerFileRoot {
+  return WORKER_FILE_ROOTS.includes(value as WorkerFileRoot) ? (value as WorkerFileRoot) : 'agent_sessions'
 }
 
 function Breadcrumbs({
   root,
   path,
+  agents,
+  agentUID,
   onNavigate,
+  onAgentChange,
   onRootChange,
   t
 }: {
-  root: FileRoot
+  root: WorkerFileRoot
   path: string
+  agents: Array<{ uid: string; display_name?: string | null }>
+  agentUID: string
   onNavigate: (path: string) => void
-  onRootChange: (root: FileRoot) => void
+  onAgentChange: (agentUID: string) => void
+  onRootChange: (root: WorkerFileRoot) => void
   t: (key: string) => string
 }) {
-  const segments = path ? path.split('/').filter(Boolean) : []
+  const rootPath = agentUID ? workerFileRootPath(root, agentUID) : ''
+  const segments = path.slice(rootPath.length).split('/').filter(Boolean)
 
   return (
     <nav aria-label={t('console.worker_files.breadcrumbs')} className="flex flex-wrap items-center gap-1 text-sm">
+      <AgentSelect agents={agents} value={agentUID} onValueChange={onAgentChange} t={t} />
+      <span className="text-muted-foreground">/</span>
       <RootSelect root={root} onRootChange={onRootChange} t={t} />
       {segments.length === 0 ? null : (
         <>
           <span className="text-muted-foreground">/</span>
           {segments.map((segment, index) => {
-            const prefix = segments.slice(0, index + 1).join('/')
+            const prefix = [rootPath, ...segments.slice(0, index + 1)].join('/')
             const isLast = index === segments.length - 1
             return (
               <span key={prefix} className="flex items-center gap-1">
@@ -348,24 +384,56 @@ function Breadcrumbs({
   )
 }
 
+function AgentSelect({
+  agents,
+  value,
+  onValueChange,
+  t
+}: {
+  agents: Array<{ uid: string; display_name?: string | null }>
+  value: string
+  onValueChange: (agentUID: string) => void
+  t: (key: string) => string
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={next => {
+        if (next) onValueChange(next)
+      }}
+      disabled={agents.length === 0}>
+      <SelectTrigger className="h-8 w-52 text-xs" aria-label={t('console.worker_files.agent')}>
+        <SelectValue placeholder={t('console.worker_files.select_agent')} />
+      </SelectTrigger>
+      <SelectContent>
+        {agents.map(agent => (
+          <SelectItem key={agent.uid} value={agent.uid}>
+            {agent.display_name || agent.uid}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function RootSelect({
   root,
   onRootChange,
   t
 }: {
-  root: FileRoot
-  onRootChange: (root: FileRoot) => void
+  root: WorkerFileRoot
+  onRootChange: (root: WorkerFileRoot) => void
   t: (key: string) => string
 }) {
   return (
     <div className="flex items-center gap-2">
-      <Select value={root} onValueChange={value => onRootChange(value as FileRoot)}>
+      <Select value={root} onValueChange={value => onRootChange(value as WorkerFileRoot)}>
         <SelectTrigger className="h-8 w-52 text-xs" aria-label={t('console.worker_files.root')}>
           <RiFolder3Line className="size-4" aria-hidden />
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ROOTS.map(value => (
+          {WORKER_FILE_ROOTS.map(value => (
             <SelectItem key={value} value={value}>
               {rootLabel(value, t)}
             </SelectItem>
@@ -376,7 +444,7 @@ function RootSelect({
   )
 }
 
-function rootLabel(root: FileRoot, t: (key: string) => string): string {
+function rootLabel(root: WorkerFileRoot, t: (key: string) => string): string {
   switch (root) {
     case 'agent_sessions':
       return t('console.worker_files.root_agent_sessions')
@@ -397,7 +465,7 @@ function FileRow({
   onDelete
 }: {
   workerID: string
-  root: FileRoot
+  root: WorkerFileRoot
   entry: WorkerFileEntry
   pending: boolean
   onNavigate: (path: string) => void
@@ -535,10 +603,10 @@ function UploadDialog({
   disabled,
   onUpload
 }: {
-  root: FileRoot
+  root: WorkerFileRoot
   currentPath: string
   disabled: boolean
-  onUpload: (body: { root: FileRoot; file: File }, workerPath: string) => void
+  onUpload: (body: { root: WorkerFileRoot; file: File }, workerPath: string) => void
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)

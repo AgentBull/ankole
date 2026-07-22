@@ -3459,7 +3459,7 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Disable one AIGateway provider",
+        "summary": "Disable or delete one AIGateway provider",
         "tags": ["AIGateway"]
       },
       "put": {

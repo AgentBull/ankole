@@ -41,7 +41,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   # How long to wait between IM edit flushes (milliseconds).
   @edit_flush_interval_ms 1_000
-  @cardkit_flush_interval_ms 250
+  # Coalesce CardKit changes so one turn starts at most one provider sync per second.
+  @cardkit_flush_interval_ms 1_000
   @cardkit_creation_debounce_ms 350
   @cardkit_retry_max_ms 30_000
   @terminal_handoff_timeout_ms 5_000

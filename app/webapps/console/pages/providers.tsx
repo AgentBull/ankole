@@ -83,7 +83,14 @@ export function ProvidersListPage() {
   const deleteProvider = useMutation({
     ...ankoleWebAIGatewayProviderControllerDeleteProviderMutation(),
     onSuccess: (_data, variables) => {
-      toast.success(t('console.providers.deleted', { id: variables.path.provider_id }))
+      const provider = providers.data?.ai_gateway_providers.find(
+        item => item.provider_id === variables.path.provider_id
+      )
+      toast.success(
+        t(provider?.disabled_at ? 'console.providers.deleted' : 'console.providers.disabled', {
+          id: variables.path.provider_id
+        })
+      )
       void queryClient.invalidateQueries()
     },
     onError: error => toast.error(requestErrorMessage(error))
@@ -203,9 +210,14 @@ export function ProvidersListPage() {
               editLabel={t('common.edit')}
               deletePending={deleteProvider.isPending}
               deleteConfirm={{
-                title: t('console.providers.delete_title'),
-                description: t('console.providers.delete_description', { id: provider.provider_id }),
-                confirmLabel: t('common.disable')
+                title: t(provider.disabled_at ? 'console.providers.delete_title' : 'console.providers.disable_title'),
+                description: t(
+                  provider.disabled_at
+                    ? 'console.providers.delete_description'
+                    : 'console.providers.disable_description',
+                  { id: provider.provider_id }
+                ),
+                confirmLabel: t(provider.disabled_at ? 'common.delete' : 'common.disable')
               }}
               onDelete={() => deleteProvider.mutate({ path: { provider_id: provider.provider_id } })}
             />

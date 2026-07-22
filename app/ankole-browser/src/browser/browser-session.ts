@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import type { BrowserContext, Frame, Locator, Page } from 'playwright-core'
 import type { BrowserCommandArgs, BrowserMaterial, BrowserPageCommand } from '../protocol'
-import { BrowserDataError } from '../errors'
+import { BrowserDataError, browserError } from '../errors'
 import { PhysicalBrowser } from './backend'
 import { DialogGuard } from './dialog-guard'
 import { installNavigationPolicy, validateNavigationURL } from './navigation-policy'
@@ -416,9 +416,11 @@ export class BrowserSession {
           try {
             const url = await validateNavigationURL(value, this.material)
             const navigationTimeout = urlDeadline - Date.now() - RenderedFetchMinimumSettleMs
-            if (navigationTimeout <= 0) throw new BrowserDataError('timeout', 'rendered fetch URL budget expired')
+            if (navigationTimeout <= 0) {
+              throw new BrowserDataError('timeout', 'rendered fetch URL budget expired', { retryable: true })
+            }
             await page.goto(url.href, {
-              waitUntil: 'domcontentloaded',
+              waitUntil: 'commit',
               timeout: Math.min(30_000, navigationTimeout)
             })
             const text = await waitForReadableText(page, urlDeadline)
@@ -431,9 +433,12 @@ export class BrowserSession {
               warnings: []
             }
           } catch (error) {
+            const failure = renderedFetchFailure(error)
             results[index] = {
               url: value,
-              error: error instanceof Error ? error.message : String(error),
+              error: failure.message,
+              error_code: failure.code,
+              retryable: failure.retryable,
               metadata: { source: 'rendered_fallback' }
             }
           } finally {
@@ -448,6 +453,8 @@ export class BrowserSession {
         result ?? {
           url: urls[index]!,
           error: 'rendered fetch did not complete before its request deadline',
+          error_code: 'timeout',
+          retryable: true,
           metadata: { source: 'rendered_fallback' }
         }
     )
@@ -540,6 +547,13 @@ const RenderedFetchStableWindowMs = 600
 const RenderedFetchMaximumSettleMs = 3_000
 const RenderedFetchSampleIntervalMs = 200
 
+function renderedFetchFailure(error: unknown): ReturnType<typeof browserError> {
+  if (error instanceof Error && error.name === 'TimeoutError') {
+    return { code: 'timeout', message: error.message, retryable: true, details: {} }
+  }
+  return browserError(error)
+}
+
 async function waitForReadableText(page: Page, deadline: number): Promise<string> {
   const startedAt = Date.now()
   const settleDeadline = Math.min(deadline, startedAt + RenderedFetchMaximumSettleMs)
@@ -548,7 +562,9 @@ async function waitForReadableText(page: Page, deadline: number): Promise<string
 
   while (true) {
     const now = Date.now()
-    if (now >= deadline) throw new BrowserDataError('timeout', 'rendered fetch URL budget expired')
+    if (now >= deadline) {
+      throw new BrowserDataError('timeout', 'rendered fetch URL budget expired', { retryable: true })
+    }
     const text = await page.locator('body').innerText({ timeout: Math.max(1, deadline - now) })
     const sampledAt = Date.now()
     if (text !== previous) {

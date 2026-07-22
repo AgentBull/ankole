@@ -38,10 +38,10 @@ defmodule FeishuOpenAPI do
   # Feishu business codes the SDK reacts to (everything else is surfaced as-is):
   #   * @token_invalid_codes — the access token went stale; drop it and retry once.
   #   * @app_ticket_invalid_code (10012) — a marketplace app_ticket expired; re-push it.
-  #   * @rate_limit_code (99991400) — throttled; the code can ride on HTTP 429/400/200.
+  #   * @rate_limit_codes — throttled; the code can ride on HTTP 429/400/200.
   @token_invalid_codes [99_991_663, 99_991_664, 99_991_671]
   @app_ticket_invalid_code 10_012
-  @rate_limit_code 99_991_400
+  @rate_limit_codes [200_400, 99_991_400]
   # Retries are intentionally capped at one for both stale-token and rate-limit
   # recovery: a single retry covers the common "token just expired" / "brief
   # throttle" cases without turning a real outage into a long retry storm that
@@ -345,12 +345,15 @@ defmodule FeishuOpenAPI do
   defp decode_json_body(%Req.Response{} = resp), do: resp
 
   # Feishu signals rate limits in three shapes:
-  #   * HTTP 429 with body code 99991400 (current style)
-  #   * HTTP 400 with body code 99991400 (legacy endpoints)
-  #   * HTTP 200 with body code 99991400 (edge case, seen in practice)
+  #   * HTTP 429 with a rate-limit body code (current style)
+  #   * HTTP 400 with a rate-limit body code (legacy endpoints)
+  #   * HTTP 200 with a rate-limit body code (seen from CardKit as 200400)
   # Either way, an `x-ogw-ratelimit-reset` header (seconds) tells us how long to wait.
   defp rate_limited?(%Req.Response{status: 429}), do: true
-  defp rate_limited?(%Req.Response{body: %{"code" => @rate_limit_code}}), do: true
+
+  defp rate_limited?(%Req.Response{body: %{"code" => code}}) when code in @rate_limit_codes,
+    do: true
+
   defp rate_limited?(_), do: false
 
   defp handle_rate_limited(%Req.Response{} = resp, client, %Spec{} = spec, path, retry_state) do
@@ -390,10 +393,11 @@ defmodule FeishuOpenAPI do
   end
 
   defp rate_limit_msg_context(
-         %Req.Response{status: status, body: %{"code" => @rate_limit_code}},
+         %Req.Response{status: status, body: %{"code" => code}},
          _
-       ),
-       do: "HTTP #{status}, code #{@rate_limit_code}"
+       )
+       when code in @rate_limit_codes,
+       do: "HTTP #{status}, code #{code}"
 
   defp rate_limit_msg_context(%Req.Response{status: status}, _), do: "HTTP #{status}"
 

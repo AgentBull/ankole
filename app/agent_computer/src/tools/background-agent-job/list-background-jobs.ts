@@ -60,7 +60,7 @@ export function createListBackgroundJobsTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => 'list background agent jobs',
+    describeActivity: () => '查看后台 Agent 任务',
     async execute(_toolCallID, params) {
       const request: RPCRequestInit<'background_agent_job.list'> = {
         status: params.status ?? 'live',

@@ -355,8 +355,9 @@ function scrubRecord(raw: Record<string, unknown>, references: MemoryModelRefere
 
 function scrubValue(value: unknown, references: MemoryModelReferences): JSONObject[string] | undefined {
   if (value === null || typeof value === 'boolean' || typeof value === 'number') return value
-  if (typeof value === 'string')
-    {return value.replace(sourceMarker, (_marker, documentID: string) => `src:${references.registerSource(documentID)}`)}
+  if (typeof value === 'string') {
+    return value.replace(sourceMarker, (_marker, documentID: string) => `src:${references.registerSource(documentID)}`)
+  }
   if (Array.isArray(value)) {
     return value.flatMap(item => {
       const scrubbed = scrubValue(item, references)

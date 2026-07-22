@@ -1327,7 +1327,7 @@ export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boo
   })
 
 /**
- * Disable one AIGateway provider
+ * Disable or delete one AIGateway provider
  */
 export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData, ThrowOnError>

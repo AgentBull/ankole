@@ -101,6 +101,13 @@ COPY --from=build /tmp/ankole-browser-runtime /opt/ankole-browser
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY app/library ./app/library
 
+RUN set -eux; \
+  PLAYWRIGHT_BROWSERS_PATH=/opt/ankole-browser/browsers \
+    /opt/ankole-browser/node/bin/node \
+    /opt/ankole-browser/node_modules/playwright-core/cli.js \
+    install-deps chromium-headless-shell; \
+  rm -rf /var/lib/apt/lists/*
+
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/src ./app/agent_computer/src
@@ -140,6 +147,7 @@ RUN set -eux; \
   ! command -v node; \
   bun --version >/dev/null; \
   test "$(/opt/ankole-browser/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"; \
+  /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null
 
 WORKDIR /repo/app/agent_computer
