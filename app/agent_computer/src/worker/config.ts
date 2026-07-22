@@ -7,29 +7,17 @@ import {
   createEnvelope,
   DurabilityClass,
   envelopeHeader,
-  jsonBytes,
   Lane,
   type Envelope
 } from '../fabric/envelope_proto'
-import {
-  BUILTIN_SKILLS_ROOT,
-  WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT,
-  WORKSPACE_MODEL_ROOT,
-  WORKSPACE_SESSIONS_ROOT,
-  WORKSPACE_SHARED_ROOT,
-  WORKSPACE_USER_FILES_ROOT
-} from '../core/workspace-paths'
+import { AGENTS_ROOT, BUILTIN_SKILLS_ROOT } from '../core/agent-home-paths'
 
 export type WorkerConfig = {
   endpoint: string
   workerAuthKey: string
   workerID: string
   incarnationID: string
-  workspaceRoot: string
-  workspaceSessionsRoot: string
-  sharedFsRoot: string
-  userFilesRoot: string
-  agentInstalledSkillsRoot: string
+  agentsRoot: string
   builtinSkillsRoot: string
   internalSkillsRoot?: string
   maxConcurrentTurns: number
@@ -62,15 +50,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
     ...parseRuntimeFabricURL(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
     workerID: requiredEnv(env, 'WORKER_ID'),
     incarnationID: crypto.randomUUID(),
-    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT', WORKSPACE_MODEL_ROOT),
-    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', WORKSPACE_SESSIONS_ROOT),
-    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT', WORKSPACE_SHARED_ROOT),
-    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT', WORKSPACE_USER_FILES_ROOT),
-    agentInstalledSkillsRoot: optionalEnv(
-      env,
-      'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT',
-      WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT
-    ),
+    agentsRoot: optionalEnv(env, 'ANKOLE_AGENTS_ROOT', AGENTS_ROOT),
     builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT', BUILTIN_SKILLS_ROOT),
     internalSkillsRoot: optionalEnv(env, 'ANKOLE_INTERNAL_SKILLS_ROOT'),
     maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
@@ -82,7 +62,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
  *
  * Mounting TS source into the image is allowed, but the worker itself must run
  * in the Linux Docker image that provides bubblewrap, Chromium/Python runtime
- * dependencies, the native kernel, and the `/workspace` filesystem contract. This turns
+ * dependencies, the native kernel, and the `/agents` filesystem contract. This turns
  * host-Bun/non-Linux execution from an accidental partial mode into a startup
  * error. Chromium is image-owned only for the internal rendered web_fetch
  * fallback; it is not a model-visible browser surface.
@@ -162,10 +142,8 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = c
         incarnationId: config.incarnationID,
         runtime: 'bun',
         version: '0.1.0',
-        capacityJson: jsonBytes({
-          max_turns: config.maxConcurrentTurns,
-          available_turn_slots: available
-        })
+        maxTurns: config.maxConcurrentTurns,
+        availableTurnSlots: available
       })
     }
   })
@@ -190,9 +168,7 @@ export function workerHeartbeatEnvelope(
         workerId: config.workerID,
         incarnationId: config.incarnationID,
         monotonicMs: BigInt(monotonicMs),
-        loadJson: jsonBytes({
-          active_turns: activeTurns
-        })
+        activeTurns
       })
     }
   })
@@ -218,14 +194,9 @@ export function workerCapacityEnvelope(
       value: create(AgentComputerWorkerCapacitySchema, {
         workerId: config.workerID,
         incarnationId: config.incarnationID,
-        availableTurnSlots: available,
-        capacityJson: jsonBytes({
-          max_turns: config.maxConcurrentTurns,
-          available_turn_slots: available
-        }),
-        loadJson: jsonBytes({
-          active_turns: activeTurns
-        })
+        maxTurns: config.maxConcurrentTurns,
+        activeTurns,
+        availableTurnSlots: available
       })
     }
   })

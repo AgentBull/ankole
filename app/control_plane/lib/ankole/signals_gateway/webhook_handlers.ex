@@ -181,10 +181,5 @@ defmodule Ankole.SignalsGateway.WebhookHandlers do
     end
   end
 
-  defp value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
+  defp value(map, key) when is_map(map), do: Map.get(map, key)
 end

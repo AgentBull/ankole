@@ -26,8 +26,9 @@ defmodule Ankole.Brain.Schemas.Episode do
     field :source_entry_ids, {:array, :string}, default: []
     field :started_at, :utc_datetime_usec
     field :ended_at, :utc_datetime_usec
-    field :embedding, :string
+    field :embedding, Pgvector.Ecto.Vector
     field :embedding_dimensions, :integer
+    field :embedding_model_agent_uid, :string
     field :embedding_state, Ecto.Enum, values: [:pending, :synced, :failed], default: :pending
     field :embedding_error, :string
     field :metadata, :map, default: %{}
@@ -46,11 +47,18 @@ defmodule Ankole.Brain.Schemas.Episode do
       :ended_at,
       :embedding,
       :embedding_dimensions,
+      :embedding_model_agent_uid,
       :embedding_state,
       :embedding_error,
       :metadata
     ])
-    |> normalize_blank([:signal_channel_id, :topic, :summary, :embedding, :embedding_error])
+    |> normalize_blank([
+      :signal_channel_id,
+      :topic,
+      :summary,
+      :embedding_model_agent_uid,
+      :embedding_error
+    ])
     |> validate_required([
       :signal_channel_id,
       :topic,

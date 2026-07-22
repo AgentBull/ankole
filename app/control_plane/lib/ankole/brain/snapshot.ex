@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Snapshot do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.Brain.Citations
   alias Ankole.Brain.Config
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.Entry
@@ -92,7 +93,7 @@ defmodule Ankole.Brain.Snapshot do
   end
 
   defp pinned_memo(owner_uid, %{"pinned_memo_max_tokens" => budget}) do
-    with {:ok, scope} <- Scope.for_store(owner_uid, "public"),
+    with {:ok, scope} <- Scope.for_store(owner_uid, "self"),
          {:ok, entry} <- ensure_pinned_entry(scope),
          {:ok, projection} <- Knowledge.open(scope, entry.id, block_limit: :all) do
       {:ok, snapshot_entry(projection, budget)}
@@ -103,7 +104,7 @@ defmodule Ankole.Brain.Snapshot do
     case Repo.one(
            from entry in Entry,
              where:
-               entry.owner_uid == ^scope.owner_uid and entry.store_key == "public" and
+               entry.owner_uid == ^scope.owner_uid and entry.store_key == "self" and
                  entry.type == ^@pinned_type,
              limit: 1
          ) do
@@ -134,11 +135,14 @@ defmodule Ankole.Brain.Snapshot do
   end
 
   defp channel_entry(%Scope{current_channel: %{id: channel_id, kind: "im_group"}} = scope) do
+    store_key = scope.writable_store_key
+    owner_uid = Scope.storage_owner_uid(scope, store_key)
+
     with %Entry{} = entry <-
            Repo.one(
              from entry in Entry,
                where:
-                 entry.owner_uid == ^scope.owner_uid and entry.store_key == "public" and
+                 entry.owner_uid == ^owner_uid and entry.store_key == ^store_key and
                    fragment("?->>'channel_id' = ?", entry.properties, ^channel_id),
                limit: 1
            ),
@@ -171,7 +175,7 @@ defmodule Ankole.Brain.Snapshot do
   defp resident_text(entry, blocks) do
     bodies =
       blocks
-      |> Enum.map(&String.trim(&1.body))
+      |> Enum.map(&Citations.remove_markers(&1.body))
       |> Enum.reject(&(&1 == ""))
 
     case bodies do

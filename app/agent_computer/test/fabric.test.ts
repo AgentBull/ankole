@@ -13,7 +13,6 @@ import {
   DurabilityClass,
   encodeEnvelope,
   envelopeHeader,
-  jsonBytes,
   Lane,
   type Envelope
 } from '../src/fabric/envelope_proto'
@@ -186,7 +185,8 @@ function testEnvelope(): Envelope {
         incarnationId: '11111111-1111-4111-8111-111111111111',
         runtime: 'bun',
         version: 'test',
-        capacityJson: jsonBytes({ available_turn_slots: 1 })
+        maxTurns: 1,
+        availableTurnSlots: 1
       })
     }
   })

@@ -47,7 +47,7 @@ describe('schedule tools', () => {
     expect(result.presentation).toEqual([
       expect.objectContaining({
         kind: 'effect.receipt',
-        payload: expect.objectContaining({ operation_id: 'call_first', phase: 'confirmed' })
+        payload: expect.objectContaining({ phase: 'confirmed' })
       })
     ])
   })
@@ -82,7 +82,7 @@ describe('schedule tools', () => {
     expect(requests[2]!.idempotencyKey).not.toBe(requests[0]!.idempotencyKey)
   })
 
-  it('keeps explicit check_back_later idempotency keys unchanged', async () => {
+  it('keeps checkback idempotency keys out of the model contract', async () => {
     const requests: JSONObject[] = []
     const [checkBackLater] = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
@@ -92,15 +92,18 @@ describe('schedule tools', () => {
       }
     })
 
-    await checkBackLater!.execute('call_explicit', {
+    const result = checkBackLater!.schema.parse({
       action: 'create',
       reason: 'follow up',
       check: 'check status',
       schedule: { at: '2026-07-03T12:00:00Z' },
       idempotency_key: 'operator-provided-key'
     })
+    await checkBackLater!.execute('call_explicit', result)
 
-    expect(requests[0]!.idempotencyKey).toBe('operator-provided-key')
+    expect(result).not.toHaveProperty('idempotency_key')
+    expect(requests[0]!.idempotencyKey).not.toBe('operator-provided-key')
+    expect(JSON.stringify(zodToJSONSchema(checkBackLater!.schema))).not.toContain('idempotency_key')
   })
 
   it('lists, inspects, updates, and cancels durable checkbacks through distinct RPC methods', async () => {
@@ -112,16 +115,16 @@ describe('schedule tools', () => {
         return { status: method.endsWith('.cancel') ? 'cancelled' : 'ok' }
       }
     }).find(tool => tool.name === 'check_back_later')
-    const scheduledEventID = '019f6259-a538-7750-af5d-8420a85fff58'
+    const checkbackID = 1000
 
     const listed = await checkBackLater!.execute('call_list', { action: 'list', limit: 5 })
     const inspected = await checkBackLater!.execute('call_get', {
       action: 'get',
-      scheduled_event_id: scheduledEventID
+      checkback_id: checkbackID
     })
     const updated = await checkBackLater!.execute('call_update', {
       action: 'update',
-      scheduled_event_id: scheduledEventID,
+      checkback_id: checkbackID,
       updates: {
         check: 'Let the evidence determine the PDF length.',
         context_summary: 'The user removed the 6–12 page constraint.'
@@ -129,7 +132,7 @@ describe('schedule tools', () => {
     })
     const cancelled = await checkBackLater!.execute('call_cancel', {
       action: 'cancel',
-      scheduled_event_id: scheduledEventID
+      checkback_id: checkbackID
     })
 
     expect(calls.map(call => call.method)).toEqual([
@@ -139,13 +142,13 @@ describe('schedule tools', () => {
       rpcMethods.scheduleCheckBackLaterCancel
     ])
     expect(calls[0]!.request.limit).toBe(5)
-    expect(calls[1]!.request.scheduledEventId).toBe(scheduledEventID)
+    expect(calls[1]!.request.scheduledEventId).toBe(String(checkbackID))
     expect(jsonFromBytes(calls[2]!.request.updatesJson as Uint8Array)).toEqual({
       check: 'Let the evidence determine the PDF length.',
       context_summary: 'The user removed the 6–12 page constraint.'
     })
     expect(String(calls[2]!.request.idempotencyKey)).toStartWith(
-      `check_back_later:update:${scheduledEventID}:00000000-0000-0000-0000-000000000123:`
+      `check_back_later:update:${checkbackID}:00000000-0000-0000-0000-000000000123:`
     )
     expect(jsonFromBytes(calls[2]!.request.replyRouteJson as Uint8Array)).toEqual({
       binding_name: 'mock',
@@ -153,17 +156,16 @@ describe('schedule tools', () => {
       provider_thread_id: 'thread-1',
       source_entry_id: 'entry-1'
     })
-    expect(calls[3]!.request.scheduledEventId).toBe(scheduledEventID)
+    expect(calls[3]!.request.scheduledEventId).toBe(String(checkbackID))
     expect(listed.presentation).toEqual([])
     expect(inspected.presentation).toEqual([])
     expect(updated.presentation).toEqual([
       {
         kind: 'effect.receipt',
         payload: {
-          operation_id: 'call_update',
           phase: 'confirmed',
           summary: '已更新后续检查',
-          target: scheduledEventID
+          target: checkbackID
         }
       }
     ])
@@ -171,10 +173,9 @@ describe('schedule tools', () => {
       {
         kind: 'effect.receipt',
         payload: {
-          operation_id: 'call_cancel',
           phase: 'confirmed',
           summary: '已取消后续检查',
-          target: scheduledEventID
+          target: checkbackID
         }
       }
     ])
@@ -189,14 +190,14 @@ describe('schedule tools', () => {
     expect(
       checkBackLater?.schema.safeParse({
         action: 'update',
-        scheduled_event_id: '019f6259-a538-7750-af5d-8420a85fff58',
+        checkback_id: 1000,
         updates: {}
       }).success
     ).toBe(false)
     expect(
       checkBackLater?.schema.safeParse({
         action: 'update',
-        scheduled_event_id: '019f6259-a538-7750-af5d-8420a85fff58',
+        checkback_id: 1000,
         updates: { check: 'Use the corrected requirement.' }
       }).success
     ).toBe(true)
@@ -244,7 +245,6 @@ describe('schedule tools', () => {
       {
         kind: 'effect.receipt',
         payload: {
-          operation_id: 'call_first',
           phase: 'confirmed',
           summary: '已创建定期任务',
           target: 'market-open-check',
@@ -255,7 +255,7 @@ describe('schedule tools', () => {
     ])
   })
 
-  it('keeps explicit cron:add idempotency keys unchanged', async () => {
+  it('keeps cron idempotency keys out of the model contract', async () => {
     const requests: JSONObject[] = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool(),
@@ -265,7 +265,7 @@ describe('schedule tools', () => {
       }
     }).find(tool => tool.name === 'cron')
 
-    await cron!.execute('call_explicit', {
+    const result = cron!.schema.parse({
       action: 'add',
       name: 'operator-keyed-cron',
       schedule: {
@@ -275,8 +275,11 @@ describe('schedule tools', () => {
       },
       idempotency_key: 'operator-cron-key'
     })
+    await cron!.execute('call_explicit', result)
 
-    expect(requests[0]!.idempotencyKey).toBe('operator-cron-key')
+    expect(result).not.toHaveProperty('idempotency_key')
+    expect(requests[0]!.idempotencyKey).not.toBe('operator-cron-key')
+    expect(JSON.stringify(zodToJSONSchema(cron!.schema))).not.toContain('idempotency_key')
   })
 
   it('makes cron-origin turns read-only to prevent recursive schedule mutation', async () => {
@@ -288,6 +291,15 @@ describe('schedule tools', () => {
         return { status: 'created' }
       }
     }).find(tool => tool.name === 'cron')
+
+    const schema = zodToJSONSchema(cron!.schema) as {
+      properties: Record<string, { enum?: string[] }>
+    }
+    expect(schema.properties.action?.enum).toEqual(['list', 'get', 'runs'])
+    expect(Object.keys(schema.properties).sort()).toEqual(['action', 'limit', 'name'])
+    expect(cron!.isReadOnly).toBe(true)
+    expect(cron!.description).not.toContain('create')
+    expect(cron!.schema.safeParse({ action: 'add' }).success).toBe(false)
 
     await expect(
       cron!.execute('call_cron_origin_add', {
@@ -304,7 +316,7 @@ describe('schedule tools', () => {
     expect(requests).toHaveLength(0)
   })
 
-  it('allows cron-origin turns to inspect schedules and run history', async () => {
+  it('allows cron-origin turns to inspect the current schedule without exposing its UUID', async () => {
     const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
     const cron = createScheduleTools({
       turnStart: turnStartForScheduleTool({ cronOrigin: true }),
@@ -315,14 +327,45 @@ describe('schedule tools', () => {
     }).find(tool => tool.name === 'cron')
 
     const result = await cron!.execute('call_cron_origin_runs', {
-      action: 'runs',
-      cron_schedule_id: '00000000-0000-0000-0000-000000000999'
+      action: 'runs'
     })
 
     expect(calls).toHaveLength(1)
     expect(calls[0]!.method).toBe(rpcMethods.scheduleCronRuns)
-    expect(calls[0]!.request.cronScheduleId).toBe('00000000-0000-0000-0000-000000000999')
+    expect(calls[0]!.request).toEqual({ name: '' })
     expect(result.presentation).toEqual([])
+    expect(cron!.schema.safeParse({ action: 'list' }).success).toBe(true)
+    expect(cron!.schema.safeParse({ action: 'get' }).success).toBe(true)
+    expect(
+      cron!.schema.safeParse({
+        action: 'get',
+        name: 'market-open-check'
+      }).success
+    ).toBe(true)
+  })
+
+  it('keeps recurring schedule mutations available after a one-shot checkback wakes', () => {
+    const turnStart = turnStartForScheduleTool()
+    turnStart.request_context = {
+      turn_mode: 'check_back_later',
+      schedule_origin: {
+        kind: 'check_back_later',
+        scheduled_event_id: 'scheduled-event-1'
+      }
+    }
+    const cron = createScheduleTools({
+      turnStart,
+      requestScheduleRPC: async (): Promise<JSONObject> => ({ status: 'ok' })
+    }).find(tool => tool.name === 'cron')!
+
+    expect(cron.isReadOnly).toBe(false)
+    expect(
+      cron.schema.safeParse({
+        action: 'add',
+        name: 'follow-up',
+        schedule: { kind: 'every', every_ms: 60_000, anchor_at: '2026-07-03T01:30:00Z' }
+      }).success
+    ).toBe(true)
   })
 })
 

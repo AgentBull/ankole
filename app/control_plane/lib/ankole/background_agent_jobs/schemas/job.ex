@@ -2,8 +2,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @moduledoc """
   Durable BackgroundAgentJob work item.
 
-  Jobs retain the capabilities selected by the caller, while each execution
-  resolves those selections against the current library catalog.
+  Jobs retain one optional workspace template. Each execution uses the Agent's
+  current enabled Agent Plugins and compatible Skills.
   """
 
   use Ecto.Schema
@@ -15,7 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.Principal
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
+  @primary_key {:id, :id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @statuses ~w(queued running waiting_on_user succeeded failed stopped)
@@ -25,8 +25,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     "queued" => ~w(queued running failed stopped),
     "running" => ~w(running waiting_on_user succeeded failed stopped),
     "waiting_on_user" => ~w(waiting_on_user running succeeded failed stopped),
-    "succeeded" => ~w(queued succeeded),
-    "failed" => ~w(queued failed),
+    "succeeded" => ~w(succeeded),
+    "failed" => ~w(failed),
     "stopped" => ~w(stopped)
   }
 
@@ -34,7 +34,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @spec statuses() :: [String.t()]
   def statuses, do: @statuses
 
-  @doc "Returns statuses with no live execution; succeeded and failed may be explicitly continued."
+  @doc "Returns statuses with no live execution."
   @spec terminal_statuses() :: [String.t()]
   def terminal_statuses, do: @terminal_statuses
 
@@ -58,20 +58,16 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     field(:owner_session_id, :string)
     field(:source_actor_event_id, Ecto.UUID)
     field(:source_tool_call_id, :string)
+    field(:continued_from_job_id, :integer)
+    field(:workspace_owner_job_id, :integer)
     field(:runtime_thread_id, :string)
     field(:codex_account_id, :string, default: "aigateway")
     field(:title, :string)
     field(:task, :string)
-    field(:background, :string)
-    field(:notes, :string)
     field(:reply_route, :map, default: %{})
     field(:attempts, :integer, default: 0)
 
-    field(:agent_plugin_ids, {:array, :string}, default: [])
-    field(:skill_names, {:array, :string}, default: [])
-    field(:workspace_mounts, Ankole.Types.JSONValue, default: [])
-    field(:model, :string)
-    field(:reasoning_effort, :string)
+    field(:workspace_template_id, :string)
 
     field(:status, :string)
     field(:queued_at, :utc_datetime_usec)
@@ -94,19 +90,15 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :owner_session_id,
       :source_actor_event_id,
       :source_tool_call_id,
+      :continued_from_job_id,
+      :workspace_owner_job_id,
       :runtime_thread_id,
       :codex_account_id,
       :title,
       :task,
-      :background,
-      :notes,
       :reply_route,
       :attempts,
-      :agent_plugin_ids,
-      :skill_names,
-      :workspace_mounts,
-      :model,
-      :reasoning_effort,
+      :workspace_template_id,
       :status,
       :queued_at,
       :started_at,
@@ -119,59 +111,54 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :agent_uid,
       :owner_session_id,
       :source_tool_call_id,
+      :continued_from_job_id,
+      :workspace_owner_job_id,
       :runtime_thread_id,
       :codex_account_id,
       :title,
-      :background,
-      :notes,
-      :model,
-      :reasoning_effort,
+      :workspace_template_id,
       :status
     ])
     |> validate_required([
       :agent_uid,
       :owner_session_id,
+      :workspace_owner_job_id,
       :codex_account_id,
       :reply_route,
       :attempts,
-      :agent_plugin_ids,
-      :skill_names,
-      :workspace_mounts,
       :status,
       :result,
       :error,
       :metadata
     ])
     |> validate_inclusion(:status, @statuses)
-    |> validate_inclusion(:reasoning_effort, Contract.reasoning_efforts(), allow_nil: true)
     |> validate_change(:task, fn :task, task ->
       if is_binary(task) and String.trim(task) != "", do: [], else: [task: "can't be blank"]
     end)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
-    |> validate_agent_plugin_ids()
-    |> validate_skill_names()
-    |> validate_job_contracts()
+    |> validate_workspace_template_id()
     |> JSONPayload.validate_map(:reply_route)
     |> JSONPayload.validate_map(:result, allow_datetime: true)
     |> JSONPayload.validate_map(:error, allow_datetime: true)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:source_actor_event_id)
+    |> foreign_key_constraint(:continued_from_job_id)
+    |> foreign_key_constraint(:workspace_owner_job_id)
     |> unique_constraint([:agent_uid, :owner_session_id, :source_tool_call_id],
       name: :background_agent_jobs_source_tool_call_index
     )
+    |> unique_constraint(:continued_from_job_id,
+      name: :background_agent_jobs_continued_from_job_index
+    )
+    |> check_constraint(:id, name: :background_agent_jobs_id_range)
+    |> check_constraint(:continued_from_job_id,
+      name: :background_agent_jobs_continued_from_not_self
+    )
     |> check_constraint(:reply_route, name: :background_agent_jobs_reply_route_object)
     |> check_constraint(:attempts, name: :background_agent_jobs_attempts_nonnegative)
-    |> check_constraint(:agent_plugin_ids,
-      name: :background_agent_jobs_agent_plugin_ids_valid
-    )
-    |> check_constraint(:skill_names, name: :background_agent_jobs_skill_names_valid)
-    |> check_constraint(:workspace_mounts,
-      name: :background_agent_jobs_workspace_mounts_array
-    )
-    |> check_constraint(:model, name: :background_agent_jobs_model_present)
-    |> check_constraint(:reasoning_effort,
-      name: :background_agent_jobs_reasoning_effort_check
+    |> check_constraint(:workspace_template_id,
+      name: :background_agent_jobs_workspace_template_id_valid
     )
     |> check_constraint(:status, name: :background_agent_jobs_status_check)
     |> check_constraint(:result, name: :background_agent_jobs_result_object)
@@ -179,21 +166,11 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     |> check_constraint(:metadata, name: :background_agent_jobs_metadata_object)
   end
 
-  defp validate_agent_plugin_ids(changeset) do
-    validate_change(changeset, :agent_plugin_ids, fn :agent_plugin_ids, ids ->
-      cond do
-        length(ids) > 16 ->
-          [agent_plugin_ids: "must contain at most 16 Agent Plugins"]
-
-        Enum.uniq(ids) != ids ->
-          [agent_plugin_ids: "must not contain duplicates"]
-
-        Enum.any?(ids, &(Contract.validate_identifier(&1) != :ok)) ->
-          [agent_plugin_ids: "must contain only Agent Plugin identifiers"]
-
-        true ->
-          []
-      end
+  defp validate_workspace_template_id(changeset) do
+    validate_change(changeset, :workspace_template_id, fn :workspace_template_id, id ->
+      if Contract.validate_identifier(id) == :ok,
+        do: [],
+        else: [workspace_template_id: "must be an Agent Plugin identifier"]
     end)
   end
 
@@ -201,36 +178,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   def creation_changeset(job, attrs) do
     job
     |> changeset(attrs)
-    |> validate_required([:source_tool_call_id, :title, :task])
-  end
-
-  defp validate_skill_names(changeset) do
-    validate_change(changeset, :skill_names, fn :skill_names, names ->
-      cond do
-        length(names) > 256 ->
-          [skill_names: "must contain at most 256 skills"]
-
-        Enum.uniq(names) != names ->
-          [skill_names: "must not contain duplicates"]
-
-        Enum.any?(names, &(Contract.validate_identifier(&1) != :ok)) ->
-          [skill_names: "must contain only standalone skill identifiers"]
-
-        true ->
-          []
-      end
-    end)
-  end
-
-  defp validate_job_contracts(changeset) do
-    mounts = get_field(changeset, :workspace_mounts)
-
-    contract_error(changeset, :workspace_mounts, Contract.validate_workspace_mounts(mounts))
-  end
-
-  defp contract_error(changeset, _field, :ok), do: changeset
-
-  defp contract_error(changeset, field, {:error, reason}) do
-    add_error(changeset, field, "is invalid", validation: reason)
+    |> validate_required([:source_tool_call_id, :workspace_owner_job_id, :title, :task])
   end
 end

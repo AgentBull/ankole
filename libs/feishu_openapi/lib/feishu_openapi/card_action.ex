@@ -50,8 +50,7 @@ defmodule FeishuOpenAPI.CardAction do
   """
   @type verify_config :: %{
           optional(:verification_token) => String.t() | nil,
-          optional(:encrypt_key) => String.t() | nil,
-          optional(:skip_sign_verify) => boolean()
+          optional(:encrypt_key) => String.t() | nil
         }
 
   @doc """
@@ -143,8 +142,7 @@ defmodule FeishuOpenAPI.CardAction do
   defp normalize_config(map) when is_map(map) do
     %{
       verification_token: Map.get(map, :verification_token),
-      encrypt_key: Map.get(map, :encrypt_key),
-      skip_sign_verify: Map.get(map, :skip_sign_verify, false)
+      encrypt_key: Map.get(map, :encrypt_key)
     }
   end
 
@@ -163,7 +161,6 @@ defmodule FeishuOpenAPI.CardAction do
 
   # Card-action signing keys on the verification_token (not the encrypt_key that
   # event webhooks use); with no token configured there's nothing to verify.
-  defp verify_signature(%{skip_sign_verify: true}, _body, _headers, _decoded), do: :ok
   defp verify_signature(%{verification_token: nil}, _body, _headers, _decoded), do: :ok
 
   defp verify_signature(%{verification_token: token}, body, headers, decoded) do

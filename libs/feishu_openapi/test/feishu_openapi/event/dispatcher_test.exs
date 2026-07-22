@@ -190,11 +190,7 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
   end
 
   describe "signature verification" do
-    test "skip_sign_verify: true bypasses signature checks" do
-      d =
-        Dispatcher.new(verification_token: "v", encrypt_key: "k", skip_sign_verify: true)
-        |> Dispatcher.on("x", fn _t, _e -> :ok end)
-
+    test "legacy skip_sign_verify config cannot bypass signature checks" do
       body =
         Torque.encode!(%{
           "schema" => "2.0",
@@ -202,7 +198,12 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
           "event" => %{}
         })
 
-      assert {:ok, :ok} = Dispatcher.dispatch(d, {:raw, body, %{}})
+      assert {:error, :missing_signature_headers} =
+               Event.verify_and_decode(
+                 %{verification_token: "v", encrypt_key: "k", skip_sign_verify: true},
+                 body,
+                 %{}
+               )
     end
 
     test "valid signature within the replay window is accepted" do
@@ -259,16 +260,8 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
       assert {:error, :timestamp_skew} = Dispatcher.dispatch(d, {:raw, body, headers})
     end
 
-    test "skip_timestamp_check: true disables the replay window" do
+    test "legacy skip_timestamp_check config cannot disable the replay window" do
       encrypt_key = "ek_x"
-
-      d =
-        Dispatcher.new(
-          encrypt_key: encrypt_key,
-          verification_token: "vt_x",
-          skip_timestamp_check: true
-        )
-        |> Dispatcher.on("x", fn _t, _e -> :ok end)
 
       body =
         Torque.encode!(%{
@@ -287,7 +280,16 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
         "x-lark-signature" => sig
       }
 
-      assert {:ok, :ok} = Dispatcher.dispatch(d, {:raw, body, headers})
+      assert {:error, :timestamp_skew} =
+               Event.verify_and_decode(
+                 %{
+                   encrypt_key: encrypt_key,
+                   verification_token: "vt_x",
+                   skip_timestamp_check: true
+                 },
+                 body,
+                 headers
+               )
     end
 
     test "missing signature headers are rejected for non-challenge events when encrypt_key is configured" do
@@ -340,6 +342,14 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
 
       assert_raise ArgumentError, ~r/:client must be a FeishuOpenAPI.Client/, fn ->
         Dispatcher.new(client: :bad)
+      end
+
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        Dispatcher.new(skip_sign_verify: true)
+      end
+
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        Dispatcher.new(skip_timestamp_check: true)
       end
     end
 

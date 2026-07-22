@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.SignalBindingControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import Ecto.Query
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AppConfigure
@@ -8,6 +9,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
+  alias Ankole.AuthZ.Grant
   alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.DingTalkAdapter.Config, as: DingTalkConfig
   alias Ankole.Plugins.LarkAdapter
@@ -15,6 +17,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -72,8 +75,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert config["appID"] == "cli_lark_main"
     assert config["appSecret"] == "secret-lark-main"
     # The bot identity is resolved automatically at connection time, so the
-    # stored binding carries no hand-entered bot open_id.
-    assert config["botOpenID"] == nil
+    # stored binding carries no bot identity fields.
+    refute Map.has_key?(config, "botOpenID")
+    refute Map.has_key?(config, "botUserID")
     refute Map.has_key?(config, "group_message_mode")
 
     conn =
@@ -109,6 +113,259 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert %{"error" => %{"code" => "not_found", "message" => "signal adapter was not found"}} =
              json_response(conn, 404)
+  end
+
+  test "admin reconfigures a signal binding without changing its agent", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(agent.uid, "lark", "lark-main", lark_config("same-agent"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(agent.uid, agent.uid, "lark-main", lark_config("same-agent-updated"))
+
+    assert %{
+             "signal_binding" => %{
+               "agent_uid" => agent_uid,
+               "name" => "lark-main",
+               "unaddressed_group_message_policy" => "may_intervene",
+               "enabled" => true
+             }
+           } = json_response(conn, 200)
+
+    assert agent_uid == agent.uid
+
+    assert {:ok, %{"appID" => "cli_same-agent-updated"}} =
+             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+  end
+
+  test "admin changes binding behavior without replacing stored provider config", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    original_config =
+      lark_config("preserved")
+      |> Map.merge(%{
+        "domain" => "lark",
+        "platformSubjectNamespace" => "preserved-namespace",
+        "userName" => "Preserved Bot"
+      })
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(agent.uid, "lark", "lark-main", original_config)
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/agents/#{agent.uid}/signal-bindings/lark-main", %{
+        "target_agent_uid" => agent.uid,
+        "config" => %{},
+        "group_message_mode" => "observe_all",
+        "confidential_memory" => true
+      })
+
+    assert %{
+             "signal_binding" => %{
+               "agent_uid" => agent_uid,
+               "confidential_memory" => true,
+               "unaddressed_group_message_policy" => "record_only"
+             }
+           } = json_response(conn, 200)
+
+    assert agent_uid == agent.uid
+
+    assert {:ok, stored_config} =
+             LarkConfig.load_chat_config_ref(LarkConfig.chat_config_key(agent.uid))
+
+    assert stored_config["appID"] == original_config["appID"]
+    assert stored_config["appSecret"] == original_config["appSecret"]
+    assert stored_config["domain"] == original_config["domain"]
+
+    assert stored_config["platformSubjectNamespace"] ==
+             original_config["platformSubjectNamespace"]
+
+    assert stored_config["userName"] == original_config["userName"]
+  end
+
+  test "admin atomically moves a signal binding to another agent", %{conn: conn} do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("move"))
+
+    assert response(conn, 200)
+    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+
+    source_binding
+    |> Binding.changeset(%{filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}})
+    |> Repo.update!()
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(source_agent.uid, target_agent.uid, "lark-main", lark_config("move"))
+
+    assert %{
+             "signal_binding" => %{
+               "agent_uid" => target_agent_uid,
+               "name" => "lark-main",
+               "adapter" => "lark",
+               "enabled" => true
+             }
+           } = json_response(conn, 200)
+
+    assert target_agent_uid == target_agent.uid
+    assert {:error, :binding_disabled} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert target_binding.filters == %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
+
+    assert {:ok, %{"appID" => "cli_move"}} =
+             LarkConfig.load_chat_config_ref(target_binding.config_ref)
+
+    assert {:ok, %{"appID" => "cli_move"}} =
+             LarkConfig.load_chat_config_ref(source_binding.config_ref)
+  end
+
+  test "moving a binding rejects an enabled target conflict without disabling the source", %{
+    conn: conn
+  } do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("source-conflict"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put_binding(target_agent.uid, "lark", "lark-main", lark_config("target-conflict"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(
+        source_agent.uid,
+        target_agent.uid,
+        "lark-main",
+        lark_config("move-conflict")
+      )
+
+    assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
+    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, _binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+  end
+
+  test "moving a binding replaces a disabled target binding", %{conn: conn} do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(target_agent.uid, "lark", "lark-main", lark_config("disabled-target"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/agents/#{target_agent.uid}/signal-bindings/lark-main")
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("replacement"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(
+        source_agent.uid,
+        target_agent.uid,
+        "lark-main",
+        lark_config("replacement")
+      )
+
+    assert %{"signal_binding" => %{"agent_uid" => agent_uid, "enabled" => true}} =
+             json_response(conn, 200)
+
+    assert agent_uid == target_agent.uid
+    assert {:error, :binding_disabled} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, _binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+  end
+
+  test "moving a binding rejects a missing target agent without changing the source", %{
+    conn: conn
+  } do
+    %{principal: source_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("missing-target"))
+
+    assert response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(
+        source_agent.uid,
+        "missing-agent",
+        "lark-main",
+        lark_config("missing-target")
+      )
+
+    assert %{"error" => %{"code" => "not_found", "message" => "agent was not found"}} =
+             json_response(conn, 404)
+
+    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+  end
+
+  test "moving a binding requires delete permission for the source agent", %{conn: conn} do
+    %{principal: source_agent} = agent_fixture()
+    %{principal: target_agent} = agent_fixture()
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("forbidden"))
+
+    assert response(conn, 200)
+    Repo.delete_all(from grant in Grant, where: grant.action == "delete")
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch_binding(source_agent.uid, target_agent.uid, "lark-main", lark_config("forbidden"))
+
+    assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+
+    assert {:error, :binding_not_found} =
+             SignalsGateway.get_binding(target_agent.uid, "lark-main")
   end
 
   test "generic AppConfigure updates cannot bypass Lark binding assignment ownership", %{
@@ -300,7 +557,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert Enum.all?(tasks, fn task ->
              match?(
-               {:error, {:pattern_key_managed_by_owner, _key}},
+               {:error, {:key_managed_by_owner, _key}},
                Task.await(task, 1_000)
              )
            end)
@@ -331,7 +588,6 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "appID",
              "appSecret",
              "domain",
-             "baseURL",
              "platformSubjectNamespace",
              "userName"
            ]
@@ -355,8 +611,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "botToken",
              "appToken",
              "platformSubjectNamespace",
-             "userName",
-             "baseURL"
+             "userName"
            ]
 
     assert slack["group_message_mode_field"] == adapter["group_message_mode_field"]
@@ -422,6 +677,27 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       ~p"/api/v1/agents/#{agent_uid}/signal-bindings/#{adapter_id}/#{binding_name}",
       attrs
     )
+  end
+
+  defp patch_binding(conn, source_agent_uid, target_agent_uid, binding_name, config) do
+    patch(
+      conn,
+      ~p"/api/v1/agents/#{source_agent_uid}/signal-bindings/#{binding_name}",
+      %{
+        "target_agent_uid" => target_agent_uid,
+        "config" => config,
+        "group_message_mode" => "may_intervene"
+      }
+    )
+  end
+
+  defp lark_config(suffix) do
+    %{
+      "appID" => "cli_#{suffix}",
+      "appSecret" => "secret-#{suffix}",
+      "platformSubjectNamespace" => "namespace-#{suffix}",
+      "userName" => "Bot #{suffix}"
+    }
   end
 
   defp put_generic_config(conn, config_key, config) do

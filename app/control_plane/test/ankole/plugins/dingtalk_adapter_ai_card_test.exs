@@ -15,7 +15,12 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
-  alias DingTalkOpenAPI.Client
+
+  setup do
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
+    :ok
+  end
 
   defp setup_binding(chat_config) do
     AppConfigureRegistry.clear_for_test()
@@ -55,37 +60,33 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
   # Records every non-token API call to the test process. `fail` maps a request
   # path to `{status, body}` for deterministic provider rejections.
-  defp recording_client(parent, fail \\ %{}) do
-    Client.new(
-      client_id: "cli_aicard",
-      client_secret: "secret",
-      req_options: [
-        plug: fn conn ->
-          {:ok, body, conn} = Plug.Conn.read_body(conn)
+  defp record_requests(parent, fail \\ %{}) do
+    Req.default_options(
+      plug: fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
 
-          cond do
-            conn.request_path == "/v1.0/oauth2/accessToken" ->
-              Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
+        cond do
+          conn.request_path == "/v1.0/oauth2/accessToken" ->
+            Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
 
-            failure = Map.get(fail, conn.request_path) ->
-              {status, failure_body} = failure
-              send(parent, {:card_call, conn.method, conn.request_path, Torque.decode!(body)})
+          failure = Map.get(fail, conn.request_path) ->
+            {status, failure_body} = failure
+            send(parent, {:card_call, conn.method, conn.request_path, Torque.decode!(body)})
 
-              conn
-              |> Plug.Conn.put_resp_content_type("application/json")
-              |> Plug.Conn.send_resp(status, Torque.encode!(failure_body))
+            conn
+            |> Plug.Conn.put_resp_content_type("application/json")
+            |> Plug.Conn.send_resp(status, Torque.encode!(failure_body))
 
-            true ->
-              send(parent, {:card_call, conn.method, conn.request_path, Torque.decode!(body)})
+          true ->
+            send(parent, {:card_call, conn.method, conn.request_path, Torque.decode!(body)})
 
-              Req.Test.json(conn, %{
-                "success" => true,
-                "result" => %{},
-                "processQueryKey" => "pqk-#{System.unique_integer([:positive])}"
-              })
-          end
+            Req.Test.json(conn, %{
+              "success" => true,
+              "result" => %{},
+              "processQueryKey" => "pqk-#{System.unique_integer([:positive])}"
+            })
         end
-      ]
+      end
     )
   end
 
@@ -107,13 +108,15 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    client = recording_client(self())
+    record_requests(self())
     presentation = working("hello from the agent")
 
     assert {:ok, open_result} =
-             AICard.open(%Request{actor_event: event, presentation: presentation, mode: :working},
-               client: client
-             )
+             AICard.open(%Request{
+               actor_event: event,
+               presentation: presentation,
+               mode: :working
+             })
 
     assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", create_body}
     assert create_body["cardTemplateId"] == "tpl-1"
@@ -145,26 +148,24 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    client = recording_client(self())
+    record_requests(self())
 
     assert {:ok, _open} =
-             AICard.open(
-               %Request{actor_event: event, presentation: working("short"), mode: :working},
-               client: client
-             )
+             AICard.open(%Request{
+               actor_event: event,
+               presentation: working("short"),
+               mode: :working
+             })
 
     assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _create}
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", _open_stream}
 
     assert {:ok, final_result} =
-             AICard.finalize(
-               %Request{
-                 actor_event: fresh(event),
-                 presentation: completed("short"),
-                 mode: :terminal
-               },
-               client: client
-             )
+             AICard.finalize(%Request{
+               actor_event: fresh(event),
+               presentation: completed("short"),
+               mode: :terminal
+             })
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", finalize_stream}
     assert finalize_stream["isFinalize"] == true
@@ -187,14 +188,15 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    client = recording_client(self())
+    record_requests(self())
     page_one = String.duplicate("A", 2_000)
 
     assert {:ok, _open} =
-             AICard.open(
-               %Request{actor_event: event, presentation: working(page_one), mode: :working},
-               client: client
-             )
+             AICard.open(%Request{
+               actor_event: event,
+               presentation: working(page_one),
+               mode: :working
+             })
 
     assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver",
                     %{"outTrackId" => otid0}}
@@ -206,10 +208,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     grown = page_one <> "\n" <> String.duplicate("B", 2_000)
 
     assert {:ok, _update} =
-             AICard.update(
-               %Request{actor_event: fresh(event), presentation: working(grown), mode: :working},
-               client: client
-             )
+             AICard.update(%Request{
+               actor_event: fresh(event),
+               presentation: working(grown),
+               mode: :working
+             })
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming",
                     %{"outTrackId" => ^otid0, "isFinalize" => true}}
@@ -229,14 +232,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     grown_more = grown <> " and more"
 
     assert {:ok, update_result} =
-             AICard.update(
-               %Request{
-                 actor_event: fresh(event),
-                 presentation: working(grown_more),
-                 mode: :working
-               },
-               client: client
-             )
+             AICard.update(%Request{
+               actor_event: fresh(event),
+               presentation: working(grown_more),
+               mode: :working
+             })
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming",
                     %{"outTrackId" => ^otid1} = tail_again}
@@ -257,16 +257,17 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    client = recording_client(self())
+    record_requests(self())
 
     failed =
       ReplyPresentation.new() |> ReplyPresentation.terminal("failed", "it broke")
 
     assert {:ok, _result} =
-             AICard.finalize(
-               %Request{actor_event: event, presentation: failed, mode: :terminal},
-               client: client
-             )
+             AICard.finalize(%Request{
+               actor_event: event,
+               presentation: failed,
+               mode: :terminal
+             })
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", stream_body}
     assert stream_body["isFinalize"] == true
@@ -284,7 +285,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    client = recording_client(self())
+    record_requests(self())
 
     presentation =
       ReplyPresentation.new(state: "awaiting_input")
@@ -309,10 +310,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
       })
 
     assert {:ok, _result} =
-             AICard.finalize(
-               %Request{actor_event: event, presentation: presentation, mode: :terminal},
-               client: client
-             )
+             AICard.finalize(%Request{
+               actor_event: event,
+               presentation: presentation,
+               mode: :terminal
+             })
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", stream_body}
     assert stream_body["isFinalize"] == false
@@ -336,20 +338,21 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
   test "with no card template a working sync sends nothing and returns non-retryable" do
     event = setup_binding(%{"clientId" => "cli_aicard", "clientSecret" => "secret"})
-    client = recording_client(self())
+    record_requests(self())
 
     assert {:error, {:cardkit_plain_text_fallback, :card_template_missing}} =
-             AICard.update(
-               %Request{actor_event: event, presentation: working("partial"), mode: :working},
-               client: client
-             )
+             AICard.update(%Request{
+               actor_event: event,
+               presentation: working("partial"),
+               mode: :working
+             })
 
     refute_received {:card_call, _method, _path, _body}
   end
 
   test "with no card template the terminal reply degrades once to ledgered plain chunks" do
     event = setup_binding(%{"clientId" => "cli_aicard", "clientSecret" => "secret"})
-    client = recording_client(self())
+    record_requests(self())
 
     long_answer =
       Enum.map_join(1..40, "\n", fn index ->
@@ -359,14 +362,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert byte_size(long_answer) > 10_000
 
     assert {:ok, result} =
-             AICard.finalize(
-               %Request{
-                 actor_event: event,
-                 presentation: completed(long_answer),
-                 mode: :terminal
-               },
-               client: client
-             )
+             AICard.finalize(%Request{
+               actor_event: event,
+               presentation: completed(long_answer),
+               mode: :terminal
+             })
 
     assert result.delivered_operation == :post
     assert_receive {:card_call, "POST", "/v1.0/robot/groupMessages/send", first_chunk}
@@ -381,14 +381,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     # An outbox retry re-runs finalize; the chunk ledger absorbs it without a
     # single provider re-send.
     assert {:ok, _retry} =
-             AICard.finalize(
-               %Request{
-                 actor_event: fresh(event),
-                 presentation: completed(long_answer),
-                 mode: :terminal
-               },
-               client: client
-             )
+             AICard.finalize(%Request{
+               actor_event: fresh(event),
+               presentation: completed(long_answer),
+               mode: :terminal
+             })
 
     refute_received {:card_call, "POST", "/v1.0/robot/groupMessages/send", _body}
   end
@@ -401,16 +398,16 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         "cardTemplateId" => "tpl-1"
       })
 
-    rejecting =
-      recording_client(self(), %{
-        "/v1.0/card/streaming" => {400, %{"code" => "param.contentUnsafe", "message" => "no"}}
-      })
+    record_requests(self(), %{
+      "/v1.0/card/streaming" => {400, %{"code" => "param.contentUnsafe", "message" => "no"}}
+    })
 
     assert {:error, {:cardkit_plain_text_fallback, :content_rejected}} =
-             AICard.update(
-               %Request{actor_event: event, presentation: working("bad text"), mode: :working},
-               client: rejecting
-             )
+             AICard.update(%Request{
+               actor_event: event,
+               presentation: working("bad text"),
+               mode: :working
+             })
 
     assert fresh(event).reply_preview_checkpoint["degraded"] == true
 
@@ -420,17 +417,14 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     refute_received {:card_call, _method, _path, _body}
 
     # The terminal path never retries the doomed card; it delivers plain text.
-    clean = recording_client(self())
+    record_requests(self())
 
     assert {:ok, result} =
-             AICard.finalize(
-               %Request{
-                 actor_event: fresh(event),
-                 presentation: completed("bad text"),
-                 mode: :terminal
-               },
-               client: clean
-             )
+             AICard.finalize(%Request{
+               actor_event: fresh(event),
+               presentation: completed("bad text"),
+               mode: :terminal
+             })
 
     assert result.delivered_operation == :post
     assert_receive {:card_call, "POST", "/v1.0/robot/groupMessages/send", body}

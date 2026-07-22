@@ -9,7 +9,6 @@
   ],
   "type": "module",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks || true",
     "kit": "bun tools/devkit/src/main.ts",
     "workspace:update": "bun run kit g code-workspace",
     "services:start": "bun run kit external-services start",
@@ -41,21 +40,18 @@
     "feishu-openapi": "bun run --filter @ankole/feishu-openapi",
     "feishu-openapi:test": "bun run --filter @ankole/feishu-openapi test",
     "analyze": "bun run kit analyze all",
-    "analyze:naming": "bun run kit analyze naming",
     "analyze:smells": "bun run kit analyze smells",
     "analyze:unused": "bun run kit analyze unused",
     "analyze:structure": "bun run kit analyze structure",
-    "analyze:duplicates": "bun run kit analyze duplicates",
-    "analyze:cycles": "bun run kit analyze cycles",
-    "analyze:topology": "bun run kit analyze topology"
+    "analyze:cycles": "bun run kit analyze cycles"
   },
   "dependencies": {
     "turbo": "^2.10.5"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "oxfmt": "^0.59.0",
-    "oxlint": "^1.74.0",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.3.14"

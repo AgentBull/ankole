@@ -33,7 +33,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   """
   @spec ensure(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ensure(provider_id, config, opts \\ []) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.identity_client(config)
     notification_url = notification_url(provider_id, config)
     state = load_state(provider_id)
     now = Keyword.get(opts, :now, DateTime.utc_now())
@@ -61,30 +61,32 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   end
 
   @doc """
-  Deletes every tracked subscription for one provider and clears its state.
+  Deletes every tracked subscription for one provider.
+
+  Failed deletions stay in local state so a later reconciliation can retry them.
   """
-  @spec delete_all(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def delete_all(provider_id, config, opts \\ []) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+  @spec delete_all(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def delete_all(provider_id, config) do
+    client = Config.identity_client(config)
     state = load_state(provider_id)
 
-    deleted =
-      Enum.count(state, fn entry ->
-        case MapHelpers.optional_text(entry, "id") do
-          nil ->
-            false
+    {deleted, remaining, failures} =
+      Enum.reduce(state, {0, [], []}, fn entry, {deleted, remaining, failures} ->
+        case delete_subscription(client, entry) do
+          :ok ->
+            {deleted + 1, remaining, failures}
 
-          subscription_id ->
-            case Graph.delete(client, "subscriptions/" <> subscription_id) do
-              {:ok, _body} -> true
-              {:error, %Error{status: 404}} -> true
-              {:error, _reason} -> false
-            end
+          {:error, reason} ->
+            failure = %{subscription_id: MapHelpers.optional_text(entry, "id"), reason: reason}
+            {deleted, [entry | remaining], [failure | failures]}
         end
       end)
 
-    with {:ok, _persisted} <- persist_state(provider_id, []) do
-      {:ok, %{deleted: deleted}}
+    with {:ok, _persisted} <- persist_state(provider_id, Enum.reverse(remaining)) do
+      case failures do
+        [] -> {:ok, %{deleted: deleted}}
+        failures -> {:error, {:graph_subscription_deletion_failed, Enum.reverse(failures)}}
+      end
     end
   end
 
@@ -147,7 +149,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
          ) do
       {:ok, subscription} ->
         {:ok,
-         Map.put(existing, "expiration", Map.get(subscription, "expirationDateTime") || expiration)}
+         Map.put(
+           existing,
+           "expiration",
+           Map.get(subscription, "expirationDateTime") || expiration
+         )}
 
       {:error, %Error{status: 404}} ->
         create_subscription(client, resource, notification_url, now)
@@ -185,6 +191,20 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
 
   defp generate_client_state, do: Ankole.Kernel.generate_key()
 
+  defp delete_subscription(client, entry) do
+    case MapHelpers.optional_text(entry, "id") do
+      nil ->
+        {:error, :missing_subscription_id}
+
+      subscription_id ->
+        case Graph.delete(client, "subscriptions/" <> subscription_id) do
+          {:ok, _body} -> :ok
+          {:error, %Error{status: 404}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   @doc false
   @spec notification_url(String.t(), map()) :: String.t()
   def notification_url(provider_id, config) do
@@ -201,8 +221,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
 
   defp persist_state(provider_id, entries) do
     AppConfigure.put_global_by_key(Config.subscription_state_key(provider_id), %{
-      "subscriptions" => entries,
-      "updatedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+      "subscriptions" => entries
     })
   end
 end

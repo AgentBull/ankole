@@ -3,27 +3,20 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
 
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.AIAgent.Library.SourceReader, as: SkillSourceReader
-  alias Ankole.Kernel, as: NativeKernel
 
   @default_library_root Path.expand("../../../../../../library", __DIR__)
   @manifest_path ".codex-plugin/plugin.json"
   @manifest_required ~w(name version description skills)
   @semver ~r/\A(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\z/
-  @hash_header "ankole-agent-plugin-v1\0"
-  @max_files 2_048
-  @max_file_bytes 8 * 1_024 * 1_024
-  @max_total_bytes 64 * 1_024 * 1_024
-  @max_relative_path_bytes 4_096
 
   @type agent_plugin_source :: %{
           required(:id) => String.t(),
           required(:version) => String.t(),
           required(:description) => String.t(),
-          required(:content_hash) => String.t(),
           required(:root) => String.t(),
           required(:manifest) => map(),
           required(:skills) => [map()],
-          required(:files) => [map()]
+          required(:has_workspace_template) => boolean()
         }
 
   @spec read_trusted_agent_plugins(keyword()) :: {:ok, [agent_plugin_source()]} | {:error, term()}
@@ -51,20 +44,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
         nil -> {:error, :agent_plugin_not_found}
         plugin -> {:ok, plugin}
       end
-    end
-  end
-
-  @spec package_hash(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def package_hash(package_root) when is_binary(package_root) do
-    root = Path.expand(package_root)
-
-    with :ok <- real_directory(root, {:invalid_agent_plugin_root, root}),
-         {:ok, files} <- collect_package_files(root) do
-      bytes =
-        [@hash_header | Enum.map(files, &canonical_file_bytes/1)]
-        |> IO.iodata_to_binary()
-
-      {:ok, NativeKernel.generic_hash(bytes)}
     end
   end
 
@@ -116,24 +95,18 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   end
 
   defp read_package(library_root, root, directory_name) do
-    with {:ok, files} <- collect_package_files(root),
-         {:ok, manifest} <- read_json_file(root, @manifest_path),
+    with {:ok, manifest} <- read_json_file(root, @manifest_path),
          :ok <- validate_manifest(manifest, directory_name, root),
-         {:ok, skills} <- read_skills(library_root, root, manifest),
-         {:ok, content_hash} <- package_hash_from_files(files) do
+         {:ok, skills} <- read_skills(library_root, root, manifest) do
       {:ok,
        %{
          id: Map.fetch!(manifest, "name"),
          version: Map.fetch!(manifest, "version"),
          description: Map.fetch!(manifest, "description"),
-         content_hash: content_hash,
          root: root,
          manifest: manifest,
          skills: skills,
-         files:
-           Enum.map(files, fn file ->
-             %{path: file.path, byte_size: byte_size(file.content)}
-           end)
+         has_workspace_template: File.dir?(Path.join(root, "workspace-template"))
        }}
     end
   end
@@ -236,98 +209,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
     end
   end
 
-  defp collect_package_files(root) do
-    walk_package(root, "", [], 0, 0)
-    |> case do
-      {:ok, files, _count, _total_bytes} -> {:ok, Enum.sort_by(files, & &1.path)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp walk_package(root, relative_dir, acc, count, total_bytes) do
-    dir = if relative_dir == "", do: root, else: Path.join(root, relative_dir)
-
-    with {:ok, entries} <- File.ls(dir) do
-      Enum.reduce_while(
-        Enum.sort(entries),
-        {:ok, acc, count, total_bytes},
-        fn entry, {:ok, files, file_count, byte_count} ->
-          relative_path = if relative_dir == "", do: entry, else: relative_dir <> "/" <> entry
-          path = Path.join(root, relative_path)
-
-          case File.lstat(path) do
-            {:ok, %File.Stat{type: :regular, size: size}} ->
-              cond do
-                byte_size(relative_path) > @max_relative_path_bytes ->
-                  {:halt, {:error, {:agent_plugin_path_too_long, relative_path}}}
-
-                file_count + 1 > @max_files ->
-                  {:halt, {:error, {:agent_plugin_file_limit_exceeded, @max_files}}}
-
-                size > @max_file_bytes ->
-                  {:halt,
-                   {:error, {:agent_plugin_file_too_large, relative_path, @max_file_bytes}}}
-
-                byte_count + size > @max_total_bytes ->
-                  {:halt, {:error, {:agent_plugin_size_limit_exceeded, @max_total_bytes}}}
-
-                true ->
-                  case File.read(path) do
-                    {:ok, content} ->
-                      {:cont,
-                       {:ok, [%{path: relative_path, content: content} | files], file_count + 1,
-                        byte_count + size}}
-
-                    {:error, reason} ->
-                      {:halt, {:error, {:agent_plugin_file_unreadable, relative_path, reason}}}
-                  end
-              end
-
-            {:ok, %File.Stat{type: :directory}} ->
-              case walk_package(root, relative_path, files, file_count, byte_count) do
-                {:ok, nested, nested_count, nested_bytes} ->
-                  {:cont, {:ok, nested, nested_count, nested_bytes}}
-
-                {:error, _reason} = error ->
-                  {:halt, error}
-              end
-
-            {:ok, %File.Stat{type: :symlink}} ->
-              {:halt, {:error, {:agent_plugin_symlink_rejected, relative_path}}}
-
-            {:ok, %File.Stat{type: type}} ->
-              {:halt, {:error, {:agent_plugin_non_regular_file_rejected, relative_path, type}}}
-
-            {:error, reason} ->
-              {:halt, {:error, {:agent_plugin_file_unreadable, relative_path, reason}}}
-          end
-        end
-      )
-    else
-      {:error, reason} -> {:error, {:agent_plugin_directory_unreadable, relative_dir, reason}}
-    end
-  end
-
-  defp package_hash_from_files(files) do
-    bytes =
-      [@hash_header | Enum.map(files, &canonical_file_bytes/1)]
-      |> IO.iodata_to_binary()
-
-    {:ok, NativeKernel.generic_hash(bytes)}
-  end
-
-  defp canonical_file_bytes(file) do
-    path = file.path
-    content = file.content
-
-    [
-      <<byte_size(path)::unsigned-big-integer-size(32)>>,
-      path,
-      <<byte_size(content)::unsigned-big-integer-size(64)>>,
-      content
-    ]
-  end
-
   defp manifest_relative_path(root, "./" <> relative, expected_type) do
     relative = String.trim_trailing(relative, "/")
     path = Path.expand(relative, root)
@@ -374,8 +255,6 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
             %{
               id: id,
               versions: duplicates |> Enum.map(& &1.version) |> Enum.uniq() |> Enum.sort(),
-              content_hashes:
-                duplicates |> Enum.map(& &1.content_hash) |> Enum.uniq() |> Enum.sort(),
               roots: duplicates |> Enum.map(& &1.root) |> Enum.sort()
             }
           ]

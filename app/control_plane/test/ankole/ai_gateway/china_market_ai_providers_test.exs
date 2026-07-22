@@ -151,14 +151,24 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
   end
 
   test "xiaomi mimo token plan rewrites the endpoint and keeps billing out of the body" do
+    definition = XiaomiMiMo.provider_definition()
+    billing_plan = Enum.find(definition.settings, &(&1.key == :xiaomi_mimo_billing_plan))
+
+    assert billing_plan.scope == :connection
+
+    assert {:error, {:provider_options, {:unknown_keys, ["xiaomi_mimo_billing_plan"]}}} =
+             Providers.validate_runtime_provider_options("xiaomi_mimo", %{
+               "xiaomi_mimo_billing_plan" => "token_plan"
+             })
+
     assert {:ok, spec} =
              prepared_spec(XiaomiMiMo,
                model: "mimo-v1",
-               connection_options: %{"api_key" => "mimo-key"},
-               provider_options: %{
-                 "xiaomi_mimo_billing_plan" => "token_plan",
-                 "thinking" => %{"type" => "enabled"}
+               connection_options: %{
+                 "api_key" => "mimo-key",
+                 "xiaomi_mimo_billing_plan" => "token_plan"
                },
+               provider_options: %{"thinking" => %{"type" => "enabled"}},
                request: %{"input" => "hello"}
              )
 

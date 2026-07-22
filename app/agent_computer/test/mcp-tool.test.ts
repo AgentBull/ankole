@@ -25,6 +25,7 @@ describe('main-agent native MCP tool', () => {
     writeHTTPMetadata(roots.builtinSkillsRoot, 'enabled-two', 'shared', 'https://example.test/mcp')
     writeHTTPMetadata(roots.builtinSkillsRoot, 'disabled', 'disabled-server', 'https://disabled.test/mcp')
     writeHTTPMetadata(roots.builtinSkillsRoot, 'background-only', 'background-server', 'https://background.test/mcp')
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'main-only', 'shared', 'https://example.test/mcp')
 
     const servers = await loadEnabledSkillMCPServers({
       enabledSkills: [
@@ -32,7 +33,11 @@ describe('main-agent native MCP tool', () => {
         enabledSkill('enabled-two'),
         create(RuntimeSkillSummarySchema, {
           ...enabledSkill('background-only'),
-          metadataJson: jsonBytes({ long_running: true })
+          metadataJson: jsonBytes({ 'ankole-runtime': 'background_job' })
+        }),
+        create(RuntimeSkillSummarySchema, {
+          ...enabledSkill('main-only'),
+          metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
         })
       ],
       skillRoots: roots
@@ -44,7 +49,7 @@ describe('main-agent native MCP tool', () => {
       description: 'Shared fake server',
       transport: 'streamable_http',
       url: 'https://example.test/mcp',
-      sourceSkills: ['enabled-one', 'enabled-two']
+      sourceSkills: ['enabled-one', 'enabled-two', 'main-only']
     })
     expect(servers[0]?.generation).toMatch(/^[a-f0-9]{64}$/)
   })

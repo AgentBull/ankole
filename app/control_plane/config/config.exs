@@ -15,6 +15,17 @@ config :ankole,
   ecto_repos: [Ankole.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :ankole, Ankole.Repo, types: Ankole.PostgrexTypes
+
+config :ankole, :control_plane_plugin_modules, [
+  Ankole.Plugins.ChinaMarketAIProviders,
+  Ankole.Plugins.DingTalkAdapter,
+  Ankole.Plugins.GoogleWorkspaceAdapter,
+  Ankole.Plugins.LarkAdapter,
+  Ankole.Plugins.Microsoft365Adapter,
+  Ankole.Plugins.SlackAdapter
+]
+
 # Configure the endpoint
 config :ankole, AnkoleWeb.Endpoint,
   url: [host: "localhost"],
@@ -53,6 +64,7 @@ config :ankole, Oban,
   queues: [default: 10],
   plugins: [
     Oban.Plugins.Pruner,
+    {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Oban.Plugins.Cron,
      crontab: [
        {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
@@ -61,6 +73,7 @@ config :ankole, Oban,
        {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingEpisodes},
        {"*/5 * * * *", Ankole.Brain.Jobs.EmbedPendingBlocks},
        {"* * * * *", Ankole.Brain.Jobs.EnqueuePrincipalDreaming},
+       {"* * * * *", Ankole.Brain.Jobs.EnqueueSourceSyncs},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts}
      ]}

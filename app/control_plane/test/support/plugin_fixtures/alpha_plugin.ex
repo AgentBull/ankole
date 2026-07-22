@@ -20,9 +20,6 @@ defmodule Ankole.PluginFixtures.AlphaPlugin do
   def plugin_id, do: "alpha"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name, do: %{"default" => "Alpha"}
 
   @impl true

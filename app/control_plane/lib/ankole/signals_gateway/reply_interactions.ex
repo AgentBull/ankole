@@ -362,10 +362,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
       [event],
       fragment(
         """
-        (?->'presentation'->>'state' = 'awaiting_input'
-          AND COALESCE(?->'presentation'->>'interaction_status', 'pending') = 'pending'
-          AND COALESCE(?->'interactions', '{}'::jsonb) = '{}'::jsonb)
-        OR EXISTS (
+        EXISTS (
           SELECT 1
           FROM jsonb_each(
             CASE
@@ -376,9 +373,6 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
           WHERE interaction.value->>'state' = 'pending'
         )
         """,
-        event.reply_preview_checkpoint,
-        event.reply_preview_checkpoint,
-        event.reply_preview_checkpoint,
         event.reply_preview_checkpoint,
         event.reply_preview_checkpoint
       )
@@ -476,14 +470,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractions do
     end
   end
 
-  defp map_value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, String.to_existing_atom(key))
-    end
-  rescue
-    ArgumentError -> Map.get(map, key)
-  end
+  defp map_value(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
 
   defp map_value(_map, _key), do: nil
 end

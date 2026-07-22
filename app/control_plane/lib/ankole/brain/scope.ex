@@ -10,6 +10,8 @@ defmodule Ankole.Brain.Scope do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.Principals
 
+  @shared_owner_uid "brain-shared"
+
   @enforce_keys [:owner_uid, :readable_store_keys, :writable_store_key, :current_channel]
   defstruct [:owner_uid, :readable_store_keys, :writable_store_key, :current_channel]
 
@@ -26,6 +28,23 @@ defmodule Ankole.Brain.Scope do
           | :invalid_brain_scope
           | :invalid_owner_uid
           | :invalid_peer_uid
+
+  @doc "Returns the installation Principal that owns shared long-term memory."
+  @spec shared_owner_uid() :: String.t()
+  def shared_owner_uid, do: @shared_owner_uid
+
+  @doc "Returns the persisted owner for a logical store in this Agent scope."
+  @spec storage_owner_uid(t(), String.t()) :: String.t()
+  def storage_owner_uid(%__MODULE__{}, "shared"), do: @shared_owner_uid
+  def storage_owner_uid(%__MODULE__{owner_uid: owner_uid}, _store_key), do: owner_uid
+
+  @doc "Returns each persisted owner and store pair visible through this scope."
+  @spec readable_scopes(t()) :: [{String.t(), String.t()}] | :all
+  def readable_scopes(%__MODULE__{readable_store_keys: :all}), do: :all
+
+  def readable_scopes(%__MODULE__{} = scope) do
+    Enum.map(scope.readable_store_keys, &{storage_owner_uid(scope, &1), &1})
+  end
 
   @doc "Parses a Brain scope from an AIGateway conversation's declared metadata."
   @spec from_conversation(Conversation.t() | map()) :: {:ok, t()} | {:error, error_reason()}
@@ -77,6 +96,20 @@ defmodule Ankole.Brain.Scope do
       else: {:error, :brain_store_not_readable}
   end
 
+  @doc "Selects self as the explicit write target when the current scope can read it."
+  @spec select_self_store(t()) :: {:ok, t()} | {:error, :brain_store_not_writable}
+  def select_self_store(%__MODULE__{readable_store_keys: :all} = scope),
+    do: {:ok, %{scope | readable_store_keys: ["self", "shared"], writable_store_key: "self"}}
+
+  def select_self_store(%__MODULE__{readable_store_keys: stores} = scope) when is_list(stores) do
+    if "self" in stores do
+      readable = Enum.filter(["self", "shared"], &(&1 in stores))
+      {:ok, %{scope | readable_store_keys: readable, writable_store_key: "self"}}
+    else
+      {:error, :brain_store_not_writable}
+    end
+  end
+
   @doc "Builds one explicit library scope for trusted server-side jobs or console writes."
   @spec for_store(term(), String.t()) :: {:ok, t()} | {:error, error_reason()}
   def for_store(owner_uid, store_key) do
@@ -118,13 +151,25 @@ defmodule Ankole.Brain.Scope do
 
   defp parse_channel(_declaration), do: {:error, :invalid_brain_scope}
 
-  defp parse_visibility(owner_uid, %{"visibility" => "public"} = declaration) do
+  defp parse_visibility(owner_uid, %{"visibility" => "shared"} = declaration) do
     with {:ok, channel} <- parse_optional_channel(declaration) do
       {:ok,
        %__MODULE__{
          owner_uid: owner_uid,
-         readable_store_keys: ["public"],
-         writable_store_key: "public",
+         readable_store_keys: ["shared", "self"],
+         writable_store_key: "shared",
+         current_channel: channel
+       }}
+    end
+  end
+
+  defp parse_visibility(owner_uid, %{"visibility" => "self"} = declaration) do
+    with {:ok, channel} <- parse_optional_channel(declaration) do
+      {:ok,
+       %__MODULE__{
+         owner_uid: owner_uid,
+         readable_store_keys: ["self", "shared"],
+         writable_store_key: "self",
          current_channel: channel
        }}
     end
@@ -139,7 +184,7 @@ defmodule Ankole.Brain.Scope do
           {:ok,
            %__MODULE__{
              owner_uid: owner_uid,
-             readable_store_keys: [store_key, "public"],
+             readable_store_keys: [store_key, "self", "shared"],
              writable_store_key: store_key,
              current_channel: channel
            }}
@@ -147,6 +192,20 @@ defmodule Ankole.Brain.Scope do
         {:error, :invalid_uid} ->
           {:error, :invalid_peer_uid}
       end
+    end
+  end
+
+  defp parse_visibility(owner_uid, %{"visibility" => "channel"} = declaration) do
+    with {:ok, channel} <- parse_channel(declaration) do
+      store_key = "channel:#{channel.id}"
+
+      {:ok,
+       %__MODULE__{
+         owner_uid: owner_uid,
+         readable_store_keys: [store_key, "self", "shared"],
+         writable_store_key: store_key,
+         current_channel: channel
+       }}
     end
   end
 
@@ -169,16 +228,29 @@ defmodule Ankole.Brain.Scope do
   end
 
   defp normalize_console_store(:all), do: {:ok, :all, nil}
-  defp normalize_console_store("public"), do: {:ok, ["public"], "public"}
+
+  defp normalize_console_store("shared"), do: {:ok, ["shared"], "shared"}
+  defp normalize_console_store("self"), do: {:ok, ["self", "shared"], "self"}
 
   defp normalize_console_store("dm:" <> peer_uid) do
     case Principals.normalize_uid(peer_uid) do
       {:ok, peer_uid} ->
         store_key = "dm:#{peer_uid}"
-        {:ok, [store_key, "public"], store_key}
+        {:ok, [store_key, "self", "shared"], store_key}
 
       {:error, :invalid_uid} ->
         {:error, :invalid_brain_scope}
+    end
+  end
+
+  defp normalize_console_store("channel:" <> channel_id) do
+    case String.trim(channel_id) do
+      "" ->
+        {:error, :invalid_brain_scope}
+
+      channel_id ->
+        store_key = "channel:#{channel_id}"
+        {:ok, [store_key, "self", "shared"], store_key}
     end
   end
 

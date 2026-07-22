@@ -224,6 +224,100 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(sentPayloads[2]!.conversation).toBeUndefined()
   })
 
+  it('sends completed actor event IDs only on the tool-result journal frame', async () => {
+    const completedActorEventID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_handoff_results')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_handoff_call',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_handoff',
+                        call_id: 'call_handoff',
+                        name: 'handoff',
+                        arguments: '{}'
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_handoff_done',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'wait for the background job' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000003',
+        conversationID: '33333333-3333-3333-3333-333333333333'
+      },
+      tools: [
+        {
+          name: 'handoff',
+          description: 'Return a background job result.',
+          schema: z.object({}),
+          describeActivity: () => '测试事件交接',
+          execute: async () => ({
+            content: [{ type: 'text', text: 'background job replied' }],
+            details: { ok: true },
+            completeActorEventIDs: [completedActorEventID, completedActorEventID]
+          })
+        }
+      ]
+    })
+
+    expect(sentPayloads).toHaveLength(3)
+    expect(sentPayloads[0]!.complete_actor_event_ids).toBeUndefined()
+    expect(sentPayloads[1]).toMatchObject({
+      type: 'response.tool_results.record',
+      complete_actor_event_ids: [completedActorEventID]
+    })
+    expect(JSON.stringify(sentPayloads[1]!.input)).not.toContain(completedActorEventID)
+    expect(sentPayloads[2]!.complete_actor_event_ids).toBeUndefined()
+  })
+
   it('preserves function_call_output pairing and adds tool image follow-up for vision models', async () => {
     const sentPayloads: JSONObject[] = []
     const model = createModel({

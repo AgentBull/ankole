@@ -32,13 +32,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentPluginBroker do
     %FabricProto.AgentPluginCatalogEntry{
       id: entry["id"],
       description: entry["description"],
-      version: entry["version"],
-      content_hash: entry["content_hash"],
+      has_workspace_template: entry["has_workspace_template"],
       skills:
         Enum.map(entry["skills"], fn skill ->
           %FabricProto.AgentPluginCatalogSkill{
-            catalog_name: skill["catalog_name"],
-            codex_name: skill["codex_name"]
+            catalog_name: skill["catalog_name"]
           }
         end)
     }

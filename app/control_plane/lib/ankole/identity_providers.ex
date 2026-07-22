@@ -29,14 +29,14 @@ defmodule Ankole.IdentityProviders do
   """
   @spec list_adapters() :: [adapter()]
   def list_adapters do
-    disabled_ids = disabled_plugin_ids()
+    enabled_ids = enabled_plugin_ids()
 
-    # The plugin registry applies the disabled list only when the process boots:
+    # The plugin registry applies the enabled list only when the process boots:
     # active children/config registration are startup-time effects. Setup is an
-    # operator-facing catalog, so it also filters the persisted disabled ids live
+    # operator-facing catalog, so it also filters the persisted enabled ids live
     # and avoids offering a plugin that will be inactive after the next restart.
     Plugins.list_active()
-    |> Enum.reject(&MapSet.member?(disabled_ids, &1.id))
+    |> Enum.filter(&MapSet.member?(enabled_ids, &1.id))
     |> Enum.flat_map(&adapters_for_plugin/1)
     |> Enum.sort_by(& &1.adapter_id)
   end
@@ -298,8 +298,8 @@ defmodule Ankole.IdentityProviders do
   def validate_adapter_declaration(declaration),
     do: {:error, {:invalid_identity_provider_declaration, declaration}}
 
-  defp disabled_plugin_ids do
-    case Plugins.disabled_ids() do
+  defp enabled_plugin_ids do
+    case Plugins.enabled_ids() do
       {:ok, ids} -> MapSet.new(ids)
       {:error, _reason} -> MapSet.new()
     end
@@ -401,7 +401,7 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp ensure_exported(module, function, arity) do
-    case function_exported?(module, function, arity) do
+    case Code.ensure_loaded?(module) and function_exported?(module, function, arity) do
       true -> :ok
       false -> {:error, {:unsupported_identity_provider_operation, module, function, arity}}
     end

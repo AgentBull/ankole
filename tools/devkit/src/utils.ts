@@ -70,7 +70,7 @@ export type CapturedChild = {
 
 /**
  * Like {@link runChild} but captures stdout/stderr and never rejects on a
- * nonzero exit. Used by the `analyze` subcommands that shell out to knip/jscpd
+ * nonzero exit. Used by the `analyze` subcommands that shell out to Knip
  * and must parse their output and decide the exit code themselves (vs. the
  * inherit-and-throw contract of `runChild`, which `app-db` relies on).
  */
@@ -105,7 +105,7 @@ export async function runMixCaptured(args: string[], options: SpawnOptions = {})
 }
 
 /**
- * Resolve a locally-installed binary (knip, jscpd, ...). Prefer the repo-root
+ * Resolve a locally-installed binary such as Knip. Prefer the repo-root
  * workspace install so analyze uses the same versions pinned by the root
  * lockfile; fall back to devkit-local bins for standalone development.
  * Returns null if absent so callers can emit an infra error (exit 2) instead

@@ -1,9 +1,10 @@
-import { chmodSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { sanitizePathSegment } from '../../core/workspace-paths'
+import { agentHomePaths } from '../../core/agent-home-paths'
 import type { CodexRuntimeConfig } from './runtime-config'
 
 export type MaterializedCodexConfig = {
+  agentHome: string
   codexHome: string
   authPath?: string
   initialAuthHash?: string
@@ -11,59 +12,60 @@ export type MaterializedCodexConfig = {
 }
 
 export function materializeCodexConfig(input: {
-  sharedFsRoot: string
-  jobID: string
+  agentsRoot: string
+  agentUID: string
   runtime: CodexRuntimeConfig
-  enablePlugins?: boolean
 }): MaterializedCodexConfig {
-  const safeJobID = sanitizePathSegment(input.jobID, { replacement: '_' })
-  if (safeJobID !== input.jobID) throw new Error('Background agent job id is not a safe path segment')
+  const paths = agentHomePaths(input.agentsRoot, input.agentUID)
+  mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
+  chmodSync(paths.codexHome, 0o700)
 
-  const codexHome = join(input.sharedFsRoot, '.ankole', 'background-agent-jobs', safeJobID, 'codex-home')
-  mkdirSync(codexHome, { recursive: true, mode: 0o700 })
-  chmodSync(codexHome, 0o700)
+  const configPath = join(paths.codexHome, 'config.toml')
+  const common = codexConfigToml(undefined)
+  if (input.runtime.mode === 'aigateway') {
+    atomicWriteIfChanged(configPath, codexConfigToml(input.runtime.aiGatewayKey.baseUrl))
+  } else if (!existsSync(configPath) || !readFileSync(configPath, 'utf8').includes('[features]')) {
+    atomicWriteIfChanged(configPath, common)
+  }
 
   const env: Record<string, string> = {
     PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
-    HOME: input.sharedFsRoot,
-    CODEX_HOME: codexHome,
+    HOME: paths.home,
+    CODEX_HOME: paths.codexHome,
     LANG: process.env.LANG || 'C.UTF-8',
     TERM: process.env.TERM || 'xterm-256color'
   }
 
   if (input.runtime.mode === 'aigateway') {
-    atomicWrite(
-      join(codexHome, 'config.toml'),
-      codexConfigToml(input.runtime.aiGatewayKey.baseUrl, input.enablePlugins ?? false)
-    )
-    rmSync(join(codexHome, 'auth.json'), { force: true })
     env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.apiKey
-    return { codexHome, env }
+    return { agentHome: paths.home, codexHome: paths.codexHome, env }
   }
 
-  atomicWrite(join(codexHome, 'config.toml'), codexConfigToml(undefined, input.enablePlugins ?? false))
-  const authPath = join(codexHome, 'auth.json')
+  const authPath = join(paths.codexHome, 'auth.json')
   atomicWrite(authPath, input.runtime.authJSON)
   return {
-    codexHome,
+    agentHome: paths.home,
+    codexHome: paths.codexHome,
     authPath,
     initialAuthHash: input.runtime.authHash,
     env
   }
 }
 
-export function codexConfigCLIOverrides(): string[] {
+export function codexConfigCLIOverrides(projectRoot: string): string[] {
   return [
     '-c',
     'approval_policy="never"',
     '-c',
     'sandbox_mode="danger-full-access"',
     '-c',
-    'cli_auth_credentials_store="file"'
+    'cli_auth_credentials_store="file"',
+    '-c',
+    `projects={ ${JSON.stringify(projectRoot)} = { trust_level = "trusted" } }`
   ]
 }
 
-function codexConfigToml(baseURL: string | undefined, enablePlugins: boolean): string {
+function codexConfigToml(baseURL: string | undefined): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -77,15 +79,12 @@ multi_agent = false
 apps = false
 enable_mcp_apps = false
 tool_suggest = false
-plugins = ${enablePlugins}
+plugins = false
 remote_plugin = false
 
 [features.multi_agent_v2]
 enabled = true
 hide_spawn_agent_metadata = true
-
-[projects."/workspace"]
-trust_level = "trusted"
 `
   if (!baseURL) return common
 
@@ -110,4 +109,9 @@ function atomicWrite(path: string, content: string): void {
   writeFileSync(temporary, content, { mode: 0o600 })
   renameSync(temporary, path)
   chmodSync(path, 0o600)
+}
+
+function atomicWriteIfChanged(path: string, content: string): void {
+  if (existsSync(path) && readFileSync(path, 'utf8') === content) return
+  atomicWrite(path, content)
 }

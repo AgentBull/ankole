@@ -2,7 +2,9 @@ version: v2
 inputs:
   - directory: ../kernel/proto
 plugins:
-  - local: protoc-gen-es
+  - local:
+      - bun
+      - node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es
     out: src/fabric/generated
     opt:
       - target=ts

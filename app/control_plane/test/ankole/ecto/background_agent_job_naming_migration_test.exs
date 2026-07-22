@@ -4,7 +4,9 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
   alias Ankole.Repo
 
   @migration Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs
-  @table "background_agent_job_migration_actor_events"
+  @table "background_agent_job_config_migration_fixture"
+  @old_key "agent_computer.subagent.max_delegation_turns_per_worker"
+  @new_key "agent_computer.background_agent_job.max_turns_per_worker"
 
   unless Code.ensure_loaded?(@migration) do
     Code.require_file(
@@ -15,125 +17,69 @@ defmodule Ankole.Ecto.BackgroundAgentJobNamingMigrationTest do
     )
   end
 
-  test "historical actor event payloads survive the up and down rewrite" do
-    historical_payload = %{
-      "data" => %{
-        "attempts" => 0,
-        "delegation_id" => "019f6aa0-3f4d-7573-b4a8-bde808f3011f",
-        "parent_session_id" => "signal:lark:chat-1",
-        "workdir" => "/workspace/user-files/subagent-runs/019f6aa0"
-      },
-      "id" => "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
-      "source" => "control-plane://subagent/delegation",
-      "specversion" => "1.0",
-      "subject" => "subagent-delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f",
-      "type" => "subagent.delegation.dispatch"
-    }
-
-    retry_payload =
-      historical_payload
-      |> put_in(["data", "attempts"], 1)
-      |> Map.put(
-        "id",
-        "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1"
-      )
-
+  setup do
     Repo.query!("""
     CREATE TEMPORARY TABLE #{@table} (
-      type text NOT NULL,
-      source_event_id text NOT NULL UNIQUE,
-      payload jsonb NOT NULL
+      scope text NOT NULL,
+      key text NOT NULL,
+      value jsonb NOT NULL,
+      inserted_at timestamp NOT NULL,
+      updated_at timestamp NOT NULL,
+      UNIQUE (scope, key)
     ) ON COMMIT DROP
     """)
 
-    Repo.query!(
-      """
-      INSERT INTO #{@table} (type, source_event_id, payload)
-      VALUES ($1, $2, $3)
-      """,
-      [
-        historical_payload["type"],
-        "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
-        historical_payload
-      ]
-    )
-
-    Repo.query!(
-      """
-      INSERT INTO #{@table} (type, source_event_id, payload)
-      VALUES ($1, $2, $3)
-      """,
-      [
-        retry_payload["type"],
-        "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
-        retry_payload
-      ]
-    )
-
-    run_rewrite(:up)
-
-    assert [
-             [
-               "background_agent_job.dispatch",
-               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch",
-               migrated_payload
-             ],
-             [
-               "background_agent_job.dispatch",
-               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
-               migrated_retry_payload
-             ]
-           ] = event_rows()
-
-    assert migrated_payload == %{
-             historical_payload
-             | "data" => %{
-                 "attempts" => 0,
-                 "job_id" => "019f6aa0-3f4d-7573-b4a8-bde808f3011f",
-                 "owner_session_id" => "signal:lark:chat-1",
-                 "workdir" => "/workspace/user-files/subagent-runs/019f6aa0"
-               },
-               "id" => "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch",
-               "source" => "control-plane://background-agent-job",
-               "subject" => "background-agent-job:019f6aa0-3f4d-7573-b4a8-bde808f3011f",
-               "type" => "background_agent_job.dispatch"
-           }
-
-    assert migrated_retry_payload ==
-             migrated_payload
-             |> put_in(["data", "attempts"], 1)
-             |> Map.put(
-               "id",
-               "background_agent_job:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1"
-             )
-
-    run_rewrite(:down)
-
-    assert [
-             [
-               "subagent.delegation.dispatch",
-               "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:0",
-               ^historical_payload
-             ],
-             [
-               "subagent.delegation.dispatch",
-               "subagent_delegation:019f6aa0-3f4d-7573-b4a8-bde808f3011f:dispatch:1",
-               ^retry_payload
-             ]
-           ] = event_rows()
+    :ok
   end
 
-  defp run_rewrite(direction) do
-    direction
-    |> @migration.actor_event_rewrite_sqls(@table)
-    |> Enum.each(&Repo.query!/1)
+  test "renames the BackgroundAgentJob configuration without changing scope or value" do
+    insert_configuration("global", @old_key, 7)
+    insert_configuration("agent:kept", @old_key, 3)
+    insert_configuration("global", "unrelated.encrypted", %{"ciphertext" => "kept"})
+
+    Repo.query!(@migration.config_key_migration_sql(@table))
+
+    assert [
+             ["agent:kept", @new_key, %{"type" => "plaintext", "value" => 3}],
+             ["global", @new_key, %{"type" => "plaintext", "value" => 7}],
+             [
+               "global",
+               "unrelated.encrypted",
+               %{"type" => "encrypted", "value" => %{"ciphertext" => "kept"}}
+             ]
+           ] = configuration_rows()
   end
 
-  defp event_rows do
+  test "rejects conflicting old and new keys in the same scope" do
+    insert_configuration("global", @old_key, 7)
+    insert_configuration("global", @new_key, 9)
+
+    assert_raise Postgrex.Error, ~r/Both old and new BackgroundAgentJob/, fn ->
+      Repo.query!(@migration.config_key_migration_sql(@table))
+    end
+  end
+
+  test "refuses a lossy downgrade" do
+    assert_raise RuntimeError, ~r/cannot be downgraded/, fn -> @migration.down() end
+  end
+
+  defp insert_configuration(scope, key, value) do
+    type = if is_map(value), do: "encrypted", else: "plaintext"
+
+    Repo.query!(
+      """
+      INSERT INTO #{@table} (scope, key, value, inserted_at, updated_at)
+      VALUES ($1, $2, $3, timezone('UTC', now()), timezone('UTC', now()))
+      """,
+      [scope, key, %{"type" => type, "value" => value}]
+    )
+  end
+
+  defp configuration_rows do
     Repo.query!("""
-    SELECT type, source_event_id, payload
+    SELECT scope, key, value
     FROM #{@table}
-    ORDER BY source_event_id
+    ORDER BY scope, key
     """).rows
   end
 end

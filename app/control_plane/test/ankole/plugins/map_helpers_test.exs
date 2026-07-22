@@ -3,11 +3,11 @@ defmodule Ankole.Plugins.MapHelpersTest do
 
   alias Ankole.Plugins.MapHelpers
 
-  test "fetch_value prefers the given key and falls back to its existing atom" do
+  test "fetch_value reads provider JSON string keys only" do
     assert MapHelpers.fetch_value(%{"name" => "string"}, "name") == "string"
-    assert MapHelpers.fetch_value(%{name: "atom"}, "name") == "atom"
+    assert MapHelpers.fetch_value(%{name: "atom"}, "name") == nil
     assert MapHelpers.fetch_value(%{"name" => "string", name: "atom"}, "name") == "string"
-    assert MapHelpers.fetch_value(%{name: "atom"}, :name) == "atom"
+    assert MapHelpers.fetch_value(%{name: "atom"}, :name) == nil
   end
 
   test "fetch_value preserves false and returns nil for misses and non-maps" do

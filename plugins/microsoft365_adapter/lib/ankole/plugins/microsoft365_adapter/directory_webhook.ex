@@ -33,7 +33,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
 
     case provider_config(provider_id) do
       {:ok, config} ->
-        consumer = consumer(provider_id, config, request)
+        consumer = IdentityProvider.identity_consumer(provider_id, config)
 
         {accepted, dropped} =
           Enum.split_with(notifications, fn notification ->
@@ -135,18 +135,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook do
     case String.split(resource, "/", parts: 2) do
       [_collection, id] when id != "" -> id
       _other -> nil
-    end
-  end
-
-  defp consumer(provider_id, config, request) do
-    base = IdentityProvider.identity_consumer(provider_id, config)
-
-    case request do
-      %{client_opts: client_opts} when is_list(client_opts) ->
-        Map.put(base, :client_opts, client_opts)
-
-      _request ->
-        base
     end
   end
 

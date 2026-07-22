@@ -8,8 +8,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   alias Ankole.Plugins.SlackAdapter.{
     BlockKit,
     Config,
-    ConnectionOwner,
-    ConnectionSupervisor,
     Emoji,
     IdentityProvider,
     Inbound,
@@ -20,6 +18,13 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.{AdapterContext, OutboxEntry}
   alias SlackOpenAPI.Event
+
+  setup do
+    previous = Req.default_options()
+    Req.default_options(plug: &stub_slack_download/1)
+    on_exit(fn -> Req.default_options(previous) end)
+    :ok
+  end
 
   describe "plugin and config contracts" do
     test "declares chat and identity contracts" do
@@ -80,12 +85,20 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     test "runtime bot identity uses auth.test result without persisting it" do
       {:ok, config} = Config.validate_chat_config(chat_config())
 
-      resolved =
-        Config.resolve_runtime_bot_identity(config,
-          bot_info_fetcher: fn _config ->
-            {:ok, %{"user_id" => "UBOT", "bot_id" => "B1", "team_id" => "T1"}}
-          end
-        )
+      Req.default_options(
+        plug: fn conn ->
+          assert conn.request_path == "/api/auth.test"
+
+          Req.Test.json(conn, %{
+            "ok" => true,
+            "user_id" => "UBOT",
+            "bot_id" => "B1",
+            "team_id" => "T1"
+          })
+        end
+      )
+
+      resolved = Config.resolve_runtime_bot_identity(config)
 
       assert resolved["runtimeBotUserID"] == "UBOT"
       assert resolved["runtimeBotID"] == "B1"
@@ -141,44 +154,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert Emoji.normalize("thumbsup::skin-tone-3") == "thumbs_up"
       assert Emoji.normalize("custom") == "custom"
       assert Emoji.provider_key("thumbs_up") == "thumbsup"
-    end
-  end
-
-  describe "connection ownership" do
-    test "one app-token fingerprint owns one connection and bot-token conflicts are rejected" do
-      registry = Module.concat(__MODULE__, "Registry#{System.unique_integer([:positive])}")
-      supervisor = Module.concat(__MODULE__, "Supervisor#{System.unique_integer([:positive])}")
-      start_supervised!({Registry, keys: :unique, name: registry})
-      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-
-      consumer = chat_consumer(%{"runtimeBotUserID" => "UBOT"})
-      config = consumer.config
-
-      assert {:ok, pid} =
-               ConnectionSupervisor.ensure_started(config, [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert {:ok, ^pid} =
-               ConnectionSupervisor.ensure_started(config, [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert {:error, :conflicting_app_secret} =
-               ConnectionSupervisor.ensure_started(
-                 %{config | "botToken" => "xoxb-conflict"},
-                 [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert %{consumer_count: 1, consumer_kinds: [:chat], running?: false} =
-               ConnectionOwner.status(pid)
     end
   end
 
@@ -413,6 +388,12 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       )
 
     Inbound.chat_consumer(context, Map.merge(chat_config(), overrides))
+  end
+
+  defp stub_slack_download(conn) do
+    conn
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="a.txt"))
+    |> Plug.Conn.send_resp(200, "abc")
   end
 
   defp chat_config(overrides \\ %{}) do

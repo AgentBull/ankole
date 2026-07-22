@@ -27,6 +27,7 @@ import {
 import { workerLogger } from './worker/logging'
 import { requestAIGatewayAPIKey, stringFromDetails, throwingRPCRequester } from './worker/rpc_requests'
 import { BrowserRuntime } from './browser-runtime'
+import { agentHomePaths } from './core/agent-home-paths'
 
 const heartbeatIntervalMs = 15_000
 
@@ -47,7 +48,7 @@ try {
 async function runWorker(): Promise<void> {
   const config = parseWorkerEnv()
   verifyWorkerFilesystem(config)
-  logBubblewrapSupport(config.workspaceRoot)
+  logBubblewrapSupport(config.agentsRoot)
 
   const fabric = connectRuntimeFabric(config)
   const sendEnvelope = fabric.sendEnvelope
@@ -56,7 +57,7 @@ async function runWorker(): Promise<void> {
   const activeTurns = new Map<string, ActiveTurn>()
   const fileLane = createFileTransferLane(config, sendFileFrame)
   const browserRuntime = new BrowserRuntime({
-    workspaceSessionsRoot: config.workspaceSessionsRoot,
+    runtimeRoot: '/tmp/ankole-agent-computer',
     ...(process.env.ANKOLE_BROWSER_DAEMON_SOCKET ? { socketPath: process.env.ANKOLE_BROWSER_DAEMON_SOCKET } : {}),
     ...(process.env.ANKOLE_BROWSER_NODE ? { nodePath: process.env.ANKOLE_BROWSER_NODE } : {}),
     ...(process.env.ANKOLE_BROWSER_DAEMON_ENTRY ? { daemonEntry: process.env.ANKOLE_BROWSER_DAEMON_ENTRY } : {}),
@@ -341,24 +342,26 @@ async function runActiveTurn(
 ): Promise<void> {
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
+  const paths = agentHomePaths(config.agentsRoot, turnStart.turn.actor.agent_uid)
   workerLogger.info('worker.turn_started', 'worker turn started', {
     actor_event_id: turnStart.turn.actor_event_id,
     operation: turnOperation(turnStart.turn.actor_event_id)
   })
   const rpc = throwingRPCRequester(rpcClient)
   await syncInstalledSkillsForTurn(turnStart, {
-    agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
+    agentInstalledSkillsRoot: paths.installedSkills,
     rpc,
+    abortSignal: active.abortController.signal,
     logger: workerLogger
   })
 
   const result = await runTurnHandlers(turnStart, {
+    agentsRoot: config.agentsRoot,
+    agentHome: paths.home,
     workspaceRoot,
-    workspaceSessionsRoot: config.workspaceSessionsRoot,
-    sharedFsRoot: config.sharedFsRoot,
-    userFilesRoot: config.userFilesRoot,
+    userFilesRoot: paths.userFiles,
     builtinSkillsRoot: config.builtinSkillsRoot,
-    agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
+    agentInstalledSkillsRoot: paths.installedSkills,
     internalSkillsRoot: config.internalSkillsRoot,
     rpc,
     requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),

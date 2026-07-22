@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Sources do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.BlockCitation
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Schemas.EntryBlock
@@ -40,6 +41,13 @@ defmodule Ankole.Brain.Sources do
           required(:source) => SignalEntry.t() | RetainedSource.t()
         }
 
+  @type captured_material ::
+          %{required(:resource_kind) => :entry, required(:entry_id) => Ecto.UUID.t()}
+          | %{
+              required(:resource_kind) => :retained_source,
+              required(:source) => RetainedSource.t()
+            }
+
   @doc "Captures one immutable source after the caller has selected its Brain store."
   @spec capture(Scope.t(), map(), String.t(), keyword()) ::
           {:ok, RetainedSource.t()} | {:error, term()}
@@ -50,31 +58,37 @@ defmodule Ankole.Brain.Sources do
 
   def capture(%Scope{} = scope, attrs, creator_uid, opts)
       when is_map(attrs) and is_binary(creator_uid) and is_list(opts) do
-    with {:ok, creator_uid} <- normalize_creator(creator_uid),
-         {:ok, input} <- source_input(scope.owner_uid, attrs, opts),
-         :ok <- validate_source_size(input.content) do
-      id = Ankole.Ecto.UUIDv7.autogenerate()
-
-      %RetainedSource{id: id}
-      |> RetainedSource.changeset(%{
-        document_id: "brain-source:#{id}",
-        owner_uid: scope.owner_uid,
-        store_key: scope.writable_store_key,
-        capture_method: input.capture_method,
-        title: input.title,
-        origin_locator: input.origin_locator,
-        original_name: input.original_name,
-        media_type: input.media_type,
-        byte_size: byte_size(input.content),
-        sha256: sha256(input.content),
-        raw_content: input.content,
-        captured_by_uid: creator_uid
-      })
-      |> Repo.insert()
+    case capture_material(scope, attrs, creator_uid, opts) do
+      {:ok, %{resource_kind: :retained_source, source: source}} -> {:ok, source}
+      {:ok, %{resource_kind: :entry}} -> {:error, :text_material_is_knowledge_entry}
+      {:error, _reason} = error -> error
     end
   end
 
   def capture(_scope, _attrs, _creator_uid, _opts), do: {:error, :invalid_arguments}
+
+  @doc "Saves manual text as an ordinary entry and retains only binary source bytes."
+  @spec capture_material(Scope.t(), map(), String.t(), keyword()) ::
+          {:ok, captured_material()} | {:error, term()}
+  def capture_material(scope, attrs, creator_uid, opts \\ [])
+
+  def capture_material(%Scope{writable_store_key: nil}, _attrs, _creator_uid, _opts),
+    do: {:error, :read_only_scope}
+
+  def capture_material(%Scope{} = scope, attrs, creator_uid, opts)
+      when is_map(attrs) and is_binary(creator_uid) and is_list(opts) do
+    with {:ok, creator_uid} <- normalize_creator(creator_uid),
+         {:ok, input} <- source_input(scope.owner_uid, attrs, opts),
+         :ok <- validate_source_size(input.content) do
+      case input.storage do
+        :entry -> persist_text_entry(scope, input, creator_uid)
+        :retained_source -> persist_retained_source(scope, input, creator_uid)
+      end
+    end
+  end
+
+  def capture_material(_scope, _attrs, _creator_uid, _opts),
+    do: {:error, :invalid_arguments}
 
   @doc "Resolves a citation only when its source is readable in the supplied Brain scope."
   @spec resolve(Scope.t(), String.t()) :: {:ok, resolved()} | {:error, :not_found}
@@ -85,10 +99,9 @@ defmodule Ankole.Brain.Sources do
   @spec resolve(module(), Scope.t(), String.t()) :: {:ok, resolved()} | {:error, :not_found}
   def resolve(repo, %Scope{} = scope, "brain-source:" <> _id = document_id) do
     query =
-      from source in RetainedSource,
-        where: source.document_id == ^document_id and source.owner_uid == ^scope.owner_uid
+      from source in RetainedSource, where: source.document_id == ^document_id
 
-    query = readable_stores(query, scope.readable_store_keys)
+    query = scope_sources(query, scope) |> available_sources()
 
     case repo.one(query) do
       %RetainedSource{} = source ->
@@ -110,7 +123,7 @@ defmodule Ankole.Brain.Sources do
            repo.one(from entry in SignalEntry, where: entry.document_id == ^document_id),
          %Channel{} = channel <- repo.get(Channel, entry.signal_channel_id),
          true <- channel_visible_to_owner?(scope.owner_uid, channel.id),
-         {:ok, store_key} <- channel_store_key(channel),
+         {:ok, store_key} <- channel_store_key(scope, channel),
          true <- store_readable?(scope.readable_store_keys, store_key) do
       {:ok,
        %{
@@ -142,7 +155,7 @@ defmodule Ankole.Brain.Sources do
   def raw(%Scope{} = scope, document_id) when is_binary(document_id) do
     query =
       from source in RetainedSource,
-        where: source.document_id == ^document_id and source.owner_uid == ^scope.owner_uid,
+        where: source.document_id == ^document_id,
         select: %{
           content: source.raw_content,
           media_type: source.media_type,
@@ -150,7 +163,7 @@ defmodule Ankole.Brain.Sources do
           title: source.title
         }
 
-    case query |> readable_stores(scope.readable_store_keys) |> Repo.one() do
+    case query |> scope_sources(scope) |> available_sources() |> Repo.one() do
       %{content: content} = source ->
         {:ok,
          %{
@@ -197,8 +210,7 @@ defmodule Ankole.Brain.Sources do
 
     sources =
       RetainedSource
-      |> where([source], source.owner_uid == ^scope.owner_uid)
-      |> readable_stores(scope.readable_store_keys)
+      |> scope_sources(scope)
       |> order_by([source], desc: source.inserted_at, desc: source.id)
       |> limit(^limit)
       |> Repo.all()
@@ -218,6 +230,65 @@ defmodule Ankole.Brain.Sources do
      end)}
   end
 
+  defp persist_retained_source(scope, input, creator_uid) do
+    id = Ankole.Ecto.UUIDv7.autogenerate()
+    owner_uid = Scope.storage_owner_uid(scope, scope.writable_store_key)
+
+    %RetainedSource{id: id}
+    |> RetainedSource.changeset(%{
+      document_id: "brain-source:#{id}",
+      owner_uid: owner_uid,
+      store_key: scope.writable_store_key,
+      capture_method: "file",
+      title: input.title,
+      origin_locator: input.origin_locator,
+      original_name: input.original_name,
+      media_type: input.media_type,
+      byte_size: byte_size(input.content),
+      sha256: sha256(input.content),
+      raw_content: input.content,
+      captured_by_uid: creator_uid,
+      learning_agent_uid: scope.owner_uid
+    })
+    |> Repo.insert()
+    |> case do
+      {:ok, source} -> {:ok, %{resource_kind: :retained_source, source: source}}
+      {:error, _changeset} = error -> error
+    end
+  end
+
+  defp persist_text_entry(scope, input, creator_uid) do
+    properties =
+      %{
+        "source_type" => input.source_type,
+        "source_locator" => input.origin_locator,
+        "source_url" => if(input.source_type == "url", do: input.origin_locator)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    with {:ok, result} <-
+           Knowledge.apply_operations(
+             scope,
+             %{
+               operation: "create_entry",
+               name: input.title,
+               type: "external_document",
+               summary: "",
+               properties: properties,
+               initial_body: input.content
+             },
+             %{kind: :human, uid: creator_uid},
+             metadata: %{"surface" => "manual_material"}
+           ),
+         [%{entry_id: entry_id} | _] <- result.results do
+      {:ok, %{resource_kind: :entry, entry_id: entry_id}}
+    else
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_manual_material_result}
+    end
+  end
+
   defp source_input(owner_uid, attrs, opts) do
     case value(attrs, :kind) do
       kind when kind in ["paste", :paste] -> pasted_input(attrs)
@@ -232,7 +303,8 @@ defmodule Ankole.Brain.Sources do
          {:ok, title} <- required_text(attrs, :title) do
       {:ok,
        %{
-         capture_method: "paste",
+         storage: :entry,
+         source_type: "paste",
          title: title,
          origin_locator: value(attrs, :origin_locator),
          original_name: value(attrs, :original_name),
@@ -249,7 +321,9 @@ defmodule Ankole.Brain.Sources do
 
       {:ok,
        %{
+         storage: :retained_source,
          capture_method: "file",
+         source_type: "file",
          title: title,
          origin_locator: value(attrs, :origin_locator),
          original_name: original_name,
@@ -264,7 +338,13 @@ defmodule Ankole.Brain.Sources do
          {:ok, fetched} <- fetch_url(owner_uid, url, opts) do
       {:ok,
        %{
-         capture_method: "url",
+         storage:
+           if(text_media_type?(fetched.media_type) and String.valid?(fetched.content),
+             do: :entry,
+             else: :retained_source
+           ),
+         capture_method: "file",
+         source_type: "url",
          title: optional_text(attrs, :title) || fetched.final_url,
          origin_locator: fetched.final_url,
          original_name: url_filename(fetched.final_url),
@@ -395,7 +475,10 @@ defmodule Ankole.Brain.Sources do
   defp console_projection(resolved, entries, include_text? \\ true)
 
   defp console_projection(%{kind: :retained_source, source: source}, entries, include_text?) do
-    learning = SourceLearning.latest_outcome(source)
+    learning =
+      if source.capture_method == "file",
+        do: SourceLearning.latest_outcome(source),
+        else: %{status: nil, actor_event_id: nil}
 
     %{
       document_id: source.document_id,
@@ -404,6 +487,11 @@ defmodule Ankole.Brain.Sources do
       title: source.title,
       store_key: source.store_key,
       origin_locator: source.origin_locator,
+      connector_id: source.connector_id,
+      revision: source.revision,
+      source_url: source.source_url,
+      sync_state: source.sync_state && Atom.to_string(source.sync_state),
+      last_synced_at: datetime(source.last_synced_at),
       original_name: source.original_name,
       media_type: source.media_type,
       byte_size: source.byte_size,
@@ -481,11 +569,8 @@ defmodule Ankole.Brain.Sources do
     BlockCitation
     |> join(:inner, [citation], block in EntryBlock, on: block.id == citation.block_id)
     |> join(:inner, [_citation, block], entry in Entry, on: entry.id == block.entry_id)
-    |> where(
-      [citation, _block, entry],
-      citation.document_id == ^document_id and entry.owner_uid == ^scope.owner_uid
-    )
-    |> readable_entry_stores(scope.readable_store_keys)
+    |> where([citation, _block, _entry], citation.document_id == ^document_id)
+    |> scope_integrated_entries(scope)
     |> distinct([_citation, _block, entry], entry.id)
     |> order_by([_citation, _block, entry], asc: entry.store_key, asc: entry.name)
     |> select([_citation, _block, entry], %{
@@ -532,7 +617,7 @@ defmodule Ankole.Brain.Sources do
     |> Enum.any?(&(&1.id == channel_id))
   end
 
-  defp channel_store_key(%Channel{kind: :im_dm, metadata: metadata}) do
+  defp channel_store_key(%Scope{}, %Channel{kind: :im_dm, metadata: metadata}) do
     case Map.get(metadata || %{}, "dm_peer_principal_uid") do
       peer_uid when is_binary(peer_uid) ->
         case Principals.normalize_uid(peer_uid) do
@@ -545,14 +630,65 @@ defmodule Ankole.Brain.Sources do
     end
   end
 
-  defp channel_store_key(%Channel{}), do: {:ok, "public"}
+  defp channel_store_key(%Scope{owner_uid: owner_uid}, %Channel{kind: :im_group, id: id}) do
+    if SignalsGateway.confidential_channel?(owner_uid, id),
+      do: {:ok, "channel:#{id}"},
+      else: {:ok, "shared"}
+  end
 
-  defp readable_stores(query, :all), do: query
-  defp readable_stores(query, stores), do: where(query, [source], source.store_key in ^stores)
-  defp readable_entry_stores(query, :all), do: query
+  defp channel_store_key(%Scope{}, %Channel{}), do: {:ok, "shared"}
 
-  defp readable_entry_stores(query, stores),
-    do: where(query, [_citation, _block, entry], entry.store_key in ^stores)
+  defp scope_sources(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    where(
+      query,
+      [source],
+      source.owner_uid == ^owner_uid or
+        (source.owner_uid == ^shared_owner_uid and source.store_key == "shared")
+    )
+  end
+
+  defp scope_sources(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+    private_stores = Enum.reject(stores, &(&1 == "shared"))
+    shared? = "shared" in stores
+
+    where(
+      query,
+      [source],
+      (source.owner_uid == ^owner_uid and source.store_key in ^private_stores) or
+        (^shared? and source.owner_uid == ^shared_owner_uid and source.store_key == "shared")
+    )
+  end
+
+  defp scope_integrated_entries(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    where(
+      query,
+      [_citation, _block, entry],
+      entry.owner_uid == ^owner_uid or
+        (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")
+    )
+  end
+
+  defp scope_integrated_entries(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+    private_stores = Enum.reject(stores, &(&1 == "shared"))
+    shared? = "shared" in stores
+
+    where(
+      query,
+      [_citation, _block, entry],
+      (entry.owner_uid == ^owner_uid and entry.store_key in ^private_stores) or
+        (^shared? and entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")
+    )
+  end
+
+  defp available_sources(query) do
+    where(query, [source], source.capture_method == "file" or source.sync_state == :current)
+  end
 
   defp store_readable?(:all, _store_key), do: true
   defp store_readable?(stores, store_key), do: store_key in stores

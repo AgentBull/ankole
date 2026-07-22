@@ -4,7 +4,6 @@ defmodule FeishuOpenAPI.Crypto do
 
     * `decrypt/2` — AES-256-CBC with a SHA256-derived key; ciphertext layout is
       `IV(16) || encrypted_blocks`, PKCS#7 padded. Matches `larkevent.EventDecrypt`.
-    * `encrypt/2` — the inverse of `decrypt/2`, used for tests and tooling.
     * `event_signature/4` — SHA256 of `timestamp || nonce || encrypt_key || body`,
       lower-case hex.
     * `card_signature/4` — SHA1 of `timestamp || nonce || token || body`,
@@ -33,18 +32,6 @@ defmodule FeishuOpenAPI.Crypto do
       {:error, _} = err -> err
       _ -> {:error, :malformed_ciphertext}
     end
-  end
-
-  @doc """
-  Encrypt a plaintext binary. Returns base64 string matching `decrypt/2`'s input.
-  """
-  @spec encrypt(iodata(), String.t()) :: {:ok, String.t()}
-  def encrypt(plaintext, secret) when is_binary(secret) do
-    key = :crypto.hash(:sha256, secret)
-    iv = :crypto.strong_rand_bytes(@aes_block_size)
-    padded = pkcs7_pad(IO.iodata_to_binary(plaintext))
-    ciphertext = :crypto.crypto_one_time(:aes_256_cbc, key, iv, padded, true)
-    {:ok, Base.encode64(iv <> ciphertext)}
   end
 
   @doc """
@@ -102,11 +89,6 @@ defmodule FeishuOpenAPI.Crypto do
 
   defp check_blocksize(_), do: :ok
 
-  defp pkcs7_pad(bin) do
-    pad = @aes_block_size - rem(byte_size(bin), @aes_block_size)
-    bin <> :binary.copy(<<pad>>, pad)
-  end
-
   defp pkcs7_unpad(bin) when is_binary(bin) and byte_size(bin) > 0 do
     pad = :binary.last(bin)
 
@@ -139,19 +121,5 @@ defmodule FeishuOpenAPI.Crypto do
     else
       false
     end
-  rescue
-    UndefinedFunctionError ->
-      # Pre-OTP 25 fallback
-      byte_size(a) == byte_size(b) and constant_time_binary_eq(a, b)
   end
-
-  defp constant_time_binary_eq(<<>>, <<>>), do: true
-
-  defp constant_time_binary_eq(<<a, ar::binary>>, <<b, br::binary>>) do
-    acc = Bitwise.bxor(a, b)
-    rest = constant_time_binary_eq(ar, br)
-    acc == 0 and rest
-  end
-
-  defp constant_time_binary_eq(_, _), do: false
 end

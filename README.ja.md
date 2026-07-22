@@ -113,7 +113,7 @@ flowchart TB
 - **AIGateway は統一された AI boundary。** OpenResponses-compatible な HTTP、SSE、WebSocket API が stateless request と Principal-scoped stateful conversation の両方を支えます。LLM、embedding、rerank、web search、web fetch は同じ provider routing surface で解決され、upstream credential は control plane の外に出ません。
 - **Actor は durable work と execution resource を分離します。** Actor Runtime が long-running session と recovery semantics を所有し、replaceable な Agent Computer worker が model loop、tools、skills、sandbox を実行します。
 - **Brain は long-term memory。** Curated current knowledge、source-chat recall、dreaming、human oversight を統合します。PostgreSQL row が truth であり、Markdown と injected context は projection です。
-- **Background Agent Job は child process ではなく durable work。** Job は worker loss を越えて recover し、resume または user input 待ちができ、state transition で owner session を wake します。Job が保持するのは選択された Agent Plugin IDs と standalone Skill 名だけです。CodexRunner は prepare ごとに現在の enabled catalog を解決し、意図的に狭い platform-tool projection を公開します。
+- **Background Agent Job は child process ではなく durable work。** Job は worker loss を越えて recover し、resume または user input 待ちができ、state transition で owner session を wake します。Job は optional な Workspace Template を 1 つだけ保持します。CodexRunner は実行ごとに Agent で現在 enabled なすべての Agent Plugin と、Background Agent Job を許可する enabled Skill を読み込み、意図的に狭い platform-tool projection を公開します。
 - **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared workspace がその state から参照される artifact と resumable file を保持します。RuntimeFabric は live transport のみで、shared Rust kernel が process 内 transport と AI data-plane primitives を提供します。
 
 ## 現状

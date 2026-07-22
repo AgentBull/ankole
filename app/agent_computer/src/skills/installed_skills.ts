@@ -1,9 +1,8 @@
 import type { Dirent } from 'node:fs'
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { xxh3File128Hex, xxh3String128Hex } from '@ankole/kernel'
-import { match, ResultAsync } from '@pleisto/active-support'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { parse } from 'yaml'
+import type { AnkoleSkillRuntime } from './effective-skill'
 import type { InstalledSkillObservation } from './types'
 
 export type InstalledSkillDiagnostic = {
@@ -16,39 +15,29 @@ export type InstalledSkillDiagnostic = {
 export type InstalledSkillScanResult = {
   observations: InstalledSkillObservation[]
   diagnostics: InstalledSkillDiagnostic[]
-  fingerprint: string
+  snapshot: string
 }
 
-type SkillFileFingerprint = {
-  path: string
-  xxh3_128: string
-}
-
-type SkillFrontmatter = JSONObject
+type SkillFrontmatter = Record<string, unknown>
 
 const skillFileName = 'SKILL.md'
 const maxInstalledSkills = 200
-const maxFilesPerSkill = 512
-const excludedEntries = new Set(['target', 'node_modules', '__pycache__'])
-const yamlBlockItemRegex = /^\s*-\s+(.+)\s*$/
-const yamlBlockEndRegex = /^\S/
+const ankoleSkillRuntimes = new Set<AnkoleSkillRuntime>(['any', 'main', 'background_job'])
 
-export async function scanInstalledSkills(root: string, agentUID: string): Promise<InstalledSkillScanResult> {
+export async function scanInstalledSkills(root: string): Promise<InstalledSkillScanResult> {
   const diagnostics: InstalledSkillDiagnostic[] = []
-  const agentDir = agentSkillRoot(root, agentUID, diagnostics)
-  if (!agentDir) return emptyScan(diagnostics)
+  const agentDir = resolve(root)
 
-  const entriesResult = await readDirEntries(agentDir)
-  if (entriesResult.isErr()) {
-    if (nodeErrorCode(entriesResult.error) === 'ENOENT') return emptyScan(diagnostics)
-    throw entriesResult.error
+  let entries: Dirent[]
+  try {
+    entries = await readdir(agentDir, { withFileTypes: true })
+  } catch (error) {
+    if (nodeErrorCode(error) === 'ENOENT') return emptyScan(diagnostics)
+    throw error
   }
-  const entries = entriesResult.value
 
   const observations: InstalledSkillObservation[] = []
-  let truncated = false
-
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (entry.name.startsWith('.')) continue
 
     const skillDir = join(agentDir, entry.name)
@@ -56,32 +45,17 @@ export async function scanInstalledSkills(root: string, agentUID: string): Promi
       diagnostics.push(diagnostic('symlink_skill_skipped', 'installed skill directory symlinks are ignored', skillDir))
       continue
     }
-
     if (!entry.isDirectory()) continue
-    if (observations.length >= maxInstalledSkills) {
-      truncated = true
-      continue
-    }
 
     const observation = await readInstalledSkill(skillDir, entry.name, diagnostics)
-    if (observation) observations.push(observation)
+    if (!observation) continue
+    if (observations.length >= maxInstalledSkills) {
+      throw new Error(`installed skill count exceeds ${maxInstalledSkills}`)
+    }
+    observations.push(observation)
   }
 
-  if (truncated) {
-    diagnostics.push(
-      diagnostic(
-        'installed_skill_limit_reached',
-        `installed skill scan truncated at ${maxInstalledSkills} skills`,
-        agentDir
-      )
-    )
-  }
-
-  return {
-    observations,
-    diagnostics,
-    fingerprint: installedSkillsFingerprint(observations)
-  }
+  return { observations, diagnostics, snapshot: installedSkillsSnapshot(observations) }
 }
 
 async function readInstalledSkill(
@@ -109,24 +83,8 @@ async function readInstalledSkill(
     throw error
   }
 
-  const frontmatter = skillFrontmatter(rawSkill)
-  const metadata = validateSkillMetadata(frontmatter, directoryName, skillPath, diagnostics)
-  if (!metadata) return null
-
-  const files = await readSkillFileFingerprints(skillDir, diagnostics)
-  if (files.length === 0) return null
-
-  const xxh3_128 = xxh3String128Hex(files.map(file => `${file.path}\0${file.xxh3_128}`).join('\0'))
-
-  return {
-    skill_name: metadata.name,
-    relative_path: directoryName,
-    description: metadata.description,
-    default_enabled: metadata.default_enabled,
-    metadata: metadata.metadata,
-    xxh3_128,
-    file_count: files.length
-  }
+  const frontmatter = skillFrontmatter(rawSkill, skillPath, diagnostics)
+  return frontmatter ? validateSkillMetadata(frontmatter, directoryName, skillPath, diagnostics) : null
 }
 
 function validateSkillMetadata(
@@ -134,13 +92,8 @@ function validateSkillMetadata(
   directoryName: string,
   skillPath: string,
   diagnostics: InstalledSkillDiagnostic[]
-): {
-  name: string
-  description: string
-  default_enabled: boolean
-  metadata: JSONObject
-} | null {
-  const rawName = stringScalar(frontmatter, 'name') ?? directoryName
+): InstalledSkillObservation | null {
+  const rawName = stringScalar(frontmatter.name) ?? directoryName
   if (!isValidSkillName(rawName) || rawName !== directoryName) {
     diagnostics.push(
       diagnostic('skill_name_directory_mismatch', 'SKILL.md name must match the installed skill directory', skillPath)
@@ -148,225 +101,124 @@ function validateSkillMetadata(
     return null
   }
 
-  const description = stringScalar(frontmatter, 'description')
+  const description = stringScalar(frontmatter.description)
   if (!description) {
     diagnostics.push(diagnostic('skill_description_missing', 'SKILL.md description is required', skillPath))
     return null
   }
-  const normalizedDescription = description.slice(0, 1024)
 
-  const defaultEnabled = booleanScalar(frontmatter, 'default_enabled', true)
+  const defaultEnabled = booleanScalar(frontmatter.default_enabled, true)
   if (defaultEnabled === null) {
     diagnostics.push(diagnostic('invalid_default_enabled', 'default_enabled must be true or false', skillPath))
     return null
   }
 
-  const tags = tagsScalar(frontmatter)
-  const category = stringScalar(frontmatter, 'category')
-  const disableModelInvocation =
-    optionalBooleanScalar(frontmatter, 'disable-model-invocation') ??
-    optionalBooleanScalar(frontmatter, 'disable_model_invocation') ??
-    false
-  const longRunning = optionalBooleanScalar(frontmatter, 'long_running') ?? false
-
-  const metadata: JSONObject = {
-    name: rawName,
-    description: normalizedDescription,
-    default_enabled: defaultEnabled,
-    relative_path: directoryName,
-    tags,
-    disable_model_invocation: disableModelInvocation,
-    long_running: longRunning
+  const tags = stringList(frontmatter.tags)
+  if (!tags) {
+    diagnostics.push(diagnostic('invalid_skill_tags', 'tags must be a list of non-empty strings', skillPath))
+    return null
   }
-  if (category) metadata.category = category
+
+  const category = optionalStringScalar(frontmatter.category)
+  if (category === null) {
+    diagnostics.push(diagnostic('invalid_skill_category', 'category must be a non-empty string', skillPath))
+    return null
+  }
+
+  const disableModelInvocation = booleanScalar(
+    frontmatter['disable-model-invocation'] ?? frontmatter.disable_model_invocation,
+    false
+  )
+  if (disableModelInvocation === null) {
+    diagnostics.push(
+      diagnostic('invalid_disable_model_invocation', 'disable-model-invocation must be true or false', skillPath)
+    )
+    return null
+  }
+
+  const ankoleRuntime = optionalStringScalar(frontmatter['ankole-runtime'])
+  if (ankoleRuntime === null || (ankoleRuntime !== undefined && !isAnkoleSkillRuntime(ankoleRuntime))) {
+    diagnostics.push(
+      diagnostic('invalid_ankole_runtime', 'ankole-runtime must be any, main, or background_job', skillPath)
+    )
+    return null
+  }
 
   return {
-    name: rawName,
-    description: normalizedDescription,
+    skill_name: rawName,
+    description: description.slice(0, 1024),
     default_enabled: defaultEnabled,
-    metadata
+    tags,
+    ...(category ? { category } : {}),
+    disable_model_invocation: disableModelInvocation,
+    ...(ankoleRuntime ? { ankole_runtime: ankoleRuntime } : {})
   }
 }
 
-async function readSkillFileFingerprints(
-  skillDir: string,
+function skillFrontmatter(
+  rawSkill: string,
+  skillPath: string,
   diagnostics: InstalledSkillDiagnostic[]
-): Promise<SkillFileFingerprint[]> {
-  const files: SkillFileFingerprint[] = []
-  const state = { limitReported: false }
-  await readSkillFileFingerprintsRecursive(skillDir, '', files, diagnostics, state)
-  return files.sort((a, b) => a.path.localeCompare(b.path))
-}
-
-async function readSkillFileFingerprintsRecursive(
-  skillDir: string,
-  relativeDir: string,
-  files: SkillFileFingerprint[],
-  diagnostics: InstalledSkillDiagnostic[],
-  state: { limitReported: boolean }
-): Promise<void> {
-  if (files.length >= maxFilesPerSkill) return
-
-  const dir = join(skillDir, relativeDir)
-  const entries = await readdir(dir, { withFileTypes: true })
-
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    if (files.length >= maxFilesPerSkill) {
-      if (!state.limitReported) {
-        state.limitReported = true
-        diagnostics.push(
-          diagnostic(
-            'installed_skill_file_limit_reached',
-            `installed skill scan truncated at ${maxFilesPerSkill} files`,
-            dir
-          )
-        )
-      }
-      return
-    }
-
-    if (entry.name.startsWith('.') || excludedEntries.has(entry.name)) continue
-
-    const relativePath = normalizeVirtualPath(join(relativeDir, entry.name))
-    const fullPath = join(skillDir, relativePath)
-
-    if (entry.isSymbolicLink()) {
-      diagnostics.push(diagnostic('symlink_skill_file_skipped', 'installed skill file symlinks are ignored', fullPath))
-      continue
-    }
-
-    if (entry.isDirectory()) {
-      await readSkillFileFingerprintsRecursive(skillDir, relativePath, files, diagnostics, state)
-      continue
-    }
-
-    if (entry.isFile()) {
-      files.push({ path: relativePath, xxh3_128: xxh3File128Hex(fullPath) })
-    }
-  }
-}
-
-function agentSkillRoot(root: string, agentUID: string, diagnostics: InstalledSkillDiagnostic[]): string | undefined {
-  if (!agentUID || agentUID.includes('/') || agentUID.includes('\\') || agentUID === '.' || agentUID === '..') {
-    diagnostics.push(diagnostic('invalid_agent_uid', 'agent uid is not a valid installed-skill path segment', root))
-    return undefined
-  }
-
-  const resolvedRoot = resolve(root)
-  const resolvedAgentRoot = resolve(resolvedRoot, agentUID)
-  if (resolvedAgentRoot === resolvedRoot || !resolvedAgentRoot.startsWith(`${resolvedRoot}/`)) {
-    diagnostics.push(diagnostic('invalid_agent_skill_root', 'agent installed skill root escapes configured root', root))
-    return undefined
-  }
-
-  return resolvedAgentRoot
-}
-
-function skillFrontmatter(rawSkill: string): SkillFrontmatter {
+): SkillFrontmatter | null {
   if (!rawSkill.startsWith('---')) return {}
+
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(rawSkill)
-  if (!match) return {}
-  return parseSimpleFrontmatter(match[1] ?? '')
-}
-
-function parseSimpleFrontmatter(frontmatter: string): SkillFrontmatter {
-  const result: SkillFrontmatter = { __raw: frontmatter }
-  for (const line of frontmatter.split(/\r?\n/)) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.*?)\s*$/.exec(line)
-    if (!match || match[2] === '') continue
-    result[match[1]!] = stripQuotes(match[2]!)
+  if (!match) {
+    diagnostics.push(diagnostic('invalid_skill_frontmatter', 'SKILL.md frontmatter is not closed', skillPath))
+    return null
   }
-  return result
+
+  try {
+    const value: unknown = parse(match[1] ?? '')
+    if (value === null || value === undefined) return {}
+    if (typeof value === 'object' && !Array.isArray(value)) return value as SkillFrontmatter
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(
+        'invalid_skill_frontmatter',
+        `SKILL.md frontmatter is invalid YAML: ${error instanceof Error ? error.message : String(error)}`,
+        skillPath
+      )
+    )
+    return null
+  }
+
+  diagnostics.push(diagnostic('invalid_skill_frontmatter', 'SKILL.md frontmatter must be a YAML object', skillPath))
+  return null
 }
 
-function stringScalar(frontmatter: SkillFrontmatter, key: string): string | undefined {
-  const value = frontmatter[key]
+function stringScalar(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function booleanScalar(frontmatter: SkillFrontmatter, key: string, fallback: boolean): boolean | null {
-  return parseBooleanFrontmatter(frontmatter[key], fallback)
+function optionalStringScalar(value: unknown): string | undefined | null {
+  if (value === undefined || value === null) return undefined
+  return stringScalar(value) ?? null
 }
 
-function optionalBooleanScalar(frontmatter: SkillFrontmatter, key: string): boolean | null | undefined {
-  return parseBooleanFrontmatter(frontmatter[key], undefined)
+function booleanScalar(value: unknown, fallback: boolean): boolean | null {
+  if (value === undefined || value === null) return fallback
+  return typeof value === 'boolean' ? value : null
 }
 
-function parseBooleanFrontmatter(value: unknown, fallback: boolean): boolean | null
-function parseBooleanFrontmatter(value: unknown, fallback: undefined): boolean | null | undefined
-function parseBooleanFrontmatter(value: unknown, fallback: boolean | undefined): boolean | null | undefined {
-  return match(value)
-    .with(undefined, () => fallback)
-    .with(true, 'true', 'TRUE', () => true)
-    .with(false, 'false', 'FALSE', () => false)
-    .otherwise(() => null)
+function stringList(value: unknown): string[] | null {
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) return null
+
+  const values = value.map(stringScalar)
+  return values.every((item): item is string => typeof item === 'string') ? values : null
 }
 
-function tagsScalar(frontmatter: SkillFrontmatter): string[] {
-  const inline = stringScalar(frontmatter, 'tags')
-  if (inline?.startsWith('[')) {
-    return inline
-      .replace(/^\[/, '')
-      .replace(/\]$/, '')
-      .split(',')
-      .map(value => stripQuotes(value.trim()))
-      .filter(Boolean)
-  }
-
-  return collectYamlBlockList(frontmatterRawLines(frontmatter), 'tags')
-}
-
-function frontmatterRawLines(frontmatter: SkillFrontmatter): string[] {
-  const raw = typeof frontmatter.__raw === 'string' ? frontmatter.__raw : ''
-  return raw.split(/\r?\n/)
-}
-
-function collectYamlBlockList(lines: string[], key: string): string[] {
-  const values: string[] = []
-  let inside = false
-
-  for (const line of lines) {
-    if (!inside && new RegExp(`^${escapeRegex(key)}:\\s*$`).test(line)) {
-      inside = true
-      continue
-    }
-
-    if (!inside) continue
-
-    const item = yamlBlockItemRegex.exec(line)
-    if (item) {
-      values.push(stripQuotes(item[1]!.trim()))
-      continue
-    }
-
-    if (yamlBlockEndRegex.test(line)) break
-  }
-
-  return values
-}
-
-function installedSkillsFingerprint(observations: InstalledSkillObservation[]): string {
-  return xxh3String128Hex(
-    observations
-      .map(observation => `${observation.skill_name}\0${observation.relative_path}\0${observation.xxh3_128}`)
-      .join('\0')
-  )
-}
-
-function readDirEntries(path: string): ResultAsync<Dirent[], unknown> {
-  return ResultAsync.fromPromise(readdir(path, { withFileTypes: true }), error => error)
+function installedSkillsSnapshot(observations: InstalledSkillObservation[]): string {
+  return JSON.stringify(observations)
 }
 
 function emptyScan(diagnostics: InstalledSkillDiagnostic[]): InstalledSkillScanResult {
-  return {
-    observations: [],
-    diagnostics,
-    fingerprint: installedSkillsFingerprint([])
-  }
+  return { observations: [], diagnostics, snapshot: installedSkillsSnapshot([]) }
 }
 
-function normalizeVirtualPath(value: string): string {
-  return value.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+/g, '/')
+function isAnkoleSkillRuntime(value: string): value is AnkoleSkillRuntime {
+  return ankoleSkillRuntimes.has(value as AnkoleSkillRuntime)
 }
 
 function isValidSkillName(name: string): boolean {
@@ -379,16 +231,4 @@ function nodeErrorCode(error: unknown): string | undefined {
 
 function diagnostic(code: string, message: string, path: string): InstalledSkillDiagnostic {
   return { code, message, path, severity: 'warning' }
-}
-
-function stripQuotes(value: string): string {
-  const trimmed = value.trim()
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1)
-  }
-  return trimmed
-}
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

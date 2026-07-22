@@ -162,14 +162,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   def maybe_enqueue_missing_channel_refresh(_consumer, _input), do: :ok
 
   @doc false
-  @spec sync_binding(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name, opts \\ [])
+  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
-         {:ok, chats} <- list_joined_chats(config, opts),
+         {:ok, chats} <- list_joined_chats(config),
          context <- binding_context(binding, config),
-         {:ok, synced} <- sync_joined_chats(context, config, chats, opts),
+         {:ok, synced} <- sync_joined_chats(context, config, chats),
          {:ok, left} <- mark_missing_chats_left(context, config, Enum.map(chats, &chat_id!/1)) do
       {:ok,
        %{
@@ -191,14 +191,13 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   @doc false
-  @spec refresh_chat(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def refresh_chat(agent_uid, binding_name, chat_id, opts \\ [])
+  @spec refresh_chat(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def refresh_chat(agent_uid, binding_name, chat_id)
       when is_binary(agent_uid) and is_binary(binding_name) and is_binary(chat_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
          context <- binding_context(binding, config),
-         {:ok, chat} <- fetch_chat_info(config, chat_id, opts),
+         {:ok, chat} <- fetch_chat_info(config, chat_id),
          {:ok, group} <-
            ensure_lark_im_group(
              namespace(config),
@@ -206,7 +205,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
              chat_attrs(config, chat),
              context
            ),
-         {:ok, principal_uids} <- member_principal_uids(config, chat_id, opts),
+         {:ok, principal_uids} <- member_principal_uids(config, chat_id),
          # The API snapshot can be older than a just-arrived member event. The
          # per-chat lock keeps writes ordered; later events or refreshes converge
          # stale snapshots.
@@ -359,7 +358,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp chat_id_for_log({:ok, chat_id}), do: chat_id
   defp chat_id_for_log({:error, _reason}), do: nil
 
-  defp sync_joined_chats(context, config, chats, opts) do
+  defp sync_joined_chats(context, config, chats) do
     chats
     |> Enum.reduce_while({:ok, 0}, fn chat, {:ok, count} ->
       chat_id = chat_id!(chat)
@@ -371,7 +370,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
                chat_attrs(config, chat),
                context
              ),
-           {:ok, principal_uids} <- member_principal_uids(config, chat_id, opts),
+           {:ok, principal_uids} <- member_principal_uids(config, chat_id),
            # Writes are serialized per chat, but the provider snapshot can still
            # be older than a just-arrived member event. Later member events or
            # refresh jobs converge the group again.
@@ -384,8 +383,8 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end)
   end
 
-  defp list_joined_chats(config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp list_joined_chats(config) do
+    client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || @default_page_size
 
     client
@@ -396,8 +395,8 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     |> collect_paginated_items()
   end
 
-  defp fetch_chat_info(config, chat_id, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp fetch_chat_info(config, chat_id) do
+    client = Config.client(config)
 
     case FeishuOpenAPI.get(client, "im/v1/chats/:chat_id",
            path_params: %{chat_id: chat_id},
@@ -410,9 +409,9 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp member_principal_uids(config, chat_id, opts) do
+  defp member_principal_uids(config, chat_id) do
     config
-    |> list_members(chat_id, opts)
+    |> list_members(chat_id)
     |> case do
       {:ok, members} ->
         members
@@ -453,8 +452,8 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  defp list_members(config, chat_id, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp list_members(config, chat_id) do
+    client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || @default_page_size
 
     client
@@ -819,6 +818,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   defp member_user_id(map) when is_map(map) do
     value =
       optional_text(map, "user_id") ||
+        typed_member_user_id(map) ||
         get_in(fetch_map(map, "member_id", %{}), ["user_id"]) ||
         get_in(fetch_map(map, "member", %{}), ["user_id"]) ||
         get_in(fetch_map(fetch_map(map, "member", %{}), "member_id", %{}), ["user_id"])
@@ -830,6 +830,13 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   end
 
   defp member_user_id(_map), do: {:error, :missing_user_id}
+
+  defp typed_member_user_id(map) do
+    case {optional_text(map, "member_id_type"), optional_text(map, "member_id")} do
+      {"user_id", user_id} -> user_id
+      _other -> nil
+    end
+  end
 
   defp member_open_id(member) do
     optional_text(member, "open_id") ||

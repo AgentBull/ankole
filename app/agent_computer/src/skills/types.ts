@@ -1,12 +1,11 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { AnkoleSkillRuntime } from './effective-skill'
 
 export type InstalledSkillObservation = {
   skill_name: string
-  relative_path?: string
   description: string
-  default_enabled?: boolean
-  metadata?: JSONObject
-  content_hash?: string
-  xxh3_128?: string
-  file_count?: number
+  default_enabled: boolean
+  tags: string[]
+  category?: string
+  disable_model_invocation: boolean
+  ankole_runtime?: AnkoleSkillRuntime
 }

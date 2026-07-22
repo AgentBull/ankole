@@ -46,6 +46,7 @@ import {
 } from '@ankole/uikit'
 import {
   RiArrowLeftLine,
+  RiBracesLine,
   RiCheckboxCircleLine,
   RiCloseLine,
   RiDeleteBin6Line,
@@ -82,6 +83,7 @@ import { Link, NavLink, Outlet } from 'react-router'
 import { ThemeToggle } from '../common/theme-toggle'
 import { logoutConsoleSession } from './api/tokens'
 import { ErrorBlock } from './console-primitives'
+import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
 
 /**
  * Shared shell for the console: the routed layout, list-page and editor-page
@@ -702,16 +704,35 @@ export function JSONField({
   onChange: (value: string) => void
   value: string
 }) {
+  const { t } = useTranslation()
+  const draft = inspectJSONDraft(value)
+  const syntaxError = draft.kind === 'invalid' ? draft.error : undefined
+  const formatted = draft.kind === 'valid' ? formatJSONDraft(value) : undefined
+
   return (
-    <LabeledField label={label} description={description} error={error}>
-      <Textarea
-        aria-invalid={error ? true : undefined}
-        className="font-mono text-xs"
-        spellCheck={false}
-        style={{ minHeight: `${minRows * 1.5}rem` }}
-        value={value}
-        onChange={event => onChange(event.target.value)}
-      />
+    <LabeledField label={label} description={description} error={error ?? syntaxError}>
+      <div className="grid gap-2">
+        <div className="flex min-h-7 items-center justify-end gap-2">
+          {draft.kind === 'valid' ? <Badge variant="success">{t('console.settings.valid_json')}</Badge> : null}
+          <Button
+            disabled={formatted === undefined || formatted === value}
+            size="xs"
+            type="button"
+            variant="outline"
+            onClick={() => formatted !== undefined && onChange(formatted)}>
+            <RiBracesLine data-icon="inline-start" />
+            {t('console.settings.format_json')}
+          </Button>
+        </div>
+        <Textarea
+          aria-invalid={error || syntaxError ? true : undefined}
+          className="max-h-[50dvh] overflow-auto font-mono text-xs [resize:vertical]"
+          spellCheck={false}
+          style={{ minHeight: `${minRows * 1.5}rem` }}
+          value={value}
+          onChange={event => onChange(event.target.value)}
+        />
+      </div>
     </LabeledField>
   )
 }

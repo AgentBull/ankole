@@ -332,8 +332,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         {:presentation_event, event},
         %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state
       ) do
-    kind = map_value(event, :kind) || map_value(event, :type)
-    payload = map_value(event, :payload) || event
+    kind = Map.get(event, "kind") || Map.get(event, "type")
+    payload = Map.get(event, "payload") || event
 
     presentation =
       if (is_binary(kind) or is_atom(kind)) and is_map(payload) do
@@ -374,7 +374,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       Process.send_after(self(), :flush_edit, @cardkit_flush_interval_ms)
       {:noreply, state}
     else
-      handle_legacy_flush(state)
+      handle_plain_text_flush(state)
     end
   end
 
@@ -423,7 +423,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
-  defp handle_legacy_flush(state) do
+  defp handle_plain_text_flush(state) do
     text = AIReplyText.normalize_visible_text(state.preview_text)
 
     state =
@@ -481,7 +481,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
            |> Map.put(:silent_rich_pending, false)
            |> mark_rich_dirty(presentation)}
         else
-          handle_legacy_output_delta(state, new_buffer, preview_text)
+          handle_plain_text_output_delta(state, new_buffer, preview_text)
         end
       end
     else
@@ -521,7 +521,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp handle_gateway_event(_event_type, _payload, state), do: {:noreply, state}
 
-  defp handle_legacy_output_delta(state, new_buffer, preview_text) do
+  defp handle_plain_text_output_delta(state, new_buffer, preview_text) do
     state =
       cond do
         state.silent_success_allowed and AIReplyText.silent_success_marker_prefix?(new_buffer) ->
@@ -1066,8 +1066,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   defp created_source_entry_id(result) when is_map(result) do
-    optional_text(result, :created_source_entry_id) ||
-      optional_text(result, "created_source_entry_id")
+    optional_text(result, :created_source_entry_id)
   end
 
   defp normalize_text(text), do: AIReplyText.normalize_visible_text(text)
@@ -1099,9 +1098,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
     map_value(event, :subject_uid) == state.subject_uid and
       map_value(event, :conversation_id) == state.conversation_id and
-      map_value(metadata, :actor_event_id) == state.actor_event.id
+      Map.get(metadata, "actor_event_id") == state.actor_event.id
   end
 
-  defp map_value(map, key) when is_map(map) and is_atom(key),
-    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  defp map_value(map, key) when is_map(map) and is_atom(key), do: Map.get(map, key)
 end

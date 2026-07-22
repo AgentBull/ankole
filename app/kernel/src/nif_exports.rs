@@ -640,18 +640,15 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
         RouterEvent::Received {
             transport_route,
             authenticated_worker_id,
-            authenticated_key_revision,
             envelope_bytes,
         } => {
             let worker_id = authenticated_worker_id.unwrap_or_default();
-            let key_revision = authenticated_key_revision.unwrap_or_default();
 
             match encode_binary_term(env, envelope_bytes) {
                 Ok(envelope_term) => (
                     atoms::runtime_fabric_router_received(),
                     transport_route,
                     worker_id,
-                    key_revision,
                     envelope_term,
                 )
                     .encode(env),
@@ -661,17 +658,14 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
         RouterEvent::FileFrame {
             transport_route,
             authenticated_worker_id,
-            authenticated_key_revision,
             frames,
         } => {
             let worker_id = authenticated_worker_id.unwrap_or_default();
-            let key_revision = authenticated_key_revision.unwrap_or_default();
             match encode_binary_frame_list(env, frames) {
                 Ok(frame_terms) => (
                     atoms::runtime_fabric_router_file_frame(),
                     transport_route,
                     worker_id,
-                    key_revision,
                     frame_terms,
                 )
                     .encode(env),

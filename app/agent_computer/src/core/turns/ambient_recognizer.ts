@@ -45,16 +45,22 @@ export async function recognizeAmbientIntervention(
 
   const result = await callModel(input.model, {
     instructions: buildAmbientRecognizerSystemPrompt({
-      currentTime: formatZonedDateTime(currentTime, timezone),
       displayName,
-      groupName: currentChannel?.name,
-      brainSnapshot: context.brainSnapshot,
       mission: context.mission,
-      platform: currentChannel?.platform,
-      soul: context.soul ?? '',
-      timezone
+      soul: context.soul ?? ''
     }),
-    messages: [userMessage(buildAmbientRecognizerUserPrompt({ agentName: displayName, conversationHistory }))],
+    messages: [
+      userMessage(
+        buildAmbientRecognizerUserPrompt({
+          brainSnapshot: context.brainSnapshot,
+          conversationHistory,
+          currentTime: formatZonedDateTime(currentTime, timezone),
+          groupName: currentChannel?.name,
+          platform: currentChannel?.platform,
+          timezone
+        })
+      )
+    ],
     maxOutputTokens: 300,
     temperature: 0,
     text: ambientDecisionTextFormat,
@@ -169,7 +175,7 @@ function transcriptRole(value: JSONObject): 'agent' | 'human' {
 
 function speakerFromAuthor(value: JSONObject): string | undefined {
   if (!isRecord(value.author)) return undefined
-  return firstString(value.author, ['display_name', 'name', 'principal_uid', 'id'])
+  return firstString(value.author, ['display_name', 'name', 'principal_uid'])
 }
 
 function dedupeTranscriptMessages(messages: TranscriptMessage[]): TranscriptMessage[] {

@@ -43,7 +43,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
     {:ok,
      %{
        interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
-       reconcile_opts: Keyword.drop(opts, [:name, :interval_ms])
+       reconcile_opts: Keyword.take(opts, [:now])
      }, {:continue, :reconcile}}
   end
 
@@ -89,7 +89,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
           {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
         end
       else
-        case GraphSubscriptions.delete_all(provider_id, config, opts) do
+        case GraphSubscriptions.delete_all(provider_id, config) do
           {:ok, %{deleted: 0}} -> {:skipped, provider_id}
           {:ok, _result} -> {:removed, provider_id}
           {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}

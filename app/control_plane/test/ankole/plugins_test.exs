@@ -24,7 +24,6 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin
   alias Ankole.Plugins
   alias Ankole.Plugins.Config
-  alias Ankole.Plugins.Discovery
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
 
@@ -38,57 +37,31 @@ defmodule Ankole.PluginsTest do
     :ok
   end
 
-  test "discovers compiled plugin modules from source paths" do
-    assert {:ok, specs} = Discovery.discover(paths: [fixture_path()])
-    assert Enum.map(specs, & &1.id) == ["alpha", "beta"]
-  end
+  test "starts no discovered plugins when the enable list is missing" do
+    :ok = Config.ensure_registered()
+    :ok = AppConfigure.delete_global(Config.enabled_ids_definition())
 
-  test "uses configured plugin source paths as the default discovery paths" do
-    previous_config = Application.get_env(:ankole, Discovery)
-    fixture_path = fixture_path()
-
-    Application.put_env(:ankole, Discovery, paths: [fixture_path])
-
-    on_exit(fn ->
-      case previous_config do
-        nil -> Application.delete_env(:ankole, Discovery)
-        config -> Application.put_env(:ankole, Discovery, config)
-      end
-    end)
-
-    assert Discovery.default_paths() == [Path.expand(fixture_path)]
-    assert {:ok, specs} = Discovery.discover()
-    assert Enum.map(specs, & &1.id) == ["alpha", "beta"]
-  end
-
-  test "missing plugin paths are ignored" do
-    missing_path =
-      Path.join(System.tmp_dir!(), "ankole-missing-plugins-#{System.unique_integer([:positive])}")
-
-    assert {:ok, []} = Discovery.discover(paths: [missing_path])
-  end
-
-  test "starts every discovered plugin unless disabled" do
     registry = start_registry!()
 
     assert Enum.map(Registry.list_discovered(registry), & &1.id) == ["alpha", "beta"]
-    assert Enum.map(Registry.list_active(registry), & &1.id) == ["alpha", "beta"]
-    assert Registry.active?("alpha", registry)
-    assert Registry.active?("beta", registry)
+    assert Registry.list_active(registry) == []
+    assert Registry.enabled_ids(registry) == []
+    refute Registry.active?("alpha", registry)
+    refute Registry.active?("beta", registry)
   end
 
-  test "uses global disabled ids as a next-start activation policy" do
-    assert {:ok, ["beta"]} = Config.put_disabled_ids(["beta"])
+  test "uses global enabled ids as a next-start activation policy" do
+    assert {:ok, ["alpha"]} = Config.put_enabled_ids(["alpha"])
 
     registry = start_registry!()
 
     assert Enum.map(Registry.list_discovered(registry), & &1.id) == ["alpha", "beta"]
     assert Enum.map(Registry.list_active(registry), & &1.id) == ["alpha"]
-    assert Registry.disabled_ids(registry) == ["beta"]
+    assert Registry.enabled_ids(registry) == ["alpha"]
     assert Registry.active?("alpha", registry)
     refute Registry.active?("beta", registry)
 
-    assert {:ok, []} = Config.put_disabled_ids([])
+    assert {:ok, ["alpha", "beta"]} = Config.put_enabled_ids(["alpha", "beta"])
     refute Registry.active?("beta", registry)
 
     AppConfigureRegistry.clear_for_test()
@@ -98,8 +71,8 @@ defmodule Ankole.PluginsTest do
     assert Registry.active?("beta", restarted_registry)
   end
 
-  test "disabled plugins do not expose config definitions or adapters" do
-    assert {:ok, ["beta"]} = Config.put_disabled_ids(["beta"])
+  test "plugins outside the enable list do not expose config definitions or adapters" do
+    assert {:ok, ["alpha"]} = Config.put_enabled_ids(["alpha"])
 
     registry = start_registry!()
 
@@ -116,12 +89,7 @@ defmodule Ankole.PluginsTest do
 
   test "duplicate plugin ids fail registry startup" do
     assert {:stop, {:duplicate_plugin_id, "alpha", modules}} =
-             Registry.init(
-               discovery: [
-                 paths: [],
-                 modules: [AlphaPlugin, DuplicateAlphaPlugin]
-               ]
-             )
+             Registry.init(modules: [AlphaPlugin, DuplicateAlphaPlugin])
 
     assert AlphaPlugin in modules
     assert DuplicateAlphaPlugin in modules
@@ -215,20 +183,18 @@ defmodule Ankole.PluginsTest do
   end
 
   test "duplicate adapter declarations fail registry startup" do
+    assert {:ok, ["alpha", "duplicate-adapter"]} =
+             Config.put_enabled_ids(["alpha", "duplicate-adapter"])
+
     assert {:stop, {:duplicate_adapter_declaration, "test.adapter", "alpha-adapter", modules}} =
-             Registry.init(
-               discovery: [
-                 paths: [],
-                 modules: [AlphaPlugin, DuplicateAdapterPlugin]
-               ]
-             )
+             Registry.init(modules: [AlphaPlugin, DuplicateAdapterPlugin])
 
     assert AlphaPlugin in modules
     assert DuplicateAdapterPlugin in modules
   end
 
   test "plugin supervisor starts children from active plugins only" do
-    assert {:ok, ["beta"]} = Config.put_disabled_ids(["beta"])
+    assert {:ok, ["alpha"]} = Config.put_enabled_ids(["alpha"])
 
     registry = start_registry!()
 
@@ -242,9 +208,32 @@ defmodule Ankole.PluginsTest do
              Supervisor.which_children(supervisor)
   end
 
-  test "facade exposes the default registry" do
-    assert is_list(Plugins.list_discovered())
+  test "default registry validates the compile-time plugin list" do
+    assert Enum.map(Plugins.list_discovered(), & &1.module) == [
+             Ankole.Plugins.ChinaMarketAIProviders,
+             Ankole.Plugins.DingTalkAdapter,
+             Ankole.Plugins.GoogleWorkspaceAdapter,
+             Ankole.Plugins.LarkAdapter,
+             Ankole.Plugins.Microsoft365Adapter,
+             Ankole.Plugins.SlackAdapter
+           ]
+
     assert is_list(Plugins.list_active())
+  end
+
+  test "enable-list configuration is global-only and validates explicit future ids" do
+    definition = Config.enabled_ids_definition()
+
+    assert definition.scope == :global
+
+    assert {:ok, ["alpha", "future-plugin"]} =
+             Config.put_enabled_ids(["alpha", "future-plugin"])
+
+    assert {:error, {:duplicate_plugin_id, "alpha"}} =
+             Config.put_enabled_ids(["alpha", "alpha"])
+
+    assert {:error, {:invalid_plugin_id, "Not-A-Plugin"}} =
+             Config.put_enabled_ids(["Not-A-Plugin"])
   end
 
   defp start_registry! do
@@ -252,12 +241,8 @@ defmodule Ankole.PluginsTest do
 
     start_supervised!(%{
       id: name,
-      start: {Registry, :start_link, [[name: name, discovery: [paths: [fixture_path()]]]]}
+      start: {Registry, :start_link, [[name: name, modules: [AlphaPlugin, BetaPlugin]]]}
     })
-  end
-
-  defp fixture_path do
-    Path.expand("../support/plugin_fixtures", __DIR__)
   end
 
   defp registry_name do
@@ -269,15 +254,12 @@ defmodule Ankole.PluginsTest do
   end
 
   defp assert_contract_startup_failure(module, contract_id, adapter_id, expected_reason) do
+    assert {:ok, [_plugin_id]} = Config.put_enabled_ids([module.plugin_id()])
+
     log =
       capture_log(fn ->
         assert {:stop, reason} =
-                 Registry.init(
-                   discovery: [
-                     paths: [],
-                     modules: [module]
-                   ]
-                 )
+                 Registry.init(modules: [module])
 
         assert {:invalid_adapter_contract_declaration, ^contract_id, ^adapter_id, _plugin_id,
                 ^module, ^expected_reason} = reason

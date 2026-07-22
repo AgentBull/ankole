@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 26.07.34 (2026-07-18)
+
+- Replace the model-visible `/workspace` abstraction with the direct `/agents/<agent-key>` Agent Home contract across Agent Computer, RuntimeFabric, adapters, browser artifacts, attachments, source learning, E2E fixtures, Console file roots, and documentation. Session IDs now use shared Base64URL path vectors, BackgroundAgentJobs use direct `jobs/<job-id>` workspaces and project `.codex/config.toml`, selected Skills project into real `.ankole/skills` paths, and the removed `workspace_mounts` field is rejected while its legacy database column remains empty for one rollback-safe stage.
+
+- Share `HOME` and `.codex` at Agent scope without `CODEX_SQLITE_HOME`, project PostgreSQL-backed `SOUL.md`, `MISSION.md`, and `DESIGN.md` through RuntimeEvents with a turn-time content-hash barrier, and pin every live Session or Job for one Agent to one Worker and one Codex account. Cut Kubernetes over once to the RWX `/agents` mount with `Recreate`, an `agents-v1` deployment fence for partial Forgejo deploys, replica-1/2 Helm coverage, and Worker-side NFS read/write/delete readiness probing.
+
+- Replace default-on Control Plane Plugin activation with the global `plugins.enabled_ids` allowlist, preserve the six shipped integrations through an irreversible blacklist-to-allowlist migration, keep Setup and Console wire shapes stable, and fail closed for newly discovered or malformed plugin configuration until an operator explicitly enables the plugin and restarts Ankole.
+
+- Finish the RuntimeFabric turn-fence and binding-assignment replacements: remove the redundant `memory_update` ActorEvent payload echo and its stale test fixture, retire the unused arity-3 adapter callback fallback, and render each system prompt directly from current deterministic Agent state without a dead snapshot branch.
+
+- Pin the integrated Codex CLI in both Agent Computer images and their runtime contract fixtures to `0.144.6`; retain the checked-in experimental app-server TypeScript bindings after confirming the new binary generates byte-identical protocol output.
+
 ## Version 26.07.33 (2026-07-18)
 
 - Reject BackgroundAgentJobs whose self-contained task still names caller-local `/workspace/user-files` or `/workspace/temp` paths before durable acceptance. File-dependent work must expose durable inputs through `workspace_mounts`, use the isolated `/workspace/workspaces/<mount-id>` path, and recreate temporary intermediates inside the Job, so a cheap model cannot enqueue work that is unreachable by construction.

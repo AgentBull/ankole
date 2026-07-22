@@ -42,13 +42,12 @@ defmodule Ankole.AIAgent.Library do
 
   @type installed_skill_observation :: %{
           required(:skill_name) => String.t(),
-          optional(:relative_path) => String.t(),
           optional(:description) => String.t(),
           optional(:default_enabled) => boolean(),
-          optional(:metadata) => map(),
-          optional(:content_hash) => String.t(),
-          optional(:xxh3_128) => String.t(),
-          optional(:file_count) => non_neg_integer()
+          optional(:tags) => [String.t()],
+          optional(:category) => String.t(),
+          optional(:disable_model_invocation) => boolean(),
+          optional(:ankole_runtime) => String.t()
         }
 
   @doc """
@@ -113,9 +112,9 @@ defmodule Ankole.AIAgent.Library do
   @doc """
   Replaces the agent-installed skill registry from worker file observations.
 
-  The caller is expected to obtain these observations through RuntimeFabric File
-  Lane LIST/GET/STAT work. This function deliberately accepts data, not a
-  filesystem root, so the control plane cannot silently become an NFS scanner.
+  The caller obtains these observations from a worker-local scan. This function
+  deliberately accepts registry metadata, not a filesystem root, so the control
+  plane cannot silently become an NFS scanner.
   """
   @spec replace_installed_skill_observations(
           String.t(),
@@ -317,42 +316,6 @@ defmodule Ankole.AIAgent.Library do
        |> Enum.map(fn {skill, effective} ->
          skill_summary(skill, overlay_skills, effective, defaults)
        end)}
-    end
-  end
-
-  @doc """
-  Resolves the currently enabled standalone Agent Skills selected for one
-  BackgroundAgentJob.
-  """
-  @spec resolve_job_skill_names(String.t(), [String.t()] | nil, keyword()) ::
-          {:ok, [String.t()]} | {:error, term()}
-  def resolve_job_skill_names(agent_uid, requested_names, opts \\ []) do
-    with {:ok, skills} <- enabled_skills_for_agent(agent_uid, opts) do
-      standalone = Enum.reject(skills, &is_binary(&1["agent_plugin_id"]))
-      standalone_names = MapSet.new(standalone, & &1["skill_name"])
-
-      plugin_names =
-        skills
-        |> Enum.filter(&is_binary(&1["agent_plugin_id"]))
-        |> MapSet.new(& &1["skill_name"])
-
-      case requested_names do
-        nil ->
-          {:ok, standalone_names |> MapSet.to_list() |> Enum.sort()}
-
-        names when is_list(names) ->
-          with {:ok, names} <- normalize_requested_skill_names(names),
-               :ok <- reject_plugin_owned_skill_names(names, plugin_names),
-               [] <- Enum.reject(names, &MapSet.member?(standalone_names, &1)) do
-            {:ok, Enum.sort(names)}
-          else
-            missing when is_list(missing) -> {:error, {:job_skills_not_enabled, missing}}
-            {:error, _reason} = error -> error
-          end
-
-        _value ->
-          {:error, :invalid_job_skill_names}
-      end
     end
   end
 
@@ -581,7 +544,9 @@ defmodule Ankole.AIAgent.Library do
                upsert_agent_document_in_tx(repo, agent_uid, spec, content, %{
                  "source" => "console"
                }) do
-          {:ok, agent_document_payload(entry, spec)}
+          with :ok <- Ankole.RuntimeEvents.notify_agent_home_projection(repo, agent_uid) do
+            {:ok, agent_document_payload(entry, spec)}
+          end
         end
       end)
     end
@@ -998,24 +963,32 @@ defmodule Ankole.AIAgent.Library do
 
   defp installed_source_from_observation(observation) when is_map(observation) do
     with {:ok, name} <- SourceReader.normalize_skill_name(map_text(observation, :skill_name)),
-         {:ok, relative_path} <-
-           SourceReader.normalize_virtual_path(map_text(observation, :relative_path) || name),
-         {:ok, content_hash} <- observation_hash(observation),
          {:ok, description} <- observation_description(observation),
          {:ok, default_enabled} <- observation_boolean(observation, :default_enabled, true),
-         {:ok, file_count} <- observation_file_count(observation) do
+         {:ok, tags} <- observation_tags(observation),
+         {:ok, category} <- observation_optional_text(observation, :category),
+         {:ok, disable_model_invocation} <-
+           observation_boolean(observation, :disable_model_invocation, false),
+         {:ok, ankole_runtime} <-
+           SourceReader.normalize_ankole_runtime(map_text(observation, :ankole_runtime)) do
       metadata =
-        observation
-        |> map_value(:metadata)
-        |> case do
-          metadata when is_map(metadata) -> metadata
-          _value -> %{}
-        end
-        |> Map.put("name", name)
-        |> Map.put("description", description)
-        |> Map.put("default_enabled", default_enabled)
-        |> Map.put("relative_path", relative_path)
-        |> Map.put("fingerprint_algorithm", "xxh3_128")
+        %{
+          "tags" => tags,
+          "disable_model_invocation" => disable_model_invocation
+        }
+        |> put_optional_metadata("category", category)
+        |> put_optional_metadata("ankole-runtime", ankole_runtime)
+
+      source_hash =
+        installed_source_hash(
+          name,
+          description,
+          default_enabled,
+          tags,
+          category,
+          disable_model_invocation,
+          ankole_runtime
+        )
 
       {:ok,
        %{
@@ -1023,28 +996,14 @@ defmodule Ankole.AIAgent.Library do
          description: description,
          default_enabled: default_enabled,
          metadata: metadata,
-         source_hash: content_hash,
-         relative_path: relative_path,
-         files: List.duplicate(%{path: "SKILL.md", content_hash: content_hash}, file_count)
+         source_hash: source_hash,
+         relative_path: name,
+         files: []
        }}
     end
   end
 
   defp installed_source_from_observation(_observation), do: {:error, :invalid_skill_observation}
-
-  defp observation_hash(observation) do
-    case map_text(observation, :xxh3_128) || map_text(observation, :content_hash) do
-      hash when is_binary(hash) ->
-        if Regex.match?(~r/\A[a-f0-9]{32}\z/, hash) do
-          {:ok, hash}
-        else
-          {:error, :invalid_skill_fingerprint}
-        end
-
-      _value ->
-        {:error, :missing_skill_fingerprint}
-    end
-  end
 
   defp observation_description(observation) do
     case map_text(observation, :description) do
@@ -1064,12 +1023,69 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp observation_file_count(observation) do
-    case map_value(observation, :file_count) do
-      nil -> {:ok, 1}
-      count when is_integer(count) and count >= 1 -> {:ok, count}
-      _value -> {:error, :invalid_file_count}
+  defp observation_tags(observation) do
+    case map_value(observation, :tags) do
+      nil ->
+        {:ok, []}
+
+      tags when is_list(tags) ->
+        tags
+        |> Enum.reduce_while({:ok, []}, fn
+          tag, {:ok, acc} when is_binary(tag) ->
+            case String.trim(tag) do
+              "" -> {:halt, {:error, :invalid_skill_tags}}
+              normalized -> {:cont, {:ok, [normalized | acc]}}
+            end
+
+          _tag, _acc ->
+            {:halt, {:error, :invalid_skill_tags}}
+        end)
+        |> case do
+          {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+          {:error, _reason} = error -> error
+        end
+
+      _value ->
+        {:error, :invalid_skill_tags}
     end
+  end
+
+  defp observation_optional_text(observation, key) do
+    case map_value(observation, key) do
+      nil ->
+        {:ok, nil}
+
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:invalid_text, key}}
+          normalized -> {:ok, normalized}
+        end
+
+      _value ->
+        {:error, {:invalid_text, key}}
+    end
+  end
+
+  defp installed_source_hash(
+         name,
+         description,
+         default_enabled,
+         tags,
+         category,
+         disable_model_invocation,
+         ankole_runtime
+       ) do
+    [
+      name,
+      description,
+      to_string(default_enabled),
+      category || "",
+      to_string(disable_model_invocation),
+      ankole_runtime || ""
+      | tags
+    ]
+    |> Enum.join(<<0>>)
+    |> SourceReader.hash()
   end
 
   defp reject_duplicate_observations(sources) do
@@ -1112,34 +1128,6 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp normalize_requested_skill_names(names) do
-    names
-    |> Enum.reduce_while({:ok, []}, fn name, {:ok, acc} ->
-      case SourceReader.normalize_skill_name(name) do
-        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
-        {:error, _reason} -> {:halt, {:error, :invalid_job_skill_names}}
-      end
-    end)
-    |> case do
-      {:ok, normalized} ->
-        normalized = Enum.reverse(normalized)
-
-        if length(normalized) == length(Enum.uniq(normalized)),
-          do: {:ok, normalized},
-          else: {:error, :duplicate_job_skill_name}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp reject_plugin_owned_skill_names(names, plugin_names) do
-    case Enum.filter(names, &MapSet.member?(plugin_names, &1)) do
-      [] -> :ok
-      owned -> {:error, {:job_plugin_skills_must_be_selected_by_plugin, owned}}
-    end
-  end
-
   defp map_text(map, key) do
     case map_value(map, key) do
       value when is_binary(value) ->
@@ -1154,8 +1142,14 @@ defmodule Ankole.AIAgent.Library do
   end
 
   defp map_value(map, key) when is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    case Map.fetch(map, key) do
+      {:ok, value} -> value
+      :error -> Map.get(map, Atom.to_string(key))
+    end
   end
+
+  defp put_optional_metadata(metadata, _key, nil), do: metadata
+  defp put_optional_metadata(metadata, key, value), do: Map.put(metadata, key, value)
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

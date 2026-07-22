@@ -288,7 +288,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
                  %FabricProto.AgentComputerWorkerHeartbeat{
                    worker_id: worker.worker_id,
                    incarnation_id: worker.incarnation_id,
-                   load_json: Torque.encode!(%{"active_turns" => 1})
+                   active_turns: 1
                  },
                  %{authenticated?: true, transport_route: route}
                )

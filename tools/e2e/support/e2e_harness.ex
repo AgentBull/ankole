@@ -110,8 +110,14 @@ defmodule Ankole.E2E.Harness do
 
     start_supervised!({Registry, keys: :unique, name: registry})
     start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
+    put_lark_test_client_opts!(base_url: fake_feishu.base_url)
 
-    result = ConnectionReconciler.reconcile_once(registry: registry, supervisor: supervisor)
+    result =
+      ConnectionReconciler.reconcile_once(
+        registry: registry,
+        supervisor: supervisor
+      )
+
     assert %{errors: []} = result
 
     expected = Keyword.get(opts, :connections, 1)
@@ -173,8 +179,8 @@ defmodule Ankole.E2E.Harness do
   @doc """
   Starts the full worker e2e stack one suite test needs:
 
-  fake OpenAI upstream + fake Feishu platform + agent domain (bindings with
-  `baseURL` pointing at fake Feishu) + RuntimeFabric router + AIGateway HTTP
+  fake OpenAI upstream + fake Feishu platform + agent domain + RuntimeFabric
+  router + AIGateway HTTP
   server + one real Docker worker, then waits for WS connections and worker
   admission. Returns the ctx map the scenario functions consume.
 
@@ -204,10 +210,7 @@ defmodule Ankole.E2E.Harness do
       case Keyword.get(opts, :secondary, false) do
         true ->
           secondary =
-            setup_lark_secondary_domain!(fake_llm_port, fake_feishu,
-              bot_open_id: "ou_lark_bot_b",
-              user_name: "Agent B"
-            )
+            setup_lark_secondary_domain!(fake_llm_port, fake_feishu, user_name: "Agent B")
 
           {Map.put(domain, :secondary_agent, secondary.agent), connections + 1}
 
@@ -446,16 +449,17 @@ defmodule Ankole.E2E.Harness do
     upsert_lark_binding!(agent_uid, "lark-chaos-multi-a", :ignore, fake_feishu,
       app_id: @multi_a_app_id,
       group_message_mode: "addressed_only",
-      bot_open_id: "ou_lark_bot_a",
       user_name: "Agent A"
     )
   end
 
   @doc """
-  Creates one enabled Lark binding plus its encrypted AppConfigure chat config
-  pointing `baseURL` at the fake Feishu server.
+  Creates one enabled Lark binding plus its encrypted AppConfigure chat config.
+
+  The fake provider endpoint is injected at the connection boundary, so the
+  production AppConfigure contract does not gain a provider URL override.
   """
-  def upsert_lark_binding!(agent_uid, name, policy, fake_feishu, opts) do
+  def upsert_lark_binding!(agent_uid, name, policy, _fake_feishu, opts) do
     app_id = Keyword.fetch!(opts, :app_id)
 
     config =
@@ -463,13 +467,10 @@ defmodule Ankole.E2E.Harness do
         "appID" => app_id,
         "appSecret" => @app_secret,
         "domain" => "feishu",
-        "baseURL" => fake_feishu.base_url,
         "platformSubjectNamespace" => "lark-chaos",
         "userName" => Keyword.get(opts, :user_name, "Lark Chaos Bot"),
         "group_message_mode" => Keyword.fetch!(opts, :group_message_mode)
       }
-      |> maybe_put_config("botOpenID", Keyword.get(opts, :bot_open_id, "ou_bot"))
-      |> maybe_put_config("botUserID", Keyword.get(opts, :bot_user_id))
 
     assert {:ok, _stored} =
              AppConfigure.put_global_by_key(LarkConfig.chat_config_key(name), config)
@@ -1054,7 +1055,16 @@ defmodule Ankole.E2E.Harness do
 
   def unique_worker_auth_key, do: "lark-e2e-" <> Ecto.UUID.generate()
 
-  defp maybe_put_config(map, _key, nil), do: map
-  defp maybe_put_config(map, _key, ""), do: map
-  defp maybe_put_config(map, key, value), do: Map.put(map, key, value)
+  defp put_lark_test_client_opts!(client_opts) do
+    previous = Application.fetch_env(:ankole, LarkConfig)
+    current = Application.get_env(:ankole, LarkConfig, [])
+    Application.put_env(:ankole, LarkConfig, Keyword.put(current, :client_opts, client_opts))
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:ankole, LarkConfig, value)
+        :error -> Application.delete_env(:ankole, LarkConfig)
+      end
+    end)
+  end
 end

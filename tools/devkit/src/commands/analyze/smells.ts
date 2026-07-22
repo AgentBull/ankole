@@ -1,22 +1,11 @@
 // `analyze smells` — Ankole boundary / architecture-smell gate.
 //
-// Rules are Ankole-specific (the OpenClaw smells don't apply); only the regex
-// reference scanner is ported. Four rules:
-//   ① sdk must not re-export app/plugin internals
-//   ② plugin/** must not import app internals
-//   ③ app core must not reverse-import plugin implementation (discovery exempt)
-//   ④ public-ish barrels may only re-export from an allowed module list
+// Rules are Ankole-specific. The scanner checks declared subsystem boundaries.
 
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { repoRootPath } from '../../utils'
-import {
-  BARREL_ALLOWLIST,
-  BARREL_EXPORT_CATEGORY,
-  BOUNDARY_RULES,
-  SMELL_SCAN_ROOTS,
-  SMELL_SOURCE_EXTENSIONS
-} from './config'
+import { BOUNDARY_RULES, SMELL_SCAN_ROOTS, SMELL_SOURCE_EXTENSIONS } from './config'
 import { collectSourceFiles } from './lib/import-cycle-graph'
 import { collectModuleReferencesFromSource, resolveRelativeSpecifier } from './lib/scan'
 import type { CheckOptions, CheckResult, Finding } from './types'
@@ -35,7 +24,7 @@ function compareFindings(left: Finding, right: Finding): number {
   )
 }
 
-/** Scans one source file for configured boundary and barrel export violations. */
+/** Scans one source file for configured boundary violations. */
 function scanFile(file: string): Finding[] {
   const source = readFileSync(path.join(repoRootPath, file), 'utf8')
   const references = collectModuleReferencesFromSource(source)
@@ -61,29 +50,6 @@ function scanFile(file: string): Finding[] {
           specifier: reference.specifier,
           resolved: resolved ?? reference.specifier,
           reason: rule.reason
-        })
-      }
-    }
-  }
-
-  const barrel = BARREL_ALLOWLIST[file]
-  if (barrel) {
-    // Barrel files are allowed to be public surfaces, but only for explicitly
-    // listed modules. This keeps convenience exports from growing silently.
-    const allowed = new Set(barrel.allowed)
-    for (const reference of references) {
-      if (reference.kind !== 'export' || !reference.specifier.startsWith('.')) {
-        continue
-      }
-      if (!allowed.has(reference.specifier)) {
-        findings.push({
-          category: BARREL_EXPORT_CATEGORY,
-          file,
-          line: reference.line,
-          kind: reference.kind,
-          specifier: reference.specifier,
-          resolved: reference.specifier,
-          reason: `barrel re-exports '${reference.specifier}' outside its allowed surface`
         })
       }
     }

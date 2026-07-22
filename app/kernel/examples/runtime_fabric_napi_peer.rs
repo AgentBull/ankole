@@ -51,8 +51,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 worker_id: "fixture".to_string(),
                 runtime: "rust".to_string(),
                 version: "test".to_string(),
-                capacity_json: br#"{"available_turn_slots":1}"#.to_vec(),
+                max_turns: 1,
                 incarnation_id: "fixture-incarnation".to_string(),
+                available_turn_slots: 1,
             },
         )),
     };

@@ -16,7 +16,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SystemConfig
 
   @spec handle_request(TurnRef.t(), FabricProto.AgentConversationContextRequest.t(), map()) ::
@@ -25,21 +24,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
     with {:ok, context} <- RuntimeContext.resolve(turn_ref),
          {:ok, brain_snapshot} <- Snapshot.get_or_create(context.conversation),
          {:ok, agent} <- agent_profile(turn_ref.agent_uid),
-         {:ok, soul} <- Library.get_soul(turn_ref.agent_uid),
-         {:ok, mission} <- Library.get_mission(turn_ref.agent_uid),
-         {:ok, design} <- Library.get_design(turn_ref.agent_uid),
+         {:ok, documents} <- Library.list_agent_documents(turn_ref.agent_uid),
          {:ok, skills} <- Library.skills_for_system_prompt(turn_ref.agent_uid) do
       timezone = installation_timezone()
-      system_prompt_snapshot = AIGatewayLink.system_prompt_snapshot(context.conversation)
+      soul = Map.fetch!(documents, "soul")
+      mission = Map.fetch!(documents, "mission")
+      design = Map.fetch!(documents, "design")
 
       {:ok,
        %FabricProto.AgentConversationContextResponse{
          agent: agent,
          conversation: conversation_info(context.conversation, timezone),
-         soul: soul || "",
-         mission: mission || "",
-         design: design || "",
-         system_prompt_snapshot: system_prompt_snapshot || "",
+         soul: soul["content"],
+         mission: mission["content"],
+         design: design["content"],
+         soul_content_hash: soul["content_hash"],
+         mission_content_hash: mission["content_hash"],
+         design_content_hash: design["content_hash"],
          brain_snapshot: brain_snapshot_message(brain_snapshot),
          skills: Enum.map(skills, &skill_summary/1)
        }}

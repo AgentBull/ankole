@@ -346,9 +346,9 @@ export function RelationsEditor({
   const [targetEntryID, setTargetEntryID] = useState('')
   const allowedTargets = candidates.filter(candidate => {
     if (candidate.id === entry.id) return false
-    return entry.store_key === 'public'
-      ? candidate.store_key === 'public'
-      : candidate.store_key === 'public' || candidate.store_key === entry.store_key
+    return entry.store_key === 'shared'
+      ? candidate.store_key === 'shared'
+      : candidate.store_key === 'shared' || candidate.store_key === entry.store_key
   })
   const targetListID = `brain-relation-targets-${entry.id}`
   return (

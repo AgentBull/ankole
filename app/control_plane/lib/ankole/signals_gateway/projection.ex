@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.Projection do
   import Ankole.SignalsGateway.Utils, only: [thread_key: 1]
 
   @tombstone_ttl_seconds 24 * 60 * 60
+  @entry_brain_store_routes_key "_ankole_brain_store_routes"
 
   def maybe_upsert_channel(_repo, %{signal_channel_id: nil}, _now), do: {:ok, nil}
   def maybe_upsert_channel(repo, fact, now), do: upsert_channel(repo, fact, now)
@@ -127,6 +128,7 @@ defmodule Ankole.SignalsGateway.Projection do
               |> Entry.changeset(%{
                 attrs
                 | first_seen_at: entry.first_seen_at,
+                  metadata: merge_entry_metadata(entry.metadata, attrs.metadata),
                   reactions: entry.reactions || %{},
                   raw_reaction_keys: entry.raw_reaction_keys || %{}
               })
@@ -144,6 +146,7 @@ defmodule Ankole.SignalsGateway.Projection do
   def receive_entry_attrs(fact, now) do
     rich_content = rich_content(fact.text, fact.formatted_content)
     metadata = signal_entry_metadata(fact)
+    content_metadata = Map.delete(metadata, @entry_brain_store_routes_key)
 
     %{
       signal_channel_id: fact.signal_channel_id,
@@ -170,7 +173,7 @@ defmodule Ankole.SignalsGateway.Projection do
           fact.links,
           fact.author,
           fact.mentions,
-          metadata,
+          content_metadata,
           Map.get(fact, :reply_to_source_entry_id),
           Map.get(fact, :provider_thread_id)
         ]),
@@ -185,6 +188,49 @@ defmodule Ankole.SignalsGateway.Projection do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  @doc false
+  def put_entry_brain_store_route(metadata, principal_uid, store_key)
+      when is_map(metadata) and is_binary(principal_uid) and is_binary(store_key) do
+    routes = entry_brain_store_routes(metadata)
+
+    Map.put(
+      metadata,
+      @entry_brain_store_routes_key,
+      Map.put(routes, principal_uid, store_key)
+    )
+  end
+
+  @doc false
+  def entry_brain_store_route(%Entry{metadata: metadata}, principal_uid)
+      when is_binary(principal_uid) do
+    case Map.get(entry_brain_store_routes(metadata), principal_uid) do
+      store_key when is_binary(store_key) and store_key != "" -> store_key
+      _missing_or_invalid -> nil
+    end
+  end
+
+  defp merge_entry_metadata(existing, incoming) when is_map(incoming) do
+    routes =
+      existing
+      |> entry_brain_store_routes()
+      |> Map.merge(entry_brain_store_routes(incoming))
+
+    incoming = Map.delete(incoming, @entry_brain_store_routes_key)
+
+    if map_size(routes) == 0,
+      do: incoming,
+      else: Map.put(incoming, @entry_brain_store_routes_key, routes)
+  end
+
+  defp entry_brain_store_routes(metadata) when is_map(metadata) do
+    case Map.get(metadata, @entry_brain_store_routes_key) do
+      %{} = routes -> routes
+      _missing_or_invalid -> %{}
+    end
+  end
+
+  defp entry_brain_store_routes(_metadata), do: %{}
 
   # `formatted_content` is an ingress representation. Store only structure that
   # adds information beyond the canonical plain text instead of persisting the

@@ -80,10 +80,10 @@ defmodule AnkoleWeb.BrainController.Adapter do
     end
   end
 
-  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
-  def review_candidates(owner_uid) do
-    with {:ok, review} <- Brain.review_candidates(owner_uid) do
-      {:ok, %{review: review}}
+  @spec status(String.t()) :: {:ok, map()} | {:error, term()}
+  def status(owner_uid) do
+    with {:ok, status} <- Brain.status(owner_uid) do
+      {:ok, %{memory_status: status}}
     end
   end
 
@@ -94,8 +94,8 @@ defmodule AnkoleWeb.BrainController.Adapter do
           {:ok, map()} | {:error, term()}
   def create_source(owner_uid, store_key, body, actor_uid) do
     with {:ok, attrs} <- source_attrs(body),
-         {:ok, source} <- Brain.capture_source(owner_uid, store_key, attrs, actor_uid) do
-      {:ok, %{source: source}}
+         {:ok, material} <- Brain.capture_source(owner_uid, store_key, attrs, actor_uid) do
+      {:ok, material}
     end
   end
 

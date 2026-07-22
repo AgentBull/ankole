@@ -76,7 +76,7 @@ export function BrainSourcesPage() {
         t('console.brain.captured_at')
       ]}
       createLabel={t('console.brain.learn_source')}
-      createTo={`/brain/learn?${brainSearch(ownerUID, searchParams.get('store') || 'public')}`}
+      createTo={`/brain/learn?${brainSearch(ownerUID, searchParams.get('store') || 'shared')}`}
       isLoading={sources.isLoading || principals.isLoading}
       isEmpty={rows.length === 0}
       emptyTitle={t('console.brain.sources_empty_title')}
@@ -110,9 +110,7 @@ export function BrainSourcesPage() {
             <BrainStoreName store={source.store_key} principals={principals.data?.principals ?? []} />
           </TableCell>
           <TableCell>
-            <Badge variant={sourceStatusVariant(source.learning_status)}>
-              {sourceStatusLabel(t, source.learning_status)}
-            </Badge>
+            <Badge variant={sourceStatusVariant(source)}>{sourceStatusLabel(t, source)}</Badge>
           </TableCell>
           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
             {formatBrainDate(source.captured_at)}
@@ -136,7 +134,7 @@ export function BrainSourceLearnPage() {
   const allPrincipals = principals.data?.principals ?? []
   const agents = allPrincipals.filter(principal => principal.type === 'agent')
   const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(agents)
-  const [store, setStore] = useState(searchParams.get('store') || 'public')
+  const [store, setStore] = useState(searchParams.get('store') || 'shared')
   const [kind, setKind] = useState<'url' | 'file' | 'paste'>('url')
   const [title, setTitle] = useState('')
   const [url, setURL] = useState('')
@@ -176,6 +174,18 @@ export function BrainSourceLearnPage() {
     let documentID: string | undefined
     try {
       const captured = await create.mutateAsync({ query: { owner_uid: ownerUID, store }, body })
+      if (captured.resource_kind === 'entry' && captured.entry) {
+        toast.success(t('console.brain.material_saved'))
+        void queryClient.invalidateQueries()
+        navigate(`/brain/${captured.entry.entry.id}?${brainSearch(ownerUID, captured.entry.entry.store_key)}`)
+        return
+      }
+
+      if (!captured.source) {
+        setValidationError(t('console.brain.source_capture_invalid'))
+        return
+      }
+
       documentID = captured.source.document_id
       await learn.mutateAsync({ path: { document_id: documentID }, query: { owner_uid: ownerUID } })
       toast.success(t('console.brain.source_queued'))
@@ -188,12 +198,14 @@ export function BrainSourceLearnPage() {
     }
 
     void queryClient.invalidateQueries()
-    navigate(`/brain/sources/${encodeURIComponent(documentID)}?owner=${encodeURIComponent(ownerUID)}`)
+    if (documentID) {
+      navigate(`/brain/sources/${encodeURIComponent(documentID)}?owner=${encodeURIComponent(ownerUID)}`)
+    }
   }
 
   const changeOwner = (value: string) => {
     setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })
-    if (store === `dm:${value}`) setStore('public')
+    if (store === `dm:${value}`) setStore('shared')
   }
 
   return (
@@ -203,7 +215,7 @@ export function BrainSourceLearnPage() {
       backTo={`/brain/sources?${brainSearch(ownerUID)}`}
       error={validationError ?? create.error ?? learn.error ?? principals.error}
       submitting={create.isPending || learn.isPending}
-      submitLabel={t('console.brain.save_and_learn')}
+      submitLabel={kind === 'file' ? t('console.brain.save_and_learn') : t('console.brain.save_material')}
       onSubmit={() => void submit()}>
       <BrainTaskNavigation active="sources" ownerUID={ownerUID} store={store} />
       <BrainOwnerField ownerUID={ownerUID} principals={agents} onChange={changeOwner} />
@@ -322,22 +334,18 @@ export function BrainSourcePage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary">{sourceCaptureLabel(t, item)}</Badge>
-                {item.learning_status ? (
-                  <Badge variant={sourceStatusVariant(item.learning_status)}>
-                    {sourceStatusLabel(t, item.learning_status)}
-                  </Badge>
-                ) : null}
+                <Badge variant={sourceStatusVariant(item)}>{sourceStatusLabel(t, item)}</Badge>
               </div>
             </div>
           </CardHeader>
           <CardContent className="grid gap-4">
             <p className="whitespace-pre-wrap text-sm leading-6">{item.text || '—'}</p>
-            {item.kind === 'retained_source' ? (
+            {item.kind === 'retained_source' && item.capture_method === 'file' ? (
               <div className="flex flex-wrap gap-2">
                 <Button type="button" size="sm" variant="outline" disabled={downloading} onClick={download}>
                   {t('console.brain.download_source')}
                 </Button>
-                {canRetryLearning(item.learning_status) ? (
+                {canRetryLearning(item) ? (
                   <Button
                     type="button"
                     size="sm"
@@ -362,6 +370,11 @@ export function BrainSourcePage() {
                 {formatJSON({
                   kind: item.kind,
                   capture_method: item.capture_method,
+                  connector_id: item.connector_id,
+                  revision: item.revision,
+                  source_url: item.source_url,
+                  sync_state: item.sync_state,
+                  last_synced_at: item.last_synced_at,
                   origin_locator: item.origin_locator,
                   original_name: item.original_name,
                   media_type: item.media_type,
@@ -408,19 +421,26 @@ function SourceIntegrationLinks({ item, ownerUID }: { item: BrainSourceEntry; ow
 
 function sourceCaptureLabel(t: ReturnType<typeof useTranslation>['t'], source: BrainSourceEntry): string {
   if (source.kind === 'signal_message') return t('console.brain.source_kind_signal')
-  return t(`console.brain.source_kind_${source.capture_method ?? 'file'}`)
+  if (source.connector_id) return t('console.brain.source_kind_connector', { id: source.connector_id })
+  return t('console.brain.source_kind_file')
 }
 
-function sourceStatusLabel(
-  t: ReturnType<typeof useTranslation>['t'],
-  status?: BrainSourceEntry['learning_status']
-): string {
-  return t(`console.brain.learning_status_${status ?? 'stored'}`)
+function sourceStatusLabel(t: ReturnType<typeof useTranslation>['t'], source: BrainSourceEntry): string {
+  if (source.connector_id || source.sync_state) {
+    return t(`console.brain.source_sync_status_${source.sync_state ?? 'failed'}`)
+  }
+  return t(`console.brain.learning_status_${source.learning_status ?? 'stored'}`)
 }
 
 function sourceStatusVariant(
-  status?: BrainSourceEntry['learning_status']
+  source: BrainSourceEntry
 ): 'secondary' | 'outline' | 'success' | 'warning' | 'destructive' {
+  if (source.sync_state === 'current') return 'success'
+  if (source.sync_state === 'deleted' || source.sync_state === 'access_lost' || source.sync_state === 'failed') {
+    return 'destructive'
+  }
+
+  const status = source.learning_status
   if (status === 'integrated' || status === 'no_change') return 'success'
   if (status === 'incomplete') return 'warning'
   if (status === 'failed') return 'destructive'
@@ -428,7 +448,9 @@ function sourceStatusVariant(
   return 'secondary'
 }
 
-function canRetryLearning(status?: BrainSourceEntry['learning_status']): boolean {
+function canRetryLearning(source: BrainSourceEntry): boolean {
+  if (source.capture_method !== 'file') return false
+  const status = source.learning_status
   return status === 'stored' || status === 'no_change' || status === 'incomplete' || status === 'failed'
 }
 

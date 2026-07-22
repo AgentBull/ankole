@@ -1,131 +1,288 @@
 # Background Agent Job
 
-Status: implemented
+A BackgroundAgentJob records work that continues after the Agent turn that
+started it. PostgreSQL stores the request, current state, and final result.
+CodexRunner executes every Job.
 
-A BackgroundAgentJob is one durable unit of work that continues outside the
-main Agent turn that started it. PostgreSQL owns the Job and its lifecycle. The
-only runner is CodexRunner.
+Agent Plugins and standalone Skills give a Job more tools or instructions. They
+do not create different kinds of Job.
 
-Agent Plugins and standalone Skills add capabilities to an ordinary Job. They
-do not create Job types or change the lifecycle. Deep Research is therefore a
-normal Job selecting the `deep-research` Agent Plugin.
+## What the Main Agent Can Do
 
-## User story
+Each model tool performs one BackgroundAgentJob operation. A tool does not use
+an `action` field to select different operations.
 
-The main Agent calls `background_agent_job` when work should be acknowledged
-now and continue durably. The tool has five actions:
+`list_background_jobs` is a read-only tool. Its input has only these optional
+fields:
 
-- `start` starts a Job and returns after the Job and dispatch event commit;
-- `list` lists Jobs visible to the owner scope;
-- `status` reads a Job and its bounded execution projection;
-- `steer` adds instructions, answers a pending question, or continues a
-  resumable succeeded or failed Job;
-- `stop` stops queued, waiting, or running work.
+- `status`: `live` or `stop`; the default is `live`
+- `page`: the turn-local `page_N` reference from the preceding page
 
-`start` accepts:
+`live` includes `queued`, `running`, and `waiting_on_user`. `stop` includes
+`succeeded`, `failed`, and `stopped`.
 
-- required `title` and self-contained `task`;
-- optional `background` and `notes`;
-- optional `agent_plugin_ids`;
-- optional standalone `skill_names`;
-- optional explicit `workspace_mounts`;
-- optional `model` and `reasoning_effort`.
+The tool returns at most 32 Jobs. It orders them by `updated_at` descending and
+then by `id` descending. Each item contains only `job_id`, `title`, the concrete
+Job `status`. The page also contains `next_page`. Its value is `null` when no
+older Job is available.
 
-The self-contained task must use paths visible inside the isolated Job. Caller
-paths under `/workspace/user-files` and `/workspace/temp` are rejected before
-the Job commits: durable caller resources must be supplied through
-`workspace_mounts` and referenced as `/workspace/workspaces/<mount-id>/...`,
-while temporary intermediates must be recreated inside the Job project.
+`show_background_job_details` is a read-only tool. Its input contains only
+`job_id`. It returns `title`, the concrete Job `status`, attempt counts, compact
+attempt history, a current error summary, and `recent_trajectory`. The error
+projection keeps only `code`, `summary`, `retryable`, and `codex_turn_status`.
+It replaces UUID-shaped tokens in system failure diagnostics with
+`[internal-id]`. It does not rewrite successful results or assistant content.
+`recent_trajectory` is an `ankole_chatml` trajectory built from the latest three
+stored semantic trajectory groups. It removes stored message IDs, maps tool-call
+correlation to turn-local `call_N` aliases, and contains no cursor.
 
-Owner identity, reply routing, runtime IDs, and lifecycle state are derived from
-the authorized parent Turn. Owner conversation history is not copied into the
-Job, so `task` must contain the requirements and acceptance criteria needed by
-the runner.
+`create_background_job` creates one durable Job. Its input contains only:
 
-Completion, failure, and `waiting_on_user` create durable wakeups for the owner
-session. A success wakeup carries Codex's final response so the main Agent can
-resume from that result. The wakeup is delivery plumbing, not a second business
-acceptance phase. Stopping a Job does not create a wakeup.
+- `title`: required management and display text; Codex does not receive it
+- `task`: required text sent verbatim as the first Codex user prompt
+- `workspace_template_id`: an optional enabled workspace template applied only
+  when Agent Computer first creates the Job Workspace
 
-## Ownership
+The tool returns only the new `job_id` and its initial `queued` status.
 
-The Elixir control plane owns:
+`send_message_to_background_job` sends one message to an existing Job. Its
+input contains only:
 
-- Job and Job Turn rows in PostgreSQL;
-- owner scope, authorization, and reply routing;
-- Agent Plugin and Skill selection validation, account resolution, and
-  workspace resolution at start time;
-- status transitions, attempts, dispatch, steer, and stop;
-- `job:<job_id>` actor-session serialization and lease recovery;
-- terminal commit and owner wakeup;
-- RuntimeFabric, REST, and Console projections.
+- `job_id`: the target Job
+- `message`: the text to send to Codex
+- `wait_reply`: whether to wait for the Codex Turn that receives this message;
+  the default is `true`
 
-Agent Computer owns:
+The tool accepts only a `running` or `waiting_on_user` Job. For a running Job,
+the message steers the active Codex Turn. For a waiting Job, the message answers
+the request and resumes the same Codex thread. The tool rejects a queued or
+terminal Job.
 
-- the private Job project and Job-specific Codex home;
-- current Agent Plugin and Skill resolution, package staging, installation,
-  and Skill configuration;
-- standalone Skill, MCP, Brain, and web capability projection;
-- Codex app-server execution and resume;
-- append-only semantic Job Turn observations with bounded presentation pages;
-- Codex's final response as the generic execution result.
+With `wait_reply=false`, the tool returns `job_id` and the current concrete
+status immediately after it stores the message. With `wait_reply=true`, the
+tool waits for the exact Codex Turn that receives the message. It then returns
+`job_id`, the current concrete status, `last_turn_trajectory`,
+`earlier_trajectory_omitted`, and `continues_running`.
 
-Codex owns thread state, Plugin and Skill behavior, hooks, native collaboration,
-and task execution. Its thread is resumable execution state, while PostgreSQL
-remains the durable Job source of truth.
+`last_turn_trajectory` contains at most the latest 20 trajectory groups from
+that one Turn. Its serialized size is at most 24 KiB. The tool states when it
+omits earlier groups. If the Job is still running, the tool also states that the
+Job continues in the background.
 
-## Durable model
+`respawn_background_job` starts a new Job from one terminal Job. Its input
+contains only:
 
-`background_agent_jobs` stores facts shared by every Job:
+- `source_job_id`: the `succeeded`, `failed`, or `stopped` Job to continue
+- `message`: the new text sent verbatim as the next Codex user message
 
-- identity: `id`, `agent_uid`, `owner_session_id`, source event and tool-call
-  IDs, and the captured `reply_route`;
-- request: `title`, `task`, optional `background`, and optional `notes`;
-- execution: `codex_account_id`, optional `model`, optional
-  `reasoning_effort`, and optional `runtime_thread_id`;
-- capabilities: selected `agent_plugin_ids`, standalone `skill_names`, and
-  `workspace_mounts`;
-- lifecycle: `status`, `attempts`, and queued/started/completed timestamps;
-- observations: generic `result`, `error`, and `metadata` maps.
+The source Job stays terminal. The new Job copies its title, resumes the exact
+Codex thread, and uses the exact Job Workspace that the source Job used. The new
+Job belongs to the current authorized turn and uses the current enabled Agent
+Plugins, Skills, and runtime configuration. The tool returns only the new
+`job_id` and its initial `queued` status.
 
-`skill_names` contains only standalone Skills. If it is omitted, the control
-plane records all standalone Skills effectively enabled for the Agent at that
-moment. Agent Plugin member Skills never appear in this array. The Job does not
-store package versions, hashes, or member-Skill state.
+The tool rejects a source Job that is not terminal, has no Codex thread, already
+has a successor, or has no original Job Workspace directory. It does not copy a
+Workspace and it does not create a replacement directory.
 
-A workspace mount contains a stable ID, worker-visible source, and access mode:
+`stop_background_job` accepts only `job_id`. It changes `queued`, `running`, or
+`waiting_on_user` to `stopped`. A terminal Job is an idempotent no-op. The tool
+returns only `job_id` and the concrete status. The Console can keep an operator
+stop reason, but the model tool does not accept one.
 
-```json
-{
-  "id": "workspace",
-  "source": "/workspace/user-files/background-agent-jobs/<job-id>/workspace",
-  "access": "read_write"
-}
+The authorized parent turn supplies the Agent, originating conversation, tool
+call, and reply route. The task can use real paths inside that Agent Home.
+
+Success, failure, and `waiting_on_user` write a notification for the originating
+conversation. A success notification includes the final Codex response.
+Stopping a Job does not send a notification.
+
+A waiting notification gives the parent only each question's header, text,
+secret flag, and labeled choices. Codex thread, turn, item, question, and option
+IDs remain in Job metadata for resume and do not enter the parent prompt.
+
+## Which Process Does What
+
+The Elixir control plane:
+
+- stores Job and Job Turn rows
+- checks authorization and stores the reply route
+- changes Job state and counts attempts
+- dispatches, steers, stops, and completes Jobs
+- checks the optional workspace template
+- selects the Agent's Codex account and subscription model settings
+- selects workers and checks turn fences
+- notifies the originating conversation
+
+Agent Computer:
+
+- creates and uses the real Job workspace
+- creates temporary runtime files
+- prepares all current enabled Agent Plugins and Skills that permit Background
+  Agent Jobs
+- starts or resumes the Codex app server
+- reports semantic events for each Turn trajectory
+- returns the final Codex result
+
+Codex manages its thread, Plugins, Skills, hooks, collaboration, and task
+execution. PostgreSQL keeps the Job record that survives process failure.
+
+## What PostgreSQL Stores
+
+`background_agent_jobs.id` is a PostgreSQL identity bigint that starts at
+`1000` and cannot exceed JavaScript's maximum safe integer. Model tools use the
+number directly. RuntimeFabric carries it as a canonical decimal string so no
+JavaScript or Protobuf boundary can round it. The actor session is `job:<id>`.
+
+The `background_agent_jobs` table stores these identity fields:
+
+- `id`
+- `agent_uid`
+- `owner_session_id`
+- `source_actor_event_id`
+- `source_tool_call_id`
+- `reply_route`
+- `continued_from_job_id`
+- `workspace_owner_job_id`
+
+It stores these request fields:
+
+- `title`
+- `task`
+
+It stores these execution fields:
+
+- `codex_account_id`
+- `runtime_thread_id`
+
+It stores one optional `workspace_template_id`.
+It also stores status, attempts, timestamps, result, error, and selected runtime
+details.
+
+For an official subscription, the selected runtime details include a snapshot
+of the `coding` Model Profile. A new Job and a respawned Job each use the Model
+Profile that is active when the control plane creates that Job. A retry of the
+same Job uses its stored snapshot.
+
+Each execution and resume reads the Agent's current enabled Skills. Skills with
+an absent `ankole-runtime` value, `any`, or `background_job` are available.
+Skills with `ankole-runtime: main` are not available to a Job. A Job does not
+store or accept a per-Job Skill selection.
+
+The Job stores no Agent Plugin selection, package hash, or member Skill state.
+Each run loads all Agent Plugins currently enabled for the Agent.
+
+`background_agent_job_turns` stores one runtime Turn trajectory. A trajectory is
+the semantic `ankole_chatml` history selected from Codex events, not a copy of
+raw app-server frames. Each Turn row stores the trajectory header. Append-only
+trajectory-group rows store its messages.
+
+Each Turn also identifies its Job, attempt, Codex thread, and Codex turn. The API
+rebuilds trajectory pages from the header and message groups.
+
+## Where a Job Runs
+
+The Agent Home uses this path:
+
+```text
+/agents/<agent-key>/
 ```
 
-Mount sources must be normalized paths under `/workspace/user-files/`. The
-worker rejects symlink escape, duplicate IDs or sources, and overlap with the
-private Job project. When mounts are omitted, the control plane provides the
-managed writable mount shown above.
+The first Job owns a Workspace at this path:
 
-## Capability resolution
+```text
+/agents/<agent-key>/jobs/<workspace-owner-job-id>/
+├── .codex/config.toml
+├── .ankole/skills/
+├── temp/
+└── ...
+```
 
-At Job start the control plane resolves the target Agent's current library
-state to validate selected Agent Plugin IDs and standalone Skill names. It then
-persists only those IDs and names.
+The first Job stores its own ID in `workspace_owner_job_id`. A respawned Job
+inherits this value, so every Job in the continuation chain uses the same
+directory. The Job Workspace is the real process directory and Codex project
+root. It must
+exist as a directory and must not be a Git repository.
 
-Before every execution or resume, Agent Computer resolves those selections
-against the current enabled Agent Plugin catalog and effective Skill catalog.
-A selected Plugin or Skill that is now disabled or missing makes preparation
-fail as unavailable. Current package bytes and current member-Skill state apply
-automatically; the Job has no capability snapshot, lease, or compatibility
-state.
+Ankole does not show the model a false alias for this path. The old
+`/workspace` path is invalid, and Job creation rejects a task that contains it.
 
-The RuntimeFabric catalog method is `agent_plugin.list`. Worker RPCs use
-`background_agent_job.*` for start, read, status transitions, Turn projection,
-steering, and stopping.
+A Job can see other files in the same Agent Home. Job workspaces separate
+current work, but they do not hide all files owned by the same Agent.
 
-## Lifecycle
+The runner sets these environment values:
+
+```text
+HOME=/agents/<agent-key>
+CODEX_HOME=/agents/<agent-key>/.codex
+```
+
+Overlapping Jobs for one Agent share ordinary Codex state.
+Different Agents use different Codex Homes.
+
+The Job's `.codex/config.toml` contains project settings, not shared Codex state.
+The runner marks the exact Job path as trusted for that process.
+
+Agent-level configuration contains stable worker and provider defaults. Job
+configuration contains model, reasoning, Plugin, MCP, and safety choices.
+For an official subscription, the runner writes `model` and
+`model_reasoning_effort` from the Job snapshot. It writes
+`service_tier = "priority"` only when Fast Mode is on. It removes
+`service_tier` when Fast Mode is off.
+
+Agent Computer writes native Codex authentication into the Agent Codex Home.
+Credential refresh uses compare-and-swap when it writes an updated credential.
+
+NFS makes the same files visible to several workers. It does not lock an Agent
+or coordinate SQLite. Worker placement keeps one Agent's live work on one ready
+worker when possible.
+
+## Prepare Skills for Each Run
+
+`SKILL.md` can declare one optional `ankole-runtime` value:
+
+- An absent value or `any` permits the main Agent and Background Agent Jobs.
+- `main` permits only the main Agent. Job selection and preparation skip it.
+- `background_job` permits only Jobs. The main Agent receives Job routing
+  guidance instead of the Skill body from `skill_view`.
+
+The loader rejects all other values. This field controls Skill discovery and
+invocation. It is not a file security boundary for a selected Agent Plugin
+package.
+
+Agent-installed Skill source uses this path:
+
+```text
+/agents/<agent-key>/installed-skills/<skill-name>/
+```
+
+Before each run, Agent Computer rebuilds `.ankole/skills`. A Skill without a
+database note becomes a symlink to its source directory.
+
+A Skill with a database note becomes a Job-local copy. Its `SKILL.md` combines
+the source instructions with that note.
+
+Agent Computer gives Codex the real directory through `skills/extraRoots/set`.
+
+## Prepare Agent Plugins for Each Run
+
+Agent Plugins use the standard `.codex-plugin/plugin.json` manifest.
+The optional `workspace-template` initializes the Job Workspace once.
+
+Each preparation performs these actions:
+
+1. Resolve the current enabled Plugin IDs against the catalog.
+2. Read each same-release local manifest and its member Skill paths.
+3. Refresh the rebuildable package copies.
+4. Apply current Skill overlays.
+5. Install and enable selected packages through Codex.
+6. Configure each member Skill by absolute path. Keep `main` members disabled.
+7. Verify the final Skill states.
+
+Enabling a Plugin does not create another Skill path or Job runner. See
+[Plugins](Plugins.md) for package and enabled-state rules.
+
+## Job States and Recovery
 
 ```text
 queued
@@ -136,241 +293,188 @@ queued
        -> stopped
   -> failed
   -> stopped
-
-succeeded | failed --steer--> queued
 ```
 
-Only acquisition of a real execution lease increments `attempts`. Placement
-failure leaves the Job queued. Attempts exhausted commits failure and wakes the
-owner.
+The message tool cannot resume a queued or terminal Job. Respawning a terminal
+Job creates a new queued Job and never changes the source Job.
 
-A stopped Job cannot resume. A succeeded or failed Job can continue only when
-its `runtime_thread_id` anchors resumable Codex state.
+The control plane allows at most three running Jobs for one Agent.
+It allows at most five acquired execution attempts for one Job.
 
-Terminal Jobs retained from the pre-V2 delegation schema remain queryable, but
-their old thread and host workdir do not satisfy the V2 runtime contract. The
-migration preserves those values in the `background_agent_job_v1` metadata
-snapshot, clears the live `runtime_thread_id`, and marks V2 resume as
-unsupported. The snapshot is informational user-visible metadata, not trusted
-downgrade provenance, so the V2 migration has no automatic down path. Its
-canonical workspace mount is a schema placeholder: the
-migration neither materializes nor marks that path as managed, so cleanup must
-not treat it as owned storage. The immutable pre-Turn event archive remains
-control-plane-owned until an explicit export or retention migration removes it.
-Both archive foreign keys use `RESTRICT`. Databases that already recorded an
-older destructive draft fail closed when retained Job rows or durable actor
-events prove that the draft may have deleted history. When both sources prove
-that no Job was ever accepted, the compatibility guard materializes the only
-valid archive for that history: an empty one with the same final constraints.
-Ankole does not infer or fabricate missing Jobs or events.
+The control plane increments `attempts` only after it acquires a real execution
+lease.
+A placement failure returns an unstarted attempt to `queued`.
 
-Terminal commit and owner wakeup occur in one control-plane transaction.
-Success or `waiting_on_user` also requires the lead Job Turn to be durably
-closed. Native Codex child Turns are observations of the same execution graph
-and do not own the Job terminal state.
+One control-plane transaction stores the final state and the notification.
+If a worker disappears, the control plane dispatches the Job again.
 
-Job activity is governed by the actor lease. Worker loss causes recovery and
-redispatch; a worker that already persisted the thread ID first resumes that
-thread. If Codex reports the checkpoint as unknown, including after a crash
-between `thread/start` and the first `turn/start`, the runner creates one
-replacement thread and replays the original task with bounded attempt history.
-Codex JSON-RPC request timeouts protect individual protocol calls and are not a
-maximum Job duration.
+An old worker process can briefly overlap the replacement. The turn fence
+rejects later writes from the old process.
 
-CodexRunner separately bounds a model-repair failure that has no legitimate
-long-work interpretation: five consecutive completed model calls on the same
-Codex thread without an observable item start/completion, plan update, diff, or
-tool request interrupt the lead Turn and fail the Job with `codex_no_progress`.
-Any such semantic progress resets that thread's streak, so a long-running
-command, an active child agent, or an otherwise healthy long Job is not a wall-
-clock timeout. The failure preserves the latest usage and consecutive-call
-count for operator diagnosis instead of silently spending an unbounded number
-of model calls on malformed tool output.
+If Codex cannot resume its thread, one attempt can create one replacement
+thread. The replacement reads the Job files and receives a short history of
+earlier attempts.
 
-## Start and dispatch
+Five completed model calls without useful progress fail the Job with
+`codex_no_progress`.
 
-Start is idempotent by
-`{agent_uid, owner_session_id, source_tool_call_id}`. For a new key, the control
-plane:
+These events count as progress:
 
-1. derives owner and reply-route facts from the authorized parent Turn;
-2. resolves the Codex account;
-3. validates selected Agent Plugin IDs;
-4. resolves and records standalone Skill names and workspace mounts;
-5. inserts the queued Job and its `background_agent_job.dispatch` actor event
-   in one transaction.
+- an item starts or completes
+- the plan changes
+- the diff changes
+- Codex requests a tool
 
-The dispatch event targets `{agent_uid, "job:<job_id>"}`. The complete task
-stays in PostgreSQL and is read through the fenced Job Turn. Replaying the same
-start returns that Job and its original dispatch event; it does not append or
-deliver another event, even after attempts or status changes.
+A long-running tool does not increase the model-call count while it runs.
 
-The dispatch and later steer or stop events are internal Job-session work, not
-provider-entry inputs. They retain channel and thread placement but do not copy
-the originating `source_entry_id`; removing the message that created a Job does
-not delete its dispatch or change its lifecycle. The captured `reply_route`
-keeps the origin and completion-delivery facts. Stopping committed work remains
-an explicit Job lifecycle operation.
+## Create and Dispatch a Job Once
 
-## Agent Plugin project setup
-
-Agent Plugin packages live under `app/library/agent-plugins/` and use the
-standard Codex manifest:
+Start uses this idempotency key:
 
 ```text
-<agent-plugin-id>/
-├── .codex-plugin/plugin.json
-├── skills/
-├── hooks/                 # optional
-└── workspace-template/    # optional Ankole initialization content
+{agent_uid, owner_session_id, source_tool_call_id}
 ```
 
-The current packages use `skills/`, but the standard manifest's `skills`
-field is authoritative. Both control-plane discovery and Agent Computer
-materialization follow that same declared path.
+A new request selects the Codex account and checks the requested capabilities.
+One transaction inserts both the Job and its dispatch event.
 
-Each Job has one durable, non-Git private project:
+The dispatch event targets this actor session:
 
 ```text
-/workspace/user-files/background-agent-jobs/<job-id>/project
+{agent_uid, "job:<job-id>"}
 ```
 
-On first execution CodexRunner:
+Every stored Job Session ID uses the `job:` prefix. Repeating the same start
+request returns the original Job and event.
 
-1. resolves the saved IDs and names against the current enabled catalogs;
-2. validates and copies the current complete packages into the Job project;
-3. copies every selected `workspace-template/` into the project root;
-4. appends SOUL, MISSION, and Job guidance to the project-root `AGENTS.md`,
-   creating it when no template supplied one;
-5. writes a local marketplace;
-6. installs each complete package through Codex `plugin/install`;
-7. discovers member Skills with `skills/list`;
-8. calls `skills/config/write` by absolute Skill path for every member using
-   its current effective state;
-9. lists again and verifies the final state before starting the thread.
+Live Jobs for one Agent use the same Codex account. Ankole can select another
+account after the Agent has no live Job delivery.
 
-Only enabled member Skills contribute their Skill-level MCP configuration.
-Package-level hooks, resources, MCP configuration, and template content are
-present because the parent Agent Plugin was selected.
+This keeps the shared Codex state on the selected worker. It does not add a
+filesystem lock.
 
-On resume, CodexRunner requires the private project, resolves the current
-catalogs, refreshes the rebuildable package copies and marketplace, repeats
-installation and Skill configuration, and resumes the same thread. It does not
-copy templates or append `AGENTS.md` again, so template content and later Job
-edits remain untouched.
+## Respawn a Terminal Job Once
 
-The Job-specific `CODEX_HOME` is outside the project and is never shared with
-another Job. External mounts appear inside the sandbox under
-`/workspace/workspaces/<mount-id>` and remain caller-owned resources.
+Respawn uses the same parent-turn idempotency key as create:
 
-## CodexRunner
+```text
+{agent_uid, owner_session_id, source_tool_call_id}
+```
 
-CodexRunner has no Agent-Plugin-specific execution branches. For each Job Turn
-it:
+The control plane locks the source Job and accepts only `succeeded`, `failed`,
+or `stopped`. The source must have a Codex thread and a Workspace owner. One
+transaction inserts the new queued Job and its dispatch event. The new Job
+stores the source ID in `continued_from_job_id`, the inherited root ID in
+`workspace_owner_job_id`, and the new message in `task`.
 
-1. reads the fenced Job record;
-2. validates the project and mounts;
-3. prepares Agent Plugins, Skills, MCP servers, runtime guidance, and Codex
-   configuration;
-4. starts or resumes the Codex thread;
-5. records lead and native child Turns as append-only `ankole_chatml` trajectory,
-   progress, and usage observations;
-6. accepts steering, stopping, and `request_user_input`;
-7. stores that non-empty Codex final response as the generic Job result, along
-   with the stable owner-visible project path and any existing owner-visible
-   files observed in `files_changed`, then wakes the owner session so the main
-   Agent can continue.
+`continued_from_job_id` is unique. One terminal Job can have only one direct
+successor, so two live Jobs cannot write to the same Codex thread and Workspace.
+A retry from the same parent tool call returns the existing successor. A
+different request for a source that already has a successor fails and identifies
+that successor.
 
-Trajectory groups are appended to PostgreSQL by stable item key and position.
-There is no per-Turn item-count or total-byte eviction. The Turn row separately
-stores lifecycle, progress, usage, error, and a metadata-only trajectory header.
-Status and Console reads expose newest-first cursor pages bounded to `24 KiB`;
-that presentation bound may shorten one displayed group but never deletes the
-durable semantic sequence. Secret redaction and per-value sanitation happen
-before a group crosses the worker boundary.
+Agent Computer checks that the inherited Workspace is a real directory before
+it sends the respawn request. CodexRunner checks it again before execution. A
+missing directory is an error; neither path creates or copies one. CodexRunner
+resumes the stored thread and sends `task` as the first user message of the new
+Job. A respawned Job fails if Codex cannot resume that thread; it does not
+replace the thread.
 
-## Hermes Floor And Job Tradeoffs
+## Send a Message and Wait for Its Turn
 
-| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
-| --- | --- | --- | --- | --- |
-| Execution attempts | `3` | No BackgroundAgentJob layer; stream stale streak gives up after `5` | `5` real lease acquisitions | More duplicate provider work is possible after worker loss, but a durable long task gets two additional recovery opportunities. |
-| Retry backoff | `2/4/8s`, maximum `60s` | Transient retry loop with wider repeated recovery | `5/10/20/40s`, maximum `120s` | Recovery is slower under persistent failure and less likely to amplify a short outage. |
-| Durable trajectory | At most `256` runtime items and `256 KiB`; oldest semantic history was evicted | Multi-strategy trajectory compression without a fixed total cap | Append-only PostgreSQL groups, no item-count or total-byte cap; `24 KiB` applies only to one presentation page | PostgreSQL grows with real work, which is the intended SSOT cost; pagination and retention policy must manage reads and storage instead of deleting history during execution. |
-| Wall-clock duration | No Job total timeout | No comparable durable Job timeout | No Job total timeout | Liveness comes from progress/worker leases; business deadlines must use `steer` or `stop`. |
+Sending a message writes a `command.steer` ActorEvent. Its ActorEvent ID is the
+causal message ID. CodexRunner passes this ID to Codex as
+`clientUserMessageId`. The trajectory recorder stores the same ID as
+`client:<event-id>`. These facts let the control plane find the one Codex Turn
+that received the message without a waiter table or a resident waiter process.
 
-If the first completed Turn has no final response, the runner requests one
-generic final report once. A second empty completion fails the Job. The runner
-does not interpret package-specific files or run package-specific result code.
-Job success does not require artifacts, `verification`, or a separate owner-side
-acceptance object. The worker reads each aggregate Codex diff as a stream of
-file blocks; it retains at most 32 paths and 8 KiB of serialized path data in
-session and Turn progress instead of collecting, sorting, or `stat`-ing the full
-diff. The generic result includes `project_path`; `files_changed`, `artifacts`,
-and `artifact_roots` use the bounded `{total_count, paths, truncated}` shape.
-`total_count` preserves the number of observed changed-path candidates across
-completed turns, while `artifacts.paths` contains only retained candidates that
-resolve to existing owner-visible files. `artifact_roots` contains the private
-project plus every writable owner workspace mount, so an omitted key artifact
-remains discoverable even when it was written outside `project_path`.
+A running Codex Turn receives the text through `turn/steer`. A Job in
+`waiting_on_user` starts a new Turn on the same Codex thread with the message as
+its answer.
 
-The same 32-entry and 8 KiB path bound is reapplied before worker transport,
-durable commit, owner wakeup, status rendering, and model projection. When a
-handoff is truncated, the owner uses the existing Job status lookup and inspects
-the reported artifact roots; Ankole does not add a separate artifact pagination
-lifecycle. Files, reports, commits, and pull requests remain ordinary task
-outputs rather than package-specific lifecycle state.
+The send request uses the source tool-call ID as its stable ActorEvent source
+key. A retry of the same parent Turn returns the existing command event and does
+not send the message twice.
 
-`request_user_input` closes the current Turn resumably, puts the Job in
-`waiting_on_user`, and wakes the owner. The owner's answer returns through
-`steer` to the same Job and thread.
+When `wait_reply=true`, Agent Computer reads the persisted result once per
+second. It stops reading when the parent Turn is canceled, but it does not undo
+the stored message. There is no fixed business timeout.
 
-## Model-visible capabilities
+The result is ready when the causal Turn is terminal and the Job has committed
+`waiting_on_user`, `succeeded`, `failed`, or `stopped`. It is also ready when a
+newer lead Codex Turn proves that the Job continued after the causal Turn. A
+terminal trajectory with a `running` Job and no newer lead Turn is not ready;
+this rule covers the short interval between trajectory storage and Job-state
+commit. A completed, stopped, or dead-letter command that never appears in a
+trajectory returns a delivery error.
 
-A Job can receive:
+Background Codex gives child agents `request_parent_input`, not
+`request_user_input`. A child sends its question to the lead agent.
 
-- the current enabled packages and members for its selected Agent Plugin IDs;
-- the current effective standalone Skills matching its saved names;
-- the built-in long-running Browser capability on every Job, backed by a
-  persistent opaque route materialized immediately before the Codex app-server
-  starts;
-- fallback web search and fetch capability;
-- owner-scoped Brain tools;
-- MCP servers contributed by enabled capabilities;
-- Codex's built-in execution and native collaboration behavior.
+`request_parent_input` ends the current Codex turn, changes the Job to
+`waiting_on_user`, and notifies the parent. The control plane records
+`request_user_input` as the internal event code.
 
-The Browser Skill uses the preconfigured `ankole-browser` CLI and code runner;
-it does not give Codex backend/profile source configuration or control-plane
-identifiers. This persistent Job route is separate from the ephemeral rendered
-fallback used by `web_fetch`, which still returns page content only.
+The main Agent answers through `send_message_to_background_job`. The message is
+ordinary text. There is no separate answers map.
 
-Capabilities are allowlisted. A Job does not inherit every tool available to
-the main Agent.
+## Hand Off a Lifecycle Notification
 
-## Deep Research
+Success, failure, and `waiting_on_user` still create an open lifecycle
+ActorEvent for the originating conversation. The waiting tool can consume that
+event only after it records its tool result in the AIGateway history.
 
-Deep Research selects `agent_plugin_ids: ["deep-research"]`. Its Skill and
-workspace template tell Codex how to research and to produce a self-contained
-`report/report.md`. The Job host does not parse that report or give Deep
-Research a separate lifecycle. The generic artifact projection exposes the
-report's stable owner-visible path when Codex reports it as changed; the owner
-wakeup resumes the main Agent, which decides the next user-facing step through
-the ordinary Agent loop.
+Agent Computer attaches the lifecycle ActorEvent ID to an internal tool-result
+field. This field is not model-visible. AIGatewayLink validates the authenticated
+subject, current parent ActorEvent, target session, event type, Job, attempt,
+and open state. It then writes the idempotent tool-result journal and completes
+the lifecycle event in one PostgreSQL transaction. If journal storage fails or
+is quarantined, the transaction rolls back and the lifecycle event stays open.
+A retry reads the same journal and verifies the completed event IDs.
 
-## Validation plan
+The tool does not attach a lifecycle event ID when it does not wait, returns an
+error, is canceled, observes a continuing Job, or runs from another session.
+The open lifecycle event then follows the normal wakeup path. Another session
+in the same channel can send a message and wait for its Turn, but it cannot
+consume the notification owned by the originating session.
 
-These checks validate the implementation path; they are not fields or
-acceptance objects required in a successful Job result.
+## Return Results and Files
 
-- package discovery, membership, hashes, symlink and size boundaries;
-- global defaults, Agent inheritance, parent gating, and child-state retention;
-- rejection of unavailable selected Agent Plugins and Skills on every prepare;
-- template copy plus project-root `AGENTS.md` append on first initialization,
-  with neither repeated on resume;
-- full package installation, absolute-path Skill configuration, final-state
-  verification, and enabled-Skill MCP filtering;
-- start/list/status/steer/stop, waiting on user, lease recovery, and terminal
-  wakeups;
-- REST, OpenAPI, and Console projections of current fields;
-- a real Deep Research Job producing `report/report.md`;
-- a real Office artifact and an explicitly enabled Lark flow;
-- Agent Computer image `codex --version` equal to `0.144.5`.
+Success requires a nonempty Codex final response.
+The result also includes the stable Job Workspace path.
+
+The result can list paths in these fields:
+
+- `files_changed`
+- `artifacts`
+- `artifact_roots`
+
+Each field contains `total_count`, `paths`, and `truncated`. It keeps at most
+32 paths and 8 KiB of serialized path data.
+
+Artifacts are ordinary Job files. They do not have a separate lifecycle.
+
+An outbound attachment must exist in the current Agent `user-files` directory.
+The caller must copy or move the file there before delivery.
+The caller must provide a structured attachment record. Ankole never searches
+prose for an outbound file path.
+
+## Tests Required for Changes
+
+Changes to this subsystem must validate these paths when their environments are
+available:
+
+- Agent Codex Home sharing and cross-Agent separation.
+- Real Job cwd and model-visible path equality.
+- Plugin, Skill, overlay, MCP, and resume behavior.
+- Create, respawn, list, details, send, stop, waiting, recovery, and wakeups.
+- Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
+  missing-Workspace errors.
+- Causal Turn lookup, bounded trajectory output, continuation, and delivery
+  errors.
+- Atomic tool-result journaling and lifecycle-event completion, rollback, and
+  retry behavior.
+- Same-channel cross-session waiting without notification consumption.
+- Limits on reported file paths and `user-files` attachment checks.
+- Worker placement, capacity, recovery, and account reuse.
+- Real Deep Research and Office artifact Jobs in the Worker image.

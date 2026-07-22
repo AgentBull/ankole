@@ -16,15 +16,15 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
   let hostTmpMarker: string
 
   beforeAll(async () => {
-    root = await mkdtemp('/workspace/ankole-browser-bwrap-')
-    workspaceRoot = join(root, 'job')
+    root = await mkdtemp('/agents/ankole-browser-bwrap-')
+    workspaceRoot = join(root, 'jobs', 'job-1')
     await mkdir(workspaceRoot, { recursive: true })
     await writeFile(
       join(workspaceRoot, 'browser-run.mjs'),
       `export default async ({ page }) => ({ url: page.url(), connected: true })\n`
     )
     browserRuntime = new BrowserRuntime({
-      workspaceSessionsRoot: join(root, 'sessions'),
+      runtimeRoot: join('/tmp', `ankole-browser-bwrap-${process.pid}`),
       socketPath: join(root, 'socket', 'browser.sock'),
       nodePath: requiredEnv('ANKOLE_BROWSER_NODE'),
       daemonEntry: requiredEnv('ANKOLE_BROWSER_DAEMON_ENTRY'),
@@ -70,7 +70,7 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
         cwd: workspaceRoot,
         env: {
           PATH: '/usr/local/bin:/usr/bin:/bin',
-          HOME: '/workspace',
+          HOME: root,
           LANG: 'C.UTF-8',
           ...sandbox.env
         },
@@ -118,7 +118,7 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
         cwd: workspaceRoot,
         env: {
           PATH: '/usr/local/bin:/usr/bin:/bin',
-          HOME: '/workspace',
+          HOME: root,
           LANG: 'C.UTF-8',
           ...sandbox.env
         },
@@ -129,7 +129,7 @@ describe.skipIf(!enabled)('browser runtime across the real bubblewrap boundary',
           '--timeout',
           '15000',
           'run',
-          '/workspace/browser-run.mjs',
+          join(workspaceRoot, 'browser-run.mjs'),
           '--run-dir',
           'browser/runs/bwrap-contract'
         ]

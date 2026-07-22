@@ -53,7 +53,7 @@ function decodedUpsert(request: RPCRequestInit<'background_agent_job.turn.upsert
 }
 
 const actorTurn: ActorTurnRef = {
-  actor: { agent_uid: 'agent-1', session_id: 'job:019f0000-0000-7000-8000-000000000001' },
+  actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
   activation_uid: 'activation-1',
   actor_epoch: 1,
   actor_event_id: 'event-1',
@@ -82,6 +82,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     await recorder.flush()
     const baseline = structuredClone(upserts.at(-1)!)
     const checkpointCount = upserts.length
+    expect(baseline.trajectory).toEqual({ format: 'ankole_chatml', version: 1 })
 
     for (const method of CODEX_OPT_OUT_NOTIFICATION_METHODS) {
       recorder.handleNotification(notification(method, { itemId: 'item-1', delta: 'ignored', patch: 'ignored' }))
@@ -368,7 +369,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
 function fixture(delayMs = 5) {
   const upserts: DecodedUpsert[] = []
   const recorder = new BackgroundAgentJobTurnRecorder({
-    jobID: '019f0000-0000-7000-8000-000000000001',
+    jobID: '1000',
     attempt: 1,
     actorTurn,
     checkpointDelayMs: delayMs,
@@ -450,7 +451,7 @@ function commandItem(id: string, command: string, aggregatedOutput: string, stat
     type: 'commandExecution',
     id,
     command,
-    cwd: '/workspace',
+    cwd: '/agents/agent-1/jobs/job-1',
     processId: null,
     source: 'unifiedExec',
     status,

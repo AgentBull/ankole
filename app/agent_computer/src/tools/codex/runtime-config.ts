@@ -12,6 +12,16 @@ type CodexRuntimeRequesters = {
   rpc: RPCRequester
 }
 
+export const CODEX_MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+
+export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]
+
+export type CodexSubscriptionModelProfile = {
+  model: string
+  modelReasoningEffort: CodexModelReasoningEffort
+  fastMode: boolean
+}
+
 export type CodexRuntimeConfig =
   | {
       mode: 'aigateway'
@@ -24,6 +34,7 @@ export type CodexRuntimeConfig =
       accountID: string
       authJSON: string
       authHash: string
+      modelProfile: CodexSubscriptionModelProfile
     }
 
 export async function resolveCodexRuntimeConfig(input: {
@@ -52,8 +63,26 @@ export async function resolveCodexRuntimeConfig(input: {
     mode: 'official_subscription',
     accountID: response.accountId,
     authJSON: response.authJson,
-    authHash: response.authHash
+    authHash: response.authHash,
+    modelProfile: {
+      model: requiredModel(response.model),
+      modelReasoningEffort: modelReasoningEffort(response.modelReasoningEffort),
+      fastMode: response.fastMode
+    }
   }
+}
+
+function requiredModel(value: string): string {
+  const model = value.trim()
+  if (!model) throw new Error('Codex account resolve returned an empty model')
+  return model
+}
+
+function modelReasoningEffort(value: string): CodexModelReasoningEffort {
+  if (CODEX_MODEL_REASONING_EFFORTS.includes(value as CodexModelReasoningEffort)) {
+    return value as CodexModelReasoningEffort
+  }
+  throw new Error(`Codex account resolve returned an invalid model reasoning effort: ${value}`)
 }
 
 async function resolveAIGatewayKey(

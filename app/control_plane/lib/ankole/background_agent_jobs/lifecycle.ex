@@ -28,6 +28,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @max_event_payload_bytes 16_384
   @artifact_path_limit 32
   @artifact_path_bytes 8_192
+  @internal_uuid_pattern ~r/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
   @path_handoff_keys [
     {"files_changed", :files_changed},
     {"artifacts", :artifacts},
@@ -38,10 +39,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @running_statuses Job.running_statuses()
 
   @doc false
-  @spec claim_attempt_in_tx(module(), String.t(), String.t(), pos_integer()) ::
+  @spec claim_attempt_in_tx(module(), pos_integer(), String.t(), pos_integer()) ::
           {:ok, Job.t()} | {:error, term()}
   def claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt)
-      when is_binary(job_id) and is_binary(agent_uid) and expected_attempt > 0 do
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
@@ -54,10 +55,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc false
-  @spec claim_continuation_in_tx(module(), String.t(), String.t(), pos_integer()) ::
+  @spec claim_continuation_in_tx(module(), pos_integer(), String.t(), pos_integer()) ::
           {:ok, Job.t()} | {:error, term()}
   def claim_continuation_in_tx(repo, job_id, agent_uid, expected_attempt)
-      when is_binary(job_id) and is_binary(agent_uid) and expected_attempt > 0 do
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
@@ -70,10 +71,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc false
-  @spec requeue_unstarted_attempt(String.t(), String.t(), pos_integer()) ::
+  @spec requeue_unstarted_attempt(pos_integer(), String.t(), pos_integer()) ::
           {:ok, Job.t()} | {:error, term()}
   def requeue_unstarted_attempt(job_id, agent_uid, expected_attempt)
-      when is_binary(job_id) and is_binary(agent_uid) and expected_attempt > 0 do
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
     Repo.transact(fn repo ->
       with :ok <- lock_agent_slots(repo, agent_uid),
            %Job{status: "running", attempts: ^expected_attempt} = job <-
@@ -93,11 +94,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end)
   end
 
-  @spec commit_status_with_wakeup(String.t(), String.t(), map(), keyword()) ::
+  @spec commit_status_with_wakeup(pos_integer(), String.t(), map(), keyword()) ::
           {:ok, %{job: Job.t(), wakeup_event: ActorEvent.t() | nil}}
           | {:error, term()}
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ [])
-      when is_binary(job_id) and is_binary(agent_uid) and is_map(attrs) and
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
              is_list(opts) do
     result =
       with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
@@ -125,7 +126,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @doc false
   @spec commit_status_with_wakeup_in_tx(
           module(),
-          String.t(),
+          pos_integer(),
           String.t(),
           map(),
           DateTime.t(),
@@ -166,7 +167,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @doc false
   @spec commit_status_after_runtime_prefix_in_tx(
           module(),
-          String.t(),
+          pos_integer(),
           String.t(),
           map(),
           DateTime.t(),
@@ -578,7 +579,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           "job_id" => job.id,
           "title" => job.title,
           "status" => job.status,
-          "agent_plugin_ids" => job.agent_plugin_ids,
+          "workspace_template_id" => job.workspace_template_id,
           "attempts" => job.attempts,
           "result_summary" => result_summary(job),
           "delivery_status" => delivery_status(job),
@@ -592,11 +593,23 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     }
   end
 
-  defp result_summary(%Job{status: "succeeded", result: result}),
-    do: map_summary(result, ~w(summary output_text))
+  defp result_summary(%Job{status: "succeeded", result: result}) do
+    result
+    |> map_summary([{"summary", :summary}, {"output_text", :output_text}])
+    |> truncate_summary()
+  end
 
-  defp result_summary(%Job{status: "failed", error: error}),
-    do: map_summary(error, ~w(summary reason message code))
+  defp result_summary(%Job{status: "failed", error: error}) do
+    error
+    |> map_summary([
+      {"summary", :summary},
+      {"reason", :reason},
+      {"message", :message},
+      {"code", :code}
+    ])
+    |> remove_internal_uuid_tokens()
+    |> truncate_summary()
+  end
 
   defp result_summary(%Job{}), do: nil
 
@@ -707,21 +720,21 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp map_summary(value, preferred_keys) when is_map(value) do
     preferred_keys
-    |> Enum.find_value(fn key ->
-      case Map.get(value, key) do
+    |> Enum.find_value(fn {string_key, atom_key} ->
+      case Map.get(value, string_key) || Map.get(value, atom_key) do
         text when is_binary(text) and text != "" -> text
         _value -> nil
       end
     end)
-    |> case do
-      nil when map_size(value) == 0 -> nil
-      nil -> Ankole.JSON.encode!(value)
-      text -> text
-    end
-    |> truncate_summary()
   end
 
   defp map_summary(_value, _preferred_keys), do: nil
+
+  defp remove_internal_uuid_tokens(nil), do: nil
+
+  defp remove_internal_uuid_tokens(text) when is_binary(text),
+    do: Regex.replace(@internal_uuid_pattern, text, "[internal-id]")
+
   defp truncate_summary(nil), do: nil
 
   defp truncate_summary(summary) when is_binary(summary) do

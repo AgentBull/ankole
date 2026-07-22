@@ -33,8 +33,9 @@ defmodule Ankole.Brain.Schemas.EntryBlock do
       references: :uid,
       type: Ankole.Ecto.PrincipalKey
 
-    field :embedding, :string
+    field :embedding, Pgvector.Ecto.Vector
     field :embedding_dimensions, :integer
+    field :embedding_model_agent_uid, :string
     field :embedding_state, Ecto.Enum, values: [:pending, :synced, :failed], default: :pending
     field :embedding_error, :string
     field :lock_version, :integer, default: 1
@@ -57,12 +58,21 @@ defmodule Ankole.Brain.Schemas.EntryBlock do
         :author_uid,
         :embedding,
         :embedding_dimensions,
+        :embedding_model_agent_uid,
         :embedding_state,
         :embedding_error
       ],
       empty_values: []
     )
-    |> normalize_blank([:owner_uid, :store_key, :body, :author_uid, :embedding, :embedding_error])
+    |> normalize_blank([
+      :owner_uid,
+      :store_key,
+      :body,
+      :author_uid,
+      :embedding,
+      :embedding_model_agent_uid,
+      :embedding_error
+    ])
     |> validate_required([:entry_id, :owner_uid, :store_key, :position, :body, :author_kind])
     |> validate_number(:position, greater_than_or_equal_to: 0)
     |> validate_embedding()
@@ -85,6 +95,7 @@ defmodule Ankole.Brain.Schemas.EntryBlock do
       changeset
       |> put_change(:embedding, nil)
       |> put_change(:embedding_dimensions, nil)
+      |> put_change(:embedding_model_agent_uid, nil)
       |> put_change(:embedding_state, :pending)
       |> put_change(:embedding_error, nil)
     else

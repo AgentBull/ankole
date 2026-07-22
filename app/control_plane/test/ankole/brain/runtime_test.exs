@@ -28,19 +28,31 @@ defmodule Ankole.Brain.RuntimeTest do
 
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "brain-snapshot-root",
-        metadata: %{"brain" => %{"visibility" => "public"}}
+        metadata: %{"brain" => %{"visibility" => "shared"}}
       )
 
     assert {:ok, first} = Snapshot.get_or_create(conversation)
     assert first["channel_entry"] == nil
     assert first["pinned_memo"] == %{"resident_text" => "", "truncated" => false}
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
+
+    assert {:ok, source} =
+             Sources.capture(
+               scope,
+               %{
+                 kind: "file",
+                 title: "Durable preference source",
+                 original_name: "durable-preference.txt",
+                 content: "Remember the durable preference."
+               },
+               agent.uid
+             )
 
     pinned =
       Repo.get_by!(Entry,
         owner_uid: agent.uid,
-        store_key: "public",
+        store_key: "self",
         type: "agent_system_pinned_memo"
       )
 
@@ -66,7 +78,7 @@ defmodule Ankole.Brain.RuntimeTest do
                  operation: "append_block",
                  entry_id: pinned.id,
                  expected_entry_lock_version: pinned.lock_version,
-                 body: "Remember the durable preference"
+                 body: "Remember the durable preference (src:#{source.document_id})."
                },
                %{kind: :agent, uid: agent.uid}
              )
@@ -77,21 +89,23 @@ defmodule Ankole.Brain.RuntimeTest do
 
     {:ok, successor} =
       Conversations.ensure_conversation(agent.uid, "brain-snapshot-successor",
-        metadata: %{"brain" => %{"visibility" => "public"}}
+        metadata: %{"brain" => %{"visibility" => "shared"}}
       )
 
     assert {:ok, refreshed} = Snapshot.get_or_create(successor)
-    assert refreshed["pinned_memo"]["resident_text"] == "Remember the durable preference"
+    assert refreshed["pinned_memo"]["resident_text"] == "Remember the durable preference."
+    refute refreshed["pinned_memo"]["resident_text"] =~ source.document_id
+    refute refreshed["pinned_memo"]["resident_text"] =~ "src:"
   end
 
   test "group snapshot uses channel_id identity and Jobs inherit the owner conversation" do
     %{principal: agent} = agent_fixture()
     channel_id = "lark:group:brain-snapshot"
-    {:ok, public_scope} = Scope.for_store(agent.uid, "public")
+    {:ok, shared_scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
              Knowledge.apply_operations(
-               public_scope,
+               shared_scope,
                %{
                  operation: "create_entry",
                  name: "Old Channel Display Name",
@@ -104,7 +118,7 @@ defmodule Ankole.Brain.RuntimeTest do
 
     assert {:ok, _result} =
              Knowledge.apply_operations(
-               public_scope,
+               shared_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -120,7 +134,7 @@ defmodule Ankole.Brain.RuntimeTest do
       Conversations.ensure_conversation(agent.uid, parent_session,
         metadata: %{
           "brain" => %{
-            "visibility" => "public",
+            "visibility" => "shared",
             "channel_id" => channel_id,
             "channel_kind" => "im_group"
           }
@@ -134,21 +148,18 @@ defmodule Ankole.Brain.RuntimeTest do
              "truncated" => false
            }
 
+    %{rows: [[job_id]]} =
+      Repo.query!("SELECT nextval(pg_get_serial_sequence('background_agent_jobs', 'id'))")
+
     job =
-      %Job{}
+      %Job{id: job_id}
       |> Job.creation_changeset(%{
         agent_uid: agent.uid,
         owner_session_id: parent_session,
         source_tool_call_id: "brain-background-agent-job-tool-call",
+        workspace_owner_job_id: job_id,
         title: "Brain inheritance",
         task: "Verify inherited Brain snapshot",
-        workspace_mounts: [
-          %{
-            "id" => "workspace",
-            "source" => "/workspace/user-files/background-agent-jobs/brain-test/workspace",
-            "access" => "read_write"
-          }
-        ],
         codex_account_id: "aigateway",
         reply_route: %{"signal_channel_id" => channel_id},
         attempts: 1,
@@ -167,7 +178,7 @@ defmodule Ankole.Brain.RuntimeTest do
       Conversations.ensure_conversation(agent.uid, parent_session,
         metadata: %{
           "brain" => %{
-            "visibility" => "public",
+            "visibility" => "shared",
             "channel_id" => channel_id,
             "channel_kind" => "im_group"
           }
@@ -182,7 +193,7 @@ defmodule Ankole.Brain.RuntimeTest do
              RuntimeContext.resolve(background_agent_job_turn)
 
     assert inherited.id == conversation.id
-    assert inherited_scope.writable_store_key == "public"
+    assert inherited_scope.writable_store_key == "shared"
     assert {:ok, ^parent_snapshot} = Snapshot.get_or_create(inherited)
     assert AIGatewayLink.visible_signal_document_ids(background_agent_job_turn) == []
   end
@@ -194,17 +205,15 @@ defmodule Ankole.Brain.RuntimeTest do
 
     {:ok, _conversation} =
       Conversations.ensure_conversation(agent.uid, session_id,
-        metadata: %{"brain" => %{"visibility" => "public"}}
+        metadata: %{"brain" => %{"visibility" => "shared"}}
       )
 
     turn = turn_ref(agent.uid, session_id)
-    untrusted_actor_event_id = Ecto.UUID.generate()
 
     assert {:ok, create} =
              RPCBroker.handle_update(
                turn,
                %FabricProto.MemoryUpdateRequest{
-                 actor_event_id: untrusted_actor_event_id,
                  operation:
                    {:create_entry,
                     %FabricProto.MemoryCreateEntry{name: "RPC Contract", type: "fact"}}
@@ -215,13 +224,12 @@ defmodule Ankole.Brain.RuntimeTest do
     [created] = create["results"]
     entry_id = created["entry_id"]
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, [create_audit]} =
              Knowledge.list_audit(scope, action: "create_entry", entry_id: entry_id, limit: 1)
 
     assert create_audit.metadata["actor_event_id"] == turn.actor_event_id
-    refute create_audit.metadata["actor_event_id"] == untrusted_actor_event_id
 
     assert {:ok, first_append} =
              RPCBroker.handle_update(
@@ -261,8 +269,8 @@ defmodule Ankole.Brain.RuntimeTest do
                rpc_ctx("brain-open-1")
              )
 
-    assert page_one["entry"]["owner_uid"] == agent.uid
-    assert page_one["entry"]["store_key"] == "public"
+    assert page_one["entry"]["owner_uid"] == Scope.shared_owner_uid()
+    assert page_one["entry"]["store_key"] == "shared"
 
     assert [%{"body" => "first page", "author_kind" => "agent", "author_uid" => author}] =
              page_one["blocks"]
@@ -292,18 +300,23 @@ defmodule Ankole.Brain.RuntimeTest do
   test "source-learning RPC only admits blocks cited to its retained source" do
     %{principal: agent} = agent_fixture()
     session_id = "brain-source-learning-rpc"
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, source} =
              Sources.capture(
                scope,
-               %{kind: "paste", title: "Source policy", content: "Keep supported claims."},
+               %{
+                 kind: "file",
+                 title: "Source policy",
+                 original_name: "source-policy.txt",
+                 content: "Keep supported claims."
+               },
                agent.uid
              )
 
     {:ok, _conversation} =
       Conversations.ensure_conversation(agent.uid, session_id,
-        metadata: %{"brain" => %{"visibility" => "public"}}
+        metadata: %{"brain" => %{"visibility" => "shared"}}
       )
 
     assert {:ok, actor_event} =
@@ -381,7 +394,7 @@ defmodule Ankole.Brain.RuntimeTest do
     assert audit.metadata["source_document_id"] == source.document_id
   end
 
-  test "RPC chat recall follows the root turn's visible Response chain across session reset" do
+  test "RPC chat recall returns provenance from the visible Response chain across session reset" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "brain-conversation-recall", :record_only)
 
@@ -548,7 +561,7 @@ defmodule Ankole.Brain.RuntimeTest do
                rpc_ctx("brain-search-visible")
              )
 
-    refute Enum.any?(visible_result["results"], fn hit ->
+    assert Enum.any?(visible_result["results"], fn hit ->
              hit["layer"] == "chat" and
                Enum.any?(hit["messages"], &(&1["document_id"] == visible_report.document_id))
            end)
@@ -591,7 +604,7 @@ defmodule Ankole.Brain.RuntimeTest do
   defp brain_metadata(channel_id) do
     %{
       "brain" => %{
-        "visibility" => "public",
+        "visibility" => "shared",
         "channel_id" => channel_id,
         "channel_kind" => "im_group"
       }

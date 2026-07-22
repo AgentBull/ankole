@@ -31,12 +31,13 @@ defmodule Ankole.AIGateway.CompactionRender do
   def render_items(items, opts \\ []) when is_list(items) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
     budget_tokens = Keyword.get(opts, :budget_tokens)
+    call_refs = call_refs(items)
 
     blocks =
       items
       |> Enum.with_index(1)
       |> Enum.map(fn {item, index} ->
-        text = item_text(item, caps: caps)
+        text = item_text(item, caps: caps, call_ref: call_ref(item, call_refs))
 
         %{
           index: index,
@@ -69,21 +70,23 @@ defmodule Ankole.AIGateway.CompactionRender do
     "#{role}: #{content_text(content, cap_tokens: cap(caps, :message_text))}"
   end
 
-  def item_text(%{"type" => "function_call", "name" => name, "call_id" => call_id} = item, opts) do
+  def item_text(%{"type" => "function_call", "name" => name} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
     args = Map.get(item, "arguments") || Map.get(item, "input") || ""
     args = stringify(args) |> truncate_text(cap(caps, :function_call_arguments))
 
-    "function_call #{name || "(unknown)"} call_id=#{call_id || "(none)"} arguments=#{args}"
+    "function_call #{name || "(unknown)"} call_ref=#{call_ref} arguments=#{args}"
   end
 
-  def item_text(%{"type" => "function_call_output", "call_id" => call_id} = item, opts) do
+  def item_text(%{"type" => "function_call_output"} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     output =
       Map.get(item, "output") |> stringify() |> truncate_text(cap(caps, :function_call_output))
 
-    "function_call_output call_id=#{call_id || "(none)"} output=#{output}"
+    "function_call_output call_ref=#{call_ref} output=#{output}"
   end
 
   def item_text(%{"type" => "reasoning"} = item, opts) do
@@ -229,6 +232,23 @@ defmodule Ankole.AIGateway.CompactionRender do
   defp user_message_item?(_item), do: false
 
   defp cap(caps, key), do: Map.get(caps, key) || Map.get(caps, Atom.to_string(key))
+
+  defp call_refs(items) do
+    Enum.reduce(items, %{}, fn item, refs ->
+      case item do
+        %{"call_id" => call_id} when is_binary(call_id) and call_id != "" ->
+          Map.put_new_lazy(refs, call_id, fn -> "call_#{map_size(refs) + 1}" end)
+
+        _item ->
+          refs
+      end
+    end)
+  end
+
+  defp call_ref(%{"call_id" => call_id}, refs) when is_binary(call_id),
+    do: Map.get(refs, call_id)
+
+  defp call_ref(_item, _refs), do: nil
 
   defp reasoning_texts(items) when is_list(items) do
     Enum.flat_map(items, fn

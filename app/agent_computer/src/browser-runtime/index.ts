@@ -14,7 +14,7 @@ export class BrowserRuntime {
   readonly webFetch: BrowserWebFetchAdapter
 
   constructor(options: {
-    workspaceSessionsRoot: string
+    runtimeRoot: string
     socketPath?: string
     nodePath?: string
     daemonEntry?: string
@@ -22,7 +22,7 @@ export class BrowserRuntime {
     localChromiumExecutable?: string
     onDaemonEvent?: (event: BrowserDaemonEvent) => void
   }) {
-    const root = join(options.workspaceSessionsRoot, '_browser')
+    const root = join(options.runtimeRoot, 'browser')
     this.materializer = new BrowserRouteMaterializer({
       root,
       socketPath: options.socketPath,

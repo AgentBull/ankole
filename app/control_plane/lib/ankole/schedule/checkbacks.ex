@@ -22,7 +22,7 @@ defmodule Ankole.Schedule.Checkbacks do
     end
   end
 
-  @spec update_checkback(Ecto.UUID.t(), map(), keyword()) ::
+  @spec update_checkback(pos_integer(), map(), keyword()) ::
           {:ok,
            %{
              status: :updated | :already_updated,
@@ -31,7 +31,7 @@ defmodule Ankole.Schedule.Checkbacks do
            }}
           | {:error, term()}
   def update_checkback(scheduled_event_id, attrs, opts \\ [])
-      when is_binary(scheduled_event_id) and is_map(attrs) do
+      when is_integer(scheduled_event_id) and scheduled_event_id > 0 and is_map(attrs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -54,8 +54,9 @@ defmodule Ankole.Schedule.Checkbacks do
     end)
   end
 
-  @spec cancel_checkback(Ecto.UUID.t(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
-  def cancel_checkback(scheduled_event_id, opts \\ []) when is_binary(scheduled_event_id) do
+  @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
+  def cancel_checkback(scheduled_event_id, opts \\ [])
+      when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->

@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter
-  alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Repo
@@ -20,10 +19,98 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
   alias FeishuOpenAPI.Error
 
+  defmodule CardKitHarness do
+    @moduledoc false
+
+    alias Ankole.Plugins.LarkAdapter.CardKit
+    alias FeishuOpenAPI.Error
+
+    for operation <- [:open, :update, :finalize, :refresh] do
+      def unquote(operation)(request, opts) do
+        run(unquote(operation), request, opts)
+      end
+    end
+
+    defp run(operation, request, opts) do
+      request_fun = Keyword.fetch!(opts, :request_fun)
+
+      Req.default_options(
+        retry_delay: fn _retry_count -> 0 end,
+        retry_log_level: false,
+        plug: fn conn -> dispatch(conn, request_fun) end
+      )
+
+      apply(CardKit, operation, [request])
+    end
+
+    defp dispatch(%{request_path: "/open-apis/auth/v3/tenant_access_token/internal"} = conn, _fun) do
+      Req.Test.json(conn, %{
+        "code" => 0,
+        "tenant_access_token" => "tenant-token",
+        "expire" => 7_200
+      })
+    end
+
+    defp dispatch(conn, request_fun) do
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+      {path, path_params} = request_path(conn.request_path)
+      method = conn.method |> String.downcase() |> String.to_existing_atom()
+      opts = [body: decode_body(body), path_params: path_params]
+
+      case request_fun.(:recording_client, method, path, opts) do
+        {:ok, response} ->
+          Req.Test.json(conn, Map.put_new(response, "code", 0))
+
+        {:error, :timeout} ->
+          conn
+          |> Plug.Conn.put_status(400)
+          |> Req.Test.json(%{"code" => 300_120, "msg" => "simulated transport failure"})
+
+        {:error, %Error{} = error} ->
+          conn
+          |> Plug.Conn.put_status(error.http_status || 400)
+          |> Req.Test.json(%{"code" => error.code, "msg" => error.msg})
+      end
+    end
+
+    defp request_path("/open-apis/cardkit/v1/cards"), do: {"cardkit/v1/cards", %{}}
+
+    defp request_path("/open-apis/cardkit/v1/cards/" <> rest) do
+      case String.split(rest, "/") do
+        [card_id, "batch_update"] ->
+          {"cardkit/v1/cards/:card_id/batch_update", %{card_id: card_id}}
+
+        [card_id, "elements", element_id, "content"] ->
+          {"cardkit/v1/cards/:card_id/elements/:element_id/content",
+           %{card_id: card_id, element_id: element_id}}
+      end
+    end
+
+    defp request_path("/open-apis/im/v1/messages"), do: {"im/v1/messages", %{}}
+
+    defp request_path("/open-apis/im/v1/messages/" <> rest) do
+      [message_id, "reply"] = String.split(rest, "/", parts: 2)
+      {"im/v1/messages/:message_id/reply", %{message_id: message_id}}
+    end
+
+    defp decode_body(""), do: %{}
+
+    defp decode_body(body) do
+      body
+      |> Torque.decode!()
+      |> Map.new(fn {key, value} -> {String.to_existing_atom(key), value} end)
+    end
+  end
+
+  alias CardKitHarness, as: CardKit
+
   setup do
+    Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
     :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
 
     config_id = "cardkit-recovery-#{System.unique_integer([:positive])}"
 
@@ -169,7 +256,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       mode: :working
     }
 
-    assert {:error, :timeout} =
+    assert {:error, {:reply_delivery, :retryable, _provider_error}} =
              CardKit.refresh(request,
                client: :recording_client,
                request_fun: request_fun
@@ -223,7 +310,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       {:error, :timeout}
     end
 
-    assert {:error, :timeout} =
+    assert {:error, {:reply_delivery, :retryable, _provider_error}} =
              CardKit.update(
                %Request{
                  actor_event: stored,
@@ -277,13 +364,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                  mode: :working
                },
                client: :recording_client,
-               request_fun: request_fun,
-               card_id_retry_delays_ms: [0],
-               sleep_fun: fn delay -> send(parent, {:card_visibility_sleep, delay}) end
+               request_fun: request_fun
              )
 
     assert result.created_source_entry_id == "message-new"
-    assert_receive {:card_visibility_sleep, 0}
     assert_receive {:card_send_attempt, first_uuid}
     assert_receive {:card_send_attempt, second_uuid}
     assert first_uuid == second_uuid
@@ -419,7 +503,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       mode: :working
     }
 
-    assert {:error, :timeout} =
+    assert {:error, {:reply_delivery, :retryable, _provider_error}} =
              CardKit.update(request,
                client: :recording_client,
                request_fun: request_fun
@@ -591,7 +675,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       })
 
     terminal =
-      previous
+      ReplyPresentation.new()
       |> ReplyPresentation.terminal("awaiting_input", "请选择路径")
       |> ReplyPresentation.apply_event("interaction.request", %{
         "operation_id" => "clarify-ambiguous",
@@ -923,7 +1007,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       mode: :terminal
     }
 
-    assert {:error, :timeout} =
+    assert {:error, {:reply_delivery, :retryable, _provider_error}} =
              CardKit.finalize(request,
                client: :recording_client,
                request_fun: request_fun

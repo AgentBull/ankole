@@ -74,9 +74,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "background_agent_job.list" =>
       {BackgroundAgentJobBroker, :handle_list, :turn_read,
        FabricProto.BackgroundAgentJobListRequest},
-    "background_agent_job.steer" =>
-      {BackgroundAgentJobBroker, :handle_steer, :turn_write,
-       FabricProto.BackgroundAgentJobSteerRequest},
+    "background_agent_job.message.send" =>
+      {BackgroundAgentJobBroker, :handle_message_send, :turn_write,
+       FabricProto.BackgroundAgentJobMessageSendRequest},
+    "background_agent_job.message.result" =>
+      {BackgroundAgentJobBroker, :handle_message_result, :turn_read,
+       FabricProto.BackgroundAgentJobMessageResultRequest},
+    "background_agent_job.respawn" =>
+      {BackgroundAgentJobBroker, :handle_respawn, :turn_write,
+       FabricProto.BackgroundAgentJobRespawnRequest},
     "background_agent_job.stop" =>
       {BackgroundAgentJobBroker, :handle_stop, :turn_write,
        FabricProto.BackgroundAgentJobStopRequest},

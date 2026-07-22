@@ -2,18 +2,12 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path'
 import { parse, stringify } from 'smol-toml'
 import { DEFAULT_MCP_TIMEOUT_MS, type MCPServerConfig } from '../../tools/mcp/config'
+import type { CodexSubscriptionModelProfile } from '../../tools/codex/runtime-config'
 
 type TomlTable = Record<string, unknown>
 
-export type CodexJobExecutionOptions = {
-  model?: string
-  reasoningEffort?: string
-}
-
 export type MaterializedCodexJobProjectConfig = {
   path: string
-  model?: string
-  threadConfig: Record<string, string>
 }
 
 /**
@@ -22,28 +16,28 @@ export type MaterializedCodexJobProjectConfig = {
  */
 export function materializeCodexJobProjectConfig(input: {
   projectRoot: string
-  execution: CodexJobExecutionOptions
   mcpServers: MCPServerConfig[]
   pluginsEnabled: boolean
+  modelProfile?: CodexSubscriptionModelProfile
 }): MaterializedCodexJobProjectConfig {
   const path = join(input.projectRoot, '.codex', 'config.toml')
   const config = readToml(path)
 
-  applyTypedExecutionOptions(config, input.execution)
+  applyModelProfile(config, input.modelProfile)
   applyMCPServers(config, input.mcpServers)
   applyRunnerSafety(config, input.pluginsEnabled)
   atomicWrite(path, stringify(config))
 
-  return {
-    path,
-    ...(input.execution.model ? { model: input.execution.model } : {}),
-    threadConfig: input.execution.reasoningEffort ? { model_reasoning_effort: input.execution.reasoningEffort } : {}
-  }
+  return { path }
 }
 
-function applyTypedExecutionOptions(config: TomlTable, execution: CodexJobExecutionOptions): void {
-  if (execution.model !== undefined) config.model = execution.model
-  if (execution.reasoningEffort !== undefined) config.model_reasoning_effort = execution.reasoningEffort
+function applyModelProfile(config: TomlTable, profile: CodexSubscriptionModelProfile | undefined): void {
+  if (!profile) return
+
+  config.model = profile.model
+  config.model_reasoning_effort = profile.modelReasoningEffort
+  if (profile.fastMode) config.service_tier = 'priority'
+  else delete config.service_tier
 }
 
 function applyMCPServers(config: TomlTable, servers: MCPServerConfig[]): void {

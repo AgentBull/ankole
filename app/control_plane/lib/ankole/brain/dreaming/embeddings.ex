@@ -11,46 +11,30 @@ defmodule Ankole.Brain.Dreaming.Embeddings do
   @spec embed_pending_blocks(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}
   def embed_pending_blocks(limit \\ 50) when is_integer(limit) and limit >= 0 do
-    blocks =
-      EntryBlock
-      |> join(:inner, [block], entry in Entry, on: entry.id == block.entry_id)
-      |> where([block, _entry], block.embedding_state == :pending)
-      |> order_by([block, _entry], asc: block.updated_at, asc: block.id)
-      |> limit(^limit)
-      |> select([block, entry], %{
-        id: block.id,
-        owner_uid: block.owner_uid,
-        name: entry.name,
-        type: entry.type,
-        body: block.body,
-        lock_version: block.lock_version
-      })
-      |> Repo.all()
+    with {:ok, %{agent_uid: model_uid, dimensions: dimensions}} <- Embedding.resolve_model() do
+      :ok = Embedding.prepare_space(model_uid, dimensions)
 
-    model_by_owner =
-      blocks
-      |> Enum.map(& &1.owner_uid)
-      |> Enum.uniq()
-      |> Map.new(&{&1, Embedding.resolve_model_agent_uid(&1)})
+      blocks =
+        EntryBlock
+        |> join(:inner, [block], entry in Entry, on: entry.id == block.entry_id)
+        |> where([block, _entry], block.embedding_state == :pending)
+        |> order_by([block, _entry], asc: block.updated_at, asc: block.id)
+        |> limit(^limit)
+        |> select([block, entry], %{
+          id: block.id,
+          owner_uid: block.owner_uid,
+          name: entry.name,
+          type: entry.type,
+          body: block.body,
+          lock_version: block.lock_version
+        })
+        |> Repo.all()
 
-    {attempted_count, unavailable} =
-      Enum.reduce(blocks, {0, []}, fn block, {count, unavailable} ->
-        case Map.fetch!(model_by_owner, block.owner_uid) do
-          {:ok, model_uid} ->
-            embed_block(model_uid, block)
-            {count + 1, unavailable}
-
-          {:error, reason} ->
-            {count, [{block.owner_uid, reason} | unavailable]}
-        end
-      end)
-
-    case {attempted_count, unavailable} do
-      {0, [{owner_uid, reason} | _rest]} ->
-        {:unavailable, "brain embedding unavailable for #{owner_uid}: #{inspect(reason)}"}
-
-      _result ->
-        {:ok, attempted_count}
+      Enum.each(blocks, &embed_block(model_uid, &1))
+      {:ok, length(blocks)}
+    else
+      {:error, reason} ->
+        {:unavailable, "long-term memory embedding unavailable: #{inspect(reason)}"}
     end
   end
 
@@ -64,16 +48,24 @@ defmodule Ankole.Brain.Dreaming.Embeddings do
         Repo.query!(
           """
           UPDATE brain_entry_blocks
-          SET embedding = $2::text::vector,
+          SET embedding = $2,
               embedding_dimensions = $3,
+              embedding_model_agent_uid = $4,
               embedding_state = 'synced',
               embedding_error = NULL
           WHERE id = $1::text::uuid
-            AND body = $4
-            AND lock_version = $5
+            AND body = $5
+            AND lock_version = $6
             AND embedding_state = 'pending'
           """,
-          [block.id, Embedding.to_pgvector(vector), dimensions, block.body, block.lock_version]
+          [
+            block.id,
+            Embedding.storage_vector(vector),
+            dimensions,
+            model_uid,
+            block.body,
+            block.lock_version
+          ]
         )
 
       {:error, reason} ->
@@ -87,6 +79,7 @@ defmodule Ankole.Brain.Dreaming.Embeddings do
           set: [
             embedding: nil,
             embedding_dimensions: nil,
+            embedding_model_agent_uid: nil,
             embedding_state: :failed,
             embedding_error: inspect(reason)
           ]

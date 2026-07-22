@@ -47,7 +47,7 @@ defmodule AnkoleWeb.AppConfigurationController do
   )
 
   operation(:show,
-    summary: "Read one console-editable AppConfigure entry",
+    summary: "Read one console-visible AppConfigure entry",
     parameters: [key: [in: :path, type: :string, required: true]],
     responses: [
       ok: {"AppConfigure entry", "application/json", AppConfigurationResponse},
@@ -198,7 +198,7 @@ defmodule AnkoleWeb.AppConfigurationController do
     error(conn, 422, "not_editable", "pattern key must exist globally before console editing")
   end
 
-  defp error(conn, {:pattern_key_managed_by_owner, _key}) do
+  defp error(conn, {:key_managed_by_owner, _key}) do
     error(conn, 422, "not_editable", "app configuration is managed through its owning API")
   end
 

@@ -127,6 +127,73 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
       assert map_size(state.timers) == 1
       assert %{event: %Event{timer_key: ^timer_key}} = Map.fetch!(state.timers, timer_key)
     end
+
+    test "a stale deadline message cannot consume its replacement timer" do
+      parent = self()
+      handler = fn event -> send(parent, {:handled, event.payload["outbound_key"]}) end
+      scheduler = start_scheduler!(sweep_interval_ms: 60_000, handler: handler)
+      channel = RuntimeEvents.outbox_due_channel()
+      timer_key = {channel, "agent-a", "mock", "replacement-outbox"}
+
+      payload = %{
+        "agent_uid" => "agent-a",
+        "binding_name" => "mock",
+        "outbound_key" => "replacement-outbox",
+        "due_at" =>
+          DateTime.utc_now(:microsecond)
+          |> DateTime.add(30, :second)
+          |> RuntimeEvents.encode_datetime()
+      }
+
+      Scheduler.notify(scheduler, channel, payload)
+      %{ref: stale_ref} = :sys.get_state(scheduler).timers[timer_key]
+
+      Scheduler.notify(scheduler, channel, payload)
+      %{ref: current_ref} = :sys.get_state(scheduler).timers[timer_key]
+      refute current_ref == stale_ref
+
+      send(Process.whereis(scheduler), {:deadline, timer_key, stale_ref})
+      assert %{ref: ^current_ref} = :sys.get_state(scheduler).timers[timer_key]
+      refute_receive {:handled, "replacement-outbox"}
+
+      send(Process.whereis(scheduler), {:deadline, timer_key, current_ref})
+      assert_receive {:handled, "replacement-outbox"}, 500
+      refute_receive {:handled, "replacement-outbox"}
+    end
+  end
+
+  test "handler raise and kill stay isolated from the scheduler" do
+    parent = self()
+
+    handler = fn event ->
+      case event.payload["failure"] do
+        "raise" ->
+          send(parent, {:handler_started, :raise})
+          raise "handler failed"
+
+        "kill" ->
+          send(parent, {:handler_started, :kill})
+          Process.exit(self(), :kill)
+
+        _normal ->
+          send(parent, :handler_completed)
+      end
+    end
+
+    scheduler = start_scheduler!(sweep_interval_ms: 60_000, handler: handler)
+    channel = RuntimeEvents.agent_home_projection_channel()
+
+    Scheduler.notify(scheduler, channel, %{"agent_uid" => "agent-raise", "failure" => "raise"})
+    assert_receive {:handler_started, :raise}, 500
+    assert Process.alive?(Process.whereis(scheduler))
+
+    Scheduler.notify(scheduler, channel, %{"agent_uid" => "agent-kill", "failure" => "kill"})
+    assert_receive {:handler_started, :kill}, 500
+    assert Process.alive?(Process.whereis(scheduler))
+
+    Scheduler.notify(scheduler, channel, %{"agent_uid" => "agent-ok"})
+    assert_receive :handler_completed, 500
+    assert Process.alive?(Process.whereis(scheduler))
   end
 
   test "rejects invalid sweep intervals" do
@@ -259,7 +326,7 @@ defmodule Ankole.RuntimeEvents.SchedulerTest do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 

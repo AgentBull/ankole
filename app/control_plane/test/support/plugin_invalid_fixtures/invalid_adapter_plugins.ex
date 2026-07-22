@@ -7,9 +7,6 @@ defmodule Ankole.PluginFixtures.InvalidAdapterModulePlugin do
   def plugin_id, do: "invalid-adapter-module"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def adapter_declarations do
     [
       %{
@@ -30,9 +27,6 @@ defmodule Ankole.PluginFixtures.StringLocalizedTextPlugin do
   def plugin_id, do: "string-localized-text"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name, do: "String Display Name"
 end
 
@@ -45,9 +39,6 @@ defmodule Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin do
   def plugin_id, do: "missing-default-localized-text"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name, do: %{"en-US" => "Missing Default"}
 end
 
@@ -58,9 +49,6 @@ defmodule Ankole.PluginFixtures.StringAdapterDisplayNamePlugin do
 
   @impl true
   def plugin_id, do: "string-adapter-display-name"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -83,9 +71,6 @@ defmodule Ankole.PluginFixtures.MissingIdentityCallbackPlugin do
   def plugin_id, do: "missing-identity-callback"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def adapter_declarations do
     [
       %{
@@ -104,9 +89,6 @@ defmodule Ankole.PluginFixtures.DuplicateAdapterPlugin do
 
   @impl true
   def plugin_id, do: "duplicate-adapter"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -129,9 +111,6 @@ defmodule Ankole.PluginFixtures.MissingRemovedCallbackPlugin do
   def plugin_id, do: "missing-removed-callback"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def adapter_declarations do
     [
       %{
@@ -143,7 +122,7 @@ defmodule Ankole.PluginFixtures.MissingRemovedCallbackPlugin do
     ]
   end
 
-  def chat_consumer(_context, _config, _opts), do: %{}
+  def chat_consumer(_context, _config), do: %{}
 end
 
 defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
@@ -153,9 +132,6 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
 
   @impl true
   def plugin_id, do: "unknown-signals-inbound-capability"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -169,7 +145,7 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
     ]
   end
 
-  def chat_consumer(_context, _config, _opts), do: %{}
+  def chat_consumer(_context, _config), do: %{}
   def handle_message_receive(_event_type, _event, _consumers), do: {:ok, []}
 end
 
@@ -180,9 +156,6 @@ defmodule Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin do
 
   @impl true
   def plugin_id, do: "unknown-signals-outbound-capability"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -208,9 +181,6 @@ defmodule Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin do
   def plugin_id, do: "missing-signals-outbox-send"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def adapter_declarations do
     [
       %{
@@ -230,9 +200,6 @@ defmodule Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin do
 
   @impl true
   def plugin_id, do: "missing-signals-outbox-reconcile"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -256,9 +223,6 @@ defmodule Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin do
 
   @impl true
   def plugin_id, do: "unknown-identity-capability"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -285,9 +249,6 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin do
   def plugin_id, do: "missing-ai-gateway-provider-definition"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def adapter_declarations do
     [
       %{
@@ -306,9 +267,6 @@ defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
 
   @impl true
   def plugin_id, do: "missing-ai-gateway-embedding-prepare"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do
@@ -354,9 +312,6 @@ defmodule Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin do
 
   @impl true
   def plugin_id, do: "kebab-ai-gateway-provider-kind"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def adapter_declarations do

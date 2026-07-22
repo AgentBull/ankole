@@ -1,21 +1,12 @@
 defmodule Ankole.Plugins.MapHelpers do
   @moduledoc """
   Decode helpers for the weak-typed provider payload maps handled by Control
-  Plane Plugin adapters. Lookups try the given (typically string) key first and
-  fall back to its existing atom; `Ankole.SignalsGateway.Utils` owns the
-  reverse, atom-key-first convention for host-internal attribute maps.
+  Plane Plugin adapters. Provider and configuration JSON maps use string keys.
+  These helpers do not accept atom-key aliases.
   """
 
-  @spec fetch_value(term(), term()) :: term()
-  def fetch_value(map, key) when is_map(map) do
-    atom_key = atom_key(key)
-
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-      true -> nil
-    end
-  end
+  @spec fetch_value(term(), String.t()) :: term()
+  def fetch_value(map, key) when is_map(map) and is_binary(key), do: Map.get(map, key)
 
   def fetch_value(_map, _key), do: nil
 
@@ -90,12 +81,4 @@ defmodule Ankole.Plugins.MapHelpers do
       {:error, _reason} = error -> error
     end
   end
-
-  defp atom_key(key) when is_binary(key) do
-    String.to_existing_atom(key)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp atom_key(_key), do: nil
 end

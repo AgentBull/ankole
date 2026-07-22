@@ -1,18 +1,15 @@
-# Brain deployment and operations
+# Deploy and Operate Brain
 
-Brain keeps chat recall, curated knowledge, dreaming cursors, and audit records
-in the same PostgreSQL database as the control plane. Markdown returned by
-`memory_open` is a projection; it is not a second store to back up or repair.
+Brain stores current knowledge, external-source state, Dreaming progress, and
+audit records in the control-plane PostgreSQL database. SignalsGateway stores
+the original chat messages. The Console Brain status view is the one health
+surface for both stores and processing pipelines.
 
-## PostgreSQL prerequisites
+## Prepare PostgreSQL
 
-Use PostgreSQL 18 with the `pg_search` and `vector` extension packages
-installed. `pg_search` must be in `shared_preload_libraries` before the server
-starts. A configuration reload is not enough after changing this setting;
-restart PostgreSQL.
-
-Run these checks against the exact database server used by `DATABASE_URL`
-before migrations:
+Brain requires PostgreSQL 18 with the `pg_search` and `vector` extensions.
+PostgreSQL must preload `pg_search`. Check the server in `DATABASE_URL` before
+you run a migration:
 
 ```sql
 SHOW server_version_num;
@@ -24,10 +21,11 @@ WHERE name IN ('pg_search', 'vector')
 ORDER BY name;
 ```
 
-`server_version_num` must be at least `180000`, both extension packages must be
-available, and the preload list must contain `pg_search`. The application
-migration runs `CREATE EXTENSION IF NOT EXISTS` for both extensions and creates
-the BM25 indexes. Verify the installed state afterwards:
+`server_version_num` must be at least `180000`.
+`shared_preload_libraries` must contain `pg_search`, and both extensions must be
+available. Restart PostgreSQL after you change its preload setting.
+
+The migration installs both extensions. Check them after migration:
 
 ```sql
 SELECT extname, extversion
@@ -36,169 +34,300 @@ WHERE extname IN ('pg_search', 'vector')
 ORDER BY extname;
 ```
 
-Do not substitute PostgreSQL full-text search or an external vector database
-when an extension is unavailable. That would change Brain's transactional and
-degradation guarantees.
+Do not replace these extensions with PostgreSQL full-text search or an external
+vector database. Brain uses their indexes inside control-plane transactions.
 
-## Create, rebuild, and migrate
+## Apply the Brain V2 Clean Cut
 
-For local development, the devkit image already contains both extensions and
-starts PostgreSQL with `shared_preload_libraries=pg_search`:
+The Brain V2 migration has no V1 conversion or downgrade path. It permanently
+clears all Brain V1-owned tables before it installs the V2 schema. Back up any
+information that you must keep before you migrate. Do not add a compatibility
+read for V1 store names.
+
+The local Devkit PostgreSQL image has the required extensions:
 
 ```sh
 bun run services:start
+bun run kit app-db migrate
 ```
 
-Ankole has not shipped a Memory-to-Brain compatibility migration. A local
-database whose original Memory migration was already recorded must be rebuilt;
-editing the old migration file does not make Ecto rerun that version:
+If you choose to rebuild a disposable local database, this command deletes the
+complete application database:
 
 ```sh
 bun run kit app-db rebuild --yes
 ```
 
-This command is destructive. Back up any data that matters first. A fresh
-installation, or a database that already has the Brain schema, should keep its
-data and apply only pending migrations:
+Back up required data before you run it. For a release or Helm deployment,
+check PostgreSQL and take a backup first. Run the migration init container
+before the new control plane starts. Do not run V1 and V2 control planes on one
+database.
 
-```sh
-bun run kit app-db migrate
-```
-
-For releases and Helm deployments, check the PostgreSQL server first, take a
-backup, then let the control-plane migration init container run once before the
-new control plane starts. Never point old and new control-plane versions at the
-same database during this unreleased schema replacement.
-
-## Model profiles
-
-Model selection is PostgreSQL-backed runtime configuration. Configure provider
-rows and agent ModelProfiles through the console; do not put model ids or API
-keys into Brain environment variables.
-
-| Profile | Required for | Policy |
-| --- | --- | --- |
-| `primary` | Normal agent turns that call `memory_*` tools | Required for the agent's normal work |
-| `light` | Dreaming stage A episode summarization | Required on the global `brain.dreaming.model_agent_uid` |
-| `heavy` | Dreaming stage B knowledge consolidation | Required on each enabled principal's scoped model owner |
-| `embedding` | Episode, knowledge-block, and query vectors | Shared episodes use the global model owner; knowledge blocks and queries fall back to the owner agent's profile |
-| `rerank` | Optional search reranking | Configure only when `brain.search.rerank_enabled=true` |
-
-Set the global `brain.dreaming.model_agent_uid` to one model owner with `light`
-and `embedding` profiles when shared channel episodes are enabled. Stage A and
-episode query vectors use that owner. Knowledge-block indexing and knowledge
-query vectors use the same global owner when configured; when it is omitted,
-they fall back to the knowledge owner if that owner is an agent with an
-`embedding` profile. For each principal whose stage B is enabled, configure its
-scoped `brain.dreaming.model_agent_uid` with a `heavy` profile when the
-principal is not itself the model-owning agent; an agent owner otherwise falls
-back to its own `heavy` profile. Missing profiles are an explicit unavailable
-state: cursors must not advance as if work succeeded. If reranking is enabled,
-`brain.search` must also name a model owner with a `rerank` profile.
-
-## Stage B budgeting and cursor safety
-
-Stage B uses the scoped `heavy` profile twice per participating store. A
-locator first reads episode summaries plus a bounded preview index and selects
-a chronological material prefix and topic queries. Brain then retrieves the
-related current knowledge projections and sends only that selected prefix's
-full originals to the curator. Public and DM stores remain separate model
-calls.
-
-When `brain.dreaming.token_limit` is non-zero, it covers the exact serialized
-inputs plus the configured output reservation for every locator and curator
-call in the run, across all stores. A run commits only the complete global
-material prefix actually sent to curators. Anything excluded by the locator or
-budget remains behind the principal high-water marks for a later run. Invalid
-locator output, model failure, insufficient budget, or mutation failure leaves
-the cursor unchanged. `0` keeps the documented unlimited behavior.
-
-## Operational checks
-
-The current knowledge state lives in `brain_entries`, `brain_entry_blocks`, and
-`brain_entry_relations`. `brain_audit_log` is append-only recovery evidence;
-normal retrieval never reads it. `brain_cursors` shows stage A channel progress
-and stage B principal progress. `brain_episodes` is the chat navigation index.
-
-Useful checks:
+After migration, confirm the fixed shared Principal and the new stores:
 
 ```sql
-SELECT owner_uid, store_key, name, type, lock_version, updated_at
+SELECT uid, type
+FROM principals
+WHERE uid = 'brain-shared';
+
+SELECT owner_uid, store_key, count(*)
 FROM brain_entries
-ORDER BY updated_at DESC;
+GROUP BY owner_uid, store_key
+ORDER BY owner_uid, store_key;
+```
 
-SELECT owner_uid, store_key, author_kind, embedding_state, count(*)
+Valid store keys are `shared`, `self`, `dm:<principal-uid>`, and
+`channel:<channel-id>`. There is no `public` compatibility store.
+
+## Configure Models
+
+Configure model providers and Agent ModelProfiles in the Console. The database
+stores model and provider choices. Do not put model IDs or API keys in Brain
+environment variables.
+
+| Profile | Use | Requirement |
+| --- | --- | --- |
+| `primary` | Normal Agent turns and `memory_*` tool selection | Required for Agent work |
+| `light` | Stage A episodes and Stage B locator and curator calls | Required on the Agent that owns that work |
+| `embedding` | All entry, episode, and query vectors | Required on the global embedding model Agent |
+| `rerank` | Optional global search reranking | Required only when reranking is enabled |
+
+Stage B uses the curated Agent's own `light` profile. Human and system
+Principals cannot own a Stage B run. Stage A selects the
+lexicographically smallest visible active channel member whose `light` profile
+resolves. There is no `brain.dreaming.model_agent_uid` setting.
+
+Configure one installation-wide vector space in the global `brain.embedding`
+key:
+
+```json
+{
+  "enabled": true,
+  "model_agent_uid": "agent-uid-with-embedding-profile",
+  "dimensions": 1024
+}
+```
+
+Use the exact output dimensions of the selected model. Brain accepts 1 through
+4,096. A missing Agent, profile, or dimension makes vector processing
+unavailable and creates a status alert. PostgreSQL stores a zero-filled
+`vector(4096)` envelope, so more than 4,096 dimensions needs a migration. The
+HNSW shortlist uses the first 4,000 dimensions and the final order uses the
+complete stored vector.
+
+### Change the embedding model safely
+
+Change the global setting first. The next block or episode embedding batch
+calls `Ankole.Brain.Embedding.prepare_space/2`, which changes vectors from
+another model space back to `pending`. Run the two embedding batches until
+their pending counts reach zero:
+
+```sh
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.embed_pending_blocks(500))'
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.embed_pending_episodes(500))'
+```
+
+Do not compare or keep vectors from two models or dimensions. Each synced row
+records `embedding_model_agent_uid` and `embedding_dimensions`, and the status
+view reports any stale rows.
+
+Configure optional reranking through `brain.search`. Its model Agent must have
+a `rerank` profile. Reranking is disabled by default so its provider call is
+not on the normal recall path.
+
+## Configure Runtime Policy
+
+Brain registers five AppConfigure keys. The design document lists every field
+and default. The main operator decisions are:
+
+- `brain.embedding` selects one global vector space. It is disabled until an
+  operator selects a model Agent and dimensions.
+- `brain.search` sets the 30-day half-life, the `0.5` knowledge decay floor,
+  and optional reranking.
+- `brain.dreaming` can override enablement and microbatch limits for an Agent.
+  Agents are enabled by default. Human and system Principals have no Stage B
+  consumption surface.
+- `brain.sources` enables connector polling, with a 15-minute default interval
+  and a 1,500-token block limit.
+- `brain.knowledge` sets the 1,500-token pinned memo budget and the default
+  result limit of ten.
+
+Stage B becomes eligible after its configured silence period or backlog count.
+The defaults are 30 minutes or 50 rows. A `token_limit` or `mutation_limit` of
+`0` means that no operator limit is set. A model, validation, budget, or commit
+failure leaves its cursor unchanged.
+
+## Read the Status Surface
+
+Open the Console Brain status view for the Agent. The `memory_health_check` tool
+uses the same query group, so do not operate a second review-candidate health
+list.
+
+The top-level status is `error` when at least one alert exists. Investigate the
+first causal alert:
+
+1. **Embedding configuration.** Fix a disabled, incomplete, or unresolved
+   `brain.embedding` setting before you work on pending vector counts.
+2. **Stale embedding space.** Regenerate rows whose model Agent or dimensions
+   differ from the global setting.
+3. **Stage A availability.** Check each channel processor and its `light`
+   profile. A failed selection appears in `unavailable_reason`.
+4. **Stage B availability.** Check the curated Principal's `light` profile and
+   last successful run.
+5. **Stuck curation.** Oban Lifeline rescues an executing Stage B job after 30
+   minutes. Check retries and provider failures if the same Principal returns.
+6. **Backlog or failed embeddings.** Fix the provider or profile, then run the
+   affected batch again.
+7. **Content discipline.** Resolve dated names, near duplicates, entries over
+   200 projected lines, zero-body entries, an oversized pinned memo, and source
+   or citation diagnostics through normal versioned Brain operations.
+
+Read the same payload in a release shell when the Console is unavailable:
+
+```sh
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.status("agent-uid"), limit: :infinity)'
+```
+
+Useful database checks are:
+
+```sql
+SELECT embedding_state, embedding_model_agent_uid, embedding_dimensions, count(*)
 FROM brain_entry_blocks
-GROUP BY owner_uid, store_key, author_kind, embedding_state;
+GROUP BY embedding_state, embedding_model_agent_uid, embedding_dimensions
+ORDER BY embedding_state, embedding_model_agent_uid, embedding_dimensions;
 
-SELECT scope_kind, scope_key, cursor_entry_observed_at, unavailable_reason, updated_at
+SELECT embedding_state, embedding_model_agent_uid, embedding_dimensions, count(*)
+FROM brain_episodes
+GROUP BY embedding_state, embedding_model_agent_uid, embedding_dimensions
+ORDER BY embedding_state, embedding_model_agent_uid, embedding_dimensions;
+
+SELECT scope_kind, scope_key, cursor_entry_observed_at,
+       unavailable_reason, metadata, updated_at
 FROM brain_cursors
 ORDER BY scope_kind, scope_key;
 
-SELECT actor_kind, action, entry_id, block_id, before, after, inserted_at
-FROM brain_audit_log
+SELECT state, worker, args, attempted_at, attempt, max_attempts
+FROM oban_jobs
+WHERE worker LIKE 'Ankole.Brain.Jobs.%'
 ORDER BY inserted_at DESC
 LIMIT 100;
 ```
 
-The Console Knowledge list searches names, aliases, summaries, and blocks and
-uses stable cursor pagination; filters never turn into an unbounded table scan
-in the browser. Its **Review audit** page can filter by store, action, actor,
-dreaming run id, and date. Batch recovery is deliberately preview-first: select
-the exact audit rows, confirm them, and the server applies their inverse actions
-newest-first in one transaction. A concurrent change to any affected field
-causes the whole selection to fail with a conflict instead of overwriting newer
-work. Use the dreaming run-id filter to inspect and, when needed, reverse one
-bad run without treating the audit log as a versioned knowledge source.
+Do not move a cursor by hand to hide a model or write failure.
 
-An operator may trigger one synchronous stage B pass through the public facade
-inside a release:
+## Run Maintenance Manually
+
+Run one Stage B curation for a Principal:
 
 ```sh
 /app/bin/ankole eval 'IO.inspect(Ankole.Brain.run_dreaming("agent-uid"), limit: :infinity)'
 ```
 
-The expected terminal status is `:completed` when new material was committed or
-`:no_new_material` when the principal cursor was already current. Do not move a
-cursor manually to hide a failing model or invalid mutation.
+A successful change returns `status: :completed`. No eligible new material
+returns `status: :no_new_material`.
 
-`memory_health_check` is the read-only opening step of a human-requested review,
-not a periodic repair job. Human decisions should be applied through the same
-structured Brain operations used by agents so lock versions and audit snapshots
-remain intact.
+Run pending embedding batches:
 
-## Dedicated real-model acceptance
+```sh
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.embed_pending_blocks(500))'
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.embed_pending_episodes(500))'
+```
 
-The Brain suite is deliberately outside the default test gate and outside
+Synchronize one registered connector source by its row UUID:
+
+```sh
+/app/bin/ankole eval 'IO.inspect(Ankole.Brain.SourceSync.sync("source-row-uuid"), limit: :infinity)'
+```
+
+The generic connector runtime is present, but Ankole does not yet ship a real
+Feishu document connector. Use this command only for a connector that the
+installation has registered. Chat through the Lark adapter is independent of
+document-source synchronization.
+
+## Inspect Sources
+
+Manual files have `capture_method = 'file'`. Their original bytes are immutable
+and they require an explicit source-learning turn. Connector rows use their
+connector ID as `capture_method`; they keep the current revision and current
+exported body.
+
+```sql
+SELECT document_id, capture_method, connector_id, revision, sync_state, lock_version,
+       title, source_url, byte_size, sha256, last_synced_at
+FROM brain_retained_sources
+ORDER BY inserted_at DESC;
+```
+
+A connector mirror is one read-only `external_document` entry in `shared`.
+An unchanged revision only updates the check time. A changed revision with the
+same content can update metadata without replacing blocks. Changed content
+replaces the complete entry. A `deleted` or `access_lost` source withdraws it.
+Do not edit mirror rows or remove the mirror property by SQL.
+
+Concurrent syncs use the source row version read before connector I/O. A stale
+result returns `{:error, :source_sync_conflict}` and does not change the source
+or mirror. Scheduled jobs retry this error. Run the manual command again after
+a conflict.
+
+Pasted text and fetched URL text are ordinary editable entries; they are not
+immutable connector snapshots.
+
+## Review and Recover Knowledge
+
+Use the Console audit view to filter changes by store, action, author, Dreaming
+run, and date. Preview a batch recovery before you confirm it. The control plane
+reverses selected changes from newest to oldest in one transaction.
+
+If current knowledge no longer matches the recorded value, recovery returns a
+conflict and changes nothing. Apply manual corrections through Brain operations
+so version checks, citations, and audit records remain intact. Search never
+uses audit rows as current knowledge.
+
+When a provider removes a source chat message, Brain withdraws only changes
+that still match their expected values and blocks with the exact source marker.
+It never replaces a later edit.
+
+## Scheduled Jobs
+
+Oban runs frequent scans and applies eligibility gates inside them:
+
+- Stage A eligibility: every five minutes.
+- Episode embeddings: every five minutes.
+- Block embeddings: every five minutes.
+- Stage B eligibility: every minute.
+- Connector source eligibility: every minute, with the configured source
+  interval applied per source.
+
+These are control-plane maintenance jobs, not user Schedule records.
+
+## Run the Dedicated Acceptance Suite
+
+The real-model Brain suite is not part of the default gate or
 `tools/e2e/run --all`:
 
 ```sh
 OPENROUTER_API_KEY=... tools/e2e/run --brain-real-llm
 ```
 
-Focused reruns use ExUnit tags, for example:
+Run one case by ExUnit tag:
 
 ```sh
 tools/e2e/run --brain-real-llm --only brain_dm_isolation
-tools/e2e/run --brain-real-llm --only brain_dreaming_idempotence
+tools/e2e/run --brain-real-llm --only brain_unified_recall_ranking
+tools/e2e/run --brain-real-llm --only brain_episode_paraphrase
+tools/e2e/run --brain-real-llm --only brain_dreaming_convergence
+tools/e2e/run --brain-real-llm --only brain_source_mirror_sync
 tools/e2e/run --brain-real-llm --only brain_retraction
 ```
 
-Fake Feishu replaces only the difficult-to-automate client. The suite still
-uses the real Lark transport, SignalsGateway ingress, ActorRuntime, Docker
-worker, OpenRouter model, Brain RPC, PostgreSQL transaction, outbox dispatch,
-and platform mirror. It asserts model tool journals, structured database state,
-audit recovery data, and succeeded outbox rows; it does not snapshot prompt
-wording.
+Fake Feishu replaces only the client UI. The suite still traverses Lark
+transport, SignalsGateway, ActorRuntime, Docker Agent Computer, OpenRouter,
+Brain RPC, PostgreSQL, and the outbox. The source mirror case uses the
+documented deterministic fake connector because the real Feishu document
+connector belongs to the next phase.
 
-When a run fails, classify the first broken boundary before changing the test:
-
-1. PostgreSQL package/preload/migration failure;
-2. provider or model-profile unavailable;
-3. ingress, actor placement, or stale worker image;
-4. model tool choice or Brain RPC rejection;
-5. database invariant, cursor, or audit mismatch;
-6. outbox/provider delivery failure.
-
-Provider transport and quota failures are external blockers, not evidence that
-a database assertion should be weakened.
+When a case fails, find the first failed boundary: PostgreSQL prerequisites,
+model profiles, ingress and Actor placement, worker image, model tool choice,
+Brain RPC, database transaction, or outbox delivery. A provider quota or
+transport failure is an external blocker; it does not justify a weaker storage
+assertion.

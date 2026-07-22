@@ -58,7 +58,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) when is_map(config) and is_binary(code) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.client(config)
 
     with {:ok, token} <-
            Auth.user_access_token(client, code, redirect_uri: Keyword.get(opts, :redirect_uri)),
@@ -106,17 +106,17 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   """
   @spec sync_directory(String.t(), map(), keyword()) ::
           {:ok, %{users: non_neg_integer(), departments: non_neg_integer()}} | {:error, term()}
-  def sync_directory(provider_id, config, opts \\ [])
+  def sync_directory(provider_id, config, _opts \\ [])
       when is_binary(provider_id) and is_map(config) do
     with {:ok, %{departments: departments, department_ids: department_ids}} <-
-           sync_directory_departments(provider_id, config, opts),
-         {:ok, %{users: users}} <- sync_directory_users(provider_id, config, opts, department_ids) do
+           sync_directory_departments(provider_id, config),
+         {:ok, %{users: users}} <- sync_directory_users(provider_id, config, department_ids) do
       {:ok, %{users: users, departments: departments}}
     end
   end
 
-  defp sync_directory_users(provider_id, config, opts, department_ids) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_directory_users(provider_id, config, department_ids) do
+    client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 
     with {:ok, users} <- collect_directory_users(client, department_ids, page_size),
@@ -136,8 +136,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     end
   end
 
-  defp sync_directory_departments(provider_id, config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_directory_departments(provider_id, config) do
+    client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 
     client

@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.Principal do
   @moduledoc """
-  Durable accountable subject shared by humans and agents.
+  Durable accountable subject shared by humans, agents, and installation services.
   """
 
   use Ecto.Schema
@@ -17,7 +17,7 @@ defmodule Ankole.Principals.Principal do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "principals" do
-    field :type, Ecto.Enum, values: [:human, :agent]
+    field :type, Ecto.Enum, values: [:human, :agent, :system]
     field :status, Ecto.Enum, values: [:active, :disabled], default: :active
     field :display_name, :string
     field :avatar_url, :string

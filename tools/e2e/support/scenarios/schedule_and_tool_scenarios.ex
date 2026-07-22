@@ -261,9 +261,12 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     assert outbox.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
 
+    expected_attachment_path =
+      Ankole.AgentHomePaths.user_files(agent.uid) <> "/reports/chaos-report.txt"
+
     assert [
              %{
-               "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+               "agent_computer_path" => ^expected_attachment_path,
                "user_files_relative_path" => "reports/chaos-report.txt",
                "name" => "chaos-report.txt",
                "mime_type" => "text/plain"
@@ -396,7 +399,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   end
 
   @doc """
-  Verifies `/workspace/user-files` survives across separate Docker worker turns.
+  Verifies Agent `user-files` survives across separate Docker worker turns.
   """
   def run_workspace_file_persistence(%{
         fake_feishu: fake_feishu,

@@ -6,7 +6,7 @@ import {
   assertExistingPathWithin,
   workspacePhysicalRoots
 } from '../../core/real-path-boundary'
-import { resolveWorkspacePath } from '../../core/workspace-paths'
+import { resolveAgentHomePath } from '../../core/agent-home-paths'
 import { runWorkspaceCommand, type CommandFinished, type CommandInput } from './commands'
 
 export type { CommandFinished, CommandInput, CommandOutputMode } from './commands'
@@ -35,18 +35,21 @@ interface ContainerComputerOptions {
  * container filesystem and foreground process operations rooted at `workspaceRoot`.
  */
 export function createContainerComputer(
+  agentHome: string,
   workspaceRoot: string,
   options: ContainerComputerOptions = {}
 ): ContainerComputer {
-  const root = resolve(workspaceRoot)
+  const root = resolve(agentHome)
+  const cwd = resolve(workspaceRoot)
   const physicalRoots = workspacePhysicalRoots(root)
   const workerEnv = options.workerEnv
 
-  const safePath = (path: string, cwd?: string): string => resolveWorkspacePath(root, path, { cwd })
+  const safePath = (path: string, inputCwd?: string): string =>
+    resolveAgentHomePath(root, path, { cwd: inputCwd ?? cwd })
 
   return {
     runCommand(input) {
-      return runWorkspaceCommand({ workerEnv, ...input }, root)
+      return runWorkspaceCommand({ workerEnv, ...input }, root, cwd)
     },
     async readFileToBuffer(input) {
       try {

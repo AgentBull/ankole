@@ -14,7 +14,7 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
-  describe "outbox commit and adapter normalization" do
+  describe "outbox commit and dispatch" do
     test "operation selection reports missing routes instead of inventing reply or post" do
       %{principal: agent} = agent_fixture()
       agent_uid = agent.uid
@@ -169,10 +169,9 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  agent.uid,
                  "webhook",
                  "reply-1",
-                 %{
-                   capabilities: [:reply_entry],
-                   send: fn _outbox -> flunk("unsupported webhook outbox must not be sent") end
-                 },
+                 outbox_adapter([:reply_entry], fn _outbox ->
+                   flunk("unsupported webhook outbox must not be sent")
+                 end),
                  now: @base_time
                )
 
@@ -182,87 +181,6 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                signal_channel_id: "webhook:incident-1",
                source_entry_id: "reply-1"
              )
-    end
-
-    test "unknown adapter capabilities fail before the outbox row enters sending" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
-
-      assert {:ok, %{status: :accepted}} =
-               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
-
-      assert {:ok, _outbox} =
-               SignalsGateway.commit_outbox(%{
-                 agent_uid: agent.uid,
-                 binding_name: "bot",
-                 outbound_key: "unknown-capability",
-                 operation: :post,
-                 signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "visible"
-               })
-
-      assert {:error, {:unknown_outbox_capability, "made_up"}} =
-               SignalsGateway.dispatch_outbox(
-                 agent.uid,
-                 "bot",
-                 "unknown-capability",
-                 %{
-                   capabilities: ["post_entry", "made_up"],
-                   send: fn _outbox -> {:ok, %{created_source_entry_id: "must-not-send"}} end
-                 },
-                 now: @base_time
-               )
-
-      outbox =
-        Repo.get_by!(OutboxEntry,
-          agent_uid: agent.uid,
-          binding_name: "bot",
-          outbound_key: "unknown-capability"
-        )
-
-      assert outbox.status == :created
-      assert outbox.platform_send_started_at == nil
-    end
-
-    test "test adapters without executable callbacks fail before the outbox row enters sending" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "bot", :ignore)
-
-      assert {:ok, %{status: :accepted}} =
-               Ingress.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
-
-      assert {:ok, _outbox} =
-               SignalsGateway.commit_outbox(%{
-                 agent_uid: agent.uid,
-                 binding_name: "bot",
-                 outbound_key: "missing-test-callback",
-                 operation: :post,
-                 signal_channel_id: "lark:chat:group-a",
-                 fallback_visible_text: "visible"
-               })
-
-      assert {:error, :invalid_outbox_adapter} =
-               SignalsGateway.dispatch_outbox(
-                 agent.uid,
-                 "bot",
-                 "missing-test-callback",
-                 %{capabilities: [:post_entry]},
-                 now: @base_time
-               )
-
-      outbox =
-        Repo.get_by!(OutboxEntry,
-          agent_uid: agent.uid,
-          binding_name: "bot",
-          outbound_key: "missing-test-callback"
-        )
-
-      assert outbox.status == :created
-      assert outbox.platform_send_started_at == nil
     end
 
     test "registered adapter resolution fails before the outbox row enters sending" do
@@ -320,17 +238,14 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
                  agent.uid,
                  "bot",
                  "invalid-adapter-result",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:unexpected,
-                      %{
-                        token: "top-secret",
-                        nested: %{password: "hidden"},
-                        body: String.duplicate("x", 1_200)
-                      }}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:unexpected,
+                    %{
+                      token: "top-secret",
+                      nested: %{password: "hidden"},
+                      body: String.duplicate("x", 1_200)
+                    }}
+                 end),
                  now: @base_time
                )
 

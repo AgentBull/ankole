@@ -6,7 +6,7 @@ When the pptx base rules cover it, the text here says `→ see pptx v2 §X`. Rea
 
 ## Setup
 
-Ankole Agent Computer images install `officecli` at build time. Verify with `officecli --version`; expected baseline is OfficeCLI v1.0.129. If the command is missing, the worker image is stale and must be rebuilt.
+Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
 
 ## ⚠️ Help-First Rule
 

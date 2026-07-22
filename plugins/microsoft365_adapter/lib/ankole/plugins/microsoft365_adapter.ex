@@ -18,8 +18,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
     "tenantID" => {"租户 ID", "Entra 租户 GUID；单租户应用必填。"},
     "platformSubjectNamespace" => {"平台主体命名空间", "与 Entra IdP 实例共享的主体命名空间。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
-    "loginBaseURL" => {"登录基础 URL", "可选，本地兼容 Entra 登录端点。"},
-    "openIDMetadataURL" => {"OpenID 元数据 URL", "可选，本地兼容 Bot Framework 元数据端点。"},
     "clientID" => {"Client ID", "Entra 应用注册的 Application (client) ID。"},
     "clientSecret" => {"Client Secret", "Entra 应用的客户端密码。"},
     "oidc.enabled" => {"启用 OIDC", "允许使用 Entra ID 登录。"},
@@ -29,15 +27,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
     "sync.pageSize" => {"同步分页大小", "Graph 列表接口的 $top 分页大小。"},
     "sync.groupsFilter" => {"组过滤器", "可选，OData $filter 限定要同步的组。"},
     "sync.includeGuests" => {"包含来宾", "目录同步是否包含 Guest 用户。"},
-    "publicBaseURL" => {"公网基础 URL", "本安装的公网 HTTPS 地址，用于拼 Graph 通知端点。"},
-    "graphBaseURL" => {"Graph 基础 URL", "可选，本地兼容 Graph 端点。"}
+    "publicBaseURL" => {"公网基础 URL", "本安装的公网 HTTPS 地址，用于拼 Graph 通知端点。"}
   }
 
   @impl true
   def plugin_id, do: "microsoft365-adapter"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def display_name,
@@ -46,7 +40,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   @impl true
   def description do
     %{
-      "default" => "Connects Microsoft Teams as a signals provider and Entra ID as a login provider.",
+      "default" =>
+        "Connects Microsoft Teams as a signals provider and Entra ID as a login provider.",
       "zh-Hans-CN" => "连接 Microsoft Teams 作为信号提供方、Entra ID 作为登录提供方。"
     }
   end
@@ -149,7 +144,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
           option("multi_tenant", %{"default" => "Multi tenant", "zh-Hans-CN" => "多租户"})
         ]
       ),
-      field("tenantID", "Tenant ID", "Entra tenant GUID; required for single-tenant apps.", :string, []),
+      field(
+        "tenantID",
+        "Tenant ID",
+        "Entra tenant GUID; required for single-tenant apps.",
+        :string,
+        []
+      ),
       field(
         "platformSubjectNamespace",
         "Platform subject namespace",
@@ -159,20 +160,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
         default: "Teams"
-      ),
-      field(
-        "loginBaseURL",
-        "Login base URL",
-        "Optional local-compatible Entra login endpoint.",
-        :string,
-        advanced: true
-      ),
-      field(
-        "openIDMetadataURL",
-        "OpenID metadata URL",
-        "Optional local-compatible Bot Framework metadata endpoint.",
-        :string,
-        advanced: true
       )
     ]
   end
@@ -187,7 +174,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         required: true,
         encrypted: true
       ),
-      field("oidc.enabled", "Enable OIDC", "Allow sign-in with Entra ID.", :boolean, default: true),
+      field("oidc.enabled", "Enable OIDC", "Allow sign-in with Entra ID.", :boolean,
+        default: true
+      ),
       field("oidc.scopes", "OIDC scopes", "Scopes requested during login.", :string_array,
         default: ["openid", "profile", "email", "User.Read"],
         advanced: true
@@ -230,20 +219,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         "Public HTTPS address of this installation, used to build the Graph notification endpoint.",
         :string,
         []
-      ),
-      field(
-        "loginBaseURL",
-        "Login base URL",
-        "Optional local-compatible Entra login endpoint.",
-        :string,
-        advanced: true
-      ),
-      field(
-        "graphBaseURL",
-        "Graph base URL",
-        "Optional local-compatible Graph endpoint.",
-        :string,
-        advanced: true
       )
     ]
   end

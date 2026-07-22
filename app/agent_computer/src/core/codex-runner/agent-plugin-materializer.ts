@@ -1,4 +1,3 @@
-import { genericHash } from '@ankole/kernel'
 import {
   chmodSync,
   copyFileSync,
@@ -16,15 +15,10 @@ import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { AgentPluginCatalogEntry, RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { composeNativeSkillFile, resolveSkillOverlayText } from '../../skills/effective-skill'
 import type { CodexAppServerClient } from '../../tools/codex/app-server-client'
-import { sanitizePathSegment } from '../workspace-paths'
+import { sanitizePathSegment } from '../agent-home-paths'
 
 export const BUILTIN_AGENT_PLUGINS_ROOT = '/repo/app/library/agent-plugins'
-const CONTENT_HASH_PREFIX = Buffer.from('ankole-agent-plugin-v1\0')
 const MARKETPLACE_NAME = 'ankole-background-agent-job'
-const MAX_PACKAGE_FILES = 2_048
-const MAX_PACKAGE_FILE_BYTES = 8 * 1024 * 1024
-const MAX_PACKAGE_CONTENT_BYTES = 64 * 1024 * 1024
-const MAX_PACKAGE_PATH_BYTES = 4_096
 
 export type PreparedAgentPlugin = AgentPluginCatalogEntry & {
   manifestName: string
@@ -45,16 +39,6 @@ export type PreparedAgentPlugins = {
   expectedSkillNames: string[]
 }
 
-export function assertAgentPluginProjectResumeState(projectRoot: string): void {
-  if (!existsSync(projectRoot)) {
-    throw new Error('Background agent Job project is missing for a persisted runtime thread')
-  }
-  const stat = lstatSync(projectRoot)
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw new Error('Background agent Job project must be a real directory for a persisted runtime thread')
-  }
-}
-
 /**
  * Resolves the current catalog packages into the Job-local marketplace. The
  * workspace template and Job guidance initialize only the pre-thread project;
@@ -65,6 +49,7 @@ export function prepareAgentPlugins(input: {
   agentPlugins: AgentPluginCatalogEntry[]
   libraryRoot?: string
   initializeProject: boolean
+  workspaceTemplateId?: string
   agentsContent?: string
 }): PreparedAgentPlugins {
   const libraryRoot = input.libraryRoot ?? BUILTIN_AGENT_PLUGINS_ROOT
@@ -75,7 +60,12 @@ export function prepareAgentPlugins(input: {
   const agentPlugins = catalog.map(agentPlugin => validateAgentPluginRef(libraryRoot, pluginsRoot, agentPlugin))
 
   if (input.initializeProject) {
-    initializeJobProjectAtomically(input.projectRoot, agentPlugins, input.agentsContent ?? '')
+    initializeJobProjectAtomically(
+      input.projectRoot,
+      agentPlugins,
+      input.workspaceTemplateId,
+      input.agentsContent ?? ''
+    )
   } else {
     refreshAgentPluginPackages(pluginsRoot, agentPlugins)
   }
@@ -84,7 +74,7 @@ export function prepareAgentPlugins(input: {
 
   return {
     marketplaceHostPath: resolve(marketplacePath),
-    marketplacePath: '/workspace/.agents/plugins/marketplace.json',
+    marketplacePath: resolve(marketplacePath),
     marketplaceName: MARKETPLACE_NAME,
     pluginsRoot,
     agentPlugins,
@@ -153,8 +143,8 @@ export async function installAndTrustAgentPlugins(
   )
   for (const agentPlugin of prepared.agentPlugins) {
     const observation = installedPlugins.find(candidate => candidate.name === agentPlugin.manifestName)
-    if (!observation || observation.installed !== true || observation.enabled !== true) {
-      throw new Error(`Codex did not install and enable Agent Plugin ${agentPlugin.id}`)
+    if (!observation || observation.installed !== true) {
+      throw new Error(`Codex did not install Agent Plugin ${agentPlugin.id}`)
     }
   }
 
@@ -179,28 +169,6 @@ export async function installAndTrustAgentPlugins(
   }
 }
 
-/** Canonical package hash shared with the control-plane Library contract. */
-export function computeAgentPluginContentHash(packageRoot: string): string {
-  const root = resolve(packageRoot)
-  if (!existsSync(root) || !lstatSync(root).isDirectory()) {
-    throw new Error(`Agent Plugin package root is not a directory: ${packageRoot}`)
-  }
-
-  const files = listRegularFiles(root)
-  validatePackageLimits(files)
-  const chunks: Buffer[] = [CONTENT_HASH_PREFIX]
-  for (const file of files) {
-    const pathBytes = Buffer.from(file.relativePath, 'utf8')
-    const content = readFileSync(file.absolutePath)
-    const pathLength = Buffer.allocUnsafe(4)
-    pathLength.writeUInt32BE(pathBytes.byteLength)
-    const contentLength = Buffer.allocUnsafe(8)
-    contentLength.writeBigUInt64BE(BigInt(content.byteLength))
-    chunks.push(pathLength, pathBytes, contentLength, content)
-  }
-  return genericHash(Buffer.concat(chunks))
-}
-
 function validateAgentPluginRef(
   sourcePackagesRoot: string,
   materializedPluginsRoot: string,
@@ -219,27 +187,17 @@ function validateAgentPluginRef(
   }
 
   const manifestName = requiredString(manifest.name, `Agent Plugin ${ref.id} manifest name`)
-  const version = requiredString(manifest.version, `Agent Plugin ${ref.id} manifest version`)
   const skillsRelativePath = manifestDirectoryPath(
     sourceRoot,
     manifest.skills,
     `Agent Plugin ${ref.id} manifest skills`
   )
   if (manifestName !== ref.id) throw new Error(`Agent Plugin id/manifest name mismatch: ${ref.id}/${manifestName}`)
-  if (version !== ref.version) {
-    throw new Error(`Agent Plugin version mismatch for ${ref.id}: ${version} != ${ref.version}`)
-  }
-
-  const contentHash = computeAgentPluginContentHash(sourceRoot)
-  if (contentHash !== ref.contentHash) {
-    throw new Error(`Agent Plugin content hash mismatch for ${ref.id}: ${contentHash} != ${ref.contentHash}`)
-  }
 
   const materializedRoot = join(materializedPluginsRoot, ref.id)
   const memberSkillNames = agentPluginSkillDirectoryNames(sourceRoot, skillsRelativePath)
   const enabledSkillNames = ref.skills.map(skill => skill.catalogName).sort(compareCodePoints)
-  assertEnabledSkillSelection(ref, memberSkillNames, manifestName)
-  const enabledCodexSkillNames = ref.skills.map(skill => skill.codexName).sort(compareCodePoints)
+  const enabledCodexSkillNames = enabledSkillNames.map(skillName => `${manifestName}:${skillName}`)
   return {
     ...ref,
     manifestName,
@@ -255,6 +213,7 @@ function validateAgentPluginRef(
 function initializeJobProjectAtomically(
   projectRoot: string,
   agentPlugins: PreparedAgentPlugin[],
+  workspaceTemplateId: string | undefined,
   agentsContent: string
 ): void {
   const parent = dirname(projectRoot)
@@ -262,12 +221,13 @@ function initializeJobProjectAtomically(
   const stagedRoot = join(parent, `.project-init-${crypto.randomUUID()}`)
   try {
     mkdirSync(stagedRoot, { mode: 0o700 })
+    mkdirSync(join(stagedRoot, 'temp'))
     const stagedPluginsRoot = join(stagedRoot, 'plugins')
     mkdirSync(stagedPluginsRoot)
     for (const agentPlugin of agentPlugins) {
       copyDirectoryStrict(agentPlugin.sourceRoot, join(stagedPluginsRoot, agentPlugin.id))
     }
-    initializeWorkspaceTemplates(stagedRoot, agentPlugins)
+    initializeWorkspaceTemplate(stagedRoot, agentPlugins, workspaceTemplateId)
     appendProjectAgents(stagedRoot, agentsContent)
     writeMarketplace(stagedRoot, agentPlugins)
 
@@ -317,39 +277,35 @@ function writeMarketplace(projectRoot: string, agentPlugins: PreparedAgentPlugin
   return marketplacePath
 }
 
-function initializeWorkspaceTemplates(projectRoot: string, agentPlugins: PreparedAgentPlugin[]): void {
-  const occupiedFiles = new Map<string, string>()
+function initializeWorkspaceTemplate(
+  projectRoot: string,
+  agentPlugins: PreparedAgentPlugin[],
+  workspaceTemplateId: string | undefined
+): void {
+  if (!workspaceTemplateId) return
+  const agentPlugin = agentPlugins.find(candidate => candidate.id === workspaceTemplateId)
+  if (!agentPlugin) throw new Error(`Workspace template Agent Plugin is unavailable: ${workspaceTemplateId}`)
+  if (!agentPlugin.hasWorkspaceTemplate) {
+    throw new Error(`Agent Plugin has no workspace-template: ${workspaceTemplateId}`)
+  }
 
-  for (const agentPlugin of agentPlugins) {
-    const templateRoot = join(agentPlugin.sourceRoot, 'workspace-template')
-    if (!existsSync(templateRoot)) continue
-    if (!lstatSync(templateRoot).isDirectory()) {
-      throw new Error(`Agent Plugin workspace-template is not a directory: ${agentPlugin.id}`)
+  const templateRoot = join(agentPlugin.sourceRoot, 'workspace-template')
+  if (!existsSync(templateRoot) || !lstatSync(templateRoot).isDirectory()) {
+    throw new Error(`Agent Plugin workspace-template is not a directory: ${workspaceTemplateId}`)
+  }
+
+  for (const entry of listTemplateEntries(templateRoot)) {
+    const target = join(projectRoot, ...entry.relativePath.split('/'))
+    if (entry.kind === 'directory') {
+      mkdirSync(target, { recursive: true })
+      continue
     }
-
-    for (const entry of listTemplateEntries(templateRoot)) {
-      const target = join(projectRoot, ...entry.relativePath.split('/'))
-      if (entry.kind === 'directory') {
-        mkdirSync(target, { recursive: true })
-        continue
-      }
-
-      const owner = occupiedFiles.get(entry.relativePath)
-      if (owner) {
-        throw new Error(
-          `Agent Plugin workspace template file conflict at ${entry.relativePath}: ${owner}, ${agentPlugin.id}`
-        )
-      }
-      if (existsSync(target)) {
-        throw new Error(
-          `Agent Plugin workspace template conflicts with existing Job project file: ${entry.relativePath}`
-        )
-      }
-      occupiedFiles.set(entry.relativePath, agentPlugin.id)
-      mkdirSync(dirname(target), { recursive: true })
-      copyFileSync(entry.absolutePath, target)
-      chmodSync(target, lstatSync(entry.absolutePath).mode & 0o777)
+    if (existsSync(target)) {
+      throw new Error(`Agent Plugin workspace template conflicts with existing Job project file: ${entry.relativePath}`)
     }
+    mkdirSync(dirname(target), { recursive: true })
+    copyFileSync(entry.absolutePath, target)
+    chmodSync(target, lstatSync(entry.absolutePath).mode & 0o777)
   }
 }
 
@@ -365,33 +321,6 @@ function copyDirectoryStrict(sourceRoot: string, targetRoot: string): void {
     mkdirSync(dirname(target), { recursive: true })
     copyFileSync(entry.absolutePath, target)
     chmodSync(target, lstatSync(entry.absolutePath).mode & 0o777)
-  }
-}
-
-function listRegularFiles(root: string): Array<{ relativePath: string; absolutePath: string; byteSize: number }> {
-  return listTemplateEntries(root)
-    .filter((entry): entry is { kind: 'file'; relativePath: string; absolutePath: string } => entry.kind === 'file')
-    .map(entry => ({ ...entry, byteSize: lstatSync(entry.absolutePath).size }))
-    .sort((left, right) => Buffer.from(left.relativePath).compare(Buffer.from(right.relativePath)))
-}
-
-function validatePackageLimits(files: Array<{ relativePath: string; byteSize: number }>): void {
-  if (files.length > MAX_PACKAGE_FILES) {
-    throw new Error(`Agent Plugin package exceeds ${MAX_PACKAGE_FILES} regular files`)
-  }
-  let totalBytes = 0
-  for (const file of files) {
-    const pathBytes = Buffer.byteLength(file.relativePath, 'utf8')
-    if (pathBytes > MAX_PACKAGE_PATH_BYTES) {
-      throw new Error(`Agent Plugin package path exceeds ${MAX_PACKAGE_PATH_BYTES} bytes: ${file.relativePath}`)
-    }
-    if (file.byteSize > MAX_PACKAGE_FILE_BYTES) {
-      throw new Error(`Agent Plugin package file exceeds ${MAX_PACKAGE_FILE_BYTES} bytes: ${file.relativePath}`)
-    }
-    totalBytes += file.byteSize
-    if (totalBytes > MAX_PACKAGE_CONTENT_BYTES) {
-      throw new Error(`Agent Plugin package content exceeds ${MAX_PACKAGE_CONTENT_BYTES} bytes`)
-    }
   }
 }
 
@@ -443,30 +372,6 @@ function manifestDirectoryPath(packageRoot: string, value: unknown, label: strin
     throw new Error(`${label} is not a directory`)
   }
   return relative(root, absolutePath).split(sep).join('/')
-}
-
-function assertEnabledSkillSelection(
-  ref: AgentPluginCatalogEntry,
-  memberSkillNames: string[],
-  manifestName: string
-): void {
-  const enabledNames = new Set(ref.skills.map(skill => skill.catalogName))
-  if (enabledNames.size !== ref.skills.length) {
-    throw new Error(`Agent Plugin ${ref.id} catalog contains duplicate Skill names`)
-  }
-  const memberNames = new Set(memberSkillNames)
-  const unknown = [...enabledNames].filter(name => !memberNames.has(name)).sort(compareCodePoints)
-  if (unknown.length > 0) {
-    throw new Error(`Agent Plugin ${ref.id} catalog enables unknown Skills: ${unknown.join(', ')}`)
-  }
-
-  const invalidCodexNames = ref.skills
-    .filter(skill => skill.codexName !== `${manifestName}:${skill.catalogName}`)
-    .map(skill => skill.codexName)
-    .sort(compareCodePoints)
-  if (invalidCodexNames.length > 0) {
-    throw new Error(`Agent Plugin ${ref.id} catalog has invalid Codex Skill names: ${invalidCodexNames.join(', ')}`)
-  }
 }
 
 async function selectedPluginHooks(

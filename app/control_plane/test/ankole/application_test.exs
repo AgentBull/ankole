@@ -20,7 +20,7 @@ defmodule Ankole.ApplicationTest do
     assert {:ok, "Refining the answer…"} =
              I18n.translate("signals_gateway.cardkit.refining", %{}, locale: "en-US")
 
-    assert {:ok, "正在完善回答…"} =
+    assert {:ok, "正在深思熟虑…"} =
              I18n.translate("signals_gateway.cardkit.refining", %{}, locale: "zh-Hans-CN")
   end
 end

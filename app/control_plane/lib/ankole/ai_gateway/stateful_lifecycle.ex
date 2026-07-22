@@ -58,24 +58,29 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   @doc false
   @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
   def record_tool_results(subject_uid, request) when is_map(request) do
-    request = normalize_request_keys(request)
-    previous_response_id = request["previous_response_id"]
-
-    with :ok <- validate_tool_results_record_shape(request),
-         {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")),
+    with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, %{}),
          {:ok, %Message{} = message} <-
-           record_tool_results_with_transient_db_retry(%{
-             subject_uid: subject_uid,
-             previous_response_id: previous_response_id,
-             request_items: current_input,
-             metadata: stateful_run_metadata(request, %{})
-           }),
+           record_tool_results_with_transient_db_retry(attrs),
          {:ok, body} <- response_resource(message) do
       {:ok, %{body: body}}
     end
   end
 
   def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
+
+  @doc false
+  @spec record_tool_results_in_tx(module(), String.t(), map(), map()) ::
+          {:ok, %{message: Message.t(), body: map(), disposition: :inserted | :existing}}
+          | {:error, term()}
+  def record_tool_results_in_tx(repo, subject_uid, request, internal_metadata)
+      when is_map(request) and is_map(internal_metadata) do
+    with {:ok, attrs} <- tool_result_record_attrs(subject_uid, request, internal_metadata),
+         {:ok, %Message{} = message, disposition} <-
+           StatefulResponses.record_tool_results_in_tx(repo, attrs),
+         {:ok, body} <- response_resource(message) do
+      {:ok, %{message: message, body: body, disposition: disposition}}
+    end
+  end
 
   @doc false
   @spec prepare_websocket_provider_request(String.t(), map()) ::
@@ -1095,6 +1100,22 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   defp normalize_stateful_input(_input), do: {:error, :invalid_input}
+
+  defp tool_result_record_attrs(subject_uid, request, internal_metadata) do
+    request = normalize_request_keys(request)
+    previous_response_id = request["previous_response_id"]
+
+    with :ok <- validate_tool_results_record_shape(request),
+         {:ok, current_input} <- normalize_stateful_input(Map.get(request, "input")) do
+      {:ok,
+       %{
+         subject_uid: subject_uid,
+         previous_response_id: previous_response_id,
+         request_items: current_input,
+         metadata: Map.merge(stateful_run_metadata(request, %{}), internal_metadata)
+       }}
+    end
+  end
 
   defp record_tool_results_with_transient_db_retry(attrs) do
     with_transient_db_checkout_retry(@tool_result_record_db_retry_delays_ms, fn ->

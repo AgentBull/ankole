@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1.7
 
 ARG BASE_IMAGE
+ARG BROWSER_NODE_VERSION=26.5.0
 
-FROM node:24.15.0-bookworm-slim AS browser-node
+FROM node:${BROWSER_NODE_VERSION}-bookworm-slim AS browser-node
 
 FROM ${BASE_IMAGE} AS build
+
+ARG BROWSER_NODE_VERSION
 
 WORKDIR /repo
 
@@ -31,17 +34,6 @@ COPY app/kernel ./app/kernel
 COPY app/agent_computer ./app/agent_computer
 COPY app/ankole-browser ./app/ankole-browser
 
-WORKDIR /repo/app/agent_computer
-
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-  set -eux; \
-  for attempt in 1 2 3; do \
-    if timeout 120s bun install --no-save; then exit 0; fi; \
-    rm -rf /tmp/bun-*; \
-    sleep $((attempt * 5)); \
-  done; \
-  timeout 120s bun install --no-save
-
 WORKDIR /repo/app/kernel
 
 RUN --mount=type=cache,target=/root/.cargo/git \
@@ -64,14 +56,15 @@ RUN bun run build \
   && mkdir -p /tmp/ankole-browser-runtime/browsers/chromium \
   && ln -s "$(realpath --relative-to=/tmp/ankole-browser-runtime/browsers/chromium "${browser_bin}")" \
     /tmp/ankole-browser-runtime/browsers/chromium/chrome-headless-shell \
-  && test "$(/tmp/ankole-browser-runtime/node/bin/node --version)" = "v24.15.0"
+  && test "$(/tmp/ankole-browser-runtime/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"
 
 FROM ${BASE_IMAGE}
 
 ARG LARK_CLI_VERSION=v1.0.69
+ARG BROWSER_NODE_VERSION
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=2
+ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=3
 
 WORKDIR /repo
 
@@ -95,19 +88,6 @@ RUN set -eux; \
   test "$(lark-cli --version)" = "lark-cli version ${version}"; \
   rm -rf /tmp/lark-cli /tmp/lark-cli-checksums.txt "/tmp/${asset}"
 
-RUN set -eux; \
-  installed=0; \
-  for attempt in 1 2 3; do \
-    if bun add -g @openai/codex@0.144.5; then installed=1; break; fi; \
-    rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
-    sleep $((attempt * 5)); \
-  done; \
-  test "$installed" = 1; \
-  rm -f /usr/local/bin/codex; \
-  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
-  chmod +x /usr/local/bin/codex; \
-  test "$(codex --version)" = "codex-cli 0.144.5"
-
 COPY --from=build /repo/app/kernel/index.js ./app/kernel/index.js
 COPY --from=build /repo/app/kernel/main.js ./app/kernel/main.js
 COPY --from=build /repo/app/kernel/index.d.ts ./app/kernel/index.d.ts
@@ -129,7 +109,11 @@ COPY app/ankole-browser/src ./app/ankole-browser/src
 
 RUN bun app/agent_computer/src/validation/lark-skill-examples.ts app/library/agent-plugins/lark/skills
 
-RUN printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
+RUN set -eux; \
+  mkdir -p /agents /var/share; \
+  chmod 0775 /agents; \
+  chmod 1777 /var/share; \
+  printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
 
 RUN set -eux; \
   printf '%s\n' \
@@ -137,7 +121,6 @@ RUN set -eux; \
     'if [ -n "${BASH_VERSION:-}" ]; then' \
     '  shopt -s expand_aliases 2>/dev/null || true' \
     'fi' \
-    "alias node='bun'" \
     > /etc/profile.d/ankole-agent-computer.sh; \
   chmod 0644 /etc/profile.d/ankole-agent-computer.sh; \
   printf '%s\n' \
@@ -149,12 +132,13 @@ RUN set -eux; \
   printf '%s\n' \
     '[ -r /etc/profile.d/ankole-agent-computer.sh ] && . /etc/profile.d/ankole-agent-computer.sh' \
     >> /root/.profile; \
-  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun "$@"' > /usr/local/bin/node; \
-  chmod +x /usr/local/bin/node; \
+  rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/cli/main.js "$@"' > /usr/local/bin/ankole-browser; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/daemon/main.js "$@"' > /usr/local/bin/ankole-browserd; \
   chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd; \
-  test "$(/opt/ankole-browser/node/bin/node --version)" = "v24.15.0"; \
+  ! command -v node; \
+  bun --version >/dev/null; \
+  test "$(/opt/ankole-browser/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"; \
   ankole-browser --help >/dev/null
 
 WORKDIR /repo/app/agent_computer
@@ -168,12 +152,8 @@ ENV LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1
 ENV BASH_ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV ENV=/etc/profile.d/ankole-agent-computer.sh
 ENV SHELL=/bin/bash
-ENV ANKOLE_WORKSPACE_ROOT=/workspace
-ENV ANKOLE_SHARED_FS_ROOT=/workspace/shared
-ENV ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
-ENV ANKOLE_AGENT_INSTALLED_SKILLS_ROOT=/workspace/shared/skills/agents
+ENV ANKOLE_AGENTS_ROOT=/agents
 ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library
-ENV ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ENV ANKOLE_BROWSER_NODE=/opt/ankole-browser/node/bin/node
 ENV ANKOLE_BROWSER_DAEMON_ENTRY=/opt/ankole-browser/dist/daemon/main.js

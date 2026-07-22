@@ -13,11 +13,6 @@ if runtime_fabric_bind_endpoint do
   config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint
 end
 
-case Ankole.Config.Bootstrap.env_path_list("ANKOLE_PLUGIN_PATHS", nil) do
-  nil -> :ok
-  paths -> config :ankole, Ankole.Plugins.Discovery, paths: paths
-end
-
 library_runtime_config =
   []
   |> then(fn config ->

@@ -166,8 +166,12 @@ describe('@ankole/kernel', () => {
   })
 
   it('validates host-encoded envelope bytes as the single semantic checker', () => {
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v2.bin'))
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v2.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v3.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v3.bin'))
+
+    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v2.bin'))).toThrow(
+      /unsupported runtime fabric protocol version: 2/
+    )
 
     expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v1.bin'))).toThrow(
       /unsupported runtime fabric protocol version: 1/
@@ -221,5 +225,5 @@ function goldenBytes(name: string): Buffer {
 }
 
 function goldenWorkerReadyBytes(): Buffer {
-  return goldenBytes('worker_ready.v2.bin')
+  return goldenBytes('worker_ready.v3.bin')
 }

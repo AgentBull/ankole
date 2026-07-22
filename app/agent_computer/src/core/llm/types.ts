@@ -134,9 +134,13 @@ export interface ToolResultsRecordResult {
   responseID: string
 }
 
+export interface ToolResultsRecordOptions {
+  completeActorEventIDs?: string[]
+}
+
 export interface ModelTurn {
   call(options: ModelTurnCallOptions): Promise<ModelCallResult>
-  recordToolResults(messages: Message[]): Promise<ToolResultsRecordResult>
+  recordToolResults(messages: Message[], options?: ToolResultsRecordOptions): Promise<ToolResultsRecordResult>
   close(): void
 }
 

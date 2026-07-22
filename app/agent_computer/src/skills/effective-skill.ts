@@ -11,6 +11,9 @@ export interface SkillFileRoots {
   agentInstalledSkillsRoot: string
 }
 
+export type AnkoleSkillRuntime = 'any' | 'main' | 'background_job'
+export type AnkoleSkillExecutionRuntime = Exclude<AnkoleSkillRuntime, 'any'>
+
 export function enabledSkillByName(
   name: string,
   enabledSkills: Array<RuntimeSkillSummary | string> | undefined
@@ -38,6 +41,20 @@ export function skillMetadata(skill: RuntimeSkillSummary): JSONObject {
   return jsonObjectFromBytes(skill.metadataJson, 'runtime_skill_summary.metadata_json') ?? {}
 }
 
+/** Returns the Ankole execution surface declared by one Skill. */
+export function ankoleSkillRuntime(skill: RuntimeSkillSummary): AnkoleSkillRuntime {
+  const value = skillMetadata(skill)['ankole-runtime']
+  if (value === undefined || value === 'any') return 'any'
+  if (value === 'main' || value === 'background_job') return value
+  throw new Error(`invalid ankole-runtime for Skill ${skill.skillName}: ${String(value)}`)
+}
+
+/** Checks whether one Skill is available to the selected Ankole execution surface. */
+export function skillAvailableInRuntime(skill: RuntimeSkillSummary, runtime: AnkoleSkillExecutionRuntime): boolean {
+  const declared = ankoleSkillRuntime(skill)
+  return declared === 'any' || declared === runtime
+}
+
 export function resolveSkillFilesystemRoot(
   skill: RuntimeSkillSummary,
   input: { skillRoots: SkillFileRoots; turn?: ActorTurnRef }
@@ -61,7 +78,7 @@ export function resolveSkillFilesystemRoot(
 
   if (sourceKind === 'installed') {
     if (!input.turn) throw new Error('installed skill requires an actor turn')
-    return join(input.skillRoots.agentInstalledSkillsRoot, input.turn.actor.agent_uid, relativePath)
+    return join(input.skillRoots.agentInstalledSkillsRoot, relativePath)
   }
 
   throw new Error(`unsupported skill source_kind: ${sourceKind}`)

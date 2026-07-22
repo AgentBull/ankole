@@ -5,21 +5,19 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  pairRevisionLabel,
   protocolVersionLabel,
   releaseRevisionLabel,
   renderRuntimePairHelmValues,
-  runtimeFabricProtocolVersion,
   runtimeImagePairStatus
 } from './runtime-image-pair'
 
 const revision = 'a'.repeat(40)
+const protocolVersion = '17'
 
 function metadata(digestCharacter: string) {
   const labels = {
     [releaseRevisionLabel]: revision,
-    [pairRevisionLabel]: revision,
-    [protocolVersionLabel]: runtimeFabricProtocolVersion
+    [protocolVersionLabel]: protocolVersion
   }
 
   return {
@@ -42,16 +40,22 @@ const worker = {
 
 describe('runtime image pair rollout gate', () => {
   test('stays closed when control plane publishes first and opens only after the matching worker arrives', () => {
-    expect(runtimeImagePairStatus({ revision, controlPlane })).toEqual({ ready: false, missing: ['worker'] })
+    expect(runtimeImagePairStatus({ revision, protocolVersion, controlPlane })).toEqual({
+      ready: false,
+      missing: ['worker']
+    })
 
-    const complete = runtimeImagePairStatus({ revision, controlPlane, worker })
+    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
     expect(complete.ready).toBe(true)
   })
 
   test('stays closed when worker publishes first and opens only after the matching control plane arrives', () => {
-    expect(runtimeImagePairStatus({ revision, worker })).toEqual({ ready: false, missing: ['control-plane'] })
+    expect(runtimeImagePairStatus({ revision, protocolVersion, worker })).toEqual({
+      ready: false,
+      missing: ['control-plane']
+    })
 
-    const complete = runtimeImagePairStatus({ revision, controlPlane, worker })
+    const complete = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
     expect(complete.ready).toBe(true)
   })
 
@@ -59,30 +63,39 @@ describe('runtime image pair rollout gate', () => {
     const staleRevision = metadata('3')
     staleRevision.image['linux/arm64'].config.Labels[releaseRevisionLabel] = 'b'.repeat(40)
     expect(() =>
-      runtimeImagePairStatus({ revision, controlPlane: { ...controlPlane, metadata: staleRevision } })
+      runtimeImagePairStatus({
+        revision,
+        protocolVersion,
+        controlPlane: { ...controlPlane, metadata: staleRevision }
+      })
     ).toThrow(/must be a{40}/)
 
     const staleProtocol = metadata('4')
     staleProtocol.image['linux/amd64'].config.Labels[protocolVersionLabel] = '1'
-    expect(() => runtimeImagePairStatus({ revision, worker: { ...worker, metadata: staleProtocol } })).toThrow(
-      /must be 2/
-    )
+    expect(() =>
+      runtimeImagePairStatus({ revision, protocolVersion, worker: { ...worker, metadata: staleProtocol } })
+    ).toThrow(new RegExp(`must be ${protocolVersion}`))
 
     const missingArchitecture = metadata('5')
     delete (missingArchitecture.image as Record<string, unknown>)['linux/arm64']
     expect(() =>
-      runtimeImagePairStatus({ revision, controlPlane: { ...controlPlane, metadata: missingArchitecture } })
+      runtimeImagePairStatus({
+        revision,
+        protocolVersion,
+        controlPlane: { ...controlPlane, metadata: missingArchitecture }
+      })
     ).toThrow(/linux\/arm64 image is missing/)
   })
 
   test('renders digest-pinned values for the two ordered Helm phases', () => {
-    const status = runtimeImagePairStatus({ revision, controlPlane, worker })
+    const status = runtimeImagePairStatus({ revision, protocolVersion, controlPlane, worker })
     if (!status.ready) throw new Error('fixture pair must be ready')
 
     const controlPlaneValues = renderRuntimePairHelmValues(status.pair, 'control-plane')
     const workerValues = renderRuntimePairHelmValues(status.pair, 'worker')
 
     expect(controlPlaneValues).toContain(`releaseRevision: "${revision}"`)
+    expect(controlPlaneValues).toContain(`protocolVersion: "${protocolVersion}"`)
     expect(controlPlaneValues).toContain('rolloutPhase: "control-plane"')
     expect(controlPlaneValues).toContain(`control-plane@sha256:${'1'.repeat(64)}`)
     expect(workerValues).toContain('rolloutPhase: "worker"')
@@ -109,6 +122,8 @@ describe('runtime image pair rollout gate', () => {
         'verify',
         '--revision',
         revision,
+        '--protocol-version',
+        protocolVersion,
         '--control-plane-ref',
         controlPlane.ref,
         '--control-plane-metadata',
@@ -126,7 +141,10 @@ describe('runtime image pair rollout gate', () => {
       ])
 
       expect(result.exitCode).toBe(0)
-      expect((await Bun.file(pairOutput).json()).revision).toBe(revision)
+      expect(await Bun.file(pairOutput).json()).toMatchObject({
+        revision,
+        runtime_fabric_protocol_version: protocolVersion
+      })
       expect(await Bun.file(controlPlaneValuesOutput).text()).toContain('rolloutPhase: "control-plane"')
       expect(await Bun.file(workerValuesOutput).text()).toContain('rolloutPhase: "worker"')
     } finally {
@@ -138,21 +156,17 @@ describe('runtime image pair rollout gate', () => {
     const workflows = fileURLToPath(new URL('../../../.github/workflows/', import.meta.url))
     const pairedWorkflow = Bun.file(`${workflows}/runtime-images.yml`)
     const e2eRunner = Bun.file(fileURLToPath(new URL('../../../tools/e2e/run', import.meta.url)))
-    const kernelSource = await Bun.file(
-      fileURLToPath(new URL('../../../app/kernel/src/runtime_fabric/mod.rs', import.meta.url))
-    ).text()
-
     expect(await pairedWorkflow.exists()).toBe(true)
     expect(await Bun.file(`${workflows}/control-plane-image.yml`).exists()).toBe(false)
     expect(await Bun.file(`${workflows}/agent-computer-images.yml`).exists()).toBe(false)
 
     const source = await pairedWorkflow.text()
-    const kernelProtocol = kernelSource.match(/pub const PROTOCOL_VERSION: u32 = (\d+);/)?.[1]
-    expect(kernelProtocol).toBe(runtimeFabricProtocolVersion)
     expect(source).toContain('branches: [main]')
     expect(source).toContain('Publish verified RuntimeFabric image pair')
-    expect(source).toContain('needs:\n      - publish_control_plane\n      - publish_worker')
+    expect(source).toContain('needs:\n      - inspect_existing\n      - publish_control_plane\n      - publish_worker')
     expect(source).toContain('Read RuntimeFabric protocol version')
+    expect(source).toContain('--protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}"')
+    expect(source).not.toContain('io.ankole.runtime-image-pair.revision')
     expect(source).not.toContain('changed_files')
     expect(source).not.toContain('main-latest')
 

@@ -39,7 +39,7 @@ export type BrainEntryRelation = {
 export type WorkerFileListData = {
   entries: Array<WorkerFileEntry>
   path: string
-  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
   truncated: boolean
 }
 
@@ -196,7 +196,7 @@ export type WorkerFileDeleteResponse = {
   deleted_file: {
     deleted: boolean
     relative_path: string
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
   }
 }
 
@@ -563,26 +563,21 @@ export type BackgroundAgentJobListResponse = {
  * BackgroundAgentJobItem
  */
 export type BackgroundAgentJobItem = {
-  agent_plugin_ids: Array<string>
   agent_uid: string
   attempts: number
-  background?: string | null
   codex_account_id: string
   completed_at?: string | null
   duration_seconds: number
   error: {
     [key: string]: unknown
   }
-  id: string
+  id: number
   inserted_at: string
   metadata: {
     [key: string]: unknown
   }
-  model: string | null
-  notes?: string | null
   owner_session_id: string
   queued_at?: string | null
-  reasoning_effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
   reply_route: {
     [key: string]: unknown
   }
@@ -590,7 +585,6 @@ export type BackgroundAgentJobItem = {
     [key: string]: unknown
   }
   runtime_thread_id?: string | null
-  skill_names: Array<string>
   source_actor_event_id?: string | null
   source_tool_call_id: string
   started_at?: string | null
@@ -599,11 +593,7 @@ export type BackgroundAgentJobItem = {
   title: string
   turns?: Array<BackgroundAgentJobTurnItem>
   updated_at: string
-  workspace_mounts: Array<{
-    access: 'read_only' | 'read_write'
-    id: string
-    source: string
-  }>
+  workspace_template_id: string | null
 }
 
 /**
@@ -624,6 +614,16 @@ export type AppConfigurationItem = {
   scope: 'scoped' | 'global'
   source: 'default' | 'global' | 'missing' | 'pattern' | 'error'
   value?: JsonValue
+}
+
+/**
+ * SignalBindingUpdateRequest
+ */
+export type SignalBindingUpdateRequest = {
+  confidential_memory?: boolean | null
+  config: JsonValue
+  group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
+  target_agent_uid: string
 }
 
 /**
@@ -781,6 +781,13 @@ export type SignalAdapterFieldOption = {
 }
 
 /**
+ * BrainStatusResponse
+ */
+export type BrainStatusResponse = {
+  memory_status: JsonValue
+}
+
+/**
  * AgentLibrarySkillCapabilityItem
  */
 export type AgentLibrarySkillCapabilityItem = {
@@ -800,7 +807,7 @@ export type AgentLibrarySkillCapabilityItem = {
 export type WorkerFileUploadResponse = {
   uploaded_file: {
     relative_path: string
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
     size: number
     xxh3_128?: string | null
   }
@@ -880,6 +887,7 @@ export type SignalBindingListResponse = {
  * SignalBindingWriteRequest
  */
 export type SignalBindingWriteRequest = {
+  confidential_memory?: boolean
   config: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
 }
@@ -895,7 +903,6 @@ export type BrainSourceListResponse = {
  * AgentPluginCapabilityItem
  */
 export type AgentPluginCapabilityItem = {
-  content_hash: string
   description: string
   effective_enabled: boolean
   global_default_enabled: boolean
@@ -941,7 +948,7 @@ export type BrainCitation = {
 export type WorkerFileMoveRequest = {
   from_path: string
   overwrite?: boolean
-  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
   to_path: string
 }
 
@@ -967,7 +974,9 @@ export type ScheduleCronScheduleListResponse = {
 export type ModelProfileWriteRequest = {
   codex_account_id?: string
   context_length?: number
+  fast_mode?: boolean
   model?: string
+  model_reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
   provider_id?: string
   provider_options?: {
     [key: string]: unknown
@@ -1056,6 +1065,15 @@ export type AgentLibraryDocuments = {
  */
 export type AgentComputerWorkerListResponse = {
   workers: Array<AgentComputerWorkerItem>
+}
+
+/**
+ * BrainSourceCaptureResponse
+ */
+export type BrainSourceCaptureResponse = {
+  entry?: BrainEntryResponse
+  resource_kind: 'entry' | 'retained_source'
+  source?: BrainSourceEntry
 }
 
 /**
@@ -1152,9 +1170,10 @@ export type BrainSourceEntry = {
     [key: string]: unknown
   }
   byte_size?: number | null
-  capture_method?: 'paste' | 'url' | 'file'
+  capture_method?: string | null
   captured_at?: string | null
   captured_by_uid?: string | null
+  connector_id?: string | null
   document_id: string
   integrated_entries: Array<{
     id: string
@@ -1163,6 +1182,7 @@ export type BrainSourceEntry = {
     type: string
   }>
   kind: 'retained_source' | 'signal_message'
+  last_synced_at?: string | null
   learning_actor_event_id?: string | null
   learning_status?: 'stored' | 'learning' | 'integrated' | 'no_change' | 'incomplete' | 'failed'
   links?: Array<JsonValue>
@@ -1172,13 +1192,16 @@ export type BrainSourceEntry = {
   }
   origin_locator?: string | null
   original_name?: string | null
+  revision?: string | null
   rich_content?: {
     [key: string]: unknown
   } | null
   sha256?: string | null
   signal_channel_id?: string | null
   source_entry_id?: string | null
+  source_url?: string | null
   store_key: string
+  sync_state?: 'current' | 'deleted' | 'access_lost' | 'failed'
   text?: string | null
   title: string
 }
@@ -1297,7 +1320,7 @@ export type WorkerFileMoveResponse = {
   moved_file: {
     from_relative_path: string
     moved: boolean
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
     to_relative_path: string
   }
 }
@@ -1410,7 +1433,7 @@ export type ConsoleApiErrorDetail = {
 export type WorkerFileUploadRequest = {
   file: Blob | File
   path: string
-  root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+  root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
 }
 
 /**
@@ -1467,6 +1490,7 @@ export type PrincipalListResponse = {
 export type SignalBindingItem = {
   adapter: string
   agent_uid: string
+  confidential_memory: boolean
   config_key: string
   config_ref: string
   enabled: boolean
@@ -1560,26 +1584,6 @@ export type PermissionGrantCreateRequest = {
    * AuthZ resource glob pattern, for example workspace:**
    */
   resource_pattern: string
-}
-
-/**
- * BrainReviewCandidatesResponse
- */
-export type BrainReviewCandidatesResponse = {
-  review: {
-    broken_citations: Array<JsonValue>
-    checked_entry_count: number
-    dreaming_blocks: Array<JsonValue>
-    failed_embeddings: Array<JsonValue>
-    long_entries: Array<JsonValue>
-    old_url_sources: Array<JsonValue>
-    orphan_entries: Array<JsonValue>
-    over_budget_pinned_memos: Array<JsonValue>
-    stale_entries: Array<JsonValue>
-    status: 'ok'
-    uncited_generated_blocks: Array<JsonValue>
-    unintegrated_sources: Array<JsonValue>
-  }
 }
 
 /**
@@ -1699,7 +1703,7 @@ export type AnkoleWebWorkerFileControllerDownloadData = {
     /**
      * Worker filesystem root
      */
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
     /**
      * File path relative to the root
      */
@@ -2048,6 +2052,42 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
+
+export type AnkoleWebBrainControllerStatusData = {
+  body?: never
+  path?: never
+  query: {
+    /**
+     * Principal whose Brain library is being supervised
+     */
+    owner_uid: string
+  }
+  url: '/api/v1/brain/status'
+}
+
+export type AnkoleWebBrainControllerStatusErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebBrainControllerStatusError =
+  AnkoleWebBrainControllerStatusErrors[keyof AnkoleWebBrainControllerStatusErrors]
+
+export type AnkoleWebBrainControllerStatusResponses = {
+  /**
+   * Long-term memory status
+   */
+  200: BrainStatusResponse
+}
+
+export type AnkoleWebBrainControllerStatusResponse =
+  AnkoleWebBrainControllerStatusResponses[keyof AnkoleWebBrainControllerStatusResponses]
 
 export type AnkoleWebBrainControllerAuditLogData = {
   body?: never
@@ -2496,7 +2536,7 @@ export type AnkoleWebWorkerFileControllerDeleteData = {
     /**
      * Worker filesystem root
      */
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
     /**
      * Path relative to the root
      */
@@ -2554,7 +2594,7 @@ export type AnkoleWebWorkerFileControllerIndexData = {
     /**
      * Worker filesystem root
      */
-    root: 'user_files' | 'agent_installed_skills' | 'workspace_sessions'
+    root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
     /**
      * Directory path relative to the root
      */
@@ -3757,9 +3797,9 @@ export type AnkoleWebBrainControllerCreateSourceError =
 
 export type AnkoleWebBrainControllerCreateSourceResponses = {
   /**
-   * Retained source
+   * Saved material
    */
-  201: BrainSourceEntryResponse
+  201: BrainSourceCaptureResponse
 }
 
 export type AnkoleWebBrainControllerCreateSourceResponse =
@@ -3810,7 +3850,7 @@ export type AnkoleWebAiGatewayControllerRetrieveResponseResponse =
 export type AnkoleWebBackgroundAgentJobControllerShowData = {
   body?: never
   path: {
-    job_id: string
+    job_id: number
   }
   query?: never
   url: '/api/v1/background-agent-jobs/{job_id}'
@@ -4647,6 +4687,59 @@ export type AnkoleWebSignalBindingControllerDeleteResponses = {
 export type AnkoleWebSignalBindingControllerDeleteResponse =
   AnkoleWebSignalBindingControllerDeleteResponses[keyof AnkoleWebSignalBindingControllerDeleteResponses]
 
+export type AnkoleWebSignalBindingControllerUpdateBindingData = {
+  /**
+   * Signal binding update
+   */
+  body: SignalBindingUpdateRequest
+  path: {
+    agent_uid: string
+    binding_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}'
+}
+
+export type AnkoleWebSignalBindingControllerUpdateBindingErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Target binding conflict
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+  /**
+   * Adapter registry unavailable
+   */
+  503: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerUpdateBindingError =
+  AnkoleWebSignalBindingControllerUpdateBindingErrors[keyof AnkoleWebSignalBindingControllerUpdateBindingErrors]
+
+export type AnkoleWebSignalBindingControllerUpdateBindingResponses = {
+  /**
+   * Signal binding
+   */
+  200: SignalBindingResponse
+}
+
+export type AnkoleWebSignalBindingControllerUpdateBindingResponse =
+  AnkoleWebSignalBindingControllerUpdateBindingResponses[keyof AnkoleWebSignalBindingControllerUpdateBindingResponses]
+
 export type AnkoleWebAuthZGroupControllerMembersData = {
   body?: never
   path: {
@@ -4729,42 +4822,6 @@ export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideRespon
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponse =
   AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses[keyof AnkoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideResponses]
 
-export type AnkoleWebBrainControllerReviewCandidatesData = {
-  body?: never
-  path?: never
-  query: {
-    /**
-     * Principal whose Brain library is being supervised
-     */
-    owner_uid: string
-  }
-  url: '/api/v1/brain/review-candidates'
-}
-
-export type AnkoleWebBrainControllerReviewCandidatesErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebBrainControllerReviewCandidatesError =
-  AnkoleWebBrainControllerReviewCandidatesErrors[keyof AnkoleWebBrainControllerReviewCandidatesErrors]
-
-export type AnkoleWebBrainControllerReviewCandidatesResponses = {
-  /**
-   * Brain review candidates
-   */
-  200: BrainReviewCandidatesResponse
-}
-
-export type AnkoleWebBrainControllerReviewCandidatesResponse =
-  AnkoleWebBrainControllerReviewCandidatesResponses[keyof AnkoleWebBrainControllerReviewCandidatesResponses]
-
 export type AnkoleWebBrainControllerSourceData = {
   body?: never
   path: {
@@ -4812,7 +4869,7 @@ export type AnkoleWebScheduleControllerCancelCheckbackData = {
   path: {
     agent_uid: string
     session_id: string
-    scheduled_event_id: string
+    scheduled_event_id: number
   }
   query?: never
   url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}'
@@ -5422,7 +5479,7 @@ export type AnkoleWebWorkerEnvControllerIndexResponse =
 export type AnkoleWebBackgroundAgentJobControllerCancelData = {
   body?: never
   path: {
-    job_id: string
+    job_id: number
   }
   query?: never
   url: '/api/v1/background-agent-jobs/{job_id}/cancel'

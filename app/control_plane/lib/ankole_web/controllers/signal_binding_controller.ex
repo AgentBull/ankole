@@ -16,6 +16,7 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalAdapterListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingUpdateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingWriteRequest
 
   tags(["Signal Bindings"])
@@ -80,6 +81,25 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
+  operation(:update_binding,
+    summary: "Reconfigure or move one signal binding",
+    parameters: [
+      agent_uid: [in: :path, type: :string, required: true],
+      binding_name: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Signal binding update", "application/json", SignalBindingUpdateRequest, required: true},
+    responses: [
+      ok: {"Signal binding", "application/json", SignalBindingResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      conflict: {"Target binding conflict", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope},
+      service_unavailable: {"Adapter registry unavailable", "application/json", ErrorEnvelope}
+    ]
+  )
+
   def adapters(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read"),
          {:ok, adapters} <- SignalsGateway.list_adapters() do
@@ -114,6 +134,24 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
+  def update_binding(conn, params) do
+    with {:ok, source_agent_uid} <- text_param(params, "agent_uid"),
+         {:ok, target_agent_uid} <- text_param(conn.body_params, "target_agent_uid"),
+         {:ok, binding_name} <- text_param(params, "binding_name"),
+         :ok <- authorize_binding_update(conn, source_agent_uid, target_agent_uid),
+         {:ok, result} <-
+           SignalsGateway.update_binding(
+             source_agent_uid,
+             target_agent_uid,
+             binding_name,
+             conn.body_params
+           ) do
+      json(conn, %{signal_binding: signal_binding_json(result)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def delete(conn, params) do
     with {:ok, agent_uid} <- text_param(params, "agent_uid"),
          {:ok, binding_name} <- text_param(params, "binding_name"),
@@ -134,6 +172,7 @@ defmodule AnkoleWeb.SignalBindingController do
       config_ref: binding.config_ref,
       config_key: config_key,
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
+      confidential_memory: binding.confidential_memory,
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }
@@ -147,6 +186,7 @@ defmodule AnkoleWeb.SignalBindingController do
       config_ref: binding.config_ref,
       config_key: config_key_from_ref(binding.config_ref),
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
+      confidential_memory: binding.confidential_memory,
       enabled: binding.enabled,
       unavailable_reason: binding.unavailable_reason
     }
@@ -173,10 +213,38 @@ defmodule AnkoleWeb.SignalBindingController do
   defp param_atom("agent_uid"), do: :agent_uid
   defp param_atom("adapter_id"), do: :adapter_id
   defp param_atom("binding_name"), do: :binding_name
+  defp param_atom("target_agent_uid"), do: :target_agent_uid
+
+  defp authorize_binding_update(conn, agent_uid, agent_uid) do
+    ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update")
+  end
+
+  defp authorize_binding_update(conn, source_agent_uid, target_agent_uid) do
+    with :ok <-
+           ConsolePolicy.authorize(
+             conn,
+             "agent:#{source_agent_uid}:signal_gateway_bindings",
+             "delete"
+           ),
+         :ok <-
+           ConsolePolicy.authorize(
+             conn,
+             "agent:#{target_agent_uid}:signal_gateway_bindings",
+             "update"
+           ) do
+      :ok
+    end
+  end
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
+
+  defp error(conn, :binding_target_conflict),
+    do: error(conn, 409, "conflict", "target agent already has an enabled binding with this name")
+
+  defp error(conn, :binding_conflict),
+    do: error(conn, 409, "conflict", "binding changed while it was being updated")
 
   defp error(conn, {:signal_adapter_not_found, _adapter_id}),
     do: error(conn, 404, "not_found", "signal adapter was not found")

@@ -6,12 +6,16 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   CreatableCombobox,
+  Field,
+  FieldDescription,
+  FieldLabel,
   Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
   toast
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -35,8 +39,12 @@ import type {
 import { ErrorBlock } from '../console-primitives'
 import { LabeledField } from '../console-shell'
 import {
+  CODEX_MODEL_REASONING_EFFORTS,
+  DEFAULT_CODEX_MODEL_REASONING_EFFORT,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
   ModelProfilesModel,
   PROFILE_NAMES,
+  type CodexModelReasoningEffort,
   type ModelProfileSubmission,
   type ProfileDraft,
   type ProfileName
@@ -164,9 +172,19 @@ export function ModelProfilesEditor({
   const submit = (profile: ProfileName) => {
     const draft = model.snapshot(profile)
     if (profile === 'coding' && draft.codexAccountID) {
+      const codexModel = draft.codexModel.trim()
+      if (!codexModel) {
+        updateDraft(profile, { error: t('common.field_required', { field: t('console.models.model') }) })
+        return
+      }
       updateDraft(profile, { error: undefined })
       const submission = model.submission(profile)
-      persistProfile(profile, submission, { codex_account_id: submission.draft.codexAccountID })
+      persistProfile(profile, submission, {
+        codex_account_id: submission.draft.codexAccountID,
+        model: codexModel,
+        model_reasoning_effort: submission.draft.codexModelReasoningEffort,
+        fast_mode: submission.draft.codexFastMode
+      })
       return
     }
 
@@ -216,7 +234,8 @@ export function ModelProfilesEditor({
           const configurableModel = profileUsesConfigurableModel(profile)
           const modelOptions = configurableModel ? modelOptionsForProfile(modelCatalog, providerID, profile) : []
           const configured = Boolean(
-            draft.codexAccountID.value || (draft.providerID.value && (!configurableModel || draft.model.value))
+            (draft.codexAccountID.value && draft.codexModel.value.trim()) ||
+            (draft.providerID.value && (!configurableModel || draft.model.value))
           )
           const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID.value)
           const renderOptionSetting = (setting: ProviderSetting) => (
@@ -275,7 +294,8 @@ export function ModelProfilesEditor({
                     value={draft.codexAccountID.value || 'aigateway'}
                     onValueChange={value =>
                       updateDraft(profile, {
-                        codexAccountID: String(value) === 'aigateway' ? '' : String(value)
+                        codexAccountID: String(value) === 'aigateway' ? '' : String(value),
+                        error: undefined
                       })
                     }>
                     <SelectTrigger className="w-full">
@@ -292,7 +312,63 @@ export function ModelProfilesEditor({
                   </Select>
                 </LabeledField>
               ) : null}
-              {!subscriptionCoding ? (
+              {subscriptionCoding ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <LabeledField
+                    htmlFor="coding-subscription-model"
+                    label={t('console.models.model')}
+                    description={t('console.models.codex_model_hint')}>
+                    <Input
+                      id="coding-subscription-model"
+                      spellCheck={false}
+                      value={draft.codexModel.value}
+                      onChange={event => updateDraft(profile, { codexModel: event.target.value, error: undefined })}
+                    />
+                  </LabeledField>
+                  <LabeledField
+                    htmlFor="coding-subscription-reasoning"
+                    label={t('console.models.model_reasoning_effort')}
+                    description={t('console.models.model_reasoning_effort_hint')}>
+                    <Select
+                      value={draft.codexModelReasoningEffort.value}
+                      onValueChange={value =>
+                        updateDraft(profile, {
+                          codexModelReasoningEffort: String(value) as CodexModelReasoningEffort,
+                          error: undefined
+                        })
+                      }>
+                      <SelectTrigger id="coding-subscription-reasoning" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CODEX_MODEL_REASONING_EFFORTS.map(effort => (
+                          <SelectItem key={effort} value={effort}>
+                            {effort}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </LabeledField>
+                  <Field
+                    orientation="horizontal"
+                    className="items-center justify-between border border-border bg-muted/30 p-4 md:col-span-2">
+                    <div className="grid gap-1 pr-4">
+                      <FieldLabel htmlFor="coding-subscription-fast-mode">{t('console.models.fast_mode')}</FieldLabel>
+                      <FieldDescription id="coding-subscription-fast-mode-hint">
+                        {t('console.models.fast_mode_hint')}
+                      </FieldDescription>
+                    </div>
+                    <Switch
+                      id="coding-subscription-fast-mode"
+                      aria-describedby="coding-subscription-fast-mode-hint"
+                      checked={draft.codexFastMode.value}
+                      onCheckedChange={checked =>
+                        updateDraft(profile, { codexFastMode: checked === true, error: undefined })
+                      }
+                    />
+                  </Field>
+                </div>
+              ) : (
                 <>
                   <div
                     className={
@@ -382,7 +458,7 @@ export function ModelProfilesEditor({
                     )}
                   </div>
                 </>
-              ) : null}
+              )}
             </div>
           )
         })}
@@ -392,13 +468,27 @@ export function ModelProfilesEditor({
 }
 
 function draftFromProfile(profile: JSONObject): ProfileDraft {
+  const codexAccountID = asString(profile.codex_account_id)
   return {
-    codexAccountID: asString(profile.codex_account_id),
+    codexAccountID,
+    codexModel: codexAccountID
+      ? asString(profile.model) || DEFAULT_CODEX_SUBSCRIPTION_MODEL
+      : DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+    codexModelReasoningEffort: codexAccountID
+      ? asCodexModelReasoningEffort(profile.model_reasoning_effort)
+      : DEFAULT_CODEX_MODEL_REASONING_EFFORT,
+    codexFastMode: Boolean(codexAccountID) && profile.fast_mode === true,
     providerID: asString(profile.provider_id),
-    model: asString(profile.model),
+    model: codexAccountID ? '' : asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
     providerOptions: recordValue(profile.provider_options) ?? {}
   }
+}
+
+function asCodexModelReasoningEffort(value: unknown): CodexModelReasoningEffort {
+  return CODEX_MODEL_REASONING_EFFORTS.includes(value as CodexModelReasoningEffort)
+    ? (value as CodexModelReasoningEffort)
+    : DEFAULT_CODEX_MODEL_REASONING_EFFORT
 }
 
 function asString(value: unknown): string {

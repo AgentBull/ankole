@@ -15,18 +15,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
     "adminEmail" => {"管理员邮箱", "服务账号通过域级委派模拟的管理员账号。"},
     "sync.contacts" => {"同步目录", "导入 Google Workspace 用户与组。"},
     "sync.pageSize" => {"同步分页大小", "Directory API 列表接口的分页大小。"},
-    "sync.includeSuspended" => {"包含停用用户", "目录同步是否包含已停用/已归档用户。"},
-    "authBaseURL" => {"授权基础 URL", "可选，本地兼容 Google 授权端点。"},
-    "tokenBaseURL" => {"令牌基础 URL", "可选，本地兼容 Google 令牌端点。"},
-    "apiBaseURL" => {"API 基础 URL", "可选，本地兼容 Admin SDK 端点。"},
-    "userinfoBaseURL" => {"Userinfo 基础 URL", "可选，本地兼容 OpenID userinfo 端点。"}
+    "sync.includeSuspended" => {"包含停用用户", "目录同步是否包含已停用/已归档用户。"}
   }
 
   @impl true
   def plugin_id, do: "google-workspace-adapter"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def display_name,
@@ -98,9 +91,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
         :string,
         []
       ),
-      field("sync.contacts", "Sync directory", "Import Google Workspace users and groups.", :boolean,
-        default: true
-      ),
+      field(
+        "sync.contacts",
+        "Sync directory",
+        "Import Google Workspace users and groups.",
+        :boolean, default: true),
       field(
         "sync.pageSize",
         "Sync page size",
@@ -117,34 +112,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
         "Whether directory sync includes suspended and archived users.",
         :boolean,
         default: false,
-        advanced: true
-      ),
-      field(
-        "authBaseURL",
-        "Authorization base URL",
-        "Optional local-compatible Google authorization endpoint.",
-        :string,
-        advanced: true
-      ),
-      field(
-        "tokenBaseURL",
-        "Token base URL",
-        "Optional local-compatible Google token endpoint.",
-        :string,
-        advanced: true
-      ),
-      field(
-        "apiBaseURL",
-        "API base URL",
-        "Optional local-compatible Admin SDK endpoint.",
-        :string,
-        advanced: true
-      ),
-      field(
-        "userinfoBaseURL",
-        "Userinfo base URL",
-        "Optional local-compatible OpenID userinfo endpoint.",
-        :string,
         advanced: true
       )
     ]

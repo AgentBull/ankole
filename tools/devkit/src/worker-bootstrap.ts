@@ -31,7 +31,7 @@ export type RenderWorkerBootstrapOptions = {
   endpoint: string
   workerID: string
   image: string
-  workspaceRoot: string
+  agentsRoot: string
 }
 
 export async function renderContainerBootstrapSpec(image: string): Promise<WorkerBootstrapSpec> {
@@ -49,8 +49,8 @@ export async function renderWorkerBootstrapSpec(options: RenderWorkerBootstrapOp
       options.workerID,
       '--image',
       options.image,
-      '--workspace-root',
-      options.workspaceRoot
+      '--agents-root',
+      options.agentsRoot
     ],
     'worker'
   )

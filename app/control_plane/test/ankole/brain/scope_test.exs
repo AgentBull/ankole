@@ -3,17 +3,17 @@ defmodule Ankole.Brain.ScopeTest do
 
   alias Ankole.Brain.Scope
 
-  test "public conversations may explicitly declare no current channel" do
+  test "shared conversations may explicitly declare no current channel" do
     assert {:ok,
             %Scope{
               owner_uid: "agent-one",
-              readable_store_keys: ["public"],
-              writable_store_key: "public",
+              readable_store_keys: ["shared", "self"],
+              writable_store_key: "shared",
               current_channel: nil
-            }} = Scope.from_metadata(" Agent-One ", %{"brain" => %{"visibility" => "public"}})
+            }} = Scope.from_metadata(" Agent-One ", %{"brain" => %{"visibility" => "shared"}})
   end
 
-  test "DM declarations require a peer, allow a non-chat run, and include public as read-only" do
+  test "DM declarations require a peer, allow a non-chat run, and include self and shared as read-only" do
     metadata = %{
       "brain" => %{
         "visibility" => "dm",
@@ -26,7 +26,7 @@ defmodule Ankole.Brain.ScopeTest do
     assert {:ok,
             %Scope{
               owner_uid: "agent-one",
-              readable_store_keys: ["dm:human-one", "public"],
+              readable_store_keys: ["dm:human-one", "self", "shared"],
               writable_store_key: "dm:human-one",
               current_channel: %{id: "oc_dm", kind: "im_dm"}
             }} = Scope.from_metadata("agent-one", metadata)
@@ -59,7 +59,7 @@ defmodule Ankole.Brain.ScopeTest do
 
     assert {:ok,
             %Scope{
-              readable_store_keys: ["dm:human-one", "public"],
+              readable_store_keys: ["dm:human-one", "self", "shared"],
               writable_store_key: "dm:human-one"
             }} = Scope.for_store("agent-one", "dm:Human-One")
   end
@@ -67,10 +67,32 @@ defmodule Ankole.Brain.ScopeTest do
   test "read capabilities can only be narrowed to an already-readable store" do
     assert {:ok, dm_scope} = Scope.for_store("agent-one", "dm:human-one")
 
-    assert {:ok, %Scope{readable_store_keys: ["public"], writable_store_key: "dm:human-one"}} =
-             Scope.restrict_read_store(dm_scope, "public")
+    assert {:ok, %Scope{readable_store_keys: ["shared"], writable_store_key: "dm:human-one"}} =
+             Scope.restrict_read_store(dm_scope, "shared")
 
     assert {:error, :brain_store_not_readable} =
              Scope.restrict_read_store(dm_scope, "dm:someone-else")
+  end
+
+  test "self and confidential channel declarations keep shared readable but never writable" do
+    assert {:ok,
+            %Scope{
+              readable_store_keys: ["self", "shared"],
+              writable_store_key: "self"
+            }} = Scope.from_metadata("agent-one", %{"brain" => %{"visibility" => "self"}})
+
+    assert {:ok,
+            %Scope{
+              readable_store_keys: ["channel:oc_secret", "self", "shared"],
+              writable_store_key: "channel:oc_secret",
+              current_channel: %{id: "oc_secret", kind: "im_group"}
+            }} =
+             Scope.from_metadata("agent-one", %{
+               "brain" => %{
+                 "visibility" => "channel",
+                 "channel_id" => "oc_secret",
+                 "channel_kind" => "im_group"
+               }
+             })
   end
 end

@@ -2,7 +2,6 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   @moduledoc """
   Normalized provider outbox adapter contract.
 
-  The adapter can be a normalized module contract or a map used by tests.
   Capability parsing is deliberately whitelist-based so provider input cannot
   create atoms.
 
@@ -78,30 +77,6 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   def from_module(_module, _capabilities), do: {:error, :invalid_outbox_adapter}
 
   @doc """
-  Normalizes an adapter contract or test map.
-  """
-  @spec normalize(t() | map()) :: {:ok, t()} | {:error, term()}
-  def normalize(%__MODULE__{} = adapter), do: {:ok, adapter}
-
-  def normalize(adapter) when is_map(adapter) do
-    send_fun = fetch_fun(adapter, :send)
-    reconcile_fun = fetch_fun(adapter, :reconcile)
-
-    with {:ok, capabilities} <- normalize_capabilities(fetch(adapter, :capabilities, [])),
-         :ok <- validate_test_callback(send_fun),
-         :ok <- validate_test_reconcile_callback(reconcile_fun, capabilities) do
-      {:ok,
-       %__MODULE__{
-         capabilities: capabilities,
-         send_fun: send_fun,
-         reconcile_fun: reconcile_fun
-       }}
-    end
-  end
-
-  def normalize(_adapter), do: {:error, :invalid_outbox_adapter}
-
-  @doc """
   Returns the normalized capability set.
   """
   @spec capabilities(t()) :: MapSet.t(atom())
@@ -132,7 +107,13 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   # into `unknown_after_send` rather than retrying (a retry could double-post).
   # Any other shape is an adapter contract violation, sanitized before it is
   # stored in the error column.
-  defp normalize_adapter_result({:ok, %{} = result}), do: {:ok, result}
+  defp normalize_adapter_result({:ok, %{} = result}) do
+    case Enum.find(Map.keys(result), &(not is_atom(&1))) do
+      nil -> {:ok, result}
+      key -> {:error, {:invalid_adapter_result_key, Sanitizer.transport(key)}}
+    end
+  end
+
   defp normalize_adapter_result({:error, reason}), do: {:error, reason}
   defp normalize_adapter_result(:unknown), do: :unknown
 
@@ -150,17 +131,6 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   defp validate_reconcile_callback(module, capabilities) do
     case MapSet.member?(capabilities, :outbound_reconciliation) do
       true -> Utils.validate_module_callback(module, :reconcile, 1)
-      false -> :ok
-    end
-  end
-
-  defp validate_test_callback(send_fun) when is_function(send_fun, 1), do: :ok
-  defp validate_test_callback(_send_fun), do: {:error, :invalid_outbox_adapter}
-
-  defp validate_test_reconcile_callback(reconcile_fun, capabilities) do
-    case MapSet.member?(capabilities, :outbound_reconciliation) do
-      true when is_function(reconcile_fun, 1) -> :ok
-      true -> {:error, :invalid_outbox_adapter}
       false -> :ok
     end
   end
@@ -198,19 +168,4 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   end
 
   defp normalize_capability(_capability), do: {:error, :invalid_outbox_adapter_capability}
-
-  defp fetch(map, key, default) do
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      Map.has_key?(map, Atom.to_string(key)) -> Map.fetch!(map, Atom.to_string(key))
-      true -> default
-    end
-  end
-
-  defp fetch_fun(map, key) do
-    case fetch(map, key, nil) do
-      fun when is_function(fun, 1) -> fun
-      _value -> nil
-    end
-  end
 end

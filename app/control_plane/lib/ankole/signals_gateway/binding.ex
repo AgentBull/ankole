@@ -48,6 +48,7 @@ defmodule Ankole.SignalsGateway.Binding do
       default: :record_only
 
     field :enabled, :boolean, default: true
+    field :confidential_memory, :boolean, default: false
     # When set on an enabled binding, ingress is refused with this reason instead
     # of accepted — lets an operator soft-disable a route (e.g. revoked provider
     # creds) without deleting it. See SignalsGateway.get_binding/2.
@@ -70,6 +71,7 @@ defmodule Ankole.SignalsGateway.Binding do
       :filters,
       :unaddressed_group_message_policy,
       :enabled,
+      :confidential_memory,
       :unavailable_reason
     ])
     |> normalize_blank([:agent_uid, :name, :adapter, :config_ref, :unavailable_reason])
@@ -80,7 +82,8 @@ defmodule Ankole.SignalsGateway.Binding do
       :config_ref,
       :filters,
       :unaddressed_group_message_policy,
-      :enabled
+      :enabled,
+      :confidential_memory
     ])
     |> JSONPayload.validate_map(:filters)
     |> validate_filters(:filters)

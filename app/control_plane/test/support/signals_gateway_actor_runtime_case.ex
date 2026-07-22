@@ -5,6 +5,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   import ExUnit.Assertions
   import Ecto.Query, warn: false
+  import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2]
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
@@ -35,6 +36,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       use Ankole.DataCase, async: false
 
       import Ecto.Query, warn: false
+      import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2, outbox_adapter: 3]
 
       import Ankole.SignalsGateway.ActorRuntimeCase,
         except: [
@@ -87,6 +89,10 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
     {capacity, fields} = Map.pop(fields, :capacity)
     {load, fields} = Map.pop(fields, :load)
+    capacity = capacity || %{}
+    available_turn_slots = Map.get(capacity, "available_turn_slots", 0)
+    active_turns = if is_map(load), do: Map.get(load, "active_turns", 0), else: 0
+    max_turns = Map.get(capacity, "max_turns", available_turn_slots + active_turns)
 
     auth = %{authenticated?: true, transport_route: route}
 
@@ -94,7 +100,9 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       ActorRuntime.admit_worker_ready(
         struct!(
           FabricProto.AgentComputerWorkerReady,
-          Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
+          fields
+          |> Map.put(:max_turns, max_turns)
+          |> Map.put(:available_turn_slots, available_turn_slots)
         ),
         auth,
         Ankole.Kernel.RuntimeFabric.protocol_version()
@@ -107,8 +115,9 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
         %FabricProto.AgentComputerWorkerCapacity{
           worker_id: worker.worker_id,
           incarnation_id: worker.incarnation_id,
-          capacity_json: Torque.encode!(capacity || %{}),
-          load_json: Torque.encode!(load)
+          max_turns: max_turns,
+          active_turns: active_turns,
+          available_turn_slots: available_turn_slots
         },
         auth
       )
@@ -323,7 +332,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 
@@ -494,7 +503,9 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
            worker_id: "worker-a",
            incarnation_id: "incarnation-worker-a",
            runtime: "bun",
-           version: "test"
+           version: "test",
+           max_turns: 1,
+           available_turn_slots: 1
          }}
     }
   end
@@ -648,17 +659,14 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
                    outbox.agent_uid,
                    outbox.binding_name,
                    outbox.outbound_key,
-                   %{
-                     capabilities: [:post_entry, :reply_entry, :edit_entry],
-                     send: fn outbox ->
-                       {:ok,
-                        %{
-                          created_source_entry_id:
-                            outbox.target_source_entry_id || "test-final-#{ai_message_id}",
-                          raw_payload: %{"provider" => "test"}
-                        }}
-                     end
-                   }
+                   outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn outbox ->
+                     {:ok,
+                      %{
+                        created_source_entry_id:
+                          outbox.target_source_entry_id || "test-final-#{ai_message_id}",
+                        raw_payload: %{"provider" => "test"}
+                      }}
+                   end)
                  )
 
         :ok

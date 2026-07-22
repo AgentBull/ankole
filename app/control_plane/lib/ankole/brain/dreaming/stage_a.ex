@@ -10,35 +10,20 @@ defmodule Ankole.Brain.Dreaming.StageA do
   alias Ankole.Brain.Dreaming.ResponseFormat
   alias Ankole.Brain.Embedding
   alias Ankole.Brain.Schemas.Episode
-  alias Ankole.Principals.Agent
+  alias Ankole.Principals
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Entry
 
-  @model_unavailable_reason "brain.dreaming.model_agent_uid 指向的 agent 无 light/embedding profile"
+  @model_unavailable_reason "no Agent that can see the channel has a resolvable light profile"
   @dreaming_disabled_reason "brain.dreaming disabled"
-
-  @doc false
-  @spec stage_a_status() :: {:ok, map()} | {:unavailable, String.t()}
-  def stage_a_status do
-    with {:ok, %{"enabled" => enabled, "model_agent_uid" => model_agent_uid}}
-         when enabled in [nil, true] and is_binary(model_agent_uid) <- Config.dreaming(),
-         %Agent{} <- Repo.get(Agent, model_agent_uid),
-         {:ok, _light} <- ModelProfiles.resolve_runtime_profile(model_agent_uid, "light"),
-         {:ok, _embedding} <- ModelProfiles.resolve_runtime_profile(model_agent_uid, "embedding") do
-      {:ok, %{"model_agent_uid" => model_agent_uid}}
-    else
-      {:ok, %{"enabled" => false}} -> {:unavailable, @dreaming_disabled_reason}
-      _reason -> {:unavailable, @model_unavailable_reason}
-    end
-  end
 
   @doc false
   @spec enqueue_episode_summary_jobs(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}
   def enqueue_episode_summary_jobs(limit \\ 50) do
-    case stage_a_status() do
-      {:ok, _status} ->
-        {:ok, dreaming_config} = Config.dreaming()
+    case Config.dreaming() do
+      {:ok, %{"enabled" => enabled} = dreaming_config} when enabled in [nil, true] ->
         channel_ids = channels_with_unprocessed_entries(limit, dreaming_config)
 
         inserted =
@@ -54,14 +39,10 @@ defmodule Ankole.Brain.Dreaming.StageA do
 
         {:ok, inserted}
 
-      {:unavailable, @dreaming_disabled_reason = reason} ->
-        {:unavailable, reason}
+      {:ok, %{"enabled" => false}} ->
+        {:unavailable, @dreaming_disabled_reason}
 
-      {:unavailable, reason} ->
-        # Disabled dreaming is an operator choice and should not create cursor noise. A configured but
-        # unusable model is operationally different: recording it per pending channel makes the stall
-        # visible without consuming any history.
-        mark_unprocessed_channels_unavailable(reason, limit)
+      {:error, reason} ->
         {:unavailable, reason}
     end
   end
@@ -69,14 +50,23 @@ defmodule Ankole.Brain.Dreaming.StageA do
   @doc false
   @spec summarize_channel(String.t()) :: :ok | {:error, term()}
   def summarize_channel(signal_channel_id) when is_binary(signal_channel_id) do
-    with {:ok, %{"model_agent_uid" => model_agent_uid}} <- stage_a_status(),
+    with {:ok, %{"enabled" => enabled}} when enabled in [nil, true] <- Config.dreaming(),
+         {:ok, model_agent_uid} <- processor_for_channel(signal_channel_id),
          {:ok, dreaming_config} <- Config.dreaming(),
          {:ok, entries} <- summary_window(signal_channel_id, dreaming_config),
          :ok <- require_non_empty_window(entries),
          {:ok, output} <- call_episode_summarizer(model_agent_uid, entries),
          {:ok, validated} <- validate_summary_output(output, entries, dreaming_config) do
-      persist_summary_output(signal_channel_id, entries, validated)
+      persist_summary_output(signal_channel_id, entries, validated, model_agent_uid)
     else
+      {:ok, %{"enabled" => false}} ->
+        mark_channel_unavailable(signal_channel_id, @dreaming_disabled_reason)
+        :ok
+
+      {:error, :no_visible_light_agent} ->
+        mark_channel_unavailable(signal_channel_id, @model_unavailable_reason)
+        :ok
+
       {:unavailable, reason} ->
         mark_channel_unavailable(signal_channel_id, reason)
         :ok
@@ -93,13 +83,19 @@ defmodule Ankole.Brain.Dreaming.StageA do
   @spec embed_pending_episodes(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}
   def embed_pending_episodes(limit \\ 20) do
-    with {:ok, %{"model_agent_uid" => model_agent_uid}} <- stage_a_status() do
+    with {:ok, %{agent_uid: model_agent_uid, dimensions: dimensions}} <-
+           Embedding.resolve_model() do
+      :ok = Embedding.prepare_space(model_agent_uid, dimensions)
+
       episodes =
         Episode
         |> where([episode], episode.embedding_state == :pending)
         |> order_by([episode], asc: episode.inserted_at, asc: episode.id)
         |> limit(^limit)
-        |> select([episode], struct(episode, [:id, :topic, :summary]))
+        |> select(
+          [episode],
+          struct(episode, [:id, :topic, :summary, :metadata])
+        )
         |> Repo.all()
 
       count =
@@ -109,6 +105,25 @@ defmodule Ankole.Brain.Dreaming.StageA do
         end)
 
       {:ok, count}
+    end
+  end
+
+  @doc false
+  @spec processor_for_channel(String.t()) :: {:ok, String.t()} | {:error, :no_visible_light_agent}
+  def processor_for_channel(signal_channel_id) when is_binary(signal_channel_id) do
+    Principals.list_active_agents()
+    |> Enum.map(& &1.agent.uid)
+    |> Enum.sort()
+    |> Enum.find(fn agent_uid ->
+      channel_visible =
+        Enum.any?(SignalsGateway.visible_channels(agent_uid), &(&1.id == signal_channel_id))
+
+      channel_visible and
+        match?({:ok, _profile}, ModelProfiles.resolve_runtime_profile(agent_uid, "light"))
+    end)
+    |> case do
+      nil -> {:error, :no_visible_light_agent}
+      agent_uid -> {:ok, agent_uid}
     end
   end
 
@@ -257,18 +272,6 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
-  defp mark_unprocessed_channels_unavailable(reason, limit) do
-    case Config.dreaming() do
-      {:ok, dreaming_config} ->
-        limit
-        |> channels_with_unprocessed_entries(dreaming_config)
-        |> Enum.each(&mark_channel_unavailable(&1, reason))
-
-      {:error, _reason} ->
-        :ok
-    end
-  end
-
   defp summary_window(signal_channel_id, dreaming_config) do
     max_rows = Map.fetch!(dreaming_config, "episode_window_max_rows")
     max_tokens = Map.fetch!(dreaming_config, "episode_window_max_tokens")
@@ -352,6 +355,8 @@ defmodule Ankole.Brain.Dreaming.StageA do
   defp require_non_empty_window([_entry | _entries]), do: :ok
 
   defp call_episode_summarizer(model_agent_uid, entries) do
+    message_refs = message_refs(entries)
+
     request = %{
       "model" => "light",
       "store" => false,
@@ -364,36 +369,143 @@ defmodule Ankole.Brain.Dreaming.StageA do
             %{
               "type" => "input_text",
               "text" =>
-                "Summarize the channel window into durable navigation episodes. Use only supplied source_entry_id values. Put trivial or noisy entries in noise_source_entry_ids. Put only still-unfinished tail entries in deferred_source_entry_ids. Classify every supplied entry as episode evidence, noise, or deferred."
+                "The long-term memory system (codename Brain) preserves chat messages, curated current knowledge entries, and external materials that people ask it to learn so future work can retrieve the few most relevant items. This Stage A pass creates navigation episodes over chat messages only. Summarize the channel window into durable episodes. For each episode, extract a concise topic, the question being handled when present, the outcome summary, the resolution when present, and the named systems involved. Set absent optional fields to null. When a message states the resolution, set resolution_message to that message_N alias. Use only supplied message_N aliases. Put trivial or noisy messages in noise_messages. Put only still-unfinished tail messages in deferred_messages. Classify every supplied message as episode evidence, noise, or deferred."
             }
           ]
         },
         %{
           "role" => "user",
-          "content" => [%{"type" => "input_text", "text" => summary_window_text(entries)}]
+          "content" => [
+            %{"type" => "input_text", "text" => summary_window_text(entries, message_refs)}
+          ]
         }
       ]
     }
 
     with {:ok, %{body: body}} <- AIGateway.create_response(model_agent_uid, request),
          {:ok, text} <- response_text(body),
-         {:ok, decoded} <- Ankole.JSON.decode(text) do
-      {:ok, decoded}
+         {:ok, decoded} <- Ankole.JSON.decode(text),
+         {:ok, translated} <- translate_summary_refs(decoded, message_refs) do
+      {:ok, translated}
     else
       {:error, _reason} = error -> error
       other -> {:error, {:invalid_summary_response, other}}
     end
   end
 
-  defp summary_window_text(entries) do
+  defp summary_window_text(entries, message_refs) do
     entries
     |> Enum.map(fn entry ->
       observed = entry |> observed_at() |> datetime()
+      message_ref = Map.fetch!(message_refs.by_source_id, entry.source_entry_id)
 
-      "[#{entry.source_entry_id}] #{observed} #{author_name(entry.author) || "unknown"}: #{entry_text(entry)}"
+      "[#{message_ref}] #{observed} #{author_name(entry.author) || "unknown"}: #{entry_text(entry)}"
     end)
     |> Enum.join("\n")
   end
+
+  defp message_refs(entries) do
+    entries
+    |> Enum.with_index(1)
+    |> Enum.reduce(%{by_alias: %{}, by_source_id: %{}}, fn {entry, index}, refs ->
+      alias = "message_#{index}"
+
+      %{
+        by_alias: Map.put(refs.by_alias, alias, entry.source_entry_id),
+        by_source_id: Map.put(refs.by_source_id, entry.source_entry_id, alias)
+      }
+    end)
+  end
+
+  defp translate_summary_refs(
+         %{
+           "episodes" => episodes,
+           "noise_messages" => noise_messages,
+           "deferred_messages" => deferred_messages
+         },
+         refs
+       )
+       when is_list(episodes) and is_list(noise_messages) and is_list(deferred_messages) do
+    with {:ok, episodes} <- translate_episode_refs(episodes, refs.by_alias),
+         {:ok, noise_ids} <- translate_message_refs(noise_messages, refs.by_alias),
+         {:ok, deferred_ids} <- translate_message_refs(deferred_messages, refs.by_alias) do
+      {:ok,
+       %{
+         "episodes" => episodes,
+         "noise_source_entry_ids" => noise_ids,
+         "deferred_source_entry_ids" => deferred_ids
+       }}
+    end
+  end
+
+  defp translate_summary_refs(_output, _refs), do: {:error, :invalid_summary_output_shape}
+
+  defp translate_episode_refs(episodes, aliases) do
+    Enum.reduce_while(episodes, {:ok, []}, fn
+      %{
+        "topic" => topic,
+        "question" => question,
+        "summary" => summary,
+        "resolution" => resolution,
+        "systems" => systems,
+        "resolution_message" => resolution_message,
+        "messages" => messages
+      },
+      {:ok, translated} ->
+        with {:ok, source_ids} <- translate_message_refs(messages, aliases),
+             {:ok, resolution_source_id} <-
+               translate_optional_message_ref(resolution_message, aliases) do
+          episode = %{
+            "topic" => topic,
+            "question" => question,
+            "summary" => summary,
+            "resolution" => resolution,
+            "systems" => systems,
+            "resolution_source_entry_id" => resolution_source_id,
+            "source_entry_ids" => source_ids
+          }
+
+          {:cont, {:ok, [episode | translated]}}
+        else
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      _episode, _translated ->
+        {:halt, {:error, :invalid_episode_shape}}
+    end)
+    |> case do
+      {:ok, translated} -> {:ok, Enum.reverse(translated)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp translate_message_refs(messages, aliases) when is_list(messages) do
+    Enum.reduce_while(messages, {:ok, []}, fn message, {:ok, source_ids} ->
+      case Map.fetch(aliases, message) do
+        {:ok, source_id} -> {:cont, {:ok, [source_id | source_ids]}}
+        :error -> {:halt, {:error, :summary_output_references_unknown_entries}}
+      end
+    end)
+    |> case do
+      {:ok, source_ids} -> {:ok, Enum.reverse(source_ids)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp translate_message_refs(_messages, _aliases),
+    do: {:error, :invalid_source_entry_id}
+
+  defp translate_optional_message_ref(nil, _aliases), do: {:ok, nil}
+
+  defp translate_optional_message_ref(message, aliases) when is_binary(message) do
+    case Map.fetch(aliases, message) do
+      {:ok, source_id} -> {:ok, source_id}
+      :error -> {:error, :invalid_resolution_source_entry_id}
+    end
+  end
+
+  defp translate_optional_message_ref(_message, _aliases),
+    do: {:error, :invalid_resolution_source_entry_id}
 
   defp validate_summary_output(
          %{"episodes" => episodes, "noise_source_entry_ids" => noise_ids} = output,
@@ -454,11 +566,24 @@ defmodule Ankole.Brain.Dreaming.StageA do
   end
 
   defp validate_episode(
-         %{"topic" => topic, "summary" => summary, "source_entry_ids" => source_ids},
+         %{
+           "topic" => topic,
+           "question" => question,
+           "summary" => summary,
+           "resolution" => resolution,
+           "systems" => systems,
+           "resolution_source_entry_id" => resolution_source_entry_id,
+           "source_entry_ids" => source_ids
+         },
          allowed
        )
        when is_binary(topic) and is_binary(summary) and is_list(source_ids) do
     with {:ok, source_ids} <- validate_source_ids(source_ids, allowed),
+         {:ok, question} <- nullable_text(question, :invalid_episode_question),
+         {:ok, resolution} <- nullable_text(resolution, :invalid_episode_resolution),
+         {:ok, systems} <- nullable_strings(systems),
+         {:ok, resolution_source_entry_id} <-
+           resolution_source_id(resolution_source_entry_id, allowed),
          :ok <- non_empty_text(topic, :empty_episode_topic),
          :ok <- non_empty_text(summary, :empty_episode_summary),
          :ok <- max_text_length(summary, 500, :brain_episode_summary_too_long),
@@ -466,13 +591,63 @@ defmodule Ankole.Brain.Dreaming.StageA do
       {:ok,
        %{
          "topic" => String.trim(topic),
+         "question" => question,
          "summary" => String.trim(summary),
+         "resolution" => resolution,
+         "systems" => systems,
+         "resolution_source_entry_id" => resolution_source_entry_id,
          "source_entry_ids" => source_ids
        }}
     end
   end
 
   defp validate_episode(_episode, _allowed), do: {:error, :invalid_episode_shape}
+
+  defp nullable_text(nil, _reason), do: {:ok, nil}
+
+  defp nullable_text(text, _reason) when is_binary(text) do
+    case String.trim(text) do
+      "" -> {:ok, nil}
+      text -> {:ok, text}
+    end
+  end
+
+  defp nullable_text(_value, reason), do: {:error, reason}
+
+  defp nullable_strings(nil), do: {:ok, []}
+
+  defp nullable_strings(values) when is_list(values) do
+    values
+    |> Enum.reduce_while({:ok, []}, fn
+      value, {:ok, acc} when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:cont, {:ok, acc}}
+          value -> {:cont, {:ok, [value | acc]}}
+        end
+
+      _value, _acc ->
+        {:halt, {:error, :invalid_episode_systems}}
+    end)
+    |> case do
+      {:ok, systems} -> {:ok, systems |> Enum.reverse() |> Enum.uniq()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp nullable_strings(_value), do: {:error, :invalid_episode_systems}
+
+  defp resolution_source_id(nil, _source_ids), do: {:ok, nil}
+
+  defp resolution_source_id(source_id, source_ids) when is_binary(source_id) do
+    source_id = String.trim(source_id)
+
+    if source_id in source_ids,
+      do: {:ok, source_id},
+      else: {:error, :invalid_resolution_source_entry_id}
+  end
+
+  defp resolution_source_id(_source_id, _source_ids),
+    do: {:error, :invalid_resolution_source_entry_id}
 
   defp validate_source_ids(source_ids, allowed) do
     source_ids
@@ -544,11 +719,16 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
-  defp persist_summary_output(signal_channel_id, entries, %{
-         "episodes" => episodes,
-         "noise_source_entry_ids" => noise_source_entry_ids,
-         "deferred_source_entry_ids" => _deferred_source_entry_ids
-       }) do
+  defp persist_summary_output(
+         signal_channel_id,
+         entries,
+         %{
+           "episodes" => episodes,
+           "noise_source_entry_ids" => noise_source_entry_ids,
+           "deferred_source_entry_ids" => _deferred_source_entry_ids
+         },
+         model_agent_uid
+       ) do
     allowed_ids = MapSet.new(Enum.map(entries, & &1.source_entry_id))
     noise_ids = MapSet.new(noise_source_entry_ids)
 
@@ -568,7 +748,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
                started_at: started_at,
                ended_at: ended_at,
                embedding_state: :pending,
-               metadata: %{"version" => 1}
+               metadata: episode_metadata(episode)
              })
              |> repo.insert!()
            end)
@@ -585,7 +765,13 @@ defmodule Ankole.Brain.Dreaming.StageA do
              |> List.last()
              |> case do
                %Entry{} = last_processed_entry ->
-                 upsert_cursor(repo, signal_channel_id, last_processed_entry, nil)
+                 upsert_cursor(
+                   repo,
+                   signal_channel_id,
+                   last_processed_entry,
+                   nil,
+                   %{"stage_a_model_agent_uid" => model_agent_uid}
+                 )
 
                nil ->
                  nil
@@ -599,6 +785,16 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
+  defp episode_metadata(episode) do
+    %{
+      "version" => 2,
+      "question" => episode["question"],
+      "resolution" => episode["resolution"],
+      "systems" => episode["systems"],
+      "resolution_source_entry_id" => episode["resolution_source_entry_id"]
+    }
+  end
+
   defp episode_bounds(entries) do
     observed = Enum.map(entries, &observed_at/1)
 
@@ -606,7 +802,13 @@ defmodule Ankole.Brain.Dreaming.StageA do
      Enum.max_by(observed, &DateTime.to_unix(&1, :microsecond))}
   end
 
-  defp upsert_cursor(repo, signal_channel_id, %Entry{} = entry, unavailable_reason) do
+  defp upsert_cursor(
+         repo,
+         signal_channel_id,
+         %Entry{} = entry,
+         unavailable_reason,
+         metadata \\ %{}
+       ) do
     now = DateTime.utc_now(:microsecond)
     observed_at = observed_at(entry)
 
@@ -618,7 +820,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
         cursor_source_entry_id: entry.source_entry_id,
         cursor_entry_observed_at: observed_at,
         unavailable_reason: unavailable_reason,
-        metadata: %{}
+        metadata: metadata
       })
 
     repo.insert!(changeset,
@@ -628,6 +830,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
           cursor_source_entry_id: entry.source_entry_id,
           cursor_entry_observed_at: observed_at,
           unavailable_reason: unavailable_reason,
+          metadata: metadata,
           updated_at: now
         ]
       ],
@@ -638,19 +841,18 @@ defmodule Ankole.Brain.Dreaming.StageA do
   defp embed_episode(model_agent_uid, %Episode{} = episode) do
     case Embedding.create(model_agent_uid, episode_embedding_text(episode)) do
       {:ok, vector, dimensions} ->
-        vector_literal = Embedding.to_pgvector(vector)
-
         Repo.query!(
           """
           UPDATE brain_episodes
-          SET embedding = $2::text::vector,
+          SET embedding = $2,
               embedding_dimensions = $3,
+              embedding_model_agent_uid = $4,
               embedding_state = 'synced',
               embedding_error = NULL,
               updated_at = now()
           WHERE id = $1::text::uuid
           """,
-          [episode.id, vector_literal, dimensions]
+          [episode.id, Embedding.storage_vector(vector), dimensions, model_agent_uid]
         )
 
       {:error, reason} ->
@@ -658,6 +860,9 @@ defmodule Ankole.Brain.Dreaming.StageA do
         |> where([row], row.id == ^episode.id)
         |> Repo.update_all(
           set: [
+            embedding: nil,
+            embedding_dimensions: nil,
+            embedding_model_agent_uid: nil,
             embedding_state: :failed,
             embedding_error: inspect(reason),
             updated_at: DateTime.utc_now(:microsecond)
@@ -667,7 +872,15 @@ defmodule Ankole.Brain.Dreaming.StageA do
   end
 
   defp episode_embedding_text(%Episode{} = episode) do
-    [episode.topic, episode.summary]
+    metadata = episode.metadata || %{}
+
+    [
+      episode.topic,
+      metadata["question"],
+      episode.summary,
+      metadata["resolution"],
+      Enum.join(metadata["systems"] || [], ", ")
+    ]
     |> Enum.reject(&(is_nil(&1) or String.trim(&1) == ""))
     |> Enum.join("\n")
   end

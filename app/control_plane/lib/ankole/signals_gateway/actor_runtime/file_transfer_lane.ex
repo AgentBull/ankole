@@ -25,8 +25,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLane do
 
   @type route_auth :: %{
           route: String.t(),
-          worker_id: String.t() | nil,
-          key_revision: integer() | nil
+          worker_id: String.t() | nil
         }
 
   @type operation_result :: {:ok, map()} | {:error, term()}

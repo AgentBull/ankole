@@ -41,11 +41,16 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   @jwk_n "voAhnbPZoyk16UJ5MBXNX08cXYR3u2AQVCX_ryzDEtKUy-PUzk29MSf32f0AdYjdCqaTva8Xc8Vg77DeBzNVGiDxKZgY2Pp3r4e02vZHSkIF5aWXfOzrc-ZHsJqhOmf1hRE9LjAo6Zwe48ZyeH9MaKF0BbV5yU8WW3ed0OglCgRTxO1oigIeRwrXriZ0IDnBHakY0XpXAcRCBHfCqA7ISLEs8qA-vABhlQZ0G2kaqGJ8h1C4xoB2qasiKqGu8z7_3RyH2M14UUSXG_pJcqnXu4XzQLW5icWsaTgMHQe7ki_u2FfVdQKsdDbYBpHn0pk_r1raFmEs3mDAT4xAvRZThQ"
 
   setup do
+    Req.Test.set_req_test_to_shared()
     # Earlier suites in the same run may clear the global AppConfigure
     # registries, so config-key writes re-register this plugin's patterns.
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
     :ok = AppConfigure.register_patterns(Microsoft365Adapter.app_config_patterns())
+    previous = Req.default_options()
+    Req.Test.stub(__MODULE__, &default_microsoft_request/1)
+    Req.default_options(plug: {Req.Test, __MODULE__})
+    on_exit(fn -> Req.default_options(previous) end)
   end
 
   describe "plugin and config contracts" do
@@ -139,7 +144,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     end
 
     test "subscription state accepts only complete machine entries" do
-      assert {:ok, _state} =
+      assert {:ok, %{"subscriptions" => [_entry]} = state} =
                Config.validate_subscription_state(%{
                  "subscriptions" => [
                    %{
@@ -148,8 +153,11 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                      "expiration" => "2026-07-15T00:00:00Z",
                      "clientState" => "secret"
                    }
-                 ]
+                 ],
+                 "updatedAt" => "2026-07-15T00:00:00Z"
                })
+
+      refute Map.has_key?(state, "updatedAt")
 
       assert {:error, :invalid_graph_subscription_state} =
                Config.validate_subscription_state(%{"subscriptions" => [%{"id" => "sub-1"}]})
@@ -335,27 +343,26 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
   describe "bot framework auth" do
     test "verifies connector tokens and rejects mismatches" do
-      auth_opts = bot_openid_opts()
+      stub_bot_openid!()
 
       headers = %{"authorization" => "Bearer " <> @rs256_token}
       activity = %{"serviceUrl" => @service_url}
 
-      assert {:ok, claims} = BotFrameworkAuth.verify(headers, @app_id, activity, auth_opts)
+      assert {:ok, claims} = BotFrameworkAuth.verify(headers, @app_id, activity)
       assert claims["iss"] == "https://api.botframework.com"
 
       assert {:error, :audience_mismatch} =
-               BotFrameworkAuth.verify(headers, @tenant_id, activity, auth_opts)
+               BotFrameworkAuth.verify(headers, @tenant_id, activity)
 
       assert {:error, :service_url_mismatch} =
                BotFrameworkAuth.verify(
                  headers,
                  @app_id,
-                 %{"serviceUrl" => "https://evil.example.com/"},
-                 auth_opts
+                 %{"serviceUrl" => "https://evil.example.com/"}
                )
 
       assert {:error, :missing_bearer_token} =
-               BotFrameworkAuth.verify(%{}, @app_id, activity, auth_opts)
+               BotFrameworkAuth.verify(%{}, @app_id, activity)
     end
   end
 
@@ -512,16 +519,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                TeamsChannels.refresh_conversation(
                  first_agent.uid,
                  first_binding_name,
-                 conversation_id,
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
+                 conversation_id
                )
 
       assert {:ok, %{group_id: ^group_id}} =
                TeamsChannels.refresh_conversation(
                  second_agent.uid,
                  second_binding_name,
-                 conversation_id,
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
+                 conversation_id
                )
 
       group = Repo.get!(Group, group_id)
@@ -667,7 +672,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   end
 
   describe "identity provider" do
-    test "authorization_url honors the oidc gate and Entra endpoints" do
+    test "authorization_url honors the oidc gate and fixed Entra endpoint" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
       assert {:ok, url} =
@@ -677,7 +682,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       uri = URI.parse(url)
-      assert uri.host == "login.microsoft.test"
+      assert uri.host == "login.microsoftonline.com"
       assert uri.path == "/#{@tenant_id}/oauth2/v2.0/authorize"
       assert URI.decode_query(uri.query)["scope"] == "openid profile email User.Read"
 
@@ -721,8 +726,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert {:ok, %{user: user}} =
                IdentityProvider.exchange_code(config, "code-1",
-                 redirect_uri: "https://ankole.example.com/cb",
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
+                 redirect_uri: "https://ankole.example.com/cb"
                )
 
       assert user["id"] == "oid-ada"
@@ -795,9 +799,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       end)
 
       assert {:ok, %{users: 1, groups: 1}} =
-               IdentityProvider.sync_directory("entra-id-main", config,
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
-               )
+               IdentityProvider.sync_directory("entra-id-main", config)
 
       assert {:ok, uid} =
                Ankole.Principals.resolve_platform_subject_uid("entra-id-main", "oid-ada")
@@ -812,9 +814,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     test "contact events re-fetch authoritative objects and disable deleted groups" do
       {:ok, config} = Config.validate_identity_config(identity_config())
 
-      consumer =
-        IdentityProvider.identity_consumer("entra-id-main", config)
-        |> Map.put(:client_opts, req_options: [plug: {Req.Test, __MODULE__}])
+      consumer = IdentityProvider.identity_consumer("entra-id-main", config)
 
       {:ok, _observed} =
         IdentityProvider.upsert_user("entra-id-main", %{"id" => "oid-m1", "displayName" => "M1"})
@@ -907,19 +907,22 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         end
       end)
 
-      client_opts = [req_options: [plug: {Req.Test, __MODULE__}]]
-
       assert {:ok, %{subscriptions: [users_entry, _groups_entry]}} =
-               GraphSubscriptions.ensure(provider_id, config, client_opts: client_opts)
+               GraphSubscriptions.ensure(provider_id, config)
 
       assert_received {:created, "/users"}
       assert_received {:created, "/groups"}
       assert GraphSubscriptions.valid_client_state?(provider_id, users_entry["clientState"])
       refute GraphSubscriptions.valid_client_state?(provider_id, "wrong-secret")
 
+      assert {:ok, %{"subscriptions" => [_users, _groups]} = state} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      refute Map.has_key?(state, "updatedAt")
+
       # A second run inside the renewal window keeps entries untouched.
       assert {:ok, _result} =
-               GraphSubscriptions.ensure(provider_id, config, client_opts: client_opts)
+               GraphSubscriptions.ensure(provider_id, config)
 
       refute_received {:created, _resource}
       refute_received {:renewed, _path}
@@ -928,12 +931,68 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       future = DateTime.add(DateTime.utc_now(), 6, :day)
 
       assert {:ok, _result} =
-               GraphSubscriptions.ensure(provider_id, config,
-                 client_opts: client_opts,
-                 now: future
-               )
+               GraphSubscriptions.ensure(provider_id, config, now: future)
 
       assert_received {:renewed, "/v1.0/subscriptions/sub-/users"}
+    end
+
+    test "delete keeps failed subscriptions in local state for retry" do
+      {:ok, config} = Config.validate_identity_config(identity_config())
+      provider_id = "entra-delete-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      subscriptions = [
+        %{
+          "id" => "sub-users",
+          "resource" => "/users",
+          "expiration" => "2026-07-25T00:00:00Z",
+          "clientState" => "users-secret"
+        },
+        %{
+          "id" => "sub-groups",
+          "resource" => "/groups",
+          "expiration" => "2026-07-25T00:00:00Z",
+          "clientState" => "groups-secret"
+        }
+      ]
+
+      assert {:ok, _state} =
+               AppConfigure.put_global_by_key(Config.subscription_state_key(provider_id), %{
+                 "subscriptions" => subscriptions
+               })
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+            Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
+
+          conn.method == "DELETE" and
+              conn.request_path == "/v1.0/subscriptions/sub-users" ->
+            send(parent, {:deleted, "sub-users"})
+            Plug.Conn.send_resp(conn, 204, "")
+
+          conn.method == "DELETE" and
+              conn.request_path == "/v1.0/subscriptions/sub-groups" ->
+            send(parent, {:delete_failed, "sub-groups"})
+
+            conn
+            |> Plug.Conn.put_status(503)
+            |> Req.Test.json(%{"error" => %{"code" => "ServiceUnavailable"}})
+        end
+      end)
+
+      assert {:error,
+              {:graph_subscription_deletion_failed,
+               [%{subscription_id: "sub-groups", reason: %MicrosoftOpenAPI.Error{status: 503}}]}} =
+               GraphSubscriptions.delete_all(provider_id, config)
+
+      assert_received {:deleted, "sub-users"}
+      assert_received {:delete_failed, "sub-groups"}
+
+      assert {:ok, %{"subscriptions" => [remaining]}} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      assert remaining["id"] == "sub-groups"
     end
   end
 
@@ -992,8 +1051,6 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         end
       end)
 
-      client_opts = [req_options: [plug: {Req.Test, __MODULE__}]]
-
       assert {:ok, _provider} =
                IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), true,
                  reconcile_realtime?: false
@@ -1002,7 +1059,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       {:ok, config} = Config.load_identity_config_key(Config.identity_config_key(provider_id))
 
       assert {:ok, %{subscriptions: [users_entry | _rest]}} =
-               GraphSubscriptions.ensure(provider_id, config, client_opts: client_opts)
+               GraphSubscriptions.ensure(provider_id, config)
 
       request = %{
         handler_id: "entra-id",
@@ -1028,8 +1085,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
             }
           ]
         },
-        headers: %{},
-        client_opts: client_opts
+        headers: %{}
       }
 
       assert {:ok, %{status: 202}} = DirectoryWebhook.handle_webhook(request)
@@ -1068,15 +1124,13 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         end
       end)
 
-      client_opts = [req_options: [plug: {Req.Test, __MODULE__}]]
-
       assert {:ok, _provider} =
                IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), true,
                  reconcile_realtime?: false
                )
 
       assert %{ensured: ensured, errors: []} =
-               SubscriptionReconciler.reconcile_once(client_opts: client_opts)
+               SubscriptionReconciler.reconcile_once()
 
       assert ensured >= 1
       assert_received {:created, "/users"}
@@ -1089,7 +1143,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       assert %{removed: removed, errors: []} =
-               SubscriptionReconciler.reconcile_once(client_opts: client_opts)
+               SubscriptionReconciler.reconcile_once()
 
       assert removed >= 1
       assert_received {:deleted, "/v1.0/subscriptions/sub-r"}
@@ -1101,29 +1155,24 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       "tenantID" => @tenant_id,
       "clientID" => "client-1",
       "clientSecret" => "secret-1",
-      "publicBaseURL" => "https://ankole.example.com",
-      "loginBaseURL" => "https://login.microsoft.test",
-      "graphBaseURL" => "https://graph.microsoft.test"
+      "publicBaseURL" => "https://ankole.example.com"
     }
   end
 
   defp webhook_request(activity) do
+    stub_bot_openid!()
+
     %{
       handler_id: "teams",
       instance_id: @app_id,
       kind: "messages",
       query_params: %{},
       body_params: activity,
-      headers: %{"authorization" => "Bearer " <> @rs256_token},
-      auth_opts: bot_openid_opts(),
-      consumer_opts: [materialize_attachments: false]
+      headers: %{"authorization" => "Bearer " <> @rs256_token}
     }
   end
 
-  defp bot_openid_opts do
-    metadata_url =
-      "https://login.bot.test/v1/.well-known/openidconfiguration-#{System.unique_integer([:positive])}"
-
+  defp stub_bot_openid! do
     Req.Test.stub(BotOpenIDStub, fn conn ->
       case conn.request_path do
         "/v1/.well-known/keys" ->
@@ -1139,7 +1188,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       end
     end)
 
-    [metadata_url: metadata_url, req_options: [plug: {Req.Test, BotOpenIDStub}]]
+    Req.default_options(plug: {Req.Test, BotOpenIDStub})
   end
 
   defp chat_consumer(overrides \\ %{}) do
@@ -1154,6 +1203,18 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     Inbound.chat_consumer(context, Map.merge(validated_chat_config(), overrides))
   end
 
+  defp default_microsoft_request(%{request_path: "/report.xlsx"} = conn) do
+    conn
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="report.xlsx"))
+    |> Plug.Conn.send_resp(200, "xlsx")
+  end
+
+  defp default_microsoft_request(conn) do
+    conn
+    |> Plug.Conn.put_status(404)
+    |> Req.Test.json(%{"error" => %{"code" => "not_stubbed"}})
+  end
+
   defp validated_chat_config(overrides \\ %{}) do
     {:ok, config} = Config.validate_chat_config(chat_config())
     Map.merge(config, overrides)
@@ -1163,8 +1224,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     %{
       "appID" => @app_id,
       "appPassword" => "app-password",
-      "tenantID" => @tenant_id,
-      "loginBaseURL" => "https://login.microsoft.test"
+      "tenantID" => @tenant_id
     }
   end
 

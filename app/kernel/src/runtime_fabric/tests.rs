@@ -375,20 +375,21 @@ fn worker_lifecycle_envelopes_expose_worker_id_for_route_auth() {
             worker_id: "worker-a".into(),
             runtime: "bun".into(),
             version: "test".into(),
-            capacity_json: Vec::new(),
+            max_turns: 1,
             incarnation_id: "incarnation-a".into(),
+            available_turn_slots: 1,
         }),
         proto::envelope::Body::WorkerHeartbeat(proto::AgentComputerWorkerHeartbeat {
             worker_id: "worker-a".into(),
             monotonic_ms: 0,
-            load_json: Vec::new(),
+            active_turns: 0,
             incarnation_id: "incarnation-a".into(),
         }),
         proto::envelope::Body::WorkerCapacity(proto::AgentComputerWorkerCapacity {
             worker_id: "worker-a".into(),
-            capacity_json: Vec::new(),
-            load_json: Vec::new(),
-            available_turn_slots: 0,
+            max_turns: 1,
+            active_turns: 0,
+            available_turn_slots: 1,
             incarnation_id: "incarnation-a".into(),
         }),
     ];
@@ -405,6 +406,43 @@ fn worker_lifecycle_envelopes_expose_worker_id_for_route_auth() {
         let decoded = decode_envelope_view(&envelope.encode_to_vec()).unwrap();
         assert_eq!(decoded.worker_lifecycle_id(), Some("worker-a"));
     }
+}
+
+#[test]
+fn rejects_inconsistent_worker_capacity() {
+    let missing_max = base_envelope(
+        "worker-ready-missing-max",
+        "",
+        proto::Lane::Control,
+        proto::DurabilityClass::ControlEphemeral,
+        proto::envelope::Body::WorkerReady(proto::AgentComputerWorkerReady {
+            worker_id: "worker-a".into(),
+            runtime: "bun".into(),
+            version: "test".into(),
+            max_turns: 0,
+            incarnation_id: "incarnation-a".into(),
+            available_turn_slots: 0,
+        }),
+    );
+    assert!(validate_error(missing_max).contains("worker_ready.max_turns must be positive"));
+
+    let inconsistent = base_envelope(
+        "worker-capacity-inconsistent",
+        "",
+        proto::Lane::Control,
+        proto::DurabilityClass::ControlEphemeral,
+        proto::envelope::Body::WorkerCapacity(proto::AgentComputerWorkerCapacity {
+            worker_id: "worker-a".into(),
+            max_turns: 4,
+            active_turns: 2,
+            available_turn_slots: 1,
+            incarnation_id: "incarnation-a".into(),
+        }),
+    );
+    assert!(
+        validate_error(inconsistent)
+            .contains("worker_capacity available and active turns must equal max_turns")
+    );
 }
 
 #[test]
@@ -548,8 +586,9 @@ fn golden_worker_ready() -> proto::Envelope {
             worker_id: "worker-golden".into(),
             runtime: "bun".into(),
             version: "test".into(),
-            capacity_json: br#"{"available_turn_slots":1}"#.to_vec(),
+            max_turns: 1,
             incarnation_id: "incarnation-golden".into(),
+            available_turn_slots: 1,
         }),
     )
 }
@@ -561,12 +600,12 @@ fn regenerate_golden_envelope_fixtures() {
     std::fs::create_dir_all(&dir).expect("golden dir");
 
     std::fs::write(
-        dir.join("turn_start.v2.bin"),
+        dir.join("turn_start.v3.bin"),
         golden_turn_start(Some(32_000)).encode_to_vec(),
     )
     .expect("turn_start fixture");
     std::fs::write(
-        dir.join("worker_ready.v2.bin"),
+        dir.join("worker_ready.v3.bin"),
         golden_worker_ready().encode_to_vec(),
     )
     .expect("worker_ready fixture");
@@ -575,7 +614,7 @@ fn regenerate_golden_envelope_fixtures() {
 #[test]
 fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
     let with_field =
-        std::fs::read(golden_dir().join("turn_start.v2.bin")).expect("turn_start fixture");
+        std::fs::read(golden_dir().join("turn_start.v3.bin")).expect("turn_start fixture");
     validate_envelope_bytes(&with_field).expect("turn_start fixture must validate");
     assert_eq!(
         proto::Envelope::decode(with_field.as_slice()).expect("turn_start fixture decodes"),
@@ -583,16 +622,40 @@ fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
     );
 
     let worker_ready =
-        std::fs::read(golden_dir().join("worker_ready.v2.bin")).expect("worker_ready fixture");
+        std::fs::read(golden_dir().join("worker_ready.v3.bin")).expect("worker_ready fixture");
     validate_envelope_bytes(&worker_ready).expect("worker_ready fixture must validate");
     assert_eq!(
         proto::Envelope::decode(worker_ready.as_slice()).expect("worker_ready fixture decodes"),
         golden_worker_ready()
     );
 
-    // Version 1 remains structurally decodable by Protobuf, but the semantic
-    // validator must reject it before an old worker can enter the ready pool or
-    // exchange typed RPC payloads with a version 2 control plane.
+    // Older versions remain structurally decodable by Protobuf, but the semantic
+    // validator must reject them before an old worker can enter the ready pool or
+    // exchange typed RPC payloads with a version 3 control plane.
+    let version_2_turn =
+        std::fs::read(golden_dir().join("turn_start.v2.bin")).expect("version 2 turn fixture");
+    assert_eq!(
+        proto::Envelope::decode(version_2_turn.as_slice())
+            .expect("version 2 turn fixture decodes structurally")
+            .protocol_version,
+        2
+    );
+    assert!(
+        validate_envelope_bytes(&version_2_turn)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 2")
+    );
+
+    let version_2_worker =
+        std::fs::read(golden_dir().join("worker_ready.v2.bin")).expect("version 2 worker fixture");
+    assert!(
+        validate_envelope_bytes(&version_2_worker)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 2")
+    );
+
     let legacy_turn =
         std::fs::read(golden_dir().join("turn_start.v1.bin")).expect("legacy turn fixture");
     assert_eq!(

@@ -16,7 +16,7 @@ describe('rendered web_fetch fallback projection', () => {
   })
 
   test('mirrors the settings SSRF filter and forwards fetchBatch to fetchRendered unchanged', async () => {
-    const runtime = new BrowserRuntime({ workspaceSessionsRoot: '/tmp/ankole-rendered-fallback-projection' })
+    const runtime = new BrowserRuntime({ runtimeRoot: '/tmp/ankole-rendered-fallback-projection' })
     const fetchRendered = mock(async (..._args: unknown[]) => ({ results: [] }))
     runtime.fetchRendered = fetchRendered as unknown as typeof runtime.fetchRendered
 

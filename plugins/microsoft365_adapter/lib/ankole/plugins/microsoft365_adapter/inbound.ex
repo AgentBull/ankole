@@ -18,15 +18,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   @file_download_content_type "application/vnd.microsoft.teams.file.download.info"
   @mention_regex ~r/<at[^>]*>(.*?)<\/at>/s
 
-  @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
-  def chat_consumer(%AdapterContext{} = context, config, opts \\ []) do
+  @spec chat_consumer(AdapterContext.t(), map()) :: map()
+  def chat_consumer(%AdapterContext{} = context, config) do
     %{
       kind: :chat,
       context: context,
-      config: config,
-      materialize_attachments: Keyword.get(opts, :materialize_attachments, false),
-      attachment_materializer:
-        Keyword.get(opts, :attachment_materializer, &materialize_attachments/3)
+      config: config
     }
   end
 
@@ -477,26 +474,26 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     end
   end
 
-  defp maybe_materialize_attachments(attachments, _activity, %{materialize_attachments: false}),
-    do: {:ok, attachments}
+  defp maybe_materialize_attachments(attachments, activity, consumer),
+    do: materialize_attachments(attachments, activity, consumer)
 
-  defp maybe_materialize_attachments(
-         attachments,
-         activity,
-         %{attachment_materializer: fun} = consumer
-       ),
-       do: fun.(attachments, activity, consumer)
-
-  defp materialize_attachments(attachments, _activity, %{config: config}) do
-    {:ok, Enum.map(attachments, &materialize_attachment(&1, config))}
+  defp materialize_attachments(attachments, _activity, %{
+         config: config,
+         context: %{agent_uid: agent_uid}
+       }) do
+    {:ok, Enum.map(attachments, &materialize_attachment(&1, config, agent_uid))}
   end
 
-  defp materialize_attachment(attachment, config) do
+  defp materialize_attachment(attachment, config, agent_uid) do
     with {:ok, download} <- download_attachment(attachment, config),
          relative <- materialized_path(attachment, download.filename),
-         {:ok, result} <- WorkerFiles.put("user_files", relative, download.body) do
+         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
+         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
-      |> Map.put("agent_computer_path", "/workspace/user-files/#{relative}")
+      |> Map.put(
+        "agent_computer_path",
+        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
+      )
       |> Map.put("user_files_relative_path", relative)
       |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
       |> MapHelpers.maybe_put("size", result["size"])

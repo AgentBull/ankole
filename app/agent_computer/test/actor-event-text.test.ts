@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'bun:test'
 import { actorEventText } from '../src/core/turns/actor_event_text'
 
+describe('@ankole/agent-computer reply action input', () => {
+  it('treats the callback payload shape from before canonical answers as stale', () => {
+    const text = actorEventText(
+      {
+        data: {
+          action: {
+            value: {
+              interactionId: 'clarify:call-1',
+              selectedOptionId: 'operators',
+              optionValue: 'Operators'
+            }
+          }
+        }
+      },
+      'signal.action.invoked'
+    )
+
+    expect(text).toContain('old or invalid data shape')
+    expect(text).toContain('stale')
+    expect(text).not.toContain('Operators')
+    expect(text).not.toContain('Continue the conversation')
+  })
+})
+
 describe('@ankole/agent-computer addressed empty-text input', () => {
   it('renders a bare mention as a summons pointing at channel context', () => {
     const text = actorEventText(
@@ -21,6 +45,23 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
     expect(text).not.toContain('Handle actor event of type')
   })
 
+  it('does not use an opaque author id as a speaker label', () => {
+    const text = actorEventText(
+      {
+        data: {
+          entry: {
+            author: { id: '019f0000-0000-7000-8000-000000000042' },
+            text: ''
+          }
+        }
+      },
+      'im.message.addressed'
+    )
+
+    expect(text).toContain('A user addressed you')
+    expect(text).not.toContain('019f0000-0000-7000-8000-000000000042')
+  })
+
   it('describes attachment-only addressed messages instead of the generic fallback', () => {
     const text = actorEventText(
       {
@@ -31,7 +72,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
               {
                 name: 'strategy.pdf',
                 resource_type: 'file',
-                agent_computer_path: '/workspace/user-files/inbox/strategy.pdf'
+                agent_computer_path: '/agents/agent-1/user-files/inbox/strategy.pdf'
               }
             ]
           }
@@ -69,7 +110,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
       'im.message.addressed'
     )
 
-    expect(text).toContain('source_entry_id: msg-yesterday-report')
+    expect(text).not.toContain('source_entry_id')
     expect(text).toContain("Yesterday's complete report")
     expect(text).toContain("Current message:\nWhy was today's work lower quality?")
     expect(text.indexOf("Yesterday's complete report")).toBeLessThan(
@@ -92,7 +133,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
     )
 
     expect(text).toContain('content could not be resolved')
-    expect(text).toContain('reply_to_source_entry_id: missing-target')
+    expect(text).not.toContain('missing-target')
     expect(text).toContain('Do not silently substitute another message')
   })
 
@@ -113,7 +154,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
                 {
                   name: 'strategy.pdf',
                   resource_type: 'file',
-                  agent_computer_path: '/workspace/user-files/inbox/strategy.pdf'
+                  agent_computer_path: '/agents/agent-1/user-files/inbox/strategy.pdf'
                 }
               ]
             }
@@ -131,41 +172,88 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
 })
 
 describe('@ankole/agent-computer background agent job failure input', () => {
-  it('offers direct correction or same-session continuation without forcing either', () => {
+  it('offers direct correction or a new durable Job without terminal continuation', () => {
     const text = actorEventText(
       {
         data: {
-          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          job_id: 1000,
           title: 'Market classification research',
           runtime: 'task_worker',
           result_summary: 'Codex upstream returned HTTP 502.',
           attempts: 3,
-          workdir: '/workspace'
+          workdir: '/agents/agent-1/sessions/session-1'
         }
       },
       'background_agent_job.failed'
     )
 
-    expect(text).toContain('Job: 019f64b1-4198-7200-9e22-6fb8fa8a3db8')
+    expect(text).toContain('Job: 1000')
     expect(text).not.toContain('Runtime: task_worker')
-    expect(text).not.toContain('Workdir: /workspace')
-    expect(text).toContain('workspace mounts, and artifact observations before repeating any side effect')
+    expect(text).not.toContain('Workdir: /agents/agent-1/sessions/session-1')
+    expect(text).toContain('Use show_background_job_details')
+    expect(text).toContain('concrete status or recent trajectory')
     expect(text).toContain('make and verify it directly')
-    expect(text).toContain('If the work benefits from the existing Job context')
-    expect(text).toContain('call background_agent_job(steer)')
-    expect(text).toContain('resume it')
+    expect(text).toContain('Create a new BackgroundAgentJob')
+    expect(text).not.toContain('background_agent_job(steer)')
+    expect(text).not.toContain('resume it')
     expect(text).not.toContain('background_agent_job(start)')
+  })
+})
+
+describe('@ankole/agent-computer background agent job waiting input', () => {
+  it('shows semantic questions without Codex recovery ids', () => {
+    const internalID = '019f0000-0000-7000-8000-000000000001'
+    const text = actorEventText(
+      {
+        data: {
+          job_id: 1000,
+          title: 'Market classification research',
+          pending_user_input: {
+            threadId: internalID,
+            turnId: internalID,
+            itemId: internalID,
+            questions: [
+              {
+                id: internalID,
+                header: 'Audience',
+                question: 'Who should this brief target?',
+                isSecret: true,
+                options: [
+                  {
+                    id: internalID,
+                    label: 'Operators',
+                    description: 'Console operators',
+                    value: internalID
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      'background_agent_job.waiting'
+    )
+
+    expect(text).toContain('Job: 1000')
+    expect(text).toContain('Who should this brief target?')
+    expect(text).toContain('Operators')
+    expect(text).toContain('Console operators')
+    expect(text).toContain('"sensitive":true')
+    expect(text).not.toContain(internalID)
+    expect(text).not.toContain('threadId')
+    expect(text).not.toContain('turnId')
+    expect(text).not.toContain('itemId')
   })
 })
 
 describe('@ankole/agent-computer background agent job completion input', () => {
   it('hands owner-visible artifact paths directly to reply_attachment', () => {
-    const projectPath = '/workspace/user-files/background-agent-jobs/019f64b1-4198-7200-9e22-6fb8fa8a3db8/project'
+    const projectPath = '/agents/agent-1/jobs/1000'
     const artifactPath = `${projectPath}/report/report.md`
     const text = actorEventText(
       {
         data: {
-          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          job_id: 1000,
           title: 'Market classification research',
           result_summary: 'Research complete.',
           project_path: projectPath,
@@ -181,13 +269,13 @@ describe('@ankole/agent-computer background agent job completion input', () => {
   })
 
   it('bounds a hostile artifact list while preserving handoff after a long summary', () => {
-    const projectPath = '/workspace/user-files/background-agent-jobs/019f64b1-4198-7200-9e22-6fb8fa8a3db8/project'
-    const mountedOutputRoot = '/workspace/user-files/research-output'
+    const projectPath = '/agents/agent-1/jobs/1000'
+    const mountedOutputRoot = '/agents/agent-1/user-files/research-output'
     const paths = Array.from({ length: 50_000 }, (_, index) => `${projectPath}/report/artifact-${index}.pdf`)
     const text = actorEventText(
       {
         data: {
-          job_id: '019f64b1-4198-7200-9e22-6fb8fa8a3db8',
+          job_id: 1000,
           result_summary: '大'.repeat(20_000),
           project_path: projectPath,
           artifacts: { total_count: paths.length, paths, truncated: false },
@@ -208,6 +296,6 @@ describe('@ankole/agent-computer background agent job completion input', () => {
     expect(text).toContain('Artifact handoff: showing 32 of 50000 paths (truncated).')
     expect(text).toContain(paths[0]!)
     expect(text).not.toContain(paths.at(-1)!)
-    expect(text).toContain('Use background_agent_job(status)')
+    expect(text).toContain('Use show_background_job_details')
   })
 })

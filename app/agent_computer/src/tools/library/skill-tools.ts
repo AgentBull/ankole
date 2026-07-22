@@ -7,10 +7,10 @@ import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import { rpcMethods, type RPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
+  ankoleSkillRuntime,
   enabledSkillByName,
   resolveSkillFilesystemRoot,
   resolveSkillOverlayText,
-  skillMetadata,
   stripSkillFrontmatter,
   type SkillFileRoots
 } from '../../skills/effective-skill'
@@ -74,7 +74,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
   return {
     name: 'skill_view',
     description:
-      'Read an enabled inline skill file. For a Skill marked long-running, this returns BackgroundAgentJob routing guidance instead of its operational body and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
+      'Read an enabled inline skill file. For a Skill with ankole-runtime: background_job, this returns only BackgroundAgentJob routing guidance and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -87,25 +87,15 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
       const skillRoot = skillFilesystemRoot(skill, opts)
-      if (skillMetadata(skill).long_running === true) {
+      if (ankoleSkillRuntime(skill) === 'background_job') {
         if (filePath !== 'SKILL.md') {
           throw new Error(
-            `long-running Skill resources are available only inside a BackgroundAgentJob; create one with background_agent_job(start) and name ${params.name} in its task`
+            `background-job-only Skill resources are available only inside a BackgroundAgentJob; create one with create_background_job and name ${params.name} in its task`
           )
         }
         await safeSkillPath(skillRoot, 'SKILL.md')
         return {
-          content: [
-            {
-              type: 'text',
-              text: wrapSkillContent(
-                params.name,
-                skillLocation(params.name, 'SKILL.md'),
-                skillRoot,
-                longRunningSkillDispatchContent(params.name)
-              )
-            }
-          ],
+          content: [{ type: 'text', text: backgroundJobSkillDispatchContent(params.name) }],
           details: { name: params.name, path: filePath }
         }
       }
@@ -207,15 +197,15 @@ async function renderEffectiveSkill(
 }
 
 /**
- * Returns only main-agent routing guidance for a long-running Skill. Its full
+ * Returns only main-agent routing guidance for a background-job-only Skill. Its full
  * operational body, references, and overlay remain available to Codex when the
  * BackgroundAgentJob runtime materializes the enabled Skill directory.
  */
-function longRunningSkillDispatchContent(name: string): string {
+function backgroundJobSkillDispatchContent(name: string): string {
   return [
     `The enabled ${name} Skill is a background-task capability.`,
     'Do not execute it inline and do not try to read its operational body or referenced resources from the main agent.',
-    `Create a BackgroundAgentJob with background_agent_job(start). Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
+    `Create a BackgroundAgentJob with create_background_job. Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
     'The Job receives the complete enabled Skill directory and can read its instructions and resources there.'
   ].join('\n')
 }
@@ -249,8 +239,8 @@ function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkill
 /** Rejects main-agent overlay writes for Skills whose complete contract belongs to a Job. */
 function enabledInlineSkillForOverlay(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   const skill = enabledSkill(name, opts)
-  if (skillMetadata(skill).long_running === true) {
-    throw new Error(`long-running Skill overlays are available only inside a BackgroundAgentJob: ${name}`)
+  if (ankoleSkillRuntime(skill) === 'background_job') {
+    throw new Error(`background-job Skill overlays are available only inside a BackgroundAgentJob: ${name}`)
   }
   return skill
 }

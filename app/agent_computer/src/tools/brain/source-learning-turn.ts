@@ -6,13 +6,14 @@ import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { MemoryRPCRequester } from '../../lanes/rpc_lane'
 import { assertExistingPathWithin, workspacePhysicalRoots } from '../../core/real-path-boundary'
-import { resolveWorkspacePath } from '../../core/workspace-paths'
+import { resolveAgentHomePath } from '../../core/agent-home-paths'
 import {
   createMemoryBrowseTool,
   createMemoryOpenTool,
   createMemorySearchTool,
   createMemoryUpdateTool
 } from '../memory/memory-tools'
+import { MemoryModelReferences } from '../memory/model-references'
 
 export interface SourceLearningTurnTools {
   /** The complete model-visible toolset of one `brain.source.learn` turn. */
@@ -31,11 +32,22 @@ export interface SourceLearningTurnTools {
  */
 export function createSourceLearningTurnTools(opts: {
   turnStart: TurnStart
+  agentHome?: string
   workspaceRoot: string
   requestMemoryRPC: MemoryRPCRequester
 }): SourceLearningTurnTools {
-  const reader = createBrainSourceLearningReader(opts.turnStart, opts.workspaceRoot)
-  const memoryOptions = { turnStart: opts.turnStart, requestMemoryRPC: opts.requestMemoryRPC }
+  const modelReferences = new MemoryModelReferences()
+  const reader = createBrainSourceLearningReader(
+    opts.turnStart,
+    opts.agentHome ?? opts.workspaceRoot,
+    opts.workspaceRoot,
+    modelReferences
+  )
+  const memoryOptions = {
+    turnStart: opts.turnStart,
+    requestMemoryRPC: opts.requestMemoryRPC,
+    modelReferences
+  }
   return {
     tools: [
       reader.tool,
@@ -56,7 +68,7 @@ export function createSourceLearningTurnTools(opts: {
 function learningMemoryUpdateTool(tool: AgentTool<any>, reader: BrainSourceLearningReader): AgentTool<any> {
   return {
     ...tool,
-    description: `Integrate the retained source into Brain. You may only create_entry with initial_body, append_block, or edit_block, and that body must contain the exact marker src:${reader.documentID}. For create_entry, set only name, type, and initial_body. Open existing entries first and pass the returned lock version.`,
+    description: `Integrate the retained source into long-term memory. You may only create_entry with initial_body, append_block, or edit_block, and that body must contain the exact marker src:${reader.source}. For create_entry, set only name, type, and initial_body. Open existing entries immediately before updating them.`,
     async execute(toolCallID, params, signal) {
       reader.assertReadyToWrite()
       return tool.execute(toolCallID, params, signal)
@@ -64,14 +76,11 @@ function learningMemoryUpdateTool(tool: AgentTool<any>, reader: BrainSourceLearn
   }
 }
 
-const SourceReadParams = z.object({
-  cursor: z.string().min(1).optional().describe('Opaque cursor returned by the previous source_read page.')
-})
+const SourceReadParams = z.object({}).strict()
 
 type SourceReadDetails = {
   complete: boolean
-  documentID: string
-  nextCursor?: string
+  source: string
   totalCharacters: number
 }
 
@@ -83,6 +92,7 @@ const pageCharacters = 50_000
 export interface BrainSourceLearningReader {
   tool: AgentTool<typeof SourceReadParams, SourceReadDetails>
   documentID: string
+  source: string
   assertCompleted(): void
   assertReadyToWrite(): void
 }
@@ -96,27 +106,33 @@ export interface BrainSourceLearningReader {
  */
 export function createBrainSourceLearningReader(
   turnStart: TurnStart,
-  workspaceRoot: string
+  agentHome: string,
+  workspaceRoot: string = agentHome,
+  modelReferences: MemoryModelReferences = new MemoryModelReferences()
 ): BrainSourceLearningReader {
   const descriptor = sourceDescriptor(turnStart)
+  const source = modelReferences.registerSource(descriptor.documentID)
   let state: ReaderState = 'unread'
   let failure: string | undefined
   let extracted: Promise<string> | undefined
-  let expectedCursor: string | undefined
+  let offset = 0
 
   const tool: AgentTool<typeof SourceReadParams, SourceReadDetails> = {
     name: 'source_read',
     description:
-      'Read the retained source selected for this learning run. Continue with the returned cursor until complete=true. The tool is bound to one byte-verified source and cannot read arbitrary paths.',
+      'Read the next part of the retained source selected for this learning run. Call again until complete=true. The tool is bound to one byte-verified source and cannot read arbitrary paths.',
     schema: SourceReadParams,
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
     describeActivity: () => `读取资料：${descriptor.title}`,
-    async execute(_toolCallID, params): Promise<AgentToolResult<SourceReadDetails>> {
+    async execute(_toolCallID, _params): Promise<AgentToolResult<SourceReadDetails>> {
+      if (state === 'complete') throw new Error('retained source has already been read completely')
+      if (state === 'failed') throw new Error('retained source cannot continue after an extraction failure')
+
       let content: string
       try {
-        extracted ??= extractSource(descriptor, workspaceRoot)
+        extracted ??= extractSource(descriptor, agentHome, workspaceRoot)
         content = await extracted
       } catch (error) {
         state = 'failed'
@@ -124,23 +140,21 @@ export function createBrainSourceLearningReader(
         throw error
       }
 
-      const start = sequentialPageStart(state, params.cursor, expectedCursor, content.length)
+      const start = offset
       const end = safePageEnd(content, start, pageCharacters)
       const complete = end >= content.length
-      const nextCursor = complete ? undefined : encodeCursor(end)
-      expectedCursor = nextCursor
+      offset = end
       state = complete ? 'complete' : 'reading'
 
       const continuation = complete
         ? `\n\n[${content.length} characters total; complete=true]`
-        : `\n\n[characters ${start + 1}-${end} of ${content.length}; complete=false; continue with cursor=${nextCursor}]`
+        : `\n\n[characters ${start + 1}-${end} of ${content.length}; complete=false; call source_read again]`
 
       return {
         content: [{ type: 'text', text: content.slice(start, end) + continuation }],
         details: {
           complete,
-          documentID: descriptor.documentID,
-          ...(nextCursor ? { nextCursor } : {}),
+          source,
           totalCharacters: content.length
         }
       }
@@ -150,6 +164,7 @@ export function createBrainSourceLearningReader(
   return {
     tool,
     documentID: descriptor.documentID,
+    source,
     assertReadyToWrite() {
       if (state === 'failed') {
         throw new Error(`retained source read failed: ${failure ?? 'unknown error'}`)
@@ -208,12 +223,13 @@ function attachmentPath(payload: JSONObject | undefined): string | undefined {
   return attachment && firstString(attachment, ['agent_computer_path', 'path'])
 }
 
-async function extractSource(descriptor: SourceDescriptor, workspaceRoot: string): Promise<string> {
-  const lexicalPath = resolveWorkspacePath(workspaceRoot, descriptor.path, {
+async function extractSource(descriptor: SourceDescriptor, agentHome: string, workspaceRoot: string): Promise<string> {
+  const lexicalPath = resolveAgentHomePath(agentHome, descriptor.path, {
+    cwd: workspaceRoot,
     errorMessage: 'retained source path escapes the learning workspace'
   })
   const path = assertExistingPathWithin(
-    workspacePhysicalRoots(workspaceRoot),
+    workspacePhysicalRoots(agentHome),
     lexicalPath,
     'retained source path resolves outside workspace roots'
   )
@@ -223,7 +239,7 @@ async function extractSource(descriptor: SourceDescriptor, workspaceRoot: string
 
   if (textMediaType(mediaType)) {
     if (bytes.subarray(0, 8192).includes(0)) {
-      throw new Error(`retained source ${descriptor.documentID} claims a text media type but contains binary data`)
+      throw new Error('retained source claims a text media type but contains binary data')
     }
     return boundedExtractedText(bytes.toString('utf8'))
   }
@@ -277,47 +293,6 @@ function boundedExtractedText(content: string): string {
     )
   }
   return content
-}
-
-function encodeCursor(offset: number): string {
-  return Buffer.from(`v1:${offset}`, 'utf8').toString('base64url')
-}
-
-function decodeCursor(cursor: string | undefined, contentLength: number): number {
-  if (!cursor) return 0
-  let decoded: string
-  try {
-    decoded = Buffer.from(cursor, 'base64url').toString('utf8')
-  } catch {
-    throw new Error('invalid source_read cursor')
-  }
-  const match = /^v1:(\d+)$/.exec(decoded)
-  const offset = match ? Number(match[1]) : Number.NaN
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset >= contentLength) {
-    throw new Error('invalid source_read cursor')
-  }
-  return offset
-}
-
-function sequentialPageStart(
-  state: ReaderState,
-  cursor: string | undefined,
-  expectedCursor: string | undefined,
-  contentLength: number
-): number {
-  if (state === 'complete') throw new Error('retained source has already been read completely')
-  if (state === 'failed') throw new Error('retained source cannot continue after an extraction failure')
-
-  if (state === 'unread') {
-    if (cursor) throw new Error('the first source_read call must not include a cursor')
-    return 0
-  }
-
-  if (!cursor || cursor !== expectedCursor) {
-    throw new Error('source_read must continue with the exact cursor returned by the previous page')
-  }
-
-  return decodeCursor(cursor, contentLength)
 }
 
 function safePageEnd(content: string, start: number, limit: number): number {

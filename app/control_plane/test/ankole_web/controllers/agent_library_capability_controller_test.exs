@@ -135,12 +135,10 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "private-notes",
-                 relative_path: "private-notes",
                  description: "Private notes Skill.",
                  default_enabled: true,
-                 metadata: %{},
-                 xxh3_128: "7b16fe7c3e492b87d9615265f0856cec",
-                 file_count: 1
+                 tags: [],
+                 disable_model_invocation: false
                }
              ])
 
@@ -155,26 +153,26 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert private["effective_enabled"] == true
   end
 
-  test "Job creation rejects unavailable Plugins and stores only selected ids" do
+  test "Job creation accepts one enabled workspace template and rejects unavailable templates" do
     %{principal: agent} = agent_fixture()
 
     assert {:error, {:agent_plugin_disabled, "lark"}} =
-             create_job(agent.uid, "lark-disabled", ["lark"])
+             create_job(agent.uid, "lark-disabled", "lark")
 
     assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "lark", true)
-    assert {:ok, %{job: lark_job}} = create_job(agent.uid, "lark-enabled", ["lark"])
 
-    assert lark_job.agent_plugin_ids == ["lark"]
+    assert {:error, {:agent_plugin_has_no_workspace_template, "lark"}} =
+             create_job(agent.uid, "lark-enabled", "lark")
 
     assert {:ok, %{job: existing_job}} =
-             create_job(agent.uid, "deep-research-before-change", ["deep-research"])
+             create_job(agent.uid, "deep-research-before-change", "deep-research")
 
-    assert existing_job.agent_plugin_ids == ["deep-research"]
+    assert existing_job.workspace_template_id == "deep-research"
 
     assert {:ok, _defaults} =
-             AgentPlugins.set_global_skill_default("deep-research:deep-research", false)
+             AgentPlugins.set_global_skill_default("deep-research:create-deep-research", false)
 
-    assert Repo.reload!(existing_job).agent_plugin_ids == ["deep-research"]
+    assert Repo.reload!(existing_job).workspace_template_id == "deep-research"
 
     assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
     current = Enum.find(catalog, &(&1["id"] == "deep-research"))
@@ -182,16 +180,16 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert current["skills"] == []
 
     assert {:ok, %{job: changed_job}} =
-             create_job(agent.uid, "deep-research-after-change", ["deep-research"])
+             create_job(agent.uid, "deep-research-after-change", "deep-research")
 
-    assert changed_job.agent_plugin_ids == ["deep-research"]
+    assert changed_job.workspace_template_id == "deep-research"
 
     assert {:ok, _override} = AgentPlugins.set_agent_override(agent.uid, "deep-research", false)
 
     assert {:error, {:agent_plugin_disabled, "deep-research"}} =
-             create_job(agent.uid, "deep-research-disabled", ["deep-research"])
+             create_job(agent.uid, "deep-research-disabled", "deep-research")
 
-    assert Repo.reload!(existing_job).agent_plugin_ids == ["deep-research"]
+    assert Repo.reload!(existing_job).workspace_template_id == "deep-research"
   end
 
   test "capability endpoints require a bearer token and reject missing resources", %{conn: conn} do
@@ -214,12 +212,12 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   defp plugin(capabilities, id), do: Enum.find(capabilities["agent_plugins"], &(&1["id"] == id))
   defp skill(plugin, name), do: Enum.find(plugin["skills"], &(&1["name"] == name))
 
-  defp create_job(agent_uid, suffix, agent_plugin_ids) do
+  defp create_job(agent_uid, suffix, workspace_template_id) do
     BackgroundAgentJobs.create_with_dispatch(%{
       "agent_uid" => agent_uid,
       "owner_session_id" => "parent-session-#{suffix}",
       "source_tool_call_id" => "tool-#{suffix}",
-      "agent_plugin_ids" => agent_plugin_ids,
+      "workspace_template_id" => workspace_template_id,
       "title" => "Job #{suffix}",
       "task" => "Complete #{suffix}.",
       "reply_route" => %{"binding_name" => "lark"}

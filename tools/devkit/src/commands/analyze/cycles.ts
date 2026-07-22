@@ -7,7 +7,6 @@
 
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import ts from 'typescript'
 import { repoRootPath } from '../../utils'
 import { ALIAS_TSCONFIGS, CYCLE_SCAN_ROOTS, CYCLE_SOURCE_EXTENSIONS } from './config'
 import { collectSourceFiles, collectStronglyConnectedComponents, formatCycle } from './lib/import-cycle-graph'
@@ -17,6 +16,19 @@ const testSourcePattern = /(?:\.test|\.e2e\.test)\.[cm]?[tj]sx?$/
 const generatedSourcePattern = /\.(?:generated|bundle)\.[tj]s$/
 const declarationSourcePattern = /\.d\.[cm]?ts$/
 const ignoredPathPartPattern = /(^|\/)(node_modules|dist|build|coverage|\.artifacts|\.turbo|\.git|assets)(\/|$)/
+const runtimeImportScanners = {
+  js: new Bun.Transpiler({ loader: 'js' }),
+  ts: new Bun.Transpiler({ loader: 'ts' }),
+  tsx: new Bun.Transpiler({ loader: 'tsx' })
+} as const
+
+type RuntimeImportLoader = keyof typeof runtimeImportScanners
+
+interface AliasTSConfig {
+  compilerOptions?: {
+    paths?: Record<string, string[]>
+  }
+}
 
 interface AliasEntry {
   /** Package this alias applies to (importer must live under it). */
@@ -32,8 +44,8 @@ function loadAliasTable(): AliasEntry[] {
   const entries: AliasEntry[] = []
   for (const { packageRoot, tsconfig } of ALIAS_TSCONFIGS) {
     const configPath = path.join(repoRootPath, tsconfig)
-    const read = ts.readConfigFile(configPath, ts.sys.readFile)
-    const paths = read.config?.compilerOptions?.paths as Record<string, string[]> | undefined
+    const config = Bun.JSONC.parse(readFileSync(configPath, 'utf8')) as AliasTSConfig
+    const paths = config.compilerOptions?.paths
     if (!paths) {
       continue
     }
@@ -122,61 +134,46 @@ function createSourceResolver(files: readonly string[], aliasTable: readonly Ali
   }
 }
 
-function importDeclarationHasRuntimeEdge(node: ts.ImportDeclaration): boolean {
-  if (!node.importClause) {
-    return true
-  }
-  if (node.importClause.isTypeOnly) {
-    return false
-  }
-  const bindings = node.importClause.namedBindings
-  if (node.importClause.name || !bindings || ts.isNamespaceImport(bindings)) {
-    return true
-  }
-  return bindings.elements.some(element => !element.isTypeOnly)
+/** Returns static runtime import and re-export specifiers in source order. */
+export function collectRuntimeStaticSpecifiers(source: string): string[] {
+  return scanRuntimeStaticSpecifiers(source, 'ts')
 }
 
-/** Returns whether an export declaration creates a runtime dependency edge. */
-function exportDeclarationHasRuntimeEdge(node: ts.ExportDeclaration): boolean {
-  if (!node.moduleSpecifier || node.isTypeOnly) {
-    return false
+function scanRuntimeStaticSpecifiers(source: string, loader: RuntimeImportLoader): string[] {
+  return runtimeImportScanners[loader]
+    .scanImports(source)
+    .filter(item => item.kind === 'import-statement')
+    .map(item => item.path)
+}
+
+function runtimeImportLoaderFor(file: string): RuntimeImportLoader {
+  const extension = path.posix.extname(file)
+  if (extension === '.tsx') {
+    return 'tsx'
   }
-  const clause = node.exportClause
-  if (!clause || ts.isNamespaceExport(clause)) {
-    return true
+  if (extension === '.js' || extension === '.mjs' || extension === '.cjs') {
+    return 'js'
   }
-  return clause.elements.some(element => !element.isTypeOnly)
+  return 'ts'
 }
 
 /** Collects only static runtime imports so type-only edges do not fail the gate. */
 function collectRuntimeStaticImports(file: string, resolveSource: SourceResolver): string[] {
-  const sourceFile = ts.createSourceFile(
-    file,
-    readFileSync(path.join(repoRootPath, file), 'utf8'),
-    ts.ScriptTarget.Latest,
-    true
-  )
-  const imports: string[] = []
-  const visit = (node: ts.Node) => {
-    let specifier: string | undefined
-    let include = false
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      specifier = node.moduleSpecifier.text
-      include = importDeclarationHasRuntimeEdge(node)
-    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      specifier = node.moduleSpecifier.text
-      include = exportDeclarationHasRuntimeEdge(node)
-    }
-    if (include && specifier) {
-      const resolved = resolveSource(file, specifier)
-      if (resolved) {
-        imports.push(resolved)
-      }
-    }
-    ts.forEachChild(node, visit)
+  let specifiers: string[]
+  try {
+    specifiers = scanRuntimeStaticSpecifiers(
+      readFileSync(path.join(repoRootPath, file), 'utf8'),
+      runtimeImportLoaderFor(file)
+    )
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Failed to scan runtime imports in ${file}: ${detail}`)
   }
-  visit(sourceFile)
-  return imports.toSorted((left, right) => left.localeCompare(right))
+
+  return specifiers
+    .map(specifier => resolveSource(file, specifier))
+    .filter((resolved): resolved is string => resolved !== null)
+    .toSorted((left, right) => left.localeCompare(right))
 }
 
 export interface CyclesOptions extends CheckOptions {

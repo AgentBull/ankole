@@ -25,7 +25,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     route = "worker-file-test-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "worker-file-controller", key_revision: 1}
+    route_auth = %{route: route, worker_id: "worker-file-controller"}
 
     on_exit(fn -> Broker.unregister_local_worker(route) end)
 
@@ -47,19 +47,19 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn =
       bearer_conn(conn)
       |> get(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=workspace_sessions&path=agent-1"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=agent_sessions&path=agent-1/sessions"
       )
 
     assert %{
              "file_listing" => %{
-               "root" => "workspace_sessions",
-               "path" => "agent-1",
+               "root" => "agent_sessions",
+               "path" => "agent-1/sessions",
                "truncated" => false,
                "entries" => [entry]
              }
            } = json_response(conn, 200)
 
-    assert entry["relative_path"] == "agent-1/session-1/log.txt"
+    assert entry["relative_path"] == "agent-1/sessions/session-1/log.txt"
     assert entry["kind"] == "file"
     assert entry["size"] == 4
   end
@@ -83,15 +83,15 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       bearer_conn(conn)
       |> multipart(
         ~p"/api/v1/agent-computer-workers/#{worker_id}/files",
-        root: "workspace_sessions",
-        path: "agent-1/session-1/inbox/note.txt",
+        root: "agent_sessions",
+        path: "agent-1/sessions/session-1/inbox/note.txt",
         file: upload
       )
 
     assert %{
              "uploaded_file" => %{
-               "root" => "workspace_sessions",
-               "relative_path" => "agent-1/session-1/inbox/note.txt",
+               "root" => "agent_sessions",
+               "relative_path" => "agent-1/sessions/session-1/inbox/note.txt",
                "size" => 11
              }
            } = json_response(conn, 200)
@@ -113,7 +113,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn =
       bearer_conn(conn)
       |> get(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=attachments/hello world.txt"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=agent-1/user-files/attachments/hello world.txt"
       )
 
     assert response(conn, 200) == "hello world"
@@ -138,14 +138,14 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
           route_auth,
           frames,
           "operation_failed",
-          "not a regular file: /workspace_sessions/agent-1"
+          "not a regular file: /agents/agent-1/sessions"
         )
       end)
 
     conn =
       bearer_conn(conn)
       |> get(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=workspace_sessions&path=agent-1"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=agent_sessions&path=agent-1/sessions"
       )
 
     assert %{"error" => %{"code" => "worker_file_error"}} = json_response(conn, 404)
@@ -166,7 +166,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn =
       bearer_conn(conn)
       |> get(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=big.bin"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files/content?root=user_files&path=agent-1/user-files/big.bin"
       )
 
     assert %{"error" => %{"code" => "file_too_large"}} = json_response(conn, 422)
@@ -188,16 +188,16 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       bearer_conn(conn)
       |> post(~p"/api/v1/agent-computer-workers/#{worker_id}/file-moves", %{
         "root" => "user_files",
-        "from_path" => "inbox/message-1/hello.txt",
-        "to_path" => "archive/message-1/hello.txt",
+        "from_path" => "agent-1/user-files/inbox/message-1/hello.txt",
+        "to_path" => "agent-1/user-files/archive/message-1/hello.txt",
         "overwrite" => false
       })
 
     assert %{
              "moved_file" => %{
                "root" => "user_files",
-               "from_relative_path" => "inbox/message-1/hello.txt",
-               "to_relative_path" => "archive/message-1/hello.txt",
+               "from_relative_path" => "agent-1/user-files/inbox/message-1/hello.txt",
+               "to_relative_path" => "agent-1/user-files/archive/message-1/hello.txt",
                "moved" => true
              }
            } = json_response(conn, 200)
@@ -218,13 +218,13 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn =
       bearer_conn(conn)
       |> delete(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=user_files&path=archive/message-1/hello.txt&recursive=true"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=user_files&path=agent-1/user-files/archive/message-1/hello.txt&recursive=true"
       )
 
     assert %{
              "deleted_file" => %{
                "root" => "user_files",
-               "relative_path" => "archive/message-1/hello.txt",
+               "relative_path" => "agent-1/user-files/archive/message-1/hello.txt",
                "deleted" => true
              }
            } = json_response(conn, 200)
@@ -233,7 +233,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
   test "unknown worker returns 404 worker_not_found", %{conn: conn} do
     conn =
       bearer_conn(conn)
-      |> get(~p"/api/v1/agent-computer-workers/missing-worker/files?root=workspace_sessions")
+      |> get(~p"/api/v1/agent-computer-workers/missing-worker/files?root=agent_sessions")
 
     assert %{"error" => %{"code" => "worker_not_found"}} = json_response(conn, 404)
   end
@@ -246,7 +246,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
 
     conn =
       bearer_conn(conn)
-      |> get(~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=workspace_sessions")
+      |> get(~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=agent_sessions")
 
     assert %{"error" => %{"code" => "worker_not_ready"}} = json_response(conn, 409)
   end
@@ -266,7 +266,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
     conn =
       bearer_conn(conn)
       |> get(
-        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=workspace_sessions&path=missing"
+        ~p"/api/v1/agent-computer-workers/#{worker_id}/files?root=agent_sessions&path=agent-1/sessions/missing"
       )
 
     assert %{"error" => %{"code" => "worker_file_error", "message" => "path does not exist"}} =
@@ -289,8 +289,8 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
       bearer_conn(conn)
       |> post(~p"/api/v1/agent-computer-workers/#{worker_id}/file-moves", %{
         "root" => "user_files",
-        "from_path" => "a.txt",
-        "to_path" => "b.txt"
+        "from_path" => "agent-1/user-files/a.txt",
+        "to_path" => "agent-1/user-files/b.txt"
       })
 
     assert %{"error" => %{"code" => "worker_file_error"}} = json_response(conn, 422)
@@ -323,7 +323,7 @@ defmodule AnkoleWeb.WorkerFileControllerTest do
           bool(false),
           entries_frame([
             %{
-              relative_path: "agent-1/session-1/log.txt",
+              relative_path: "agent-1/sessions/session-1/log.txt",
               kind: "file",
               size: 4,
               modified_unix_ms: 1_772_000_000_000

@@ -1,6 +1,6 @@
 {
   "name": "deep-research",
   "version": "1.0.0",
-  "description": "Evidence-backed general research, forecasting, and forecast retrospectives.",
+  "description": "Research open-ended questions in a persistent BackgroundAgentJob, archive sources, and create the requested files.",
   "skills": "./skills/"
 }

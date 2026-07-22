@@ -2,372 +2,240 @@
 
 [English](./README.md)
 
-请从这里开始读。本文是 Ankole 唯一的架构入口：它说明系统是什么、展示运行时拓扑、把子系统映射到代码、沿着一条消息走完整条运行链路，并指出下一步该读哪些设计契约。
+这份文档帮助你了解 Ankole 怎样工作，以及各部分代码在哪里。需要查看详细约定时，
+可继续阅读表格中的设计文档。
 
-## Ankole 是什么
+## 产品边界
 
-Ankole 是一个自托管的 Agent Operating System，用来承载长期运行的数字工作。一个 Ankole Installation 就是一个运行域：它包含自己的 agents、provider 连接和数据。Installation 内部没有 SaaS 式的多租户边界，代码也不应该凭空发明这样的边界。
+Ankole 是一个自托管系统，让 Agent 可以执行耗时较长的数字工作。一次 Ankole
+安装包含自己的 Agent、用户、外部平台连接、配置和数据，不存在隐藏的 SaaS 租户层。
 
-Ankole 里的 agent 不是简单的 chat completion 封装，而是一个持久化的 actor：它从聊天平台、webhook 和定时任务接收工作项；在真实环境里运行 tool loop（shell、文件、浏览器）；会话状态存在 PostgreSQL 中，进程崩溃之后仍然保留；还能在未来把自己唤醒。Human 和 agent 都是带权限授予的 Principal，因此授权是运行时问题，而不是 prompt 里的约定。
+Principal 表示“谁对这次操作负责”，可以是人，也可以是 Agent。AuthZ 判断这个
+Principal 可以做什么。
 
-## 如果你熟悉 Vercel AI SDK
-
-如果你脑子里的模型是“在 route handler 里拼好 `messages`，用 `tools` 调 `streamText`，循环到没有 tool call 为止，最后在 `onFinish` 里持久化”，那么 Ankole 里也有同样的职责，只是它们分散在不同进程中：
-
-| 在 ai-sdk 应用里 | 在 Ankole 里 |
-| --- | --- |
-| 自己拼好 `messages` 数组后调用 `streamText`/`generateText` | Worker 通过 WebSocket 向 AIGateway 发送 `response.create`。历史在服务端：`ai_gateway_messages` 行用 `previous_response_id` 串起来。请求只带新的 input items，不带历史。 |
-| Provider packages（`@ai-sdk/openai` 等）跑在 app 进程内 | Provider module 在 AIGateway 后面（`Ankole.AIGateway.Providers.*` 加上 plugin providers）。上游 API key 不离开 control plane；worker 只拿到 30 天有效、agent 范围的 AIGateway key。 |
-| 服务端函数里的 `tools:` + `maxSteps` 循环 | Bun worker 里的 tool registry 和循环（`app/agent_computer/src/tools/`、`src/core/agent-loop.ts`），就在真实 sandboxed workspace 旁边执行。`ai_agent.max_iterations` 随 `turn_start` 快照到 worker，由这个 loop 自己计数和停止。 |
-| `onFinish` 回调持久化结果 | AIGateway 的 terminal commit 只持久化一条 Response。Agent loop 结束后，worker 显式发送 `turn_completed`；SignalsGateway 再用一个 PostgreSQL 事务提交最终 outbox、完成 ActorEvent 并清理 delivery。 |
-| 来自你自己 UI 的 HTTP 请求 | SignalsGateway 从 IM 消息、webhook 或定时任务生成的持久 actor event。它会永久留在 `actor_events` 里；完成只是一个时间戳。 |
-| 向浏览器流式输出 token（`useChat`） | Streaming 的 provider 原生预览，例如飞书卡片。Preview delta 是瞬态进度；最终采用的回复始终由 SignalsGateway 通过 durable outbox 发送或编辑。 |
-| Serverless function 的生命周期 | 带激活租约、delivery fence、重试和崩溃恢复的长期运行 session actor。 |
-
-最深层的差异是持久性。Ankole 的每一跳都围绕一个问题设计：“如果这个进程现在死掉，还有什么活着？”答案永远是：“PostgreSQL 里的行，其他都不是。”
+Agent 可以从外部平台消息、定时任务和 Background Agent Job 接收工作。即使进程失败，
+它也能继续执行。PostgreSQL 保存重启后仍然需要的数据。
 
 ## 系统地图
 
 ```text
- Feishu / Slack / webhooks / schedules
-                  |
-                  v
-        +------------------------+   actor / mirror / outbox   +--------------------------+
-        | SignalsGateway         | --------------------------> | PostgreSQL               |
-        | ingress, ActorRuntime, |                             | actor_events, deliveries |
-        | preview, final commit  |                             | signal mirrors + outbox  |
-        +------------------------+                             | AI Responses log         |
-              |           ^                                   +--------------------------+
-   turn_start |           | turn_completed                               ^
-              v           |                                              | Response commit
-        +------------------------+   response.create             +------------------+
-        | Agent Computer         | ----------------------------> | AIGateway        | <--- enterprise systems
-        | loop, tools, sandbox   |                               | generic Responses |
-        +------------------------+                               +------------------+
-                                                                        |
-                                                                        v
-                                                              upstream LLM providers
+外部平台与定时任务
+        |
+        v
+SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型服务商
+        |                              ^
+        | turn_start                   | response.create
+        v                              |
+   Agent Computer ---------------------+
+   模型循环与工具
 ```
 
-六个部分，各一句话：
-
-- **SignalsGateway**（Elixir）接收 provider event，镜像 provider 侧可见的状态，拥有 Actor journal/runtime，并在 `turn_completed` 后原子提交最终回复、ActorEvent completion 和 delivery cleanup。它拥有 `signal_gateway_channels`、`signal_gateway_entries`、`actor_events`、`signal_gateway_outbox_entries`。见 `design-docs/SignalsGateway.md`。
-- **ActorRuntime**（Elixir）是 SignalsGateway 的子系统：把 actor event 调度到 worker 上，每个 event 执行一次，并用 fence 挡住 stale 的 worker commit。它拥有 `actor_event_deliveries` 和 session activation。
-- **AIGateway**（Elixir）是通用 AI 边界：管 provider 凭证和路由，外加按 Principal subject 隔离的有状态 Responses 日志，包括 model 历史、compaction 和单条 Response 的 terminal commit。它不了解 Actor、delivery 或 outbox。它拥有 `ai_gateway_messages` 和 `ai_gateway_conversations`。见 `design-docs/AIGateway.md`。
-- **RuntimeFabric**（Rust + ZeroMQ）是 control plane 和 worker 之间的实时传输：turn envelope、RPC、文件字节。它永远不是持久事实来源。见 `design-docs/RuntimeFabric.md`。
-- **Agent Computer**（Bun worker）执行 model loop、前台 shell/文件工具、enabled Skill 能力与当前 turn 的可重建状态。它通过 WebSocket 驱动 model loop，但不保存会话状态。
-- **PostgreSQL** 保存所有持久语义事实及持久文件的所有权引用。用户产物和可恢复运行时文件位于 worker 共享工作区；它们的生命周期与权威状态仍是由 Elixir 写入的 PostgreSQL 行。
-
-Schedule（`design-docs/Schedule.md`）把时间变成 actor event。Principal 和 AuthZ（`design-docs/Principal.md`、`design-docs/AuthZ.md`）负责身份和权限。AppConfiguration（`design-docs/AppConfiguration.md`）区分启动用的 env var 和 operator 管理的 runtime setting。Control Plane Plugins（`design-docs/Plugins.md`）是可信的第一方 Elixir/OTP 扩展，例如飞书和 Slack adapter（`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md`）。Background Agent Job（`design-docs/BackgroundAgentJob.md`）把长时间工作变成会在状态变化时唤醒 owner 会话的持久后台 Job；当前唯一 runner 是 CodexRunner。普通 Job 可以选择 Agent Plugin；它是标准 Codex Plugin 的超集，唯一额外包约定是可选 `workspace-template/` 目录。全局默认与稀疏 Agent 覆盖在 Console 的 Agent Library 中管理。
-
-## 运行时拓扑
-
-一个运行中的 installation 包含一个 Phoenix/OTP control plane、一个 PostgreSQL，以及 N 个 Agent Computer worker container。浏览器和 Phoenix 通信；provider 和 plugin adapter 通信；worker 通过两条通道和 control plane 通信：ZeroMQ（RuntimeFabric）承载 turn 控制和 RPC，WebSocket/HTTP（AIGateway API）承载 model 调用。
-
-```text
-   Feishu / providers          Browser (operator)
-        |  long conn / webhook      |  HTTPS
-        v                           v
-  +---------------------------------------------+
-  |  Control plane (Elixir/Phoenix, one BEAM)   |
-  |  SignalsGateway | ActorRuntime | AIGateway  |
-  |  Principal/AuthZ | AppConfigure | Plugins   |
-  |  Rust kernel (Rustler NIF): crypto, CEL,    |
-  |  protobuf codec, ZeroMQ ROUTER              |
-  +---------------------------------------------+
-     |  SQL                  ^            ^
-     v                       |            |
-  PostgreSQL          ZeroMQ (fabric)  WebSocket /api/v1/ai-gateway
-  (durable truth)     ROUTER <-> DEALER   (Responses wire shape)
-                             |            |
-                      +---------------------------------+
-                      |  Agent Computer worker (Bun,    |
-                      |  Docker): agent loop, tools,    |
-                      |  bubblewrap，rendered fetch，   |
-                      |  Rust kernel (N-API): DEALER    |
-                      +---------------------------------+
-                             |
-                             v
-                      upstream LLM providers (called from the
-                      control plane, never from the worker)
-```
-
-默认本地端口：Phoenix 在 `4000`，devkit 的 PostgreSQL 在 `5433`，SPA 的 Vite dev server 在 `3035`，RuntimeFabric endpoint 由 operator 绑定（README 示例用 `tcp://127.0.0.1:6010`）。
-
-两种传输，一条规则：
-
-- **RuntimeFabric（ZeroMQ）** 只是实时传输：turn envelope、RPC、文件字节、心跳、背压。它永远不是持久事实来源。系统绝不能靠问 ZeroMQ“发生了什么”来恢复状态。
-- **PostgreSQL** 拥有所有崩溃之后仍然重要的事实：actor event、AI 消息日志、镜像、outbox 行、fence、配置、记忆。所有写入都由 Elixir 负责。
-
-## 语言所有权
-
-三个 runtime，边界严格。不要因为某一侧更容易编辑或测试就把职责挪过去。
-
-| Runtime | 负责 | 不应该 |
+| 模块 | 用途 | 详细文档 |
 | --- | --- | --- |
-| **Elixir**（`app/control_plane`） | PostgreSQL 语义和 migration、supervision、setup/console/auth 界面、Principal/AuthZ facade、AppConfigure、SignalsGateway 的 ActorRuntime 调度/fence/最终提交、AIGateway provider 和有状态 Responses 日志、Brain、plugin registry | 把持久状态的归属推给 worker 或 kernel，或让 AIGateway 反向依赖 Actor |
-| **Rust kernel**（`app/kernel`） | Elixir/Bun 需要保持一致的确定性共享机制：crypto（AEAD、key derivation）、UUIDv7、JWT、phone normalization、xxh3、zstd block codec、AuthZ 和 signal filter 的 CEL 求值、protobuf envelope codec + 校验、ZeroMQ socket 所有权（ROUTER/DEALER/ZAP 线程） | 碰 PostgreSQL，持有产品生命周期状态，膨胀成领域 owner |
-| **Bun worker**（`app/agent_computer`） | Agent loop、tool、prompt、turn-local tool 状态、内部 rendered `web_fetch`、bubblewrap 沙箱、worker 本地文件系统、AIGateway client | 发明 control-plane 状态；任何必须跨重启存活的东西都要通过 RPC 或 AIGateway API 落到 PostgreSQL |
+| SignalsGateway | 接收外部平台事件、启动 Agent 回合并发送回复 | [SignalsGateway](design-docs/SignalsGateway.md) |
+| AIGateway | 选择模型服务商，并为每个 Principal 保存 Response | [AIGateway](design-docs/AIGateway.md) |
+| Brain | 保存有用知识，并在 Agent 需要时找出这些知识 | [Brain](design-docs/Brain.md) |
+| RuntimeFabric | 在进程之间传送实时消息、RPC 调用和文件 | [RuntimeFabric](design-docs/RuntimeFabric.md) |
+| Agent Computer | 运行模型循环、Codex 和工具 | `app/agent_computer/` |
+| PostgreSQL | 保存重启后仍然需要的事实 | `app/control_plane/priv/repo/migrations/` 下的迁移 |
 
-Kernel 从同一个 crate 编译两次：一次作为 Elixir 的 Rustler NIF（由 `app/kernel/lib/ankole/kernel.ex` 里的 `Ankole.Kernel` 包装），一次作为 Bun 的 N-API module（`app/kernel/index.js`，类型在 `index.d.ts`）。只有当逻辑是“给定明确输入的确定性函数”，并且两个 host 都需要时，才把它放进 Rust。CEL AuthZ evaluator 和 envelope codec 就是标准范例。
+Schedule 在任务到期时创建一条 `ActorEvent`。`BackgroundAgentJob` 执行发起它的
+对话回合之外的工作。AppConfigure 保存管理员可以在运行期间修改的设置。
+
+## 各进程负责什么
+
+Elixir 控制面运行 Phoenix 和 OTP。它负责写 PostgreSQL、监督服务进程、保存外部平台
+凭据，并提供公开 API。
+
+Rust 内核提供共享的原生能力，包括加密、CEL 求值、Protobuf 校验、压缩和 ZeroMQ
+连接。它不决定或保存工作项的生命周期。
+
+Agent Computer 在 Bun 执行进程中运行。它执行当前回合，运行工具和沙箱，并管理
+Codex 会话。它的本地状态可以重建，也不会直接写控制面的业务记录。
+
+RuntimeFabric 只传送实时数据。PostgreSQL 记录已经完成的决定和工作。ZeroMQ 不保留
+此前的流量，系统只能从 PostgreSQL 恢复。
+
+## Agent 文件系统
+
+Agent Home 位于 `/agents/<agent-key>`，其中包含以下共享资源：
+
+- `.codex`：同一 Agent 共享的 Codex 状态
+- `SOUL.md`、`MISSION.md` 和 `DESIGN.md`
+- `user-files`：用户产物
+- `installed-skills`：供执行进程使用的已安装 Skill 副本
+- `sessions/<base64url-session-id>`：各 Session 的工作区
+- `jobs/<job-id>`：各 BackgroundAgentJob 的工作区
+
+Session 与 Job 的工作区都是 Agent Home 的子目录。`/workspace` 不是 Agent 路径。
+同一 Agent 的 Job 共享该 Agent 的 `.codex` 状态。
+
+PostgreSQL 保存领域文档和工作状态。控制面把其中一些记录 materialize 成 Agent Home
+文件，供执行进程使用。
 
 ## 仓库地图
 
-| Path | 内容 |
+| 路径 | 内容 |
 | --- | --- |
-| `app/control_plane/` | Phoenix/OTP control plane。领域 context 在 `lib/ankole/`，web 界面在 `lib/ankole_web/`，migration 在 `priv/repo/migrations/`。 |
-| `app/kernel/` | Rust kernel crate。`src/common/`（crypto/ids/jwt/zstd）、`src/authz/`（CEL）、`src/runtime_fabric/`（protobuf + ZeroMQ）、`proto/`（envelope schema）、`src/nif_exports.rs` / `src/napi_exports.rs`（绑定接口）。 |
-| `app/agent_computer/` | Bun worker。`src/main.ts` 守护进程，`src/core/` agent loop + turn，`src/tools/`，`src/prompts/`，RuntimeFabric lane（`actor_lane.ts`、`rpc_lane.ts`、`lanes/file/`）。只能在 Docker 运行时里运行。 |
-| `app/webapps/` | 三个 Vite + React SPA（`auth/`、`console/`、`setup/`），构建到 `app/control_plane/priv/static/assets/`。包含生成的 OpenAPI client。 |
-| `app/library/` | 内置 Agent Plugin（`agent-plugins/lark`、`agent-plugins/office`、`agent-plugins/deep-research`）、`skills/nano-pdf` 等独立 Skill，以及 agent 起步模板（`templates/MISSION.md`、`templates/SOUL.md`）。 |
-| `app/locales/` | TOML 消息目录（`en-US.toml`、`zh-Hans-CN.toml`），Elixir I18n context 和 SPA 共用。 |
-| `plugins/` | 公开的第一方 Elixir Control Plane Plugin：`lark_adapter`、`slack_adapter`（聊天 + identity provider），以及 `china_market_ai_providers`（AIGateway provider）。 |
-| `internals/` | 私有的第一方资料：`plugins/`、`skills/`（例如金融数据 CLI）、`helm-chart/`、额外的 worker Dockerfile、内部测试笔记。 |
-| `libs/` | `feishu_openapi`（Elixir Lark client）、`slack_openapi`（Slack Web API、Socket Mode、OIDC）和 `uikit`（共享 React 组件、Tailwind 4）。 |
-| `tools/devkit/` | 工作区 CLI：`bun kit ...`（通过 Docker Compose 管理外部服务、codegen、分析）。 |
-| `tools/e2e/` | E2E harness 和测试套件（fake Feishu、fake Slack、fake OpenAI、真实 Docker worker），由 `mix e2e.*` alias 驱动。 |
-| `docs/` | 本文、`TradeoffsAndKnownLimits.md`、`design-docs/`。 |
+| `app/control_plane/` | Elixir 控制面、Phoenix API、Ecto 表结构和迁移 |
+| `app/kernel/` | 共享 Rust 内核及其宿主语言接口 |
+| `app/agent_computer/` | Bun 执行进程、工具、Codex 运行器和浏览器 |
+| `app/webapps/` | 登录、安装和管理 Console 的 React 应用 |
+| `app/library/` | 内置 Skill、Agent Plugin 和 Agent 模板 |
+| `app/locales/` | 共享英文与简体中文翻译 |
+| `plugins/` | 第一方 Control Plane Plugin |
+| `libs/` | 外部平台客户端和共享 UI 代码 |
+| `tools/devkit/` | 工作区开发命令 |
+| `tools/e2e/` | 端到端测试运行器、辅助服务和测试集 |
+| `docs/` | 当前公开架构与运维文档 |
 
-## Control Plane 启动顺序
+当前外部平台适配器包括 Lark、DingTalk、Slack、Microsoft 365 和 Google
+Workspace。中国市场模型 Plugin 为 AIGateway 增加模型服务商。
 
-`Ankole.Application`（`app/control_plane/lib/ankole/application.ex`）按顺序启动：Telemetry -> Repo -> `AppConfigure.Registry` -> `AppConfigure.Cache` -> `Setup.Bootstrap` -> Oban -> `Plugins.Registry`（发现 + 校验 + 激活）-> `Plugins.Supervisor`（活跃 plugin 贡献的 children）-> PubSub -> `SignalsGateway.Supervisor`（内部管理 preview 和 ActorRuntime 子监督树）-> RuntimeEvents -> `AIGateway.ModelMetadata.Cache` -> `I18n.Catalog` -> DNSCluster -> Endpoint。
+## 控制面启动顺序
 
-这个顺序不是随便定的（load-bearing）：在 plugin 读配置之前，配置必须已经存在；在任何地方解析 plugin 配置之前，plugin 必须先注册自己的 AppConfigure 定义；HTTP endpoint 最后才启动。
+`Ankole.Application` 按以下顺序启动子进程：
 
-## 核心子系统
+1. Telemetry、Repo 和 Brain 任务监督进程
+2. AppConfigure 注册表与缓存
+3. I18n 翻译表与安装引导
+4. Oban
+5. Plugin 注册表与监督进程
+6. PubSub 与 AIGateway Response 流监督进程
+7. SignalsGateway 监督进程
+8. 可选的身份启动同步与 RuntimeEvents
+9. AIGateway 模型信息缓存
+10. DNSCluster 与 Phoenix 请求入口
 
-### SignalsGateway：provider 入口和 provider 可见的副作用
+这个顺序是契约。后启动的进程可以使用前面已经启动的服务。Phoenix 请求入口最后启动，
+避免请求到达时所需服务尚未就绪。
 
-`Ankole.SignalsGateway`（`lib/ankole/signals_gateway/`）。Adapter 用归一化后的事实调 `emit_entry/emit_reaction/emit_action`；gateway 检查 binding（`bindings.ex`），应用 CEL filter（由 kernel 求值），挡住被 tombstone 的 entry，upsert provider 镜像（`channel.ex`、`entry.ex`），并把 IM 突发消息合并成 inbound batch（`inbound_batch*.ex`）。关闭 batch 时，在一个事务里写一条 `actor_events` 行，然后向 provider 确认。对外的 provider 可见副作用走 `outbox.ex` / `outbox_entry.ex`，由 binding 的 outbox adapter 执行。`ai_reply_preview.ex` 只驱动瞬态 provider 预览；worker 发送 `turn_completed` 后，SignalsGateway 根据最终 Response 投影 final、clarify 或 attachment，并在一个事务里写 durable outbox、完成 ActorEvent、清理 delivery。首次 preview 成功得到的 provider entry id 存在 ActorEvent 上，最终 outbox 据此选择 edit。
+## 重启后保留哪些数据
 
-拥有的表：`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_input_tombstones`、`signal_gateway_inbound_batches`、`signal_gateway_outbox_entries`。
+PostgreSQL 保存以下数据，因为 Ankole 重启后仍然需要它们：
 
-### Brain：策展知识、聊天召回和 dreaming
+- Principal、人、Agent、权限组、成员关系和授权规则
+- AppConfigure 值和加密的外部平台配置
+- 消息连接、频道、消息、删除标记、ActorEvent 和待发回复
+- 定时规则和每次计划执行
+- AIGateway 对话、消息、压缩结果和模型服务商
+- Brain 词条、正文、关系、资料、引用、聊天摘要、游标和审计记录
+- BackgroundAgentJob 及其回合记录
 
-`Ankole.Brain`（`lib/ankole/brain.ex`）为 Principal 提供策展知识、基于 provider mirror 的历史聊天召回、会话级冻结快照，以及可审计的 dreaming 流程。PostgreSQL 关系行是持久事实；`memory_open` 返回的 Markdown 只是投影。结构化可见性分为 `public` 与一对一 DM store，owner、store 和 author 都由控制面从持久会话推导，worker 不能指定。运维入口见 `operations/Brain.zh-Hans.md`，英文设计契约见 `design-docs/Brain.md`，中文对应稿见 `internals/docs/Brain.zh.md`。
+系统可以重新生成投递、激活、执行进程分配和在线执行进程记录。即使这些记录丢失，
+工作历史也不会丢失。
 
-拥有的表：`brain_entries`、`brain_entry_blocks`、`brain_entry_relations`、`brain_audit_log`、`brain_episodes`、`brain_cursors`。
+## 消息生命周期
 
-### ActorRuntime：带 fence 的 worker turn 调度
+下面以一条明确发给 Agent 的外部平台消息为例：
 
-`Ankole.SignalsGateway.ActorRuntime`（`lib/ankole/signals_gateway/actor_runtime/`）。它监督 session controller、`ActivationManager`（session 激活租约）、`WorkerPool`（已连接的 worker、容量）、`Reconciler` 和 `Watchdog`。每个 session 同一时间只有一个 ready 的 actor event 会变成一个 `turn_start` envelope（`turn_envelope.ex`），由 `transport/broker.ex` 通过 fabric 发出。每次 delivery 都带 fence（`ActorTurnRef`）：activation uid、actor epoch、actor event id、revision。Stale 的 worker echo 如果过不了相等性检查，就不能 commit 到新的 actor 状态。重试会创建新的 actor event，并带上 `retry_of_actor_event_id`；恢复不会复活一条流。
+1. 平台适配器把事件转换为 Ankole 的统一格式。
+2. SignalsGateway 检查 Agent 的消息策略，并更新平台消息的本地副本。
+3. SignalsGateway 合并相关输入，写入一条 `ActorEvent` 工作记录。
+4. ActorRuntime 分配一个执行进程，并发送带本次 `turn fence` 的 `turn_start` 消息。
+5. Agent Computer 准备 Agent 文件、Session 工作区、上下文和工具。
+6. 执行进程请求 AIGateway 创建一条有状态 Response。
+7. AIGateway 保存 Response，并把实时事件发给当前订阅者。
+8. 执行进程运行工具，并把后续 Response 依次连接起来。
+9. 回合结束时，执行进程报告最终采用的 Response ID。
+10. SignalsGateway 检查 `turn fence` 和 Response 链。
+11. 同一个数据库事务完成 `ActorEvent`，并记录需要发送的回复。
+12. 平台适配器发送回复，并记录平台返回的结果。
 
-拥有的表（UNLOGGED、可重建的运行时投影）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。持久工作日志 `actor_events` 由 SignalsGateway/Schedule 写入，也只由 SignalsGateway 在验证 `turn_completed` 的 Response chain 和 fence 后完成。
+Response 结束不等于 Agent 回合结束。如果回合完成消息丢失，ActorRuntime 会重新分配
+这项工作。
 
-### AIGateway：provider 加有状态 Responses 日志
+实时预览可以丢失。最终回复必须来自已经写入数据库的 outbox 记录。只有外部平台确认
+成功后，Ankole 才会把回复标记为已发送。
 
-`Ankole.AIGateway`（`lib/ankole/ai_gateway/`）。分成两半：
+## 四种 ID 不能混用
 
-- **Provider 边界。** `providers.ex` 注册内置 provider module（`providers/openai.ex`、`openai_compatible.ex`、`openrouter.ex`、`google_ai_studio_openai.ex`、`claude.ex`、`azure_openai.ex`、`jina.ex`），以及通过 `ai_gateway.provider` contract 发现的 plugin provider（目前包括 `plugins/china_market_ai_providers` 里的 `xiaomi_mimo`、`volcengine_ark`、`alibaba_cn`、`zai_coding_plan`）。Provider module 返回一个 `provider_definition()`（设置 schema、base URL、capability，以及用来构造 `UniversalAIRequest` 的 `prepare/1`）；真正发往上游的 HTTP/SSE 传输跑在 kernel 的 `universal_ai_client` 里（feature-gated 的 Rust、NIF 驱动）。Operator 实例存在 `ai_gateway_providers` 行里（加密凭证、base URL 覆盖）；agent 在 `agents.options["ai_agent"]["models"]` 里绑定 model alias（`primary`、`light`、`heavy`、`embedding`、`rerank`）。
-- **有状态 Responses 日志。** `stateful_responses.ex` 负责 run-row 生命周期：`start_response_run` 解析 `conversation` 或 `previous_response_id`；如果一个 `store=true` 请求两者都没有，就创建一个带 `metadata.managed_by_stateful_responses_api = true` 的 managed conversation。它通过 `previous_message_id` 图展开历史（跳过 `retracted`，折叠被 compaction 行覆盖的前缀），当历史消息记录的 provider usage 超预算时自动 compaction（`compaction.ex`，用配置的 `light` profile 总结），写入 `status = "generating"` 的行，原样保存并发布整块 opaque metadata，再用乐观的 `WHERE status = 'generating'` 守卫提交单条 Response 的 content、usage 和状态，并发布通用事件。Stateful WebSocket 每 60 秒触碰 generating row 的 `updated_at`；只有超过 300 秒宽限期且没有心跳的 orphan 才会被标记为失败。AIGateway 不解释 `actor_event_id`，也不查询或更新 ActorEvent、delivery 或 outbox。
+| 标识 | 含义 |
+| --- | --- |
+| `source_event_id` | 一次外部平台事件，也是防止重复接收的键 |
+| `source_entry_id` | 一条外部平台可见消息 |
+| `actor_event_id` | 一项写入数据库的 Ankole 工作 |
+| `ai_message_id` | 一条 AIGateway 消息记录 |
 
-Wire 接口是 OpenAI Responses 形状：任意已鉴权 subject 都可连接 `GET /api/v1/ai-gateway/responses`（WebSocket，`AnkoleWeb.AIGatewayResponsesSocket`）并发送带 `store=true` 的 `response.create` frame；`conversation` 和 `previous_response_id` 是 AIGateway state anchor，整块 `metadata` 对 AIGateway 都是不透明的。Agent Computer 会在每轮 Response、tool-result journal 和自动 compaction checkpoint 中写同一个 `actor_event_id`，但只有 SignalsGateway 解释它。可选 `max_tool_calls` 只约束单条 Response 内 provider 执行的 built-in tool；省略或 `null` 时没有数值默认，function/custom tool 和历史 Response 不计。原生 Responses provider 直接透传，其他 provider 在安全事件边界 best-effort late stop，允许已经启动的并行调用超调。id 会被改写成 `resp_<message-row-uuid>`；HTTP 路由提供无状态调用、检索、手动 compaction、embedding 和 rerank。conversation、message 和 compaction artifact 都按引用现有 `Principal.uid` 的 `subject_uid` 隔离。拥有的表：`ai_gateway_messages`、`ai_gateway_conversations`、`ai_gateway_providers`。
+这些标识不能互相替代。负责相应数据的模块会分配并检查自己的标识。
 
-### RuntimeFabric：实时 ZeroMQ 传输
+## 两种 Plugin 和 Skill 的关系
 
-设计见 `docs/design-docs/RuntimeFabric.md`；机制在 `app/kernel/src/runtime_fabric/`。Control plane 上有一个 ROUTER socket（由专用 Rust 线程持有，接受 `Ankole.SignalsGateway.ActorRuntime.Transport.Broker` 的命令），每个 worker 一个 DEALER（由 Rust 线程持有，从 `src/runtime_fabric_sender.ts` 驱动）。Worker 用 ZAP PLAIN 认证：username 是 `WORKER_ID`，password 是 installation 的 worker auth key（AppConfigure 持有，落盘加密）。
+Control Plane Plugin 是 Ankole 信任的 Elixir 代码。它可以增加配置、适配器、模型
+服务商和由 OTP 监督的进程。
 
-Envelope 是 protobuf（`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto`），在任何 host 看到它们之前，先由 Rust 校验。四条 lane：CONTROL（`worker_ready`、心跳、容量、`turn_control`、关停）、TURN（`turn_start`、`mailbox_updated`、`turn_accepted`、`turn_completed`、`turn_error`、`turn_noop_completed`）、PROGRESS（`worker_progress`，只用于可观测性）、RPC（`rpc_request`/`rpc_response`/`rpc_error`）。`turn_completed` 是 replayable 的单向完成声明，携带 fence、最终 `resp_*` id 和 `loop_finished | iteration_exhausted` outcome，不增加 completion ACK。另外还有一条 raw-frame 文件 lane（`ANKOLE_FILE/1`，2 MiB zstd 块、信用流控），在 control plane 和 worker 可见根 `user_files`、`agent_installed_skills` 之间搬运字节（`lib/ankole/signals_gateway/actor_runtime/file_transfer_lane.ex` <-> `src/lanes/file/`）。
+Agent Plugin 是标准 Codex Plugin 包，用来组合相关的 Agent 能力。它可以带一个
+`workspace-template/` 目录，作为新 Job 的初始工作区。
 
-Worker->control-plane 的 RPC 方法注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`：`ai_gateway.api_key_for.create_or_find_by_agent`、`agent_conversation.context.resolve`、`app_configure.resolve`、`worker_env.resolve`、`skills.installed.replace` 与 `skills.overlay.*`；普通 Codex Job 使用 `codex.account.*`、`agent_plugin.list` 和 `background_agent_job.*`；另外还有 `schedule.check_back_later.*`、`schedule.cron.*` 系列，以及 Brain 的 `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`。
+Skill 独立于这两种 Plugin。Ankole 查找、配置和运行 Skill 时，不依赖 Control Plane
+Plugin。
 
-### Agent Computer：Bun worker
+## 常见修改应放在哪里
 
-`app/agent_computer/src/`。`main.ts` 解析 env（`WORKER_ID`、形如 `tcp://:worker_auth_key@host:port` 的 `RUNTIME_FABRIC_URL`），启动 DEALER，宣告 `worker_ready`，每 15 秒发一次心跳，并分发 envelope。一个 `turn_start` 会跑 `core/turns/` 里的 turn pipeline（文本 turn 是 `text_turn.ts`）：通过 RPC 拿会话上下文和 AIGateway API key，构造 system prompt，组装 tool，然后驱动 `core/agent-loop.ts`。每次 execution 都从 `request_context.ai_agent.max_iterations` 创建新的本地计数器（默认 90）；每次逻辑 model call 计一次，包括 empty-response nudge，但同一次调用的 provider/transport retry、tool-result journal 和并行 tool 都不额外计数。第 90 次调用自然无工具结束时返回 `loop_finished`；只有预算耗尽后仍需继续，才追加一次预算外、无工具的总结 Response，并返回 `iteration_exhausted`，不把最终 Response 的 stop reason 篡改成 `length`。Worker 随后发送一次带真实最终 Response id 的 `turn_completed`，不等待 ACK。Steering 通过 `mailbox_updated` 到达，并在轮次之间注入；`turn_control` 会中止。
+- 在 `app/control_plane/lib/ankole/ai_gateway/providers/` 添加模型服务商，
+  或使用 `ai_gateway.provider` Plugin contract。
+- 在 `app/agent_computer/src/tools/` 添加执行进程工具，并在创建回合工具列表时注册。
+- 添加消息平台时，用 Plugin 声明 ingress 和 outbox modules。
+- 添加跨进程调用时，同时修改 ActorRuntime RPC lane 和执行进程 requester。
+- 添加运行时设置时，由使用该设置的子系统在 AppConfigure 中声明。
+- 在 `app/library/skills/<name>/` 添加内置 Skill。
+- 通过 OpenAPI controller 添加 Console API，并重新生成网页客户端。
 
-Model 可见的 tool 接口有意保持很窄（扩大前先看 `docs/TradeoffsAndKnownLimits.md`）：`todo`（`src/tools/todo/todo-tool.ts`）；仅前台执行的 computer tool `command`、`read_file`、`patch`、`reply_attachment`（`src/tools/computer/`）；持久异步工作工具 `background_agent_job`（`src/tools/background-agent-job/`）；结束当前 turn 的提问工具 `clarify`（`src/tools/clarify/`）；`web_search`、`web_fetch`（`src/tools/web/`）；schedule tool `check_back_later`、`cron`（`src/tools/schedule/schedule-tools.ts`）；Brain tool `memory_search`、`memory_browse`、`memory_open`、`memory_update`、`memory_health_check`（`src/tools/memory/`）；skill tool `skill_view`、`skill_append`、`skill_replace`（`src/tools/library/`）。当 enabled inline Skill 在 `agents/openai.yaml` 声明 MCP 依赖时，worker 增加唯一的 allowlisted `mcp` tool，提供 `list`、单工具 `describe` 和单工具 `call`。它通过官方 SDK 建立用后即关的连接；WorkerEnv 只在内存中提供 HTTP bearer 与 stdio 环境。完整契约见 `design-docs/MCPBackedSkills.md`。Shell 命令在 bubblewrap 里运行（优先 strong mode，启动时若为 weak mode 给警告，绝不无沙箱：`src/tools/computer/bubblewrap.ts`）。`web_fetch` 可以使用内部 rendered-page fallback；这个 fallback 不会创建额外的 model 可见 computer 能力或持久状态。Web tool 边界见 `design-docs/WebTools.md`。
-
-Tool 运行边界由各 tool 自己负责，不存在一个 worker 全局 wall-clock timeout。`command` 仅做前台执行，默认超时 `180s`。需要交互、超出当前对话等待时间或必须异步继续的工作进入 `background_agent_job(start)`：它创建 PostgreSQL 持有的 BackgroundAgentJob 后立即返回，同一工具提供 `list` / `status` / `steer` / `stop`；CodexRunner 在完成、失败或需要用户输入时唤醒 owner session。BackgroundAgentJob 没有全局 wall-clock timeout，worker 失活后可恢复；Job 和 Plugin 不增加自己的 timer，需要截止时间的上层 workflow 自己决定何时 steer 或 stop。单次 Codex app-server 请求仍使用协议停滞边界：`initialize` 为 `15s`，`thread/start` 为 `30s`，普通请求为 `60s`。这个取舍写在 `docs/TradeoffsAndKnownLimits.md`。
-
-按契约，worker 进程是无状态的：它持有 WebSocket、tool 本地状态和当前 turn。持久语义状态与文件所有权引用是通过 RPC 或 AIGateway 落到 PostgreSQL 的行；产物和可恢复运行时文件位于 installation 的共享 RWX 工作区。杀掉一个 worker，turn 会在别处基于同一语义账本与共享文件重试。
-
-#### 用户可见的上下文边界
-
-Ankole 会持久保存 provider mirror 和 AI Gateway history，但单个 turn 不会拿到无限的原始群聊记录。
-
-- **Addressed 批**：相邻的 addressed 消息会先合并，再变成一条 `actor_events` 行。批次最多 8 条，普通文本软预算约 4,000 字符；长文本连续消息可以放宽到约 8,000 字符硬上限。如果精确的旧细节很重要，请在当前请求里重述，或让 agent 使用 memory/history tool 查。
-- **Ambient 回查**：开启 `may_intervene` 时，ambient recognizer 拿到的是有界的房间快照。相关 channel/thread 窗口里的 observed messages 最多 80 条；单独的 recent-history helper 最多 10 条。因此 ambient 判断是局部房间感知，不是全历史搜索。
-- **实际使用规则**：交代任务时请重述关键 ID、日期、约束和期望验收条件。持久记忆适合稳定事实，但当前 turn 最可靠的上下文仍然是用户在这一轮明确写出来的内容。
-
-### Principal 和 AuthZ：身份与权限
-
-`Ankole.Principals` 和 `Ankole.AuthZ`（`lib/ankole/principals/`、`lib/ankole/authz/`）。Principal 是 installation 范围内的 subject，用小写文本 `uid` 作主键，`type` 是 human | agent，并有按类型区分的行（`human_users`、`agents`）和 `external_identities`（平台 subject、channel actor、登录 subject、outbound actor）。AuthZ 拥有 group（静态和 CEL 计算，内置 `admin` / `all_humans`）、grant（`owner + resource_pattern + action + condition`）、membership，以及从 identity provider 同步来的 external binding。一次 authorize 调用会构造显式 snapshot（`authz/snapshot.ex`），交给 kernel（`Ankole.Kernel.authz_authorize/1`）做确定性的 CEL + pattern 求值。Kernel 永远不碰数据库。
-
-### AppConfigure：operator 管理的运行时设置
-
-`Ankole.AppConfigure`（`lib/ankole/app_configure/`）。每个运行时设置都是一个声明的 key（`AppConfigure.define/1` 或 pattern definition），存在 `app_configurations` 表里，形状是 `{scope, key, value}`，scope 为 `global` 或 `agent:<id>`；解析的回退顺序是 agent -> global -> 代码默认值。Secret 值用 kernel 的 AEAD 和按行派生的 key 封装；读路径前面有 ETS 缓存。环境变量只用于进程启动（`DATABASE_URL`、`SECRET_KEY_BASE`、fabric endpoint）；任何 operator 在运行时管理的东西都应该放这里，而不是 env。
-
-### Control Plane Plugins：可信的第一方 Elixir 扩展
-
-`Ankole.Plugins`（`lib/ankole/plugins/`）。启动时，`Discovery` 从 `plugins/` 和 `internals/plugins/` 加载 Control Plane Plugin 源（可用 `ANKOLE_PLUGIN_PATHS` 覆盖）；Control Plane Plugin 是实现 `Ankole.Plugins.Plugin` behaviour 的 module：`plugin_id/0`、`api_version/0`（= 1），以及可选的 `display_name/0`、`description/0`、`app_config_definitions/0`、`app_config_patterns/0`、`setup_metadata/0`、`adapter_declarations/0`、`children/0`。Registry 校验 spec，跳过列在 `plugins.disabled_ids` 配置里的 id，注册活跃 Control Plane Plugin 的 config definition，启动它们受监督的 children，并按 contract id 索引 adapter declaration：聊天/provider adapter 用 `signals_gateway.adapter`，model provider 用 `ai_gateway.provider`。没有动态第三方加载，没有 marketplace，没有热激活；Control Plane Plugin 是随 installation 一起交付的可信代码。
-
-`plugins/lark_adapter` 是参考 adapter：每个 `{domain, app_id}` 一条长连接（通过 `libs/feishu_openapi`），对 message/recall/reaction/card action 做入口归一化，提供用于 post、回复、编辑、删除、reaction 和流式 CardKit 卡片的 outbox adapter，并提供独立的 identity-provider contract（OIDC 登录 + 用户/部门同步进 Principal）。`plugins/slack_adapter` 通过 Socket Mode、Slack Web API、Block Kit、Sign in with Slack 以及用户/usergroup 目录同步实现同一组 host contract。
-
-### Schedule：把时间变成 actor event
-
-`Ankole.Schedule`（`lib/ankole/schedule/`）。两个原语：checkback（一次性的 `check_back_later`）和 cron schedule，存在 `actor_scheduled_events` 和 `actor_cron_schedules` 里。Oban 只是唤醒边：`FireScheduledEvent` 用带守卫的 `status = 'scheduled'` 更新抢占行，用稳定的 `source_event_id`（`check_back_later:<id>:wakeup`、`cron:<id>:<slot>`）追加 actor event；对于 cron，还在同一个事务里计划下一次触发。Worker 通过 `schedule.*` RPC 创建 schedule（这就是 `check_back_later` 和 `cron` tool 调的东西）；operator 通过 console REST API 管理它们。
-
-### Skill 和 library
-
-内置 skill 随 worker 镜像从 `app/library/skills/` 发货（每个都有 `SKILL.md` 加 asset）；agent 安装的 skill 是 shared skill 根目录下的真实文件，通过文件 lane 移动。worker 每个进程对某 agent 的首个 turn、以及目录指纹变化后的 turn，都会在 resolve context 前发送 `skills.installed.replace` observation。PostgreSQL 持有 registry、enablement、overlay 和 observation（`Ankole.AIAgent.Library`，`lib/ankole/ai_agent/library/`）。Model 看到的是 `skill://enabled/...` 引用；`skill_view` 读 base 文件并合并数据库 overlay，`skill_append` 替换 overlay。不要合成假的 `/workspace/skills` 路径。
-
-## 一条消息的生命周期，带代码指针
-
-Canonical 链路：用户在飞书群里 mention 一个 agent，agent 在跑了一个 shell 命令之后作答。
-
-1. **入口。** `plugins/lark_adapter/.../inbound.ex` 在长连接上收到 `im.message.receive_v1`，调用 `Ankole.SignalsGateway.Ingress.emit_entry/4`。Gateway 解析 binding、求值 filter（kernel CEL）、检查 tombstone、upsert `signal_gateway_channels` / `signal_gateway_entries`，并打开或扩展 inbound batch。
-2. **一个工作项。** `InboundBatchFinalizer` 关闭 batch；一个事务写入一条 `actor_events` 行，`type = "im.message.addressed"`，对 `(agent_uid, binding_name, source_event_id)` 唯一，然后向 provider 确认。这一行就是持久的工作项；它会永久保留，工作完成时设置 `completed_at`。
-3. **分发。** ActorRuntime 的 session controller 选择下一个 ready event（`input_state = 'open' AND completed_at IS NULL`，且没有 live delivery），`ActivationManager` 持有激活租约，`WorkerPool` 分配 worker，`TurnLifecycle.start_worker_turn` 写入 `actor_event_deliveries` 的 fence 行，`Transport.Broker` 通过 ZeroMQ 发送 `turn_start` envelope（由 `turn_envelope.ex` 构造）。这里不传历史，只有一个 fence、一个 actor event、一个 model 引用。
-4. **Worker turn 准备。** `src/main.ts` 分发到 `core/turns/text_turn.ts`，后者通过 RPC 拿会话上下文和 agent 范围的 AIGateway key，构造 system prompt，组装 tool set。
-5. **第一次 model 调用。** `core/agent-loop.ts` 通过 AIGateway WebSocket 发送 `response.create`（`store=true`、`conversation`、用户文本作为 input items，并带 opaque `metadata.actor_event_id`）。`conversation` 是 Responses state anchor；AIGateway 只原样保存和发布 metadata，不解释这个 key。`AnkoleWeb.AIGatewayResponsesSocket` 把请求交给 `StatefulResponses.start_response_run`，后者展开历史、必要时自动 compaction、写入 `generating` 行；provider 的 `prepare/1` 加 kernel `universal_ai_client` 流式调用上游。
-6. **实时预览。** 真正 dispatch `turn_start`、且 conversation 已确定后，`SignalsGateway.AIReplyPreview` 才订阅 conversation-scoped AIGateway event 和 worker 的语义进度，按 opaque metadata 过滤本 ActorEvent，并驱动同一张流式 CardKit 卡片。答案增量走 element-content stream，计划、安全活动、副作用回执和 typed result 走结构化 mutation。PostgreSQL 保存 provider handle 和 mutation identity，所以 owner 重启后可以续用原卡；瞬态 reasoning 绝不进 checkpoint。每轮 `response_started` 重置当前 buffer；Response terminal event 不会结束 preview。
-7. **工具执行。** Model 返回 `function_call`；AIGateway 把行 commit 成 `complete`（input items + output items 在同一个 `content` 数组里）并发送 terminal frame。Worker 在 bubblewrap 里跑 shell 命令，然后用 `function_call_output` 发下一次 `response.create`，并通过 `previous_response_id` 链接。
-8. **Worker 声明完成。** 没有 tool call 时 loop 正常结束；若 iteration budget 已耗尽但仍需继续，worker 先生成一次预算外、无工具的总结。两种情况都只发送一次 `turn_completed`，携带最终 `resp_*` id 和 `loop_finished` 或 `iteration_exhausted`；普通 provider failure 仍发送 `turn_error`，schedule 的 silent success 仍发送 `turn_noop_completed`。
-9. **SignalsGateway 原子定稿。** `ActorTurnCompletion` 通过 AIGateway 的窄 facade 按 subject 和 Response id 读取最多 500 层的不可变链，验证 conversation、opaque `actor_event_id`、terminal status 和 fence，并投影 final text、clarify 或 attachment。随后在一个 SignalsGateway 事务里写 durable final/clarify/attachment outbox，完成主 ActorEvent 及已接受的 steer ActorEvents，清理或 supersede delivery。若 preview 已成功创建 provider entry，final outbox 选择 edit；事务成功后才终止 preview。Outbox 成功后写入带最终 Response backref 的 `signal_gateway_entries` mirror。
-10. **失败与恢复。** Completion 校验失败或 stale fence 时零修改；handler 失败时不回复 worker，ActorEvent 保持 open，由现有 lease/redelivery 重新执行并从新的本地 iteration budget 开始。Response 已提交但 `turn_completed` 丢失时也不会从 Response terminal 推断 Turn 完成。AIGateway 独立用 60 秒 heartbeat 和 300 秒 orphan grace 管理自己的 `generating` 行，不查询 Actor activation 或 delivery。
-
-Side chain 复用同样的形状：
-
-- **定时唤醒**：`check_back_later` / `cron` tool -> `schedule.*` RPC -> `actor_scheduled_events` 行 + Oban 作业 -> 触发时写入新的 actor event -> 走同样的分发路径。
-- **Provider 可见副作用**（最终回复、clarify、附件、reaction、命令反馈）：最终采用的 final/clarify/attachment 在 SignalsGateway completion 事务中变成 `signal_gateway_outbox_entries` 行；其他副作用也由其 owner 写 outbox。Outbox executor 调 binding 的 outbox adapter 并记录 provider 结果。
-- **Steering**：running turn 期间来的新消息会变成 actor event，它的到达通过 `mailbox_updated` 推送；worker 在 model 轮次之间注入它。`/steer` 在这个 nudge 成功发送或排队给 active turn 时即 ack，不等待模型证明已经消费。
-- **`/compress`**：一个 IM 命令，通过 `POST /api/v1/ai-gateway/responses/compact` 写入 compaction 行。
-- **Recall**：被 recall 的 provider 消息会 tombstone 镜像；对于 completed 的工作，还会硬删除或 retract 消息链的尾部。
-
-## Identity Layers
-
-四层 id 到处都会出现。它们绝不可互换：
-
-| Layer | 标识 | 示例 |
-| --- | --- | --- |
-| `source_event_id` | 一个 provider event；入口幂等键 | 飞书 `Event.id` |
-| `source_entry_id` | 一个 provider entry（message、post） | 飞书 `message_id` |
-| `actor_event_id` | 一个 Ankole 工作项（`actor_events.id`） | uuid |
-| `ai_message_id` | 一个已存的 model 输出（`ai_gateway_messages.id`） | uuid |
-
-Canonical 定义在 `design-docs/SignalsGateway.md` 的 Identity Layers 部分。
-
-## Data Model Essentials
-
-持久表（崩溃后的事实来源）：`principals`、`human_users`、`agents`、`external_identities`、`principal_groups`、`permission_grants`、`app_configurations`、`signal_gateway_bindings`、`signal_gateway_channels`、`signal_gateway_entries`、`signal_gateway_outbox_entries`、`actor_events`、`actor_cron_schedules`、`actor_scheduled_events`、`ai_gateway_conversations`、`ai_gateway_messages`、`ai_gateway_providers`、`brain_entries`、`brain_entry_blocks`、`brain_entry_relations`、`brain_audit_log`、`brain_episodes`、`brain_cursors`，以及 skill library 表。
-
-运行时投影（UNLOGGED、可重建）：`actor_event_deliveries`、`actor_session_activations`、`actor_session_worker_assignments`、`agent_computer_workers`。
-
-需要遵守的约定（见 `CLAUDE.md`）：
-
-- Principal uid 是小写文本主键，并直接作为外键使用；不要加影子 UUID。
-- 不透明的行 id 用应用代码生成 UUIDv7（schema 里用 `Ankole.Ecto.UUIDv7`，schema 插入之外用 `Ankole.Kernel.gen_uuid_v7/0`），绝不用 `gen_random_uuid()` 默认值。
-- 优先用 PostgreSQL 原生建模：enum 走 `Ecto.Enum`，declared payload 用 `jsonb`，必须跨崩溃存活的 invariant 用 check constraint 保护。
-- 状态机是由事务性 `WHERE` 子句（乐观 commit）守卫的 status 列，而不是 advisory lock。
-
-## 在哪里做修改
-
-**新增 AI model provider。** 写一个返回 `provider_definition()` 的 provider module（参考 `lib/ankole/ai_gateway/providers/openai.ex` 或 `plugins/china_market_ai_providers/` 里的 plugin provider）：设置 schema、默认 base URL、带 `prepare/1` 的 capability，用它针对 kernel 的某个 API resolver 构造 `UniversalAIRequest`（responses / chat-completions / claude / embedding / rerank 形状）。内置 provider 注册在 `Ankole.AIGateway.Providers`；plugin provider 声明 `ai_gateway.provider` contract。可选实现：`prepare_connection_check/1`、`models_metadata_source/1`。之后 operator 通过 console 创建 `ai_gateway_providers` 行，并绑定 agent model profile。用 `mix e2e.ai_gateway_real_provider` 做冒烟测试。
-
-**新增 worker tool。** 在 `app/agent_computer/src/tools/` 下实现它（Zod 参数 schema + `execute`），在 `src/core/turns/text_turn.ts` 的 turn 装配里注册，并通过 bubblewrap helper 路由任何命令执行。Tool 接口是 allowlist，也是产品决策；扩大它时更新 `docs/TradeoffsAndKnownLimits.md`。持久副作用必须走 RPC 或 AIGateway API，不能写本地文件。测试要在镜像里跑：`bun run agent-computer:test`；跨边界行为放在 `tools/e2e/suites/worker_computer_e2e_test.exs`。
-
-**新增聊天/signal provider adapter。** 在 `plugins/` 下新建 Elixir Control Plane Plugin，实现 `Ankole.Plugins.Plugin`，声明 `signals_gateway.adapter`，包含 inbound/outbox module、setup metadata、凭证的 config pattern。Inbound 代码把 provider event 归一化成 `SignalsGateway.Ingress.emit_*` 事实；outbox module 实现它能诚实支持的 operation。长连接作为 Control Plane Plugin 的 `children/0` 运行。`plugins/lark_adapter` 和 `plugins/slack_adapter` 是参考；contract 在 `design-docs/SignalsGateway.md`、`design-docs/plugins/FeishuAdapter.md` 和 `design-docs/plugins/SlackAdapter.md`。E2E 使用 `tools/e2e/support/` 下对应的 fake provider server。
-
-**新增 worker->control-plane RPC。** Elixir 侧的 handler 注册在 `lib/ankole/signals_gateway/actor_runtime/rpc_lane.ex`；像现有 broker 一样校验 turn ref 和已认证路由。Worker 侧从 `src/rpc_lane.ts` 调用。如果负载在崩溃之后仍然重要，handler 写 PostgreSQL；worker 永远不直接写。
-
-**新增运行时设置。** 在负责的子系统里声明 key（`AppConfigure.define/1`，或 plugin 的 `app_config_definitions/0`），标记 secret 需要加密，通过 `AppConfigure.get/2` 读取。不要为 operator 在运行时管理的东西新增环境变量。
-
-**新增内置 skill。** 在 `app/library/skills/<name>/` 下建目录，放 `SKILL.md` 和 asset；它会随 worker 镜像发货。Enablement 和 overlay 是 PostgreSQL 行（`Ankole.AIAgent.Library`）；`skill_view` / `skill_append` 无需其他改动即可工作。安装到 shared skill 根的 agent skill 还需要 worker 在 turn 前扫描并推送 observation，文件 lane 只负责移动字节。
-
-**新增 console API + UI。** 在 `lib/ankole_web/router.ex` 的 `:console_api` pipeline 下加 OpenAPI-spec'd controller（open_api_spex），重新生成 `app/webapps` 里有类型的 client（`openapi/` + TanStack Query hook），用 `libs/uikit` 组件构建 screen。生成的 client code 是构建产物，绝不要手改。
+不能靠执行进程的本地文件保存会影响用户的结果。应调用控制面 RPC，或使用能写入
+PostgreSQL 的 AIGateway 接口。
 
 ## 开发工作流
 
-```shell
-bun install                      # workspace deps
-bun run services:start           # devkit Docker Compose: PostgreSQL on :5433
-bun run control-plane:setup      # mix deps.get + ecto.create/migrate/seed
-bun run control-plane:dev        # Phoenix on :4000 (serves built SPAs)
-bun run webapps:dev              # optional: Vite on :3035 with HMR
-
-# Worker image (required for worker tests and e2e)
-docker build \
-  --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
-  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
-
-# Render the docker run command for an external worker against local fabric
-cd app/control_plane
-mix ankole.actor_runtime.worker_bootstrap \
-  --endpoint tcp://127.0.0.1:6010 --worker-id worker-a \
-  --image ankole-agent-computer:0.1.0
+```sh
+bun install
+bun run services:start
+bun run control-plane:setup
+bun run dev
 ```
 
-测试分层：保持快路径快，并在正确的层验证运行时声明（见 `docs/TradeoffsAndKnownLimits.md` § Worker E2E）：
+常用验证命令：
 
-| Tier | Command | Needs |
-| --- | --- | --- |
-| Control-plane 单元/集成 | `bun run control-plane:test`（= `mix test`） | 只需要 PostgreSQL |
-| Worker tool | `bun run agent-computer:test` | Docker + worker 镜像（bubblewrap 只在容器内可用） |
-| 类型/lint/format | `bun run type-check`、`bun run lint`、`bun run fmt` | 无 |
-| 主链 e2e | `cd app/control_plane && mix e2e.gate` | Docker worker 镜像；fake Feishu + fake Slack + fake OpenAI |
-| 混乱/性能 | `mix e2e.chaos`、`mix e2e.perf` | 同上 |
-| 真实 provider | `mix e2e.real_llm`（`ANKOLE_REAL_LLM_E2E=1`）、`mix e2e.ai_gateway_real_provider` | 真实凭证 |
+```sh
+bun run test
+bun run type-check
+bun run lint
+bun run fmt:check
+bun run e2e
+tools/e2e/run --chaos
+tools/e2e/run --real-provider --providers=available
+tools/e2e/run --real-llm
+tools/e2e/run --brain-real-llm
+```
 
-E2E harness（`tools/e2e/`）跑 fake 飞书与 fake Slack 平台，分别用真实 WS 协议对接真实 adapter，再加 fake OpenAI endpoint 和一个通过 RuntimeFabric 连接的真实 Agent Computer container。因此，“主链能用”是一个可运行的 claim，而不是静态审查的 claim。`bun kit` 暴露 devkit helper（`external-services`、`analyze`、codegen）；包过滤器（`bun run --filter @ankole/... test`）让验证在工作区快速变动时仍然保持在包级别。
-
-## 术语表
-
-- **actor event**：一个 agent session 的持久工作项。它是 `actor_events` 里的一行。完成后仍保留；`completed_at` 标记完成。
-- **actor session**：`{agent_uid, session_id}`。Signal 支持的 session 从 channel 派生 `session_id`；一个 channel，一个 session actor。
-- **binding**：一个 agent 的一条 provider 入口配置，例如一个连接到 agent 的飞书 app。
-- **run row**：一次 `response.create` 调用写入的 `ai_gateway_messages` 行。在一个 `content` 数组里保存请求 input items 和 model output items。
-- **compaction artifact**：一条 `ai_gateway_compaction_artifacts` 行，保存 summary、canonical `response.compaction.output`、保留的 tail items 和 usage facts。
-- **checkpoint row**：一条 `ai_gateway_messages` 行（`type = "checkpoint"`），其 `content` 只包含一个 `compaction_artifact` ref。它是 response-chain continuation anchor，不是 summary 的事实源。
-- **anchor**：新 run 链接到的行（`previous_message_id`；在 API 边缘渲染成 `previous_response_id`）。
-- **visible leaf**：没有其他行链接到它的 `complete` 行。隐式续接总是选最新的 visible leaf。
-- **source mirror**：`signal_gateway_channels` + `signal_gateway_entries`，provider 侧当前显示内容的映像。不是队列，也不是 model 历史。
-- **outbox**：`signal_gateway_outbox_entries`，所有需要 durable delivery 的 provider 可见副作用（包括最终回复、clarify、附件、reaction、命令反馈）的持久表。只有瞬态 preview delta 不走这里。
-- **preview / adopted final**：Preview 是 best-effort 流式进度；`response.completed` 不终止它。只有 completion/noop/dead-letter/显式 stop 终止 preview，最终采用的内容始终通过 durable outbox 发送或编辑。
-- **final mirror**：最终 outbox 确认发送/编辑之后写入的 `signal_gateway_entries` 行（带最终 Response backref）。它是送达凭证。
-- **fence**（`ActorTurnRef`）：一个相等性检查（activation、epoch、actor event id、revision），挡住 stale 的 worker commit 到更新的 actor 状态。
-- **turn**：一个 actor event 的一次 worker 执行；可能有多次 model 调用，但只有一次完成。
-- **dead letter**：被标记为不可送达的 actor event（`input_state = 'dead_letter'`）。它不同于 completed。
-- **checkback**：agent 为自己安排的一次性自我唤醒（`check_back_later`）。
-- **tombstone**：一个短期守卫行，用来挡住被移除的 provider entry 因迟到的 delivery 被重新镜像。
-
-## 已定决策：在“修复”前先读
-
-`docs/TradeoffsAndKnownLimits.md` 记录了一些看起来像 gap、但已经定下来的 tradeoff。新人最容易踩到的点：
-
-- Preview delta 是 best-effort，最终采用的回复是 durable outbox 的 at-least-once delivery；短暂 stale 预览卡片是接受的；error terminal 本身不发 IM 消息。
-- 续接从消息图派生（最新的 visible leaf）。没有存储游标，没有 generation 租约，也没有半流恢复；坏掉一条流的代价是一轮。
-- AIGateway 安全就两条规则：现有 token 或管理员鉴权证明 Principal subject，每个 conversation/message/compaction 查询都按 `subject_uid` 过滤。Worker 是可信的第一方节点；bubblewrap 才是不可信进程的边界，不是 worker。
-- 一个 WebSocket 同一时间只有一个在途 response；排序由 ActorRuntime 保证，不靠 AIGateway 锁。
-- ZeroMQ 永远不是持久队列；UNLOGGED 运行时表是可重建的投影，不是事实来源。
-
-如果某个修改碰到这些点，它就是设计变更：先更新设计文档，再改代码。
+默认 E2E 模式运行 gate suites。真实平台测试需要运维人员提供凭据。Brain 真实模型
+测试不会随 `--all` 运行。
 
 ## 阅读顺序
 
-1. 本文。
-2. `design-docs/AIGateway.md`：如果你改 AI 侧，包括 provider、有状态 Responses 日志、通用事件、compaction。
-3. `design-docs/SignalsGateway.md`：如果你改 IM/provider 或 Actor 侧，包括入口、batch、ActorRuntime、completion、preview 和 outbox delivery。
-4. `design-docs/Brain.md`：如果你修改 Brain 的知识模型、可见性、检索、dreaming、审计、快照或模型工具；部署和运维时读 `operations/Brain.zh-Hans.md`。中文对应稿是 `internals/docs/Brain.zh.md`。
-5. `design-docs/RuntimeFabric.md`、`design-docs/Schedule.md` 和 `design-docs/BackgroundAgentJob.md`：当你改传输、时间或持久后台工作。
-6. `design-docs/Principal.md`、`design-docs/AuthZ.md`、`design-docs/AppConfiguration.md`、`design-docs/Plugins.md`、`design-docs/I18n.md`、`design-docs/Logger.md`：按需查阅。
+1. 先读本文，确认各模块负责什么，以及数据怎样流动。
+2. 阅读 [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md)。
+3. 阅读将要修改的子系统设计文档。
+4. Brain 部署前阅读 [Brain 运维文档](operations/Brain.zh-Hans.md)。
 
-## Design Doc Index
+## 文档索引
 
-| Document | 修改这些内容时阅读 |
+| 文档 | 主题 |
 | --- | --- |
-| `docs/README.md` | 任何内容：system map、code-level map、change guide、glossary |
-| `operations/Brain.zh-Hans.md` | PostgreSQL 扩展、模型 profile、迁移、dreaming 运维与 Brain 真实模型验收 |
-| `design-docs/Brain.md` | 策展知识、聊天召回、隔离、dreaming、审计与人类监督 |
-| `design-docs/AIGateway.md` | Provider、Responses log、通用事件、compaction |
-| `design-docs/SignalsGateway.md` | Ingress、ActorRuntime、completion、preview、mirror、outbox |
-| `design-docs/RuntimeFabric.md` | Envelope、lane、socket、文件传输 |
-| `design-docs/Schedule.md` | Checkback、cron、Oban 唤醒边 |
-| `design-docs/BackgroundAgentJob.md` | 持久后台工作、Codex resume、steer、唤醒 |
-| `design-docs/MCPBackedSkills.md` | 原生 MCP client、Skill 声明、allowlist、用后即关连接与 WorkerEnv secret |
-| `design-docs/WebTools.md` | Provider web search/fetch 与私有 rendered-page fallback |
-| `design-docs/Principal.md`、`design-docs/AuthZ.md` | 身份、group、grant、CEL |
-| `design-docs/AppConfiguration.md` | 配置 key、scope、加密 |
-| `design-docs/Plugins.md`、`design-docs/plugins/FeishuAdapter.md`、`design-docs/plugins/SlackAdapter.md` | Plugin contract、Lark 和 Slack adapter |
-| `design-docs/I18n.md` | 本地化目录 |
-| `design-docs/Logger.md` | 结构化 JSON 日志、severity、labels、请求和 operation 字段 |
-| `docs/TradeoffsAndKnownLimits.md` | 任何看起来像 bug 的行为 |
+| [AIGateway](design-docs/AIGateway.md) | 模型服务商、Response 历史、上下文压缩和生成文件 |
+| [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
+| [Brain](design-docs/Brain.md) | 知识、检索、保存的资料和 Dreaming |
+| [Brain 运维](operations/Brain.zh-Hans.md) | PostgreSQL 要求与运维恢复 |
+| [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
+| [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
+| [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |
+| [Principal](design-docs/Principal.md) | 人和 Agent 的统一身份，以及外部账号合并 |
+| [AuthZ](design-docs/AuthZ.md) | 权限组、授权规则和 CEL 条件 |
+| [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
+| [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |
+| [MCP-backed Skills](design-docs/MCPBackedSkills.md) | Skill 怎样连接 MCP 服务以及怎样保护凭据 |
+| [Web tools](design-docs/WebTools.md) | 网页搜索、正文读取和浏览器后备路径 |
+| [I18n](design-docs/I18n.md) | 语言选择和翻译文件 |
+| [Logger](design-docs/Logger.md) | 结构化日志契约 |
+| [Tradeoffs and Known Limits](TradeoffsAndKnownLimits.md) | 当前限制和故障恢复范围 |
+
+各外部平台的专属文档位于 `design-docs/plugins/`。

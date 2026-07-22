@@ -37,12 +37,40 @@ defmodule Ankole.ScheduleTest do
       decoded_request_context: 1
     ]
 
+  import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2]
+
   @base_time DateTime.utc_now(:microsecond)
   @long_lease_seconds 604_800
 
   setup :use_mock_signal_provider_plugin
 
   describe "durable schedule domain" do
+    test "model projections reduce operator errors to stable schedule reasons" do
+      internal_id = "019f0000-0000-7000-8000-000000000001"
+
+      event = %ScheduledEvent{
+        id: 1000,
+        kind: "check_back_later",
+        status: "failed",
+        wake_payload: %{},
+        last_fire_error: %{
+          "reason" => "provider request #{internal_id} failed",
+          "actor_event_id" => internal_id
+        }
+      }
+
+      projection = Schedule.event_model_projection(event)
+
+      assert projection["last_error"] == %{"reason" => "schedule_fire_failed"}
+      refute inspect(projection) =~ internal_id
+
+      known = %{event | last_fire_error: %{"reason" => ":cron_schedule_not_active"}}
+
+      assert Schedule.event_model_projection(known)["last_error"] == %{
+               "reason" => "cron_schedule_not_active"
+             }
+    end
+
     test "check_back_later creates one wake edge and fires one actor event idempotently" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
       due_at = DateTime.add(@base_time, 5, :minute)
@@ -819,8 +847,14 @@ defmodule Ankole.ScheduleTest do
         idempotency_key: "schedule-rpc-cron-1"
       }
 
-      assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
+      assert {:ok,
+              %{
+                "status" => "created",
+                "schedule" => %{"name" => "dashboard-route-cron"} = model_schedule
+              }} =
                schedule_rpc("cron.add", cron_request, turn_ref, route)
+
+      refute Map.has_key?(model_schedule, "id")
 
       bad_cron_delivery = %{
         "signal_channel_id" => "not-current-channel",
@@ -843,7 +877,7 @@ defmodule Ankole.ScheduleTest do
                schedule_rpc(
                  "cron.update",
                  %FabricProto.ScheduleCronUpdateRequest{
-                   cron_schedule_id: cron_schedule_id,
+                   name: "dashboard-route-cron",
                    updates_json: Torque.encode!(%{"delivery" => bad_cron_delivery})
                  },
                  turn_ref,
@@ -909,7 +943,11 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
-      assert {:ok, %{"status" => "created", "schedule" => %{"id" => cron_schedule_id}}} =
+      assert {:ok,
+              %{
+                "status" => "created",
+                "schedule" => %{"name" => "dashboard-morning-check"} = model_schedule
+              }} =
                schedule_rpc(
                  "cron.add",
                  %FabricProto.ScheduleCronAddRequest{
@@ -940,6 +978,15 @@ defmodule Ankole.ScheduleTest do
                  route
                )
 
+      refute Map.has_key?(model_schedule, "id")
+
+      assert {:ok, cron_schedule} =
+               Schedule.get_cron_schedule_by_name(
+                 turn_ref.agent_uid,
+                 turn_ref.session_id,
+                 "dashboard-morning-check"
+               )
+
       scheduled_ack =
         complete_turn_via_aigateway!(
           turn_ref,
@@ -949,7 +996,7 @@ defmodule Ankole.ScheduleTest do
       dispatch_final_reply_outbox!(scheduled_ack.id)
       assert wait_for_final_mirror(scheduled_ack.id).signal_channel_id == "mock:chat:dashboard"
 
-      [scheduled_event] = Schedule.list_cron_runs(cron_schedule_id, 10)
+      [scheduled_event] = Schedule.list_cron_runs(cron_schedule.id, 10)
       due_now = DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
 
       scheduled_event
@@ -1170,13 +1217,14 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, %{"runs" => [projected_run | _rest]}} =
                schedule_rpc(
                  "cron.runs",
-                 %FabricProto.ScheduleCronRunsRequest{cron_schedule_id: schedule.id},
+                 %FabricProto.ScheduleCronRunsRequest{},
                  turn_ref,
                  route
                )
 
-      assert projected_run["cron_schedule_id"] == schedule.id
-      assert Map.has_key?(projected_run, "wake_payload")
+      assert Map.has_key?(projected_run, "trigger")
+      refute Map.has_key?(projected_run, "cron_schedule_id")
+      refute Map.has_key?(projected_run, "wake_payload")
       refute Map.has_key?(projected_run, "source_provenance")
       refute Map.has_key?(projected_run, "oban_job_id")
       refute Map.has_key?(projected_run, "fire_attempts")
@@ -1185,7 +1233,7 @@ defmodule Ankole.ScheduleTest do
       assert {:error, %{"code" => "cron_origin_broad_cron_mutation_denied"}} =
                schedule_rpc(
                  "cron.pause",
-                 %FabricProto.ScheduleCronTargetRequest{cron_schedule_id: schedule.id},
+                 %FabricProto.ScheduleCronTargetRequest{},
                  turn_ref,
                  route
                )
@@ -1351,7 +1399,7 @@ defmodule Ankole.ScheduleTest do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 
@@ -1444,17 +1492,14 @@ defmodule Ankole.ScheduleTest do
                    outbox.agent_uid,
                    outbox.binding_name,
                    outbox.outbound_key,
-                   %{
-                     capabilities: [:post_entry, :reply_entry, :edit_entry],
-                     send: fn outbox ->
-                       {:ok,
-                        %{
-                          created_source_entry_id:
-                            outbox.target_source_entry_id || "test-final-#{ai_message_id}",
-                          raw_payload: %{"provider" => "test"}
-                        }}
-                     end
-                   }
+                   outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn outbox ->
+                     {:ok,
+                      %{
+                        created_source_entry_id:
+                          outbox.target_source_entry_id || "test-final-#{ai_message_id}",
+                        raw_payload: %{"provider" => "test"}
+                      }}
+                   end)
                  )
 
         :ok
@@ -1669,11 +1714,16 @@ defmodule Ankole.ScheduleTest do
       )
 
     {capacity, fields} = Map.pop(fields, :capacity)
+    capacity = capacity || %{}
+    available_turn_slots = Map.get(capacity, "available_turn_slots", 0)
+    max_turns = Map.get(capacity, "max_turns", available_turn_slots)
 
     ActorRuntime.admit_worker_ready(
       struct!(
         FabricProto.AgentComputerWorkerReady,
-        Map.put(fields, :capacity_json, Torque.encode!(capacity || %{}))
+        fields
+        |> Map.put(:max_turns, max_turns)
+        |> Map.put(:available_turn_slots, available_turn_slots)
       ),
       %{authenticated?: true, transport_route: route},
       Ankole.Kernel.RuntimeFabric.protocol_version()

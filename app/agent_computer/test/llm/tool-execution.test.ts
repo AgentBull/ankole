@@ -736,6 +736,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
             describedParams = secretAdminSchema.parse(params)
             return '执行维护任务'
           },
+          describeCompletedActivity: (_params, details) => (details.ok === true ? '完成维护任务：配置已更新' : null),
           execute: async () => ({
             content: [{ type: 'text', text: 'sensitive raw output' }],
             details: { ok: true },
@@ -776,7 +777,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     })
     expect(presentation[3]).toMatchObject({
       kind: 'tool.activity',
-      payload: { label: '执行维护任务', phase: 'completed' }
+      payload: { label: '完成维护任务：配置已更新', phase: 'completed' }
     })
     const activityRevisions = presentation
       .filter(event => event.kind === 'tool.activity')
@@ -883,6 +884,9 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           schema: z.object({}),
           describeActivity: () => {
             throw new Error('description failed')
+          },
+          describeCompletedActivity: () => {
+            throw new Error('completed description failed')
           },
           execute: async () => {
             executed.push('fallback')

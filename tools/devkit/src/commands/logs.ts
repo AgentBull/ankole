@@ -1,8 +1,7 @@
 import { Crust } from '@crustjs/core'
 import { isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { Transform } from 'node:stream'
 import build from 'pino-pretty'
-
-import { bootstrapActivationCodeLine } from './bootstrap-activation-code'
 
 type PrettyLog = JSONObject
 type PrettyOptions = NonNullable<Parameters<typeof build>[0]>
@@ -15,7 +14,7 @@ export function ankolePrettyLogOptions(): PrettyOptions {
     levelKey: 'severity',
     errorLikeObjectKeys: ['error'],
     errorProps: '*',
-    ignore: 'pid,hostname,event,duration_ms,labels',
+    ignore: 'pid,hostname,event,duration_ms,labels,error_logger',
     singleLine: false,
     customPrettifiers: {
       level: value => String(value),
@@ -28,16 +27,13 @@ export function ankolePrettyLogOptions(): PrettyOptions {
 export function formatPrettyLogMessage(log: PrettyLog, messageKey: string): string {
   const component = label(log, 'labels', 'component')
   const event = typeof log.event === 'string' ? log.event : undefined
-  const activationCode = typeof log.activation_code === 'string' ? log.activation_code : undefined
   const duration = typeof log.duration_ms === 'number' ? ` ${log.duration_ms}ms` : ''
   const context = [component, event].filter(Boolean).join(' ')
   const message = typeof log[messageKey] === 'string' ? log[messageKey] : ''
-  if (event?.startsWith('setup.bootstrap.activation_code_') && activationCode) {
-    const line = bootstrapActivationCodeLine(activationCode)
-
+  if (event?.startsWith('setup.bootstrap.activation_code_')) {
     return [
       '    ------------------------------------------------------------',
-      context ? `${context}: ${line}` : line,
+      context ? `${context}: ${message}` : message,
       '    ------------------------------------------------------------',
       '    Open /setup and enter this code.'
     ].join('\n')
@@ -48,13 +44,29 @@ export function formatPrettyLogMessage(log: PrettyLog, messageKey: string): stri
 
 export async function runPrettyLogs(): Promise<void> {
   const transport = build(ankolePrettyLogOptions())
-  process.stdin.pipe(transport)
+  const inputFilter = createPrettyLogInputFilter()
+  process.stdin.pipe(inputFilter).pipe(transport)
 
   await new Promise<void>((resolve, reject) => {
     transport.once('close', resolve)
     transport.once('error', reject)
     process.stdin.once('error', reject)
+    inputFilter.once('error', reject)
   })
+}
+
+export function isRoutineOTPApplicationStop(log: PrettyLog): boolean {
+  const errorLogger = log.error_logger
+  const message = log.message
+
+  return (
+    log.severity === 'NOTICE' &&
+    log.event === 'logger.message' &&
+    typeof message === 'string' &&
+    /^Application \S+ exited: :?stopped$/.test(message) &&
+    isRecord(errorLogger) &&
+    errorLogger.report_cb === '&:application_controller.format_log/1'
+  )
 }
 
 export function logsCommand(): Crust {
@@ -73,4 +85,35 @@ function label(log: PrettyLog, key: string, labelKey: string): string | undefine
   if (!isRecord(labels)) return undefined
   const value = labels[labelKey]
   return typeof value === 'string' ? value : undefined
+}
+
+function createPrettyLogInputFilter(): Transform {
+  let pending = ''
+
+  return new Transform({
+    transform(chunk, _encoding, callback) {
+      pending += chunk.toString()
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+
+      for (const line of lines) {
+        if (shouldDisplayPrettyLogLine(line)) this.push(`${line}\n`)
+      }
+
+      callback()
+    },
+    flush(callback) {
+      if (pending && shouldDisplayPrettyLogLine(pending)) this.push(pending)
+      callback()
+    }
+  })
+}
+
+function shouldDisplayPrettyLogLine(line: string): boolean {
+  try {
+    const log: unknown = JSON.parse(line)
+    return !isRecord(log) || !isRoutineOTPApplicationStop(log)
+  } catch {
+    return true
+  }
 }

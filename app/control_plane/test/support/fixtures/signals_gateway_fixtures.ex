@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGatewayFixtures do
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Ingress
+  alias Ankole.SignalsGateway.OutboxAdapter
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -138,6 +139,14 @@ defmodule Ankole.SignalsGatewayFixtures do
     )
   end
 
+  def outbox_adapter(capabilities, send_fun, reconcile_fun \\ nil) do
+    %OutboxAdapter{
+      capabilities: MapSet.new(capabilities),
+      send_fun: send_fun,
+      reconcile_fun: reconcile_fun
+    }
+  end
+
   def commit_and_dispatch(agent_uid, binding_name, attrs, capabilities, adapter_result) do
     attrs =
       attrs
@@ -149,7 +158,7 @@ defmodule Ankole.SignalsGatewayFixtures do
         agent_uid,
         binding_name,
         attrs.outbound_key,
-        %{capabilities: capabilities, send: fn _outbox -> {:ok, adapter_result} end},
+        outbox_adapter(capabilities, fn _outbox -> {:ok, adapter_result} end),
         now: @base_time
       )
     end

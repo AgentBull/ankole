@@ -12,10 +12,6 @@ const ZAP_ENDPOINT: &str = "inproc://zeromq.zap.01";
 #[derive(Clone, Debug)]
 pub(super) struct AuthenticatedWorker {
     pub(super) worker_id: String,
-    // ZAP exposes authentication identity plus key revision as route metadata.
-    // The current global worker key has one revision; keep the field even while
-    // it is constant so the transport/auth boundary does not lose that fact.
-    pub(super) key_revision: i64,
 }
 
 #[derive(Debug, Default)]
@@ -285,7 +281,6 @@ fn verify_zap_credentials(
         ZapAuthConfig::GlobalWorkerKey { worker_auth_key } => {
             (password == worker_auth_key).then(|| AuthenticatedWorker {
                 worker_id: username.to_string(),
-                key_revision: 1,
             })
         }
     }

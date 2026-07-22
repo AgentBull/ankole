@@ -15,4 +15,28 @@ describe('SettingEditorModel', () => {
     expect(model.text.value).toBe('"Europe/London"')
     model[Symbol.dispose]()
   })
+
+  test('tracks value changes as the drawer draft', () => {
+    const model = new SettingEditorModel()
+
+    model.initialize('setting:timezone', '"UTC"')
+    expect(model.dirty.value).toBe(false)
+
+    model.text.value = '"Asia/Singapore"'
+    expect(model.dirty.value).toBe(true)
+    model.text.value = '"UTC"'
+    expect(model.dirty.value).toBe(false)
+    model[Symbol.dispose]()
+  })
+
+  test('revealing an encrypted value does not create an unsaved change', () => {
+    const model = new SettingEditorModel()
+
+    model.initialize('setting:secret', '••••••••')
+    model.reveal('"secret"')
+
+    expect(model.text.value).toBe('"secret"')
+    expect(model.dirty.value).toBe(false)
+    model[Symbol.dispose]()
+  })
 })

@@ -2,7 +2,7 @@
 name: browser
 description: "Use for browser work that depends on rendered page state, interaction, screenshots, persistent login state, or a reproducible Playwright workflow. Use web_search or web_fetch for ordinary discovery and text extraction instead."
 default_enabled: true
-long_running: true
+ankole-runtime: background_job
 category: browser
 tags: [Browser, Playwright, Automation]
 ---
@@ -67,7 +67,7 @@ The runner owns connection teardown. User code must not launch a browser or clos
 2. Start with `open` and `snapshot -i`. Choose `@eN` refs only from the latest snapshot. A navigation, tab/frame switch, page close, or `stale_ref` error requires a new snapshot; never guess a replacement ref.
 3. Use `find role|text|label|placeholder|testid|first|last|nth` when a ref is inconvenient. Use `get`, `is`, and `wait` to check state rather than treating a successful click as proof of its outcome.
 4. Keep the injected default session for the whole Job. A Job already has its own opaque route and persistent profile; do not invent named sessions as an isolation mechanism. `close` releases live browser resources but retains route data.
-5. Save evidence under `browser/` or `/workspace/browser/`. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.
+5. Save evidence under `browser/` in the current Session or Job Workspace. Browser commands return the same real absolute paths that the Worker uses. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.
 
 ## Native dialogs
 

@@ -1,4 +1,5 @@
 use super::*;
+
 #[derive(Debug, Clone)]
 pub(super) struct ToolCall {
     pub(super) id: String,
@@ -444,7 +445,7 @@ pub(super) fn response_item_status(response_status: &str) -> &str {
 
 impl APIProtocol for ChatState {
     fn build_body(&self, context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
-        Ok(build_openai_chat_body(context))
+        build_openai_chat_body(context)
     }
 
     fn on_provider_event(
@@ -478,10 +479,10 @@ impl APIProtocol for ChatState {
             return Err(provider_body_error(status, body));
         }
         reject_provider_body_error(status, &body)?;
-        Ok(chat_completion_body_to_response(
+        chat_completion_body_to_response(
             context,
             provider_object_body(status, body, "OpenAI Chat Completions")?,
-        ))
+        )
     }
 
     fn is_terminal(&self) -> bool {
@@ -489,7 +490,10 @@ impl APIProtocol for ChatState {
     }
 }
 
-fn chat_completion_body_to_response(context: &ResponseContext, body: Value) -> Value {
+fn chat_completion_body_to_response(
+    context: &ResponseContext,
+    body: Value,
+) -> Result<Value, StreamError> {
     let message = body
         .pointer("/choices/0/message")
         .cloned()
@@ -507,7 +511,8 @@ fn chat_completion_body_to_response(context: &ResponseContext, body: Value) -> V
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| context.model.clone());
 
-    complete_response_resource(
+    let output = chat_output_items(context, &message)?;
+    Ok(complete_response_resource(
         context,
         json!({
             "id": id,
@@ -516,14 +521,14 @@ fn chat_completion_body_to_response(context: &ResponseContext, body: Value) -> V
             "completed_at": created_at,
             "status": "completed",
             "model": model,
-            "output": chat_output_items(context, &message),
+            "output": output,
             "usage": normalize_response_usage(body.get("usage").unwrap_or(&Value::Null)),
             "metadata": {}
         }),
-    )
+    ))
 }
 
-fn chat_output_items(context: &ResponseContext, message: &Value) -> Value {
+fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value, StreamError> {
     let content = message.get("content").unwrap_or(&Value::Null);
     let mut items = Vec::new();
     let content_parts = chat_assistant_content_parts(content);
@@ -541,12 +546,20 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Value {
     if let Some(tool_calls) = message.get("tool_calls").and_then(Value::as_array) {
         for tool_call in tool_calls {
             let function = tool_call.get("function").unwrap_or(&Value::Null);
+            let name = function
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            let arguments = function
+                .get("arguments")
+                .map(value_to_string)
+                .unwrap_or_else(|| "{}".to_string());
             let mut item = json!({
                 "id": generated_id("fc"),
                 "type": "function_call",
                 "call_id": tool_call.get("id").and_then(Value::as_str).unwrap_or("call"),
-                "name": function.get("name").and_then(Value::as_str).unwrap_or("unknown"),
-                "arguments": function.get("arguments").map(value_to_string).unwrap_or_else(|| "{}".to_string()),
+                "name": name,
+                "arguments": arguments,
                 "status": "completed"
             });
             restore_tool_namespace(context, &mut item);
@@ -564,7 +577,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Value {
         }));
     }
 
-    Value::Array(items)
+    Ok(Value::Array(items))
 }
 
 fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
@@ -615,7 +628,7 @@ fn output_text_part(text: &str) -> Option<Value> {
     }
 }
 
-fn build_openai_chat_body(context: &ResponseContext) -> Map<String, Value> {
+fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
     let request = context.resolved_provider_request_object();
     let stream = request
         .get("stream")
@@ -670,8 +683,8 @@ fn build_openai_chat_body(context: &ResponseContext) -> Map<String, Value> {
         put_default_if_useful(&mut body, "model", json!(context.model));
     }
     body.insert("stream".to_string(), json!(stream));
-    body.insert("messages".to_string(), chat_messages(&request));
-    body
+    body.insert("messages".to_string(), chat_messages(context, &request)?);
+    Ok(body)
 }
 
 fn chat_response_format(request: &Map<String, Value>) -> Option<Value> {
@@ -718,7 +731,10 @@ fn chat_stream_options(value: Option<&Value>, stream: bool) -> Option<Value> {
     Some(Value::Object(options))
 }
 
-fn chat_messages(request: &Map<String, Value>) -> Value {
+fn chat_messages(
+    context: &ResponseContext,
+    request: &Map<String, Value>,
+) -> Result<Value, StreamError> {
     let mut messages = Vec::new();
     let input = request.get("input");
 
@@ -739,12 +755,17 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
 
                         match map.get("type").and_then(Value::as_str) {
                             Some("function_call") => {
-                                pending_tool_calls.push(chat_function_call(map));
+                                pending_tool_calls.push(chat_function_call(context, map)?);
                                 continue;
                             }
                             Some("function_call_output") => {
                                 flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
                                 messages.push(chat_function_call_output(map));
+                                continue;
+                            }
+                            Some("agent_message") => {
+                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                                messages.push(chat_agent_message(map)?);
                                 continue;
                             }
                             _type => {}
@@ -777,7 +798,7 @@ fn chat_messages(request: &Map<String, Value>) -> Value {
         _input => {}
     }
 
-    Value::Array(messages)
+    Ok(Value::Array(messages))
 }
 
 // Several OpenAI-compatible chat backends accept only one system message at
@@ -826,7 +847,10 @@ fn flush_chat_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec
     }));
 }
 
-fn chat_function_call(map: &Map<String, Value>) -> Value {
+fn chat_function_call(
+    _context: &ResponseContext,
+    map: &Map<String, Value>,
+) -> Result<Value, StreamError> {
     let call_id = map
         .get("call_id")
         .map(value_to_text)
@@ -850,14 +874,14 @@ fn chat_function_call(map: &Map<String, Value>) -> Value {
         .map(value_to_string)
         .unwrap_or_else(|| "{}".to_string());
 
-    json!({
+    Ok(json!({
         "id": call_id,
         "type": "function",
         "function": {
             "name": name,
             "arguments": arguments
         }
-    })
+    }))
 }
 
 fn chat_function_call_output(map: &Map<String, Value>) -> Value {
@@ -866,6 +890,28 @@ fn chat_function_call_output(map: &Map<String, Value>) -> Value {
         "tool_call_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
         "content": map.get("output").map(value_to_text).unwrap_or_default()
     })
+}
+
+fn chat_agent_message(map: &Map<String, Value>) -> Result<Value, StreamError> {
+    let content = map.get("content").unwrap_or(&Value::Null);
+    let mut text = String::new();
+
+    match content {
+        Value::Array(parts) => {
+            for part in parts {
+                let Some(part) = part.as_object() else {
+                    text.push_str(&value_to_text(part));
+                    continue;
+                };
+                if let Some(value) = part.get("text") {
+                    text.push_str(&value_to_text(value));
+                }
+            }
+        }
+        value => text.push_str(&value_to_text(value)),
+    }
+
+    Ok(json!({"role": "user", "content": text}))
 }
 
 fn chat_role_content_message(role: &str, content: &Value, map: &Map<String, Value>) -> Value {
@@ -1037,8 +1083,11 @@ fn restore_tool_namespace(context: &ResponseContext, item: &mut Value) {
     let Some(flattened_name) = item.get("name").and_then(Value::as_str) else {
         return;
     };
-    let Some((namespace, name)) = namespaced_tool_for_flattened_name(context, flattened_name)
+    let Some((Some(namespace), function)) = chat_tool_for_flattened_name(context, flattened_name)
     else {
+        return;
+    };
+    let Some(name) = function.get("name").and_then(Value::as_str) else {
         return;
     };
 
@@ -1046,46 +1095,56 @@ fn restore_tool_namespace(context: &ResponseContext, item: &mut Value) {
     item["name"] = json!(name);
 }
 
-fn namespaced_tool_for_flattened_name(
-    context: &ResponseContext,
+fn chat_tool_for_flattened_name<'a>(
+    context: &'a ResponseContext,
     flattened_name: &str,
-) -> Option<(String, String)> {
+) -> Option<(Option<&'a str>, &'a Map<String, Value>)> {
     let tools = context
         .request
         .get("tools")
         .or_else(|| context.provider_options.get("tools"))?
         .as_array()?;
 
-    for namespace in tools {
-        let Some(namespace) = namespace.as_object() else {
+    for tool in tools {
+        let Some(tool) = tool.as_object() else {
             continue;
         };
-        if namespace.get("type").and_then(Value::as_str) != Some("namespace") {
-            continue;
-        }
-        let Some(namespace_name) = namespace.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-        let Some(namespace_tools) = namespace.get("tools").and_then(Value::as_array) else {
-            continue;
-        };
-
-        for tool in namespace_tools {
-            let Some(tool) = tool.as_object() else {
-                continue;
-            };
-            if tool.get("type").and_then(Value::as_str) != Some("function") {
-                continue;
+        match tool.get("type").and_then(Value::as_str) {
+            Some("namespace") => {
+                let namespace = tool.get("name").and_then(Value::as_str).unwrap_or_default();
+                let Some(children) = tool.get("tools").and_then(Value::as_array) else {
+                    continue;
+                };
+                for child in children {
+                    let Some(child) = child.as_object() else {
+                        continue;
+                    };
+                    if child.get("type").and_then(Value::as_str) != Some("function") {
+                        continue;
+                    }
+                    let function = child
+                        .get("function")
+                        .and_then(Value::as_object)
+                        .unwrap_or(child);
+                    let Some(name) = function.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    if flattened_namespace_tool_name(namespace, name) == flattened_name {
+                        return Some((Some(namespace), function));
+                    }
+                }
             }
-            let function = tool
-                .get("function")
-                .and_then(Value::as_object)
-                .unwrap_or(tool);
-            let Some(child_name) = function.get("name").and_then(Value::as_str) else {
+            Some("function") => {
+                let function = tool
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .unwrap_or(tool);
+                if function.get("name").and_then(Value::as_str) == Some(flattened_name) {
+                    return Some((None, function));
+                }
+            }
+            _type => {
                 continue;
-            };
-            if flattened_namespace_tool_name(namespace_name, child_name) == flattened_name {
-                return Some((namespace_name.to_string(), child_name.to_string()));
             }
         }
     }

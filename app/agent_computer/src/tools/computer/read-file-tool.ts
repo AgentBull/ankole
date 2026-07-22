@@ -5,10 +5,10 @@ import type { ComputerToolContext } from './context'
 import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
 
 const ReadFileParams = z.object({
-  path: z.string().min(1).describe('Text file to read (absolute /workspace/..., relative, or ~/path).'),
+  path: z.string().min(1).describe('Text file to read (real absolute Agent Home path, relative, or ~/path).'),
   offset: z.number().int().min(1).optional().describe('1-indexed start line (default 1).'),
   limit: z.number().int().min(1).max(2000).optional().describe('Maximum lines to return (default 500, max 2000).'),
-  cwd: z.string().optional().describe('Base directory for a relative path (default /workspace).'),
+  cwd: z.string().optional().describe('Base directory for a relative path (default current workspace).'),
   workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.')
 })
 
@@ -30,7 +30,7 @@ export function createReadFileTool(context: ComputerToolContext): AgentTool<type
   return {
     name: 'read_file',
     description:
-      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to /workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
+      "Read a text file from the computer with line numbers and pagination. Use this instead of cat/head/tail in command. Output format: 'LINE_NUM|CONTENT'. Relative paths resolve from cwd/workdir, defaulting to the current workspace. Use offset and limit for large files; reads over about 100K characters are rejected so you can narrow the range. Cannot read images or binary files.",
     schema: ReadFileParams,
     executionMode: 'parallel',
     isReadOnly: true,

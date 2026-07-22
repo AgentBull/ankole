@@ -210,7 +210,7 @@ defmodule Ankole.E2E.FakeOpenAIScenariosTest do
           %{
             "role" => "tool",
             "tool_call_id" => "call_lark_chaos_reply_attachment_command",
-            "content" => "exit_code=0\ncreated /workspace/user-files/reports/chaos-report.txt"
+            "content" => "exit_code=0\ncreated ~/user-files/reports/chaos-report.txt"
           }
         ]
       }

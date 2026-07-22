@@ -24,9 +24,6 @@ defmodule Ankole.Plugins.DingTalkAdapter do
   def plugin_id, do: "dingtalk-adapter"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name do
     %{"default" => "DingTalk Adapter", "zh-Hans-CN" => "钉钉适配器"}
   end
@@ -173,16 +170,6 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         },
         :string,
         default: "钉钉 / DingTalk"
-      ),
-      field(
-        "baseURL",
-        %{"default" => "Base URL", "zh-Hans-CN" => "基础 URL"},
-        %{
-          "default" => "Optional override for local end-to-end testing (both API domains).",
-          "zh-Hans-CN" => "可选，本地端到端测试时覆盖新旧双域基址。"
-        },
-        :string,
-        []
       )
     ]
   end

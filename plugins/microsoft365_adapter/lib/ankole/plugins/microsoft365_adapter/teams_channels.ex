@@ -89,13 +89,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     |> Oban.insert()
   end
 
-  @spec sync_binding(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name, opts \\ []) do
+  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(agent_uid, binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
          context <- binding_context(binding, config),
-         {:ok, team_channels} <- sync_mirrored_teams(context, config, opts),
-         {:ok, group_chats} <- sync_mirrored_group_chats(context, config, opts) do
+         {:ok, team_channels} <- sync_mirrored_teams(context, config),
+         {:ok, group_chats} <- sync_mirrored_group_chats(context, config) do
       {:ok,
        %{
          binding: %{agent_uid: binding.agent_uid, binding_name: binding.name},
@@ -105,15 +105,14 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  @spec refresh_conversation(String.t(), String.t(), String.t(), keyword()) ::
+  @spec refresh_conversation(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def refresh_conversation(agent_uid, binding_name, conversation_id, opts \\ []) do
+  def refresh_conversation(agent_uid, binding_name, conversation_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
          context <- binding_context(binding, config),
          {:ok, mirror} <- mirrored_conversation(conversation_id),
-         {:ok, result} <-
-           sync_conversation(context, config, mirror, opts) do
+         {:ok, result} <- sync_conversation(context, config, mirror) do
       {:ok, result}
     end
   end
@@ -177,19 +176,19 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       |> Enum.any?(&(MapHelpers.optional_text(&1, "id") == recipient_id))
   end
 
-  defp sync_mirrored_teams(context, config, opts) do
-    client = Config.chat_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_mirrored_teams(context, config) do
+    client = Config.chat_client(config)
 
     mirrored_teams()
     |> Enum.reduce_while({:ok, 0}, fn {team_id, service_url}, {:ok, count} ->
-      case sync_team(context, config, client, team_id, service_url, opts) do
+      case sync_team(context, config, client, team_id, service_url) do
         {:ok, synced} -> {:cont, {:ok, count + synced}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp sync_team(context, config, client, team_id, service_url, opts) do
+  defp sync_team(context, config, client, team_id, service_url) do
     with {:ok, %{"conversations" => channels}} <-
            BotConnector.list_team_channels(client, service_url, team_id) do
       channels
@@ -204,7 +203,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           name: MapHelpers.optional_text(channel, "name")
         }
 
-        case sync_conversation(context, config, mirror, opts) do
+        case sync_conversation(context, config, mirror) do
           {:ok, _result} -> {:cont, {:ok, count + 1}}
           {:error, reason} -> {:halt, {:error, reason}}
         end
@@ -212,21 +211,21 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp sync_mirrored_group_chats(context, config, opts) do
+  defp sync_mirrored_group_chats(context, config) do
     mirrored_group_chats()
     |> Enum.reduce_while({:ok, 0}, fn mirror, {:ok, count} ->
-      case sync_conversation(context, config, mirror, opts) do
+      case sync_conversation(context, config, mirror) do
         {:ok, _result} -> {:cont, {:ok, count + 1}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp sync_conversation(_context, _config, %{conversation_id: nil}, _opts),
+  defp sync_conversation(_context, _config, %{conversation_id: nil}),
     do: {:error, :missing_conversation_id}
 
-  defp sync_conversation(context, config, mirror, opts) do
-    client = Config.chat_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_conversation(context, config, mirror) do
+    client = Config.chat_client(config)
 
     with_conversation_lock(Config.namespace(config), mirror.conversation_id, fn ->
       with {:ok, group} <- ensure_conversation_group(context, config, mirror),

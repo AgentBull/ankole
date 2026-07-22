@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { TurnModelRef } from '../../lanes/actor_lane'
 import { assertExistingPathWithin, workspacePhysicalRoots } from '../real-path-boundary'
-import { resolveWorkspacePath } from '../workspace-paths'
+import { resolveAgentHomePath } from '../agent-home-paths'
 import type { ContentPart, ModelConfig } from '../llm'
 import { imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText, type ModelImageSource } from '../vision'
 import { arrayPath, firstString, isRecord } from '@pleisto/active-support'
@@ -20,13 +20,14 @@ export async function actorEventUserContent(
   fallbackType: string,
   modelRef: TurnModelRef,
   opts: {
+    agentHome?: string
     workspaceRoot: string
     visionFallbackModel?: ModelConfig
     abortSignal?: AbortSignal
   }
 ): Promise<string | ContentPart[]> {
   const baseText = actorEventText(payload, fallbackType)
-  const imageParts = await actorEventImageParts(payload, opts.workspaceRoot)
+  const imageParts = await actorEventImageParts(payload, opts.agentHome ?? opts.workspaceRoot, opts.workspaceRoot)
   const adaptation = await modelImageAdaptation(imageParts, modelRef, {
     visionFallbackModel: opts.visionFallbackModel,
     abortSignal: opts.abortSignal
@@ -54,6 +55,7 @@ export async function actorEventUserContent(
  */
 async function actorEventImageParts(
   payload: JSONObject | undefined,
+  agentHome: string,
   workspaceRoot: string
 ): Promise<ModelImageSource[]> {
   const attachments = [
@@ -64,7 +66,7 @@ async function actorEventImageParts(
   const parts: ModelImageSource[] = []
 
   for (const path of paths) {
-    const part = await imageSourceFromWorkspacePath(path, workspaceRoot)
+    const part = await imageSourceFromAgentPath(path, agentHome, workspaceRoot)
     if (part) parts.push(part)
   }
 
@@ -88,13 +90,14 @@ function visionEligibleAttachmentPath(value: unknown): string[] {
  * Missing or invalid files are ignored because attachment text still describes
  * the file; a single bad attachment should not drop the whole actor event.
  */
-async function imageSourceFromWorkspacePath(
+async function imageSourceFromAgentPath(
   path: string,
+  agentHome: string,
   workspaceRoot: string
 ): Promise<ModelImageSource | undefined> {
   let filePath: string
   try {
-    filePath = workspaceFilePath(path, workspaceRoot)
+    filePath = agentFilePath(path, agentHome, workspaceRoot)
   } catch {
     return undefined
   }
@@ -110,14 +113,16 @@ async function imageSourceFromWorkspacePath(
 }
 
 /**
- * Resolves a `/workspace/...` or relative attachment path under the session
- * workspace root.
+ * Resolves a real Agent Home path or a workspace-relative attachment path.
  */
-function workspaceFilePath(path: string, workspaceRoot: string): string {
-  const lexicalPath = resolveWorkspacePath(workspaceRoot, path, { errorMessage: 'image path escapes workspace root' })
+function agentFilePath(path: string, agentHome: string, workspaceRoot: string): string {
+  const lexicalPath = resolveAgentHomePath(agentHome, path, {
+    cwd: workspaceRoot,
+    errorMessage: 'image path escapes Agent Home'
+  })
   return assertExistingPathWithin(
-    workspacePhysicalRoots(workspaceRoot),
+    workspacePhysicalRoots(agentHome),
     lexicalPath,
-    'image path resolves outside workspace roots'
+    'image path resolves outside Agent Home'
   )
 }

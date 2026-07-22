@@ -35,15 +35,6 @@ defmodule Ankole.SignalsGateway.AdapterContext do
   end
 
   @doc """
-  Returns the logger module available to adapters.
-
-  The prefix argument is accepted for adapter ergonomics but currently does not
-  create a separate logger namespace.
-  """
-  @spec get_logger(t(), String.t() | nil) :: module()
-  def get_logger(%__MODULE__{}, _prefix \\ nil), do: Logger
-
-  @doc """
   Returns the display name associated with this adapter context.
   """
   @spec get_user_name(t()) :: String.t()
@@ -63,27 +54,14 @@ defmodule Ankole.SignalsGateway.AdapterContext do
   end
 
   defp put_default(attrs, key, value) do
-    cond do
-      Map.has_key?(attrs, key) -> attrs
-      Map.has_key?(attrs, Atom.to_string(key)) -> attrs
-      true -> Map.put(attrs, key, value)
-    end
+    Map.put_new(attrs, key, value)
   end
 
   defp fetch(attrs, key) do
-    cond do
-      Keyword.keyword?(attrs) -> Keyword.get(attrs, key)
-      Map.has_key?(attrs, key) -> Map.fetch!(attrs, key)
-      Map.has_key?(attrs, Atom.to_string(key)) -> Map.fetch!(attrs, Atom.to_string(key))
-      true -> nil
-    end
+    if Keyword.keyword?(attrs), do: Keyword.get(attrs, key), else: Map.get(attrs, key)
   end
 
   defp fetch!(attrs, key) do
-    cond do
-      Keyword.keyword?(attrs) -> Keyword.fetch!(attrs, key)
-      Map.has_key?(attrs, key) -> Map.fetch!(attrs, key)
-      true -> Map.fetch!(attrs, Atom.to_string(key))
-    end
+    if Keyword.keyword?(attrs), do: Keyword.fetch!(attrs, key), else: Map.fetch!(attrs, key)
   end
 end

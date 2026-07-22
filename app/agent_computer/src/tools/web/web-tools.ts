@@ -98,7 +98,7 @@ function createWebSearchTool(
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => '检索资料',
+    describeActivity: params => `搜索网页：“${activityExcerpt(params.query, 48)}”`,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       const availability = await resolveAvailability(signal)
       const model = configuredProviderModel('web_search', availability.web_search)
@@ -143,7 +143,8 @@ function createWebFetchTool(
     executionMode: 'sequential',
     isReadOnly: true,
     isDestructive: false,
-    describeActivity: () => '阅读资料',
+    describeActivity: params => webFetchActivity(params.urls),
+    describeCompletedActivity: (params, details) => completedWebFetchActivity(params.urls, details),
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebToolDetails>> {
       let body: unknown
       let providerModel: string | undefined
@@ -428,6 +429,48 @@ function aiGatewayURL(aiGateway: AIGatewayHTTPClient, path: string): string {
  */
 function detailsObject(value: unknown): JSONObject {
   return isRecord(value) ? value : { value }
+}
+
+/** Builds a parameter-only label before web_fetch returns page metadata. */
+function webFetchActivity(urls: string[]): string {
+  const domain = webDomain(urls[0])
+  const target = domain || '网页'
+  return urls.length === 1 ? `读取网页：${target}` : `读取网页：${target} 等 ${urls.length} 个网页`
+}
+
+/** Adds a returned page title without exposing fetched body text or URL parameters. */
+function completedWebFetchActivity(urls: string[], details: WebToolDetails): string {
+  const results = Array.isArray(details.results) ? details.results : []
+  const firstTitled = results.find(result => isRecord(result) && stringField(result, 'title'))
+  const firstResult = firstTitled ?? results.find(isRecord)
+  const record = isRecord(firstResult) ? firstResult : undefined
+  const title = record ? stringField(record, 'title') : undefined
+  const domain = webDomain(record ? stringField(record, 'url') : undefined) || webDomain(urls[0])
+  const titlePart = title ? `《${activityExcerpt(title, 40)}》` : undefined
+  const target = [titlePart, domain].filter(Boolean).join(' · ') || '网页'
+
+  return urls.length === 1 ? `读取网页：${target}` : `读取网页：${target} 等 ${urls.length} 个网页`
+}
+
+function webDomain(value?: string): string | undefined {
+  if (!value) return undefined
+  try {
+    return webURLFacts(value).host || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function activityExcerpt(value: string, maxCharacters: number): string {
+  const normalized = value
+    // oxlint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const characters = Array.from(normalized)
+  return characters.length <= maxCharacters
+    ? normalized
+    : `${characters.slice(0, Math.max(0, maxCharacters - 1)).join('')}…`
 }
 
 /**

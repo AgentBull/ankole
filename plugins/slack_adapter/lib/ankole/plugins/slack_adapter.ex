@@ -11,7 +11,6 @@ defmodule Ankole.Plugins.SlackAdapter do
     "appToken" => {"App Token", "带 connections:write 权限的 App-Level Token。"},
     "platformSubjectNamespace" => {"平台主体命名空间", "每个 Slack workspace 使用一个命名空间。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
-    "baseURL" => {"基础 URL", "可选，本地兼容 provider 的 URL。"},
     "clientID" => {"Client ID", "Slack 应用的 Client ID。"},
     "clientSecret" => {"Client Secret", "Slack 应用的 Client Secret。"},
     "teamID" => {"Workspace ID", "可选，登录时限定 workspace。"},
@@ -24,9 +23,6 @@ defmodule Ankole.Plugins.SlackAdapter do
 
   @impl true
   def plugin_id, do: "slack-adapter"
-
-  @impl true
-  def api_version, do: 1
 
   @impl true
   def display_name,
@@ -127,8 +123,7 @@ defmodule Ankole.Plugins.SlackAdapter do
       ),
       field("userName", "Output display name", "Name shown for outbound messages.", :string,
         default: "Slack"
-      ),
-      field("baseURL", "Base URL", "Optional local-compatible provider URL.", :string, [])
+      )
     ]
   end
 

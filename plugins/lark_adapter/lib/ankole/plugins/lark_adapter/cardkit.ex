@@ -34,16 +34,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   @impl true
   def open(%Request{} = request),
-    do: request |> open([]) |> normalize_lifecycle_result()
+    do: request |> open_result() |> normalize_lifecycle_result()
 
-  @doc false
-  def open(%Request{} = request, opts) do
+  defp open_result(%Request{} = request) do
     with {:ok, event} <- fresh_event(request.actor_event),
          {:ok, config} <- config_for_event(event),
-         client <- Keyword.get_lazy(opts, :client, fn -> Config.client(config) end),
-         request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
          {:ok, render_request, image_state} <-
-           resolve_render_request(event, %{}, request, client, opts),
+           resolve_render_request(event, %{}, request, client),
          pages <- CardChain.pages(render_request.presentation),
          first_page <- CardChain.page_at(pages, 0),
          first_tail? <- length(pages) == 1,
@@ -66,7 +65,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              render_opts
            ),
          {:ok, checkpoint, send_result} <-
-           ensure_card_sent(event, checkpoint, client, request_fun, opts),
+           ensure_card_sent(event, checkpoint, client, request_fun),
          {:ok, checkpoint, chain_result} <-
            ensure_page_chain(
              event,
@@ -75,8 +74,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              request.presentation,
              pages,
              client,
-             request_fun,
-             opts
+             request_fun
            ),
          {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
       {:ok,
@@ -90,31 +88,28 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def update(%Request{} = request),
-    do: request |> update([]) |> normalize_lifecycle_result()
-
-  @doc false
-  def update(%Request{} = request, opts) do
+  def update(%Request{} = request) do
     with {:ok, event} <- fresh_event(request.actor_event),
          checkpoint when is_map(checkpoint) <- event.reply_preview_checkpoint,
          card_id when is_binary(card_id) <- checkpoint["card_id"] do
-      do_update(event, checkpoint, card_id, request, opts)
+      do_update(event, checkpoint, card_id, request)
     else
-      nil -> open(request, opts)
+      nil -> open_result(request)
       {:error, _reason} = error -> error
-      _missing_card_id -> open(request, opts)
+      _missing_card_id -> open_result(request)
     end
+    |> normalize_lifecycle_result()
   end
 
   @impl true
   def finalize(%Request{} = request) do
-    case finalize(request, []) do
+    case finalize_result(request) do
       {:error, :cardkit_soft_budget_exceeded} ->
-        plain_text_fallback(request.actor_event, request, [])
+        plain_text_fallback(request.actor_event, request)
 
       {:error, %Error{} = error} ->
         case ErrorPolicy.action(error) do
-          :plain_text_fallback -> plain_text_fallback(request.actor_event, request, [])
+          :plain_text_fallback -> plain_text_fallback(request.actor_event, request)
           _action -> normalize_lifecycle_result({:error, error})
         end
 
@@ -124,17 +119,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def refresh(%Request{} = request),
-    do: request |> refresh([]) |> normalize_lifecycle_result()
-
-  @doc false
-  def refresh(%Request{} = request, opts) do
+  def refresh(%Request{} = request) do
     with {:ok, event} <- fresh_event(request.actor_event),
          %{"card_id" => card_id, "refresh_pending" => true} = checkpoint
          when is_binary(card_id) <- event.reply_preview_checkpoint,
          {:ok, config} <- config_for_event(event),
-         client <- Keyword.get_lazy(opts, :client, fn -> Config.client(config) end),
-         request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
          request <- refresh_request(request, event, checkpoint),
          request <- apply_checkpoint_images(request, checkpoint),
          pages <- CardChain.pages(request.presentation),
@@ -157,10 +148,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       nil -> {:error, :reply_preview_refresh_not_pending}
       {:error, _reason} = error -> error
     end
+    |> normalize_lifecycle_result()
   end
 
-  @doc false
-  def finalize(%Request{} = request, opts) do
+  defp finalize_result(%Request{} = request) do
     request = %{request | mode: :terminal}
 
     with {:ok, event} <- fresh_event(request.actor_event) do
@@ -174,16 +165,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
           if terminal_checkpoint_matches?(checkpoint, request.presentation) do
             {:ok, delivery_result(message_id, checkpoint)}
           else
-            do_finalize(event, checkpoint, card_id, request, opts)
+            do_finalize(event, checkpoint, card_id, request)
           end
 
         %{"card_id" => card_id} = checkpoint when is_binary(card_id) ->
-          do_finalize(event, checkpoint, card_id, request, opts)
+          do_finalize(event, checkpoint, card_id, request)
 
         _checkpoint ->
-          case open(request, opts) do
+          case open_result(request) do
             {:error, :cardkit_soft_budget_exceeded} ->
-              plain_text_fallback(event, request, opts)
+              plain_text_fallback(event, request)
 
             result ->
               result
@@ -192,14 +183,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp do_update(event, checkpoint, _card_id, request, opts) do
+  defp do_update(event, checkpoint, _card_id, request) do
     with {:ok, config} <- config_for_event(event),
-         client <- Keyword.get_lazy(opts, :client, fn -> Config.client(config) end),
-         request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
          {:ok, checkpoint, send_result} <-
-           ensure_card_sent(event, checkpoint, client, request_fun, opts),
+           ensure_card_sent(event, checkpoint, client, request_fun),
          {:ok, render_request, image_state} <-
-           resolve_render_request(event, checkpoint, request, client, opts),
+           resolve_render_request(event, checkpoint, request, client),
          {:ok, checkpoint} <- persist_markdown_images(event, checkpoint, image_state),
          pages <- CardChain.pages(render_request.presentation),
          {:ok, checkpoint, chain_result} <-
@@ -210,8 +201,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              request.presentation,
              pages,
              client,
-             request_fun,
-             opts
+             request_fun
            ),
          %{"card_id" => card_id} <- CardChain.active_card(checkpoint),
          {active_page, render_opts} <- active_render_context(pages, checkpoint),
@@ -271,19 +261,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
        |> Map.merge(send_result)
        |> Map.merge(chain_result)}
     else
-      {:error, %Error{} = error} -> recover_update(error, event, checkpoint, request, opts)
+      {:error, %Error{} = error} -> recover_update(error, event, checkpoint, request)
       {:error, _reason} = error -> error
     end
   end
 
-  defp do_finalize(event, checkpoint, _card_id, request, opts) do
+  defp do_finalize(event, checkpoint, _card_id, request) do
     with {:ok, config} <- config_for_event(event),
-         client <- Keyword.get_lazy(opts, :client, fn -> Config.client(config) end),
-         request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
          {:ok, checkpoint, send_result} <-
-           ensure_card_sent(event, checkpoint, client, request_fun, opts),
+           ensure_card_sent(event, checkpoint, client, request_fun),
          {:ok, render_request, image_state} <-
-           resolve_render_request(event, checkpoint, request, client, opts),
+           resolve_render_request(event, checkpoint, request, client),
          {:ok, checkpoint} <- persist_markdown_images(event, checkpoint, image_state),
          pages <- CardChain.pages(render_request.presentation),
          {:ok, checkpoint, chain_result} <-
@@ -294,8 +284,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              request.presentation,
              pages,
              client,
-             request_fun,
-             opts
+             request_fun
            ),
          %{"card_id" => card_id} <- CardChain.active_card(checkpoint),
          {active_page, render_opts} <- active_render_context(pages, checkpoint),
@@ -319,24 +308,24 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
        |> Map.merge(chain_result)}
     else
       {:error, %Error{} = error} ->
-        recover_finalize(error, event, checkpoint, request, opts)
+        recover_finalize(error, event, checkpoint, request)
 
       {:error, :cardkit_soft_budget_exceeded} ->
-        plain_text_fallback(event, request, opts)
+        plain_text_fallback(event, request)
 
       {:error, :cardkit_answer_rewrite_after_rollover} ->
-        plain_text_fallback(event, request, opts)
+        plain_text_fallback(event, request)
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp resolve_render_request(event, checkpoint, request, client, opts) do
+  defp resolve_render_request(event, checkpoint, request, client) do
     image_state = Map.get(checkpoint, "markdown_images", %{})
 
     with {:ok, presentation, image_state} <-
-           ImageResolver.resolve(request.presentation, event.agent_uid, image_state, client, opts) do
+           ImageResolver.resolve(request.presentation, event.agent_uid, image_state, client) do
       previous_presentation =
         case request.previous_presentation do
           previous when is_map(previous) -> ImageResolver.apply_resolved(previous, image_state)
@@ -525,12 +514,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     apply_batch_mutation(event, card_id, actions, "terminal", client, request_fun)
   end
 
-  defp recover_update(error, event, checkpoint, request, opts) do
+  defp recover_update(error, event, checkpoint, request) do
     log_recovery(:update, error, event, checkpoint, request)
 
     case ErrorPolicy.action(error) do
       :replace_card ->
-        replace_card(event, checkpoint, request, opts)
+        replace_card(event, checkpoint, request)
 
       :plain_text_fallback ->
         {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
@@ -543,15 +532,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp recover_finalize(error, event, checkpoint, request, opts) do
+  defp recover_finalize(error, event, checkpoint, request) do
     log_recovery(:finalize, error, event, checkpoint, request)
 
     case ErrorPolicy.action(error) do
       :replace_card ->
-        replace_card(event, checkpoint, request, opts)
+        replace_card(event, checkpoint, request)
 
       :plain_text_fallback ->
-        plain_text_fallback(event, request, opts)
+        plain_text_fallback(event, request)
 
       :operator_action_required ->
         {:error, {:reply_delivery, :operator_action_required, ErrorPolicy.provider_error(error)}}
@@ -576,12 +565,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     )
   end
 
-  defp replace_card(event, checkpoint, request, opts) do
+  defp replace_card(event, checkpoint, request) do
     replacements = non_negative_integer(checkpoint["replacement_count"])
 
     if replacements >= @replacement_limit do
       if request.mode == :terminal do
-        plain_text_fallback(event, request, opts)
+        plain_text_fallback(event, request)
       else
         {:error, :cardkit_replacement_exhausted}
       end
@@ -599,7 +588,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       }
 
       with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, replacement_checkpoint) do
-        open(%{request | checkpoint: replacement_checkpoint}, opts)
+        open_result(%{request | checkpoint: replacement_checkpoint})
       end
     end
   end
@@ -690,7 +679,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp ensure_card_sent(event, checkpoint, client, request_fun, opts) do
+  defp ensure_card_sent(event, checkpoint, client, request_fun) do
     case CardChain.active_card(checkpoint) do
       %{"message_id" => message_id} when is_binary(message_id) and message_id != "" ->
         with {:ok, checkpoint} <- complete_sent_rollover(event, checkpoint) do
@@ -699,7 +688,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
       _unsent ->
         with {:ok, checkpoint, result} <-
-               send_active_card(event, checkpoint, client, request_fun, opts),
+               send_active_card(event, checkpoint, client, request_fun),
              {:ok, checkpoint} <- complete_sent_rollover(event, checkpoint) do
           {:ok, checkpoint, result}
         end
@@ -722,7 +711,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp send_active_card(event, checkpoint, client, request_fun, opts) do
+  defp send_active_card(event, checkpoint, client, request_fun) do
     active_index = CardChain.active_index(checkpoint)
 
     with operation_result <-
@@ -738,8 +727,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              checkpoint,
              operation,
              request_fun,
-             Keyword.get(opts, :card_id_retry_delays_ms, @card_id_retry_delays_ms),
-             Keyword.get(opts, :sleep_fun, &Process.sleep/1)
+             @card_id_retry_delays_ms,
+             &Process.sleep/1
            ),
          message_id when is_binary(message_id) <- result[:created_source_entry_id],
          checkpoint <-
@@ -765,8 +754,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          durable_presentation,
          pages,
          client,
-         request_fun,
-         opts
+         request_fun
        ) do
     checkpoint = CardChain.sync_active(checkpoint)
 
@@ -793,8 +781,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
                  durable_presentation,
                  pages,
                  client,
-                 request_fun,
-                 opts
+                 request_fun
                ) do
           ensure_page_chain(
             event,
@@ -803,8 +790,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
             durable_presentation,
             pages,
             client,
-            request_fun,
-            opts
+            request_fun
           )
         end
       end
@@ -898,8 +884,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          durable_presentation,
          pages,
          client,
-         request_fun,
-         opts
+         request_fun
        ) do
     next_index = length(CardChain.cards(checkpoint))
     page = CardChain.page_at(pages, next_index)
@@ -957,7 +942,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
            end),
          {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint),
          {:ok, checkpoint, _result} <-
-           ensure_card_sent(event, checkpoint, client, request_fun, opts),
+           ensure_card_sent(event, checkpoint, client, request_fun),
          checkpoint <- Map.delete(checkpoint, "pending_rollover"),
          {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
@@ -1620,10 +1605,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp plain_text_fallback(event, %Request{outbox: %OutboxEntry{} = outbox} = request, opts) do
+  defp plain_text_fallback(event, %Request{outbox: %OutboxEntry{} = outbox} = request) do
     with {:ok, config} <- config_for_event(event),
-         client <- Keyword.get_lazy(opts, :client, fn -> Config.client(config) end),
-         request_fun <- Keyword.get(opts, :request_fun, &FeishuOpenAPI.request/4),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
          {:ok, operation} <- Outbox.outbox_operation_for_actor_event(event),
          text <- ReplyPresentation.fallback_text(request.presentation),
          {operation, text} <- undelivered_plain_text(event, operation, text),
@@ -1640,7 +1625,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp plain_text_fallback(_event, _request, _opts),
+  defp plain_text_fallback(_event, _request),
     do: {:error, :cardkit_plain_text_fallback_requires_outbox}
 
   defp undelivered_plain_text(%ActorEvent{id: actor_event_id}, operation, text) do

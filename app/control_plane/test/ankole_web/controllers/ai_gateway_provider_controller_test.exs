@@ -306,14 +306,20 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       conn
       |> recycle_api()
       |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/coding", %{
-        "codex_account_id" => "chatgpt-account-1"
+        "codex_account_id" => "chatgpt-account-1",
+        "model" => "gpt-5.6-sol",
+        "model_reasoning_effort" => "max",
+        "fast_mode" => true
       })
 
     assert %{
              "model_profile" => %{
                "profile" => "coding",
                "configured" => true,
-               "codex_account_id" => "chatgpt-account-1"
+               "codex_account_id" => "chatgpt-account-1",
+               "model" => "gpt-5.6-sol",
+               "model_reasoning_effort" => "max",
+               "fast_mode" => true
              }
            } = json_response(conn, 200)
 

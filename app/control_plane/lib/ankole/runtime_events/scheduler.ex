@@ -34,6 +34,7 @@ defmodule Ankole.RuntimeEvents.Scheduler do
 
       {:ok,
        %{
+         handler: Keyword.get(opts, :handler, &Handlers.handle/1),
          task_supervisor:
            Keyword.get(opts, :task_supervisor, Ankole.RuntimeEvents.TaskSupervisor),
          timers: %{},
@@ -156,8 +157,10 @@ defmodule Ankole.RuntimeEvents.Scheduler do
   end
 
   defp run_handler(state, %Event{} = event) do
+    handler = state.handler
+
     case Task.Supervisor.start_child(state.task_supervisor, fn ->
-           Handlers.handle(event)
+           handler.(event)
          end) do
       {:ok, _pid} ->
         :ok

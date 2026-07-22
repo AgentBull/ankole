@@ -14,22 +14,31 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Brain.Scope
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.AIReplyText
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ClarifyPrompt
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.ReplyAttachment
+  alias Ankole.SignalsGateway
   alias Ankole.WorkerFiles
 
   @max_chain_depth 500
   @scheduled_event_types ~w(check_back_later.wakeup cron.fire)
+  @background_job_lifecycle_event_types ~w(
+    background_agent_job.waiting
+    background_agent_job.completed
+    background_agent_job.failed
+  )
 
   @type completion :: %{
           conversation: Conversation.t(),
@@ -66,13 +75,12 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     with {:ok, declaration} <- brain_scope_declaration(repo, actor_event),
          initial_metadata = initial_brain_metadata(declaration),
          {:ok, conversation} <-
-           AIGateway.ensure_conversation_in_tx(
+           ensure_and_lock_active_conversation(
              repo,
              subject_uid,
              conversation_key,
              initial_metadata
            ),
-         %Conversation{} = conversation <- AIGateway.lock_conversation(repo, conversation.id),
          {:ok, conversation} <- reconcile_brain_scope(repo, conversation, declaration) do
       {:ok, conversation}
     else
@@ -97,29 +105,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
-  @spec system_prompt_snapshot(Conversation.t()) :: String.t() | nil
-  def system_prompt_snapshot(%Conversation{id: conversation_id}) do
-    Message
-    |> where([message], message.conversation_id == ^conversation_id)
-    |> where([message], message.type == "message")
-    |> where(
-      [message],
-      fragment("jsonb_typeof(?->'instructions') = 'string'", message.metadata)
-    )
-    |> order_by([message], asc: message.inserted_at, asc: message.id)
-    |> limit(1)
-    |> select([message], message.metadata)
-    |> Repo.one()
-    |> case do
-      %{"instructions" => instructions} when is_binary(instructions) and instructions != "" ->
-        instructions
-
-      _missing ->
-        nil
-    end
-  end
-
-  @doc false
   @spec active_conversation_for_update(module(), String.t(), String.t()) ::
           Conversation.t() | nil
   def active_conversation_for_update(repo, subject_uid, conversation_key),
@@ -135,6 +120,245 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       limit: 1
     )
     |> List.first()
+  end
+
+  @doc false
+  @spec record_tool_results(String.t(), map()) :: {:ok, %{body: map()}} | {:error, term()}
+  def record_tool_results(subject_uid, request) when is_map(request) do
+    {complete_actor_event_ids, request} = Map.pop(request, "complete_actor_event_ids", [])
+
+    with {:ok, complete_actor_event_ids} <-
+           normalize_complete_actor_event_ids(complete_actor_event_ids) do
+      case complete_actor_event_ids do
+        [] ->
+          AIGateway.record_tool_results(subject_uid, request)
+
+        ids ->
+          record_tool_results_and_complete_events(subject_uid, request, ids)
+      end
+    end
+  end
+
+  def record_tool_results(_subject_uid, _request), do: {:error, :invalid_request_body}
+
+  defp record_tool_results_and_complete_events(subject_uid, request, event_ids) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, current_event_id} <- current_actor_event_id(request),
+         {:ok, result} <-
+           Repo.transact(fn repo ->
+             record_tool_results_and_complete_events_in_tx(
+               repo,
+               subject_uid,
+               current_event_id,
+               event_ids,
+               request
+             )
+           end) do
+      StatefulResponses.publish_tool_result_events(result.message)
+      {:ok, %{body: result.body}}
+    end
+  end
+
+  defp record_tool_results_and_complete_events_in_tx(
+         repo,
+         subject_uid,
+         current_event_id,
+         event_ids,
+         request
+       ) do
+    with %ActorEvent{} = current_snapshot <- repo.get(ActorEvent, current_event_id),
+         :ok <- validate_current_event_snapshot(current_snapshot, subject_uid),
+         {:ok, target_snapshots} <- target_event_snapshots(repo, event_ids),
+         :ok <- validate_target_event_snapshots(target_snapshots, current_snapshot),
+         :ok <-
+           Actors.lock_actor_session_in_tx(
+             repo,
+             current_snapshot.agent_uid,
+             current_snapshot.session_id
+           ),
+         %ActorEvent{} = current_event <-
+           Actors.lock_actor_event_in_tx(repo, current_event_id),
+         :ok <- validate_locked_current_event(current_event, current_snapshot),
+         {:ok, target_events} <- lock_target_events(repo, event_ids),
+         :ok <- validate_locked_target_events(repo, target_events, current_event),
+         {:ok, journal} <-
+           StatefulLifecycle.record_tool_results_in_tx(
+             repo,
+             subject_uid,
+             request,
+             %{"completed_actor_event_ids" => event_ids}
+           ),
+         :ok <- validate_journal_event_ids(journal.message, event_ids),
+         :ok <- complete_target_events(repo, target_events, journal.disposition) do
+      {:ok, journal}
+    else
+      nil -> {:error, :actor_event_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_complete_actor_event_ids(ids) when is_list(ids) and length(ids) <= 32 do
+    ids
+    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
+      case Ecto.UUID.cast(id) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        :error -> {:halt, {:error, :invalid_complete_actor_event_ids}}
+      end
+    end)
+    |> case do
+      {:ok, normalized} -> {:ok, normalized |> Enum.uniq() |> Enum.sort()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_complete_actor_event_ids(_ids),
+    do: {:error, :invalid_complete_actor_event_ids}
+
+  defp current_actor_event_id(%{"metadata" => %{"actor_event_id" => actor_event_id}}) do
+    case Ecto.UUID.cast(actor_event_id) do
+      {:ok, actor_event_id} -> {:ok, actor_event_id}
+      :error -> {:error, :invalid_current_actor_event_id}
+    end
+  end
+
+  defp current_actor_event_id(_request), do: {:error, :invalid_current_actor_event_id}
+
+  defp validate_current_event_snapshot(
+         %ActorEvent{agent_uid: subject_uid, input_state: "open", completed_at: nil},
+         subject_uid
+       ),
+       do: :ok
+
+  defp validate_current_event_snapshot(%ActorEvent{}, _subject_uid),
+    do: {:error, :invalid_current_actor_event}
+
+  defp target_event_snapshots(repo, event_ids) do
+    events =
+      ActorEvent
+      |> where([event], event.id in ^event_ids)
+      |> repo.all()
+
+    if length(events) == length(event_ids),
+      do: {:ok, events},
+      else: {:error, :actor_event_not_found}
+  end
+
+  defp validate_target_event_snapshots(events, current_event) do
+    if Enum.all?(events, fn event ->
+         event.agent_uid == current_event.agent_uid and
+           event.session_id == current_event.session_id and
+           event.type in @background_job_lifecycle_event_types
+       end) do
+      :ok
+    else
+      {:error, :invalid_actor_event_handoff}
+    end
+  end
+
+  defp validate_locked_current_event(current_event, snapshot) do
+    if current_event.agent_uid == snapshot.agent_uid and
+         current_event.session_id == snapshot.session_id and
+         current_event.input_state == "open" and is_nil(current_event.completed_at) do
+      :ok
+    else
+      {:error, :invalid_current_actor_event}
+    end
+  end
+
+  defp lock_target_events(repo, event_ids) do
+    events = Enum.map(event_ids, &Actors.lock_actor_event_in_tx(repo, &1))
+
+    if Enum.all?(events, &match?(%ActorEvent{}, &1)),
+      do: {:ok, events},
+      else: {:error, :actor_event_not_found}
+  end
+
+  defp validate_locked_target_events(repo, events, current_event) do
+    Enum.reduce_while(events, :ok, fn event, :ok ->
+      case validate_locked_target_event(repo, event, current_event) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_locked_target_event(repo, event, current_event) do
+    with true <- event.agent_uid == current_event.agent_uid,
+         true <- event.session_id == current_event.session_id,
+         true <- event.input_state == "open",
+         true <- event.type in @background_job_lifecycle_event_types,
+         {:ok, identity} <- lifecycle_event_identity(event),
+         %Job{} = job <- lock_handoff_job(repo, event.agent_uid, identity.job_id),
+         true <- job.owner_session_id == event.session_id,
+         true <- job.attempts == identity.attempt,
+         true <- job.status == identity.status do
+      :ok
+    else
+      _invalid -> {:error, :invalid_actor_event_handoff}
+    end
+  end
+
+  defp lifecycle_event_identity(%ActorEvent{} = event) do
+    data = get_in(event.payload || %{}, ["data"])
+
+    with %{} <- data,
+         job_id when is_integer(job_id) and job_id >= 1000 <- Map.get(data, "job_id"),
+         attempt when is_integer(attempt) and attempt >= 0 <- Map.get(data, "attempts"),
+         status when is_binary(status) <- Map.get(data, "status"),
+         {:ok, expected_type, source_status} <- lifecycle_type_identity(status),
+         true <- event.type == expected_type,
+         true <-
+           event.source_event_id ==
+             "background_agent_job:#{job_id}:#{source_status}:#{attempt}" do
+      {:ok, %{job_id: job_id, attempt: attempt, status: status}}
+    else
+      _invalid -> {:error, :invalid_actor_event_handoff}
+    end
+  end
+
+  defp lifecycle_type_identity("waiting_on_user"),
+    do: {:ok, "background_agent_job.waiting", "waiting"}
+
+  defp lifecycle_type_identity("succeeded"),
+    do: {:ok, "background_agent_job.completed", "succeeded"}
+
+  defp lifecycle_type_identity("failed"),
+    do: {:ok, "background_agent_job.failed", "failed"}
+
+  defp lifecycle_type_identity(_status), do: {:error, :invalid_actor_event_handoff}
+
+  defp lock_handoff_job(repo, agent_uid, job_id) do
+    Job
+    |> where([job], job.id == ^job_id and job.agent_uid == ^agent_uid)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp validate_journal_event_ids(%Message{} = message, event_ids) do
+    if Map.get(message.metadata || %{}, "completed_actor_event_ids") == event_ids,
+      do: :ok,
+      else: {:error, :tool_result_actor_event_ids_mismatch}
+  end
+
+  defp complete_target_events(repo, events, :inserted) do
+    if Enum.all?(events, &is_nil(&1.completed_at)) do
+      now = DateTime.utc_now(:microsecond)
+
+      Enum.reduce_while(events, :ok, fn event, :ok ->
+        case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now) do
+          {:ok, %ActorEvent{}} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    else
+      {:error, :actor_event_handoff_state_mismatch}
+    end
+  end
+
+  defp complete_target_events(_repo, events, :existing) do
+    if Enum.all?(events, &match?(%DateTime{}, &1.completed_at)),
+      do: :ok,
+      else: {:error, :actor_event_handoff_state_mismatch}
   end
 
   defp brain_scope_declaration(
@@ -168,9 +392,14 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         end
 
       %Channel{} = channel ->
+        visibility =
+          if SignalsGateway.confidential_channel?(actor_event.agent_uid, channel.id, repo: repo),
+            do: "channel",
+            else: "shared"
+
         {:ok,
          %{
-           "visibility" => "public",
+           "visibility" => visibility,
            "channel_id" => channel.id,
            "channel_kind" => Atom.to_string(channel.kind)
          }}
@@ -196,7 +425,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   defp initial_brain_metadata(:undeclared),
-    do: %{"brain" => %{"visibility" => "public"}}
+    do: %{"brain" => %{"visibility" => "self"}}
 
   defp initial_brain_metadata(%{} = declaration), do: %{"brain" => declaration}
 
@@ -207,7 +436,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       nil ->
         brain =
           case declaration do
-            :undeclared -> %{"visibility" => "public"}
+            :undeclared -> %{"visibility" => "self"}
             %{} = declaration -> declaration
           end
 
@@ -218,10 +447,16 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
         )
 
       %{} = brain ->
-        verify_brain_scope(brain, declaration, conversation.id)
-        |> case do
-          :ok -> {:ok, conversation}
-          {:error, _reason} = error -> error
+        case verify_brain_scope(brain, declaration, conversation.id) do
+          :ok ->
+            {:ok, conversation}
+
+          {:error, _reason} = error ->
+            if group_visibility_transition?(brain, declaration) do
+              rollover_group_brain_scope(repo, conversation, declaration)
+            else
+              error
+            end
         end
 
       _invalid ->
@@ -229,9 +464,73 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
+  defp ensure_and_lock_active_conversation(
+         repo,
+         subject_uid,
+         conversation_key,
+         initial_metadata
+       ) do
+    with {:ok, conversation} <-
+           AIGateway.ensure_conversation_in_tx(
+             repo,
+             subject_uid,
+             conversation_key,
+             initial_metadata
+           ),
+         %Conversation{} = conversation <- AIGateway.lock_conversation(repo, conversation.id) do
+      if is_nil(conversation.ended_at) do
+        {:ok, conversation}
+      else
+        ensure_and_lock_active_conversation(
+          repo,
+          subject_uid,
+          conversation_key,
+          initial_metadata
+        )
+      end
+    else
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp rollover_group_brain_scope(repo, %Conversation{} = conversation, declaration) do
+    now = DateTime.utc_now(:microsecond)
+
+    with {:ok, _ended} <-
+           conversation
+           |> Ecto.Changeset.change(ended_at: now)
+           |> repo.update(),
+         {:ok, successor} <-
+           ensure_and_lock_active_conversation(
+             repo,
+             conversation.subject_uid,
+             conversation.conversation_key,
+             initial_brain_metadata(declaration)
+           ) do
+      {:ok, successor}
+    end
+  end
+
+  defp group_visibility_transition?(brain, declaration)
+       when is_map(brain) and is_map(declaration) do
+    same_group? =
+      Map.take(brain, ["channel_id", "channel_kind"]) ==
+        Map.take(declaration, ["channel_id", "channel_kind"]) and
+        brain["channel_kind"] == "im_group"
+
+    visibility_transition? =
+      MapSet.new([brain["visibility"], declaration["visibility"]]) ==
+        MapSet.new(["shared", "channel"])
+
+    same_group? and visibility_transition?
+  end
+
+  defp group_visibility_transition?(_brain, _declaration), do: false
+
   defp verify_brain_scope(brain, :undeclared, conversation_id) do
     case Map.get(brain, "visibility") do
-      visibility when visibility in ["public", "dm"] -> :ok
+      visibility when visibility in ["shared", "self", "dm", "channel"] -> :ok
       _invalid -> {:error, {:invalid_conversation_brain_scope, conversation_id}}
     end
   end
@@ -1193,10 +1492,11 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
          public_id = Artifacts.public_id(artifact),
          filename = "#{public_id}.#{extension}",
          relative_path = "generated-images/#{filename}",
-         :ok <- write_generated_image(image_id, relative_path, artifact.payload) do
+         :ok <- write_generated_image(subject_uid, image_id, relative_path, artifact.payload) do
       {:ok,
        %{
-         "agent_computer_path" => "/workspace/user-files/#{relative_path}",
+         "agent_computer_path" =>
+           Ankole.AgentHomePaths.user_files(subject_uid) <> "/#{relative_path}",
          "user_files_relative_path" => relative_path,
          "name" => filename,
          "mime_type" => artifact.mime_type,
@@ -1223,8 +1523,10 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   defp generated_image_extension(image_id, mime_type),
     do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
 
-  defp write_generated_image(image_id, relative_path, payload) do
-    case WorkerFiles.put("user_files", relative_path, payload) do
+  defp write_generated_image(agent_uid, image_id, relative_path, payload) do
+    lane_path = Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path)
+
+    case WorkerFiles.put("user_files", lane_path, payload) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, {:generated_image_materialization_failed, image_id, reason}}
     end

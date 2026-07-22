@@ -14,7 +14,11 @@ defmodule Ankole.Brain.Citations do
   alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Brain.Sources
 
-  @citation ~r/(?<![A-Za-z0-9_-])src:((?:signal-gateway-entry|brain-source):[A-Za-z0-9_-]+)(?![A-Za-z0-9_-])/
+  @citation ~r/(?<![A-Za-z0-9_-])src:((?:signal-gateway-entry|brain-source):[A-Za-z0-9_-]+)(?![A-Za-z0-9_:-])/
+  @empty_parentheses ~r/\(\s*\)/u
+  @repeated_horizontal_space ~r/[ \t]{2,}/u
+  @space_before_punctuation ~r/[ \t]+([,.;:!?])/u
+  @source_marker ~r/(?<![A-Za-z0-9_-])src:\S*/u
 
   @doc "Returns unique source document ids in first-appearance order."
   @spec document_ids(String.t()) :: [String.t()]
@@ -26,6 +30,19 @@ defmodule Ankole.Brain.Citations do
   end
 
   def document_ids(_body), do: []
+
+  @doc "Removes canonical source markers from a model-facing text projection."
+  @spec remove_markers(String.t()) :: String.t()
+  def remove_markers(body) when is_binary(body) do
+    body
+    |> then(&Regex.replace(@citation, &1, ""))
+    |> then(&Regex.replace(@empty_parentheses, &1, ""))
+    |> then(&Regex.replace(@space_before_punctuation, &1, "\\1"))
+    |> then(&Regex.replace(@repeated_horizontal_space, &1, " "))
+    |> String.split("\n", trim: false)
+    |> Enum.map_join("\n", &String.trim_trailing/1)
+    |> String.trim()
+  end
 
   @doc "Validates newly added refs and replaces one block's derived index."
   @spec sync(module(), Scope.t(), WriteAuthority.t(), EntryBlock.t(), String.t() | nil) ::
@@ -40,7 +57,8 @@ defmodule Ankole.Brain.Citations do
     document_ids = document_ids(block.body)
     previous_ids = MapSet.new(document_ids(previous_body || ""))
 
-    with :ok <- validate_new_refs(repo, scope, authority, document_ids, previous_ids) do
+    with :ok <- validate_syntax(block.body),
+         :ok <- validate_new_refs(repo, scope, authority, document_ids, previous_ids) do
       replace(repo, block.id, document_ids)
     end
   end
@@ -93,6 +111,16 @@ defmodule Ankole.Brain.Citations do
           {:halt, {:error, {:invalid_source_citation, document_id, reason}}}
       end
     end)
+  end
+
+  defp validate_syntax(body) do
+    body
+    |> then(&Regex.replace(@citation, &1, ""))
+    |> then(&Regex.run(@source_marker, &1))
+    |> case do
+      nil -> :ok
+      [marker] -> {:error, {:invalid_source_citation, marker, :malformed_document_id}}
+    end
   end
 
   defp replace(repo, block_id, document_ids) do

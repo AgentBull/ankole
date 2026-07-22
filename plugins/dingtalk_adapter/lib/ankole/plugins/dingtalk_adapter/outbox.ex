@@ -21,8 +21,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   @behaviour Ankole.SignalsGateway.OutboxAdapter
 
-  import Kernel, except: [send: 2]
-
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
@@ -45,15 +43,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   @file_extensions ~w(.xlsx .pdf .zip .rar .doc .docx .ppt .pptx .txt .csv .md .xls .7z .gz .svg .html .json)
 
   @impl true
-  def send(%OutboxEntry{} = outbox), do: send(outbox, [])
-
-  @doc false
   def send(
         %OutboxEntry{
           payload: %{"reply_presentation" => presentation},
           source_actor_event_id: actor_event_id
-        } = outbox,
-        opts
+        } = outbox
       )
       when is_map(presentation) and is_binary(actor_event_id) do
     # The durable terminal AI reply finalizes the streaming card (or degrades to a
@@ -62,47 +56,44 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
       %ActorEvent{} = event ->
         checkpoint = event.reply_preview_checkpoint || %{}
 
-        AICard.finalize(
-          %Request{
-            actor_event: event,
-            presentation: presentation,
-            checkpoint: checkpoint,
-            subject_uid: checkpoint["subject_uid"],
-            conversation_id: checkpoint["conversation_id"],
-            outbox: outbox,
-            mode: :terminal
-          },
-          opts
-        )
+        AICard.finalize(%Request{
+          actor_event: event,
+          presentation: presentation,
+          checkpoint: checkpoint,
+          subject_uid: checkpoint["subject_uid"],
+          conversation_id: checkpoint["conversation_id"],
+          outbox: outbox,
+          mode: :terminal
+        })
 
       nil ->
         {:error, :actor_event_not_found}
     end
   end
 
-  def send(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox, opts)
+  def send(%OutboxEntry{payload: %{"reply_presentation" => presentation}} = outbox)
       when is_map(presentation) do
-    deliver_text(outbox, opts)
+    deliver_text(outbox)
   end
 
-  def send(%OutboxEntry{operation: :post} = outbox, opts), do: deliver_post(outbox, opts)
-  def send(%OutboxEntry{operation: :delete} = outbox, opts), do: deliver_delete(outbox, opts)
-  def send(%OutboxEntry{operation: :card} = outbox, opts), do: deliver_card(outbox, opts)
-  def send(%OutboxEntry{}, _opts), do: {:error, :unsupported_outbox_operation}
+  def send(%OutboxEntry{operation: :post} = outbox), do: deliver_post(outbox)
+  def send(%OutboxEntry{operation: :delete} = outbox), do: deliver_delete(outbox)
+  def send(%OutboxEntry{operation: :card} = outbox), do: deliver_card(outbox)
+  def send(%OutboxEntry{}), do: {:error, :unsupported_outbox_operation}
 
   # --- post ----------------------------------------------------------------
 
-  defp deliver_post(%OutboxEntry{} = outbox, opts) do
+  defp deliver_post(%OutboxEntry{} = outbox) do
     case fetch_list(outbox.payload, "attachments") do
-      [] -> deliver_text(outbox, opts)
-      [attachment] -> deliver_attachment(outbox, attachment, opts)
+      [] -> deliver_text(outbox)
+      [attachment] -> deliver_attachment(outbox, attachment)
       _attachments -> {:error, :multiple_outbound_attachments_not_supported}
     end
   end
 
-  defp deliver_text(%OutboxEntry{} = outbox, opts) do
+  defp deliver_text(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
-         client <- client(config, opts),
+         client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox) do
       robot_code = Config.effective_robot_code(config)
 
@@ -123,14 +114,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
   # A card row without a configured template still delivers its durable intent:
   # the gateway guarantees `fallback_visible_text` on card operations, so the
   # fallback posts as a plain message rather than parking the row unsupported.
-  defp deliver_card(%OutboxEntry{} = outbox, opts) do
+  defp deliver_card(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox) do
       case card_template_id(config) do
         nil ->
-          deliver_text(outbox, opts)
+          deliver_text(outbox)
 
         template_id ->
-          client = client(config, opts)
+          client = Config.client(config)
           robot_code = Config.effective_robot_code(config)
 
           with {:ok, target} <- resolve_target(outbox) do
@@ -141,8 +132,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
       end
     end
   end
-
-  defp client(config, opts), do: Keyword.get_lazy(opts, :client, fn -> Config.client(config) end)
 
   defp card_template_id(config) do
     case MapHelpers.optional_text(config, "cardTemplateId") do
@@ -193,14 +182,14 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   # --- attachment ----------------------------------------------------------
 
-  defp deliver_attachment(%OutboxEntry{} = outbox, attachment, opts) do
+  defp deliver_attachment(%OutboxEntry{} = outbox, attachment) do
     with {:ok, config} <- config_for_outbox(outbox),
-         client <- client(config, opts),
+         client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox),
          # The extension gate runs before the worker read: an unsupported type
          # must fail without pulling bytes it can never send.
-         {:ok, media_type} <- media_type(attachment),
-         {:ok, content, name} <- read_attachment(attachment),
+         {:ok, media_type} <- media_type(attachment, outbox.agent_uid),
+         {:ok, content, name} <- read_attachment(attachment, outbox.agent_uid),
          {:ok, msg_key, msg_param} <- upload_and_build(client, media_type, content, name) do
       robot_code = Config.effective_robot_code(config)
 
@@ -214,8 +203,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  defp read_attachment(attachment) do
-    with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
+  defp read_attachment(attachment, agent_uid) do
+    with relative_path when is_binary(relative_path) <-
+           attachment_relative_path(attachment, agent_uid),
          {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path) do
       {:ok, content, attachment_name(attachment, relative_path)}
     else
@@ -225,9 +215,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  defp media_type(attachment) do
+  defp media_type(attachment, agent_uid) do
     name =
-      optional_text(attachment, "name") || attachment_relative_path(attachment) || ""
+      optional_text(attachment, "name") || attachment_relative_path(attachment, agent_uid) || ""
 
     ext = name |> Path.extname() |> String.downcase()
 
@@ -259,12 +249,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
 
   # --- delete (recall) -----------------------------------------------------
 
-  defp deliver_delete(%OutboxEntry{target_source_entry_id: nil}, _opts),
+  defp deliver_delete(%OutboxEntry{target_source_entry_id: nil}),
     do: {:error, :unsupported_target}
 
-  defp deliver_delete(%OutboxEntry{target_source_entry_id: process_query_key} = outbox, opts) do
+  defp deliver_delete(%OutboxEntry{target_source_entry_id: process_query_key} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
-         client <- client(config, opts),
+         client <- Config.client(config),
          {:ok, target} <- resolve_target(outbox) do
       robot_code = Config.effective_robot_code(config)
 
@@ -367,13 +357,21 @@ defmodule Ankole.Plugins.DingTalkAdapter.Outbox do
     end
   end
 
-  defp attachment_relative_path(attachment) do
-    case optional_text(attachment, "user_files_relative_path") ||
-           optional_text(attachment, "agent_computer_path") ||
-           optional_text(attachment, "path") do
-      "/workspace/user-files/" <> relative -> relative
-      relative when is_binary(relative) -> String.trim_leading(relative, "/")
-      _missing -> nil
+  defp attachment_relative_path(attachment, agent_uid) do
+    case optional_text(attachment, "user_files_relative_path") do
+      relative when is_binary(relative) ->
+        Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
+
+      _missing ->
+        user_files = Ankole.AgentHomePaths.user_files(agent_uid) <> "/"
+
+        case optional_text(attachment, "agent_computer_path") || optional_text(attachment, "path") do
+          ^user_files <> relative ->
+            Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
+
+          _outside ->
+            nil
+        end
     end
   end
 

@@ -131,6 +131,42 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert fields_by_path["sync.pageSize"]["advanced"] == true
   end
 
+  test "setup reads and writes enabled plugin ids without inverting the selection", %{conn: conn} do
+    assert {:ok, ["lark-adapter"]} = PluginsConfig.put_enabled_ids(["lark-adapter"])
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+
+    conn = get(conn, ~p"/.internal-apis/setup/plugins")
+    response = json_response(conn, 200)
+
+    assert response["enabledPluginIDs"] == ["lark-adapter"]
+    assert Enum.any?(response["plugins"], &(&1["id"] == "slack-adapter"))
+
+    updated =
+      conn
+      |> recycle()
+      |> put(~p"/.internal-apis/setup/plugins/enabled", %{
+        "pluginIDs" => ["lark-adapter", "slack-adapter"]
+      })
+      |> json_response(200)
+
+    assert updated["enabledPluginIDs"] == ["lark-adapter", "slack-adapter"]
+    assert {:ok, ["lark-adapter", "slack-adapter"]} = PluginsConfig.enabled_ids()
+  end
+
+  test "setup rejects unknown enabled plugin ids", %{conn: conn} do
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> put(~p"/.internal-apis/setup/plugins/enabled", %{"pluginIDs" => ["missing-plugin"]})
+
+    assert json_response(conn, 400)["error"] =~ "unknown_plugin_ids"
+  end
+
   defp allow_cache_database_access do
     case GenServer.whereis(Cache) do
       nil -> :ok

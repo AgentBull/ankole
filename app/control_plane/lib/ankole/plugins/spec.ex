@@ -12,19 +12,15 @@ defmodule Ankole.Plugins.Spec do
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.PatternDefinition
 
-  # Only api_version 1 exists today; a plugin declaring anything else is rejected
-  # so an incompatible future plugin cannot load against an old runtime.
-  @api_version 1
   # Plugin/adapter ids are lowercase slugs. Contract ids additionally allow dots
   # so subsystem contracts can be namespaced, e.g. "signals_gateway.adapter".
   @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
   @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
 
-  @enforce_keys [:module, :id, :api_version]
+  @enforce_keys [:module, :id]
   defstruct [
     :module,
     :id,
-    :api_version,
     :display_name,
     :description,
     app_config_definitions: [],
@@ -37,7 +33,6 @@ defmodule Ankole.Plugins.Spec do
   @type t :: %__MODULE__{
           module: module(),
           id: String.t(),
-          api_version: pos_integer(),
           display_name: localized_text() | nil,
           description: localized_text() | nil,
           app_config_definitions: [Definition.t()],
@@ -57,9 +52,7 @@ defmodule Ankole.Plugins.Spec do
   def from_module(module) when is_atom(module) do
     with {:module, ^module} <- Code.ensure_loaded(module),
          :ok <- require_callback(module, :plugin_id, 0),
-         :ok <- require_callback(module, :api_version, 0),
          {:ok, id} <- normalize_id(module.plugin_id()),
-         {:ok, api_version} <- normalize_api_version(module.api_version()),
          {:ok, display_name} <- optional_localized_text(module, :display_name),
          {:ok, description} <- optional_localized_text(module, :description),
          {:ok, definitions} <- optional_list(module, :app_config_definitions, &definition?/1),
@@ -70,7 +63,6 @@ defmodule Ankole.Plugins.Spec do
        %__MODULE__{
          module: module,
          id: id,
-         api_version: api_version,
          display_name: display_name,
          description: description,
          app_config_definitions: definitions,
@@ -108,9 +100,6 @@ defmodule Ankole.Plugins.Spec do
   end
 
   defp normalize_id(id), do: {:error, {:invalid_plugin_id, id}}
-
-  defp normalize_api_version(@api_version), do: {:ok, @api_version}
-  defp normalize_api_version(version), do: {:error, {:unsupported_api_version, version}}
 
   defp optional_localized_text(module, function) do
     case function_exported?(module, function, 0) do
@@ -204,7 +193,8 @@ defmodule Ankole.Plugins.Spec do
   end
 
   defp validate_adapter_declaration(declaration) do
-    with {:ok, contract_id} <- declaration_text(declaration, :contract_id),
+    with :ok <- validate_declaration_keys(declaration),
+         {:ok, contract_id} <- declaration_text(declaration, :contract_id),
          :ok <- validate_contract_id(contract_id),
          {:ok, adapter_id} <- declaration_text(declaration, :id),
          :ok <- validate_adapter_id(adapter_id),
@@ -212,6 +202,13 @@ defmodule Ankole.Plugins.Spec do
          :ok <- validate_optional_declaration_localized_text(declaration, :display_name),
          :ok <- validate_optional_module(declaration, :module) do
       :ok
+    end
+  end
+
+  defp validate_declaration_keys(declaration) do
+    case Enum.find(Map.keys(declaration), &(not is_atom(&1))) do
+      nil -> :ok
+      key -> {:error, {:invalid_adapter_declaration_key, key}}
     end
   end
 
@@ -282,12 +279,7 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
-  # Plugins may author declaration maps with atom or string keys, so every read
-  # tries the atom key first and falls back to its string form.
   defp declaration_value(declaration, key) do
-    case Map.fetch(declaration, key) do
-      {:ok, value} -> {:ok, value}
-      :error -> Map.fetch(declaration, Atom.to_string(key))
-    end
+    Map.fetch(declaration, key)
   end
 end

@@ -203,6 +203,20 @@ defmodule Ankole.AIGateway.StatefulResponses do
              | :invalid_tool_results
              | {:tool_results_quarantined, map()}}
   def record_tool_results(attrs) when is_map(attrs) do
+    case do_record_tool_results(Repo, attrs, true) do
+      {:ok, %Message{} = message, _disposition} -> {:ok, message}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec record_tool_results_in_tx(module(), map()) ::
+          {:ok, Message.t(), :inserted | :existing} | {:error, term()}
+  def record_tool_results_in_tx(repo, attrs) when is_map(attrs) do
+    do_record_tool_results(repo, attrs, false)
+  end
+
+  defp do_record_tool_results(repo, attrs, publish?) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
     request_items = Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
@@ -220,7 +234,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
          :ok <- validate_tool_result_items(request_items),
          {:ok, previous_message_id} <- decode_response_id(previous_response_id),
          %Message{status: "complete"} = anchor <-
-           complete_message_for_subject(subject_uid, previous_message_id) do
+           complete_message_for_subject(repo, subject_uid, previous_message_id) do
       case reconcile_tool_result_items(anchor, request_items) do
         {:ok, reconciled_items} ->
           idempotency_key =
@@ -235,14 +249,23 @@ defmodule Ankole.AIGateway.StatefulResponses do
             })
 
           insert_tool_result_journal(
+            repo,
             anchor,
             reconciled_items,
             merged_metadata,
-            idempotency_key
+            idempotency_key,
+            publish?
           )
 
         {:quarantine, reason, details} ->
-          quarantine_tool_result_items(anchor, request_items, extra_metadata, reason, details)
+          quarantine_tool_result_items(
+            repo,
+            anchor,
+            request_items,
+            extra_metadata,
+            reason,
+            details
+          )
       end
     else
       {:error, :invalid_response_id} -> {:error, :invalid_anchor}
@@ -485,26 +508,37 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp insert_tool_result_journal(
+         repo,
          %Message{} = anchor,
          request_items,
          merged_metadata,
-         idempotency_key
+         idempotency_key,
+         publish?
        ) do
-    case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+    case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
       {:ok, %Message{} = message} ->
-        publish_tool_result_events(message, request_items)
-        {:ok, message}
+        maybe_publish_tool_result_events(publish?, message, request_items)
+        {:ok, message, :existing}
 
       {:error, :invalid_anchor} ->
-        do_insert_tool_result_journal(anchor, request_items, merged_metadata, idempotency_key)
+        do_insert_tool_result_journal(
+          repo,
+          anchor,
+          request_items,
+          merged_metadata,
+          idempotency_key,
+          publish?
+        )
     end
   end
 
   defp do_insert_tool_result_journal(
+         repo,
          %Message{} = anchor,
          request_items,
          merged_metadata,
-         idempotency_key
+         idempotency_key,
+         publish?
        ) do
     changeset =
       %Message{}
@@ -518,20 +552,20 @@ defmodule Ankole.AIGateway.StatefulResponses do
         metadata: merged_metadata
       })
 
-    case Repo.insert(changeset) do
+    case repo.insert(changeset) do
       {:ok, %Message{} = message} ->
-        publish_tool_result_events(message, request_items)
-        {:ok, message}
+        maybe_publish_tool_result_events(publish?, message, request_items)
+        {:ok, message, :inserted}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         if unique_constraint_error?(
              changeset,
              "ai_gateway_messages_tool_result_journal_key_index"
            ) do
-          case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
-            {:ok, %Message{} = message} = result ->
-              publish_tool_result_events(message, request_items)
-              result
+          case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
+            {:ok, %Message{} = message} ->
+              maybe_publish_tool_result_events(publish?, message, request_items)
+              {:ok, message, :existing}
 
             {:error, _reason} = error ->
               error
@@ -542,8 +576,8 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp fetch_tool_result_journal(subject_uid, idempotency_key) do
-    case Repo.one(
+  defp fetch_tool_result_journal(repo, subject_uid, idempotency_key) do
+    case repo.one(
            from(message in Message,
              where: message.subject_uid == ^subject_uid,
              where:
@@ -676,7 +710,14 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end)
   end
 
-  defp quarantine_tool_result_items(anchor, request_items, extra_metadata, reason, details) do
+  defp quarantine_tool_result_items(
+         repo,
+         anchor,
+         request_items,
+         extra_metadata,
+         reason,
+         details
+       ) do
     idempotency_key =
       tool_result_idempotency_key(anchor.subject_uid, anchor.id, request_items)
 
@@ -698,12 +739,13 @@ defmodule Ankole.AIGateway.StatefulResponses do
         }
       })
 
-    case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+    case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
       {:ok, %Message{} = message} ->
         tool_results_quarantined_error(message, quarantine)
 
       {:error, :invalid_anchor} ->
         insert_tool_result_quarantine(
+          repo,
           anchor,
           request_items,
           metadata,
@@ -714,6 +756,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp insert_tool_result_quarantine(
+         repo,
          anchor,
          request_items,
          metadata,
@@ -732,7 +775,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
         metadata: metadata
       })
 
-    case Repo.insert(changeset) do
+    case repo.insert(changeset) do
       {:ok, %Message{} = message} ->
         tool_results_quarantined_error(message, quarantine)
 
@@ -741,7 +784,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              changeset,
              "ai_gateway_messages_tool_result_journal_key_index"
            ) do
-          case fetch_tool_result_journal(anchor.subject_uid, idempotency_key) do
+          case fetch_tool_result_journal(repo, anchor.subject_uid, idempotency_key) do
             {:ok, %Message{} = message} -> tool_results_quarantined_error(message, quarantine)
             {:error, _reason} = error -> error
           end
@@ -791,6 +834,17 @@ defmodule Ankole.AIGateway.StatefulResponses do
       )
     end)
   end
+
+  @doc false
+  @spec publish_tool_result_events(Message.t()) :: :ok
+  def publish_tool_result_events(%Message{} = message) do
+    publish_tool_result_events(message, message.content || [])
+  end
+
+  defp maybe_publish_tool_result_events(true, message, request_items),
+    do: publish_tool_result_events(message, request_items)
+
+  defp maybe_publish_tool_result_events(false, _message, _request_items), do: :ok
 
   defp validate_tool_result_items(request_items) when is_list(request_items) do
     case Enum.any?(request_items, &function_call_output_item?/1) do

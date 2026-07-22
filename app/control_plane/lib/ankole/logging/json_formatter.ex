@@ -101,6 +101,13 @@ defmodule Ankole.Logging.JSONFormatter do
   defp severity(_level), do: "INFO"
 
   defp message_to_string({:string, chardata}), do: IO.iodata_to_binary(chardata)
+
+  defp message_to_string({:report, %{elixir_translation: translation} = report}) do
+    IO.iodata_to_binary(translation)
+  rescue
+    _error -> inspect(report)
+  end
+
   defp message_to_string({:report, report}), do: inspect(report)
 
   defp message_to_string({format, args}) when is_list(args) do

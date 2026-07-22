@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
           endpoint: :string,
           worker_id: :string,
           image: :string,
-          workspace_root: :string,
+          agents_root: :string,
           format: :string,
           scope: :string
         ]
@@ -72,7 +72,7 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
     start_bootstrap_dependencies()
 
     opts
-    |> Keyword.put_new_lazy(:workspace_root, fn -> Path.expand(".ankole-worker", File.cwd!()) end)
+    |> Keyword.put_new_lazy(:agents_root, fn -> Path.expand(".ankole-agents", File.cwd!()) end)
     |> WorkerBootstrap.worker_spec()
   end
 

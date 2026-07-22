@@ -185,6 +185,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
         : await executeToolCalls(toolCalls, toolByName, config, emitPresentationEvent)
       const turnTerminated = executedToolCalls.some(result => result.terminate && !result.failure)
       const toolResults = executedToolCalls.map(result => result.resultMsg)
+      const completeActorEventIDs = [...new Set(executedToolCalls.flatMap(result => result.completeActorEventIDs))]
       const toolFollowUpMessages = [
         ...executedToolCalls.flatMap(result => result.followUpMessages),
         ...repeatedToolFailureNudges(executedToolCalls, repeatedFailureState)
@@ -205,7 +206,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
           () => {
             config.onActivity?.('tool_results_record_start')
             return modelTurn
-              .recordToolResults(toolJournalMessages)
+              .recordToolResults(toolJournalMessages, { completeActorEventIDs })
               .finally(() => config.onActivity?.('tool_results_record_done'))
           },
           {
@@ -290,6 +291,7 @@ interface ExecutedToolCall {
   toolName: string
   resultMsg: ToolResultMessage
   followUpMessages: UserMessage[]
+  completeActorEventIDs: string[]
   terminate: boolean
   failure?: {
     key: string
@@ -417,6 +419,7 @@ async function executeToolCall(
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
+      completeActorEventIDs: [],
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'unknown_tool', toolCall.arguments),
@@ -440,6 +443,7 @@ async function executeToolCall(
         result: wrapUntrustedToolOutput(formatToolError(message))
       },
       followUpMessages: [],
+      completeActorEventIDs: [],
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'invalid_arguments', toolCall.arguments),
@@ -486,9 +490,11 @@ async function executeToolCall(
   }
 
   if (activity) {
+    const completedActivity = failure ? activity : completedToolActivity(activity, tool, parsedArgs, toolResult.details)
+
     await emitPresentationEvent({
       kind: 'tool.activity',
-      payload: { ...activity, phase: failure ? 'failed' : 'completed' }
+      payload: { ...completedActivity, phase: failure ? 'failed' : 'completed' }
     })
   }
 
@@ -500,6 +506,7 @@ async function executeToolCall(
       result: wrapUntrustedToolOutput(resultText || safeJSONStringify(toolResult.details))
     },
     followUpMessages,
+    completeActorEventIDs: toolResult.completeActorEventIDs ?? [],
     terminate: toolResult.terminate === true,
     failure
   }
@@ -550,6 +557,27 @@ function toolActivity(toolCall: ToolCall, tool: AgentTool, parsedArgs: unknown):
     operation_id: toolCall.id,
     label,
     consequential: tool.isDestructive === true
+  }
+}
+
+/**
+ * Lets a tool replace its parameter-only label with safe result facts. Summary
+ * failures do not change tool execution or remove the original activity.
+ */
+function completedToolActivity(
+  activity: JSONObject,
+  tool: AgentTool,
+  parsedArgs: unknown,
+  details: unknown
+): JSONObject {
+  if (!tool.describeCompletedActivity) return activity
+
+  try {
+    const described = tool.describeCompletedActivity(parsedArgs, details)
+    const label = described?.trim()
+    return label ? { ...activity, label } : activity
+  } catch {
+    return activity
   }
 }
 

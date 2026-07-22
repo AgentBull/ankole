@@ -18,7 +18,6 @@ defmodule Ankole.SignalsGateway.InboundBatches do
     only: [
       collect_results: 1,
       datetime_iso8601: 1,
-      fetch_value: 2,
       min_datetime: 2,
       parse_datetime: 1,
       signal_session_id: 1,
@@ -1030,8 +1029,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp structured_non_bot_mention?(mention, agent_uid) when is_map(mention) do
     structured? =
-      truthy?(fetch_value(mention, :structured)) ||
-        not is_nil(fetch_value(mention, :kind))
+      truthy?(Map.get(mention, "structured")) ||
+        not is_nil(Map.get(mention, "kind"))
 
     structured? and not structured_mention?(mention, agent_uid)
   end

@@ -57,7 +57,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     elements = get_in(card, ["body", "elements"])
     state = Enum.find(elements, &(&1["element_id"] == "state"))
-    assert get_in(state, ["text", "i18n_content", "zh_cn"]) == "正在完善回答…"
     assert get_in(state, ["text", "i18n_content", "en_us"]) == "Refining the answer…"
     assert state["text"]["text_size"] == "notation"
     assert state["text"]["text_color"] == "grey"
@@ -309,10 +308,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     refute activity["expanded"]
 
     assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
-             "<font color='grey'>处理过程 · 运行测试 · mix test 等 2 项</font>"
+             "<font color='grey'>处理过程 · 正在运行测试 · mix test 等 2 项</font>"
 
     assert get_in(activity, ["header", "title", "i18n_content", "en_us"]) ==
-             "<font color='grey'>Progress · 运行测试 · mix test among 2 items</font>"
+             "<font color='grey'>Progress · In progress: 运行测试 · mix test among 2 items</font>"
 
     without_plan =
       ReplyPresentation.new()
@@ -329,7 +328,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert activity["expanded"]
 
     assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
-             "<font color='grey'>处理过程 · 读取文件：core/agent-loop.ts</font>"
+             "<font color='grey'>处理过程 · 正在读取文件：core/agent-loop.ts</font>"
+
+    legacy_running =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "turn",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => "正在理解请求"
+      })
+
+    assert {:ok, card} = Renderer.render(legacy_running, mode: :working)
+    activity = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
+
+    assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>处理过程 · 正在理解请求</font>"
 
     long_label = String.duplicate("长", 80)
 
@@ -346,7 +360,32 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     activity = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
 
     assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
-             "<font color='grey'>处理过程 · #{String.duplicate("长", 59)}…</font>"
+             "<font color='grey'>处理过程 · 正在#{String.duplicate("长", 59)}…</font>"
+
+    terminal =
+      with_plan
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "read",
+        "revision" => 4,
+        "phase" => "completed",
+        "label" => "读取文件：core/agent-loop.ts"
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "test",
+        "revision" => 5,
+        "phase" => "completed",
+        "label" => "运行测试 · mix test"
+      })
+      |> ReplyPresentation.terminal("completed", "完成。")
+
+    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
+    activity = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
+    refute activity["expanded"]
+
+    assert get_in(activity, ["header", "title", "i18n_content", "zh_cn"]) ==
+             "<font color='grey'>处理过程 · 共 2 步</font>"
+
+    assert activity["elements"] |> hd() |> Map.fetch!("content") =~ "✅ 读取文件：core/agent-loop.ts"
   end
 
   test "working status uses the AI icon and adds a divider only after body content appears" do
@@ -454,6 +493,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
   test "renders versioned choice values and locks an accepted choice in place" do
     source_event_id = Ecto.UUID.generate()
+    long_label = String.duplicate("较长的选项文案", 12)
 
     presentation =
       ReplyPresentation.new()
@@ -465,6 +505,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "id" => "operators",
             "type" => "button",
             "label" => "运营人员",
+            "description" => "负责日常运行和故障处理的团队。",
             "interaction_id" => "clarify:4",
             "source_actor_event_id" => source_event_id,
             "control_id" => "audience",
@@ -484,21 +525,49 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "selected_option_id" => "executives",
             "option_value" => "Executives",
             "revision" => 4
+          },
+          %{
+            "id" => "long-option",
+            "type" => "button",
+            "label" => long_label,
+            "interaction_id" => "clarify:4",
+            "source_actor_event_id" => source_event_id,
+            "control_id" => "audience",
+            "selected_option_id" => "long-option",
+            "option_value" => long_label,
+            "revision" => 4
           }
         ]
       })
 
     assert {:ok, card} = Renderer.render(presentation, mode: :terminal)
     actions = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
-    button = get_in(actions, ["columns", Access.at(0), "elements", Access.at(0)])
+    assert [%{"width" => "weighted", "elements" => option_elements}] = actions["columns"]
+    buttons = Enum.filter(option_elements, &(&1["tag"] == "button"))
+    button = hd(buttons)
 
-    button_names =
-      Enum.map(actions["columns"], &get_in(&1, ["elements", Access.at(0), "name"]))
+    button_names = Enum.map(buttons, & &1["name"])
 
     assert button["disabled"]
-    assert button_names == ["operators", "executives"]
+    assert button["width"] == "fill"
+    assert button_names == ["operators", "executives", "long-option"]
     assert length(button_names) == length(Enum.uniq(button_names))
-    assert button["text"]["content"] == "运营人员（已选择）"
+    assert button["text"]["i18n_content"]["zh_cn"] == "已选择"
+
+    assert Enum.any?(option_elements, fn
+             %{"tag" => "div", "text" => %{"content" => "运营人员"}} -> true
+             _element -> false
+           end)
+
+    assert Enum.any?(option_elements, fn
+             %{"tag" => "div", "text" => %{"content" => "负责日常运行和故障处理的团队。"}} -> true
+             _element -> false
+           end)
+
+    assert Enum.any?(option_elements, fn
+             %{"tag" => "div", "text" => %{"content" => ^long_label}} -> true
+             _element -> false
+           end)
 
     assert get_in(button, ["behaviors", Access.at(0)]) == %{
              "type" => "callback",
@@ -570,8 +639,17 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert input["tag"] == "input"
     assert input["name"] == "clarify-answer"
     assert input["input_type"] == "multiline_text"
+    assert input["width"] == "fill"
+    assert input["rows"] == 3
+    assert input["max_rows"] == 6
+    assert input["auto_resize"]
     assert input["max_length"] == 1_000
+    assert get_in(input, ["fallback", "text", "i18n_content", "zh_cn"]) =~ "直接发送文字回复"
+    assert submit["width"] == "fill"
     assert submit["form_action_type"] == "submit"
+
+    hint = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "action_hint"))
+    assert hint["text"]["i18n_content"]["zh_cn"] =~ "直接发送文字回复"
 
     assert get_in(submit, ["behaviors", Access.at(0)]) == %{
              "type" => "callback",
@@ -594,7 +672,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
            end)
 
     actions = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
-    assert Enum.all?(actions["columns"], &get_in(&1, ["elements", Access.at(0), "disabled"]))
+
+    assert actions["columns"]
+           |> hd()
+           |> Map.fetch!("elements")
+           |> Enum.filter(&(&1["tag"] == "button"))
+           |> Enum.all?(& &1["disabled"])
+
+    refute Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "action_hint"))
 
     state = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "state"))
     assert state["text"]["content"] == "No longer active because the conversation continued"

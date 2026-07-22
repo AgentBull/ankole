@@ -28,7 +28,7 @@ defmodule Ankole.Schedule do
   @doc """
   Replaces one pending checkback while preserving the cancelled event as audit history.
   """
-  @spec update_checkback(Ecto.UUID.t(), map(), keyword()) ::
+  @spec update_checkback(pos_integer(), map(), keyword()) ::
           {:ok,
            %{
              status: :updated | :already_updated,
@@ -83,7 +83,7 @@ defmodule Ankole.Schedule do
   @doc """
   Cancels one pending checkback event.
   """
-  @spec cancel_checkback(Ecto.UUID.t(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
+  @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
   defdelegate cancel_checkback(scheduled_event_id, opts \\ []), to: Checkbacks
 
   @doc """
@@ -96,7 +96,7 @@ defmodule Ankole.Schedule do
   @doc """
   Fires a due scheduled event by appending an ActorEvent.
   """
-  @spec fire_due_event(Ecto.UUID.t(), keyword()) ::
+  @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
   defdelegate fire_due_event(scheduled_event_id, opts \\ []), to: Fire
@@ -114,9 +114,16 @@ defmodule Ankole.Schedule do
   defdelegate get_cron_schedule(cron_schedule_id), to: Queries
 
   @doc """
+  Fetches one cron schedule by its model-visible name and owning conversation.
+  """
+  @spec get_cron_schedule_by_name(String.t(), String.t(), String.t()) ::
+          {:ok, CronSchedule.t()} | {:error, :not_found}
+  defdelegate get_cron_schedule_by_name(agent_uid, session_id, name), to: Queries
+
+  @doc """
   Fetches one concrete scheduled event.
   """
-  @spec get_scheduled_event(Ecto.UUID.t()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
+  @spec get_scheduled_event(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
   defdelegate get_scheduled_event(scheduled_event_id), to: Queries
 
   @doc """
@@ -142,6 +149,12 @@ defmodule Ankole.Schedule do
   """
   @spec cron_projection(CronSchedule.t()) :: map()
   defdelegate cron_projection(schedule), to: Projections
+
+  @doc """
+  Returns the narrow model-visible recurring schedule projection.
+  """
+  @spec cron_model_projection(CronSchedule.t()) :: map()
+  defdelegate cron_model_projection(schedule), to: Projections
 
   @doc """
   Returns a JSON-safe scheduled event projection for API and RPC responses.

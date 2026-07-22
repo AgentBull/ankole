@@ -1324,7 +1324,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           "tool" => "reply_attachment",
           "attachments" => [
             %{
-              "file_path" => "/workspace/shared/user-files/report.pdf",
+              "file_path" => "/agents/agent-1/user-files/report.pdf",
               "visible_to" => "agent_computer"
             }
           ]

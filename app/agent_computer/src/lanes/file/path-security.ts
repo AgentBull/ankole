@@ -6,11 +6,11 @@ import {
   canonicalExistingRoots
 } from '../../core/real-path-boundary'
 import { requiredTextFrame } from './codec'
-import { isFileRoot, rootPathFor } from './roots'
+import { assertFileRootContract, isFileRoot, rootPathFor } from './roots'
 import type { FileAddress } from './types'
 import type { WorkerConfig } from '../../worker/config'
 
-const transferScratchDir = '.ankole-file-transfer'
+const transferScratchRoot = '/tmp/ankole-file-transfer'
 
 export function resolveFileAddress(
   config: WorkerConfig,
@@ -19,6 +19,8 @@ export function resolveFileAddress(
 ): string {
   const rootPath = rootPathFor(config, address.root)
   const relativePath = normalizeRelativePath(address.relativePath, opts)
+  if (!relativePath) throw new Error(`${address.root} requires an Agent-scoped path`)
+  assertFileRootContract(address.root, relativePath)
   const resolvedRoot = resolve(rootPath)
   const resolvedPath = resolve(resolvedRoot, relativePath)
   const rel = relativePathWithin(resolvedRoot, resolvedPath)
@@ -47,7 +49,7 @@ export function assertCreatableFileAddress(config: WorkerConfig, address: FileAd
 }
 
 export function scratchDirectoryFor(config: WorkerConfig, transferID: string): string {
-  const scratchRoot = resolve(config.sharedFsRoot, transferScratchDir)
+  const scratchRoot = resolve(transferScratchRoot)
   const tempDir = resolve(scratchRoot, safeTransferID(transferID))
   const rel = relativePathWithin(scratchRoot, tempDir)
 

@@ -3,6 +3,8 @@ defmodule AnkoleWeb.BrainControllerTest do
 
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -44,7 +46,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/raw")
     assert Map.has_key?(paths, "/api/v1/brain/sources/{document_id}/learning-runs")
     assert Map.has_key?(paths, "/api/v1/brain/sources")
-    assert Map.has_key?(paths, "/api/v1/brain/review-candidates")
+    assert Map.has_key?(paths, "/api/v1/brain/status")
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/audit-log/{audit_id}/restorations")
     assert Map.has_key?(paths, "/api/v1/brain/dreaming-runs")
@@ -138,6 +140,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     conn: conn,
     owner_uid: owner_uid
   } do
+    configure_light_profile!(owner_uid)
     conn = post(conn, ~p"/api/v1/brain/dreaming-runs?owner_uid=#{owner_uid}", %{})
 
     assert %{
@@ -236,7 +239,7 @@ defmodule AnkoleWeb.BrainControllerTest do
          admin_uid: admin_uid
        } do
     conn =
-      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=public", %{
+      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
         "operations" => [
           %{
             "operation" => "create_entry",
@@ -254,7 +257,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     conn =
       conn
       |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=public", %{
+      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
         "operations" => [
           %{
             "operation" => "create_entry",
@@ -269,11 +272,11 @@ defmodule AnkoleWeb.BrainControllerTest do
     conn =
       conn
       |> recycle_bearer()
-      |> get(~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&type=project&store=public")
+      |> get(~p"/api/v1/brain/entries?owner_uid=#{owner_uid}&type=project&store=shared")
 
     assert %{"entries" => [entry]} = json_response(conn, 200)
-    assert entry["owner_uid"] == owner_uid
-    assert entry["store_key"] == "public"
+    assert entry["owner_uid"] == Scope.shared_owner_uid()
+    assert entry["store_key"] == "shared"
     assert entry["name"] == "Project Alpha"
 
     conn =
@@ -284,12 +287,18 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert %{"entries" => entries} = json_response(conn, 200)
     target = Enum.find(entries, &(&1["name"] == "Industry One")) || flunk("target entry missing")
 
-    {:ok, source_scope} = Scope.for_store(owner_uid, "public")
+    {:ok, source_scope} = Scope.for_store(owner_uid, "shared")
 
     assert {:ok, source} =
              Sources.capture(
                source_scope,
-               %{kind: "paste", title: "Project status", content: "Current status"},
+               %{
+                 kind: "file",
+                 title: "Project status",
+                 original_name: "project-status.txt",
+                 media_type: "text/plain",
+                 content: "Current status"
+               },
                admin_uid
              )
 
@@ -469,7 +478,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     other_owner = agent_fixture(%{uid: unique_uid("other-brain-owner")})
 
     conn =
-      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=public", %{
+      post(conn, ~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
         "operations" => [
           %{
             "operation" => "create_entry",
@@ -521,12 +530,13 @@ defmodule AnkoleWeb.BrainControllerTest do
     conn =
       conn
       |> recycle_bearer()
-      |> get(~p"/api/v1/brain/review-candidates?owner_uid=#{owner_uid}")
+      |> get(~p"/api/v1/brain/status?owner_uid=#{owner_uid}")
 
     assert %{
-             "review" => %{
-               "status" => "ok",
-               "unintegrated_sources" => [%{"document_id" => ^document_id}]
+             "memory_status" => %{
+               "diagnostics" => %{
+                 "unintegrated_sources" => [%{"document_id" => ^document_id}]
+               }
              }
            } = json_response(conn, 200)
 
@@ -553,7 +563,7 @@ defmodule AnkoleWeb.BrainControllerTest do
 
     conn =
       conn
-      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=public", [
+      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=shared", [
         {"kind", "file"},
         {"title", "Brain source test"},
         {:file, upload}
@@ -584,28 +594,48 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert %{"error" => %{"code" => "worker_not_ready"}} = json_response(conn, 409)
   end
 
-  test "pasted source capture preserves the submitted bytes exactly", %{
+  test "pasted text becomes an ordinary entry instead of a retained source", %{
     conn: conn,
     owner_uid: owner_uid
   } do
     original = "\n  Preserve leading and trailing whitespace.  \n"
+    expected_body = String.trim(original)
 
     conn =
       conn
-      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=public", [
+      |> multipart(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}&store=shared", [
         {"kind", "paste"},
         {"title", "Exact paste"},
         {"content", original}
       ])
 
-    assert %{"source" => %{"document_id" => document_id}} = json_response(conn, 201)
+    assert %{
+             "resource_kind" => "entry",
+             "entry" => %{
+               "entry" => %{
+                 "id" => entry_id,
+                 "owner_uid" => shared_owner_uid,
+                 "store_key" => "shared"
+               },
+               "blocks" => [%{"body" => ^expected_body}]
+             }
+           } = json_response(conn, 201)
+
+    assert shared_owner_uid == Scope.shared_owner_uid()
 
     conn =
       conn
       |> recycle_bearer()
-      |> get(~p"/api/v1/brain/sources/#{document_id}/raw?owner_uid=#{owner_uid}")
+      |> get(~p"/api/v1/brain/entries/#{entry_id}?owner_uid=#{owner_uid}")
 
-    assert response(conn, 200) == original
+    assert %{"blocks" => [%{"body" => ^expected_body}]} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/brain/sources?owner_uid=#{owner_uid}")
+
+    assert %{"sources" => []} = json_response(conn, 200)
   end
 
   defp multipart(conn, path, fields) do
@@ -668,7 +698,7 @@ defmodule AnkoleWeb.BrainControllerTest do
     conn =
       conn
       |> recycle_bearer()
-      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=public", %{
+      |> post(~p"/api/v1/brain/entry-operations?owner_uid=#{owner_uid}&store=shared", %{
         "operations" => [%{"operation" => "create_entry", "name" => name, "type" => "topic"}]
       })
 
@@ -686,16 +716,40 @@ defmodule AnkoleWeb.BrainControllerTest do
   end
 
   defp insert_source!(owner_uid, admin_uid) do
-    {:ok, scope} = Scope.for_store(owner_uid, "public")
+    {:ok, scope} = Scope.for_store(owner_uid, "shared")
 
     {:ok, source} =
       Sources.capture(
         scope,
-        %{kind: "paste", title: "Original source", content: "Original source text"},
+        %{
+          kind: "file",
+          title: "Original source",
+          original_name: "original-source.txt",
+          media_type: "text/plain",
+          content: "Original source text"
+        },
         admin_uid
       )
 
     source
+  end
+
+  defp configure_light_profile!(owner_uid) do
+    provider_id = "brain-controller-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:9/v1",
+               connection_options: %{"api_key" => "sk-brain-controller-test"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(owner_uid, "light", %{
+               provider_id: provider_id,
+               model: "brain-controller-test"
+             })
   end
 
   defp allow_cache_database_access do

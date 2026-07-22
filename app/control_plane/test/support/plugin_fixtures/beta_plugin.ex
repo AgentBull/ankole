@@ -10,9 +10,6 @@ defmodule Ankole.PluginFixtures.BetaPlugin do
   def plugin_id, do: "beta"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def app_config_definitions do
     [
       AppConfigure.define(

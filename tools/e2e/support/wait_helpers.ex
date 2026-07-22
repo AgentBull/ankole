@@ -418,31 +418,13 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Repo.insert!()
   end
 
-  defp worker_has_capacity?(%AgentComputerWorker{capacity: capacity, load: load}) do
-    available_slots =
-      integer_from_map(capacity, "available_turn_slots") ||
-        case {integer_from_map(capacity, "max_turns"), integer_from_map(load, "active_turns")} do
-          {max_turns, active_turns} when is_integer(max_turns) and is_integer(active_turns) ->
-            max_turns - active_turns
+  defp worker_has_capacity?(%AgentComputerWorker{
+         capacity: %{"available_turn_slots" => slots}
+       })
+       when is_integer(slots),
+       do: slots > 0
 
-          _value ->
-            nil
-        end
-
-    case available_slots do
-      slots when is_integer(slots) -> slots > 0
-      nil -> true
-    end
-  end
-
-  defp integer_from_map(map, key) when is_map(map) do
-    case Map.get(map, key) do
-      value when is_integer(value) -> value
-      _value -> nil
-    end
-  end
-
-  defp integer_from_map(_map, _key), do: nil
+  defp worker_has_capacity?(%AgentComputerWorker{}), do: false
 
   defp flunk_if_terminal_without_outbox(process, actor_event_id, expected, outbox_check) do
     case ai_message_for_actor_event_latest(actor_event_id) do

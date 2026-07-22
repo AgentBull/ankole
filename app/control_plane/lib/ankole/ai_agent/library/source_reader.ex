@@ -22,6 +22,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   @fallback_design ""
   @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
   @yaml_block_end_regex ~r/^\S/
+  @ankole_runtimes ~w(any main background_job)
 
   @doc """
   Reads every allowlisted builtin skill bundle from disk.
@@ -75,6 +76,21 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   def normalize_skill_name(_name), do: {:error, :invalid_skill_name}
+
+  @doc "Normalizes the optional Ankole Skill execution surface."
+  @spec normalize_ankole_runtime(term()) ::
+          {:ok, String.t() | nil} | {:error, {:invalid_ankole_runtime, term()}}
+  def normalize_ankole_runtime(nil), do: {:ok, nil}
+
+  def normalize_ankole_runtime(value) when is_binary(value) do
+    runtime = String.trim(value)
+
+    if runtime in @ankole_runtimes,
+      do: {:ok, runtime},
+      else: {:error, {:invalid_ankole_runtime, value}}
+  end
+
+  def normalize_ankole_runtime(value), do: {:error, {:invalid_ankole_runtime, value}}
 
   @doc """
   Normalizes a library-container virtual path.
@@ -346,10 +362,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
              "relative_path" => normalized_relative_path,
              "skill_root" => root_label,
              "tags" => metadata.tags,
-             "disable_model_invocation" => metadata.disable_model_invocation,
-             "long_running" => metadata.long_running
+             "disable_model_invocation" => metadata.disable_model_invocation
            }
-           |> maybe_put("category", metadata.category),
+           |> maybe_put("category", metadata.category)
+           |> maybe_put("ankole-runtime", metadata.ankole_runtime),
          source_hash: source_hash,
          relative_path: normalized_relative_path,
          files: files
@@ -392,7 +408,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true),
          {:ok, disable_model_invocation} <-
            yaml_boolean(frontmatter, "disable-model-invocation", false),
-         {:ok, long_running} <- yaml_boolean(frontmatter, "long_running", false) do
+         {:ok, ankole_runtime} <-
+           normalize_ankole_runtime(yaml_scalar(frontmatter, "ankole-runtime")) do
       {:ok,
        %{
          name: name,
@@ -401,7 +418,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
          tags: yaml_tags(frontmatter),
          category: yaml_scalar(frontmatter, "category"),
          disable_model_invocation: disable_model_invocation,
-         long_running: long_running
+         ankole_runtime: ankole_runtime
        }}
     else
       {:error, _reason} = error -> error

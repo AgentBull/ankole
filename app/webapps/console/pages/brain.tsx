@@ -139,7 +139,7 @@ export function BrainEntriesPage() {
   })
   const guide = useQuery({
     ...ankoleWebBrainControllerIndexOptions({
-      query: { owner_uid: ownerUID, store: 'public', type: 'brain_curation_guide', limit: 1 }
+      query: { owner_uid: ownerUID, store: 'self', type: 'brain_curation_guide', limit: 1 }
     }),
     enabled: Boolean(ownerUID)
   })
@@ -181,7 +181,7 @@ export function BrainEntriesPage() {
         t('console.brain.updated')
       ]}
       createLabel={t('console.brain.write_entry')}
-      createTo={`new?${brainSearch(ownerUID, store || 'public')}`}
+      createTo={`new?${brainSearch(ownerUID, store || 'shared')}`}
       isLoading={list.isLoading || principals.isLoading}
       isEmpty={entries.length === 0}
       emptyTitle={t('console.brain.empty_title')}
@@ -208,8 +208,8 @@ export function BrainEntriesPage() {
                 <Link
                   to={
                     guideEntry
-                      ? `/brain/${guideEntry.id}?${brainSearch(ownerUID, 'public')}`
-                      : `/brain/new?${brainSearch(ownerUID, 'public')}&kind=curation-guide`
+                      ? `/brain/${guideEntry.id}?${brainSearch(ownerUID, 'self')}`
+                      : `/brain/new?${brainSearch(ownerUID, 'self')}&kind=curation-guide`
                   }
                 />
               }
@@ -405,7 +405,7 @@ export function BrainAuditPage() {
         <FilterDisclosure count={advancedFilterCount} onClear={clearAdvancedFilters}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <LabeledField label={t('console.brain.store')}>
-              <Input value={store} placeholder="public" onChange={event => setFilter('store', event.target.value)} />
+              <Input value={store} placeholder="shared" onChange={event => setFilter('store', event.target.value)} />
             </LabeledField>
             <LabeledField label={t('console.brain.audit_action')}>
               <Input
@@ -504,7 +504,12 @@ export function BrainDreamingPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
-  const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
+  const agents = (principals.data?.principals ?? []).filter(principal => principal.type === 'agent')
+  const requestedOwnerUID = searchParams.get('owner')
+  const ownerUID =
+    requestedOwnerUID && agents.some(agent => agent.uid === requestedOwnerUID)
+      ? requestedOwnerUID
+      : defaultBrainOwnerUID(agents)
   const runDreaming = useMutation({
     ...ankoleWebBrainControllerRunDreamingMutation(),
     onSuccess: data =>
@@ -515,7 +520,7 @@ export function BrainDreamingPage() {
   })
 
   useEffect(() => {
-    if (searchParams.has('owner') || !ownerUID) return
+    if (searchParams.get('owner') === ownerUID || !ownerUID) return
     const next = new URLSearchParams(searchParams)
     next.set('owner', ownerUID)
     setSearchParams(next, { replace: true })
@@ -543,7 +548,7 @@ export function BrainDreamingPage() {
       <div className="grid gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
           ownerUID={ownerUID}
-          principals={principals.data?.principals ?? []}
+          principals={agents}
           onChange={value => setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })}
         />
         <div className="self-end text-sm leading-6 text-muted-foreground">
@@ -593,7 +598,7 @@ export function BrainEntryCreatePage() {
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
   const ownerUID = searchParams.get('owner') ?? defaultBrainOwnerUID(principals.data?.principals ?? [])
   const creatingGuide = searchParams.get('kind') === 'curation-guide'
-  const [store, setStore] = useState(creatingGuide ? 'public' : searchParams.get('store') || 'public')
+  const [store, setStore] = useState(creatingGuide ? 'self' : searchParams.get('store') || 'shared')
   const [name, setName] = useState(creatingGuide ? t('console.brain.guide_name') : '')
   const [entryType, setEntryType] = useState(creatingGuide ? 'brain_curation_guide' : 'topic')
   const [summary, setSummary] = useState('')
@@ -642,7 +647,7 @@ export function BrainEntryCreatePage() {
 
   const changeOwner = (value: string) => {
     setSearchParams(setBrainFilter(searchParams, 'owner', value), { replace: true })
-    if (store === `dm:${value}`) setStore('public')
+    if (store === `dm:${value}`) setStore('shared')
   }
 
   return (

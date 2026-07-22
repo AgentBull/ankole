@@ -8,7 +8,8 @@ import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
   normalizeEnabledSkill,
   resolveSkillFilesystemRoot,
-  skillMetadata,
+  skillAvailableInRuntime,
+  type AnkoleSkillExecutionRuntime,
   type SkillFileRoots
 } from '../../skills/effective-skill'
 import { utf8ByteLength } from '../../common/text-sanitize'
@@ -100,23 +101,21 @@ export interface LoadEnabledSkillMCPServersInput {
   enabledSkills: Array<RuntimeSkillSummary | string>
   skillRoots?: SkillFileRoots
   turn?: ActorTurnRef
-  /** Job-side consumers opt in; the main-agent default excludes background-only Skills. */
-  includeLongRunning?: boolean
+  runtime?: AnkoleSkillExecutionRuntime
 }
 
 /**
  * Loads the MCP declarations owned by enabled, inline Skills.
  *
- * `agents/openai.yaml` is the only accepted registration source. Long-running
- * Skills are excluded before any metadata file is read because their complete
- * capability surface belongs to BackgroundAgentJob/CodexRunner, not the main
- * model loop.
+ * `agents/openai.yaml` is the only accepted registration source. Skills for a
+ * different Ankole runtime are excluded before any metadata file is read.
  */
 export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServersInput): Promise<MCPServerConfig[]> {
+  const runtime = input.runtime ?? 'main'
   const skills = input.enabledSkills
     .map(normalizeEnabledSkill)
     .filter((skill): skill is RuntimeSkillSummary => skill !== undefined)
-    .filter(skill => input.includeLongRunning === true || skillMetadata(skill).long_running !== true)
+    .filter(skill => skillAvailableInRuntime(skill, runtime))
     .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
   if (skills.length === 0) return []

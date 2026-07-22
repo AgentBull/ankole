@@ -2,6 +2,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
   @moduledoc false
 
   alias Ankole.AIGateway
+  alias Ankole.AgentHomeProjection
   alias Ankole.Logging
   alias Ankole.RuntimeEvents.Event
   alias Ankole.SignalsGateway
@@ -9,6 +10,7 @@ defmodule Ankole.RuntimeEvents.Handlers do
   @spec snapshot_events() :: [{String.t(), map()}]
   def snapshot_events do
     []
+    |> Kernel.++(AgentHomeProjection.runtime_event_snapshot())
     |> Kernel.++(SignalsGateway.runtime_event_snapshot())
     |> Kernel.++(AIGateway.runtime_event_snapshot())
   end
@@ -19,6 +21,18 @@ defmodule Ankole.RuntimeEvents.Handlers do
       case SignalsGateway.process_actor_session_ready(actor_key) do
         {:ok, _result} -> :ok
         {:error, :no_ready_actor_event} -> :ok
+        {:error, reason} -> log_handler_error(channel, payload, reason)
+      end
+    else
+      {:error, reason} -> log_handler_error(channel, payload, reason)
+    end
+  end
+
+  def handle(%Event{kind: :agent_home_projection, channel: channel, payload: payload}) do
+    with {:ok, agent_uid} <- fetch_text(payload, "agent_uid") do
+      case AgentHomeProjection.sync(agent_uid) do
+        :ok -> :ok
+        {:error, :no_worker_available} -> :ok
         {:error, reason} -> log_handler_error(channel, payload, reason)
       end
     else

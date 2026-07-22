@@ -109,11 +109,13 @@ message AgentConversationContextResponse {
   string soul = 3;
   string mission = 4;
   string design = 5;
-  // Exact system instructions captured by the first stored Response in this
-  // conversation.
-  string system_prompt_snapshot = 6;
+  reserved 6;
+  reserved "system_prompt_snapshot";
   BrainSnapshot brain_snapshot = 7;
   repeated RuntimeSkillSummary skills = 8;
+  string soul_content_hash = 9;
+  string mission_content_hash = 10;
+  string design_content_hash = 11;
 }
 
 // ===== agent_plugin =====
@@ -122,15 +124,17 @@ message AgentPluginListRequest {}
 
 message AgentPluginCatalogSkill {
   string catalog_name = 1;
-  string codex_name = 2;
+  reserved 2;
+  reserved "codex_name";
 }
 
 message AgentPluginCatalogEntry {
   string id = 1;
   string description = 2;
-  string version = 3;
-  string content_hash = 4;
+  reserved 3, 4;
+  reserved "version", "content_hash";
   repeated AgentPluginCatalogSkill skills = 5;
+  bool has_workspace_template = 6;
 }
 
 message AgentPluginListResponse {
@@ -148,6 +152,9 @@ message CodexAccountResolveResponse {
   // Opaque codex auth.json contents; already a JSON string on both ends.
   string auth_json = 2;
   string auth_hash = 3;
+  string model = 4;
+  string model_reasoning_effort = 5;
+  bool fast_mode = 6;
 }
 
 message CodexAccountAuthUpdateRequest {
@@ -161,23 +168,23 @@ message CodexAccountAuthUpdateResponse {
 
 // ===== background_agent_job =====
 
-message BackgroundAgentJobWorkspaceMount {
-  string id = 1;
-  string source = 2;
-  string access = 3; // read_only | read_write
-}
-
 message BackgroundAgentJobCreateRequest {
   string source_tool_call_id = 1;
   string title = 2;
   string task = 3;
-  string background = 4;
-  string notes = 5;
-  repeated string agent_plugin_ids = 6;
-  repeated string skill_names = 7;
-  repeated BackgroundAgentJobWorkspaceMount workspace_mounts = 8;
-  string model = 9;
-  string reasoning_effort = 10; // minimal | low | medium | high | xhigh
+  string workspace_template_id = 6;
+  reserved 4, 5, 7 to 10;
+}
+
+message BackgroundAgentJobRespawnRequest {
+  string source_job_id = 1;
+  string message = 2;
+  string source_tool_call_id = 3;
+}
+
+message BackgroundAgentJobRespawnResponse {
+  string job_id = 1;
+  string status = 2;
 }
 
 message BackgroundAgentJobGetRequest {
@@ -186,18 +193,45 @@ message BackgroundAgentJobGetRequest {
   string trajectory_cursor = 3;
 }
 
-message BackgroundAgentJobListRequest {}
+message BackgroundAgentJobListRequest {
+  string status = 1; // live | stop; empty means live
+  string cursor = 2;
+}
 
-message BackgroundAgentJobSteerRequest {
+message BackgroundAgentJobMessageSendRequest {
   string job_id = 1;
-  string text = 2;
-  // Record<string, string | string[]> answers keyed by question id.
-  bytes answers_json = 3;
+  string message = 2;
+  string source_tool_call_id = 3;
+}
+
+message BackgroundAgentJobMessageSendResponse {
+  string job_id = 1;
+  string status = 2;
+  string command_event_id = 3;
+}
+
+message BackgroundAgentJobMessageResultRequest {
+  string job_id = 1;
+  string command_event_id = 2;
+}
+
+message BackgroundAgentJobMessageResultResponse {
+  string job_id = 1;
+  string status = 2;
+  bool ready = 3;
+  bytes last_turn_trajectory_json = 4;
+  bool earlier_trajectory_omitted = 5;
+  string lifecycle_actor_event_id = 6;
 }
 
 message BackgroundAgentJobStopRequest {
   string job_id = 1;
-  string reason = 2;
+  reserved 2;
+}
+
+message BackgroundAgentJobStopResponse {
+  string job_id = 1;
+  string status = 2;
 }
 
 message BackgroundAgentJobTurnUpsertRequest {
@@ -248,15 +282,12 @@ message BackgroundAgentJobResponse {
   string codex_account_id = 8;
   string title = 9;
   string task = 10;
-  string background = 11;
-  string notes = 12;
   bytes reply_route_json = 13;
   uint32 attempts = 14;
-  repeated string agent_plugin_ids = 15;
-  repeated string skill_names = 16;
-  repeated BackgroundAgentJobWorkspaceMount workspace_mounts = 17;
-  string model = 18;
-  string reasoning_effort = 19;
+  string workspace_template_id = 15;
+  string continued_from_job_id = 16;
+  string workspace_owner_job_id = 17;
+  reserved 11, 12, 18, 19;
   string queued_at = 20;
   string started_at = 21;
   string completed_at = 22;
@@ -273,15 +304,11 @@ message BackgroundAgentJobSummary {
   string job_id = 1;
   string title = 2;
   string status = 3;
-  repeated string agent_plugin_ids = 4;
-  uint32 attempts = 5;
-  string queued_at = 6;
-  string started_at = 7;
-  string completed_at = 8;
 }
 
 message BackgroundAgentJobListResponse {
   repeated BackgroundAgentJobSummary jobs = 1;
+  string next_cursor = 2;
 }
 
 message BackgroundAgentJobTurn {
@@ -316,7 +343,7 @@ message MemorySearchRequest {
   string channel_id = 4;
   string from = 5;
   string to = 6;
-  string store = 7;         // current | public
+  string store = 7;         // current | shared
   string entry_type = 8;
   string author_kind = 9;   // human | agent | dreaming
   optional uint32 limit = 10;
@@ -418,9 +445,7 @@ message MemorySetAliases {
 
 message MemoryUpdateRequest {
   string tool_call_id = 1;
-  // Brain audit metadata attribution; the write scope itself resolves from
-  // the frame turn fence.
-  string actor_event_id = 2;
+  string store = 2; // empty/current | self
   oneof operation {
     MemoryCreateEntry create_entry = 10;
     MemoryDeleteEntry delete_entry = 11;
@@ -471,11 +496,11 @@ message ScheduleCheckBackLaterUpdateRequest {
 message ScheduleCronListRequest {}
 
 message ScheduleCronTargetRequest {
-  string cron_schedule_id = 1;
+  string name = 1;
 }
 
 message ScheduleCronRunsRequest {
-  string cron_schedule_id = 1;
+  string name = 1;
   optional uint32 limit = 2;
 }
 
@@ -490,7 +515,7 @@ message ScheduleCronAddRequest {
 }
 
 message ScheduleCronUpdateRequest {
-  string cron_schedule_id = 1;
+  string name = 1;
   bytes updates_json = 2;
 }
 
@@ -521,13 +546,14 @@ message SkillOverlayResponse {
 
 message InstalledSkillObservation {
   string skill_name = 1;
-  string relative_path = 2;
+  reserved 2, 5 to 8;
+  reserved "relative_path", "metadata_json", "content_hash", "xxh3_128", "file_count";
   string description = 3;
   optional bool default_enabled = 4;
-  bytes metadata_json = 5;
-  string content_hash = 6;
-  string xxh3_128 = 7;
-  optional uint32 file_count = 8;
+  repeated string tags = 9;
+  string category = 10;
+  bool disable_model_invocation = 11;
+  string ankole_runtime = 12;
 }
 
 message InstalledSkillReplaceRequest {
@@ -535,8 +561,6 @@ message InstalledSkillReplaceRequest {
 }
 
 message InstalledSkillReplaceResponse {
-  bool changed = 1;
-  uint32 skills = 2;
-  uint32 files = 3;
-  string content_hash = 4;
+  reserved 1 to 4;
+  reserved "changed", "skills", "files", "content_hash";
 }

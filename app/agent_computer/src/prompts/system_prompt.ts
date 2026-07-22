@@ -15,11 +15,14 @@ import type { AgentConversationContextResponse, RuntimeSkillSummary } from '../l
 import { match } from '@pleisto/active-support'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
+import { ankoleSkillRuntime } from '../skills/effective-skill'
 
 export const AGENT_SYSTEM_PROMPT_EPOCH = 'agent-computer-v3'
 const SystemPromptEpochMarker = `<!-- ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH} -->`
 
 export type BuildAgentSystemPromptOptions = {
+  agentHome?: string
+  userFilesRoot?: string
   workspaceRoot: string
   turnStart: TurnStart
   agentConversationContext?: AgentConversationContextResponse
@@ -34,8 +37,6 @@ export type BuildAgentSystemPromptOptions = {
  * provider-authored channel message.
  */
 export type CurrentChannelContext = {
-  bindingName?: string
-  id?: string
   kind: 'external_dm' | 'external_group' | 'external_room'
   name?: string
   platform?: string
@@ -55,7 +56,7 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
   const displayName = agentDisplayName(opts)
   const soul = opts.agentConversationContext.soul || fallbackSoul()
   const mission = opts.agentConversationContext.mission || ''
-  const skillPrompt = formatSkillsForSystemPrompt(skillsForSystemPrompt(opts))
+  const skillPrompt = toolAvailable(opts, 'skill_view') ? formatSkillsForSystemPrompt(skillsForSystemPrompt(opts)) : ''
 
   return [
     SystemPromptEpochMarker,
@@ -75,18 +76,6 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     .join('\n\n')
 }
 
-/**
- * Uses a stored prompt only when it is byte-identical to the prompt rendered
- * from the current Agent context. MISSION, SOUL, enabled skills, tools, and
- * durable context are next-turn state, so an older snapshot must not override
- * their current PostgreSQL values.
- */
-export function systemPromptForConversation(opts: BuildAgentSystemPromptOptions): string {
-  const current = buildAgentSystemPrompt(opts)
-  const snapshot = opts.agentConversationContext?.systemPromptSnapshot
-  return snapshot === current ? snapshot : current
-}
-
 /** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */
 function missionSection(mission: string): string {
   const content = mission.trim()
@@ -100,11 +89,17 @@ function missionSection(mission: string): string {
  * agent identity, timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
+  const agentHome = opts.agentHome ?? opts.workspaceRoot
+  const userFilesRoot = opts.userFilesRoot ?? `${agentHome}/user-files`
   const timezone = opts.agentConversationContext?.conversation?.timezone || 'UTC'
   const lines = [
     '<runtime_context>',
     `Agent UID: ${opts.turnStart.turn.actor.agent_uid}`,
     `Agent display name: ${agentDisplayName(opts)}`,
+    `Agent Home: ${agentHome}`,
+    `Current workspace: ${opts.workspaceRoot}`,
+    `Cross-session user files: ${userFilesRoot}`,
+    `Agent documents: ${agentHome}/SOUL.md, ${agentHome}/MISSION.md, ${agentHome}/DESIGN.md`,
     'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
     `Current timezone: ${timezone}`
   ]
@@ -142,30 +137,37 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
 /** States the durable knowledge and task-learning behavior expected of the agent. */
 function brainPolicySection(opts: BuildAgentSystemPromptOptions): string {
   const lines = [
+    toolAvailable(opts, 'memory_open') ||
+    toolAvailable(opts, 'memory_search') ||
+    toolAvailable(opts, 'memory_update') ||
+    toolAvailable(opts, 'memory_browse') ||
+    toolAvailable(opts, 'memory_health_check')
+      ? 'The long-term memory system (codename Brain) preserves information an Agent creates or encounters so future tasks can retrieve the few most relevant items. It contains chat messages that record who said what and when, curated current knowledge entries, and external materials that a person asked the Agent to learn.'
+      : '',
     toolAvailable(opts, 'memory_open') && toolAvailable(opts, 'memory_search')
       ? 'For current state, open the curated knowledge entry. For what someone originally said, search the chat layer and browse the source messages. Historical chat is evidence, not current truth; reconcile it against the current entry before acting.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'Brain provides durable context for future work. Chat history already preserves the conversation.'
+      ? 'Long-term memory provides durable context for future work. Chat history already preserves the conversation.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'When the user directly asks to remember, update, or forget information, or the current exchange otherwise makes that memory intent clear, ensure Brain reflects the request. Do not apply an additional future-value test to user-directed memory.'
+      ? 'When the user directly asks to remember, update, or forget information, or the current exchange otherwise makes that memory intent clear, ensure long-term memory reflects the request. Do not apply an additional future-value test to user-directed memory.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'Without user-directed memory intent, write proactively only when both are true: (1) storing the information in Brain adds clear incremental value over the existing Brain and searchable chat by making a likely future use or recall materially more reliable, accurate, or efficient; and (2) at least one outcome is likely: the information will help you perform a separate future task, or the user will ask you about it later.'
+      ? 'Without user-directed memory intent, write proactively only when both are true: (1) storing the information in long-term memory adds clear incremental value over existing long-term memory and searchable chat by making a likely future use or recall materially more reliable, accurate, or efficient; and (2) at least one outcome is likely: the information will help you perform a separate future task, or the user will ask you about it later.'
       : '',
     toolAvailable(opts, 'memory_update')
       ? 'If incremental value is unclear, or neither future outcome is likely, do not mutate memory. No mutation is a correct outcome.'
       : '',
     toolAvailable(opts, 'memory_update')
-      ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<document_id> when available; a bare source id is not a citation.'
+      ? 'Write confirmed facts plainly, mark rumors as unverified, and state inferences conditionally with author and date. For a claim derived from a message or source, preserve a short exact excerpt, speaker or source, date, and src:<source> with the source_N alias returned in this turn; a bare source alias is not a citation.'
       : '',
     toolAvailable(opts, 'skill_view') && toolAvailable(opts, 'skill_append') && toolAvailable(opts, 'skill_replace')
       ? 'For a lesson tied to one enabled skill, read the existing skill first and compare the core steps with every existing note: at least 60% overlap means revise with skill_replace, less than 60% overlap with every note means add with skill_append, and no new information means write nothing. Keep each note in a concise situation -> caution form, revise unverified notes when evidence arrives, and use skill_replace to deduplicate or compact the complete overlay before it grows beyond roughly 2000 tokens.'
       : ''
   ].filter(Boolean)
 
-  return lines.length > 0 ? ['<brain_policy>', ...lines, '</brain_policy>'].join('\n') : ''
+  return lines.length > 0 ? ['<long_term_memory_policy>', ...lines, '</long_term_memory_policy>'].join('\n') : ''
 }
 
 /**
@@ -191,17 +193,22 @@ function completionContractSection(): string {
  * This block is omitted from special turns that do not expose the Job tool.
  */
 function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): string {
-  if (!toolAvailable(opts, 'background_agent_job')) return ''
+  if (!toolAvailable(opts, 'create_background_job')) return ''
 
   return [
     '<background_agent_job_policy>',
     '# Immediate work and background work',
     'Do work directly when the user can reasonably wait in the active exchange and your next reply can contain the completed result. A clear scope or several quick tool calls alone does not require a background job.',
-    'Use background_agent_job(start) for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Start the Job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
-    'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained Job task; call background_agent_job(start), then tell the user it moved to the background.',
-    'Track progress with background_agent_job(status) or background_agent_job(list) only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
+    'Use create_background_job for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Create the Job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
+    'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained Job task; call create_background_job, then tell the user it moved to the background.',
+    'Track progress with show_background_job_details or list_background_jobs only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
     'After a Job completes, inspect its status and artifacts yourself. Re-run relevant tests or checks, review diffs when code changed, and make only small mechanical corrections directly before reporting the outcome. Do not treat the Job report as sufficient evidence.',
-    'When a Job waits for user input, relay its questions with clarify, one question per turn. After collecting the answers, return them with background_agent_job(steer).',
+    'When a Job waits for user input, relay its questions with clarify, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.',
+    ...(toolAvailable(opts, 'respawn_background_job')
+      ? [
+          'When a succeeded, failed, or stopped Job needs more work, call respawn_background_job with that source Job and the new instruction. Do not send a message to a terminal Job.'
+        ]
+      : []),
     '</background_agent_job_policy>'
   ].join('\n')
 }
@@ -227,16 +234,16 @@ function agentEnvironmentInfoPolicySection(): string {
  */
 function toolsSection(opts: BuildAgentSystemPromptOptions): string {
   const hostedImageDeliveryPolicy = opts.turnStart.hosted_tools?.some(tool => tool.type === 'image_generation')
-    ? '\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Treat image_generation_call IDs as references for later image edits, not as /workspace paths; do not search for or call reply_attachment on the generated image itself.'
+    ? '\nImages created in this turn with the hosted image_generation tool are attached to the final reply automatically. Available image inputs use turn-local img_N references, not local file paths. Do not search for or call reply_attachment on the generated image itself.'
     : ''
 
   return `<tools>
 <about_computer>
-These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, foreground commands, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
+These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. The runtime context gives its file paths. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
 Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, and rg. Verify exact versions with a quick command when the task depends on them.
 
-Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, and per-agent environment/package deltas. Enabled skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state.
+Persistence model: Cross-session user files preserve uploads and deliverables. Agent-installed Skills persist in the installed-skills directory under Agent Home. The listed Agent documents are read-only projections of PostgreSQL state. Use the current workspace's temp directory for scratch data.
 
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
@@ -259,7 +266,7 @@ function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPrompt
   return (opts.agentConversationContext?.skills ?? [])
     .map(skillPromptEntryFromRuntime)
     .filter(isSkillPromptEntry)
-    .filter(skill => !skill.longRunning || toolAvailable(opts, 'background_agent_job'))
+    .filter(skill => !skill.backgroundJobOnly || toolAvailable(opts, 'create_background_job'))
 }
 
 /**
@@ -276,7 +283,7 @@ export function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPr
     description: skill.description,
     category: skill.category || undefined,
     disableModelInvocation,
-    longRunning: metadata.long_running === true
+    backgroundJobOnly: ankoleSkillRuntime(skill) === 'background_job'
   }
 }
 

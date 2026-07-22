@@ -69,7 +69,7 @@ export async function withImageWorkspace(
   )
 
   try {
-    await run(workspaceRoot, `/workspace/${relativePath.replaceAll('\\', '/')}`)
+    await run(workspaceRoot, filePath)
   } finally {
     rmSync(workspaceRoot, { recursive: true, force: true })
   }

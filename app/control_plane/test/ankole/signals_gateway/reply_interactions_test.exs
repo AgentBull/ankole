@@ -11,9 +11,35 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Ingress
+  alias Ankole.SignalsGateway.ReplyInteractionState
   alias Ankole.SignalsGateway.ReplyPresentation
 
   @now ~U[2026-07-14 02:30:00.000000Z]
+
+  test "treats checkpoints from before the interaction state contract as stale" do
+    interaction_id = "clarify:legacy"
+
+    legacy_pending = %{
+      "presentation" => %{
+        "state" => "awaiting_input",
+        "interaction_status" => "pending",
+        "actions" => [%{"interaction_id" => interaction_id}]
+      }
+    }
+
+    legacy_answered =
+      Map.put(legacy_pending, "interactions", %{
+        interaction_id => %{
+          "interaction_id" => interaction_id,
+          "selected_option_id" => "operators",
+          "option_value" => "Operators"
+        }
+      })
+
+    assert ReplyInteractionState.interaction(legacy_pending, interaction_id) == nil
+    assert ReplyInteractionState.pending_interaction_ids(legacy_pending) == []
+    assert ReplyInteractionState.interaction(legacy_answered, interaction_id) == nil
+  end
 
   test "accepts one authorized current choice, locks the controls, and suppresses repeat clicks" do
     %{agent: agent, human: human, event: source_event, action: action} = setup_interaction()
@@ -211,13 +237,10 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
                agent.uid,
                "mock",
                "clarify-projection",
-               %{
-                 capabilities: [:post_entry],
-                 send: fn outbox ->
-                   send(test_process, {:delivered, outbox.payload["reply_presentation"]})
-                   {:ok, %{created_source_entry_id: "clarify-card-projected"}}
-                 end
-               },
+               outbox_adapter([:post_entry], fn outbox ->
+                 send(test_process, {:delivered, outbox.payload["reply_presentation"]})
+                 {:ok, %{created_source_entry_id: "clarify-card-projected"}}
+               end),
                now: DateTime.add(@now, 1, :second)
              )
 
@@ -297,7 +320,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
                  available_at: @now,
                  payload: %{
                    "type" => "background_agent_job.failed",
-                   "data" => %{"job_id" => Ecto.UUID.generate()}
+                   "data" => %{"job_id" => 1000}
                  }
                })
              end)

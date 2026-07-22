@@ -4,9 +4,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library.AgentPlugins
+  alias Ankole.AgentHomePaths
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
@@ -16,14 +18,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   describe "job session identity" do
     test "job_session_id/1 pins the persisted wire format" do
-      job_id = Ecto.UUID.generate()
+      job_id = 1000
 
-      assert BackgroundAgentJobs.job_session_id(job_id) == "job:" <> job_id
+      assert BackgroundAgentJobs.job_session_id(job_id) == "job:1000"
       assert BackgroundAgentJobs.job_session_prefix() == "job:"
     end
 
     test "parse_job_session_id/1 round-trips built ids and rejects everything else" do
-      job_id = Ecto.UUID.generate()
+      job_id = 1000
       session_id = BackgroundAgentJobs.job_session_id(job_id)
 
       assert BackgroundAgentJobs.parse_job_session_id(session_id) == {:ok, job_id}
@@ -35,7 +37,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     test "is_job_session_id/1 agrees with parse_job_session_id/1" do
       values = [
-        BackgroundAgentJobs.job_session_id(Ecto.UUID.generate()),
+        BackgroundAgentJobs.job_session_id(1000),
         "job:",
         "job",
         "",
@@ -65,14 +67,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     now = DateTime.utc_now(:microsecond)
 
     attrs = %{
-      job_id: Ecto.UUID.generate(),
+      job_id: 1000,
       attempt: 1,
       runtime_thread_id: "thread-schema",
       runtime_turn_id: "turn-schema",
       kind: "agent",
       status: "completed",
       revision: 1,
-      trajectory: trajectory([assistant_message("complete")]),
+      trajectory: trajectory_header(),
       progress: %{
         "completed_items" => 2,
         "tool_calls" => 1,
@@ -143,8 +145,6 @@ defmodule Ankole.BackgroundAgentJobsTest do
       "title" => "Prepare the launch brief",
       "task" =>
         "\n  Read the source material, write the brief, and verify every acceptance criterion.  \n",
-      "background" => "The brief is for the operations team.",
-      "notes" => "Keep the handoff concise.",
       "reply_route" => %{
         "binding_name" => "lark",
         "signal_channel_id" => "chat-1",
@@ -160,18 +160,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert job.attempts == 0
     assert job.title == attrs["title"]
     assert job.task == attrs["task"]
-    assert job.background == attrs["background"]
-    assert job.notes == attrs["notes"]
     assert job.reply_route == attrs["reply_route"]
-    assert job.agent_plugin_ids == []
-    assert is_list(job.skill_names)
-
-    assert [workspace] = job.workspace_mounts
-    assert workspace["id"] == "workspace"
-    assert workspace["access"] == "read_write"
-
-    assert workspace["source"] ==
-             "/workspace/user-files/background-agent-jobs/#{job.id}/workspace"
+    assert job.workspace_template_id == nil
 
     assert event.agent_uid == agent.uid
     assert event.binding_name == "lark"
@@ -184,8 +174,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert get_in(event.payload, ["data", "job_id"]) == job.id
     assert get_in(event.payload, ["data", "owner_session_id"]) == "parent-session"
-    assert get_in(event.payload, ["data", "agent_plugin_ids"]) == []
-    assert get_in(event.payload, ["data", "workspace_mounts"]) == job.workspace_mounts
+    refute Map.has_key?(event.payload["data"], "workspace_template_id")
+    refute Map.has_key?(event.payload["data"], "workspace_mounts")
     assert get_in(event.payload, ["data", "attempts"]) == 0
     refute inspect(event.payload) =~ attrs["task"]
 
@@ -265,14 +255,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 1
   end
 
-  test "Agent Plugin selection stores only ids and idempotent replay ignores later disablement" do
+  test "workspace template selection stores one id and idempotent replay ignores later disablement" do
     %{principal: agent} = agent_fixture()
 
     attrs = %{
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-research",
       "source_tool_call_id" => "tool-deep-research",
-      "agent_plugin_ids" => ["deep-research"],
+      "workspace_template_id" => "deep-research",
       "title" => "Research the policy change",
       "task" => "Produce a cited research report.",
       "reply_route" => %{"binding_name" => "lark"}
@@ -281,8 +271,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, %{job: research}} =
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
-    assert research.agent_plugin_ids == ["deep-research"]
-    refute "deep-research" in research.skill_names
+    assert research.workspace_template_id == "deep-research"
 
     assert {:ok, _override} =
              AgentPlugins.set_agent_override(agent.uid, "deep-research", false)
@@ -291,7 +280,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
     assert retried.id == research.id
-    assert retried.agent_plugin_ids == ["deep-research"]
+    assert retried.workspace_template_id == "deep-research"
   end
 
   test "success requires a completed lead Turn but does not gate on Codex child Turn state" do
@@ -302,7 +291,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-trajectory-gate",
                "source_tool_call_id" => "tool-trajectory-gate",
-               "agent_plugin_ids" => ["deep-research"],
+               "workspace_template_id" => "deep-research",
                "title" => "Research with a durable trajectory",
                "task" => "Produce the report.",
                "reply_route" => %{"binding_name" => "lark"}
@@ -417,13 +406,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "metadata" => %{"pending_user_input" => %{"questions" => []}}
              })
 
-    interrupted
-    |> Turn.changeset(%{
+    replace_turn_trajectory!(interrupted, request_user_input_messages(false), %{
       revision: interrupted.revision + 1,
-      error: %{"code" => "request_user_input"},
-      trajectory: request_user_input_trajectory(false)
+      error: %{"code" => "request_user_input"}
     })
-    |> Repo.update!()
 
     _child_question =
       insert_waiting_turn!(
@@ -441,12 +427,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     interrupted = Repo.reload!(interrupted)
 
-    interrupted
-    |> Turn.changeset(%{
-      revision: interrupted.revision + 1,
-      trajectory: request_user_input_trajectory()
+    replace_turn_trajectory!(interrupted, request_user_input_messages(), %{
+      revision: interrupted.revision + 1
     })
-    |> Repo.update!()
 
     assert {:ok, %{job: %{status: "waiting_on_user"}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
@@ -484,15 +467,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     now = DateTime.utc_now(:microsecond)
 
-    active
-    |> Turn.changeset(%{
+    replace_turn_trajectory!(active, request_user_input_messages(), %{
       status: "interrupted",
       revision: active.revision + 1,
-      trajectory: request_user_input_trajectory(),
       error: %{"code" => "request_user_input"},
       completed_at: now
     })
-    |> Repo.update!()
 
     assert {:ok, %{job: %{status: "waiting_on_user"}}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
@@ -501,10 +481,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
   end
 
-  test "creation rejects workspace mounts outside /workspace before journaling work" do
+  test "creation rejects the removed workspace_mounts field before journaling work" do
     %{principal: agent} = agent_fixture()
 
-    assert {:error, {:invalid_workspace_mount_source, 0}} =
+    assert {:error, {:unsupported_background_agent_job_create_fields, ["workspace_mounts"]}} =
              BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-invalid-workdir",
@@ -525,7 +505,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 0
   end
 
-  test "creation rejects caller-local task paths before journaling work" do
+  test "creation rejects legacy workspace paths before journaling work" do
     %{principal: agent} = agent_fixture()
 
     for {task, path, index} <- [
@@ -533,7 +513,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
           {"Use /workspace/temp for intermediate pages.", "/workspace/temp", 2},
           {"Inspect /workspace/user-files, then report what exists.", "/workspace/user-files", 3}
         ] do
-      assert {:error, {:background_agent_job_caller_local_task_path, message}} =
+      assert {:error, {:background_agent_job_legacy_workspace_path, message}} =
                BackgroundAgentJobs.create_with_dispatch(%{
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "parent-session-invalid-task-path-#{index}",
@@ -543,9 +523,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  "reply_route" => %{"binding_name" => "lark"}
                })
 
-      assert message =~ path
-      assert message =~ "workspace_mounts"
-      assert message =~ "/workspace/workspaces/<mount-id>/"
+      assert task =~ path
+      assert message =~ "/workspace is no longer a valid Agent path"
+      assert message =~ "/agents/<agent-key>/"
     end
 
     assert Repo.aggregate(Job, :count) == 0
@@ -556,7 +536,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       "owner_session_id" => "parent-session-near-task-path",
       "source_tool_call_id" => "tool-background-agent-job-near-task-path",
       "title" => "Valid private directory",
-      "task" => "Create /workspace/user-files-archive in the private Job project.",
+      "task" => "Create artifacts/user-files-archive in the current Job workspace.",
       "reply_route" => %{"binding_name" => "lark"}
     }
 
@@ -634,12 +614,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "status" => "succeeded",
                "result" => %{
                  "summary" => "Launch brief written and verified.",
-                 "project_path" =>
-                   "/workspace/user-files/background-agent-jobs/#{waiting.id}/project",
+                 "project_path" => AgentHomePaths.job_workspace(agent.uid, waiting.id),
                  "artifacts" => %{
                    "total_count" => 1,
                    "paths" => [
-                     "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+                     Path.join(
+                       AgentHomePaths.job_workspace(agent.uid, waiting.id),
+                       "launch-brief.pdf"
+                     )
                    ],
                    "truncated" => false
                  }
@@ -654,12 +636,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
              "Launch brief written and verified."
 
     assert get_in(completed_event.payload, ["data", "project_path"]) ==
-             "/workspace/user-files/background-agent-jobs/#{waiting.id}/project"
+             AgentHomePaths.job_workspace(agent.uid, waiting.id)
 
     assert get_in(completed_event.payload, ["data", "artifacts"]) == %{
              "total_count" => 1,
              "paths" => [
-               "/workspace/user-files/background-agent-jobs/#{waiting.id}/project/launch-brief.pdf"
+               Path.join(AgentHomePaths.job_workspace(agent.uid, waiting.id), "launch-brief.pdf")
              ],
              "truncated" => false
            }
@@ -677,14 +659,19 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "status" => "failed",
                "error" => %{
                  "code" => "codex_turn_failed",
-                 "summary" => "The provider disconnected."
+                 "summary" =>
+                   "The provider disconnected (request 019f0000-0000-7000-8000-000000000099)."
                }
              })
 
     assert failed.status == "failed"
     assert failed_event.type == "background_agent_job.failed"
     assert get_in(failed_event.payload, ["data", "job_id"]) == failed.id
-    assert get_in(failed_event.payload, ["data", "agent_plugin_ids"]) == []
+
+    assert get_in(failed_event.payload, ["data", "result_summary"]) ==
+             "The provider disconnected (request [internal-id])."
+
+    refute Map.has_key?(failed_event.payload["data"], "workspace_template_id")
     refute Map.has_key?(get_in(failed_event.payload, ["data"]), "workdir")
 
     stopped = create_job!(agent.uid, "stopped")
@@ -716,6 +703,28 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "background_agent_job.failed",
                "background_agent_job.waiting"
              ]
+  end
+
+  test "failure wakeups omit unrecognized diagnostic maps" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "opaque-failure")
+
+    assert {:ok, %{job: _running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-opaque-failure"
+             })
+
+    assert {:ok, %{wakeup_event: %ActorEvent{} = wakeup}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "failed",
+               "error" => %{
+                 "provider_request_id" => "019f0000-0000-7000-8000-000000000098"
+               }
+             })
+
+    refute Map.has_key?(wakeup.payload["data"], "result_summary")
+    refute Ankole.JSON.encode!(wakeup.payload) =~ "019f0000-0000-7000-8000-000000000098"
   end
 
   test "status and parent wakeup roll back together when the frozen reply route is invalid" do
@@ -847,7 +856,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
            )
   end
 
-  test "steer journals text and answers and list visibility is bounded by parent session or channel" do
+  test "message send journals text once and list visibility is bounded by parent session or channel" do
     %{principal: agent} = agent_fixture()
     same_session = create_job!(agent.uid, "same-session")
     same_channel = create_job!(agent.uid, "same-channel")
@@ -861,39 +870,159 @@ defmodule Ankole.BackgroundAgentJobsTest do
       ]
     )
 
-    assert {:ok, %{job: ^same_session, command_event: %ActorEvent{} = steer_event}} =
-             BackgroundAgentJobs.request_steer(same_session.id, %{
+    same_session =
+      same_session
+      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-same-session"})
+      |> Repo.update!()
+
+    assert {:ok, %{job: %Job{id: same_session_id}, command_event: %ActorEvent{} = message_event}} =
+             BackgroundAgentJobs.send_message(same_session.id, %{
                "agent_uid" => agent.uid,
-               "text" => "Use the operator audience.",
-               "answers" => %{"audience" => "Operators"},
+               "message" => "Use the operator audience.",
                "request_id" => "steer-same-session"
              })
 
-    assert steer_event.source_entry_id == nil
+    assert message_event.source_entry_id == nil
 
-    assert steer_event.type == "command.steer"
+    assert message_event.type == "command.steer"
 
-    assert get_in(steer_event.payload, ["data", "command", "argsText"]) ==
+    assert get_in(message_event.payload, ["data", "command", "argsText"]) ==
              "Use the operator audience."
 
-    assert get_in(steer_event.payload, ["data", "command", "answers"]) == %{
-             "audience" => "Operators"
-           }
+    refute Map.has_key?(get_in(message_event.payload, ["data", "command"]), "answers")
 
-    listed =
-      BackgroundAgentJobs.list_for_channel(
-        agent.uid,
-        same_session.owner_session_id,
-        "chat-same-session"
-      )
+    assert {:ok, %{command_event: %ActorEvent{id: repeated_id}}} =
+             BackgroundAgentJobs.send_message(same_session.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Use the operator audience.",
+               "request_id" => "steer-same-session"
+             })
 
-    assert Enum.map(listed, & &1.id) |> MapSet.new() ==
+    assert repeated_id == message_event.id
+
+    assert same_session_id == same_session.id
+
+    assert {:ok, %{jobs: listed, next_cursor: nil}} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               same_session.owner_session_id,
+               "chat-same-session"
+             )
+
+    assert Enum.map(listed, & &1.job_id) |> MapSet.new() ==
              MapSet.new([same_session.id, same_channel.id])
 
-    refute Enum.any?(listed, &(&1.id == other_channel.id))
+    assert Enum.find(listed, &(&1.job_id == same_session.id)) == %{
+             job_id: same_session.id,
+             title: same_session.title,
+             status: "running"
+           }
+
+    assert Enum.find(listed, &(&1.job_id == same_channel.id)) == %{
+             job_id: same_channel.id,
+             title: same_channel.title,
+             status: "queued"
+           }
+
+    refute Enum.any?(listed, &(&1.job_id == other_channel.id))
   end
 
-  test "steer queues a settled job for continuation in its existing runtime thread" do
+  test "list uses fixed 32-item pages ordered by the latest update and grouped status" do
+    %{principal: agent} = agent_fixture()
+    owner_session_id = "list-owner-session"
+    signal_channel_id = "chat-list-page"
+    base = ~U[2026-07-21 00:00:00.000000Z]
+
+    live_jobs =
+      for index <- 0..32 do
+        job = create_job!(agent.uid, "list-live-#{index}")
+
+        from(row in Job, where: row.id == ^job.id)
+        |> Repo.update_all(
+          set: [
+            owner_session_id: owner_session_id,
+            reply_route: %{"binding_name" => "lark", "signal_channel_id" => signal_channel_id},
+            updated_at: DateTime.add(base, index, :second)
+          ]
+        )
+
+        job
+      end
+
+    stop_jobs =
+      for {status, index} <- Enum.with_index(~w(succeeded failed stopped), 33) do
+        job = create_job!(agent.uid, "list-stop-#{status}")
+        completed_at = DateTime.add(base, index, :second)
+
+        from(row in Job, where: row.id == ^job.id)
+        |> Repo.update_all(
+          set: [
+            owner_session_id: owner_session_id,
+            reply_route: %{"binding_name" => "lark", "signal_channel_id" => signal_channel_id},
+            status: status,
+            completed_at: completed_at,
+            updated_at: completed_at
+          ]
+        )
+
+        {job, status}
+      end
+
+    assert {:ok, %{jobs: first_page, next_cursor: cursor}} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               owner_session_id,
+               signal_channel_id
+             )
+
+    assert length(first_page) == 32
+    assert is_binary(cursor)
+
+    expected_live_ids = live_jobs |> Enum.reverse() |> Enum.map(& &1.id)
+    assert Enum.map(first_page, & &1.job_id) == Enum.take(expected_live_ids, 32)
+
+    assert {:ok, %{jobs: second_page, next_cursor: nil}} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               owner_session_id,
+               signal_channel_id,
+               cursor: cursor
+             )
+
+    assert Enum.map(second_page, & &1.job_id) == Enum.drop(expected_live_ids, 32)
+
+    assert {:ok, %{jobs: stopped, next_cursor: nil}} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               owner_session_id,
+               signal_channel_id,
+               status: "stop"
+             )
+
+    expected_stop_jobs = Enum.reverse(stop_jobs)
+
+    assert Enum.map(stopped, &{&1.job_id, &1.status}) ==
+             Enum.map(expected_stop_jobs, &{elem(&1, 0).id, elem(&1, 1)})
+
+    assert {:error, :invalid_background_agent_job_cursor} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               owner_session_id,
+               signal_channel_id,
+               status: "stop",
+               cursor: cursor
+             )
+
+    assert {:error, :invalid_background_agent_job_list_status} =
+             BackgroundAgentJobs.list_for_channel(
+               agent.uid,
+               owner_session_id,
+               signal_channel_id,
+               status: "failed"
+             )
+  end
+
+  test "message send rejects a settled job and does not create a command" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "settled-continuation")
 
@@ -912,18 +1041,20 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "result" => %{"summary" => "Candidate result"}
              })
 
-    assert {:ok, %{job: queued, command_event: %ActorEvent{} = steer_event}} =
-             BackgroundAgentJobs.request_steer(succeeded.id, %{
+    assert {:error, {:background_agent_job_message_status_invalid, "succeeded"}} =
+             BackgroundAgentJobs.send_message(succeeded.id, %{
                "agent_uid" => agent.uid,
-               "text" => "Complete the missing artifacts.",
+               "message" => "Complete the missing artifacts.",
                "request_id" => "continue-settled"
              })
 
-    assert queued.status == "queued"
-    assert queued.runtime_thread_id == "thread-settled-continuation"
-    assert queued.result == %{"summary" => "Candidate result"}
-    assert queued.completed_at == nil
-    assert steer_event.type == "command.steer"
+    assert BackgroundAgentJobs.get_job_for_agent(succeeded.id, agent.uid).status == "succeeded"
+
+    refute Repo.exists?(
+             from event in ActorEvent,
+               where: event.session_id == ^BackgroundAgentJobs.job_session_id(succeeded.id),
+               where: event.type == "command.steer"
+           )
   end
 
   test "claiming a continuation clears the answered parent input" do
@@ -983,7 +1114,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     running = set_attempts!(running, 1)
     _turn = insert_turn!(running, 1, "thread-bounded-wakeup", "turn-bounded-wakeup", "completed")
 
-    project_path = "/workspace/user-files/background-agent-jobs/#{job.id}/project"
+    project_path = AgentHomePaths.job_workspace(agent.uid, job.id)
 
     artifact_paths =
       for index <- 1..50_000 do
@@ -1013,7 +1144,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  },
                  artifact_roots: %{
                    total_count: 2,
-                   paths: [project_path, "/workspace/user-files/research-output"],
+                   paths: [
+                     project_path,
+                     Path.join(AgentHomePaths.user_files(agent.uid), "research-output")
+                   ],
                    truncated: false
                  }
                }
@@ -1041,14 +1175,19 @@ defmodule Ankole.BackgroundAgentJobsTest do
     roots = succeeded.result["artifact_roots"]
     assert roots == get_in(wakeup.payload, ["data", "artifact_roots"])
     assert roots["total_count"] == 2
-    assert roots["paths"] == [project_path, "/workspace/user-files/research-output"]
+
+    assert roots["paths"] == [
+             project_path,
+             Path.join(AgentHomePaths.user_files(agent.uid), "research-output")
+           ]
+
     refute roots["truncated"]
 
     assert get_in(wakeup.payload, ["data", "project_path"]) == project_path
     assert byte_size(Ankole.JSON.encode!(wakeup.payload)) <= 32_768
   end
 
-  test "only normalized ankole_chatml trajectories can be stored as Turns" do
+  test "only normalized ankole_chatml headers can be stored as Turns" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "trajectory-shape")
     now = DateTime.utc_now(:microsecond)
@@ -1070,10 +1209,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     refute changeset.valid?
 
-    assert %{trajectory: ["must be an ankole_chatml v1 object with a messages array"]} =
+    assert %{trajectory: ["must be an ankole_chatml v1 header"]} =
              errors_on(changeset)
 
-    wrapped_event =
+    header_with_messages =
       Turn.changeset(%Turn{}, %{
         job_id: job.id,
         attempt: 1,
@@ -1085,41 +1224,33 @@ defmodule Ankole.BackgroundAgentJobsTest do
         trajectory: %{
           "format" => "ankole_chatml",
           "version" => 1,
-          "messages" => [
-            %{"method" => "item/agentMessage/delta", "delta" => "raw frame"}
-          ]
+          "messages" => []
         },
         error: %{},
         started_at: now,
         completed_at: now
       })
 
-    refute wrapped_event.valid?
-    assert %{trajectory: [message]} = errors_on(wrapped_event)
-    assert message =~ "ChatML message"
+    refute header_with_messages.valid?
+    assert %{trajectory: [message]} = errors_on(header_with_messages)
+    assert message =~ "header metadata"
 
-    oversized =
+    valid_header =
       Turn.changeset(%Turn{}, %{
         job_id: job.id,
         attempt: 1,
-        runtime_thread_id: "thread-oversized",
-        runtime_turn_id: "turn-oversized",
+        runtime_thread_id: "thread-header",
+        runtime_turn_id: "turn-header",
         kind: "agent",
         status: "completed",
         revision: 1,
-        trajectory: %{
-          "format" => "ankole_chatml",
-          "version" => 1,
-          "messages" => [
-            %{"role" => "assistant", "content" => String.duplicate("x", 270_000)}
-          ]
-        },
+        trajectory: trajectory_header(),
         error: %{},
         started_at: now,
         completed_at: now
       })
 
-    assert oversized.valid?
+    assert valid_header.valid?
   end
 
   test "execution projection aggregates one attempt while paginating only lead agent semantic groups" do
@@ -1138,12 +1269,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
       started_at: base,
       status: "completed",
       completed_at: DateTime.add(base, 1, :microsecond),
-      trajectory:
-        trajectory([
-          assistant_message("lead-old"),
+      trajectory_groups: [
+        [assistant_message("lead-old")],
+        [
           tool_call_message("shell-1", "shell"),
           tool_result_message("shell-1", "shell", "done")
-        ]),
+        ]
+      ],
       progress: progress_snapshot(2, "shell", ["a.ts"]),
       usage: usage_snapshot(100)
     })
@@ -1153,7 +1285,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-child-1",
       started_at: DateTime.add(base, 1, :second),
       status: "in_progress",
-      trajectory: trajectory([assistant_message("child-report-must-not-appear")]),
+      trajectory_groups: [[assistant_message("child-report-must-not-appear")]],
       progress:
         progress_snapshot(2, "web_search", ["child.tmp"])
         |> Map.put("active_item", %{"id" => "child-search", "name" => "web_search"}),
@@ -1167,7 +1299,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       started_at: DateTime.add(base, 2, :second),
       status: "completed",
       completed_at: DateTime.add(base, 2, :second),
-      trajectory: trajectory([assistant_message("compaction-must-not-appear")]),
+      trajectory_groups: [[assistant_message("compaction-must-not-appear")]],
       progress: progress_snapshot(1, "context_compaction", [])
     })
 
@@ -1176,13 +1308,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-lead-2",
       started_at: DateTime.add(base, 3, :second),
       status: "in_progress",
-      trajectory:
-        trajectory([
-          assistant_message("lead-new-1"),
-          assistant_message("lead-new-2"),
+      trajectory_groups: [
+        [assistant_message("lead-new-1")],
+        [assistant_message("lead-new-2")],
+        [
           tool_call_message("patch-1", "apply_patch"),
           tool_result_message("patch-1", "apply_patch", "patched")
-        ]),
+        ]
+      ],
       progress:
         progress_snapshot(3, "apply_patch", ["b.ts"])
         |> Map.put("active_item", %{"id" => "patch-1", "name" => "apply_patch"})
@@ -1298,12 +1431,253 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-large",
       status: "completed",
       completed_at: DateTime.utc_now(:microsecond),
-      trajectory: trajectory([assistant_message(String.duplicate("大", 80_000))])
+      trajectory_groups: [[assistant_message(String.duplicate("大", 80_000))]]
     })
 
     assert {:ok, execution} = Turns.execution_projection(job)
     assert byte_size(Ankole.JSON.encode!(execution.trajectory_page)) <= 24 * 1_024
     assert execution.trajectory_page.messages != []
+  end
+
+  test "message result waits through the status commit window and then reports continuation" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "causal-message-continuation")
+
+    job =
+      job
+      |> Job.changeset(%{
+        status: "running",
+        attempts: 1,
+        runtime_thread_id: "thread-causal-message"
+      })
+      |> Repo.update!()
+
+    assert {:ok, %{command_event: command_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Use plain language.",
+               "request_id" => "causal-message"
+             })
+
+    started_at = DateTime.utc_now(:microsecond)
+
+    causal_turn =
+      insert_custom_turn!(job, %{
+        runtime_thread_id: job.runtime_thread_id,
+        runtime_turn_id: "turn-causal-message",
+        started_at: started_at,
+        status: "completed",
+        trajectory_groups: [
+          %{
+            item_key: "client:#{command_event.id}",
+            messages: [%{"role" => "user", "content" => "Use plain language."}]
+          },
+          [assistant_message("I updated the draft.")]
+        ]
+      })
+
+    assert {:ok, %{ready: false, status: "running"}} =
+             BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
+
+    _newer_turn =
+      insert_custom_turn!(job, %{
+        runtime_thread_id: job.runtime_thread_id,
+        runtime_turn_id: "turn-after-causal-message",
+        started_at: DateTime.add(started_at, 1, :microsecond),
+        status: "in_progress",
+        completed_at: nil,
+        trajectory_groups: [[assistant_message("Continuing the report.")]]
+      })
+
+    assert {:ok, result} =
+             BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
+
+    assert result.ready
+    assert result.status == "running"
+    assert result.lifecycle_actor_event_id == nil
+    assert result.last_turn_trajectory["format"] == "ankole_chatml"
+
+    assert Enum.any?(
+             result.last_turn_trajectory["messages"],
+             &(&1["content"] == "I updated the draft.")
+           )
+
+    refute Enum.any?(
+             result.last_turn_trajectory["messages"],
+             &(&1["content"] == "Continuing the report.")
+           )
+
+    assert causal_turn.runtime_turn_id == "turn-causal-message"
+  end
+
+  test "message result exposes the matching lifecycle event only to its owner session" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "causal-message-waiting")
+
+    job =
+      job
+      |> Job.changeset(%{
+        status: "running",
+        attempts: 1,
+        runtime_thread_id: "thread-causal-waiting"
+      })
+      |> Repo.update!()
+
+    assert {:ok, %{command_event: command_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "Operators",
+               "request_id" => "causal-waiting"
+             })
+
+    insert_custom_turn!(job, %{
+      runtime_thread_id: job.runtime_thread_id,
+      runtime_turn_id: "turn-causal-waiting",
+      status: "interrupted",
+      error: %{"code" => "request_user_input", "summary" => "Input required."},
+      trajectory_groups: [
+        %{
+          item_key: "client:#{command_event.id}",
+          messages: [%{"role" => "user", "content" => "Operators"}]
+        },
+        %{item_key: "request-user-input", messages: request_user_input_messages()}
+      ]
+    })
+
+    assert {:ok, %{job: waiting, wakeup_event: wakeup_event}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "waiting_on_user",
+               "metadata" => %{"pending_user_input" => %{"questions" => []}}
+             })
+
+    assert {:ok, owner_result} =
+             BackgroundAgentJobs.message_result(
+               waiting,
+               command_event.id,
+               waiting.owner_session_id
+             )
+
+    assert owner_result.ready
+    assert owner_result.status == "waiting_on_user"
+    assert owner_result.lifecycle_actor_event_id == wakeup_event.id
+
+    assert {:ok, other_session_result} =
+             BackgroundAgentJobs.message_result(
+               waiting,
+               command_event.id,
+               "same-channel-other-session"
+             )
+
+    assert other_session_result.ready
+    assert other_session_result.lifecycle_actor_event_id == nil
+  end
+
+  test "message result returns the causal Turn for succeeded and failed Jobs" do
+    %{principal: agent} = agent_fixture()
+
+    for {job_status, turn_status} <- [{"succeeded", "completed"}, {"failed", "failed"}] do
+      job = create_job!(agent.uid, "causal-message-#{job_status}")
+
+      job =
+        job
+        |> Job.changeset(%{
+          status: "running",
+          attempts: 1,
+          runtime_thread_id: "thread-causal-#{job_status}"
+        })
+        |> Repo.update!()
+
+      assert {:ok, %{command_event: command_event}} =
+               BackgroundAgentJobs.send_message(job.id, %{
+                 "agent_uid" => agent.uid,
+                 "message" => "Finish this revision.",
+                 "request_id" => "causal-#{job_status}"
+               })
+
+      insert_custom_turn!(job, %{
+        runtime_thread_id: job.runtime_thread_id,
+        runtime_turn_id: "turn-causal-#{job_status}",
+        status: turn_status,
+        error: if(job_status == "failed", do: %{"summary" => "Revision failed."}, else: %{}),
+        trajectory_groups: [
+          %{
+            item_key: "client:#{command_event.id}",
+            messages: [%{"role" => "user", "content" => "Finish this revision."}]
+          },
+          [assistant_message("Causal #{job_status} output.")]
+        ]
+      })
+
+      status_attrs =
+        case job_status do
+          "succeeded" ->
+            %{
+              "status" => "succeeded",
+              "result" => %{
+                "summary" => "Revision complete.",
+                "project_path" => AgentHomePaths.job_workspace(agent.uid, job.id),
+                "artifacts" => %{"total_count" => 0, "paths" => [], "truncated" => false}
+              }
+            }
+
+          "failed" ->
+            %{
+              "status" => "failed",
+              "error" => %{"code" => "codex_turn_failed", "summary" => "Revision failed."}
+            }
+        end
+
+      assert {:ok, %{job: committed, wakeup_event: wakeup_event}} =
+               BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, status_attrs)
+
+      assert {:ok, result} =
+               BackgroundAgentJobs.message_result(
+                 committed,
+                 command_event.id,
+                 committed.owner_session_id
+               )
+
+      assert result.ready
+      assert result.status == job_status
+      assert result.lifecycle_actor_event_id == wakeup_event.id
+
+      assert Enum.any?(
+               result.last_turn_trajectory["messages"],
+               &(&1["content"] == "Causal #{job_status} output.")
+             )
+    end
+  end
+
+  test "message result reports delivery failure when a completed command has no trajectory" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "undelivered-message")
+
+    job =
+      job
+      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-undelivered"})
+      |> Repo.update!()
+
+    assert {:ok, %{command_event: command_event}} =
+             BackgroundAgentJobs.send_message(job.id, %{
+               "agent_uid" => agent.uid,
+               "message" => "This will not reach Codex.",
+               "request_id" => "undelivered-message"
+             })
+
+    assert {:ok, _completed} =
+             Repo.transact(fn repo ->
+               locked =
+                 Ankole.SignalsGateway.Actors.lock_actor_event_in_tx(repo, command_event.id)
+
+               Ankole.SignalsGateway.mark_actor_event_completed_in_tx(
+                 repo,
+                 locked,
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    assert {:error, :background_agent_job_message_delivery_failed} =
+             BackgroundAgentJobs.message_result(job, command_event.id, job.owner_session_id)
   end
 
   test "one runtime Turn id maps to one durable row" do
@@ -1341,7 +1715,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-lead-#{attempt}",
         started_at: started_at,
         status: "failed",
-        trajectory: trajectory([assistant_message(summary)])
+        trajectory_groups: [[assistant_message(summary)]]
       })
 
       insert_custom_turn!(job, %{
@@ -1350,7 +1724,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-child-#{attempt}",
         started_at: DateTime.add(started_at, 1, :second),
         status: "failed",
-        trajectory: trajectory([assistant_message("Child report must not replace #{summary}")])
+        trajectory_groups: [[assistant_message("Child report must not replace #{summary}")]]
       })
     end
 
@@ -1387,7 +1761,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       runtime_turn_id: "turn-lead-1",
       started_at: base,
       status: "failed",
-      trajectory: trajectory([assistant_message("Authoritative lead report.")])
+      trajectory_groups: [[assistant_message("Authoritative lead report.")]]
     })
 
     for index <- 1..101 do
@@ -1397,7 +1771,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-child-#{index}",
         started_at: DateTime.add(base, index, :second),
         status: "failed",
-        trajectory: trajectory([assistant_message("Passive child report #{index}.")])
+        trajectory_groups: [[assistant_message("Passive child report #{index}.")]]
       })
     end
 
@@ -1405,9 +1779,41 @@ defmodule Ankole.BackgroundAgentJobsTest do
              Turns.attempt_history(job)
   end
 
+  test "attempt history reports the durable failure before the last assistant text" do
+    %{principal: agent} = agent_fixture()
+    job = create_job!(agent.uid, "failed-attempt-history")
+
+    from(row in Job, where: row.id == ^job.id)
+    |> Repo.update_all(set: [attempts: 2, runtime_thread_id: "thread-current"])
+
+    job = Repo.get!(Job, job.id)
+
+    insert_custom_turn!(job, %{
+      attempt: 1,
+      runtime_thread_id: "thread-reused",
+      runtime_turn_id: "turn-failed",
+      status: "failed",
+      error: %{
+        "code" => "background_agent_job_runtime_exception",
+        "summary" =>
+          "codex app-server request 019f0000-0000-7000-8000-000000000099 exited with code 143"
+      },
+      trajectory_groups: [[assistant_message("Stage 1 indexing was in progress.")]]
+    })
+
+    assert [
+             %{
+               attempt: 1,
+               turn_statuses: ["failed"],
+               summary: "codex app-server request [internal-id] exited with code 143"
+             }
+           ] = Turns.attempt_history(job)
+  end
+
   defp insert_custom_turn!(job, attrs) do
     status = Map.get(attrs, :status, "completed")
     started_at = Map.get(attrs, :started_at, DateTime.utc_now(:microsecond))
+    {trajectory_groups, attrs} = Map.pop(attrs, :trajectory_groups, [])
 
     defaults = %{
       job_id: job.id,
@@ -1417,7 +1823,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       kind: "agent",
       status: status,
       revision: 1,
-      trajectory: trajectory([]),
+      trajectory: trajectory_header(),
       progress: %{
         "completed_items" => 0,
         "tool_calls" => 0,
@@ -1430,14 +1836,34 @@ defmodule Ankole.BackgroundAgentJobsTest do
       completed_at: if(status in ~w(completed failed interrupted), do: started_at)
     }
 
-    %Turn{}
-    |> Turn.changeset(Map.merge(defaults, attrs))
-    |> Repo.insert!()
+    turn =
+      %Turn{}
+      |> Turn.changeset(Map.merge(defaults, attrs))
+      |> Repo.insert!()
+
+    Enum.with_index(trajectory_groups, fn group, position ->
+      {item_key, messages} =
+        case group do
+          %{item_key: item_key, messages: messages} -> {item_key, messages}
+          %{"item_key" => item_key, "messages" => messages} -> {item_key, messages}
+          messages when is_list(messages) -> {"test:#{position}", messages}
+        end
+
+      %TrajectoryGroup{}
+      |> TrajectoryGroup.changeset(%{
+        turn_id: turn.id,
+        position: position,
+        revision: turn.revision,
+        item_key: item_key,
+        content: %{"messages" => messages}
+      })
+      |> Repo.insert!()
+    end)
+
+    turn
   end
 
-  defp trajectory(messages) do
-    %{"format" => "ankole_chatml", "version" => 1, "messages" => messages}
-  end
+  defp trajectory_header, do: %{"format" => "ankole_chatml", "version" => 1}
 
   defp assistant_message(content), do: %{"role" => "assistant", "content" => content}
 
@@ -1497,62 +1923,70 @@ defmodule Ankole.BackgroundAgentJobsTest do
          status,
          summary \\ "Turn complete."
        ) do
-    now = DateTime.utc_now(:microsecond)
-
-    %Turn{}
-    |> Turn.changeset(%{
-      job_id: job.id,
+    insert_custom_turn!(job, %{
       attempt: attempt,
       runtime_thread_id: runtime_thread_id,
       runtime_turn_id: runtime_turn_id,
-      kind: "agent",
       status: status,
-      revision: 1,
-      trajectory: %{
-        "format" => "ankole_chatml",
-        "version" => 1,
-        "messages" => [%{"role" => "assistant", "content" => summary}]
-      },
+      trajectory_groups: [[assistant_message(summary)]],
       error: if(status == "failed", do: %{"summary" => summary}, else: %{}),
-      started_at: now,
-      completed_at: if(status in ~w(completed failed interrupted), do: now)
+      started_at: DateTime.utc_now(:microsecond)
     })
-    |> Repo.insert!()
   end
 
-  defp request_user_input_trajectory(pending? \\ true) do
-    %{
-      "format" => "ankole_chatml",
-      "version" => 1,
-      "messages" => [
-        %{
-          "role" => "assistant",
-          "content" => "",
-          "metadata" => if(pending?, do: %{"status" => "pending_user_input"}, else: %{}),
-          "tool_calls" => [
-            %{
-              "id" => "request-user-input",
-              "type" => "function",
-              "function" => %{
-                "name" => "request_user_input",
-                "arguments" => ~s({"questions":[]})
-              }
+  defp request_user_input_messages(pending? \\ true) do
+    [
+      %{
+        "role" => "assistant",
+        "content" => "",
+        "metadata" => if(pending?, do: %{"status" => "pending_user_input"}, else: %{}),
+        "tool_calls" => [
+          %{
+            "id" => "request-user-input",
+            "type" => "function",
+            "function" => %{
+              "name" => "request_user_input",
+              "arguments" => ~s({"questions":[]})
             }
-          ]
-        }
-      ]
-    }
+          }
+        ]
+      }
+    ]
+  end
+
+  defp replace_turn_trajectory!(turn, messages, attrs) do
+    turn_id = turn.id
+
+    TrajectoryGroup
+    |> where([group], group.turn_id == ^turn_id)
+    |> Repo.delete_all()
+
+    %TrajectoryGroup{}
+    |> TrajectoryGroup.changeset(%{
+      turn_id: turn.id,
+      position: 0,
+      revision: Map.get(attrs, :revision, turn.revision),
+      item_key: "test:0",
+      content: %{"messages" => messages}
+    })
+    |> Repo.insert!()
+
+    turn
+    |> Turn.changeset(Map.put(attrs, :trajectory, trajectory_header()))
+    |> Repo.update!()
   end
 
   defp insert_waiting_turn!(job, attempt, runtime_thread_id, runtime_turn_id) do
-    job
-    |> insert_turn!(attempt, runtime_thread_id, runtime_turn_id, "interrupted")
-    |> Turn.changeset(%{
-      trajectory: request_user_input_trajectory(),
+    insert_custom_turn!(job, %{
+      attempt: attempt,
+      runtime_thread_id: runtime_thread_id,
+      runtime_turn_id: runtime_turn_id,
+      status: "interrupted",
       revision: 2,
-      error: %{"code" => "request_user_input"}
+      trajectory_groups: [request_user_input_messages()],
+      error: %{"code" => "request_user_input"},
+      started_at: DateTime.utc_now(:microsecond)
     })
-    |> Repo.update!()
   end
 
   defp set_attempts!(job, attempts) do

@@ -16,11 +16,7 @@ import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transp
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
-import {
-  AGENT_SYSTEM_PROMPT_EPOCH,
-  buildAgentSystemPrompt,
-  systemPromptForConversation
-} from '../../src/prompts/system_prompt'
+import { AGENT_SYSTEM_PROMPT_EPOCH, buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import { create } from '@bufbuild/protobuf'
 import { jsonBytes } from '../../src/fabric/envelope_proto'
@@ -559,7 +555,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         text: [
           '<agent_environment_info>',
           'send_at: 2026-07-04 10:03:04 (Asia/Shanghai)',
-          'signal_channel_id: lark:chat-1',
           'speaker: Alice',
           '</agent_environment_info>'
         ].join('\n')
@@ -592,9 +587,21 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         }
       }
     })
+    const opaqueAuthorGroup = actorEventEnvironmentInfoLines({
+      data: {
+        channel: { kind: 'im_group', id: 'lark:chat-1', name: 'Ops' },
+        entry: {
+          author: {
+            id: '019f0000-0000-7000-8000-000000000043',
+            metadata: { sender_type: 'user' }
+          }
+        }
+      }
+    })
 
-    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z', 'signal_channel_id: lark:dm-1'])
-    expect(chatbotGroup).toEqual(['signal_channel_id: lark:chat-1', 'speaker: Alice (chatbot)'])
+    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z'])
+    expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
+    expect(opaqueAuthorGroup).toEqual([])
   })
 
   it('keeps durable context in the system suffix and refreshes a stale conversation prompt', () => {
@@ -616,10 +623,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       skills: [{ skillName: 'financial-data', description: 'Read current market data.' }]
     })
     const options = {
-      workspaceRoot: '/workspace',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
-      currentChannel: { kind: 'external_dm' as const, id: 'dm-1', platform: 'feishu' },
+      currentChannel: { kind: 'external_dm' as const, platform: 'feishu' },
       availableToolNames: ['memory_search', 'skill_view']
     }
 
@@ -640,11 +647,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       },
       skills: [{ skillName: 'documents', description: 'Create documents.' }]
     })
-    changedContext.systemPromptSnapshot = instructions
     const changedOptions = {
       ...options,
       agentConversationContext: changedContext,
-      currentChannel: { kind: 'external_group' as const, id: 'group-2', platform: 'feishu' }
+      currentChannel: { kind: 'external_group' as const, platform: 'feishu' }
     }
 
     expect(instructions).toContain('Asia/Shanghai')
@@ -654,13 +660,11 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
     const changedInstructions = buildAgentSystemPrompt(changedOptions)
     expect(changedInstructions).not.toBe(instructions)
-    expect(systemPromptForConversation(changedOptions)).toBe(changedInstructions)
-    expect(systemPromptForConversation(options)).toBe(instructions)
     expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
     expect(instructions.indexOf('<runtime_context>')).toBeLessThan(instructions.indexOf('<durable_context>'))
   })
 
-  it('refreshes legacy prompt snapshots when the tool contract epoch changes', () => {
+  it('renders the current tool contract for the current context', () => {
     const turnStart = turnStartForTest() as TurnStart
     const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
       conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' },
@@ -668,35 +672,90 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         {
           skillName: 'documents',
           description: 'Create and verify a Word document.',
-          metadataJson: jsonBytes({ long_running: true })
+          metadataJson: jsonBytes({ 'ankole-runtime': 'background_job' })
+        },
+        {
+          skillName: 'main-helper',
+          description: 'Help only the main Agent.',
+          metadataJson: jsonBytes({ 'ankole-runtime': 'main' })
         }
-      ],
-      systemPromptSnapshot: 'Legacy prompt with browser automation, Chromium/CDP, tmux, and interactive_terminal.'
+      ]
     })
 
-    const instructions = systemPromptForConversation({
-      workspaceRoot: '/workspace',
+    const instructions = buildAgentSystemPrompt({
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
-      availableToolNames: ['background_agent_job', 'skill_view']
+      availableToolNames: [
+        'create_background_job',
+        'list_background_jobs',
+        'respawn_background_job',
+        'send_message_to_background_job',
+        'show_background_job_details',
+        'stop_background_job',
+        'skill_view'
+      ]
     })
 
     expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
     expect(instructions).toContain('<background_agent_job_policy>')
     expect(instructions).toContain('If direct work becomes heavier than expected')
-    expect(instructions).toContain('background_agent_job(status)')
-    expect(instructions).toContain('background_agent_job(steer)')
+    expect(instructions).toContain('create_background_job')
+    expect(instructions).toContain('show_background_job_details')
+    expect(instructions).toContain('send_message_to_background_job')
+    expect(instructions).toContain('respawn_background_job')
     expect(instructions).toContain('documents: [background task]')
-    expect(instructions).not.toContain('browser automation')
-    expect(instructions).not.toContain('Chromium/CDP')
-    expect(instructions).not.toContain('tmux')
-    expect(instructions).not.toContain('interactive_terminal')
+    expect(instructions).toContain('main-helper: "Help only the main Agent."')
+    expect(instructions).not.toContain('main-helper: [background task]')
+  })
+
+  it('omits the Skill catalog when skill_view is unavailable and defines long-term memory once', () => {
+    const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
+      conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' },
+      skills: [{ skillName: 'documents', description: 'Create and verify a Word document.' }]
+    })
+
+    const instructions = buildAgentSystemPrompt({
+      agentHome: '/agents/agent-1',
+      userFilesRoot: '/agents/agent-1/user-files',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
+      turnStart: turnStartForTest() as TurnStart,
+      agentConversationContext: context,
+      availableToolNames: ['source_read', 'memory_search', 'memory_open', 'memory_update', 'memory_browse']
+    })
+    const memoryDefinition = 'The long-term memory system (codename Brain) preserves information'
+
+    expect(instructions).not.toContain('## Skills')
+    expect(instructions).not.toContain('Create and verify a Word document.')
+    expect(instructions.split(memoryDefinition)).toHaveLength(2)
+  })
+
+  it('lists Agent filesystem paths only in the runtime context', () => {
+    const instructions = buildAgentSystemPrompt({
+      agentHome: '/agents/agent-1',
+      userFilesRoot: '/agents/agent-1/user-files',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
+      turnStart: turnStartForTest() as TurnStart,
+      agentConversationContext: create(AgentConversationContextResponseSchema, {
+        conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' }
+      }),
+      availableToolNames: []
+    })
+    const tools = instructions.slice(instructions.indexOf('<tools>'), instructions.indexOf('</tools>') + 8)
+
+    expect(instructions).toContain('Agent Home: /agents/agent-1')
+    expect(instructions).toContain('Current workspace: /agents/agent-1/sessions/session-1')
+    expect(instructions).toContain('Cross-session user files: /agents/agent-1/user-files')
+    expect(instructions).toContain(
+      'Agent documents: /agents/agent-1/SOUL.md, /agents/agent-1/MISSION.md, /agents/agent-1/DESIGN.md'
+    )
+    expect(tools).not.toContain('/agents/agent-1')
   })
 
   it('states the hosted image delivery contract only when that tool is projected', () => {
     const turnStart = turnStartForTest() as TurnStart
     const options = {
-      workspaceRoot: '/workspace',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: create(AgentConversationContextResponseSchema, {
         conversation: { id: 'conversation-1', key: 'session-1', timezone: 'UTC' }
@@ -704,7 +763,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       availableToolNames: ['reply_attachment']
     }
 
-    expect(buildAgentSystemPrompt(options)).not.toContain('image_generation_call IDs')
+    expect(buildAgentSystemPrompt(options)).not.toContain('turn-local img_N references')
     expect(
       buildAgentSystemPrompt({
         ...options,
@@ -738,7 +797,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       conversation: { id: 'conversation-1', key: 'session-1', timezone: 'Asia/Shanghai' }
     })
     const instructions = buildAgentSystemPrompt({
-      workspaceRoot: '/workspace',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
       availableToolNames: []
@@ -801,8 +860,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       expect(Array.isArray(content)).toBe(true)
       const parts = content as ContentPart[]
       expect(parts[0]).toMatchObject({ type: 'text' })
-      expect((parts[0] as Extract<ContentPart, { type: 'text' }>).text).toContain('source_entry_id: parent-image')
-      expect((parts[0] as Extract<ContentPart, { type: 'text' }>).text).toContain(`path=${imagePath}`)
+      const replyText = (parts[0] as Extract<ContentPart, { type: 'text' }>).text
+      expect(replyText).not.toContain('parent-image')
+      expect(replyText).toContain('role: human')
+      expect(replyText).toContain(`path=${imagePath}`)
       expect(parts[1]!.type).toBe('image')
     })
   })

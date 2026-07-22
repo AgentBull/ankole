@@ -30,7 +30,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent do
          attempt: attempt,
          max_attempts: max_attempts
        })
-       when is_binary(scheduled_event_id) do
+       when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     case Schedule.fire_due_event(scheduled_event_id,
            attempt: attempt,
            max_attempts: max_attempts

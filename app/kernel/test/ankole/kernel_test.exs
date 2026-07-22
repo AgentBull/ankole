@@ -349,7 +349,7 @@ defmodule Ankole.KernelTest do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v2.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v3.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
     assert turn_start.model_ref.max_completion_tokens == 32_000
@@ -358,8 +358,8 @@ defmodule Ankole.KernelTest do
 
     assert with_field.protocol_version == RuntimeFabric.protocol_version()
 
-    # Version 1 bytes remain structurally decodable, but the native transport
-    # rejects them before an old worker can be admitted against typed RPC v2.
+    # Older bytes remain structurally decodable, but the native transport
+    # rejects them before an old worker can be admitted against typed RPC v3.
     legacy =
       golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
 
@@ -375,9 +375,14 @@ defmodule Ankole.KernelTest do
     assert pre_field_start.model_ref.max_completion_tokens == nil
 
     worker_ready =
-      golden_dir |> Path.join("worker_ready.v2.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("worker_ready.v3.bin") |> File.read!() |> V1.Envelope.decode!()
 
-    assert {:worker_ready, %V1.AgentComputerWorkerReady{worker_id: "worker-golden"}} =
+    assert {:worker_ready,
+            %V1.AgentComputerWorkerReady{
+              worker_id: "worker-golden",
+              max_turns: 1,
+              available_turn_slots: 1
+            }} =
              worker_ready.body
 
     assert worker_ready.protocol_version == RuntimeFabric.protocol_version()

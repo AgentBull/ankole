@@ -4,6 +4,7 @@ defmodule Ankole.Brain.HealthCheck do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.Config
+  alias Ankole.Brain.Status
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.BlockCitation
   alias Ankole.Brain.Schemas.Entry
@@ -18,11 +19,14 @@ defmodule Ankole.Brain.HealthCheck do
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
 
   @stale_days 90
-  @source_review_days 90
   @long_projection_lines 200
 
   @spec run(Scope.t()) :: {:ok, map()} | {:error, term()}
-  def run(%Scope{} = scope) do
+  def run(%Scope{} = scope), do: Status.run(scope)
+
+  @doc false
+  @spec diagnostics(Scope.t()) :: {:ok, map()} | {:error, term()}
+  def diagnostics(%Scope{} = scope) do
     with {:ok, knowledge_config} <- Config.knowledge(),
          entries = scoped_entries(scope),
          {:ok, projections} <- entry_projections(scope, entries) do
@@ -43,11 +47,10 @@ defmodule Ankole.Brain.HealthCheck do
              projections,
              knowledge_config["pinned_memo_max_tokens"]
            ),
-         "failed_embeddings" => failed_embeddings(blocks),
+         "failed_embeddings" => failed_embeddings(entries, blocks),
          "uncited_generated_blocks" => uncited_generated_blocks(entries, blocks),
          "broken_citations" => broken_citations(scope, entries, blocks),
          "unintegrated_sources" => unintegrated_sources(scope),
-         "old_url_sources" => old_url_sources(scope),
          "dreaming_blocks" => dreaming_blocks(entries, blocks)
        }}
     end
@@ -55,8 +58,7 @@ defmodule Ankole.Brain.HealthCheck do
 
   defp scoped_entries(scope) do
     Entry
-    |> where([entry], entry.owner_uid == ^scope.owner_uid)
-    |> maybe_stores(scope.readable_store_keys)
+    |> scope_rows(scope)
     |> order_by([entry], asc: entry.store_key, asc: entry.name)
     |> Repo.all()
   end
@@ -85,8 +87,7 @@ defmodule Ankole.Brain.HealthCheck do
   defp orphan_entries(entries, blocks, scope) do
     related_ids =
       EntryRelation
-      |> where([relation], relation.owner_uid == ^scope.owner_uid)
-      |> maybe_stores(scope.readable_store_keys)
+      |> scope_rows(scope)
       |> select([relation], {relation.source_entry_id, relation.target_entry_id})
       |> Repo.all()
       |> Enum.flat_map(fn {source, target} -> [source, target] end)
@@ -180,21 +181,25 @@ defmodule Ankole.Brain.HealthCheck do
 
     scope.owner_uid
     |> SignalsGateway.visible_channels()
-    |> Enum.filter(&store_readable?(readable_stores, channel_store_key(&1)))
+    |> Enum.filter(&store_readable?(readable_stores, channel_store_key(scope, &1)))
     |> Enum.map(& &1.id)
   end
 
   defp readable_stores(%Scope{readable_store_keys: :all}), do: :all
   defp readable_stores(%Scope{readable_store_keys: stores}), do: stores
 
-  defp channel_store_key(%Channel{kind: :im_dm, metadata: metadata}) do
+  defp channel_store_key(%Scope{}, %Channel{kind: :im_dm, metadata: metadata}) do
     case Map.get(metadata || %{}, "dm_peer_principal_uid") do
       peer_uid when is_binary(peer_uid) and peer_uid != "" -> "dm:#{String.downcase(peer_uid)}"
       _missing -> :unknown
     end
   end
 
-  defp channel_store_key(%Channel{}), do: "public"
+  defp channel_store_key(%Scope{owner_uid: owner_uid}, %Channel{kind: :im_group, id: id}) do
+    if SignalsGateway.confidential_channel?(owner_uid, id), do: "channel:#{id}", else: "shared"
+  end
+
+  defp channel_store_key(%Scope{}, %Channel{}), do: "shared"
 
   defp store_readable?(:all, _store_key), do: true
   defp store_readable?(stores, store_key), do: store_key in stores
@@ -214,13 +219,17 @@ defmodule Ankole.Brain.HealthCheck do
     end)
   end
 
-  defp failed_embeddings(blocks) do
+  defp failed_embeddings(entries, blocks) do
+    names = Map.new(entries, &{&1.id, &1.name})
+
     blocks
     |> Enum.filter(&(&1.embedding_state == :failed))
     |> Enum.map(fn block ->
       %{
         "entry_id" => block.entry_id,
+        "entry_name" => names[block.entry_id],
         "block_id" => block.id,
+        "block_position" => block.position,
         "error" => block.embedding_error
       }
     end)
@@ -283,8 +292,7 @@ defmodule Ankole.Brain.HealthCheck do
 
   defp unintegrated_sources(scope) do
     RetainedSource
-    |> where([source], source.owner_uid == ^scope.owner_uid)
-    |> maybe_stores(scope.readable_store_keys)
+    |> scope_rows(scope)
     |> join(:left, [source], citation in BlockCitation,
       on: citation.document_id == source.document_id
     )
@@ -304,28 +312,6 @@ defmodule Ankole.Brain.HealthCheck do
       "capture_method" => source.capture_method,
       "store" => source.store_key,
       "captured_at" => source.inserted_at
-    })
-    |> Repo.all()
-    |> Enum.map(&Map.update!(&1, "captured_at", fn value -> DateTime.to_iso8601(value) end))
-  end
-
-  defp old_url_sources(scope) do
-    cutoff = DateTime.add(DateTime.utc_now(:microsecond), -@source_review_days, :day)
-
-    RetainedSource
-    |> where(
-      [source],
-      source.owner_uid == ^scope.owner_uid and source.capture_method == "url"
-    )
-    |> where([source], source.inserted_at < ^cutoff)
-    |> maybe_stores(scope.readable_store_keys)
-    |> order_by([source], asc: source.inserted_at, asc: source.id)
-    |> select([source], %{
-      "document_id" => source.document_id,
-      "title" => source.title,
-      "origin_locator" => source.origin_locator,
-      "captured_at" => source.inserted_at,
-      "reason" => "retained_url_older_than_review_window"
     })
     |> Repo.all()
     |> Enum.map(&Map.update!(&1, "captured_at", fn value -> DateTime.to_iso8601(value) end))
@@ -354,6 +340,27 @@ defmodule Ankole.Brain.HealthCheck do
 
   defp escape_like(term), do: String.replace(term, ["%", "_"], fn char -> "\\#{char}" end)
 
-  defp maybe_stores(query, :all), do: query
-  defp maybe_stores(query, stores), do: where(query, [row], row.store_key in ^stores)
+  defp scope_rows(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    where(
+      query,
+      [row],
+      row.owner_uid == ^owner_uid or
+        (row.owner_uid == ^shared_owner_uid and row.store_key == "shared")
+    )
+  end
+
+  defp scope_rows(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+    private_stores = Enum.reject(stores, &(&1 == "shared"))
+    shared? = "shared" in stores
+
+    where(
+      query,
+      [row],
+      (row.owner_uid == ^owner_uid and row.store_key in ^private_stores) or
+        (^shared? and row.owner_uid == ^shared_owner_uid and row.store_key == "shared")
+    )
+  end
 end

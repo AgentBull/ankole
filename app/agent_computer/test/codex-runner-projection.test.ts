@@ -159,7 +159,7 @@ function imageTool(name: string): AgentTool {
           { type: 'text', text: 'screenshot saved' },
           { type: 'image', image: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }
         ],
-        details: { path: '/workspace/user-files/screenshot.png' }
+        details: { path: '/agents/agent-1/user-files/screenshot.png' }
       }
     }
   }

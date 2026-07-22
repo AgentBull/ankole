@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
   alias Ankole.SignalsGateway.ToolOutput
 
   @tool_name "reply_attachment"
-  @user_files_prefix "/workspace/user-files/"
+  @user_files_path ~r/\A\/agents\/[a-z0-9][a-z0-9._-]{0,95}\/user-files\/(.+)\z/
   @path_keys [
     "agent_computer_path",
     :agent_computer_path,
@@ -173,20 +173,18 @@ defmodule Ankole.SignalsGateway.ReplyAttachment do
           String.contains?(user_files_relative_path, <<0>>) ->
         {:error, :reply_attachment_path_contains_null_byte}
 
-      not String.starts_with?(agent_computer_path, @user_files_prefix) ->
-        {:error, :reply_attachment_path_not_under_user_files}
-
       user_files_relative_path != String.trim_leading(user_files_relative_path, "/") ->
         {:error, :reply_attachment_relative_path_absolute}
 
       Path.split(user_files_relative_path) |> Enum.any?(&(&1 in ["", ".", ".."])) ->
         {:error, :reply_attachment_relative_path_invalid}
 
-      agent_computer_path != @user_files_prefix <> user_files_relative_path ->
-        {:error, :reply_attachment_path_mismatch}
-
       true ->
-        :ok
+        case Regex.run(@user_files_path, agent_computer_path, capture: :all_but_first) do
+          [^user_files_relative_path] -> :ok
+          [_other_path] -> {:error, :reply_attachment_path_mismatch}
+          nil -> {:error, :reply_attachment_path_not_under_user_files}
+        end
     end
   end
 

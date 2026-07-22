@@ -26,7 +26,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
          {:ok, state} <- required_opt(opts, :state) do
       {:ok,
        EntraAuth.authorize_url(
-         login_base_url: Map.get(config, "loginBaseURL") || "https://login.microsoftonline.com",
+         login_base_url: "https://login.microsoftonline.com",
          tenant: Map.fetch!(config, "tenantID"),
          client_id: Map.fetch!(config, "clientID"),
          redirect_uri: redirect_uri,
@@ -38,7 +38,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
 
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.identity_client(config)
 
     with {:ok, token} <-
            EntraAuth.exchange_code(client,
@@ -84,10 +84,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   end
 
   @spec sync_directory(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_directory(provider_id, config, opts \\ []) do
+  def sync_directory(provider_id, config, _opts \\ []) do
     with {:ok, %{groups: group_count, user_index: user_index}} <-
-           sync_groups(provider_id, config, opts),
-         {:ok, user_count} <- sync_users(provider_id, config, user_index, opts) do
+           sync_groups(provider_id, config),
+         {:ok, user_count} <- sync_users(provider_id, config, user_index) do
       {:ok, %{users: user_count, groups: group_count}}
     end
   end
@@ -109,7 +109,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   end
 
   defp handle_event(consumer, "user.updated", %{"id" => user_id}) when is_binary(user_id) do
-    client = Config.identity_client(consumer.config, consumer_client_opts(consumer))
+    client = Config.identity_client(consumer.config)
 
     case Graph.get(client, "users/" <> encode_segment(user_id),
            query: [{"$select", @user_select}]
@@ -136,7 +136,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   end
 
   defp handle_event(consumer, "group.updated", %{"id" => group_id}) when is_binary(group_id) do
-    client = Config.identity_client(consumer.config, consumer_client_opts(consumer))
+    client = Config.identity_client(consumer.config)
 
     case Graph.get(client, "groups/" <> encode_segment(group_id),
            query: [{"$select", @group_select}]
@@ -173,8 +173,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
   defp handle_event(_consumer, _event_type, _event),
     do: {:ok, %{status: :ignored_unknown_contact_event}}
 
-  defp sync_groups(provider_id, config, opts) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_groups(provider_id, config) do
+    client = Config.identity_client(config)
     query = groups_query(config)
 
     Pagination.stream(client, "groups", query: query)
@@ -200,8 +200,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
     end)
   end
 
-  defp sync_users(provider_id, config, user_index, opts) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_users(provider_id, config, user_index) do
+    client = Config.identity_client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || 999
 
     with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
@@ -326,8 +326,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
     }
     |> MapHelpers.compact_map()
   end
-
-  defp consumer_client_opts(consumer), do: Map.get(consumer, :client_opts, [])
 
   defp user_id(user) do
     case MapHelpers.optional_text(user, "id") do

@@ -4,10 +4,10 @@ This Ankole Agent Plugin skill includes modified documentation from OfficeCLI.
 
 Upstream project: iOfficeAI/OfficeCLI
 Upstream URL: https://github.com/iOfficeAI/OfficeCLI
-Upstream tag: v1.0.129
+Upstream commit: 1ab5978a5ff583a28f7544caf533c8eb52e9f15d
 License: Apache License 2.0
-License URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/LICENSE
-Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/v1.0.129/NOTICE
+License URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/LICENSE
+Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544caf533c8eb52e9f15d/NOTICE
 
 Imported source files:
 - SKILL.md <= skills/officecli-pptx/SKILL.md (upstream sha256: 0d53192751d5770984f16f3c34f9923377651555c667150d7f96e16e8c9757b3)

@@ -14,9 +14,9 @@ Other agents may work on the same branch. Preserve unrelated diffs and re-read e
 
 ## Changelog
 
-The non-merge Git commit is the sole changelog unit: each commit has exactly one root `CHANGELOG.md` version, and each version belongs to exactly one commit. Record every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change included in that commit. When no commit is requested, the task's retained diff prepares one pending commit and version; a task intentionally split across commits gets one version per commit. Chat-only work, discarded edits, diagnostics without a retained diff, temporary `HEY.md` coordination, and changelog bookkeeping do not create versions.
+The Git commit is the sole changelog and version unit. Every commit must add exactly one root `CHANGELOG.md` version, and that version must describe every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change in that commit. One version must not span multiple commits, and one commit must not contain multiple versions. Uncommitted tasks, chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions.
 
-Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`. Before editing, inspect staged, unstaged, and untracked state and the changelog diff. If `CHANGELOG.md` is dirty, append only when the current edits are intended for the same commit as its pending version. If they require a separate commit or ownership is unknown because of concurrent work, coordinate before editing the changelog or allocating a version; do not infer commit ownership from dirtiness alone. If the changelog is clean relative to `HEAD`, add the next version.
+Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`. Prepare the changelog entry from the exact staged diff immediately before committing and include it in that commit; if the staged contents change, update the same entry before committing. Changes split across commits receive separate consecutive versions. Do not infer a commit boundary from a dirty changelog: reuse its pending version only when it belongs to the exact commit being prepared, and otherwise coordinate before editing it or allocating another version.
 
 ## Core discipline
 
@@ -36,7 +36,9 @@ Prefer structure and naming over comments that narrate implementation, especiall
 
 ## Design priorities
 
-Ankole follows the New Jersey approach in the Unix tradition: simplicity, correctness, consistency, then completeness. This ordering does not authorize incorrect behavior inside a declared contract. When simplicity wins, narrow the contract, reject the unsupported case explicitly, or retain a manual recovery path rather than silently producing a wrong result.
+Ankole explicitly follows the [New Jersey style, “Worse is Better”](https://en.wikipedia.org/wiki/Worse_is_better) in the Unix tradition, not the MIT/Stanford “The Right Thing” approach. We believe implementation simplicity gives software better survival, operability, and evolutionary properties than interface uniformity, theoretical completeness, or lossless support for every historical state. A stored row, old shape, or uncommon case does not become a product contract merely because it exists.
+
+The priority order is simplicity, correctness, consistency, then completeness. This ordering does not authorize incorrect behavior inside a declared contract. When simplicity wins, narrow the contract, reject or discard the unsupported case explicitly, or retain a manual recovery path rather than silently producing a wrong result. Preserve authoritative user and operator facts; do not preserve invalid, meaningless, or superseded state merely to make a migration or abstraction appear complete.
 
 1. **Simplicity.** Keep implementation and interface simple, with implementation simplicity taking priority. Prefer a small direct owner and a narrower contract over indirection, policy machinery, or a uniform interface whose implementation is harder to understand, operate, and remove.
 2. **Correctness.** Make every supported behavior correct in its observable effects and failure modes. If an uncommon case cannot be handled correctly without disproportionate complexity, do not pretend to support it; fail clearly or leave it outside the contract.
@@ -52,6 +54,11 @@ Reason from first principles. Separate what can be observed, what can be control
 For quantitative, logical, boundary, or guarantee questions, prove worst-case sufficiency before answering. When claiming an exact optimum, match it with a lower bound; when the answer is numeric, recheck the arithmetic and confirm that the value answers the actual question. Keep these rules general rather than tuning reasoning to a benchmark, evaluation, or expected answer.
 
 ## Writing style
+
+> Use **George Orwell's six rules for writing**
+
+Write all English documentation and code comments in [ASD-STE100 Simplified Technical English, Issue 9](https://www.asd-ste100.org/assets/files/ASD-STE100_ISSUE9.pdf).
+Treat project names, code identifiers, API names, file paths, commands, and approved Ankole terms as technical nouns or technical verbs.
 
 Write chat responses in flowing technical prose, the way a sharp senior engineer speaks: direct, conversational, and confident. Do not default to the voice or structure of documentation, a report, or a slide deck unless the user asked for that artifact.
 
@@ -139,7 +146,7 @@ Issues are tracked in GitHub Issues; external pull requests are not a triage sur
 
 ### Triage labels
 
-The repository uses the five default triage labels without overrides. See `docs/agents/triage-labels.md`.
+The triage guide records the canonical role names and their current availability. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

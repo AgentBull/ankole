@@ -150,6 +150,14 @@ describe('web tools', () => {
 
     expect(webSearch).toBeTruthy()
     expect(webFetch).toBeTruthy()
+    expect(webSearch!.describeActivity(webSearch!.schema.parse({ query: '  lark\ncard input  ' }))).toBe(
+      '搜索网页：“lark card input”'
+    )
+    expect(
+      webFetch!.describeActivity(
+        webFetch!.schema.parse({ urls: ['https://example.com/private?token=must-not-survive'] })
+      )
+    ).toBe('读取网页：example.com')
 
     const searchResult = await webSearch!.execute('call-search', { query: 'ankole', limit: 2 })
     expect(textOf(searchResult)).toContain('Result')
@@ -160,6 +168,12 @@ describe('web tools', () => {
 
     const fetchResult = await webFetch!.execute('call-fetch', { urls: ['https://example.com'] })
     expect(textOf(fetchResult)).toContain('Extracted text')
+    expect(
+      webFetch!.describeCompletedActivity?.(
+        webFetch!.schema.parse({ urls: ['https://example.com/private?token=must-not-survive'] }),
+        fetchResult.details
+      )
+    ).toBe('读取网页：《Example》 · example.com')
     expect(requests[2]).toEqual({
       url: 'https://control.test/api/v1/ai-gateway/web_fetch',
       body: { model: 'web_fetch.default', urls: ['https://example.com'] }

@@ -1,14 +1,72 @@
 defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
   use Ankole.DataCase, async: true
 
+  import Ecto.Query
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AIGateway.Schemas.{Conversation, Message}
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AuthZ.Group
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
+
+  test "records a tool result and completes its BackgroundAgentJob lifecycle event atomically" do
+    %{principal: subject} = agent_fixture()
+    session_id = "tool-result-handoff-#{Ecto.UUID.generate()}"
+    current_event = append_current_actor_event!(subject.uid, session_id)
+    job = insert_waiting_job!(subject.uid, session_id, current_event)
+    lifecycle_event = append_waiting_lifecycle_event!(job)
+    {conversation, anchor} = tool_result_anchor!(subject.uid, session_id, current_event.id)
+    request = tool_result_request(anchor, current_event.id, lifecycle_event.id, "call_send")
+
+    assert {:ok, %{body: %{"id" => response_id}}} =
+             AIGatewayLink.record_tool_results(subject.uid, request)
+
+    journal = Repo.get!(Message, String.replace_prefix(response_id, "resp_", ""))
+    assert journal.metadata["completed_actor_event_ids"] == [lifecycle_event.id]
+
+    assert %DateTime{} =
+             Repo.get!(Ankole.SignalsGateway.ActorEvent, lifecycle_event.id).completed_at
+
+    assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
+
+    assert {:ok, %{body: %{"id" => ^response_id}}} =
+             AIGatewayLink.record_tool_results(subject.uid, request)
+
+    assert Repo.aggregate(
+             from(message in Message,
+               where:
+                 fragment("?->>'tool_result_idempotency_key'", message.metadata) ==
+                   ^journal.metadata["tool_result_idempotency_key"]
+             ),
+             :count
+           ) == 1
+  end
+
+  test "rolls back lifecycle completion when the tool result is quarantined" do
+    %{principal: subject} = agent_fixture()
+    session_id = "tool-result-rollback-#{Ecto.UUID.generate()}"
+    current_event = append_current_actor_event!(subject.uid, session_id)
+    job = insert_waiting_job!(subject.uid, session_id, current_event)
+    lifecycle_event = append_waiting_lifecycle_event!(job)
+    {_conversation, anchor} = tool_result_anchor!(subject.uid, session_id, current_event.id)
+    request = tool_result_request(anchor, current_event.id, lifecycle_event.id, "missing_call")
+
+    assert {:error, {:tool_results_quarantined, _details}} =
+             AIGatewayLink.record_tool_results(subject.uid, request)
+
+    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, lifecycle_event.id).completed_at == nil
+
+    refute Message
+           |> Repo.all()
+           |> Enum.any?(&(&1.metadata["completed_actor_event_ids"] == [lifecycle_event.id]))
+  end
 
   test "selects and fails only the explicit actor-correlated generating Response" do
     %{principal: subject} = agent_fixture()
@@ -133,32 +191,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert StatefulResponses.latest_visible_leaf(conversation.id) == predecessor.id
   end
 
-  test "reads the exact system prompt from the conversation's first provider run" do
-    %{principal: subject} = agent_fixture()
-    {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-system-prompt")
-
-    {:ok, first} =
-      StatefulResponses.start_response_run(%{
-        subject_uid: subject.uid,
-        conversation_id: conversation.id,
-        metadata: %{"instructions" => "first prompt\nkept byte-for-byte"}
-      })
-
-    {:ok, first} = StatefulResponses.commit_complete(first, [])
-
-    {:ok, second} =
-      StatefulResponses.start_response_run(%{
-        subject_uid: subject.uid,
-        previous_response_id: "resp_#{first.id}",
-        metadata: %{"instructions" => "later rebuilt prompt"}
-      })
-
-    {:ok, _second} = StatefulResponses.commit_complete(second, [])
-
-    assert AIGatewayLink.system_prompt_snapshot(conversation) ==
-             "first prompt\nkept byte-for-byte"
-  end
-
   test "selects an actor-correlated visible suffix before calling generic deletion" do
     %{principal: subject} = agent_fixture()
     {:ok, conversation} = StatefulResponses.ensure_conversation(subject.uid, "link-retraction")
@@ -258,7 +290,134 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     assert successor_scope["peer_uid"] == peer.uid
   end
 
-  test "missing schedule delivery channels use the principal public Brain scope" do
+  test "starts a successor conversation when a group changes Brain visibility" do
+    %{principal: agent} = agent_fixture()
+    binding_name = "scope-rollover"
+    session_id = "group-scope-rollover"
+    now = DateTime.utc_now(:microsecond)
+
+    assert {:ok, binding} =
+             SignalsGateway.upsert_binding(%{
+               agent_uid: agent.uid,
+               name: binding_name,
+               adapter: "lark",
+               config_ref: "app-config://scope-rollover",
+               unaddressed_group_message_policy: :record_only,
+               confidential_memory: false
+             })
+
+    group =
+      %Group{}
+      |> Group.changeset(%{
+        name: binding_name,
+        display_name: binding_name,
+        domain: :im_group,
+        metadata:
+          BindingMembership.project(
+            %{},
+            AdapterContext.new(
+              agent_uid: agent.uid,
+              binding_name: binding_name,
+              adapter: "lark",
+              user_name: "Lark"
+            ),
+            :joined,
+            now
+          )
+      })
+      |> Repo.insert!()
+
+    channel =
+      %Channel{}
+      |> Channel.changeset(%{
+        id: "lark:chat:scope-rollover",
+        kind: :im_group,
+        reply_mode: :entry,
+        name: binding_name,
+        principal_group_id: group.id,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: now,
+        last_seen_at: now
+      })
+      |> Repo.insert!()
+
+    first_event =
+      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "shared", now)
+
+    assert {:ok, shared_conversation} =
+             Repo.transact(fn repo ->
+               AIGatewayLink.ensure_and_lock_conversation_in_tx(
+                 repo,
+                 agent.uid,
+                 session_id,
+                 first_event
+               )
+             end)
+
+    assert shared_conversation.metadata["brain"]["visibility"] == "shared"
+
+    shared_conversation
+    |> Ecto.Changeset.change(
+      metadata:
+        put_in(shared_conversation.metadata, ["brain", "snapshot"], %{
+          "pinned_memo" => %{"resident_text" => "old shared snapshot"}
+        })
+    )
+    |> Repo.update!()
+
+    binding
+    |> Ecto.Changeset.change(confidential_memory: true)
+    |> Repo.update!()
+
+    second_event =
+      append_group_actor_event!(agent.uid, binding_name, channel.id, session_id, "channel", now)
+
+    assert {:ok, confidential_conversation} =
+             Repo.transact(fn repo ->
+               AIGatewayLink.ensure_and_lock_conversation_in_tx(
+                 repo,
+                 agent.uid,
+                 session_id,
+                 second_event
+               )
+             end)
+
+    refute confidential_conversation.id == shared_conversation.id
+    assert %DateTime{} = Repo.get!(Conversation, shared_conversation.id).ended_at
+    assert confidential_conversation.metadata["brain"]["visibility"] == "channel"
+    refute Map.has_key?(confidential_conversation.metadata["brain"], "snapshot")
+
+    Repo.get_by!(Binding, agent_uid: agent.uid, name: binding.name)
+    |> Ecto.Changeset.change(confidential_memory: false)
+    |> Repo.update!()
+
+    third_event =
+      append_group_actor_event!(
+        agent.uid,
+        binding_name,
+        channel.id,
+        session_id,
+        "shared-again",
+        now
+      )
+
+    assert {:ok, next_shared_conversation} =
+             Repo.transact(fn repo ->
+               AIGatewayLink.ensure_and_lock_conversation_in_tx(
+                 repo,
+                 agent.uid,
+                 session_id,
+                 third_event
+               )
+             end)
+
+    refute next_shared_conversation.id == confidential_conversation.id
+    assert %DateTime{} = Repo.get!(Conversation, confidential_conversation.id).ended_at
+    assert next_shared_conversation.metadata["brain"]["visibility"] == "shared"
+  end
+
+  test "missing schedule delivery channels use the principal self Brain scope" do
     %{principal: agent} = agent_fixture()
     now = DateTime.utc_now(:microsecond)
 
@@ -287,7 +446,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                  )
                end)
 
-      assert conversation.metadata["brain"] == %{"visibility" => "public"}
+      assert conversation.metadata["brain"] == %{"visibility" => "self"}
     end
   end
 
@@ -327,5 +486,129 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
       conversation_id: conversation_id,
       metadata: %{"request_metadata" => request_metadata}
     })
+  end
+
+  defp append_current_actor_event!(agent_uid, session_id) do
+    assert {:ok, event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: agent_uid,
+               binding_name: "test",
+               session_id: session_id,
+               source_event_id: "current-#{Ecto.UUID.generate()}",
+               type: "im.message.addressed",
+               available_at: DateTime.utc_now(:microsecond),
+               payload: %{"data" => %{"text" => "continue"}}
+             })
+
+    event
+  end
+
+  defp insert_waiting_job!(agent_uid, session_id, current_event) do
+    now = DateTime.utc_now(:microsecond)
+
+    %{rows: [[job_id]]} =
+      Repo.query!("SELECT nextval(pg_get_serial_sequence('background_agent_jobs', 'id'))")
+
+    %Job{id: job_id}
+    |> Job.creation_changeset(%{
+      agent_uid: agent_uid,
+      owner_session_id: session_id,
+      source_actor_event_id: current_event.id,
+      source_tool_call_id: "create-#{Ecto.UUID.generate()}",
+      workspace_owner_job_id: job_id,
+      runtime_thread_id: "thread-#{Ecto.UUID.generate()}",
+      codex_account_id: "aigateway",
+      title: "Waiting Job",
+      task: "Wait for input.",
+      reply_route: %{"binding_name" => "test"},
+      attempts: 1,
+      status: "waiting_on_user",
+      queued_at: now,
+      started_at: now,
+      result: %{},
+      error: %{},
+      metadata: %{"pending_user_input" => %{"questions" => []}}
+    })
+    |> Repo.insert!()
+  end
+
+  defp append_waiting_lifecycle_event!(job) do
+    assert {:ok, event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: job.agent_uid,
+               binding_name: "test",
+               session_id: job.owner_session_id,
+               source_event_id: "background_agent_job:#{job.id}:waiting:#{job.attempts}",
+               type: "background_agent_job.waiting",
+               available_at: DateTime.utc_now(:microsecond),
+               payload: %{
+                 "data" => %{
+                   "job_id" => job.id,
+                   "attempts" => job.attempts,
+                   "status" => job.status
+                 }
+               }
+             })
+
+    event
+  end
+
+  defp tool_result_anchor!(subject_uid, session_id, current_event_id) do
+    {:ok, conversation} = StatefulResponses.ensure_conversation(subject_uid, session_id)
+
+    {:ok, anchor} =
+      start_response(subject_uid, conversation.id, %{"actor_event_id" => current_event_id})
+
+    {:ok, anchor} =
+      StatefulResponses.commit_complete(anchor, [
+        %{
+          "type" => "function_call",
+          "call_id" => "call_send",
+          "name" => "send_message_to_background_job",
+          "arguments" => "{}"
+        }
+      ])
+
+    {conversation, anchor}
+  end
+
+  defp tool_result_request(anchor, current_event_id, lifecycle_event_id, call_id) do
+    %{
+      "previous_response_id" => "resp_#{anchor.id}",
+      "input" => [
+        %{
+          "type" => "function_call_output",
+          "call_id" => call_id,
+          "output" => "Last turn trajectory:\n{}"
+        }
+      ],
+      "metadata" => %{"actor_event_id" => current_event_id},
+      "complete_actor_event_ids" => [lifecycle_event_id]
+    }
+  end
+
+  defp append_group_actor_event!(
+         agent_uid,
+         binding_name,
+         channel_id,
+         session_id,
+         suffix,
+         now
+       ) do
+    assert {:ok, actor_event} =
+             SignalsGateway.append_actor_event(%{
+               agent_uid: agent_uid,
+               binding_name: binding_name,
+               session_id: session_id,
+               source_event_id: "event-#{suffix}-#{Ecto.UUID.generate()}",
+               signal_channel_id: channel_id,
+               source_entry_id: "message-#{suffix}",
+               type: "im.message.addressed",
+               available_at: now,
+               sender_key: "human-one",
+               payload: %{}
+             })
+
+    actor_event
   end
 end

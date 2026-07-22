@@ -1,9 +1,11 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { rpcMethods, type AgentConversationContextResponse, type RPCRequester } from '../../lanes/rpc_lane'
 import { materializeAgentLibraryDocuments } from './agent_library_documents'
+import { agentHomePaths } from '../agent-home-paths'
 
 export type AgentConversationContextOptions = {
-  workspaceRoot: string
+  agentsRoot: string
+  agentHome: string
   rpc: RPCRequester
   agentConversationContext?: AgentConversationContextResponse
 }
@@ -22,6 +24,7 @@ export async function resolveAgentConversationContext(
   const context =
     opts.agentConversationContext ??
     (await opts.rpc(rpcMethods.agentConversationContextResolve, {}, { turn: turnStart.turn }))
-  materializeAgentLibraryDocuments(opts.workspaceRoot, context)
-  return context
+  const paths = agentHomePaths(opts.agentsRoot, turnStart.turn.actor.agent_uid)
+  if (paths.home !== opts.agentHome) throw new Error('turn Agent Home does not match actor identity')
+  return materializeAgentLibraryDocuments(paths, context)
 }

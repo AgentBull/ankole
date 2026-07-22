@@ -1,7 +1,7 @@
 defmodule FeishuOpenAPI.CryptoTest do
   use ExUnit.Case, async: true
 
-  alias FeishuOpenAPI.Crypto
+  alias FeishuOpenAPI.{Crypto, CryptoTestSupport}
 
   describe "event_signature/4" do
     test "matches the Go SDK formula (SHA256 of ts||nonce||key||body, hex-lowercase)" do
@@ -38,14 +38,14 @@ defmodule FeishuOpenAPI.CryptoTest do
       secret = "encrypt_key_example"
       plaintext = ~s({"msg":"hello 世界","n":42})
 
-      {:ok, ciphertext} = Crypto.encrypt(plaintext, secret)
+      {:ok, ciphertext} = CryptoTestSupport.encrypt(plaintext, secret)
       {:ok, decoded} = Crypto.decrypt(ciphertext, secret)
 
       assert decoded == plaintext
     end
 
     test "tampered ciphertext with invalid PKCS7 padding is rejected" do
-      {:ok, ct} = Crypto.encrypt("{}", "right")
+      {:ok, ct} = CryptoTestSupport.encrypt("{}", "right")
       raw = Base.decode64!(ct)
       size = byte_size(raw) - 1
       <<head::binary-size(^size), last>> = raw

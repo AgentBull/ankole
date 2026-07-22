@@ -11,7 +11,7 @@ defmodule Ankole.WorkerFilesTest do
 
   setup do
     route = "worker-files-test-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "worker-files-test", key_revision: 1}
+    route_auth = %{route: route, worker_id: "worker-files-test"}
 
     on_exit(fn -> Broker.unregister_local_worker(route) end)
 
@@ -99,42 +99,21 @@ defmodule Ankole.WorkerFilesTest do
         respond_to_list(route_auth, frames)
       end)
 
-    assert {:ok, %{"command" => "LIST", "root" => "workspace_sessions"}} =
-             WorkerFiles.list("workspace_sessions", "agent-1", worker_id: worker_id)
+    assert {:ok, %{"command" => "LIST", "root" => "agent_sessions"}} =
+             WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: worker_id)
 
     assert {:error, :worker_not_found} =
-             WorkerFiles.list("workspace_sessions", "agent-1", worker_id: "missing-worker")
+             WorkerFiles.list("agent_sessions", "agent-1/sessions", worker_id: "missing-worker")
   end
 
-  test "Codex account homes are an internal delete-only caller root", %{
-    route: route,
-    route_auth: route_auth
-  } do
-    insert_ready_worker!(route)
-    parent = self()
-
-    :ok =
-      Broker.register_local_worker(route, fn
-        {:file_transfer_lane, [protocol, "DELETE", transfer_id, path, recursive]} ->
-          send(parent, {:codex_account_delete, path, recursive})
-
-          FileTransferLane.handle_worker_frame(route_auth, [
-            protocol,
-            "DELETE_OK",
-            transfer_id,
-            path
-          ])
-      end)
-
+  test "Codex state is not exposed as a File Lane root" do
     refute "codex_accounts" in WorkerFiles.roots()
 
     assert {:error, {:unsupported_file_root, "codex_accounts"}} =
              WorkerFiles.get("codex_accounts", "account-1/auth.json")
 
-    assert {:ok, %{"root" => "codex_accounts", "relative_path" => "account-1"}} =
+    assert {:error, {:unsupported_file_root, "codex_accounts"}} =
              WorkerFiles.delete("codex_accounts", "account-1", recursive: true)
-
-    assert_receive {:codex_account_delete, "/codex_accounts/account-1", <<1>>}, 100
   end
 
   test "shared-route operations fail without a ready worker" do

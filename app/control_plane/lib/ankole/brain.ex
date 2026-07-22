@@ -19,13 +19,14 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
   alias Ankole.Brain.SourceWithdrawal
+  alias Ankole.Brain.Status
   alias Ankole.Brain.Supervision
 
   @spec ensure_registered() :: :ok | {:error, term()}
   defdelegate ensure_registered(), to: Config
 
-  @spec search(Scope.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  defdelegate search(scope, attrs, opts \\ []), to: Search
+  @spec search(Scope.t(), map()) :: {:ok, map()} | {:error, term()}
+  defdelegate search(scope, attrs), to: Search
 
   @spec browse(Scope.t(), map()) :: {:ok, map()} | {:error, term()}
   def browse(%Scope{} = scope, attrs) when is_map(attrs) do
@@ -81,17 +82,14 @@ defmodule Ankole.Brain do
   @spec source_raw(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   defdelegate source_raw(owner_uid, document_id), to: Supervision
 
-  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
-  defdelegate review_candidates(owner_uid), to: Supervision
+  @spec status(String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate status(owner_uid), to: Status, as: :run
 
   @spec dreaming_fitness(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   defdelegate dreaming_fitness(owner_uid, opts \\ []), to: Supervision
 
   @spec health_check(Scope.t()) :: {:ok, map()} | {:error, term()}
   defdelegate health_check(scope), to: HealthCheck, as: :run
-
-  @spec stage_a_status() :: {:ok, map()} | {:unavailable, String.t()}
-  defdelegate stage_a_status(), to: StageA
 
   @spec enqueue_episode_summary_jobs(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}

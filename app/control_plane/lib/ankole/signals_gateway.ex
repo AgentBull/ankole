@@ -90,6 +90,14 @@ defmodule Ankole.SignalsGateway do
   defdelegate put_binding(agent_uid, adapter_id, binding_name, attrs), to: Bindings
 
   @doc """
+  Reconfigures a signal binding and optionally moves future ingress to another agent.
+  """
+  @spec update_binding(String.t(), String.t(), String.t(), map()) ::
+          {:ok, %{binding: Binding.t(), config_key: String.t()}} | {:error, term()}
+  defdelegate update_binding(source_agent_uid, target_agent_uid, binding_name, attrs),
+    to: Bindings
+
+  @doc """
   Loads an enabled binding by route key.
   """
   @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
@@ -119,6 +127,8 @@ defmodule Ankole.SignalsGateway do
   """
   @spec visible_channels(String.t(), keyword()) :: [Ankole.SignalsGateway.Channel.t()]
   defdelegate visible_channels(principal_uid, opts \\ []), to: Visibility
+
+  defdelegate confidential_channel?(principal_uid, channel_id, opts \\ []), to: Visibility
 
   @doc """
   Resolves the globally unique, stable address of one mirrored source entry.
@@ -169,7 +179,7 @@ defmodule Ankole.SignalsGateway do
           String.t(),
           String.t(),
           String.t(),
-          Ankole.SignalsGateway.OutboxAdapter.t() | map(),
+          Ankole.SignalsGateway.OutboxAdapter.t(),
           keyword()
         ) ::
           {:ok, OutboxEntry.t()} | {:error, term()}

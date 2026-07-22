@@ -16,18 +16,15 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
     :consumer_kinds,
     :client,
     :dispatcher,
-    :ws_pid,
-    :ws_client_module,
-    start_client?: true
+    :ws_pid
   ]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     config = Keyword.fetch!(opts, :config)
-    registry = Keyword.get(opts, :registry, @registry)
 
     GenServer.start_link(__MODULE__, opts,
-      name: {:via, Registry, {registry, Config.connection_key(config)}}
+      name: {:via, Registry, {@registry, Config.connection_key(config)}}
     )
   end
 
@@ -67,7 +64,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
     Process.flag(:trap_exit, true)
     config = Keyword.fetch!(opts, :config)
     consumers = Keyword.get(opts, :consumers, [])
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.client(config)
 
     state = %__MODULE__{
       key: Config.connection_key(config),
@@ -76,9 +73,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
       consumer_count: length(consumers),
       consumer_kinds: consumers |> Enum.map(&Map.get(&1, :kind)) |> Enum.sort(),
       client: client,
-      dispatcher: Dispatcher.build(consumers, client: client),
-      ws_client_module: Keyword.get(opts, :ws_client_module, SlackOpenAPI.SocketMode.Client),
-      start_client?: Keyword.get(opts, :start_client?, true)
+      dispatcher: Dispatcher.build(consumers, client: client)
     }
 
     maybe_start_ws(state)
@@ -128,10 +123,11 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionOwner do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp maybe_start_ws(%{start_client?: false} = state), do: {:ok, state}
-
   defp maybe_start_ws(state) do
-    case state.ws_client_module.start_link(client: state.client, dispatcher: state.dispatcher) do
+    case SlackOpenAPI.SocketMode.Client.start_link(
+           client: state.client,
+           dispatcher: state.dispatcher
+         ) do
       {:ok, pid} -> {:ok, %{state | ws_pid: pid}}
       {:error, _reason} = error -> error
     end

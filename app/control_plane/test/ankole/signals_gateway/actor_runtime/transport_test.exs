@@ -184,7 +184,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    worker_id: worker.worker_id,
                    incarnation_id: worker.incarnation_id,
                    monotonic_ms: 123,
-                   load_json: Torque.encode!(%{"active_turns" => 1})
+                   active_turns: 1
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -196,14 +196,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                  %FabricProto.AgentComputerWorkerCapacity{
                    worker_id: worker.worker_id,
                    incarnation_id: worker.incarnation_id,
-                   available_turn_slots: 2,
-                   capacity_json: Torque.encode!(%{"available_turn_slots" => 2}),
-                   load_json: Torque.encode!(%{"active_turns" => 0})
+                   max_turns: 2,
+                   active_turns: 0,
+                   available_turn_slots: 2
                  },
                  %{authenticated?: true, transport_route: route}
                )
 
-      assert capacity_worker.capacity == %{"available_turn_slots" => 2}
+      assert capacity_worker.capacity == %{"available_turn_slots" => 2, "max_turns" => 2}
       assert capacity_worker.load == %{"active_turns" => 0}
 
       assert {:error, :stale_worker_incarnation} =
@@ -243,7 +243,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    worker_id: worker.worker_id,
                    incarnation_id: worker.incarnation_id,
                    monotonic_ms: 123,
-                   load_json: Torque.encode!(%{"active_turns" => 0})
+                   active_turns: 0
                  },
                  %{authenticated?: true, transport_route: route}
                )
@@ -275,6 +275,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert recovered.status == "ready"
       assert is_nil(recovered.stopped_at)
       assert is_nil(recovered.stop_reason)
+    end
+
+    test "replacement worker ready clears the previous incarnation stop fields" do
+      route = unique_route()
+      assert {:ok, worker} = admit_worker(route)
+
+      assert {:ok, 1} =
+               Ankole.SignalsGateway.ActorRuntime.WorkerAdmission.mark_all_routes_unusable(
+                 :router_stopped
+               )
+
+      assert %AgentComputerWorker{status: "stale", stopped_at: %DateTime{}} =
+               Repo.get!(AgentComputerWorker, worker.id)
+
+      assert {:ok, replacement} =
+               ActorRuntime.admit_worker_ready(
+                 %FabricProto.AgentComputerWorkerReady{
+                   worker_id: worker.worker_id,
+                   incarnation_id: "replacement-incarnation",
+                   runtime: "bun",
+                   version: "test",
+                   max_turns: 1,
+                   available_turn_slots: 1
+                 },
+                 %{authenticated?: true, transport_route: route},
+                 Ankole.Kernel.RuntimeFabric.protocol_version()
+               )
+
+      assert replacement.status == "ready"
+      assert replacement.incarnation_id == "replacement-incarnation"
+      assert is_nil(replacement.stopped_at)
+      assert is_nil(replacement.stop_reason)
     end
 
     test "broker rejects worker actor lane writes from an unassigned route" do
@@ -321,12 +353,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       send(
         Broker,
-        {:runtime_fabric_router_received, wrong_route, nil, nil, accepted_envelope}
+        {:runtime_fabric_router_received, wrong_route, nil, accepted_envelope}
       )
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, accepted_envelope}
+        {:runtime_fabric_router_received, route, nil, accepted_envelope}
       )
 
       assert %ActorEventDelivery{state: "accepted"} =
@@ -375,7 +407,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, proposal_envelope}
+        {:runtime_fabric_router_received, route, nil, proposal_envelope}
       )
 
       :sys.get_state(Ankole.SignalsGateway.ActorRuntime.InboundDispatcher)
@@ -458,7 +490,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, nil, noop_envelope}
+        {:runtime_fabric_router_received, route, nil, noop_envelope}
       )
 
       assert %ActorEvent{completed_at: %DateTime{}} = wait_for_completed_event(input.id)
@@ -477,7 +509,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    incarnation_id: "incarnation-other-worker-route",
                    runtime: "bun",
                    version: "test",
-                   capacity_json: Torque.encode!(%{"available_turn_slots" => 1})
+                   max_turns: 1,
+                   available_turn_slots: 1
                  },
                  %{authenticated?: true, transport_route: route},
                  Ankole.Kernel.RuntimeFabric.protocol_version()
@@ -490,7 +523,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    incarnation_id: worker.incarnation_id,
                    runtime: "bun",
                    version: "test",
-                   capacity_json: Torque.encode!(%{"available_turn_slots" => 2})
+                   max_turns: 2,
+                   available_turn_slots: 2
                  },
                  %{authenticated?: true, transport_route: duplicate_route},
                  Ankole.Kernel.RuntimeFabric.protocol_version()
@@ -498,7 +532,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert refreshed_worker.worker_id == worker.worker_id
       assert refreshed_worker.transport_route == duplicate_route
-      assert refreshed_worker.capacity == %{"available_turn_slots" => 2}
+      assert refreshed_worker.capacity == %{"available_turn_slots" => 2, "max_turns" => 2}
     end
 
     test "worker admission requires runtime, version, and incarnation identity fields" do
@@ -544,7 +578,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       route = unique_route()
       expected_protocol = Ankole.Kernel.RuntimeFabric.protocol_version()
 
-      assert expected_protocol == 2
+      assert expected_protocol == 3
 
       assert {:error, {:unsupported_runtime_fabric_protocol, 1, ^expected_protocol}} =
                ActorRuntime.admit_worker_ready(

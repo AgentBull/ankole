@@ -28,6 +28,28 @@ type WritableFileSink = {
   end?: () => unknown
 }
 
+type CodexAppServerProcess = {
+  stdin?: WritableFileSink | null
+  stdout?: ReadableStream<Uint8Array> | null
+  stderr?: ReadableStream<Uint8Array> | null
+  exited: Promise<number | null>
+  kill: () => unknown
+}
+
+type CodexAppServerSpawner = (
+  commandArgv: string[],
+  options: {
+    cwd: string
+    env: Record<string, string>
+    stdin: 'pipe'
+    stdout: 'pipe'
+    stderr: 'pipe'
+  }
+) => CodexAppServerProcess
+
+const spawnCodexAppServer: CodexAppServerSpawner = (commandArgv, options) =>
+  Bun.spawn(commandArgv, options) as unknown as CodexAppServerProcess
+
 export type CodexAppServerClientOptions = {
   command?: string
   commandArgv?: string[]
@@ -82,40 +104,40 @@ export class CodexAppServerClient {
   private pending = new Map<string | number, PendingRequest>()
   private stdin?: WritableFileSink
   private closed = false
-  private readonly proc: ReturnType<typeof Bun.spawn>
+  private closeReason?: Error
+  private readonly proc: CodexAppServerProcess
   private readonly encoder = new TextEncoder()
 
-  constructor(private readonly opts: CodexAppServerClientOptions) {
+  constructor(
+    private readonly opts: CodexAppServerClientOptions,
+    spawn: CodexAppServerSpawner = spawnCodexAppServer
+  ) {
     const commandArgv = opts.commandArgv ?? [
       opts.command ?? process.env.ANKOLE_CODEX_BINARY ?? 'codex',
       'app-server',
       '--stdio',
       ...(opts.args ?? [])
     ]
-    this.proc = Bun.spawn(commandArgv, {
+    this.proc = spawn(commandArgv, {
       cwd: opts.cwd,
       env: opts.env,
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'pipe'
     })
-    this.stdin =
-      this.proc.stdin && typeof this.proc.stdin === 'object' ? (this.proc.stdin as WritableFileSink) : undefined
+    this.stdin = this.proc.stdin ?? undefined
     void this.readStdout()
     void this.readStderr()
     void this.proc.exited.then(
       code => {
         if (!this.closed) {
           const error = new Error(`codex app-server exited with code ${code ?? 'unknown'}`)
-          this.rejectPending(error)
-          this.opts.onExit?.(error)
+          this.failTransport(error)
         }
       },
       error => {
         if (!this.closed) {
-          const normalized = toError(error)
-          this.rejectPending(normalized)
-          this.opts.onExit?.(normalized)
+          this.failTransport(toError(error))
         }
       }
     )
@@ -143,6 +165,7 @@ export class CodexAppServerClient {
   }
 
   async request(method: string, params: unknown, timeoutMs = defaultRequestTimeoutMs(method)): Promise<unknown> {
+    if (this.closeReason) throw this.closeReason
     const id = this.nextID++
     const message = { method, id, params }
     const promise = new Promise<unknown>((resolve, reject) => {
@@ -153,7 +176,11 @@ export class CodexAppServerClient {
       this.pending.set(id, { resolve, reject, timeout })
     })
 
-    await this.write(message)
+    try {
+      await this.write(message)
+    } catch {
+      return promise
+    }
     return promise
   }
 
@@ -172,7 +199,12 @@ export class CodexAppServerClient {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    this.closeReason = new Error('codex app-server client is closed')
+    this.rejectPending(this.closeReason)
+    this.closeProcess()
+  }
 
+  private closeProcess(): void {
     try {
       this.stdin?.end?.()
     } catch {
@@ -187,23 +219,38 @@ export class CodexAppServerClient {
   }
 
   private async write(message: JSONRPCMessage) {
-    if (this.closed) throw new Error('codex app-server client is closed')
-    await Promise.resolve(this.stdin?.write(this.encoder.encode(`${JSON.stringify(message)}\n`)))
+    if (this.closeReason) throw this.closeReason
+    try {
+      await Promise.resolve(this.stdin?.write(this.encoder.encode(`${JSON.stringify(message)}\n`)))
+    } catch (error) {
+      this.failTransport(toError(error))
+      throw this.closeReason
+    }
   }
 
   private async readStdout(): Promise<void> {
-    await readJSONLines(this.proc.stdout && typeof this.proc.stdout === 'object' ? this.proc.stdout : null, line =>
-      this.handleLine(line)
-    )
+    try {
+      await readJSONLines(this.proc.stdout ?? null, line => this.handleLine(line))
+      if (!this.closed) this.failTransport(new Error('codex app-server stdout closed'))
+    } catch (error) {
+      this.failTransport(toError(error))
+    }
   }
 
   private async readStderr(): Promise<void> {
-    await readTextChunks(this.proc.stderr && typeof this.proc.stderr === 'object' ? this.proc.stderr : null, chunk => {
-      this.opts.onNotification?.({
-        method: '$stderr',
-        params: { text: chunk }
+    try {
+      await readTextChunks(this.proc.stderr ?? null, chunk => {
+        this.opts.onNotification?.({
+          method: '$stderr',
+          params: { text: chunk }
+        })
       })
-    })
+    } catch (error) {
+      this.opts.onNotification?.({
+        method: '$stderr_error',
+        params: { error: errorMessage(error) }
+      })
+    }
   }
 
   private handleLine(line: string): void {
@@ -273,6 +320,15 @@ export class CodexAppServerClient {
       pending.reject(error)
       this.pending.delete(id)
     }
+  }
+
+  private failTransport(error: Error): void {
+    if (this.closed) return
+    this.closed = true
+    this.closeReason = error
+    this.rejectPending(error)
+    this.closeProcess()
+    this.opts.onExit?.(error)
   }
 }
 

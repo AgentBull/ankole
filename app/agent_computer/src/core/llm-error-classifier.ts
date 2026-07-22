@@ -90,6 +90,7 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
       'etimedout',
       'aborterror',
       'und_err_socket',
+      'upstream_read_failed',
       'upstream_stream_closed',
       'closed_before_terminal'
     ]) ||

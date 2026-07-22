@@ -112,14 +112,14 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   def maybe_enqueue_missing_channel_refresh(_consumer, _input), do: :ok
 
-  @spec sync_binding(String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_binding(agent_uid, binding_name, opts \\ []) do
+  @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def sync_binding(agent_uid, binding_name) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
-         {:ok, channels} <- list_channels(config, opts),
-         {:ok, bot_ids} <- list_bot_ids(config, opts),
+         {:ok, channels} <- list_channels(config),
+         {:ok, bot_ids} <- list_bot_ids(config),
          context <- binding_context(binding, config),
-         {:ok, count} <- sync_channels(context, config, channels, bot_ids, opts),
+         {:ok, count} <- sync_channels(context, config, channels, bot_ids),
          {:ok, marked_left} <-
            mark_missing_channels_left(context, config, Enum.map(channels, & &1["id"])) do
       {:ok,
@@ -131,18 +131,17 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  @spec refresh_channel(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def refresh_channel(agent_uid, binding_name, channel_id, opts \\ []) do
+  @spec refresh_channel(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def refresh_channel(agent_uid, binding_name, channel_id) do
     with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
          {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
          context <- binding_context(binding, config),
-         {:ok, channel} <- fetch_channel(config, channel_id, opts),
-         {:ok, bot_ids} <- list_bot_ids(config, opts),
+         {:ok, channel} <- fetch_channel(config, channel_id),
+         {:ok, bot_ids} <- list_bot_ids(config),
          {:ok, result} <-
            with_channel_lock(namespace(config), channel_id, fn ->
              with {:ok, group} <- ensure_channel_group(context, config, channel),
-                  {:ok, members} <- list_members(config, channel_id, opts),
+                  {:ok, members} <- list_members(config, channel_id),
                   {:ok, principal_uids} <- member_principal_uids(config, members, bot_ids),
                   {:ok, replace} <-
                     AuthZ.replace_static_group_members(group.id, :im_group, principal_uids) do
@@ -231,14 +230,14 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   defp handle_event(_consumer, _event_type, _event),
     do: {:ok, %{status: :ignored_unknown_channel_event}}
 
-  defp sync_channels(context, config, channels, bot_ids, opts) do
+  defp sync_channels(context, config, channels, bot_ids) do
     channels
     |> Enum.reject(&Map.get(&1, "is_im", false))
     |> Enum.reduce_while({:ok, 0}, fn channel, {:ok, count} ->
       result =
         with_channel_lock(namespace(config), channel["id"], fn ->
           with {:ok, group} <- ensure_channel_group(context, config, channel),
-               {:ok, members} <- list_members(config, channel["id"], opts),
+               {:ok, members} <- list_members(config, channel["id"]),
                {:ok, uids} <- member_principal_uids(config, members, bot_ids),
                {:ok, _result} <-
                  AuthZ.replace_static_group_members(group.id, :im_group, uids) do
@@ -253,8 +252,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end)
   end
 
-  defp list_channels(config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp list_channels(config) do
+    client = Config.client(config)
 
     Pagination.stream(client, "users.conversations",
       query: [types: "public_channel,private_channel,mpim,im", exclude_archived: true, limit: 200],
@@ -263,8 +262,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     |> collect_items()
   end
 
-  defp fetch_channel(config, channel_id, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp fetch_channel(config, channel_id) do
+    client = Config.client(config)
 
     case SlackOpenAPI.get(client, "conversations.info", query: [channel: channel_id]) do
       {:ok, %{"channel" => channel}} -> {:ok, channel}
@@ -273,8 +272,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  defp list_bot_ids(config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp list_bot_ids(config) do
+    client = Config.client(config)
 
     Pagination.stream(client, "users.list", query: [limit: 200], items: ["members"])
     |> collect_items()
@@ -292,8 +291,8 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
     end
   end
 
-  defp list_members(config, channel_id, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp list_members(config, channel_id) do
+    client = Config.client(config)
 
     Pagination.stream(client, "conversations.members",
       query: [channel: channel_id, limit: 200],

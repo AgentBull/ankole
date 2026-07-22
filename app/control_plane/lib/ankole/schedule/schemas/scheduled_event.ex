@@ -13,7 +13,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   alias Ankole.Ecto.JSONPayload
   alias Ankole.TimeZone
 
-  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
+  @primary_key {:id, :id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @kinds ~w(check_back_later cron_fire)

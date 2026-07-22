@@ -10,6 +10,7 @@ defmodule Ankole.Brain.SourceLearning do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.CurationGuide
+  alias Ankole.AgentHomePaths
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.AuditLog
   alias Ankole.Brain.Schemas.RetainedSource
@@ -35,15 +36,26 @@ defmodule Ankole.Brain.SourceLearning do
     with {:ok, %{source: %RetainedSource{} = source, content: content}} <-
            Sources.retained_with_content(scope, document_id),
          true <- source.store_key == scope.writable_store_key,
-         :ok <- ensure_agent_owner(source.owner_uid),
-         {:ok, curation_guide} <- CurationGuide.load(source.owner_uid),
+         true <- source.capture_method == "file",
+         agent_uid when is_binary(agent_uid) <- source.learning_agent_uid,
+         :ok <- ensure_agent_owner(agent_uid),
+         {:ok, curation_guide} <- CurationGuide.load(agent_uid),
          run_id = Ankole.Ecto.UUIDv7.autogenerate(),
          session_id = "brain-source:#{source.id}:#{run_id}",
          filename = source_filename(source),
-         relative_path = workspace_relative_path(source.owner_uid, session_id, filename),
+         relative_path = workspace_relative_path(agent_uid, session_id, filename),
          :ok <- materialize(content, relative_path, opts),
          {:ok, actor_event} <-
-           append_event(source, scope, run_id, session_id, filename, curation_guide, opts) do
+           append_event(
+             source,
+             scope,
+             agent_uid,
+             run_id,
+             session_id,
+             filename,
+             curation_guide,
+             opts
+           ) do
       {:ok,
        %{
          status: :queued,
@@ -52,7 +64,7 @@ defmodule Ankole.Brain.SourceLearning do
          document_id: source.document_id
        }}
     else
-      false -> {:error, :source_store_mismatch}
+      false -> {:error, :source_not_learnable}
       {:error, _reason} = error -> error
     end
   end
@@ -89,7 +101,7 @@ defmodule Ankole.Brain.SourceLearning do
   def latest_outcome(%RetainedSource{} = source) do
     event =
       ActorEvent
-      |> where([event], event.agent_uid == ^source.owner_uid)
+      |> where([event], event.agent_uid == ^source.learning_agent_uid)
       |> where([event], event.type == @event_type)
       |> where([event], event.source_entry_id == ^source.document_id)
       |> order_by([event], desc: event.inserted_at, desc: event.id)
@@ -109,7 +121,7 @@ defmodule Ankole.Brain.SourceLearning do
   defp materialize(content, relative_path, opts) do
     materialize_fun =
       Keyword.get(opts, :materialize_fun, fn path, content ->
-        case WorkerFiles.put("workspace_sessions", path, content) do
+        case WorkerFiles.put("agent_sessions", path, content) do
           {:ok, _result} -> :ok
           {:error, _reason} = error -> error
         end
@@ -118,13 +130,27 @@ defmodule Ankole.Brain.SourceLearning do
     materialize_fun.(relative_path, content)
   end
 
-  defp append_event(source, scope, run_id, session_id, filename, curation_guide, opts) do
+  defp append_event(
+         source,
+         scope,
+         agent_uid,
+         run_id,
+         session_id,
+         filename,
+         curation_guide,
+         opts
+       ) do
     now = DateTime.utc_now(:microsecond)
     source_event_id = "brain-source-learn:#{run_id}"
-    virtual_path = "/workspace/source/#{filename}"
+
+    virtual_path =
+      Path.join(
+        AgentHomePaths.session_workspace(agent_uid, session_id),
+        "source/#{filename}"
+      )
 
     attrs = %{
-      agent_uid: source.owner_uid,
+      agent_uid: agent_uid,
       binding_name: @binding_name,
       session_id: session_id,
       source_event_id: source_event_id,
@@ -140,7 +166,7 @@ defmodule Ankole.Brain.SourceLearning do
         "type" => @event_type,
         "data" => %{
           "session" => %{
-            "agent_uid" => source.owner_uid,
+            "agent_uid" => agent_uid,
             "session_id" => session_id,
             "binding_name" => @binding_name
           },
@@ -179,16 +205,17 @@ defmodule Ankole.Brain.SourceLearning do
   defp learning_instruction(source, curation_guide) do
     base = """
     The user asked you to learn the retained source “#{source.title}”.
-    Read the entire source with source_read, continuing with its cursor until it reports complete=true.
-    Integrate only durable, supported knowledge into one or more relevant Brain pages; update an existing page when it already owns the subject, otherwise create a focused page.
+    The long-term memory system (code name Brain) preserves information an Agent creates or encounters so that it can recover the most relevant items for future work. It contains chat messages, curated current entries, and external materials that a person asked the Agent to learn.
+    Read the entire source with source_read. Call it again until it reports complete=true.
+    Integrate only durable, supported knowledge into one or more relevant long-term memory entries; update an existing entry when it already owns the subject, otherwise create a focused entry.
     In this run memory_update accepts only create_entry with name, type, and initial_body, or append_block/edit_block against an existing page.
-    Every block that relies on this source must contain the exact marker src:#{source.document_id} near the supported claim.
+    For each supported claim, use the source marker that memory_update provides for this run.
     Do not save tool failures, temporary runtime limitations, task progress, or claims the source does not support.
     """
 
     case curation_guide do
       guide when is_binary(guide) ->
-        String.trim(base) <> "\n\nHuman-maintained Brain Curation Guide:\n\n" <> guide
+        String.trim(base) <> "\n\nHuman-maintained long-term memory curation guide:\n\n" <> guide
 
       nil ->
         String.trim(base)
@@ -224,21 +251,20 @@ defmodule Ankole.Brain.SourceLearning do
     |> Repo.exists?()
   end
 
-  defp brain_scope(%Scope{writable_store_key: "public"}), do: %{"visibility" => "public"}
+  defp brain_scope(%Scope{writable_store_key: "shared"}), do: %{"visibility" => "shared"}
+
+  defp brain_scope(%Scope{writable_store_key: "self"}), do: %{"visibility" => "self"}
 
   defp brain_scope(%Scope{writable_store_key: "dm:" <> peer_uid}) do
     %{"visibility" => "dm", "peer_uid" => peer_uid}
   end
 
-  defp workspace_relative_path(owner_uid, session_id, filename) do
-    [encode_path_segment(owner_uid), encode_path_segment(session_id), "source", filename]
-    |> Path.join()
+  defp brain_scope(%Scope{writable_store_key: "channel:" <> channel_id}) do
+    %{"visibility" => "channel", "channel_id" => channel_id, "channel_kind" => "im_group"}
   end
 
-  defp encode_path_segment(value) do
-    value
-    |> URI.encode(&URI.char_unreserved?/1)
-    |> String.replace("%", "_")
+  defp workspace_relative_path(owner_uid, session_id, filename) do
+    AgentHomePaths.session_lane_path(owner_uid, session_id, "source/#{filename}")
   end
 
   defp source_filename(source) do

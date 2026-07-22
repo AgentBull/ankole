@@ -1,14 +1,14 @@
 import {
+  cpSync,
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { RPCRequester, BrainSnapshot, RuntimeSkillSummary } from '../../lanes/rpc_lane'
@@ -21,20 +21,15 @@ import {
   resolveSkillOverlayText,
   type SkillFileRoots
 } from '../../skills/effective-skill'
-import type { CodexJobWorkspaceMount } from './job-project'
-import { WORKSPACE_MODEL_ROOT } from '../workspace-paths'
-
-export const CODEX_JOB_SKILLS_SANDBOX_ROOT = '/ankole/job-skills'
 
 export type MaterializedCodexJobSkill = {
   name: string
   sourcePath: string
-  skillFileOverridePath?: string
 }
 
 export type MaterializedCodexJobRuntimeFiles = {
   root: string
-  skillsPlaceholderRoot: string
+  skillsRoot: string
   skills: MaterializedCodexJobSkill[]
   expectedSkillNames: string[]
   cleanup(): void
@@ -42,58 +37,45 @@ export type MaterializedCodexJobRuntimeFiles = {
 
 export async function materializeCodexJobRuntimeFiles(input: {
   turn: ActorTurnRef
+  jobRoot: string
   enabledSkills: RuntimeSkillSummary[]
   skillRoots?: SkillFileRoots
   rpc: RPCRequester
 }): Promise<MaterializedCodexJobRuntimeFiles> {
-  const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-runtime-'))
+  const root = join(input.jobRoot, '.ankole')
+  const skillsRoot = join(root, 'skills')
+  rmSync(skillsRoot, { recursive: true, force: true })
+  mkdirSync(skillsRoot, { recursive: true })
 
   try {
-    const skillsPlaceholderRoot = join(root, 'skills')
-    mkdirSync(skillsPlaceholderRoot, { recursive: true })
-    const skills = await materializeSkills(input, root, skillsPlaceholderRoot)
-
+    const skills = await materializeSkills(input, skillsRoot)
     return {
       root,
-      skillsPlaceholderRoot,
+      skillsRoot,
       skills,
       expectedSkillNames: skills.map(skill => skill.name),
-      cleanup: () => rmSync(root, { recursive: true, force: true })
+      cleanup: () => undefined
     }
   } catch (error) {
-    rmSync(root, { recursive: true, force: true })
+    rmSync(skillsRoot, { recursive: true, force: true })
     throw error
   }
 }
 
 export function renderCodexJobAgents(input: {
-  guidanceWorkspaceRoot: string
-  workspaceMounts: CodexJobWorkspaceMount[]
+  jobRoot: string
   soul: string
   mission: string
   brainSnapshot?: BrainSnapshot
-  background?: string
-  notes?: string
   timezone?: string | null
   now?: Date
 }): { content: string } {
-  const localAgents = input.workspaceMounts.map(mount => ({
-    mount,
-    content: readLocalAgents(input.guidanceWorkspaceRoot, mount)
-  }))
-
   return {
     content: renderTaskAgents({
-      localGuidance: localAgents
-        .filter(item => item.content)
-        .map(item => `## Mounted workspace guidance: ${item.mount.id}\n\n${item.content}`)
-        .join('\n\n'),
-      workspaceMounts: input.workspaceMounts,
+      jobRoot: input.jobRoot,
       soul: input.soul,
       mission: input.mission,
       brainSnapshot: input.brainSnapshot,
-      background: input.background,
-      notes: input.notes,
       timezone: input.timezone,
       now: input.now ?? new Date()
     })
@@ -102,8 +84,7 @@ export function renderCodexJobAgents(input: {
 
 async function materializeSkills(
   input: Parameters<typeof materializeCodexJobRuntimeFiles>[0],
-  root: string,
-  skillsPlaceholderRoot: string
+  skillsRoot: string
 ): Promise<MaterializedCodexJobSkill[]> {
   const enabledSkills = input.enabledSkills
     .map(skill => {
@@ -130,44 +111,28 @@ async function materializeSkills(
       const sourceSkillPath = join(sourcePath, 'SKILL.md')
       if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skillName}`)
 
-      mkdirSync(join(skillsPlaceholderRoot, skill.skillName), { recursive: true })
-      const overlay = await resolveSkillOverlayText(skill.skillName, {
-        turn: input.turn,
-        rpc: input.rpc
-      })
-      if (!overlay) return { name: skill.skillName, sourcePath }
+      const projectedPath = join(skillsRoot, skill.skillName)
+      const overlay = await resolveSkillOverlayText(skill.skillName, { turn: input.turn, rpc: input.rpc })
+      if (!overlay) {
+        symlinkSync(sourcePath, projectedPath, 'dir')
+        return { name: skill.skillName, sourcePath: projectedPath }
+      }
 
-      const skillFileOverridePath = join(root, 'skill-overrides', skill.skillName, 'SKILL.md')
-      mkdirSync(join(root, 'skill-overrides', skill.skillName), { recursive: true })
-      writeFileSync(skillFileOverridePath, composeNativeSkillFile(readFileSync(sourceSkillPath, 'utf8'), overlay), {
-        mode: 0o600
-      })
-      return { name: skill.skillName, sourcePath, skillFileOverridePath }
+      cpSync(sourcePath, projectedPath, { recursive: true, dereference: false })
+      writeFileSync(
+        join(projectedPath, 'SKILL.md'),
+        composeNativeSkillFile(readFileSync(sourceSkillPath, 'utf8'), overlay),
+        {
+          mode: 0o600
+        }
+      )
+      return { name: skill.skillName, sourcePath: projectedPath }
     })
   )
 }
 
-function readLocalAgents(guidanceWorkspaceRoot: string, mount: CodexJobWorkspaceMount): string {
-  const realGuidanceRoot = realpathSync(guidanceWorkspaceRoot)
-  const realUserFilesRoot = existsSync(join(guidanceWorkspaceRoot, 'user-files'))
-    ? realpathSync(join(guidanceWorkspaceRoot, 'user-files'))
-    : undefined
-  for (const name of ['AGENTS.override.md', 'AGENTS.md'] as const) {
-    const path = join(mount.sourcePath, name)
-    if (!existsSync(path)) continue
-    const realPath = realpathSync(path)
-    if (!insideRoot(realGuidanceRoot, realPath) && (!realUserFilesRoot || !insideRoot(realUserFilesRoot, realPath))) {
-      throw new Error(`local ${name} escapes the owner workspace guidance roots`)
-    }
-    if (!statSync(realPath).isFile()) continue
-    return readFileSync(realPath, 'utf8').trim()
-  }
-  return ''
-}
-
 function renderTaskAgents(input: {
-  localGuidance: string
-  workspaceMounts: CodexJobWorkspaceMount[]
+  jobRoot: string
   soul: string
   mission: string
   brainSnapshot?: BrainSnapshot
@@ -176,21 +141,18 @@ function renderTaskAgents(input: {
   timezone?: string | null
   now: Date
 }): string {
-  const workspaceLines = input.workspaceMounts.length
-    ? input.workspaceMounts.map(mount => `- ${mount.id}: ${mount.modelPath} (${mount.access})`).join('\n')
-    : '- No target workspace is mounted.'
   const executionContext = [
     `Current time: ${input.now.toISOString()}${input.timezone ? ` (${input.timezone})` : ''}.`,
-    `Job project root (the process cwd): ${WORKSPACE_MODEL_ROOT}.`,
-    `Mounted workspaces:\n${workspaceLines}`,
+    `Job workspace (the process cwd): ${input.jobRoot}.`,
+    'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
     'Your final message is the Job result for the caller. State outcomes, evidence, relevant paths, and remaining risks.',
-    'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes. Projected Brain tools operate only inside the server-validated caller conversation scope.',
+    'The long-term memory system (codename Brain) preserves chat messages, curated current knowledge entries, and external materials that people ask it to learn so future work can retrieve the few most relevant items.',
+    'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes. Projected long-term memory tools operate only inside the server-validated caller conversation scope.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead. Do not call request_user_input, which is unavailable in this background execution.',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
   ].join('\n')
 
   return [
-    input.localGuidance,
     '# Ankole Background Agent Job Context',
     section('SOUL', input.soul),
     section('MISSION', input.mission),
@@ -208,10 +170,6 @@ function renderTaskAgents(input: {
 function section(title: string, content: string | undefined): string {
   const text = content?.trim()
   return text ? `## ${title}\n\n${text}` : ''
-}
-
-function insideRoot(root: string, path: string): boolean {
-  return path === root || path.startsWith(`${root}/`)
 }
 
 function compareCodePoints(left: string, right: string): number {

@@ -10,6 +10,9 @@ function Tabs({ className, orientation = 'horizontal', ...props }: TabsPrimitive
     <TabsPrimitive.Root
       data-slot="tabs"
       data-orientation={orientation}
+      data-horizontal={orientation === 'horizontal' ? '' : undefined}
+      data-vertical={orientation === 'vertical' ? '' : undefined}
+      orientation={orientation}
       className={cn('group/tabs flex gap-2 data-horizontal:flex-col', className)}
       {...props}
     />

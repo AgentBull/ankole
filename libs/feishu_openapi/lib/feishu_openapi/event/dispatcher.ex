@@ -24,9 +24,8 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
       or `{:handler_crashed, Exception.t()}` if a user handler raised
 
   Two input shapes:
-    * `{:raw, body, headers}` — HTTP webhook. Verifies signature (unless
-      `skip_sign_verify: true` or `encrypt_key` is nil) and replay-window
-      (unless `skip_timestamp_check: true`).
+    * `{:raw, body, headers}` — HTTP webhook. Verifies the signature and replay
+      window when `encrypt_key` is configured.
     * `{:decoded, map}` — already-parsed envelope. Raw body signature checks
       are skipped, but `verification_token` is still enforced when configured.
     * `{:trusted_decoded, map}` — decoded envelope from an already-authenticated
@@ -62,8 +61,6 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
           client: Client.t() | nil,
           handlers: %{optional(String.t()) => handler()},
           callback_handlers: %{optional(String.t()) => handler()},
-          skip_sign_verify: boolean(),
-          skip_timestamp_check: boolean(),
           max_skew_seconds: non_neg_integer()
         }
 
@@ -72,16 +69,12 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
             client: nil,
             handlers: %{},
             callback_handlers: %{},
-            skip_sign_verify: false,
-            skip_timestamp_check: false,
             max_skew_seconds: @default_max_skew_seconds
 
   @new_opts [
     :verification_token,
     :encrypt_key,
     :client,
-    :skip_sign_verify,
-    :skip_timestamp_check,
     :max_skew_seconds
   ]
 
@@ -96,8 +89,6 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
       verification_token: opts[:verification_token],
       encrypt_key: opts[:encrypt_key],
       client: opts[:client],
-      skip_sign_verify: Keyword.get(opts, :skip_sign_verify, false),
-      skip_timestamp_check: Keyword.get(opts, :skip_timestamp_check, false),
       max_skew_seconds: Keyword.get(opts, :max_skew_seconds, @default_max_skew_seconds)
     }
 
@@ -268,8 +259,6 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
     validate_optional_binary!(opts, :verification_token)
     validate_optional_binary!(opts, :encrypt_key)
     validate_optional_client!(opts[:client])
-    validate_boolean!(opts, :skip_sign_verify, false)
-    validate_boolean!(opts, :skip_timestamp_check, false)
     validate_non_neg_integer!(opts, :max_skew_seconds, @default_max_skew_seconds)
 
     opts
@@ -299,14 +288,6 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
   defp validate_optional_client!(value) do
     raise ArgumentError,
           "dispatcher option :client must be a FeishuOpenAPI.Client struct, got: #{inspect(value)}"
-  end
-
-  defp validate_boolean!(opts, key, default) do
-    value = Keyword.get(opts, key, default)
-
-    unless is_boolean(value) do
-      raise ArgumentError, "dispatcher option #{inspect(key)} must be a boolean"
-    end
   end
 
   defp validate_non_neg_integer!(opts, key, default) do

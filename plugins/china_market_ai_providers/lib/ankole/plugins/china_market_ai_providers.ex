@@ -21,9 +21,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders do
   def plugin_id, do: "china-market-ai-providers"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name do
     %{
       "default" => "China Market AI Providers",

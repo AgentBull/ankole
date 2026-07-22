@@ -512,6 +512,18 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       retryable: true
     })
 
+    expect(
+      classifyLLMError(
+        Object.assign(new Error('error decoding response body'), {
+          code: 'upstream_read_failed',
+          details: { stage: 'read' }
+        })
+      )
+    ).toMatchObject({
+      kind: 'timeout',
+      retryable: true
+    })
+
     for (const status of [502, 503, 504]) {
       expect(classifyLLMError(new Error(`upstream returned HTTP status ${status}`))).toMatchObject({
         kind: 'server',

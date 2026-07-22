@@ -99,11 +99,16 @@ class AIGatewayResponsesTurn implements ModelTurn {
     return result
   }
 
-  async recordToolResults(messages: Message[]): Promise<ToolResultsRecordResult> {
+  async recordToolResults(
+    messages: Message[],
+    options: { completeActorEventIDs?: string[] } = {}
+  ): Promise<ToolResultsRecordResult> {
     const input = toResponseInput(messages)
     const params = statefulToolResultsRecordParams(this.model, input, this.stateful)
 
-    const result = await this.withSingleFlight(() => this.recordToolResultsOverWebSocket(params))
+    const result = await this.withSingleFlight(() =>
+      this.recordToolResultsOverWebSocket(params, options.completeActorEventIDs ?? [])
+    )
     this.advanceAnchor(result.responseID)
     return result
   }
@@ -299,10 +304,17 @@ class AIGatewayResponsesTurn implements ModelTurn {
     }
   }
 
-  private async recordToolResultsOverWebSocket(params: ResponseCreateParams): Promise<ToolResultsRecordResult> {
+  private async recordToolResultsOverWebSocket(
+    params: ResponseCreateParams,
+    completeActorEventIDs: string[]
+  ): Promise<ToolResultsRecordResult> {
     const ws = await this.ensureOpen()
     const stream = ws.stream() as AsyncIterableIterator<ResponsesStreamMessage>
-    const requestPayload = JSON.stringify({ type: 'response.tool_results.record', ...params })
+    const requestPayload = JSON.stringify({
+      type: 'response.tool_results.record',
+      ...params,
+      ...(completeActorEventIDs.length > 0 ? { complete_actor_event_ids: [...new Set(completeActorEventIDs)] } : {})
+    })
 
     try {
       ws.sendRaw(requestPayload)

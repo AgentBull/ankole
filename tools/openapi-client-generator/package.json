@@ -1,0 +1,12 @@
+{
+  "name": "@ankole/openapi-client-generator",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "generate": "cd ../../app/webapps && ../../tools/openapi-client-generator/node_modules/.bin/openapi-ts -f openapi-ts.config.ts"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -12,7 +12,9 @@ const CommandParams = z
     workdir: z
       .string()
       .optional()
-      .describe('Working directory for this command. Absolute /workspace/... or relative to /workspace.'),
+      .describe(
+        'Working directory for this command. Use a real absolute Agent Home path or a workspace-relative path.'
+      ),
     timeout: z
       .number()
       .int()
@@ -39,7 +41,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
   return {
     name: 'command',
     description:
-      'Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use background_agent_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use replace for one precise edit and patch for larger edits.',
+      'Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use create_background_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use replace for one precise edit and patch for larger edits.',
     schema: CommandParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -50,7 +52,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
 
       // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
       // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
-      // ANKOLE_WORKSPACE_ROOT, plus validated caller env) is injected, so this is the sandbox
+      // ANKOLE_AGENT_HOME, plus validated caller env) is injected, so this is the sandbox
       // environment, not the host user's. `timeout`, when provided, is the
       // command execution budget in seconds, passed as ms; the worker kills
       // the process when it elapses.
@@ -100,7 +102,7 @@ function formatForegroundCommandResult(input: {
   if (note) lines.push(`exit_code_note: ${note}`)
   if (isLikelyForegroundTimeout(input.exitCode, input.durationMs, input.timeoutSeconds)) {
     lines.push(
-      `command timed out after ${input.timeoutSeconds}s (foreground budget). Narrow the command (shorter probe or smaller input) and split the work, or create a BackgroundAgentJob with background_agent_job(start) when it cannot finish in the active exchange.`
+      `command timed out after ${input.timeoutSeconds}s (foreground budget). Narrow the command (shorter probe or smaller input) and split the work, or use create_background_job when it cannot finish in the active exchange.`
     )
   }
   if (input.output.length > 0) lines.push(input.output)

@@ -1,7 +1,7 @@
 defmodule FeishuOpenAPI.CardActionTest do
   use ExUnit.Case, async: true
 
-  alias FeishuOpenAPI.{CardAction, Crypto}
+  alias FeishuOpenAPI.{CardAction, Crypto, CryptoTestSupport}
   alias FeishuOpenAPI.CardAction.Handler
 
   describe "verify_and_decode/3" do
@@ -101,6 +101,22 @@ defmodule FeishuOpenAPI.CardActionTest do
                CardAction.verify_and_decode(%{verification_token: "vt_x"}, body, %{})
     end
 
+    test "legacy skip_sign_verify config cannot bypass signature checks" do
+      body =
+        Torque.encode!(%{
+          "open_message_id" => "om_123",
+          "user_id" => "ou_456",
+          "action" => %{"tag" => "button"}
+        })
+
+      assert {:error, :missing_signature_headers} =
+               CardAction.verify_and_decode(
+                 %{verification_token: "vt_x", skip_sign_verify: true},
+                 body,
+                 %{}
+               )
+    end
+
     test "decrypts encrypted payloads before building the struct" do
       inner =
         Torque.encode!(%{
@@ -109,7 +125,7 @@ defmodule FeishuOpenAPI.CardActionTest do
           "action" => %{"tag" => "button", "value" => %{"id" => "1"}}
         })
 
-      {:ok, encrypt} = Crypto.encrypt(inner, "ek_x")
+      {:ok, encrypt} = CryptoTestSupport.encrypt(inner, "ek_x")
       body = Torque.encode!(%{"encrypt" => encrypt})
 
       ts = "1711112"
@@ -135,6 +151,12 @@ defmodule FeishuOpenAPI.CardActionTest do
   end
 
   describe "handler dispatch" do
+    test "rejects the removed signature bypass option" do
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        Handler.new(skip_sign_verify: true)
+      end
+    end
+
     test "passes the normalized card action to the user handler" do
       me = self()
 

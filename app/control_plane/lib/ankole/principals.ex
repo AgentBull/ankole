@@ -15,7 +15,9 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.HumanUser
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
+  alias Ankole.AgentHomePaths
   alias Ankole.Repo
+  alias Ankole.RuntimeEvents
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
@@ -92,13 +94,20 @@ defmodule Ankole.Principals do
   @spec create_agent(map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
   def create_agent(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-           {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)),
-           :ok <- Library.seed_agent_library_in_tx(repo, principal.uid) do
-        {:ok, %{principal: principal, agent: agent}}
-      end
-    end)
+    with {:ok, uid} <- fetch_attr(attrs, :uid),
+         {:ok, uid} <- normalize_uid(uid),
+         :ok <- AgentHomePaths.validate_agent_uid(uid) do
+      attrs = attrs |> Map.delete("uid") |> Map.put(:uid, uid)
+
+      Repo.transact(fn repo ->
+        with {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+             {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)),
+             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+             :ok <- RuntimeEvents.notify_agent_home_projection(repo, principal.uid) do
+          {:ok, %{principal: principal, agent: agent}}
+        end
+      end)
+    end
   end
 
   @doc """

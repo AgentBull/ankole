@@ -21,6 +21,7 @@ defmodule Ankole.Setup.Config do
       encrypted: false,
       schema: Schema.boolean(),
       default_value: false,
+      console_writable: false,
       description: "Whether the Ankole installation setup has completed."
     )
   end
@@ -34,6 +35,7 @@ defmodule Ankole.Setup.Config do
       key: @bootstrap_activation_code_key,
       encrypted: false,
       schema: activation_code_schema(),
+      console_writable: false,
       description: "Current bootstrap activation code for the first-run setup session gate."
     )
   end

@@ -29,7 +29,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     {:ok,
      %{
        interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
-       reconcile_opts: Keyword.drop(opts, [:name, :interval_ms])
+       reconcile_opts: Keyword.take(opts, [:repo])
      }, {:continue, :reconcile}}
   end
 
@@ -73,8 +73,8 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     |> add_identity_providers()
   end
 
-  defp add_binding(%Binding{} = binding, {specs, errors}, opts) do
-    case binding_spec(binding, opts) do
+  defp add_binding(%Binding{} = binding, {specs, errors}, _opts) do
+    case binding_spec(binding) do
       {:ok, key, spec} ->
         merge_spec(
           specs,
@@ -120,10 +120,9 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     end
   end
 
-  defp binding_spec(%Binding{} = binding, opts) do
+  defp binding_spec(%Binding{} = binding) do
     with {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      config =
-        Config.resolve_runtime_bot_identity(config, Keyword.take(opts, [:bot_info_fetcher]))
+      config = Config.resolve_runtime_bot_identity(config)
 
       context =
         AdapterContext.new(
@@ -137,7 +136,7 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
        %{
          config: config,
          secret_fingerprint: Config.secret_fingerprint(config),
-         consumers: [Inbound.chat_consumer(context, config, materialize_attachments: true)]
+         consumers: [Inbound.chat_consumer(context, config)]
        }}
     else
       :error -> {:error, :chat_config_not_found}
@@ -180,16 +179,11 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     end
   end
 
-  defp start_connections({specs, errors}, opts) do
-    supervisor = Keyword.get(opts, :connection_supervisor, ConnectionSupervisor)
-
-    supervisor_opts =
-      Keyword.take(opts, [:registry, :supervisor, :start_client?, :client_opts, :ws_client_module])
-
+  defp start_connections({specs, errors}, _opts) do
     results =
       Enum.map(
         Map.values(specs),
-        &supervisor.ensure_started(&1.config, Enum.reverse(&1.consumers), supervisor_opts)
+        &ConnectionSupervisor.ensure_started(&1.config, Enum.reverse(&1.consumers))
       )
 
     {started, failed} = Enum.split_with(results, &match?({:ok, _pid}, &1))

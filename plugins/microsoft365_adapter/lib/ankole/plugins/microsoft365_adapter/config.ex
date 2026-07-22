@@ -65,10 +65,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
          {:ok, tenancy} <-
            select(value, "botTenancy", "single_tenant", ["single_tenant", "multi_tenant"]),
          {:ok, tenant_id} <- tenant_for_tenancy(value, tenancy),
-         {:ok, namespace} <- optional_string(value, "platformSubjectNamespace", @default_namespace),
-         {:ok, user_name} <- optional_string(value, "userName", "Teams"),
-         {:ok, login_base_url} <- optional_base_url(value, "loginBaseURL"),
-         {:ok, openid_metadata_url} <- optional_base_url(value, "openIDMetadataURL") do
+         {:ok, namespace} <-
+           optional_string(value, "platformSubjectNamespace", @default_namespace),
+         {:ok, user_name} <- optional_string(value, "userName", "Teams") do
       {:ok,
        %{
          "appID" => app_id,
@@ -76,9 +75,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
          "botTenancy" => tenancy,
          "tenantID" => tenant_id,
          "platformSubjectNamespace" => namespace,
-         "userName" => user_name,
-         "loginBaseURL" => login_base_url,
-         "openIDMetadataURL" => openid_metadata_url
+         "userName" => user_name
        }}
     end
   end
@@ -104,8 +101,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
          {:ok, groups_filter} <- optional_string(sync, "groupsFilter", nil),
          {:ok, include_guests} <- optional_boolean(sync, "includeGuests", false),
          {:ok, public_base_url} <- optional_base_url(value, "publicBaseURL"),
-         {:ok, login_base_url} <- optional_base_url(value, "loginBaseURL"),
-         {:ok, graph_base_url} <- optional_base_url(value, "graphBaseURL"),
          sync_realtime = requested_realtime and sync_contacts,
          :ok <- require_when(sync_realtime, public_base_url, "publicBaseURL") do
       {:ok,
@@ -121,9 +116,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
            "groupsFilter" => groups_filter,
            "includeGuests" => include_guests
          },
-         "publicBaseURL" => public_base_url,
-         "loginBaseURL" => login_base_url,
-         "graphBaseURL" => graph_base_url
+         "publicBaseURL" => public_base_url
        }}
     end
   end
@@ -136,10 +129,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   Shape: `%{"subscriptions" => [%{"id", "resource", "expiration", "clientState"}]}`.
   """
   @spec validate_subscription_state(term()) :: {:ok, map()} | {:error, term()}
-  def validate_subscription_state(%{"subscriptions" => subscriptions} = value)
+  def validate_subscription_state(%{"subscriptions" => subscriptions})
       when is_list(subscriptions) do
     if Enum.all?(subscriptions, &valid_subscription_entry?/1) do
-      {:ok, %{"subscriptions" => subscriptions, "updatedAt" => Map.get(value, "updatedAt")}}
+      {:ok, %{"subscriptions" => subscriptions}}
     else
       {:error, :invalid_graph_subscription_state}
     end
@@ -171,30 +164,23 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   tenant for single-tenant apps, the fixed `botframework.com` segment for
   multi-tenant apps.
   """
-  @spec chat_client(chat_config(), keyword()) :: Client.t()
-  def chat_client(config, opts \\ []) do
-    [
+  @spec chat_client(chat_config()) :: Client.t()
+  def chat_client(config) do
+    Client.new(
       tenant_id: Map.get(config, "tenantID"),
       client_id: Map.fetch!(config, "appID"),
       client_secret: Map.fetch!(config, "appPassword"),
       bot_token_tenant: bot_token_tenant(config)
-    ]
-    |> maybe_keyword(:login_base_url, Map.get(config, "loginBaseURL"))
-    |> Keyword.merge(opts)
-    |> Client.new()
+    )
   end
 
-  @spec identity_client(identity_config(), keyword()) :: Client.t()
-  def identity_client(config, opts \\ []) do
-    [
+  @spec identity_client(identity_config()) :: Client.t()
+  def identity_client(config) do
+    Client.new(
       tenant_id: Map.fetch!(config, "tenantID"),
       client_id: Map.fetch!(config, "clientID"),
       client_secret: Map.fetch!(config, "clientSecret")
-    ]
-    |> maybe_keyword(:login_base_url, Map.get(config, "loginBaseURL"))
-    |> maybe_keyword(:graph_base_url, Map.get(config, "graphBaseURL"))
-    |> Keyword.merge(opts)
-    |> Client.new()
+    )
   end
 
   @spec bot_token_tenant(chat_config()) :: String.t()
@@ -319,7 +305,4 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
         {:error, {:invalid_string_array, key}}
     end
   end
-
-  defp maybe_keyword(keyword, _key, nil), do: keyword
-  defp maybe_keyword(keyword, key, value), do: Keyword.put(keyword, key, value)
 end

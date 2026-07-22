@@ -534,7 +534,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
         {:ok, outbox}
 
       [attachment] ->
-        with {:ok, attachment} <- ensure_provider_attachment_key(attachment, client) do
+        with {:ok, attachment} <-
+               ensure_provider_attachment_key(attachment, client, outbox.agent_uid) do
           {:ok, %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}}
         end
 
@@ -543,7 +544,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp ensure_provider_attachment_key(%{} = attachment, client) do
+  defp ensure_provider_attachment_key(%{} = attachment, client, agent_uid) do
     if image_attachment?(attachment) do
       case optional_text(attachment, "provider_image_key") ||
              optional_text(attachment, "image_key") do
@@ -551,7 +552,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           {:ok, Map.put(attachment, "provider_image_key", image_key)}
 
         _missing ->
-          upload_worker_image_attachment(attachment, client)
+          upload_worker_image_attachment(attachment, client, agent_uid)
       end
     else
       case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
@@ -559,13 +560,14 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
           {:ok, Map.put(attachment, "provider_file_key", file_key)}
 
         _missing ->
-          upload_worker_file_attachment(attachment, client)
+          upload_worker_file_attachment(attachment, client, agent_uid)
       end
     end
   end
 
-  defp upload_worker_image_attachment(attachment, client) do
-    with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
+  defp upload_worker_image_attachment(attachment, client, agent_uid) do
+    with relative_path when is_binary(relative_path) <-
+           attachment_relative_path(attachment, agent_uid),
          {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", relative_path),
          name <- attachment_name(attachment, relative_path),
          {:ok, %{"data" => data}} <-
@@ -586,8 +588,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp upload_worker_file_attachment(attachment, client) do
-    with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
+  defp upload_worker_file_attachment(attachment, client, agent_uid) do
+    with relative_path when is_binary(relative_path) <-
+           attachment_relative_path(attachment, agent_uid),
          {:ok, %{"content" => content}} <-
            WorkerFiles.get("user_files", relative_path),
          name <- attachment_name(attachment, relative_path),
@@ -608,13 +611,21 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     end
   end
 
-  defp attachment_relative_path(attachment) do
-    case optional_text(attachment, "user_files_relative_path") ||
-           optional_text(attachment, "agent_computer_path") ||
-           optional_text(attachment, "path") do
-      "/workspace/user-files/" <> relative -> relative
-      relative when is_binary(relative) -> String.trim_leading(relative, "/")
-      _missing -> nil
+  defp attachment_relative_path(attachment, agent_uid) do
+    case optional_text(attachment, "user_files_relative_path") do
+      relative when is_binary(relative) ->
+        Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
+
+      _missing ->
+        user_files = Ankole.AgentHomePaths.user_files(agent_uid) <> "/"
+
+        case optional_text(attachment, "agent_computer_path") || optional_text(attachment, "path") do
+          ^user_files <> relative ->
+            Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
+
+          _outside ->
+            nil
+        end
     end
   end
 

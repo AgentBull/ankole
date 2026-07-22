@@ -11,17 +11,24 @@ describe('@ankole/agent-computer Codex Job MCP config', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-mcp-'))
     const libraryRoot = join(root, 'library')
     const standaloneRoot = join(libraryRoot, 'skills', 'standalone')
+    const mainOnlyRoot = join(libraryRoot, 'skills', 'main-only')
     const pluginRoot = join(libraryRoot, 'agent-plugins', 'research')
     mkdirSync(join(standaloneRoot, 'agents'), { recursive: true })
+    mkdirSync(join(mainOnlyRoot, 'agents'), { recursive: true })
     mkdirSync(join(pluginRoot, 'skills', 'research', 'agents'), { recursive: true })
     mkdirSync(join(pluginRoot, 'skills', 'disabled', 'agents'), { recursive: true })
     writeFileSync(join(standaloneRoot, 'SKILL.md'), '---\nname: standalone\ndescription: Standalone.\n---\n')
+    writeFileSync(join(mainOnlyRoot, 'SKILL.md'), '---\nname: main-only\ndescription: Main only.\n---\n')
     writeFileSync(
       join(pluginRoot, 'skills', 'research', 'SKILL.md'),
       '---\nname: research\ndescription: Research.\n---\n'
     )
     const declaration = openAIYAML('https://mcp.example.test/rpc', 'MCP_ACCESS_TOKEN', 'external-data', 480_000)
     writeFileSync(join(standaloneRoot, 'agents', 'openai.yaml'), declaration)
+    writeFileSync(
+      join(mainOnlyRoot, 'agents', 'openai.yaml'),
+      openAIYAML('https://main-only.example.test/rpc', undefined, 'main-only-server')
+    )
     writeFileSync(join(pluginRoot, 'skills', 'research', 'agents', 'openai.yaml'), declaration)
     writeFileSync(
       join(pluginRoot, 'skills', 'disabled', 'agents', 'openai.yaml'),
@@ -41,6 +48,12 @@ describe('@ankole/agent-computer Codex Job MCP config', () => {
             sourceKind: 'builtin',
             agentPluginId: 'research',
             relativePath: 'agent-plugins/research/skills/research'
+          }),
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'main-only',
+            sourceKind: 'builtin',
+            relativePath: 'skills/main-only',
+            metadataJson: new TextEncoder().encode(JSON.stringify({ 'ankole-runtime': 'main' }))
           })
         ],
         skillRoots: { builtinSkillsRoot: libraryRoot, agentInstalledSkillsRoot: join(root, 'installed') },
@@ -58,6 +71,7 @@ describe('@ankole/agent-computer Codex Job MCP config', () => {
       )
       expect(JSON.stringify(servers)).not.toContain('secret-value')
       expect(JSON.stringify(servers)).not.toContain('disabled-server')
+      expect(JSON.stringify(servers)).not.toContain('main-only-server')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

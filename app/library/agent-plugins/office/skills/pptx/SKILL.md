@@ -3,11 +3,10 @@ name: pptx
 description: "Use this skill any time a .pptx file is involved -- as input, output, or both. This OfficeCLI-backed skill covers creating, reading, editing, combining, and splitting PowerPoint decks. Trigger whenever the user mentions deck, slides, presentation, pitch, or references a .pptx filename."
 default_enabled: true
 category: productivity
-long_running: true
+ankole-runtime: background_job
 tags: [pptx, slides, presentation, officecli]
 metadata:
-  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/v1.0.129/skills/officecli-pptx
-  upstream_tag: v1.0.129
+  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/main/skills/officecli-pptx
   modified_for: Ankole Agent Plugin runtime
 ---
 
@@ -17,7 +16,7 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 ## Setup
 
-Ankole Agent Computer images install `officecli` at build time. Verify with `officecli --version`; expected baseline is OfficeCLI v1.0.129. If the command is missing, the worker image is stale and must be rebuilt.
+Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
 
 ## ⚠️ Help-First Rule
 
@@ -75,7 +74,7 @@ Title must be **≥ 2× body size** (36pt over 20pt works; 28pt over 20pt looks 
 
 **Avoid slide placeholder shorthand for deliverables.** Do not use slide-level `--prop title=...` / `--prop text=...` shorthand for delivered decks. That shorthand creates PowerPoint placeholder shapes (`<p:ph>`), and target viewers such as Keynote can import them as layout placeholders instead of visible slide text. For visible content, use `layout=blank` plus ordinary `shape` or `textbox` elements with explicit `x`, `y`, `width`, `height`, `font`, `size`, and `color`.
 
-**Speaker notes on every content slide.** `--type notes --prop text="..."`. The speaker needs a script; the audience shouldn't read the slide verbatim.
+**Keep delivered decks free of speaker notes.** Current OfficeCLI releases emit an incomplete notes package that Keynote rejects as invalid ([upstream issue #255](https://github.com/iOfficeAI/OfficeCLI/issues/255)). Do not add `--type notes`; provide presenter guidance as a separate text or Markdown file when the user needs it. Restore embedded notes only after the OfficeCLI fix ships in the Agent Computer image and a notes-bearing deck opens successfully in Keynote.
 
 **Copy reads human, not AI.** Titles orient on content, not punchline. No "It's not X. It's Y.", no manufactured tension, no faux-insight ("The magic moment"), no one-word drama ("Momentum."). Cut hype adjectives (seamless, robust, game-changing) — let the number carry it.
 
@@ -95,6 +94,8 @@ If any fails, STOP and fix before declaring done.
 ## Design Principles
 
 A deck is not a document. The audience has 3 seconds to get each slide. Before adding anything, ask: "If the audience reads only the biggest element and glances once, do they get the point?" If they have to read the bullets, the biggest element is wrong.
+
+> **Important:** If the use has already provided a brand palette or template, match that first. Otherwire, use `design-md` skills as the design reference.
 
 ### Grid, margins, negative space
 
@@ -220,7 +221,7 @@ Copy-level tells live in "Copy reads human".
 
 ## Quick Start
 
-Minimal viable deck: cover + one content slide + notes. `$FILE` stands in for your filename.
+Minimal viable deck: cover + one content slide. `$FILE` stands in for your filename.
 
 ```bash
 FILE="deck.pptx"
@@ -233,7 +234,7 @@ officecli add "$FILE" /slide[1] --type shape --prop text="FY26 Strategic Review"
   --prop x=2cm --prop y=7cm --prop width=29.87cm --prop height=3cm \
   --prop font=Georgia --prop size=44 --prop bold=true --prop color=FFFFFF --prop align=center
 
-# Content — white fill, title + body + notes
+# Content — white fill, title + body
 officecli add "$FILE" / --type slide --prop layout=blank --prop background=FFFFFF
 officecli add "$FILE" /slide[2] --type shape --prop text="Revenue grew 18% YoY" \
   --prop x=1.5cm --prop y=1.2cm --prop width=30cm --prop height=2cm \
@@ -241,13 +242,12 @@ officecli add "$FILE" /slide[2] --type shape --prop text="Revenue grew 18% YoY" 
 officecli add "$FILE" /slide[2] --type shape --prop text="Enterprise renewals + new EMEA region drove the beat; NRR held at 118%." \
   --prop x=1.5cm --prop y=4cm --prop width=30cm --prop height=3cm \
   --prop font=Calibri --prop size=20 --prop color=333333
-officecli add "$FILE" /slide[2] --type notes --prop text="Lead with the 18% beat, preview EMEA."
 
 officecli save "$FILE"
 officecli validate "$FILE"
 ```
 
-Shape of every build: open → slide+background → title → body → notes → save → validate.
+Shape of every build: open → slide+background → title → body → save → validate.
 
 ## Reading & Analysis
 

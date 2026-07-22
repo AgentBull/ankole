@@ -5,9 +5,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   alias Ecto.Adapters.SQL
 
-  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
-  alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
@@ -19,24 +17,29 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
 
-  @caller_local_task_path_pattern ~r{/workspace/(user-files|temp)(?:/|$|[^A-Za-z0-9_-])}u
+  @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
+  @codex_subscription_metadata_key "codex_subscription"
 
   @supported_create_fields ~w(
     agent_uid
-    background
     metadata
-    model
-    notes
     owner_session_id
-    agent_plugin_ids
-    reasoning_effort
     reply_route
-    skill_names
     source_actor_event_id
     source_tool_call_id
     task
     title
-    workspace_mounts
+    workspace_template_id
+  )
+
+  @supported_respawn_fields ~w(
+    agent_uid
+    message
+    metadata
+    owner_session_id
+    reply_route
+    source_actor_event_id
+    source_tool_call_id
   )
 
   @spec create_with_dispatch(map()) ::
@@ -56,43 +59,56 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
+  @spec respawn_with_dispatch(pos_integer(), map()) ::
+          {:ok, %{job: Job.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
+  def respawn_with_dispatch(source_job_id, attrs)
+      when is_integer(source_job_id) and source_job_id > 0 and is_map(attrs) do
+    now = now()
+
+    with attrs when is_map(attrs) <- Attrs.normalize(attrs),
+         :ok <- reject_unsupported_respawn_fields(attrs),
+         {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
+      attrs = Map.put(attrs, "agent_uid", agent_uid)
+
+      case find_existing_job(Repo, attrs) do
+        {:ok, job} ->
+          existing_job_result(Repo, job)
+
+        {:error, :background_agent_job_not_found} ->
+          prepare_respawn(source_job_id, attrs, agent_uid, now)
+      end
+    end
+  end
+
   defp prepare_new_job(attrs, agent_uid, now) do
     with :ok <- reject_caller_local_task_paths(Attrs.text(attrs, "task")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, codex_account_id} <- codex_account_id(agent_uid) do
+         {:ok, coding_runtime} <- coding_runtime(agent_uid) do
       attrs
       |> Map.put("reply_route", reply_route)
-      |> Map.put("codex_account_id", codex_account_id)
+      |> Map.put("codex_account_id", coding_runtime.codex_account_id)
+      |> put_codex_subscription_metadata(coding_runtime.subscription_config)
       |> create_new_job(agent_uid, now)
     end
   end
 
   defp reject_caller_local_task_paths(task) when is_binary(task) do
-    case Regex.run(@caller_local_task_path_pattern, task, capture: :all_but_first) do
-      [path_segment] ->
-        path = "/workspace/#{path_segment}"
-
+    if Regex.match?(@legacy_workspace_path_pattern, task),
+      do:
         {:error,
-         {:background_agent_job_caller_local_task_path,
-          "#{path} is caller-local and unavailable inside an isolated Job. Mount durable input with workspace_mounts and use /workspace/workspaces/<mount-id>/...; recreate temporary files inside the Job project."}}
-
-      nil ->
-        :ok
-    end
+         {:background_agent_job_legacy_workspace_path,
+          "/workspace is no longer a valid Agent path; use the real /agents/<agent-key>/... path shown in the current runtime context"}},
+      else: :ok
   end
 
   defp reject_caller_local_task_paths(_task), do: :ok
 
   defp create_new_job(attrs, agent_uid, now) do
-    with {:ok, agent_plugin_ids} <- validate_agent_plugin_ids(agent_uid, attrs),
-         {:ok, skill_names} <- resolve_skill_names(agent_uid, attrs),
-         job_id <- Ankole.Ecto.UUIDv7.autogenerate(),
-         {:ok, workspace_mounts, metadata} <- resolve_workspace_mounts(attrs, job_id) do
+    with {:ok, workspace_template_id} <- validate_workspace_template_id(agent_uid, attrs),
+         {:ok, metadata} <- job_metadata(attrs, true) do
       attrs =
         attrs
-        |> Map.put("agent_plugin_ids", agent_plugin_ids)
-        |> Map.put("skill_names", skill_names)
-        |> Map.put("workspace_mounts", workspace_mounts)
+        |> Map.put("workspace_template_id", workspace_template_id)
         |> Map.put("metadata", metadata)
         |> Map.put_new("status", "queued")
         |> Map.put_new("attempts", 0)
@@ -100,11 +116,48 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
         |> Map.put_new("result", %{})
         |> Map.put_new("error", %{})
 
-      persist_job(job_id, attrs, now)
+      persist_job(attrs, now)
     end
   end
 
-  defp persist_job(job_id, attrs, now) do
+  defp prepare_respawn(source_job_id, attrs, agent_uid, now) do
+    with :ok <- reject_caller_local_task_paths(Map.get(attrs, "message")),
+         {:ok, reply_route} <- reply_route(attrs),
+         {:ok, coding_runtime} <- coding_runtime(agent_uid),
+         {:ok, metadata} <- job_metadata(attrs, false) do
+      attrs =
+        attrs
+        |> Map.put("reply_route", reply_route)
+        |> Map.put("codex_account_id", coding_runtime.codex_account_id)
+        |> Map.put("metadata", metadata)
+        |> put_codex_subscription_metadata(coding_runtime.subscription_config)
+
+      persist_respawn(source_job_id, attrs, now)
+    end
+  end
+
+  defp persist_job(attrs, now) do
+    Repo.transact(fn repo ->
+      with :ok <- lock_start_idempotency(repo, attrs),
+           :ok <- lock_agent_codex_account(repo, attrs["agent_uid"]),
+           {:ok, attrs} <- pin_live_codex_account(repo, attrs) do
+        case find_existing_job(repo, attrs) do
+          {:ok, job} ->
+            existing_job_result(repo, job)
+
+          {:error, :background_agent_job_not_found} ->
+            with {:ok, job_id} <- next_job_id(repo),
+                 attrs <- Map.put(attrs, "workspace_owner_job_id", job_id),
+                 {:ok, job} <- repo.insert(Job.creation_changeset(%Job{id: job_id}, attrs)),
+                 {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
+              {:ok, %{job: job, dispatch_event: dispatch_event}}
+            end
+        end
+      end
+    end)
+  end
+
+  defp persist_respawn(source_job_id, attrs, now) do
     Repo.transact(fn repo ->
       with :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
@@ -112,13 +165,108 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
             existing_job_result(repo, job)
 
           {:error, :background_agent_job_not_found} ->
-            with {:ok, job} <- repo.insert(Job.creation_changeset(%Job{id: job_id}, attrs)),
+            with :ok <- lock_agent_codex_account(repo, attrs["agent_uid"]),
+                 {:ok, attrs} <- pin_live_codex_account(repo, attrs),
+                 {:ok, source_job} <- lock_respawn_source(repo, source_job_id, attrs["agent_uid"]),
+                 :ok <- validate_respawn_source(source_job),
+                 :ok <- ensure_no_successor(repo, source_job),
+                 attrs <- respawn_job_attrs(attrs, source_job, now),
+                 {:ok, job} <- repo.insert(Job.creation_changeset(%Job{}, attrs)),
                  {:ok, dispatch_event} <- append_dispatch_event(repo, job, now) do
               {:ok, %{job: job, dispatch_event: dispatch_event}}
             end
         end
       end
     end)
+  end
+
+  defp lock_respawn_source(repo, source_job_id, agent_uid) do
+    Job
+    |> where([job], job.id == ^source_job_id)
+    |> where([job], job.agent_uid == ^agent_uid)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+    |> case do
+      %Job{} = job -> {:ok, job}
+      nil -> {:error, :job_not_found}
+    end
+  end
+
+  defp validate_respawn_source(%Job{} = job) do
+    cond do
+      job.status not in Job.terminal_statuses() ->
+        {:error, {:background_agent_job_not_terminal, job.status}}
+
+      not is_binary(job.runtime_thread_id) ->
+        {:error, :background_agent_job_runtime_thread_missing}
+
+      not is_integer(job.workspace_owner_job_id) ->
+        {:error, :background_agent_job_workspace_owner_missing}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp ensure_no_successor(repo, %Job{} = source_job) do
+    Job
+    |> where([job], job.continued_from_job_id == ^source_job.id)
+    |> select([job], job.id)
+    |> repo.one()
+    |> case do
+      nil -> :ok
+      successor_id -> {:error, {:background_agent_job_already_respawned, successor_id}}
+    end
+  end
+
+  defp respawn_job_attrs(attrs, source_job, now) do
+    attrs
+    |> Map.delete("message")
+    |> Map.put("title", source_job.title)
+    |> Map.put("task", Map.get(attrs, "message"))
+    |> Map.put("runtime_thread_id", source_job.runtime_thread_id)
+    |> Map.put("continued_from_job_id", source_job.id)
+    |> Map.put("workspace_owner_job_id", source_job.workspace_owner_job_id)
+    |> Map.put("workspace_template_id", nil)
+    |> Map.put("status", "queued")
+    |> Map.put("attempts", 0)
+    |> Map.put("queued_at", now)
+    |> Map.put("result", %{})
+    |> Map.put("error", %{})
+  end
+
+  defp lock_agent_codex_account(repo, agent_uid) do
+    case SQL.query(
+           repo,
+           "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+           [agent_uid, "agent-codex-account"]
+         ) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp pin_live_codex_account(repo, attrs) do
+    prefix = BackgroundAgentJobs.job_session_prefix()
+
+    account_ids =
+      ActorEventDelivery
+      |> join(:inner, [delivery], job in Job,
+        on:
+          job.agent_uid == delivery.agent_uid and
+            fragment("? = ? || (?::text)", delivery.session_id, ^prefix, job.id)
+      )
+      |> where([delivery, _job], delivery.agent_uid == ^attrs["agent_uid"])
+      |> where([delivery, _job], delivery.state in ^ActorEventDelivery.live_states())
+      |> select([_delivery, job], job.codex_account_id)
+      |> distinct(true)
+      |> repo.all()
+
+    case account_ids do
+      [] -> {:ok, attrs}
+      [account_id] -> {:ok, Map.put(attrs, "codex_account_id", account_id)}
+      _overlap -> {:error, :agent_codex_account_overlap}
+    end
   end
 
   defp existing_job_result(repo, %Job{} = job) do
@@ -131,12 +279,44 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  defp codex_account_id(agent_uid) do
+  defp coding_runtime(agent_uid) do
     case ModelProfiles.get_model_profile(agent_uid, "coding") do
-      {:ok, %{"codex_account_id" => account_id}} -> {:ok, account_id}
-      {:ok, %{"provider_id" => _provider_id}} -> {:ok, "aigateway"}
-      {:error, :model_profile_not_configured} -> {:ok, "aigateway"}
-      {:error, _reason} = error -> error
+      {:ok, %{"codex_account_id" => account_id} = profile} ->
+        with {:ok, config} <-
+               profile
+               |> Map.drop(["codex_account_id", "profile"])
+               |> ModelProfiles.codex_subscription_config() do
+          {:ok, %{codex_account_id: account_id, subscription_config: config}}
+        end
+
+      {:ok, %{"provider_id" => _provider_id}} ->
+        {:ok, %{codex_account_id: "aigateway", subscription_config: nil}}
+
+      {:error, :model_profile_not_configured} ->
+        {:ok, %{codex_account_id: "aigateway", subscription_config: nil}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp put_codex_subscription_metadata(attrs, nil) do
+    case Map.get(attrs, "metadata", %{}) do
+      metadata when is_map(metadata) ->
+        Map.put(attrs, "metadata", Map.delete(metadata, @codex_subscription_metadata_key))
+
+      _value ->
+        attrs
+    end
+  end
+
+  defp put_codex_subscription_metadata(attrs, config) when is_map(config) do
+    case Map.get(attrs, "metadata", %{}) do
+      metadata when is_map(metadata) ->
+        Map.put(attrs, "metadata", Map.put(metadata, @codex_subscription_metadata_key, config))
+
+      _value ->
+        attrs
     end
   end
 
@@ -177,7 +357,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end)
   end
 
-  @spec complete_open_dispatch(String.t(), String.t()) :: :ok | {:error, term()}
+  @spec complete_open_dispatch(pos_integer(), String.t()) :: :ok | {:error, term()}
   def complete_open_dispatch(job_id, agent_uid) do
     Repo.transact(fn repo ->
       complete_open_events_in_tx(
@@ -319,9 +499,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
         "data" =>
           Attrs.reject_nil_values(%{
             "job_id" => job.id,
+            "continued_from_job_id" => job.continued_from_job_id,
             "owner_session_id" => job.owner_session_id,
-            "agent_plugin_ids" => job.agent_plugin_ids,
-            "workspace_mounts" => job.workspace_mounts,
+            "workspace_owner_job_id" => job.workspace_owner_job_id,
+            "workspace_template_id" => job.workspace_template_id,
             "attempts" => job.attempts
           })
       }
@@ -366,44 +547,42 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  defp validate_agent_plugin_ids(agent_uid, attrs) do
-    AgentPlugins.validate_selection_for_agent(
+  defp reject_unsupported_respawn_fields(attrs) do
+    case Map.keys(attrs) |> Enum.reject(&(&1 in @supported_respawn_fields)) |> Enum.sort() do
+      [] -> :ok
+      fields -> {:error, {:unsupported_background_agent_job_respawn_fields, fields}}
+    end
+  end
+
+  defp next_job_id(repo) do
+    case SQL.query(
+           repo,
+           "SELECT nextval(pg_get_serial_sequence('background_agent_jobs', 'id'))",
+           []
+         ) do
+      {:ok, %{rows: [[job_id]]}}
+      when is_integer(job_id) and job_id in 1000..9_007_199_254_740_991 ->
+        {:ok, job_id}
+
+      {:ok, _result} ->
+        {:error, :invalid_background_agent_job_sequence_value}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp validate_workspace_template_id(agent_uid, attrs) do
+    AgentPlugins.validate_workspace_template_for_agent(
       agent_uid,
-      Map.get(attrs, "agent_plugin_ids", [])
+      Attrs.text(attrs, "workspace_template_id")
     )
   end
 
-  defp resolve_skill_names(agent_uid, attrs) do
-    requested =
-      if Map.has_key?(attrs, "skill_names"), do: Map.get(attrs, "skill_names"), else: nil
-
-    Library.resolve_job_skill_names(agent_uid, requested)
-  end
-
-  defp resolve_workspace_mounts(attrs, job_id) do
+  defp job_metadata(attrs, manages_workspace_root) when is_boolean(manages_workspace_root) do
     case Map.get(attrs, "metadata", %{}) do
       %{} = metadata ->
-        metadata = Map.put(metadata, "managed_background_agent_job_root", true)
-
-        case Map.fetch(attrs, "workspace_mounts") do
-          {:ok, mounts} ->
-            with :ok <- Contract.validate_workspace_mounts(mounts) do
-              {:ok, mounts, metadata}
-            end
-
-          :error ->
-            mounts = [
-              %{
-                "id" => "workspace",
-                "source" => "/workspace/user-files/background-agent-jobs/#{job_id}/workspace",
-                "access" => "read_write"
-              }
-            ]
-
-            metadata = Map.put(metadata, "managed_workspace_mount_ids", ["workspace"])
-
-            {:ok, mounts, metadata}
-        end
+        {:ok, Map.put(metadata, "managed_background_agent_job_root", manages_workspace_root)}
 
       _value ->
         {:error, :invalid_background_agent_job_metadata}

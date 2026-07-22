@@ -845,7 +845,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           id: %Schema{type: :string},
           description: %Schema{type: :string},
           version: %Schema{type: :string},
-          content_hash: %Schema{type: :string},
           global_default_enabled: %Schema{type: :boolean},
           override_enabled: %Schema{type: :boolean, nullable: true},
           effective_enabled: %Schema{type: :boolean},
@@ -855,7 +854,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :id,
           :description,
           :version,
-          :content_hash,
           :global_default_enabled,
           :override_enabled,
           :effective_enabled,
@@ -1551,9 +1549,36 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
             nullable: true
-          }
+          },
+          confidential_memory: %Schema{type: :boolean, default: false}
         },
         required: [:config],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalBindingUpdateRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalBindingUpdateRequest",
+        type: :object,
+        properties: %{
+          target_agent_uid: %Schema{type: :string},
+          config: JSONValue,
+          group_message_mode: %Schema{
+            type: :string,
+            enum: ["addressed_only", "observe_all", "may_intervene"],
+            nullable: true
+          },
+          confidential_memory: %Schema{type: :boolean, nullable: true}
+        },
+        required: [:target_agent_uid, :config],
         additionalProperties: false
       },
       struct?: false
@@ -1579,6 +1604,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: ["ignore", "record_only", "may_intervene"]
           },
+          confidential_memory: %Schema{type: :boolean},
           enabled: %Schema{type: :boolean},
           unavailable_reason: %Schema{type: :string, nullable: true}
         },
@@ -1589,6 +1615,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :config_ref,
           :config_key,
           :unaddressed_group_message_policy,
+          :confidential_memory,
           :enabled
         ],
         additionalProperties: false
@@ -2082,6 +2109,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           codex_account_id: %Schema{type: :string},
           provider_id: %Schema{type: :string},
           model: %Schema{type: :string},
+          model_reasoning_effort: %Schema{
+            type: :string,
+            enum: ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+          },
+          fast_mode: %Schema{type: :boolean},
           context_length: %Schema{type: :integer, minimum: 1},
           provider_options: %Schema{type: :object, additionalProperties: true}
         },
@@ -2754,22 +2786,16 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
     @statuses Ankole.BackgroundAgentJobs.Schemas.Job.statuses()
 
-    @workspace_mount %Schema{
-      type: :object,
-      additionalProperties: false,
-      properties: %{
-        id: %Schema{type: :string},
-        source: %Schema{type: :string},
-        access: %Schema{type: :string, enum: ["read_only", "read_write"]}
-      },
-      required: [:id, :source, :access]
-    }
     OpenAPISpex.schema(
       %{
         title: "BackgroundAgentJobItem",
         type: :object,
         properties: %{
-          id: %Schema{type: :string},
+          id: %Schema{
+            type: :integer,
+            minimum: 1000,
+            maximum: 9_007_199_254_740_991
+          },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
           source_actor_event_id: %Schema{type: :string, nullable: true},
@@ -2778,22 +2804,12 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},
           task: %Schema{type: :string},
-          background: %Schema{type: :string, nullable: true},
-          notes: %Schema{type: :string, nullable: true},
           status: %Schema{
             type: :string,
             enum: @statuses
           },
           attempts: %Schema{type: :integer},
-          agent_plugin_ids: %Schema{type: :array, items: %Schema{type: :string}},
-          skill_names: %Schema{type: :array, items: %Schema{type: :string}},
-          workspace_mounts: %Schema{type: :array, items: @workspace_mount},
-          model: %Schema{type: :string, nullable: true},
-          reasoning_effort: %Schema{
-            type: :string,
-            enum: ["minimal", "low", "medium", "high", "xhigh"],
-            nullable: true
-          },
+          workspace_template_id: %Schema{type: :string, nullable: true},
           reply_route: %Schema{type: :object, additionalProperties: true},
           result: %Schema{type: :object, additionalProperties: true},
           error: %Schema{type: :object, additionalProperties: true},
@@ -2816,11 +2832,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :task,
           :status,
           :attempts,
-          :agent_plugin_ids,
-          :skill_names,
-          :workspace_mounts,
-          :model,
-          :reasoning_effort,
+          :workspace_template_id,
           :reply_route,
           :result,
           :error,

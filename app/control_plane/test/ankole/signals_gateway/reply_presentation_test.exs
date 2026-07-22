@@ -76,7 +76,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
         "phase" => "running",
         "label" => "读取文件：core/agent-loop.ts",
         "arguments" => %{
-          "path" => "/workspace/app/agent_computer/src/core/agent-loop.ts",
+          "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
           "token" => "must-not-survive"
         },
         "raw_tool_name" => "internal_secret_tool"
@@ -97,6 +97,11 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
     assert [%{"summary" => "已更新项目偏好", "scope" => "当前用户"}] =
              presentation["receipts"]
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", "完成。")
+
+    assert get_in(terminal, ["activities", "call-1", "label"]) ==
+             "读取文件：core/agent-loop.ts"
   end
 
   test "accepts bounded typed result and interaction projections without provider JSON" do
@@ -118,7 +123,13 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
         "revision" => 2,
         "prompt" => "请选择范围",
         "controls" => [
-          %{"id" => "all", "type" => "button", "label" => "全部", "command" => "choose"}
+          %{
+            "id" => "all",
+            "type" => "button",
+            "label" => "全部",
+            "description" => "包含所有当前记录。",
+            "command" => "choose"
+          }
         ]
       })
 
@@ -127,7 +138,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
     refute Map.has_key?(presentation, "thought")
     assert [%{"kind" => "table"} = table] = presentation["results"]
     refute Map.has_key?(table, "card_json")
-    assert [%{"type" => "button", "label" => "全部"}] = presentation["actions"]
+
+    assert [%{"type" => "button", "label" => "全部", "description" => "包含所有当前记录。"}] =
+             presentation["actions"]
   end
 
   test "a terminal interaction result locks the whole clarification card" do

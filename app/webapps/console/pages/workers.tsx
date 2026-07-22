@@ -50,7 +50,7 @@ import { requestErrorMessage } from '../../common/request-errors'
 import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
 import { matchesResourceSearch } from '../state/resource-search'
 
-const ROOTS = ['workspace_sessions', 'user_files', 'agent_installed_skills'] as const
+const ROOTS = ['agent_sessions', 'user_files', 'agent_installed_skills'] as const
 type FileRoot = (typeof ROOTS)[number]
 
 export function WorkersListPage() {
@@ -299,7 +299,7 @@ export function WorkerFilesPage() {
 }
 
 function rootOrDefault(value: string | null): FileRoot {
-  return ROOTS.includes(value as FileRoot) ? (value as FileRoot) : 'workspace_sessions'
+  return ROOTS.includes(value as FileRoot) ? (value as FileRoot) : 'agent_sessions'
 }
 
 function Breadcrumbs({
@@ -378,8 +378,8 @@ function RootSelect({
 
 function rootLabel(root: FileRoot, t: (key: string) => string): string {
   switch (root) {
-    case 'workspace_sessions':
-      return t('console.worker_files.root_workspace_sessions')
+    case 'agent_sessions':
+      return t('console.worker_files.root_agent_sessions')
     case 'user_files':
       return t('console.worker_files.root_user_files')
     case 'agent_installed_skills':

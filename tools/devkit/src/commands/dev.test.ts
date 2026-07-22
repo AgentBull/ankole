@@ -25,23 +25,15 @@ const spec: WorkerBootstrapSpec = {
     extra_hosts: [{ host: 'host.docker.internal', address: 'host-gateway' }]
   },
   env: {
+    ANKOLE_AGENTS_ROOT: '/agents',
     WORKER_ID: 'local-dev-worker',
     RUNTIME_FABRIC_URL: 'tcp://:secret@host.docker.internal:6010'
   },
-  host_setup_dirs: [
-    '/repo/var/ankole-dev/worker/shared/user-files',
-    '/repo/var/ankole-dev/worker/shared/skills/agents',
-    '/repo/var/ankole-dev/worker/sessions'
-  ],
+  host_setup_dirs: ['/repo/var/ankole-dev/agents'],
   mounts: [
     {
-      source: '/repo/var/ankole-dev/worker/shared',
-      target: '/workspace/shared',
-      readonly: false
-    },
-    {
-      source: '/repo/var/ankole-dev/worker/sessions',
-      target: '/workspace/.sessions',
+      source: '/repo/var/ankole-dev/agents',
+      target: '/agents',
       readonly: false
     }
   ]
@@ -149,9 +141,10 @@ describe('buildWorkerDockerArgs', () => {
       expect(args).toContain('SYS_ADMIN')
       expect(args).toContain('host.docker.internal=host-gateway')
       expect(args).toContain('WORKER_ID=local-dev-worker')
+      expect(args).toContain('ANKOLE_AGENTS_ROOT=/agents')
       expect(args).toContain('RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010')
       expect(args).not.toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
-      expect(args).toContain('type=bind,src=/repo/var/ankole-dev/worker/shared,dst=/workspace/shared')
+      expect(args).toContain('type=bind,src=/repo/var/ankole-dev/agents,dst=/agents')
       expect(args).toContain(
         `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
       )

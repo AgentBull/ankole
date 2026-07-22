@@ -3,7 +3,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   One durable, normalized execution trajectory for one runtime turn.
 
   Streaming protocol frames are assembled by Agent Computer before they cross
-  the control-plane boundary. PostgreSQL stores only the semantic ChatML turn.
+  the control-plane boundary. The Turn row stores the trajectory header, and
+  trajectory group rows store the semantic ChatML messages.
   """
 
   use Ecto.Schema
@@ -51,7 +52,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   schema "background_agent_job_turns" do
-    belongs_to(:job, Job, type: Ecto.UUID)
+    belongs_to(:job, Job, type: :id)
 
     field(:attempt, :integer)
     field(:runtime_thread_id, :string)
@@ -140,15 +141,14 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   defp validate_trajectory(changeset) do
     validate_change(changeset, :trajectory, fn :trajectory, trajectory ->
       cond do
-        trajectory["format"] != "ankole_chatml" or trajectory["version"] != 1 or
-            not is_list(trajectory["messages"]) ->
-          [trajectory: "must be an ankole_chatml v1 object with a messages array"]
+        trajectory["format"] != "ankole_chatml" or trajectory["version"] != 1 ->
+          [trajectory: "must be an ankole_chatml v1 header"]
 
-        Trajectory.valid_turn_value?(trajectory) ->
+        Trajectory.valid_header?(trajectory) ->
           []
 
         true ->
-          [trajectory: "must contain only canonical ChatML messages"]
+          [trajectory: "must contain only canonical header metadata"]
       end
     end)
   end

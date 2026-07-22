@@ -12,10 +12,11 @@ defmodule Ankole.Schedule.Fire do
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Schedule.Store
 
-  @spec fire_due_event(Ecto.UUID.t(), keyword()) ::
+  @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
-  def fire_due_event(scheduled_event_id, opts \\ []) when is_binary(scheduled_event_id) do
+  def fire_due_event(scheduled_event_id, opts \\ [])
+      when is_integer(scheduled_event_id) and scheduled_event_id > 0 do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->

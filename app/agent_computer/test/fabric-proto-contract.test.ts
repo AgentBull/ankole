@@ -1,27 +1,21 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { committedFingerprint, generationFingerprint } from '../scripts/gen-proto'
 import { decodeEnvelope } from '../src/fabric/envelope_proto'
 import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
 
 /**
- * Pins the committed generated codec and the cross-language golden bytes.
+ * Pins the cross-language golden bytes.
  *
  * Rust (prost-build) and Elixir (protox) derive their codecs at compile time;
- * TypeScript checks generated output in, so the sidecar hash is the staleness
- * anchor and the kernel-owned golden fixtures prove the three runtimes decode
- * the same wire bytes.
+ * the kernel-owned golden fixtures prove the three runtimes decode the same
+ * wire bytes. The proto generation check owns generated-code staleness.
  */
 describe('RuntimeFabric generated codec contract', () => {
-  it('keeps the committed generated codec in sync with envelope.proto', () => {
-    expect(committedFingerprint()).toBe(generationFingerprint())
-  })
-
   it('decodes the golden turn_start bytes into the worker DTO', () => {
-    const envelope = decodeEnvelope(goldenBytes('turn_start.v2.bin'))
+    const envelope = decodeEnvelope(goldenBytes('turn_start.v3.bin'))
     const turnStart = turnStartFromEnvelope(envelope)
 
-    expect(envelope.protocolVersion).toBe(2)
+    expect(envelope.protocolVersion).toBe(3)
     expect(turnStart.turn).toEqual({
       actor: { agent_uid: 'agent-1', session_id: 'signal-channel:lark:dm:1' },
       activation_uid: 'activation-1',
@@ -45,12 +39,14 @@ describe('RuntimeFabric generated codec contract', () => {
   })
 
   it('decodes the golden worker_ready lifecycle bytes', () => {
-    const envelope = decodeEnvelope(goldenBytes('worker_ready.v2.bin'))
+    const envelope = decodeEnvelope(goldenBytes('worker_ready.v3.bin'))
 
-    expect(envelope.protocolVersion).toBe(2)
+    expect(envelope.protocolVersion).toBe(3)
     if (envelope.body.case !== 'workerReady') throw new Error('expected workerReady body')
     expect(envelope.body.value.workerId).toBe('worker-golden')
     expect(envelope.body.value.incarnationId).toBe('incarnation-golden')
+    expect(envelope.body.value.maxTurns).toBe(1)
+    expect(envelope.body.value.availableTurnSlots).toBe(1)
   })
 })
 

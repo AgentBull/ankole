@@ -29,7 +29,6 @@ const spreadsheetSkill: AgentLibrarySkillCapabilityItem = {
 }
 
 const officePlugin: AgentPluginCapabilityItem = {
-  content_hash: 'hash',
   description: 'Create local office artifacts',
   effective_enabled: true,
   global_default_enabled: true,

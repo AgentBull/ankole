@@ -48,6 +48,44 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     end
   end
 
+  @spec handle_respawn(TurnRef.t(), FabricProto.BackgroundAgentJobRespawnRequest.t(), map()) ::
+          {:ok, FabricProto.BackgroundAgentJobRespawnResponse.t()} | {:error, map()}
+  def handle_respawn(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobRespawnRequest{} = request,
+        ctx
+      ) do
+    with :ok <- require_owner_turn(turn_ref),
+         {:ok, source_job_id} <- request_job_id(request.source_job_id),
+         %Job{} = source_job <-
+           BackgroundAgentJobs.get_job_for_agent(source_job_id, turn_ref.agent_uid),
+         :ok <- authorize_visible_job(turn_ref, source_job),
+         {:ok, actor_event} <- fetch_actor_event_for_turn(turn_ref),
+         {:ok, conversation} <- fetch_owner_conversation(turn_ref),
+         attrs <-
+           %{
+             "agent_uid" => turn_ref.agent_uid,
+             "message" => request.message,
+             "owner_session_id" => turn_ref.session_id,
+             "reply_route" => reply_route(actor_event),
+             "source_actor_event_id" => turn_ref.actor_event_id,
+             "source_tool_call_id" => request.source_tool_call_id
+           }
+           |> put_worker_route_metadata(ctx.route)
+           |> put_owner_brain_conversation(conversation.id),
+         {:ok, %{job: %Job{} = job}} <-
+           BackgroundAgentJobs.respawn_with_dispatch(source_job.id, attrs) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobRespawnResponse{
+         job_id: Integer.to_string(job.id),
+         status: job.status
+       }}
+    else
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
+    end
+  end
+
   @spec handle_get(TurnRef.t(), FabricProto.BackgroundAgentJobGetRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
   def handle_get(
@@ -55,14 +93,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
         %FabricProto.BackgroundAgentJobGetRequest{} = request,
         ctx
       ) do
-    with {:ok,
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         {:ok,
           %{
             job: %Job{} = job,
             execution: execution,
             attempt_history: attempt_history
           }} <-
            BackgroundAgentJobs.get_job_summary_for_agent(
-             request.job_id,
+             job_id,
              turn_ref.agent_uid,
              trajectory_options(request)
            ),
@@ -83,17 +122,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
 
   @spec handle_list(TurnRef.t(), FabricProto.BackgroundAgentJobListRequest.t(), map()) ::
           {:ok, FabricProto.BackgroundAgentJobListResponse.t()} | {:error, map()}
-  def handle_list(%TurnRef{} = turn_ref, %FabricProto.BackgroundAgentJobListRequest{}, ctx) do
+  def handle_list(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobListRequest{} = request,
+        ctx
+      ) do
     with :ok <- require_owner_turn(turn_ref),
-         %ActorEvent{} = actor_event <- actor_event_for_turn(turn_ref) do
-      jobs =
-        BackgroundAgentJobs.list_for_channel(
-          turn_ref.agent_uid,
-          turn_ref.session_id,
-          actor_event.signal_channel_id
-        )
-
-      {:ok, %FabricProto.BackgroundAgentJobListResponse{jobs: Enum.map(jobs, &job_summary/1)}}
+         %ActorEvent{} = actor_event <- actor_event_for_turn(turn_ref),
+         {:ok, %{jobs: jobs, next_cursor: next_cursor}} <-
+           BackgroundAgentJobs.list_for_channel(
+             turn_ref.agent_uid,
+             turn_ref.session_id,
+             actor_event.signal_channel_id,
+             status: presence(request.status),
+             cursor: presence(request.cursor)
+           ) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobListResponse{
+         jobs: Enum.map(jobs, &job_summary/1),
+         next_cursor: next_cursor || ""
+       }}
     else
       nil -> error(ctx.request_id, turn_ref.agent_uid, :actor_event_not_found)
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
@@ -128,10 +176,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       |> put_present("started_at", request.started_at)
       |> put_present("completed_at", request.completed_at)
 
-    with :ok <- authorize_job_turn(turn_ref, request.job_id),
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         :ok <- authorize_job_turn(turn_ref, job_id),
          {:ok, turn} <-
            BackgroundAgentJobs.upsert_turn_from_worker(
-             request.job_id,
+             job_id,
              turn_ref.agent_uid,
              attrs,
              turn_ref,
@@ -139,8 +188,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
            ) do
       {:ok,
        %FabricProto.BackgroundAgentJobTurnUpsertResponse{
-         job_id: request.job_id,
-         turn: turn_message(BackgroundAgentJobs.console_turn_projection(turn))
+         job_id: Integer.to_string(job_id),
+         turn: turn_message(BackgroundAgentJobs.worker_turn_projection(turn))
        }}
     else
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
@@ -166,10 +215,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       |> put_json_document("metadata", request.metadata_json)
       |> put_worker_route_metadata(ctx.route)
 
-    with :ok <- authorize_job_turn(turn_ref, request.job_id),
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         :ok <- authorize_job_turn(turn_ref, job_id),
          {:ok, %{job: %Job{} = job}} <-
            BackgroundAgentJobs.commit_status_with_wakeup(
-             request.job_id,
+             job_id,
              turn_ref.agent_uid,
              attrs,
              turn_ref: turn_ref,
@@ -182,85 +232,103 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   @spec handle_stop(TurnRef.t(), FabricProto.BackgroundAgentJobStopRequest.t(), map()) ::
-          {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
+          {:ok, FabricProto.BackgroundAgentJobStopResponse.t()} | {:error, map()}
   def handle_stop(
         %TurnRef{} = turn_ref,
         %FabricProto.BackgroundAgentJobStopRequest{} = request,
         ctx
       ) do
-    with %Job{} = job <-
-           BackgroundAgentJobs.get_job_for_agent(request.job_id, turn_ref.agent_uid),
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         %Job{} = job <-
+           BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
          :ok <- authorize_visible_job(turn_ref, job),
          {:ok, %{job: %Job{} = job}} <-
-           BackgroundAgentJobs.request_stop(request.job_id, %{
+           BackgroundAgentJobs.request_stop(job_id, %{
              "agent_uid" => turn_ref.agent_uid,
              "request_id" => ctx.request_id,
-             "cancel_requested_by" => "agent:#{turn_ref.agent_uid}",
-             "reason" => presence(request.reason)
+             "cancel_requested_by" => "agent:#{turn_ref.agent_uid}"
            }) do
-      {:ok, job_response(job)}
+      {:ok,
+       %FabricProto.BackgroundAgentJobStopResponse{
+         job_id: Integer.to_string(job.id),
+         status: job.status
+       }}
     else
       nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
 
-  @spec handle_steer(TurnRef.t(), FabricProto.BackgroundAgentJobSteerRequest.t(), map()) ::
-          {:ok, FabricProto.BackgroundAgentJobResponse.t()} | {:error, map()}
-  def handle_steer(
+  @spec handle_message_send(
+          TurnRef.t(),
+          FabricProto.BackgroundAgentJobMessageSendRequest.t(),
+          map()
+        ) :: {:ok, FabricProto.BackgroundAgentJobMessageSendResponse.t()} | {:error, map()}
+  def handle_message_send(
         %TurnRef{} = turn_ref,
-        %FabricProto.BackgroundAgentJobSteerRequest{} = request,
+        %FabricProto.BackgroundAgentJobMessageSendRequest{} = request,
         ctx
       ) do
-    with %Job{} = job <-
-           BackgroundAgentJobs.get_job_for_agent(request.job_id, turn_ref.agent_uid),
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         %Job{} = job <-
+           BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
          :ok <- authorize_visible_job(turn_ref, job),
-         {:ok, %{job: %Job{} = job}} <-
-           BackgroundAgentJobs.request_steer(request.job_id, %{
+         {:ok, %{job: %Job{} = job, command_event: %ActorEvent{} = command_event}} <-
+           BackgroundAgentJobs.send_message(job_id, %{
              "agent_uid" => turn_ref.agent_uid,
-             "request_id" => ctx.request_id,
-             "text" => presence(request.text),
-             "answers" => steer_answers(request.answers_json)
+             "request_id" => request.source_tool_call_id,
+             "message" => request.message
            }) do
-      {:ok, job_response(job)}
+      {:ok,
+       %FabricProto.BackgroundAgentJobMessageSendResponse{
+         job_id: Integer.to_string(job.id),
+         status: job.status,
+         command_event_id: command_event.id
+       }}
     else
       nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
       {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
     end
   end
 
-  # Empty repeated fields mean the caller did not select anything; the domain
-  # contract treats those keys as absent.
+  @spec handle_message_result(
+          TurnRef.t(),
+          FabricProto.BackgroundAgentJobMessageResultRequest.t(),
+          map()
+        ) :: {:ok, FabricProto.BackgroundAgentJobMessageResultResponse.t()} | {:error, map()}
+  def handle_message_result(
+        %TurnRef{} = turn_ref,
+        %FabricProto.BackgroundAgentJobMessageResultRequest{} = request,
+        ctx
+      ) do
+    with {:ok, job_id} <- request_job_id(request.job_id),
+         %Job{} = job <-
+           BackgroundAgentJobs.get_job_for_agent(job_id, turn_ref.agent_uid),
+         :ok <- authorize_visible_job(turn_ref, job),
+         {:ok, result} <-
+           BackgroundAgentJobs.message_result(job, request.command_event_id, turn_ref.session_id) do
+      {:ok,
+       %FabricProto.BackgroundAgentJobMessageResultResponse{
+         job_id: Integer.to_string(result.job_id),
+         status: result.status,
+         ready: result.ready,
+         last_turn_trajectory_json: encode_optional_json(result.last_turn_trajectory),
+         earlier_trajectory_omitted: result.earlier_trajectory_omitted,
+         lifecycle_actor_event_id: result.lifecycle_actor_event_id || ""
+       }}
+    else
+      nil -> error(ctx.request_id, turn_ref.agent_uid, :job_not_found)
+      {:error, reason} -> error(ctx.request_id, turn_ref.agent_uid, reason)
+    end
+  end
+
   defp create_attrs(request) do
     %{
       "source_tool_call_id" => request.source_tool_call_id,
       "title" => request.title,
       "task" => request.task
     }
-    |> put_present("background", request.background)
-    |> put_present("notes", request.notes)
-    |> put_present("model", request.model)
-    |> put_present("reasoning_effort", request.reasoning_effort)
-    |> put_nonempty_list("agent_plugin_ids", request.agent_plugin_ids)
-    |> put_nonempty_list("skill_names", request.skill_names)
-    |> put_nonempty_list(
-      "workspace_mounts",
-      Enum.map(request.workspace_mounts, &workspace_mount_attrs/1)
-    )
-  end
-
-  defp put_nonempty_list(map, _key, []), do: map
-  defp put_nonempty_list(map, key, values) when is_list(values), do: Map.put(map, key, values)
-
-  defp workspace_mount_attrs(%FabricProto.BackgroundAgentJobWorkspaceMount{} = mount) do
-    %{"id" => mount.id, "source" => mount.source, "access" => mount.access}
-  end
-
-  defp steer_answers(answers_json) do
-    case Common.decode_json_bytes(answers_json) do
-      %{} = answers -> answers
-      _value -> %{}
-    end
+    |> put_present("workspace_template_id", request.workspace_template_id)
   end
 
   defp authorize_visible_job(%TurnRef{} = turn_ref, %Job{} = job) do
@@ -343,7 +411,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   # projection; this struct is the RPC contract.
   defp job_response(%Job{} = job) do
     %FabricProto.BackgroundAgentJobResponse{
-      job_id: job.id,
+      job_id: Integer.to_string(job.id),
       agent_uid: job.agent_uid,
       owner_session_id: job.owner_session_id,
       source_actor_event_id: job.source_actor_event_id || "",
@@ -353,15 +421,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       codex_account_id: job.codex_account_id,
       title: job.title,
       task: job.task,
-      background: job.background || "",
-      notes: job.notes || "",
       reply_route_json: encode_optional_json(job.reply_route),
       attempts: job.attempts,
-      agent_plugin_ids: job.agent_plugin_ids || [],
-      skill_names: job.skill_names || [],
-      workspace_mounts: Enum.map(job.workspace_mounts || [], &workspace_mount_message/1),
-      model: job.model || "",
-      reasoning_effort: job.reasoning_effort || "",
+      workspace_template_id: job.workspace_template_id || "",
+      continued_from_job_id: optional_job_id(job.continued_from_job_id),
+      workspace_owner_job_id: optional_job_id(job.workspace_owner_job_id),
       queued_at: iso8601(job.queued_at),
       started_at: iso8601(job.started_at),
       completed_at: iso8601(job.completed_at),
@@ -371,24 +435,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
     }
   end
 
-  defp job_summary(%Job{} = job) do
+  defp job_summary(%{
+         job_id: job_id,
+         title: title,
+         status: status
+       }) do
     %FabricProto.BackgroundAgentJobSummary{
-      job_id: job.id,
-      title: job.title,
-      status: job.status,
-      agent_plugin_ids: job.agent_plugin_ids || [],
-      attempts: job.attempts,
-      queued_at: iso8601(job.queued_at),
-      started_at: iso8601(job.started_at),
-      completed_at: iso8601(job.completed_at)
-    }
-  end
-
-  defp workspace_mount_message(mount) when is_map(mount) do
-    %FabricProto.BackgroundAgentJobWorkspaceMount{
-      id: RPCWire.text(mount, "id") || "",
-      source: RPCWire.text(mount, "source") || "",
-      access: RPCWire.text(mount, "access") || ""
+      job_id: Integer.to_string(job_id),
+      title: title,
+      status: status
     }
   end
 
@@ -405,10 +460,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
   end
 
   defp result_ref(%Job{status: status, id: id}) when status in @terminal_statuses do
-    %FabricProto.BackgroundAgentJobResultRef{type: "background_agent_job", job_id: id}
+    %FabricProto.BackgroundAgentJobResultRef{
+      type: "background_agent_job",
+      job_id: Integer.to_string(id)
+    }
   end
 
   defp result_ref(%Job{}), do: nil
+
+  defp optional_job_id(nil), do: ""
+  defp optional_job_id(job_id) when is_integer(job_id), do: Integer.to_string(job_id)
 
   defp turn_message(projection) when is_map(projection) do
     %FabricProto.BackgroundAgentJobTurn{
@@ -436,6 +497,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       trajectory_cursor: presence(request.trajectory_cursor)
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp request_job_id(value) do
+    case BackgroundAgentJobs.parse_job_id(value) do
+      {:ok, job_id} -> {:ok, job_id}
+      :error -> {:error, :invalid_background_agent_job_id}
+    end
   end
 
   defp error(request_id, agent_uid, reason) do

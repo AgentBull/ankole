@@ -40,14 +40,9 @@ touched package or the user explicitly asks.
 - `app/control_plane` uses Torque through the local `Ankole.JSON` adapter for
   Phoenix/Plug compatibility. Phoenix expects `encode_to_iodata!/1`; Torque's
   native API is not exactly that shape.
-- `libs/feishu_openapi` is a thin Req + Mint WebSocket SDK. It owns Feishu/Lark
-  request/response boundaries and decodes JSON explicitly with Torque.
 - `app/kernel` is the Rustler-facing kernel package. Elixir owns the API shape;
   Rust owns native mechanics. Keep maps crossing the NIF boundary explicit and
   boring.
-- Elixir runtime validation for this repo usually needs the kiex-managed stable
-  1.20 environment:
-`source ~/.kiex/elixirs/elixir-1.20.1-29.env`.
 
 ## Local Defaults
 
@@ -164,19 +159,6 @@ constraints:
   admission, reconciliation, and operator-visible control. Rust/native code owns
   transport/protocol mechanics and should not grow direct Postgres ownership.
 
-## Feishu/Lark SDK Notes
-
-- `libs/feishu_openapi` should stay a thin SDK. Do not move Ankole domain policy
-  into it.
-- Keep request construction, auth refresh, event envelopes, card actions, and
-  WebSocket protocol handling close to the existing module boundaries.
-- Token managers and WebSocket clients are supervised OTP processes. Preserve
-  their Registry/DynamicSupervisor addressing style.
-- Decode JSON before interpreting Feishu envelopes, callback challenges, or
-  rate-limit responses.
-- Prefer tests around real request/body/protocol shape over mocks of internal
-  modules.
-
 ## Testing
 
 - Test through public APIs. Do not expose private functions only for tests.
@@ -197,26 +179,10 @@ when needed.
 For `app/control_plane`:
 
 ```bash
-source ~/.kiex/elixirs/elixir-1.20.1-29.env
 mix format
 MIX_ENV=test mix compile --warnings-as-errors
 MIX_ENV=test mix test
 ```
-
-For `libs/feishu_openapi`:
-
-```bash
-source ~/.kiex/elixirs/elixir-1.20.1-29.env
-mix format
-MIX_ENV=test mix compile --warnings-as-errors
-MIX_ENV=test mix test
-```
-
-For `app/kernel`, validate the Elixir package and any Rust/NIF path touched.
-Load the `rust-nif` skill before changing Rustler code.
-
-For small docs-only or skill-only edits, `git diff --check` is usually enough.
-If the edit changes executable examples, run the relevant package tests.
 
 ## Optional Reference Files
 

@@ -21,7 +21,7 @@ defmodule Ankole.AIAgent.LarkSkillSourcesTest do
 
       assert skill_file =~ "name: #{skill_name}"
       assert skill_file =~ "default_enabled: true"
-      refute skill_file =~ "long_running: true"
+      refute skill_file =~ "ankole-runtime: background_job"
       assert File.exists?(Path.join(skill_root, "THIRD-PARTY-NOTICES.txt"))
 
       combined_source =

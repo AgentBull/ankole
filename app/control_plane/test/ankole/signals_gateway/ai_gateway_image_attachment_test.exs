@@ -21,7 +21,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
   setup do
     route = "image-attachment-test-#{System.unique_integer([:positive])}"
     worker_id = "worker-#{route}"
-    route_auth = %{route: route, worker_id: worker_id, key_revision: 1}
+    route_auth = %{route: route, worker_id: worker_id}
     stored = start_supervised!({Agent, fn -> %{transfers: %{}, writes: []} end})
 
     insert_ready_worker!(worker_id, route)
@@ -97,7 +97,7 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
         relative_path = "generated-images/#{filename}"
 
         %{
-          "agent_computer_path" => "/workspace/user-files/#{relative_path}",
+          "agent_computer_path" => "/agents/#{agent.uid}/user-files/#{relative_path}",
           "user_files_relative_path" => relative_path,
           "name" => filename,
           "mime_type" => mime_type,
@@ -108,13 +108,15 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     assert completion.final_text == nil
     assert completion.attachments == expected_attachments
     refute Enum.any?(completion.attachments, &String.contains?(&1["name"], prior_image_id))
-    assert writes(stored) == expected_writes(images)
+    assert writes(stored) == expected_writes(images, agent.uid)
 
     assert {:ok, retried} =
              AIGatewayLink.load_turn_completion(turn_ref, "resp_#{response.id}")
 
     assert retried.attachments == expected_attachments
-    assert writes(stored) == expected_writes(images) ++ expected_writes(images)
+
+    assert writes(stored) ==
+             expected_writes(images, agent.uid) ++ expected_writes(images, agent.uid)
   end
 
   test "rejects an image artifact owned by another subject without writing a file", %{
@@ -213,9 +215,12 @@ defmodule Ankole.SignalsGateway.AIGatewayImageAttachmentTest do
     }
   end
 
-  defp expected_writes(images) do
+  defp expected_writes(images, agent_uid) do
     Enum.map(images, fn {id, _mime_type, payload, extension} ->
-      %{path: "/user_files/generated-images/#{id}.#{extension}", content: payload}
+      %{
+        path: "/user_files/#{agent_uid}/user-files/generated-images/#{id}.#{extension}",
+        content: payload
+      }
     end)
   end
 

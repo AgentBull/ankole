@@ -50,6 +50,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
     :ok = AppConfigure.register_patterns(GoogleWorkspaceAdapter.app_config_patterns())
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
   end
 
   describe "plugin and config contracts" do
@@ -245,10 +247,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
         end
       end)
 
+      use_req_test!()
+
       assert {:ok, %{user: user}} =
                IdentityProvider.exchange_code(config, "code-1",
-                 redirect_uri: "https://ankole.example.com/cb",
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
+                 redirect_uri: "https://ankole.example.com/cb"
                )
 
       assert user["id"] == "103200300400500600700"
@@ -273,10 +276,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
         end
       end)
 
+      use_req_test!()
+
       assert {:error, :not_workspace_account} =
                IdentityProvider.exchange_code(config, "code-1",
-                 redirect_uri: "https://ankole.example.com/cb",
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
+                 redirect_uri: "https://ankole.example.com/cb"
                )
     end
   end
@@ -333,10 +337,10 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
         end
       end)
 
+      use_req_test!()
+
       assert {:ok, %{users: 1, groups: 1}} =
-               IdentityProvider.sync_directory("google-workspace-main", config,
-                 client_opts: [req_options: [plug: {Req.Test, __MODULE__}]]
-               )
+               IdentityProvider.sync_directory("google-workspace-main", config)
 
       # The grant assertion is a kernel-signed RS256 JWT carrying the
       # delegated admin subject.
@@ -416,4 +420,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       "private_key_id" => "sa-key-1"
     })
   end
+
+  defp use_req_test!, do: Req.default_options(plug: {Req.Test, __MODULE__})
 end

@@ -15,6 +15,7 @@ defmodule Ankole.Ecto.JSONPayload do
           | :unsupported_runtime_value
           | :unsupported_nul_byte
           | :non_string_map_key
+          | {:duplicate_normalized_key, String.t()}
           | :invalid_json_map
           | :json_encode_failed
 
@@ -59,18 +60,16 @@ defmodule Ankole.Ecto.JSONPayload do
   end
 
   def normalize(value, opts) when is_map(value) do
-    value
-    |> Enum.map(fn {key, map_value} ->
+    Enum.reduce_while(value, {:ok, %{}}, fn {key, map_value}, {:ok, normalized} ->
       with {:ok, normalized_key} <- normalize_key(key),
+           false <- Map.has_key?(normalized, normalized_key),
            {:ok, normalized_value} <- normalize(map_value, opts) do
-        {:ok, {normalized_key, normalized_value}}
+        {:cont, {:ok, Map.put(normalized, normalized_key, normalized_value)}}
+      else
+        true -> {:halt, {:error, {:duplicate_normalized_key, normalized_key(key)}}}
+        {:error, _reason} = error -> {:halt, error}
       end
     end)
-    |> collect_results()
-    |> case do
-      {:ok, pairs} -> {:ok, Map.new(pairs)}
-      {:error, _reason} = error -> error
-    end
   end
 
   def normalize(_value, _opts), do: {:error, :unsupported_runtime_value}
@@ -108,8 +107,11 @@ defmodule Ankole.Ecto.JSONPayload do
     |> update_change(field, &normalize_change(&1, opts))
     |> validate_change(field, fn ^field, value ->
       case normalize_map(value, opts) do
-        {:ok, _normalized} -> []
-        {:error, reason} -> [{field, "must be JSON-serializable object: #{reason}"}]
+        {:ok, _normalized} ->
+          []
+
+        {:error, reason} ->
+          [{field, "must be JSON-serializable object: #{reason_text(reason)}"}]
       end
     end)
   end
@@ -124,7 +126,7 @@ defmodule Ankole.Ecto.JSONPayload do
     |> validate_change(field, fn ^field, value ->
       case normalize_list(value, opts) do
         {:ok, _normalized} -> []
-        {:error, reason} -> [{field, "must be JSON-serializable list: #{reason}"}]
+        {:error, reason} -> [{field, "must be JSON-serializable list: #{reason_text(reason)}"}]
       end
     end)
   end
@@ -143,6 +145,12 @@ defmodule Ankole.Ecto.JSONPayload do
   defp normalize_key(key) when is_binary(key), do: normalize(key)
   defp normalize_key(key) when is_atom(key), do: {:ok, Atom.to_string(key)}
   defp normalize_key(_key), do: {:error, :non_string_map_key}
+
+  defp normalized_key(key) when is_binary(key), do: key
+  defp normalized_key(key) when is_atom(key), do: Atom.to_string(key)
+
+  defp reason_text({:duplicate_normalized_key, key}), do: "duplicate normalized key #{key}"
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
 
   defp ensure_encodable(value) do
     case Ankole.JSON.encode(value) do

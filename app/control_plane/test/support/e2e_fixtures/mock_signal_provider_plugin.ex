@@ -10,9 +10,6 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
   def plugin_id, do: "mock-signal-provider"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name, do: %{"default" => "Mock Signal Provider"}
 
   @impl true

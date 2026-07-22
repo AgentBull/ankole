@@ -1,13 +1,12 @@
 import { dirname } from 'node:path'
 import { mkdir } from 'node:fs/promises'
 
-export const runtimeFabricProtocolVersion = '2'
 export const releaseRevisionLabel = 'org.opencontainers.image.revision'
-export const pairRevisionLabel = 'io.ankole.runtime-image-pair.revision'
 export const protocolVersionLabel = 'io.ankole.runtime-fabric.protocol-version'
 
 const requiredPlatforms = ['linux/amd64', 'linux/arm64'] as const
 const revisionPattern = /^[0-9a-f]{40}$/
+const protocolVersionPattern = /^[1-9][0-9]*$/
 const digestPattern = /^sha256:[0-9a-f]{64}$/
 
 export type RuntimeImageComponent = 'control-plane' | 'worker'
@@ -22,7 +21,7 @@ export type VerifiedRuntimeImage = {
 export type RuntimeImagePair = {
   schema_version: 1
   revision: string
-  runtime_fabric_protocol_version: typeof runtimeFabricProtocolVersion
+  runtime_fabric_protocol_version: string
   control_plane: VerifiedRuntimeImage
   worker: VerifiedRuntimeImage
 }
@@ -33,16 +32,24 @@ export type RuntimeImagePairStatus =
 
 export function runtimeImagePairStatus(input: {
   revision: string
+  protocolVersion: string
   controlPlane?: { ref: string; metadata: unknown }
   worker?: { ref: string; metadata: unknown }
 }): RuntimeImagePairStatus {
   assertRevision(input.revision)
+  assertProtocolVersion(input.protocolVersion)
 
   const controlPlane = input.controlPlane
-    ? verifyRuntimeImage('control-plane', input.controlPlane.ref, input.controlPlane.metadata, input.revision)
+    ? verifyRuntimeImage(
+        'control-plane',
+        input.controlPlane.ref,
+        input.controlPlane.metadata,
+        input.revision,
+        input.protocolVersion
+      )
     : undefined
   const worker = input.worker
-    ? verifyRuntimeImage('worker', input.worker.ref, input.worker.metadata, input.revision)
+    ? verifyRuntimeImage('worker', input.worker.ref, input.worker.metadata, input.revision, input.protocolVersion)
     : undefined
 
   if (!controlPlane || !worker) {
@@ -57,7 +64,7 @@ export function runtimeImagePairStatus(input: {
     pair: {
       schema_version: 1,
       revision: input.revision,
-      runtime_fabric_protocol_version: runtimeFabricProtocolVersion,
+      runtime_fabric_protocol_version: input.protocolVersion,
       control_plane: controlPlane,
       worker
     }
@@ -68,6 +75,7 @@ export function renderRuntimePairHelmValues(pair: RuntimeImagePair, rolloutPhase
   return [
     'runtimeFabric:',
     `  releaseRevision: ${JSON.stringify(pair.revision)}`,
+    `  protocolVersion: ${JSON.stringify(pair.runtime_fabric_protocol_version)}`,
     `  rolloutPhase: ${JSON.stringify(rolloutPhase)}`,
     'controlPlane:',
     '  image:',
@@ -83,7 +91,8 @@ function verifyRuntimeImage(
   component: RuntimeImageComponent,
   ref: string,
   metadata: unknown,
-  expectedRevision: string
+  expectedRevision: string,
+  expectedProtocolVersion: string
 ): VerifiedRuntimeImage {
   const repository = repositoryForReleaseRef(ref, expectedRevision)
   const document = requireRecord(metadata, `${component} metadata`)
@@ -98,8 +107,7 @@ function verifyRuntimeImage(
     const labels = requireRecord(config.Labels, `${component} ${platform} labels`)
 
     requireExpectedLabel(component, platform, labels, releaseRevisionLabel, expectedRevision)
-    requireExpectedLabel(component, platform, labels, pairRevisionLabel, expectedRevision)
-    requireExpectedLabel(component, platform, labels, protocolVersionLabel, runtimeFabricProtocolVersion)
+    requireExpectedLabel(component, platform, labels, protocolVersionLabel, expectedProtocolVersion)
   }
 
   return {
@@ -138,6 +146,12 @@ function assertRevision(revision: string): void {
   if (!revisionPattern.test(revision)) throw new Error('release revision must be a 40-character lowercase Git SHA')
 }
 
+function assertProtocolVersion(protocolVersion: string): void {
+  if (!protocolVersionPattern.test(protocolVersion)) {
+    throw new Error('RuntimeFabric protocol version must be a positive integer')
+  }
+}
+
 function requireRecord(value: unknown, name: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`${name} is missing`)
   return value as Record<string, unknown>
@@ -150,6 +164,7 @@ function requireString(value: unknown, name: string): string {
 
 type CliOptions = {
   revision: string
+  protocolVersion: string
   controlPlaneRef: string
   controlPlaneMetadata: string
   workerRef: string
@@ -166,6 +181,7 @@ async function runCli(args: string[]): Promise<void> {
   const options = parseCliOptions(rest)
   const status = runtimeImagePairStatus({
     revision: options.revision,
+    protocolVersion: options.protocolVersion,
     controlPlane: {
       ref: options.controlPlaneRef,
       metadata: await Bun.file(options.controlPlaneMetadata).json()
@@ -196,6 +212,7 @@ function parseCliOptions(args: string[]): CliOptions {
 
   return {
     revision: requiredOption(values, 'revision'),
+    protocolVersion: requiredOption(values, 'protocol-version'),
     controlPlaneRef: requiredOption(values, 'control-plane-ref'),
     controlPlaneMetadata: requiredOption(values, 'control-plane-metadata'),
     workerRef: requiredOption(values, 'worker-ref'),

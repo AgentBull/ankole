@@ -18,7 +18,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
@@ -92,20 +91,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       |> Map.put(:last_worker_heartbeat_at, now)
       |> maybe_put(:transport_route, route)
 
-    Repo.transact(fn repo ->
-      with :ok <- worker_route_available(repo, attrs) do
-        case lock_worker_by_id(repo, attrs.worker_id) do
-          %AgentComputerWorker{} = worker ->
-            refresh_worker_ready(repo, worker, attrs, now)
+    result =
+      Repo.transact(fn repo ->
+        with :ok <- worker_route_available(repo, attrs) do
+          case lock_worker_by_id(repo, attrs.worker_id) do
+            %AgentComputerWorker{} = worker ->
+              refresh_worker_ready(repo, worker, attrs, now)
 
-          nil ->
-            %AgentComputerWorker{}
-            |> AgentComputerWorker.changeset(attrs)
-            |> repo.insert()
-            |> notify_worker_stale_deadline(repo)
+            nil ->
+              %AgentComputerWorker{}
+              |> AgentComputerWorker.changeset(attrs)
+              |> repo.insert()
+              |> notify_worker_stale_deadline(repo)
+          end
         end
-      end
-    end)
+      end)
+
+    if match?({:ok, %AgentComputerWorker{}}, result), do: Ankole.RuntimeEvents.Scheduler.hydrate()
+    result
   end
 
   @doc """
@@ -129,7 +132,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
          :ok <- authenticated_worker_matches(auth, worker_id) do
       update_worker_projection(worker_id, incarnation_id, auth.route, %{
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
-        load: decoded_json_map(worker_heartbeat.load_json)
+        load: %{"active_turns" => worker_heartbeat.active_turns}
       })
     end
   end
@@ -152,20 +155,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
          {:ok, incarnation_id} <-
            required_text(worker_capacity.incarnation_id, "incarnation_id"),
          :ok <- authenticated_worker_matches(auth, worker_id) do
-      # Prefer the structured capacity map; fall back to the scalar
-      # available_turn_slots field for older workers that don't send capacity_json.
-      capacity =
-        case Common.decode_json_bytes(worker_capacity.capacity_json) do
-          %{} = capacity ->
-            capacity
-
-          _value ->
-            %{"available_turn_slots" => worker_capacity.available_turn_slots}
-        end
-
       update_worker_projection(worker_id, incarnation_id, auth.route, %{
-        capacity: capacity,
-        load: decoded_json_map(worker_capacity.load_json),
+        capacity: %{
+          "max_turns" => worker_capacity.max_turns,
+          "available_turn_slots" => worker_capacity.available_turn_slots
+        },
+        load: %{"active_turns" => worker_capacity.active_turns},
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
       })
     end
@@ -331,6 +326,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         else
           Map.put(attrs, :started_at, worker.started_at || attrs.started_at)
         end
+
+      attrs = Map.merge(attrs, %{stopped_at: nil, stop_reason: nil})
 
       worker
       |> AgentComputerWorker.changeset(attrs)
@@ -557,29 +554,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   # Normalizes the transport boundary into a plain route string. Tests may pass
   # the route directly; production passes a small authenticated route map.
   defp authenticated_route(route) when is_binary(route) and route != "",
-    do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
+    do: {:ok, %{route: route, worker_id: nil}}
 
-  defp authenticated_route(
-         %{authenticated?: true, transport_route: route, worker_id: worker_id} = auth
-       )
+  defp authenticated_route(%{authenticated?: true, transport_route: route, worker_id: worker_id})
        when is_binary(route) and route != "" and is_binary(worker_id) and worker_id != "",
-       do:
-         {:ok, %{route: route, worker_id: worker_id, key_revision: Map.get(auth, :key_revision)}}
+       do: {:ok, %{route: route, worker_id: worker_id}}
 
   defp authenticated_route(%{authenticated?: true, transport_route: route})
        when is_binary(route) and route != "",
-       do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
+       do: {:ok, %{route: route, worker_id: nil}}
 
-  defp authenticated_route(
-         %{"authenticated" => true, "transport_route" => route, "worker_id" => worker_id} = auth
-       )
+  defp authenticated_route(%{
+         "authenticated" => true,
+         "transport_route" => route,
+         "worker_id" => worker_id
+       })
        when is_binary(route) and route != "" and is_binary(worker_id) and worker_id != "",
-       do:
-         {:ok, %{route: route, worker_id: worker_id, key_revision: Map.get(auth, "key_revision")}}
+       do: {:ok, %{route: route, worker_id: worker_id}}
 
   defp authenticated_route(%{"authenticated" => true, "transport_route" => route})
        when is_binary(route) and route != "",
-       do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
+       do: {:ok, %{route: route, worker_id: nil}}
 
   defp authenticated_route(_route), do: {:error, :unauthenticated_worker_route}
 
@@ -619,7 +614,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
          incarnation_id: incarnation_id,
          status: @ready_worker_status,
          version: version,
-         capacity: decoded_json_map(worker_ready.capacity_json),
+         capacity: %{
+           "max_turns" => worker_ready.max_turns,
+           "available_turn_slots" => worker_ready.available_turn_slots
+         },
          load: %{},
          transport_route: route,
          metadata: %{"runtime" => runtime}
@@ -631,13 +629,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     case value do
       value when is_binary(value) and value != "" -> {:ok, value}
       _value -> {:error, {:missing, key}}
-    end
-  end
-
-  defp decoded_json_map(bytes) do
-    case Common.decode_json_bytes(bytes) do
-      %{} = decoded -> decoded
-      _value -> %{}
     end
   end
 

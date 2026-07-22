@@ -350,7 +350,9 @@ defmodule Ankole.Brain.Knowledge do
   defp apply_operation(repo, scope, actor, authority, operation, metadata) do
     with {:ok, operation_name} <- operation_name(operation),
          :ok <- WriteAuthority.authorize_operation(authority, operation_name, operation),
-         :ok <- authorize_curation_guide_operation(repo, scope, actor, operation_name, operation) do
+         :ok <- authorize_curation_guide_operation(repo, scope, actor, operation_name, operation),
+         :ok <-
+           authorize_source_mirror_operation(repo, scope, operation_name, operation, metadata) do
       case operation_name do
         "create_entry" -> create_entry(repo, scope, actor, authority, operation, metadata)
         "delete_entry" -> delete_entry(repo, scope, actor, operation, metadata)
@@ -371,7 +373,7 @@ defmodule Ankole.Brain.Knowledge do
 
   defp create_entry(repo, scope, actor, authority, operation, metadata) do
     attrs = %{
-      owner_uid: scope.owner_uid,
+      owner_uid: write_owner_uid(scope),
       store_key: scope.writable_store_key,
       name: value(operation, :name),
       type: value(operation, :type),
@@ -743,7 +745,7 @@ defmodule Ankole.Brain.Knowledge do
        ) do
     %AuditLog{}
     |> AuditLog.changeset(%{
-      owner_uid: scope.owner_uid,
+      owner_uid: write_owner_uid(scope),
       store_key: scope.writable_store_key,
       actor_kind: actor.kind,
       actor_uid: actor.uid,
@@ -865,12 +867,6 @@ defmodule Ankole.Brain.Knowledge do
   defp blank_to_empty(value), do: value
 
   defp render_block(block) do
-    author =
-      case block.author_uid do
-        uid when is_binary(uid) -> "#{block.author_kind}:#{uid}"
-        _missing -> to_string(block.author_kind)
-      end
-
     updated_at =
       case block.updated_at do
         %DateTime{} = value -> DateTime.to_iso8601(value)
@@ -878,21 +874,23 @@ defmodule Ankole.Brain.Knowledge do
         _missing -> "unknown"
       end
 
-    "> 块：#{block.id} · 作者：#{author} · 最后修改：#{updated_at}\n\n#{block.body}"
+    "> 块位置：#{block.position} · 作者类型：#{block.author_kind} · 最后修改：#{updated_at}\n\n#{block.body}"
   end
 
   defp validate_protected_projections(_repo, _scope, []), do: :ok
 
   defp validate_protected_projections(repo, scope, entry_ids) do
     entries =
-      repo.all(
-        from entry in Entry,
-          where:
-            entry.owner_uid == ^scope.owner_uid and entry.id in ^Enum.uniq(entry_ids) and
-              (entry.type == "agent_system_pinned_memo" or
-                 fragment("jsonb_exists(?, 'channel_id')", entry.properties)),
-          lock: "FOR SHARE"
+      Entry
+      |> scope_entries(scope)
+      |> where(
+        [entry],
+        entry.id in ^Enum.uniq(entry_ids) and
+          (entry.type == "agent_system_pinned_memo" or
+             fragment("jsonb_exists(?, 'channel_id')", entry.properties))
       )
+      |> lock("FOR SHARE")
+      |> repo.all()
 
     Enum.reduce_while(entries, :ok, fn entry, :ok ->
       case projection(repo, scope, entry, block_limit: :all) do
@@ -937,10 +935,12 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp fetch_entry_for_write(repo, scope, entry_id, lock?) do
+    owner_uid = write_owner_uid(scope)
+
     query =
       from entry in Entry,
         where:
-          entry.owner_uid == ^scope.owner_uid and entry.store_key == ^scope.writable_store_key and
+          entry.owner_uid == ^owner_uid and entry.store_key == ^scope.writable_store_key and
             entry.id == ^entry_id
 
     query = if lock?, do: from(entry in query, lock: "FOR UPDATE"), else: query
@@ -948,10 +948,12 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp fetch_block_for_write(repo, scope, block_id, lock? \\ false) do
+    owner_uid = write_owner_uid(scope)
+
     query =
       from block in EntryBlock,
         where:
-          block.owner_uid == ^scope.owner_uid and block.store_key == ^scope.writable_store_key and
+          block.owner_uid == ^owner_uid and block.store_key == ^scope.writable_store_key and
             block.id == ^block_id
 
     query = if lock?, do: from(block in query, lock: "FOR UPDATE"), else: query
@@ -959,15 +961,23 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp fetch_relation_target(repo, source, target_entry_id) do
-    allowed_stores =
-      if source.store_key == "public", do: ["public"], else: [source.store_key, "public"]
+    shared_owner_uid = Scope.shared_owner_uid()
 
-    repo.one(
-      from entry in Entry,
-        where:
-          entry.owner_uid == ^source.owner_uid and entry.store_key in ^allowed_stores and
-            entry.id == ^target_entry_id
-    )
+    query =
+      if source.store_key == "shared" do
+        from entry in Entry,
+          where:
+            entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared" and
+              entry.id == ^target_entry_id
+      else
+        from entry in Entry,
+          where:
+            entry.id == ^target_entry_id and
+              ((entry.owner_uid == ^source.owner_uid and entry.store_key == ^source.store_key) or
+                 (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared"))
+      end
+
+    repo.one(query)
   end
 
   defp fetch_relation_for_write(repo, source, relation_id) do
@@ -980,10 +990,12 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp fetch_audit_for_write(repo, scope, audit_id) do
+    owner_uid = write_owner_uid(scope)
+
     repo.one(
       from audit in AuditLog,
         where:
-          audit.id == ^audit_id and audit.owner_uid == ^scope.owner_uid and
+          audit.id == ^audit_id and audit.owner_uid == ^owner_uid and
             audit.store_key == ^scope.writable_store_key,
         lock: "FOR UPDATE"
     )
@@ -1133,7 +1145,7 @@ defmodule Ankole.Brain.Knowledge do
     if value(operation, :type) == "brain_curation_guide" do
       cond do
         actor.kind != :human -> {:error, :curation_guide_human_only}
-        store_key != "public" -> {:error, :curation_guide_must_be_public}
+        store_key != "self" -> {:error, :curation_guide_must_be_self}
         true -> :ok
       end
     else
@@ -1152,12 +1164,31 @@ defmodule Ankole.Brain.Knowledge do
       %Entry{} when requested_guide? and actor.kind != :human ->
         {:error, :curation_guide_human_only}
 
-      %Entry{store_key: store_key} when requested_guide? and store_key != "public" ->
-        {:error, :curation_guide_must_be_public}
+      %Entry{store_key: store_key} when requested_guide? and store_key != "self" ->
+        {:error, :curation_guide_must_be_self}
 
       _entry_or_missing ->
         :ok
     end
+  end
+
+  defp authorize_source_mirror_operation(repo, scope, operation_name, operation, metadata) do
+    server_sync? = metadata["surface"] in ["source_sync", "source_withdrawal"]
+
+    mirror? =
+      case operation_name do
+        "create_entry" ->
+          properties = value(operation, :properties, %{})
+          is_map(properties) and properties["source_mirror"] == true
+
+        _operation ->
+          case operation_entry(repo, scope, operation_name, operation) do
+            %Entry{properties: %{"source_mirror" => true}} -> true
+            _entry_or_missing -> false
+          end
+      end
+
+    if mirror? and not server_sync?, do: {:error, :source_mirror_read_only}, else: :ok
   end
 
   defp operation_entry(repo, scope, operation_name, operation)
@@ -1240,26 +1271,69 @@ defmodule Ankole.Brain.Knowledge do
   defp selector_value(selector) when is_binary(selector), do: selector
   defp selector_value(_selector), do: nil
 
-  defp scope_entries(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}),
-    do: from(entry in query, where: entry.owner_uid == ^owner_uid)
+  defp scope_entries(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
 
-  defp scope_entries(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}),
-    do: from(entry in query, where: entry.owner_uid == ^owner_uid and entry.store_key in ^stores)
+    from entry in query,
+      where:
+        entry.owner_uid == ^owner_uid or
+          (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")
+  end
 
-  defp scope_audit(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}),
-    do: from(audit in query, where: audit.owner_uid == ^owner_uid)
+  defp scope_entries(query, %Scope{} = scope) do
+    {owner_uid, private_stores, shared?} = scope_predicate(scope)
+    shared_owner_uid = Scope.shared_owner_uid()
 
-  defp scope_audit(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}),
-    do: from(audit in query, where: audit.owner_uid == ^owner_uid and audit.store_key in ^stores)
+    from entry in query,
+      where:
+        (entry.owner_uid == ^owner_uid and entry.store_key in ^private_stores) or
+          (^shared? and entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")
+  end
 
-  defp scope_backlinks(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}),
-    do: from([relation, source] in query, where: source.owner_uid == ^owner_uid)
+  defp scope_audit(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
 
-  defp scope_backlinks(query, %Scope{readable_store_keys: stores, owner_uid: owner_uid}),
-    do:
-      from([relation, source] in query,
-        where: source.owner_uid == ^owner_uid and source.store_key in ^stores
-      )
+    from audit in query,
+      where:
+        audit.owner_uid == ^owner_uid or
+          (audit.owner_uid == ^shared_owner_uid and audit.store_key == "shared")
+  end
+
+  defp scope_audit(query, %Scope{} = scope) do
+    {owner_uid, private_stores, shared?} = scope_predicate(scope)
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    from audit in query,
+      where:
+        (audit.owner_uid == ^owner_uid and audit.store_key in ^private_stores) or
+          (^shared? and audit.owner_uid == ^shared_owner_uid and audit.store_key == "shared")
+  end
+
+  defp scope_backlinks(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    from [relation, source] in query,
+      where:
+        source.owner_uid == ^owner_uid or
+          (source.owner_uid == ^shared_owner_uid and source.store_key == "shared")
+  end
+
+  defp scope_backlinks(query, %Scope{} = scope) do
+    {owner_uid, private_stores, shared?} = scope_predicate(scope)
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    from [relation, source] in query,
+      where:
+        (source.owner_uid == ^owner_uid and source.store_key in ^private_stores) or
+          (^shared? and source.owner_uid == ^shared_owner_uid and source.store_key == "shared")
+  end
+
+  defp scope_predicate(%Scope{owner_uid: owner_uid, readable_store_keys: stores}) do
+    {owner_uid, Enum.reject(stores, &(&1 == "shared")), "shared" in stores}
+  end
+
+  defp write_owner_uid(%Scope{} = scope),
+    do: Scope.storage_owner_uid(scope, scope.writable_store_key)
 
   defp validate_requested_store(_scope, nil), do: :ok
   defp validate_requested_store(%Scope{readable_store_keys: :all}, _store), do: :ok
@@ -1356,7 +1430,7 @@ defmodule Ankole.Brain.Knowledge do
     order_by(query, [entry],
       asc:
         fragment(
-          "CASE WHEN ? = ? THEN 0 WHEN ? = 'public' THEN 1 ELSE 2 END",
+          "CASE WHEN ? = ? THEN 0 WHEN ? = 'shared' THEN 1 ELSE 2 END",
           entry.store_key,
           ^writable,
           entry.store_key
@@ -1368,7 +1442,7 @@ defmodule Ankole.Brain.Knowledge do
 
   defp prefer_scope_store(query, %Scope{writable_store_key: nil}) do
     order_by(query, [entry],
-      asc: fragment("CASE WHEN ? = 'public' THEN 0 ELSE 1 END", entry.store_key),
+      asc: fragment("CASE WHEN ? = 'shared' THEN 0 ELSE 1 END", entry.store_key),
       asc: entry.store_key,
       asc: entry.id
     )
@@ -1604,6 +1678,8 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp restore_source_audit(repo, scope, %AuditLog{action: "add_relation"} = audit) do
+    expected_owner_uid = Scope.storage_owner_uid(scope, scope.writable_store_key)
+
     relation_query =
       from relation in EntryRelation,
         where: relation.id == ^audit.relation_id,
@@ -1611,7 +1687,7 @@ defmodule Ankole.Brain.Knowledge do
 
     case repo.one(relation_query) do
       %EntryRelation{owner_uid: owner_uid, store_key: store_key} = relation
-      when owner_uid == scope.owner_uid and store_key == scope.writable_store_key ->
+      when owner_uid == expected_owner_uid and store_key == scope.writable_store_key ->
         before = relation_snapshot(relation)
 
         with :ok <- ensure_relation_unchanged(relation, audit.after, audit),
@@ -1809,7 +1885,7 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp restore_entry_bundle(repo, scope, %{"entry" => entry_data} = bundle) do
-    if entry_data["owner_uid"] == scope.owner_uid and
+    if entry_data["owner_uid"] == Scope.storage_owner_uid(scope, scope.writable_store_key) and
          entry_data["store_key"] == scope.writable_store_key do
       entry = %Entry{id: entry_data["id"]}
 
@@ -1851,7 +1927,8 @@ defmodule Ankole.Brain.Knowledge do
 
   defp restore_deleted_block(repo, scope, data) when is_map(data) do
     if is_nil(scope) or
-         (data["owner_uid"] == scope.owner_uid and data["store_key"] == scope.writable_store_key) do
+         (data["owner_uid"] == Scope.storage_owner_uid(scope, scope.writable_store_key) and
+            data["store_key"] == scope.writable_store_key) do
       block = %EntryBlock{id: data["id"]}
 
       repo.insert(
@@ -1862,11 +1939,7 @@ defmodule Ankole.Brain.Knowledge do
           position: data["position"],
           body: data["body"],
           author_kind: data["author_kind"],
-          author_uid: data["author_uid"],
-          embedding: data["embedding"],
-          embedding_dimensions: data["embedding_dimensions"],
-          embedding_state: data["embedding_state"],
-          embedding_error: data["embedding_error"]
+          author_uid: data["author_uid"]
         })
       )
     else
@@ -1876,7 +1949,8 @@ defmodule Ankole.Brain.Knowledge do
 
   defp restore_deleted_relation(repo, scope, data) when is_map(data) do
     if is_nil(scope) or
-         (data["owner_uid"] == scope.owner_uid and data["store_key"] == scope.writable_store_key) do
+         (data["owner_uid"] == Scope.storage_owner_uid(scope, scope.writable_store_key) and
+            data["store_key"] == scope.writable_store_key) do
       relation = %EntryRelation{id: data["id"]}
 
       repo.insert(
@@ -1953,10 +2027,6 @@ defmodule Ankole.Brain.Knowledge do
       "body" => block.body,
       "author_kind" => enum_string(block.author_kind),
       "author_uid" => block.author_uid,
-      "embedding" => block.embedding,
-      "embedding_dimensions" => block.embedding_dimensions,
-      "embedding_state" => enum_string(block.embedding_state),
-      "embedding_error" => block.embedding_error,
       "lock_version" => block.lock_version,
       "inserted_at" => datetime(block.inserted_at),
       "updated_at" => datetime(block.updated_at)

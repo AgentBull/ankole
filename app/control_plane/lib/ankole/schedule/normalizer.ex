@@ -131,6 +131,7 @@ defmodule Ankole.Schedule.Normalizer do
     with {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, session_id} <- Attrs.required_text(attrs, "session_id"),
          {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name"),
+         {:ok, name} <- Attrs.required_text(attrs, "name"),
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, schedule, timezone} <-
            Planner.normalize_schedule_json(Attrs.map_value(attrs, "schedule"), attrs, opts),
@@ -143,7 +144,7 @@ defmodule Ankole.Schedule.Normalizer do
          agent_uid: agent_uid,
          session_id: session_id,
          binding_name: binding_name,
-         name: Attrs.map_text(attrs, "name"),
+         name: name,
          schedule: schedule,
          timezone: timezone,
          payload: Attrs.map_value(attrs, "payload") || %{},
@@ -172,7 +173,6 @@ defmodule Ankole.Schedule.Normalizer do
       {:ok,
        %{}
        |> Attrs.maybe_put(:status, Map.get(attrs, "status"))
-       |> Attrs.maybe_put(:name, Map.get(attrs, "name"))
        |> Attrs.maybe_put(:schedule, schedule)
        |> Attrs.maybe_put(:timezone, timezone)
        |> Attrs.maybe_put(:payload, Map.get(attrs, "payload"))

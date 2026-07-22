@@ -15,11 +15,11 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   @terminal_statuses Job.terminal_statuses()
 
-  @spec request_stop(String.t(), map()) ::
+  @spec request_stop(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), command_event: ActorEvent.t() | nil}}
           | {:error, term()}
   def request_stop(job_id, attrs)
-      when is_binary(job_id) and is_map(attrs) do
+      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
@@ -51,23 +51,32 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
-  @spec request_steer(String.t(), map()) ::
+  @spec send_message(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), command_event: ActorEvent.t()}}
           | {:error, term()}
-  def request_steer(job_id, attrs)
-      when is_binary(job_id) and is_map(attrs) do
+  def send_message(job_id, attrs)
+      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
-    answers = Map.get(attrs, "answers")
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
-         :ok <- require_steer_input(Attrs.text(attrs, "text"), answers) do
+         {:ok, source_tool_call_id} <- require_source_tool_call_id(attrs),
+         {:ok, message} <- require_message(Map.get(attrs, "message")) do
       Repo.transact(fn repo ->
         with %Job{} = job <-
                Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-             :ok <- ensure_steerable(job),
+             :ok <- ensure_messageable(job),
              now <- now(),
-             {:ok, job} <- queue_settled_continuation(repo, job, now),
-             {:ok, command_event} <- append_command(repo, job, "steer", attrs, now) do
+             {:ok, job} <- touch_job(repo, job, now),
+             {:ok, command_event} <-
+               append_command(
+                 repo,
+                 job,
+                 "steer",
+                 attrs
+                 |> Map.put("request_id", source_tool_call_id)
+                 |> Map.put("text", message),
+                 now
+               ) do
           {:ok, %{job: job, command_event: command_event}}
         else
           nil -> {:error, :job_not_found}
@@ -110,41 +119,47 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end)
   end
 
-  defp require_steer_input(text, answers)
-       when is_binary(text) or (is_map(answers) and map_size(answers) > 0),
-       do: :ok
-
-  defp require_steer_input(_text, _answers),
-    do: {:error, :background_agent_job_steer_input_missing}
-
-  defp ensure_steerable(%Job{status: "stopped"}),
-    do: {:error, :background_agent_job_terminal}
-
-  defp ensure_steerable(%Job{status: status, runtime_thread_id: nil})
-       when status in ["succeeded", "failed"],
-       do: {:error, :background_agent_job_runtime_thread_unavailable}
-
-  defp ensure_steerable(%Job{}), do: :ok
-
-  defp queue_settled_continuation(repo, %Job{status: status} = job, now)
-       when status in ["succeeded", "failed"] do
-    job
-    |> Job.changeset(%{status: "queued", queued_at: now, completed_at: nil})
-    |> repo.update()
+  defp require_source_tool_call_id(attrs) do
+    case Attrs.text(attrs, "request_id") do
+      source_tool_call_id when is_binary(source_tool_call_id) -> {:ok, source_tool_call_id}
+      nil -> {:error, :background_agent_job_source_tool_call_id_missing}
+    end
   end
 
-  defp queue_settled_continuation(_repo, %Job{} = job, _now),
-    do: {:ok, job}
+  defp require_message(message) when is_binary(message) do
+    if String.trim(message) == "",
+      do: {:error, :background_agent_job_message_missing},
+      else: {:ok, message}
+  end
+
+  defp require_message(_message), do: {:error, :background_agent_job_message_missing}
+
+  defp ensure_messageable(%Job{status: status})
+       when status in ["running", "waiting_on_user"],
+       do: :ok
+
+  defp ensure_messageable(%Job{status: status}),
+    do: {:error, {:background_agent_job_message_status_invalid, status}}
+
+  defp touch_job(repo, %Job{} = job, now) do
+    job
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:updated_at, now)
+    |> repo.update()
+  end
 
   defp append_command(repo, job, command, attrs, now) do
     reply_route = job.reply_route || %{}
     request_id = Attrs.text(attrs, "request_id") || Ecto.UUID.generate()
-    args_text = Attrs.text(attrs, "text") || Attrs.text(attrs, "reason") || command
+
+    args_text =
+      if command == "steer",
+        do: Map.fetch!(attrs, "text"),
+        else: Attrs.text(attrs, "reason") || command
 
     command_data =
       Attrs.reject_nil_values(%{
         "argsText" => args_text,
-        "answers" => map_or_nil(Map.get(attrs, "answers")),
         "cancel_requested_by" => Attrs.text(attrs, "cancel_requested_by")
       })
 
@@ -164,7 +179,5 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     })
   end
 
-  defp map_or_nil(value) when is_map(value) and map_size(value) > 0, do: value
-  defp map_or_nil(_value), do: nil
   defp now, do: DateTime.utc_now(:microsecond)
 end

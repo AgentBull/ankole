@@ -186,9 +186,9 @@ describe('Brain editor model', () => {
   })
 
   test('switching the owner keeps other filters and resets the old owner cursor', () => {
-    const params = new URLSearchParams('owner=human-one&store=public&q=policy&cursor=page-two&cursor_history=~')
+    const params = new URLSearchParams('owner=human-one&store=shared&q=policy&cursor=page-two&cursor_history=~')
     const next = setBrainFilter(params, 'owner', 'agent-two')
 
-    expect(next.toString()).toBe('owner=agent-two&store=public&q=policy')
+    expect(next.toString()).toBe('owner=agent-two&store=shared&q=policy')
   })
 })

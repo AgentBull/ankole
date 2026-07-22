@@ -13,6 +13,7 @@ defmodule Ankole.Brain.StageATest do
   alias Ankole.Brain.Schemas.Cursor
   alias Ankole.Brain.Schemas.Episode
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
   alias Ankole.SignalsGateway.Projection
@@ -22,8 +23,13 @@ defmodule Ankole.Brain.StageATest do
   setup do
     :ok = Brain.ensure_registered()
     :ok = AppConfigure.delete_global(Config.dreaming_definition())
+    :ok = AppConfigure.delete_global(Config.embedding_definition())
 
-    on_exit(fn -> AppConfigure.delete_global(Config.dreaming_definition()) end)
+    on_exit(fn ->
+      AppConfigure.delete_global(Config.dreaming_definition())
+      AppConfigure.delete_global(Config.embedding_definition())
+    end)
+
     :ok
   end
 
@@ -67,9 +73,10 @@ defmodule Ankole.Brain.StageATest do
   end
 
   test "enqueue skips all-young tails and makes an unusable model visible on eligible channels" do
-    enable_dreaming!("missing-agent")
-    young_channel = channel_fixture("brain:young-tail")
-    old_channel = channel_fixture("brain:old-tail")
+    %{principal: model_agent} = agent_fixture()
+    enable_dreaming!()
+    young_channel = channel_fixture("brain:young-tail", model_agent.uid)
+    old_channel = channel_fixture("brain:old-tail", model_agent.uid)
     now = DateTime.utc_now(:microsecond)
 
     for index <- 1..10 do
@@ -88,9 +95,11 @@ defmodule Ankole.Brain.StageATest do
       )
     end
 
-    reason = "brain.dreaming.model_agent_uid 指向的 agent 无 light/embedding profile"
-    assert {:unavailable, ^reason} = Brain.enqueue_episode_summary_jobs(50)
+    reason = "no Agent that can see the channel has a resolvable light profile"
+    assert {:ok, 1} = Brain.enqueue_episode_summary_jobs(50)
     refute channel_cursor(young_channel.id)
+
+    assert :ok = Brain.summarize_channel(old_channel.id)
 
     assert %Cursor{unavailable_reason: ^reason, cursor_entry_observed_at: nil} =
              channel_cursor!(old_channel.id)
@@ -104,25 +113,30 @@ defmodule Ankole.Brain.StageATest do
       "episodes" => [
         %{
           "topic" => "Retention decision",
+          "question" => "What should the channel retain?",
           "summary" => "The channel agreed to retain the old durable fact.",
-          "source_entry_ids" => ["old-fact"]
+          "resolution" => "Retain the old durable fact.",
+          "systems" => ["Brain"],
+          "resolution_message" => "message_1",
+          "messages" => ["message_1"]
         }
       ],
-      "noise_source_entry_ids" => [],
-      "deferred_source_entry_ids" => ["young-deferred"]
+      "noise_messages" => [],
+      "deferred_messages" => ["message_2"]
     }
 
     configure_brain_model!(model_agent, fn
       %{path: "v1/chat/completions", body: body} ->
         send(test_pid, {:stage_a_response_format, body["response_format"]})
+        send(test_pid, {:stage_a_request, body})
         {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(summary))}
 
       request ->
         flunk("unexpected Brain upstream request: #{inspect(request)}")
     end)
 
-    enable_dreaming!(model_agent.uid, %{"episode_tail_guard_rows" => 1})
-    channel = channel_fixture("brain:summary-happy")
+    enable_dreaming!(%{"episode_tail_guard_rows" => 1})
+    channel = channel_fixture("brain:summary-happy", model_agent.uid)
     now = DateTime.utc_now(:microsecond)
 
     entry_fixture(channel, "old-fact", "old durable fact", DateTime.add(now, -8, :hour))
@@ -155,14 +169,28 @@ defmodule Ankole.Brain.StageATest do
 
     assert schema["required"] == [
              "episodes",
-             "noise_source_entry_ids",
-             "deferred_source_entry_ids"
+             "noise_messages",
+             "deferred_messages"
            ]
+
+    assert_receive {:stage_a_request, body}
+    request_json = Ankole.JSON.encode!(body)
+    assert request_json =~ "message_1"
+    assert request_json =~ "message_2"
+    refute request_json =~ "old-fact"
+    refute request_json =~ "young-deferred"
 
     assert [
              %Episode{
                topic: "Retention decision",
                summary: "The channel agreed to retain the old durable fact.",
+               metadata: %{
+                 "version" => 2,
+                 "question" => "What should the channel retain?",
+                 "resolution" => "Retain the old durable fact.",
+                 "systems" => ["Brain"],
+                 "resolution_source_entry_id" => "old-fact"
+               },
                source_entry_ids: ["old-fact"],
                embedding_state: :pending
              }
@@ -174,9 +202,12 @@ defmodule Ankole.Brain.StageATest do
 
   test "embed_pending_episodes records synced and failed states" do
     %{principal: model_agent} = agent_fixture()
+    test_pid = self()
 
     configure_brain_model!(model_agent, fn
       %{path: "v1/embeddings", body: %{"input" => input}} ->
+        send(test_pid, {:episode_embedding_input, input})
+
         if String.contains?(input, "fail embedding") do
           {:json, 500, %{"error" => %{"message" => "embedding failed"}}}
         else
@@ -192,20 +223,81 @@ defmodule Ankole.Brain.StageATest do
         flunk("unexpected Brain upstream request: #{inspect(request)}")
     end)
 
-    enable_dreaming!(model_agent.uid)
+    enable_dreaming!()
     channel = channel_fixture("brain:embedding")
-    synced = episode_fixture(channel, "sync topic", "embedding succeeds", ["sync-source"])
+
+    synced =
+      episode_fixture(channel, "sync topic", "embedding succeeds", ["sync-source"], %{
+        "version" => 2,
+        "question" => "What is the embedding order?",
+        "resolution" => "Use the fixed semantic order.",
+        "systems" => ["Signal Gateway", "Memory"],
+        "resolution_source_entry_id" => "sync-source"
+      })
+
     failed = episode_fixture(channel, "fail embedding", "embedding fails", ["fail-source"])
 
     assert {:ok, 2} = Brain.embed_pending_episodes(10)
 
-    assert %Episode{embedding_state: :synced, embedding_dimensions: 2, embedding_error: nil} =
+    assert_receive {:episode_embedding_input,
+                    "sync topic\nWhat is the embedding order?\nembedding succeeds\nUse the fixed semantic order.\nSignal Gateway, Memory"}
+
+    assert %Episode{
+             embedding_state: :synced,
+             embedding_dimensions: 2,
+             embedding_model_agent_uid: model_uid,
+             embedding_error: nil
+           } =
              episode_snapshot!(synced.id)
+
+    assert model_uid == model_agent.uid
 
     assert %Episode{embedding_state: :failed, embedding_error: error} =
              episode_snapshot!(failed.id)
 
     assert is_binary(error)
+  end
+
+  test "summarize_channel rejects a resolution source outside the supplied window" do
+    %{principal: model_agent} = agent_fixture()
+
+    summary = %{
+      "episodes" => [
+        %{
+          "topic" => "Invalid resolution source",
+          "question" => nil,
+          "summary" => "The summary points outside the supplied window.",
+          "resolution" => "Use an unknown message.",
+          "systems" => [],
+          "resolution_message" => "message_2",
+          "messages" => ["message_1"]
+        }
+      ],
+      "noise_messages" => [],
+      "deferred_messages" => []
+    }
+
+    configure_brain_model!(model_agent, fn
+      %{path: "v1/chat/completions", body: body} ->
+        {:json, 200, chat_completion_body(body["model"], Ankole.JSON.encode!(summary))}
+
+      request ->
+        flunk("unexpected Brain upstream request: #{inspect(request)}")
+    end)
+
+    enable_dreaming!(%{"episode_tail_guard_rows" => 0, "episode_tail_guard_minutes" => 0})
+    channel = channel_fixture("brain:invalid-resolution-source", model_agent.uid)
+
+    entry_fixture(
+      channel,
+      "known-message",
+      "known durable fact",
+      DateTime.add(DateTime.utc_now(:microsecond), -8, :hour)
+    )
+
+    assert {:error, :invalid_resolution_source_entry_id} = Brain.summarize_channel(channel.id)
+    assert all_episode_snapshots() == []
+    refute channel_cursor(channel.id)
   end
 
   defp disable_dreaming! do
@@ -218,30 +310,48 @@ defmodule Ankole.Brain.StageATest do
              )
   end
 
-  defp enable_dreaming!(model_agent_uid, overrides \\ %{}) do
+  defp enable_dreaming!(overrides \\ %{}) do
     assert {:ok, config} = Config.dreaming()
 
     value =
       config
-      |> Map.merge(%{"enabled" => true, "model_agent_uid" => model_agent_uid})
+      |> Map.put("enabled", true)
       |> Map.merge(overrides)
 
     assert {:ok, _stored} = AppConfigure.put_global(Config.dreaming_definition(), value)
   end
 
-  defp channel_fixture(id) do
-    %Channel{}
-    |> Channel.changeset(%{
-      id: id,
-      kind: :im_group,
-      reply_mode: :entry,
-      name: id,
-      metadata: %{},
-      raw_payload: %{},
-      first_seen_at: @base_time,
-      last_seen_at: @base_time
-    })
-    |> Repo.insert!()
+  defp channel_fixture(id, visible_agent_uid \\ nil) do
+    channel =
+      %Channel{}
+      |> Channel.changeset(%{
+        id: id,
+        kind: :webhook_endpoint,
+        reply_mode: :entry,
+        name: id,
+        metadata: %{},
+        raw_payload: %{},
+        first_seen_at: @base_time,
+        last_seen_at: @base_time
+      })
+      |> Repo.insert!()
+
+    if visible_agent_uid do
+      assert {:ok, _event} =
+               SignalsGateway.append_actor_event(%{
+                 agent_uid: visible_agent_uid,
+                 binding_name: "brain-stage-a-test",
+                 session_id: id,
+                 source_event_id: "#{id}:observed",
+                 signal_channel_id: id,
+                 source_entry_id: "#{id}:observed",
+                 type: "brain.stage_a.test",
+                 available_at: @base_time,
+                 payload: %{}
+               })
+    end
+
+    channel
   end
 
   defp entry_fixture(%Channel{} = channel, source_entry_id, text, provider_time) do
@@ -252,7 +362,7 @@ defmodule Ankole.Brain.StageATest do
       text: text,
       attachments: [],
       links: [],
-      author: %{"display_name" => "Alice"},
+      author: %{"principal_uid" => "alice", "display_name" => "Alice"},
       mentions: [],
       metadata: %{},
       raw_payload: %{},
@@ -290,9 +400,16 @@ defmodule Ankole.Brain.StageATest do
                provider_id: provider_id,
                model: "openai/text-embedding-brain"
              })
+
+    assert {:ok, _stored} =
+             AppConfigure.put_global(Config.embedding_definition(), %{
+               "enabled" => true,
+               "model_agent_uid" => agent.uid,
+               "dimensions" => 2
+             })
   end
 
-  defp episode_fixture(%Channel{} = channel, topic, summary, source_entry_ids) do
+  defp episode_fixture(%Channel{} = channel, topic, summary, source_entry_ids, metadata \\ %{}) do
     %Episode{}
     |> Episode.changeset(%{
       signal_channel_id: channel.id,
@@ -302,7 +419,7 @@ defmodule Ankole.Brain.StageATest do
       started_at: DateTime.add(@base_time, -4, :hour),
       ended_at: DateTime.add(@base_time, -3, :hour),
       embedding_state: :pending,
-      metadata: %{}
+      metadata: metadata
     })
     |> Repo.insert!()
   end
@@ -328,9 +445,11 @@ defmodule Ankole.Brain.StageATest do
         :id,
         :topic,
         :summary,
+        :metadata,
         :source_entry_ids,
         :embedding_state,
         :embedding_dimensions,
+        :embedding_model_agent_uid,
         :embedding_error
       ])
     )

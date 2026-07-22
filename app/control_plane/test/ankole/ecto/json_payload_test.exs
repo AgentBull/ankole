@@ -15,6 +15,23 @@ defmodule Ankole.Ecto.JSONPayloadTest do
              JSONPayload.normalize_map(%{"before\0after" => "value"})
   end
 
+  test "rejects atom and string keys that normalize to the same JSON key" do
+    assert {:error, {:duplicate_normalized_key, "name"}} =
+             JSONPayload.normalize_map(%{:name => "atom", "name" => "string"})
+  end
+
+  test "reports a normalized key collision as a changeset error" do
+    changeset =
+      {%{}, %{payload: :map}}
+      |> cast(%{payload: %{:name => "atom", "name" => "string"}}, [:payload])
+      |> JSONPayload.validate_map(:payload)
+
+    refute changeset.valid?
+
+    assert {"must be JSON-serializable object: duplicate normalized key name", []} =
+             changeset.errors[:payload]
+  end
+
   test "adds a changeset error instead of leaving Postgrex to raise" do
     changeset =
       {%{}, %{payload: :map}}

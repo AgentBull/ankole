@@ -59,7 +59,7 @@ defmodule Ankole.AIAgent.CodexAccountsTest do
     assert Repo.aggregate(Account, :count) == 1
   end
 
-  test "coding is a model profile that selects a Codex account" do
+  test "coding subscription profiles select an account and normalize Codex settings" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, account} =
@@ -68,17 +68,46 @@ defmodule Ankole.AIAgent.CodexAccountsTest do
                "auth_json" => auth_json("account-coding", "coding-token")
              })
 
-    assert {:ok, %{profile: %{"codex_account_id" => account_id}}} =
+    assert {:ok,
+            %{
+              profile: %{
+                "codex_account_id" => account_id,
+                "model" => "gpt-5.6-sol",
+                "model_reasoning_effort" => "high",
+                "fast_mode" => false
+              }
+            }} =
              ModelProfiles.put_model_profile(agent.uid, "coding", %{
                "codex_account_id" => account.account_id
              })
 
     assert account_id == account.account_id
 
+    assert {:ok,
+            %{
+              profile: %{
+                "model" => "gpt-5.6-terra",
+                "model_reasoning_effort" => "ultra",
+                "fast_mode" => true
+              }
+            }} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               "codex_account_id" => account.account_id,
+               "model" => "gpt-5.6-terra",
+               "model_reasoning_effort" => "ultra",
+               "fast_mode" => true
+             })
+
     assert {:error, :invalid_codex_account_profile} =
              ModelProfiles.put_model_profile(agent.uid, "coding", %{
                "codex_account_id" => account.account_id,
-               "model" => "must-not-coexist"
+               "provider_id" => "must-not-coexist"
+             })
+
+    assert {:error, :invalid_codex_model_reasoning_effort} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               "codex_account_id" => account.account_id,
+               "model_reasoning_effort" => "extreme"
              })
   end
 

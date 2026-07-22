@@ -205,7 +205,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
               "tool" => "clarify",
               "ok" => true,
               "question" => "Who should receive the report?",
-              "choices" => [%{"label" => "Operators"}, %{"label" => "Executives"}]
+              "choices" => [
+                %{"label" => "Operators", "description" => "People running the system."},
+                %{"label" => "Executives"}
+              ]
             }
           }
         ])
@@ -226,6 +229,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
 
       presentation = outbox.payload["reply_presentation"]
       assert presentation["interaction_status"] == "pending"
+      assert hd(presentation["actions"])["description"] == "People running the system."
       assert Enum.any?(presentation["actions"], &(&1["type"] == "form"))
 
       persisted = Repo.get!(ActorEvent, event.id)
@@ -296,7 +300,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
         start_accepted_turn("attachment-only")
 
       attachment = %{
-        "agent_computer_path" => "/workspace/user-files/reports/result.txt",
+        "agent_computer_path" => "/agents/#{agent.uid}/user-files/reports/result.txt",
         "user_files_relative_path" => "reports/result.txt",
         "name" => "result.txt",
         "mime_type" => "text/plain",

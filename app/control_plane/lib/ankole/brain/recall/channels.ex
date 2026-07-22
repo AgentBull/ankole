@@ -33,28 +33,26 @@ defmodule Ankole.Brain.Recall.Channels do
   defp current_channel_ids(%Scope{current_channel: %{id: id}}), do: [id]
   defp current_channel_ids(%Scope{}), do: []
 
+  defp all_channel_ids(%Scope{readable_store_keys: :all} = scope) do
+    scope.owner_uid
+    |> SignalsGateway.visible_channels()
+    |> Enum.map(& &1.id)
+  end
+
   defp all_channel_ids(%Scope{} = scope) do
     visible = SignalsGateway.visible_channels(scope.owner_uid)
 
-    case scope do
-      %Scope{writable_store_key: "public", current_channel: current_channel} ->
-        public_ids = visible |> Enum.reject(&dm_channel?/1) |> Enum.map(& &1.id)
+    shared_ids =
+      if "shared" in scope.readable_store_keys do
+        visible
+        |> Enum.reject(&dm_channel?/1)
+        |> Enum.reject(&SignalsGateway.confidential_channel?(scope.owner_uid, &1.id))
+        |> Enum.map(& &1.id)
+      else
+        []
+      end
 
-        case current_channel do
-          %{id: current_id} -> Enum.uniq([current_id | public_ids])
-          nil -> public_ids
-        end
-
-      %Scope{writable_store_key: "dm:" <> _peer_uid, current_channel: %{id: current_id}} ->
-        public_ids = visible |> Enum.reject(&dm_channel?/1) |> Enum.map(& &1.id)
-        Enum.uniq([current_id | public_ids])
-
-      %Scope{readable_store_keys: :all} ->
-        Enum.map(visible, & &1.id)
-
-      %Scope{} ->
-        current_channel_ids(scope)
-    end
+    Enum.uniq(current_channel_ids(scope) ++ shared_ids)
   end
 
   defp dm_channel?(%Channel{kind: :im_dm}), do: true

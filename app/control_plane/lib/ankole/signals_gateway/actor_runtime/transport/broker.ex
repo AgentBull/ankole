@@ -312,39 +312,33 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   @impl true
   # The native ROUTER forwards inbound frames in two shapes. The 3-tuple is the
   # unauthenticated form (ZAP disabled, e.g. in tests): route + validated
-  # protobuf bytes only. The 5-tuple is the production form: the transport has
+  # protobuf bytes only. The 4-tuple is the production form: the transport has
   # already verified the worker's ZAP pre-auth key and sends
-  # worker_id/key_revision as authentication metadata for the route.
-  # `key_revision` is an auth-boundary fact even though the current global
-  # worker key only has revision 1.
+  # worker_id as authentication metadata for the route.
   def handle_info({:runtime_fabric_router_received, route, envelope_bytes}, state) do
-    handle_router_received_safely(route, nil, nil, envelope_bytes, state)
+    handle_router_received_safely(route, nil, envelope_bytes, state)
   end
 
   def handle_info(
-        {:runtime_fabric_router_received, route, authenticated_worker_id,
-         authenticated_key_revision, envelope_bytes},
+        {:runtime_fabric_router_received, route, authenticated_worker_id, envelope_bytes},
         state
       ) do
     handle_router_received_safely(
       route,
       normalize_auth_worker_id(authenticated_worker_id),
-      normalize_auth_key_revision(authenticated_key_revision),
       envelope_bytes,
       state
     )
   end
 
   def handle_info(
-        {:runtime_fabric_router_file_frame, route, authenticated_worker_id,
-         authenticated_key_revision, frames},
+        {:runtime_fabric_router_file_frame, route, authenticated_worker_id, frames},
         state
       ) do
     route_auth =
       authenticated_route(
         route,
-        normalize_auth_worker_id(authenticated_worker_id),
-        normalize_auth_key_revision(authenticated_key_revision)
+        normalize_auth_worker_id(authenticated_worker_id)
       )
 
     FileTransferLane.handle_worker_frame(route_auth, frames)
@@ -409,14 +403,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   defp handle_router_received_safely(
          route,
          authenticated_worker_id,
-         authenticated_key_revision,
          envelope_bytes,
          state
        ) do
     handle_router_received(
       route,
       authenticated_worker_id,
-      authenticated_key_revision,
       envelope_bytes,
       state
     )
@@ -433,12 +425,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   defp handle_router_received(
          route,
          authenticated_worker_id,
-         authenticated_key_revision,
          envelope_bytes,
          state
        ) do
-    authenticated_route =
-      authenticated_route(route, authenticated_worker_id, authenticated_key_revision)
+    authenticated_route = authenticated_route(route, authenticated_worker_id)
 
     case decode_router_envelope(route, envelope_bytes) do
       {:ok, route, %FabricProto.Envelope{body: {:rpc_response, response}}} ->
@@ -694,18 +684,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   defp put_worker_auth_key(opts),
     do: Keyword.put_new(opts, :worker_auth_key, WorkerAuthKey.ensure!())
 
-  defp authenticated_route(route, authenticated_worker_id, authenticated_key_revision) do
+  defp authenticated_route(route, authenticated_worker_id) do
     %{
       route: route,
-      worker_id: authenticated_worker_id,
-      key_revision: authenticated_key_revision
+      worker_id: authenticated_worker_id
     }
   end
 
   # Collapse "no identity" sentinels from the native layer to nil so downstream
-  # auth checks see a clean optional. A blank worker id or a non-positive key
-  # revision means the transport did not authenticate this frame (ZAP disabled),
-  # not "authenticated as the empty worker".
+  # auth checks see a clean optional. A blank worker id means the transport did
+  # not authenticate this frame (ZAP disabled), not "authenticated as the empty
+  # worker".
   defp normalize_auth_worker_id(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
@@ -714,9 +703,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   end
 
   defp normalize_auth_worker_id(_value), do: nil
-
-  defp normalize_auth_key_revision(value) when is_integer(value) and value > 0, do: value
-  defp normalize_auth_key_revision(_value), do: nil
 
   defp rpc_operation(request_id) when is_binary(request_id) do
     %{id: request_id, producer: "ankole-control-plane/runtime-fabric-rpc"}

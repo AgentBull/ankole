@@ -1,33 +1,65 @@
-import { Badge, Button, Input, Switch, TableCell, TableRow, toast } from '@ankole/uikit'
+import {
+  Badge,
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  Skeleton,
+  TableCell,
+  TableRow,
+  toast
+} from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
+import { RiCloseLine, RiLoaderLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useDeferredValue, useEffect, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, Outlet, useBlocker, useNavigate, useParams } from 'react-router'
+import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAppConfigurationControllerDecryptMutation,
   ankoleWebAppConfigurationControllerDeleteMutation,
   ankoleWebAppConfigurationControllerIndexOptions,
+  ankoleWebAppConfigurationControllerIndexQueryKey,
   ankoleWebAppConfigurationControllerShowOptions,
-  ankoleWebAppConfigurationControllerUpdateMutation
+  ankoleWebAppConfigurationControllerShowQueryKey,
+  ankoleWebAppConfigurationControllerUpdateMutation,
+  ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
-import { requestErrorMessage } from '../../common/request-errors'
-import { formatJSON, parseJSON } from '../console-primitives'
-import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import {
-  JSONField,
-  LabeledField,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions
-} from '../console-shell'
+import { ErrorBlock, formatJSON, parseJSON } from '../console-primitives'
+import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-shell'
 import { SettingEditorModel } from '../state/setting-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
-import { settingStringDraft, settingValueKind } from '../state/setting-value-editor'
+import { settingDescription } from '../state/setting-description'
+import { SettingValueEditor } from './setting-value-editors'
 
-export function SettingsListPage() {
+/** Keeps the list mounted while an optional nested key route renders its drawer. */
+export function SettingsPage() {
+  return (
+    <>
+      <SettingsList />
+      <Outlet />
+    </>
+  )
+}
+
+function SettingsList() {
   const { t } = useTranslation()
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const [query, setQuery] = useState('')
@@ -36,7 +68,7 @@ export function SettingsListPage() {
     matchesResourceSearch(
       deferredQuery,
       item.key,
-      item.description,
+      settingDescription(t, item),
       item.kind,
       item.source,
       item.encrypted ? 'encrypted' : '',
@@ -68,41 +100,52 @@ export function SettingsListPage() {
           onChange={setQuery}
         />
       }>
-      {items.map(item => (
-        <TableRow key={`${item.kind}:${item.key}`}>
-          <TableCell className="max-w-[360px] font-mono text-xs break-all whitespace-normal">
-            {item.editable ? (
-              <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(item.key)}>
-                {item.key}
-              </Link>
-            ) : (
-              item.key
-            )}
-          </TableCell>
-          <TableCell>
-            <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge>
-          </TableCell>
-          <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
-          <TableCell>
-            <div className="flex flex-wrap gap-1.5">
-              {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
-              {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
-            </div>
-          </TableCell>
-          {item.editable ? (
-            <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
-          ) : (
-            <TableCell className="text-right">
-              <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+      {items.map(item => {
+        const description = settingDescription(t, item)
+
+        return (
+          <TableRow key={`${item.kind}:${item.key}`}>
+            <TableCell className="max-w-[440px] whitespace-normal">
+              <div className="grid gap-1.5">
+                {item.editable ? (
+                  <Link
+                    className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline"
+                    to={encodeURIComponent(item.key)}>
+                    {item.key}
+                  </Link>
+                ) : (
+                  <span className="break-all font-mono text-xs">{item.key}</span>
+                )}
+                {description ? (
+                  <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</span>
+                ) : null}
+              </div>
             </TableCell>
-          )}
-        </TableRow>
-      ))}
+            <TableCell>
+              <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge>
+            </TableCell>
+            <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
+            <TableCell>
+              <div className="flex flex-wrap gap-1.5">
+                {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
+                {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
+              </div>
+            </TableCell>
+            {item.editable ? (
+              <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
+            ) : (
+              <TableCell className="text-right">
+                <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+              </TableCell>
+            )}
+          </TableRow>
+        )
+      })}
     </ResourceListPage>
   )
 }
 
-export function SettingEditorPage() {
+export function SettingEditorDrawer() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -110,6 +153,10 @@ export function SettingEditorPage() {
   const model = useModel(SettingEditorModel)
   const params = useParams()
   const key = params.key ? decodeURIComponent(params.key) : ''
+  const sourceKey = `setting:${key}`
+  const allowNavigation = useRef(false)
+  const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
+  const blocker = useBlocker(useCallback(() => !allowNavigation.current && model.dirty.value, [model]))
 
   const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
   const summary = list.data?.app_configurations.find(item => item.key === key)
@@ -118,31 +165,42 @@ export function SettingEditorPage() {
     enabled: Boolean(summary?.editable && key)
   })
   const item = detail.data?.app_configuration ?? summary
+  const description = item ? settingDescription(t, item) : undefined
+  const initialized = model.sourceKey.value === sourceKey
 
-  const refresh = () => void queryClient.invalidateQueries()
-  const update = useMutation({
-    ...ankoleWebAppConfigurationControllerUpdateMutation(),
-    onSuccess: response => {
-      toast.success(t('console.settings.saved', { key: response.app_configuration.key }))
-      refresh()
-      navigate('/settings')
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
+    void queryClient.invalidateQueries({
+      queryKey: ankoleWebAppConfigurationControllerShowQueryKey({ path: { key } })
+    })
+    if (key === 'plugins.enabled_ids') {
+      void queryClient.invalidateQueries({ queryKey: ankoleWebControlPlanePluginControllerIndexQueryKey() })
     }
-  })
-  const reset = useMutation({
-    ...ankoleWebAppConfigurationControllerDeleteMutation(),
-    onSuccess: () => {
-      toast.success(t('console.settings.reset_done', { key }))
-      model.resetSource()
-      decrypt.reset()
-      refresh()
-    },
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
-  })
+  }
   const decrypt = useMutation({
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
     gcTime: 0,
-    onSuccess: response => {
-      model.text.value = JSON.stringify(response.decrypted_value.value) ?? ''
+    onSuccess: response => model.reveal(JSON.stringify(response.decrypted_value.value) ?? ''),
+    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+  })
+  const finish = (message: string) => {
+    toast.success(message)
+    allowNavigation.current = true
+    model.resetSource()
+    decrypt.reset()
+    refresh()
+    navigate('/settings')
+  }
+  const update = useMutation({
+    ...ankoleWebAppConfigurationControllerUpdateMutation(),
+    onSuccess: response => finish(t('console.settings.saved', { key: response.app_configuration.key })),
+    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+  })
+  const restoreDefault = useMutation({
+    ...ankoleWebAppConfigurationControllerDeleteMutation(),
+    onSuccess: () => {
+      setRestoreDefaultOpen(false)
+      finish(t('console.settings.reset_done', { key }))
     },
     onError: mutationError => toast.error(requestErrorMessage(mutationError))
   })
@@ -151,19 +209,31 @@ export function SettingEditorPage() {
     decrypt.reset()
     if (!item || detail.isLoading) return
     model.initialize(
-      `setting:${item.key}`,
+      sourceKey,
       item.encrypted ? (item.present ? ENCRYPTED_VALUE_MASK : '') : formatJSON(item.value ?? null)
     )
-  }, [detail.isLoading, item, model])
+  }, [detail.isLoading, item, model, sourceKey])
 
-  const submit = () => {
+  const requestClose = () => navigate('/settings')
+  const saving = update.isPending || restoreDefault.isPending
+  const drawerError =
+    model.validationError.value ??
+    update.error ??
+    restoreDefault.error ??
+    decrypt.error ??
+    detail.error ??
+    (list.isSuccess && !item ? t('console.settings.not_found') : undefined) ??
+    (item && !item.editable ? t('console.settings.read_only') : undefined)
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
     model.clearValidation()
-    if (!item) return
+    if (!item?.editable || !initialized) return
     if (item.encrypted && isEncryptedValueMask(model.text.value)) {
       update.mutate({ body: {}, path: { key: item.key } })
       return
     }
-    const parsed = parseJSON(model.text.value, 'value')
+    const parsed = parseJSON(model.text.value, t('console.settings.value'))
     if (!parsed.ok) {
       model.validationError.value = parsed.error
       return
@@ -172,97 +242,142 @@ export function SettingEditorPage() {
   }
 
   return (
-    <ResourceEditorPage
-      title={key}
-      description={item?.description ?? t('console.settings.editor_description')}
-      backTo="/settings"
-      error={model.validationError.value ?? update.error ?? decrypt.error}
-      submitting={update.isPending}
-      onSubmit={submit}
-      secondary={
-        item?.editable ? (
-          <Button
-            disabled={reset.isPending}
-            size="sm"
-            type="button"
-            variant="outline"
-            onClick={() => reset.mutate({ path: { key: item.key } })}>
-            {t('console.settings.reset')}
-          </Button>
-        ) : null
-      }>
-      <div className="flex flex-wrap items-center gap-2">
-        {item ? <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge> : null}
-        {item ? <Badge variant="outline">{item.source}</Badge> : null}
-        {item?.encrypted ? <Badge variant="destructive">{t('console.status.encrypted')}</Badge> : null}
-      </div>
+    <>
+      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+        <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:42rem]">
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
+            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-24">
+              <div className="absolute top-3 right-3 flex items-center gap-1">
+                {item?.editable && item.overridden ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          aria-label={t('common.more_actions')}
+                          disabled={saving}
+                          size="icon-sm"
+                          title={t('common.more_actions')}
+                          type="button"
+                          variant="ghost"
+                        />
+                      }>
+                      <RiMore2Fill />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem variant="destructive" onClick={() => setRestoreDefaultOpen(true)}>
+                        <RiResetLeftLine />
+                        {t('console.settings.restore_default')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null}
+                <Button
+                  aria-label={t('common.close')}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                  onClick={requestClose}>
+                  <RiCloseLine />
+                </Button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {item ? <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge> : null}
+                {item ? <Badge variant="outline">{t(`console.settings.source_${item.source}`)}</Badge> : null}
+                {item?.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
+              </div>
+              <DrawerTitle className="break-all font-mono text-lg tracking-normal normal-case">{key}</DrawerTitle>
+              <DrawerDescription className="text-left text-pretty">
+                {description ?? t('console.settings.editor_description')}
+              </DrawerDescription>
+            </DrawerHeader>
 
-      {item?.encrypted ? (
-        <LabeledField
-          htmlFor="app-configuration-value"
-          label={t('console.settings.value')}
-          description={t('console.settings.encrypted_value_hint')}
-          required>
-          <EncryptedValueInput
-            id="app-configuration-value"
-            className="font-mono"
-            revealLabel={t('console.settings.reveal')}
-            revealed={decrypt.data?.decrypted_value.key === item.key}
-            revealing={decrypt.isPending}
-            value={model.text.value}
-            onChange={event => (model.text.value = event.target.value)}
-            onReveal={() => decrypt.mutate({ path: { key: item.key } })}
-          />
-        </LabeledField>
-      ) : (
-        <SettingValueField
-          kind={settingValueKind(item?.value)}
-          label={t('console.settings.value')}
-          value={model.text.value}
-          onChange={value => (model.text.value = value)}
-        />
-      )}
-    </ResourceEditorPage>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
+              {!initialized && (list.isLoading || detail.isLoading) ? (
+                <div className="grid gap-4">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-64 w-full" />
+                </div>
+              ) : (
+                <div className="grid gap-6">
+                  <ErrorBlock error={drawerError} />
+                  {item?.editable && initialized ? (
+                    <SettingValueEditor
+                      item={item}
+                      value={model.text.value}
+                      error={model.validationError.value}
+                      onChange={value => {
+                        model.text.value = value
+                        model.clearValidation()
+                      }}
+                      decrypt={{
+                        revealed: decrypt.data?.decrypted_value.key === item.key,
+                        revealing: decrypt.isPending,
+                        onReveal: () => decrypt.mutate({ path: { key: item.key } })
+                      }}
+                    />
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+              {model.dirty.value ? (
+                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+              ) : null}
+              <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
+                {t('common.cancel')}
+              </Button>
+              <Button disabled={!item?.editable || !initialized || !model.dirty.value || saving} type="submit">
+                {saving ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {t('common.save')}
+              </Button>
+            </DrawerFooter>
+          </form>
+        </DrawerContent>
+      </Drawer>
+
+      <Dialog open={restoreDefaultOpen} onOpenChange={setRestoreDefaultOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
+            <DialogDescription>
+              {item?.default_present
+                ? t('console.settings.restore_default_description', { key })
+                : t('console.settings.restore_unset_description', { key })}
+              {model.dirty.value ? ` ${t('console.settings.restore_default_dirty_note')}` : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={restoreDefault.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={restoreDefault.isPending || !item?.overridden}
+              variant="destructive"
+              onClick={() => item?.overridden && restoreDefault.mutate({ path: { key: item.key } })}>
+              {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.settings.restore_default_confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={blocker.state === 'blocked'}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
+            <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton={false}>
+            <DialogClose render={<Button variant="outline" />} onClick={() => blocker.reset?.()}>
+              {t('console.settings.keep_editing')}
+            </DialogClose>
+            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('console.settings.discard')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
-}
-
-function SettingValueField({
-  kind,
-  label,
-  onChange,
-  value
-}: {
-  kind: ReturnType<typeof settingValueKind>
-  label: string
-  onChange: (value: string) => void
-  value: string
-}) {
-  if (kind === 'boolean') {
-    return (
-      <LabeledField label={label}>
-        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
-          <span className="text-sm text-foreground">{value === 'true' ? 'true' : 'false'}</span>
-          <Switch checked={value === 'true'} onCheckedChange={checked => onChange(checked ? 'true' : 'false')} />
-        </div>
-      </LabeledField>
-    )
-  }
-
-  if (kind === 'number') {
-    return (
-      <LabeledField label={label} required>
-        <Input type="number" step="any" value={value} onChange={event => onChange(event.target.value)} />
-      </LabeledField>
-    )
-  }
-
-  if (kind === 'string') {
-    return (
-      <LabeledField label={label} required>
-        <Input value={settingStringDraft(value)} onChange={event => onChange(JSON.stringify(event.target.value))} />
-      </LabeledField>
-    )
-  }
-
-  return <JSONField label={label} value={value} minRows={8} onChange={onChange} />
 }

@@ -188,12 +188,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
                  "call_id" => "call_reply_attachment",
                  "name" => "reply_attachment",
                  "arguments" =>
-                   ~s({"path":"/workspace/user-files/reports/chaos-report.txt","name":"chaos-report.txt","mimeType":"text/plain"})
+                   ~s({"path":"/agents/#{agent.uid}/user-files/reports/chaos-report.txt","name":"chaos-report.txt","mimeType":"text/plain"})
                }
              ])
 
     attachment = %{
-      "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+      "agent_computer_path" => "/agents/#{agent.uid}/user-files/reports/chaos-report.txt",
       "user_files_relative_path" => "reports/chaos-report.txt",
       "name" => "chaos-report.txt",
       "mime_type" => "text/plain",
@@ -297,12 +297,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
                  "call_id" => "call_reply_attachment_journal",
                  "name" => "reply_attachment",
                  "arguments" =>
-                   ~s({"path":"/workspace/user-files/charts/sales.png","name":"sales.png","mimeType":"image/png"})
+                   ~s({"path":"/agents/#{agent.uid}/user-files/charts/sales.png","name":"sales.png","mimeType":"image/png"})
                }
              ])
 
     attachment = %{
-      "agent_computer_path" => "/workspace/user-files/charts/sales.png",
+      "agent_computer_path" => "/agents/#{agent.uid}/user-files/charts/sales.png",
       "user_files_relative_path" => "charts/sales.png",
       "name" => "sales.png",
       "mime_type" => "image/png",
@@ -553,7 +553,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayMainChainTest do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 

@@ -58,41 +58,26 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   @thought_lease_seconds 9 * 60
 
   @impl true
-  def open(%Request{} = request), do: request |> reconcile(false, []) |> normalize_result()
-
-  @doc false
-  def open(%Request{} = request, opts),
-    do: request |> reconcile(false, opts) |> normalize_result()
+  def open(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
 
   @impl true
-  def update(%Request{} = request), do: request |> reconcile(false, []) |> normalize_result()
-
-  @doc false
-  def update(%Request{} = request, opts),
-    do: request |> reconcile(false, opts) |> normalize_result()
+  def update(%Request{} = request), do: request |> reconcile(false, false) |> normalize_result()
 
   @impl true
-  def finalize(%Request{} = request), do: request |> reconcile(true, []) |> normalize_result()
-
-  @doc false
-  def finalize(%Request{} = request, opts),
-    do: request |> reconcile(true, opts) |> normalize_result()
+  def finalize(%Request{} = request), do: request |> reconcile(true, false) |> normalize_result()
 
   # Repaints the checkpointed presentation (thought-lease cleanup, resolved
   # interactions). The checkpointed presentation never carries a thought, so the
   # forced structural repaint strips stale reasoning before anything continues.
   @impl true
-  def refresh(%Request{} = request), do: refresh(request, [])
-
-  @doc false
-  def refresh(%Request{} = request, opts) do
+  def refresh(%Request{} = request) do
     final? = ReplyPresentation.terminal_state?(request.presentation)
-    request |> reconcile(final?, Keyword.put(opts, :repaint, true)) |> normalize_result()
+    request |> reconcile(final?, true) |> normalize_result()
   end
 
   # --- core reconcile ------------------------------------------------------
 
-  defp reconcile(%Request{} = request, final?, opts) do
+  defp reconcile(%Request{} = request, final?, repaint?) do
     with {:ok, event} <- fresh_event(request.actor_event),
          {:ok, config} <- config_for_event(event) do
       checkpoint = current_checkpoint(event, request)
@@ -101,7 +86,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
       cond do
         checkpoint["degraded"] == true ->
-          degrade(event, config, presentation, checkpoint, request, final?, opts, :degraded)
+          degrade(event, config, presentation, checkpoint, request, final?, :degraded)
 
         is_nil(template_id) ->
           degrade(
@@ -111,7 +96,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
             checkpoint,
             request,
             final?,
-            opts,
             :card_template_missing
           )
 
@@ -124,15 +108,15 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
                  checkpoint,
                  request,
                  final?,
-                 opts
+                 repaint?
                ) do
             {:error, %Error{reason: :content_rejected} = error} ->
               mark_degraded(event, checkpoint, presentation, request, error.reason)
-              degrade(event, config, presentation, checkpoint, request, final?, opts, error.reason)
+              degrade(event, config, presentation, checkpoint, request, final?, error.reason)
 
             {:error, :answer_rewrite_after_rollover = reason} ->
               mark_degraded(event, checkpoint, presentation, request, reason)
-              degrade(event, config, presentation, checkpoint, request, final?, opts, reason)
+              degrade(event, config, presentation, checkpoint, request, final?, reason)
 
             other ->
               other
@@ -145,9 +129,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # sync must never post provider messages — returning the non-retryable
   # cardkit_plain_text_fallback error makes the gateway disable the preview for
   # the rest of the turn while the outbox still delivers the final reply.
-  defp degrade(event, config, presentation, checkpoint, request, final?, opts, reason) do
+  defp degrade(event, config, presentation, checkpoint, request, final?, reason) do
     if final? do
-      plain_text_delivery(event, config, presentation, checkpoint, request, opts)
+      plain_text_delivery(event, config, presentation, checkpoint, request)
     else
       {:error, {:cardkit_plain_text_fallback, reason}}
     end
@@ -162,8 +146,17 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   # --- card path -----------------------------------------------------------
 
-  defp reconcile_card(event, config, template_id, presentation, checkpoint, request, final?, opts) do
-    client = Keyword.get_lazy(opts, :client, fn -> Config.client(config) end)
+  defp reconcile_card(
+         event,
+         config,
+         template_id,
+         presentation,
+         checkpoint,
+         request,
+         final?,
+         repaint?
+       ) do
+    client = Config.client(config)
     robot_code = Config.effective_robot_code(config)
     answer = answer_source(presentation, final?)
 
@@ -180,7 +173,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
              pages,
              checkpoint,
              final?,
-             Keyword.get(opts, :repaint, false)
+             repaint?
            ) do
       checkpoint =
         build_card_checkpoint(
@@ -222,7 +215,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
             {:ok, base}
 
           _grown ->
-            {:ok, base ++ planned_pages(Markdown.split(remainder, @page_budget_bytes), length(sealed))}
+            {:ok,
+             base ++ planned_pages(Markdown.split(remainder, @page_budget_bytes), length(sealed))}
         end
 
       true ->
@@ -373,10 +367,28 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     Markdown.fence_open?(if(open_before?, do: "```\n", else: "") <> source)
   end
 
-  defp maybe_create(_client, _template_id, _robot_code, _space, _otid, _presentation, _display, true),
-    do: :ok
+  defp maybe_create(
+         _client,
+         _template_id,
+         _robot_code,
+         _space,
+         _otid,
+         _presentation,
+         _display,
+         true
+       ),
+       do: :ok
 
-  defp maybe_create(client, template_id, robot_code, space, out_track_id, presentation, display, false) do
+  defp maybe_create(
+         client,
+         template_id,
+         robot_code,
+         space,
+         out_track_id,
+         presentation,
+         display,
+         false
+       ) do
     params =
       %{
         "cardTemplateId" => template_id,
@@ -618,7 +630,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     |> Map.delete("refresh_reason")
   end
 
-  defp put_subject(checkpoint, %Request{subject_uid: subject_uid, conversation_id: conversation_id}) do
+  defp put_subject(checkpoint, %Request{
+         subject_uid: subject_uid,
+         conversation_id: conversation_id
+       }) do
     checkpoint
     |> maybe_put("subject_uid", subject_uid)
     |> maybe_put("conversation_id", conversation_id)
@@ -642,7 +657,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  defp put_thought_lease(checkpoint, _presentation, true), do: Map.delete(checkpoint, "cleanup_at")
+  defp put_thought_lease(checkpoint, _presentation, true),
+    do: Map.delete(checkpoint, "cleanup_at")
 
   defp delivery_result(event, page_records, checkpoint) do
     first_out_track_id =
@@ -664,8 +680,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # without a card. Chunks ride the same Markdown split budget as Outbox text,
   # and each delivered chunk is ledgered in the checkpoint so an outbox retry
   # resumes after the last recorded chunk instead of re-sending it.
-  defp plain_text_delivery(event, config, presentation, checkpoint, request, opts) do
-    client = Keyword.get_lazy(opts, :client, fn -> Config.client(config) end)
+  defp plain_text_delivery(event, config, presentation, checkpoint, request) do
+    client = Config.client(config)
     robot_code = Config.effective_robot_code(config)
 
     text =
@@ -682,7 +698,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
       checkpoint =
         checkpoint
-        |> Map.merge(%{"degraded" => true, "plain_chunks" => records, "streaming_state" => "closed"})
+        |> Map.merge(%{
+          "degraded" => true,
+          "plain_chunks" => records,
+          "streaming_state" => "closed"
+        })
         |> merge_common(presentation, request, true)
 
       with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do

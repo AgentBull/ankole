@@ -146,6 +146,30 @@ defmodule Ankole.Logging.JSONFormatterTest do
     assert entry["query"] =~ "SELECT"
   end
 
+  test "uses Logger's human-readable translation for Erlang reports" do
+    entry =
+      format(%{
+        level: :notice,
+        msg:
+          {:report,
+           %{
+             label: {:application_controller, :exit},
+             report: [application: :ankole, exited: :stopped, type: :temporary],
+             elixir_translation: ["Application ", "ankole", " exited: " | ":stopped"]
+           }},
+        meta: %{
+          error_logger: %{
+            report_cb: "&:application_controller.format_log/1",
+            tag: :info_report,
+            type: :std_info
+          }
+        }
+      })
+
+    assert entry["message"] == "Application ankole exited: :stopped"
+    assert entry["error_logger"]["tag"] == "info_report"
+  end
+
   test "Phoenix request logger emits http_request with error severity for 5xx" do
     conn =
       :get

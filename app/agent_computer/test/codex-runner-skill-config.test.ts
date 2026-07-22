@@ -6,7 +6,8 @@ import type { PreparedAgentPlugins } from '../src/core/codex-runner/agent-plugin
 
 describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => {
   it('writes every member by absolute path and verifies the final state on every prepare', async () => {
-    const cwd = '/workspace'
+    const cwd = '/agents/agent-1/jobs/job-1'
+    const skillsRoot = `${cwd}/.ankole/skills`
     const states = new Map([
       ['coding', true],
       ['office:docx', false],
@@ -15,9 +16,9 @@ describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => 
     const writes: Array<{ path: string; enabled: boolean }> = []
     const requests: string[] = []
     const paths = new Map([
-      ['coding', '/workspace/.agents/skills/coding/SKILL.md'],
-      ['office:docx', '/workspace/.codex/plugins/office/skills/docx/SKILL.md'],
-      ['office:xlsx', '/workspace/.codex/plugins/office/skills/xlsx/SKILL.md']
+      ['coding', `${skillsRoot}/coding/SKILL.md`],
+      ['office:docx', `${cwd}/.codex/plugins/office/skills/docx/SKILL.md`],
+      ['office:xlsx', `${cwd}/.codex/plugins/office/skills/xlsx/SKILL.md`]
     ])
     const client = {
       async request(method: string, params: unknown) {
@@ -46,8 +47,8 @@ describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => 
       }
     }
 
-    const first = await configureCodexSkills(client, cwd, ['coding'], preparedOfficePlugin())
-    const second = await configureCodexSkills(client, cwd, ['coding'], preparedOfficePlugin())
+    const first = await configureCodexSkills(client, cwd, skillsRoot, ['coding'], preparedOfficePlugin())
+    const second = await configureCodexSkills(client, cwd, skillsRoot, ['coding'], preparedOfficePlugin())
 
     expect(first).toEqual(['coding', 'office:docx'])
     expect(second).toEqual(first)
@@ -79,7 +80,7 @@ describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => 
           return {
             data: [
               {
-                cwd: '/workspace',
+                cwd: '/agents/agent-1/jobs/job-1',
                 errors: [],
                 skills: [
                   { name: 'coding', path: '/skills/coding/SKILL.md', enabled: true },
@@ -94,31 +95,35 @@ describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => 
       }
     }
 
-    await expect(configureCodexSkills(client, '/workspace', ['coding'], preparedOfficePlugin())).rejects.toThrow(
-      'non-absolute path'
-    )
+    await expect(
+      configureCodexSkills(
+        client,
+        '/agents/agent-1/jobs/job-1',
+        '/agents/agent-1/jobs/job-1/.ankole/skills',
+        ['coding'],
+        preparedOfficePlugin()
+      )
+    ).rejects.toThrow('non-absolute path')
   })
 })
 
 function preparedOfficePlugin(): PreparedAgentPlugins {
   return {
-    marketplaceHostPath: '/workspace/plugins/marketplace.json',
-    marketplacePath: '/workspace/.agents/plugins/marketplace.json',
+    marketplaceHostPath: '/agents/agent-1/jobs/job-1/.agents/plugins/marketplace.json',
+    marketplacePath: '/agents/agent-1/jobs/job-1/.agents/plugins/marketplace.json',
     marketplaceName: 'ankole-background-agent-job',
-    pluginsRoot: '/workspace/plugins',
+    pluginsRoot: '/agents/agent-1/jobs/job-1/plugins',
     agentPlugins: [
       {
         ...create(AgentPluginCatalogEntrySchema, {
           id: 'office',
           description: 'Office plugin',
-          version: '1.0.0',
-          contentHash: 'hash',
-          skills: [{ catalogName: 'docx', codexName: 'office:docx' }]
+          skills: [{ catalogName: 'docx' }]
         }),
         manifestName: 'office',
         skillsRelativePath: 'skills',
         sourceRoot: '/repo/app/library/agent-plugins/office',
-        materializedRoot: '/workspace/plugins/office',
+        materializedRoot: '/agents/agent-1/jobs/job-1/plugins/office',
         memberSkillNames: ['docx', 'xlsx'],
         enabledSkillNames: ['docx'],
         enabledCodexSkillNames: ['office:docx']

@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
+import {
+  DEFAULT_CODEX_MODEL_REASONING_EFFORT,
+  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+  ModelProfilesModel,
+  PROFILE_NAMES
+} from './model-profiles-model'
 
 describe('ModelProfilesModel', () => {
   test('exposes and initializes every provider-backed profile', () => {
@@ -54,12 +59,38 @@ describe('ModelProfilesModel', () => {
     model.clear('light')
     expect(model.snapshot('light')).toEqual({
       codexAccountID: '',
+      codexModel: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
+      codexModelReasoningEffort: DEFAULT_CODEX_MODEL_REASONING_EFFORT,
+      codexFastMode: false,
       providerID: '',
       model: '',
       contextLength: '',
       providerOptions: {},
       error: undefined
     })
+    model[Symbol.dispose]()
+  })
+
+  test('tracks the official subscription Codex settings as one coding draft', () => {
+    const model = new ModelProfilesModel()
+    model.initialize('agent:alpha', {
+      coding: {
+        codexAccountID: 'account-1',
+        codexModel: 'gpt-5.6-sol',
+        codexModelReasoningEffort: 'max',
+        codexFastMode: true
+      }
+    })
+
+    expect(model.snapshot('coding')).toMatchObject({
+      codexAccountID: 'account-1',
+      codexModel: 'gpt-5.6-sol',
+      codexModelReasoningEffort: 'max',
+      codexFastMode: true
+    })
+
+    model.update('coding', { codexFastMode: false })
+    expect(model.profiles.coding.dirty.value).toBeTrue()
     model[Symbol.dispose]()
   })
 

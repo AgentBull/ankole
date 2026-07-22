@@ -127,13 +127,11 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       assert get_in(outbox.payload, ["reply_presentation", "answer"]) == ""
       parent = self()
 
-      adapter = %{
-        capabilities: [:edit_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:edit_entry], fn dispatched ->
           send(parent, {:stopped_empty_dispatched, dispatched})
           {:ok, %{raw_payload: %{}}}
-        end
-      }
+        end)
 
       assert {:ok, %OutboxEntry{status: :succeeded}} =
                SignalsGateway.dispatch_outbox(
@@ -300,6 +298,17 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
                  }
                })
 
+      assert :ok =
+               AIReplyPreview.presentation_event(event.id, %{
+                 "kind" => "tool.activity",
+                 "payload" => %{
+                   "operation_id" => "verify-card",
+                   "revision" => 2,
+                   "phase" => "completed",
+                   "label" => "验证 CardKit 终态"
+                 }
+               })
+
       assert {:ok, completed} =
                StatefulResponses.commit_complete(message, assistant_content("final with plan"))
 
@@ -307,12 +316,12 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       refute get_in(outbox.payload, ["reply_presentation", "plan"])
+      assert get_in(outbox.payload, ["reply_presentation", "activities"]) == %{}
 
       parent = self()
 
-      adapter = %{
-        capabilities: [:reply_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:reply_entry], fn dispatched ->
           send(parent, {:terminal_metadata_dispatched, dispatched})
 
           {:ok,
@@ -320,8 +329,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              created_source_entry_id: "provider-final-with-plan",
              raw_payload: %{"provider" => "test"}
            }}
-        end
-      }
+        end)
 
       assert {:ok, %OutboxEntry{status: :succeeded}} =
                SignalsGateway.dispatch_outbox(
@@ -342,6 +350,15 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              ]
 
       assert get_in(dispatched.payload, ["reply_presentation", "plan", "folded"])
+
+      assert get_in(dispatched.payload, ["reply_presentation", "activities", "verify-card"]) ==
+               %{
+                 "operation_id" => "verify-card",
+                 "revision" => 2,
+                 "phase" => "completed",
+                 "label" => "验证 CardKit 终态",
+                 "consequential" => false
+               }
     end
 
     test "dispatch waits for a late preview id and edits it instead of posting a duplicate reply" do
@@ -377,9 +394,8 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       parent = self()
 
-      adapter = %{
-        capabilities: [:edit_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:edit_entry], fn dispatched ->
           send(parent, {:late_preview_final_dispatched, dispatched})
 
           {:ok,
@@ -387,8 +403,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              created_source_entry_id: "ignored-for-edit",
              raw_payload: %{"provider" => "test"}
            }}
-        end
-      }
+        end)
 
       dispatch =
         Task.async(fn ->
@@ -455,13 +470,11 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
 
       parent = self()
 
-      adapter = %{
-        capabilities: [:edit_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:edit_entry], fn dispatched ->
           send(parent, {:recovered_preview_final_dispatched, dispatched})
           {:ok, %{created_source_entry_id: "ignored-for-edit"}}
-        end
-      }
+        end)
 
       dispatch =
         Task.async(fn ->
@@ -529,9 +542,8 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       parent = self()
 
-      adapter = %{
-        capabilities: [:edit_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:edit_entry], fn dispatched ->
           send(parent, {:timeout_preview_final_dispatched, dispatched})
 
           {:ok,
@@ -539,8 +551,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
              created_source_entry_id: "ignored-for-edit",
              raw_payload: %{"provider" => "test"}
            }}
-        end
-      }
+        end)
 
       assert {:error, :reply_preview_settle_timeout} =
                SignalsGateway.dispatch_outbox(
@@ -607,17 +618,15 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{message.id}")
       assert outbox.operation == :edit
 
-      adapter = %{
-        capabilities: [:edit_entry],
-        send: fn _outbox ->
+      adapter =
+        outbox_adapter([:edit_entry], fn _outbox ->
           {:ok,
            %{
              created_source_entry_id: "provider-fallback-post",
              delivered_operation: :post,
              raw_payload: %{"provider" => "test", "fallback" => true}
            }}
-        end
-      }
+        end)
 
       assert {:ok,
               %OutboxEntry{
@@ -739,16 +748,13 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
   end
 
   defp adapter(capability, created_source_entry_id) do
-    %{
-      capabilities: [capability],
-      send: fn _outbox ->
-        {:ok,
-         %{
-           created_source_entry_id: created_source_entry_id,
-           raw_payload: %{"provider" => "test"}
-         }}
-      end
-    }
+    outbox_adapter([capability], fn _outbox ->
+      {:ok,
+       %{
+         created_source_entry_id: created_source_entry_id,
+         raw_payload: %{"provider" => "test"}
+       }}
+    end)
   end
 
   defp start_runtime_events_scheduler! do
@@ -787,7 +793,7 @@ defmodule Ankole.SignalsGateway.FinalReplyOutboxTest do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 

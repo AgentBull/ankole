@@ -5,9 +5,9 @@ defmodule Ankole.Brain.Jobs.CuratePrincipal do
     queue: :default,
     max_attempts: 5,
     unique: [
-      period: 172_800,
-      keys: [:principal_uid, :local_date],
-      states: :all
+      period: 60,
+      keys: [:principal_uid],
+      states: :incomplete
     ]
 
   alias Ankole.Brain

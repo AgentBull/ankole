@@ -1,5 +1,5 @@
 defmodule Ankole.Brain.CurationGuide do
-  @moduledoc "Reads the one human-maintained public Brain curation policy as semantic text."
+  @moduledoc "Reads the human-maintained curation policy from an Agent's self store."
 
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
@@ -8,9 +8,9 @@ defmodule Ankole.Brain.CurationGuide do
 
   @spec load(String.t()) :: {:ok, String.t() | nil} | {:error, term()}
   def load(owner_uid) when is_binary(owner_uid) do
-    with {:ok, scope} <- Scope.for_store(owner_uid, "public"),
+    with {:ok, scope} <- Scope.for_store(owner_uid, "self"),
          {:ok, entries} <-
-           Knowledge.list_entries(scope, type: @entry_type, store_key: "public", limit: 1) do
+           Knowledge.list_entries(scope, type: @entry_type, store_key: "self", limit: 1) do
       case entries do
         [entry] -> open_body(scope, entry.id)
         [] -> {:ok, nil}
@@ -19,6 +19,34 @@ defmodule Ankole.Brain.CurationGuide do
   end
 
   def load(_owner_uid), do: {:error, :invalid_owner_uid}
+
+  @doc "Returns the built-in entry-type guide that every curator must follow."
+  @spec type_guide() :: map()
+  def type_guide do
+    %{
+      "type_convergence" =>
+        "Reuse the closest existing type and entry before introducing another type. Types describe a stable subject, not one task or one day's activity.",
+      "templates" => %{
+        "customer" =>
+          "Keep stable needs, stakeholders, relationship state, decisions, and supported constraints. Update the same customer entry instead of appending a chronological contact log.",
+        "policy" =>
+          "Keep the policy scope, trigger, required or forbidden behavior, exceptions, owner, and supporting source. Replace superseded rules in the same policy entry.",
+        "person" =>
+          "Use one entry per person for stable preferences, roles, and relationships. When material supplies speaker_principal_uid for that person, store it as properties.principal_uid.",
+        "organization" =>
+          "Use one entry per team or organization for durable structure and policy.",
+        "project" =>
+          "Use one entry per continuing project for goals, decisions, and current state.",
+        "topic" =>
+          "Use a durable subject name. Do not use a task title or date as the entry name.",
+        "channel" =>
+          "Record only channel purpose, membership conventions, and communication norms.",
+        "agent_system_pinned_memo" =>
+          "Keep only compact behavior-changing rules for this Agent. Do not store pointers.",
+        "brain_curation_guide" => "Keep human curation policy in this self-store entry."
+      }
+    }
+  end
 
   defp open_body(scope, entry_id) do
     with {:ok, %{blocks: blocks}} <- Knowledge.open(scope, entry_id, block_limit: :all) do

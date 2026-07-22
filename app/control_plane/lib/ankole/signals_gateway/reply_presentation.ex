@@ -181,7 +181,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.put("answer", terminal_answer(answer))
     |> Map.delete("thought")
     |> terminalize_plan()
-    |> terminalize_activities()
     |> bump_revision()
   end
 
@@ -659,7 +658,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       action when is_map(action) ->
         type = normalize_in(value(action, "type"), @action_types, nil)
         id = bounded_optional_text(value(action, "id"), 80)
-        label = bounded_optional_text(value(action, "label"), 80)
+        label = bounded_optional_text(value(action, "label"), 200)
         fields = normalize_form_fields(value(action, "fields"))
 
         if type && id && label && valid_action_fields?(type, fields) do
@@ -690,6 +689,10 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
             |> maybe_put(
               "option_value",
               bounded_optional_text(value(action, "option_value"), 500)
+            )
+            |> maybe_put(
+              "description",
+              bounded_optional_text(value(action, "description"), 500)
             )
             |> maybe_put("revision", optional_non_negative_integer(value(action, "revision")))
             |> maybe_put("disabled", optional_boolean(value(action, "disabled")))
@@ -826,17 +829,6 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   end
 
   defp terminalize_plan(presentation), do: presentation
-
-  defp terminalize_activities(presentation) do
-    retained =
-      presentation["activities"]
-      |> Enum.filter(fn {_id, activity} ->
-        activity["consequential"] == true and activity["phase"] == "failed"
-      end)
-      |> Map.new()
-
-    Map.put(presentation, "activities", retained)
-  end
 
   defp remove_thought_unless_working(%{"state" => state} = presentation)
        when state in ["debouncing", "working"],

@@ -47,6 +47,27 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobListResponse"
   },
   {
+    "method": "background_agent_job.message.result",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultRequest",
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobMessageResultResponse"
+  },
+  {
+    "method": "background_agent_job.message.send",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendRequest",
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobMessageSendResponse"
+  },
+  {
+    "method": "background_agent_job.respawn",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobRespawnRequest",
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobRespawnResponse"
+  },
+  {
     "method": "background_agent_job.status.update",
     "scope": "turn",
     "effect": "write",
@@ -54,18 +75,11 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobResponse"
   },
   {
-    "method": "background_agent_job.steer",
-    "scope": "turn",
-    "effect": "write",
-    "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobSteerRequest",
-    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobResponse"
-  },
-  {
     "method": "background_agent_job.stop",
     "scope": "turn",
     "effect": "write",
     "request_type": "ankole.runtime_fabric.v1.BackgroundAgentJobStopRequest",
-    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobResponse"
+    "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobStopResponse"
   },
   {
     "method": "background_agent_job.turn.upsert",

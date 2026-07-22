@@ -4,18 +4,26 @@ defmodule Ankole.Brain.Embedding do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
   alias Ankole.Brain.Config
+  alias Ankole.Repo
 
   @float32_max 3.4028234663852886e38
+  @storage_dimensions 4_096
 
-  @spec resolve_model_agent_uid(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def resolve_model_agent_uid(fallback_agent_uid) when is_binary(fallback_agent_uid) do
-    with {:ok, %{"enabled" => enabled} = config} when enabled in [nil, true] <-
-           Config.dreaming(),
-         model_uid = config["model_agent_uid"] || fallback_agent_uid,
+  @spec resolve_model() ::
+          {:ok, %{agent_uid: String.t(), dimensions: pos_integer()}} | {:error, term()}
+  def resolve_model do
+    with {:ok,
+          %{
+            "enabled" => true,
+            "model_agent_uid" => model_uid,
+            "dimensions" => dimensions
+          }}
+         when is_binary(model_uid) and is_integer(dimensions) <- Config.embedding(),
          {:ok, _profile} <- ModelProfiles.resolve_runtime_profile(model_uid, "embedding") do
-      {:ok, model_uid}
+      {:ok, %{agent_uid: model_uid, dimensions: dimensions}}
     else
-      {:ok, %{"enabled" => false}} -> {:error, :brain_dreaming_disabled}
+      {:ok, %{"enabled" => false}} -> {:error, :brain_embedding_disabled}
+      {:ok, _incomplete} -> {:error, :brain_embedding_not_configured}
       {:error, reason} -> {:error, {:brain_embedding_model_not_configured, reason}}
     end
   end
@@ -24,23 +32,26 @@ defmodule Ankole.Brain.Embedding do
           {:ok, [number()], pos_integer()} | {:error, term()}
   def create(model_agent_uid, text)
       when is_binary(model_agent_uid) and is_binary(text) do
-    case AIGateway.create_embeddings(model_agent_uid, %{
-           "model" => "embedding.default",
-           "input" => text
-         }) do
-      {:ok, %{body: %{"data" => [%{"embedding" => embedding} | _]}}}
-      when is_list(embedding) ->
-        validate_vector(embedding)
+    with {:ok, %{agent_uid: ^model_agent_uid, dimensions: dimensions}} <- resolve_model() do
+      case AIGateway.create_embeddings(model_agent_uid, %{
+             "model" => "embedding.default",
+             "input" => text,
+             "dimensions" => dimensions
+           }) do
+        {:ok, %{body: %{"data" => [%{"embedding" => embedding} | _]}}}
+        when is_list(embedding) ->
+          validate_vector(embedding, dimensions)
 
-      {:ok, %{body: %{"embeddings" => [%{"embedding" => embedding} | _]}}}
-      when is_list(embedding) ->
-        validate_vector(embedding)
+        {:ok, %{body: %{"embeddings" => [%{"embedding" => embedding} | _]}}}
+        when is_list(embedding) ->
+          validate_vector(embedding, dimensions)
 
-      {:ok, body} ->
-        {:error, {:invalid_embedding_response, body}}
+        {:ok, body} ->
+          {:error, {:invalid_embedding_response, body}}
 
-      {:error, reason} ->
-        {:error, reason}
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -66,27 +77,60 @@ defmodule Ankole.Brain.Embedding do
     end
   end
 
-  @spec to_pgvector([number()]) :: String.t()
-  def to_pgvector(vector) when is_list(vector) do
-    values =
-      Enum.map(vector, fn
-        value when is_integer(value) -> Integer.to_string(value)
-        value when is_float(value) -> :erlang.float_to_binary(value, [:compact])
-      end)
-
-    "[" <> Enum.join(values, ",") <> "]"
+  @doc "Pads one configured embedding for the fixed vector storage envelope."
+  @spec storage_vector([number()]) :: Pgvector.t()
+  def storage_vector(vector) when is_list(vector) and length(vector) <= @storage_dimensions do
+    Pgvector.new(vector ++ List.duplicate(0.0, @storage_dimensions - length(vector)))
   end
 
-  defp validate_vector([]), do: {:error, {:invalid_embedding_vector, :empty}}
+  @doc false
+  @spec prepare_space(String.t(), pos_integer()) :: :ok
+  def prepare_space(model_agent_uid, dimensions)
+      when is_binary(model_agent_uid) and is_integer(dimensions) and dimensions > 0 do
+    case Repo.transact(fn repo ->
+           for table <- ~w(brain_entry_blocks brain_episodes) do
+             repo.query!(
+               """
+               UPDATE #{table}
+               SET embedding = NULL,
+                   embedding_dimensions = NULL,
+                   embedding_model_agent_uid = NULL,
+                   embedding_state = 'pending',
+                   embedding_error = NULL,
+                   updated_at = now()
+               WHERE embedding_state <> 'pending'
+                 AND (
+                   embedding_model_agent_uid IS DISTINCT FROM $1 OR
+                   embedding_dimensions IS DISTINCT FROM $2
+                 )
+               """,
+               [model_agent_uid, dimensions]
+             )
+           end
 
-  defp validate_vector(vector) do
-    case Enum.find_index(vector, &(not pgvector_number?(&1))) do
-      nil ->
+           {:ok, :ok}
+         end) do
+      {:ok, :ok} -> :ok
+      {:error, reason} -> raise "failed to prepare embedding space: #{inspect(reason)}"
+    end
+  end
+
+  defp validate_vector([], _expected_dimensions),
+    do: {:error, {:invalid_embedding_vector, :empty}}
+
+  defp validate_vector(vector, expected_dimensions) do
+    case {length(vector), Enum.find_index(vector, &(not pgvector_number?(&1)))} do
+      {dimensions, _index} when dimensions != expected_dimensions ->
+        {:error,
+         {:invalid_embedding_vector,
+          {:unexpected_dimensions, %{expected: expected_dimensions, actual: dimensions}}}}
+
+      {_dimensions, nil} ->
         if Enum.any?(vector, &(&1 != 0)),
           do: {:ok, vector, length(vector)},
           else: {:error, {:invalid_embedding_vector, :zero_norm}}
 
-      index ->
+      {_dimensions, index} ->
         {:error, {:invalid_embedding_vector, {:invalid_component, index}}}
     end
   end

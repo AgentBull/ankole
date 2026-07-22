@@ -19,8 +19,8 @@ defmodule Ankole.Brain.SourcesTest do
   setup do
     %{principal: owner} = agent_fixture()
     %{principal: other} = agent_fixture()
-    {:ok, scope} = Scope.for_store(owner.uid, "public")
-    {:ok, other_scope} = Scope.for_store(other.uid, "public")
+    {:ok, scope} = Scope.for_store(owner.uid, "self")
+    {:ok, other_scope} = Scope.for_store(other.uid, "self")
 
     %{owner: owner, other: other, scope: scope, other_scope: other_scope}
   end
@@ -30,7 +30,13 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, source} =
              Sources.capture(
                ctx.scope,
-               %{kind: "paste", title: "Release policy", content: "Keep one durable source."},
+               %{
+                 kind: "file",
+                 title: "Release policy",
+                 original_name: "release-policy.txt",
+                 media_type: "text/plain",
+                 content: "Keep one durable source."
+               },
                ctx.owner.uid
              )
 
@@ -39,7 +45,7 @@ defmodule Ankole.Brain.SourcesTest do
     assert source.sha256 ==
              Base.encode16(:crypto.hash(:sha256, "Keep one durable source."), case: :lower)
 
-    assert {:ok, %{content: "Keep one durable source.", filename: "Release-policy.txt"}} =
+    assert {:ok, %{content: "Keep one durable source.", filename: "release-policy.txt"}} =
              Sources.raw(ctx.scope, source.document_id)
 
     assert {:error, :not_found} = Sources.resolve(ctx.other_scope, source.document_id)
@@ -49,7 +55,12 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, source} =
              Sources.capture(
                ctx.scope,
-               %{kind: "paste", title: "Immutable source", content: "Original bytes"},
+               %{
+                 kind: "file",
+                 title: "Immutable source",
+                 original_name: "immutable.bin",
+                 content: "Original bytes"
+               },
                ctx.owner.uid
              )
 
@@ -59,17 +70,23 @@ defmodule Ankole.Brain.SourcesTest do
                ["Changed source", Ecto.UUID.dump!(source.id)]
              )
 
-    assert message == "brain retained sources are immutable"
+    assert message == "retained source identity and manual source bytes are immutable"
   end
 
-  test "pasted bytes stay exact while model-facing source reads expose only semantic evidence",
+  test "retained text bytes stay exact while model-facing reads expose only semantic evidence",
        ctx do
     content = "\n  Preserve meaningful whitespace.  \n"
 
     assert {:ok, source} =
              Sources.capture(
                ctx.scope,
-               %{kind: "paste", title: "Exact paste", content: content},
+               %{
+                 kind: "file",
+                 title: "Exact file",
+                 original_name: "exact.txt",
+                 media_type: "text/plain",
+                 content: content
+               },
                ctx.owner.uid
              )
 
@@ -79,7 +96,7 @@ defmodule Ankole.Brain.SourcesTest do
             %{
               document_id: document_id,
               kind: "retained_source",
-              title: "Exact paste",
+              title: "Exact file",
               text: ^content,
               history_notice: history_notice
             } = projection} = Sources.open_model(ctx.scope, source.document_id)
@@ -115,7 +132,7 @@ defmodule Ankole.Brain.SourcesTest do
                fetch_fun: fetch
              )
 
-    assert source.capture_method == "url"
+    assert source.capture_method == "file"
     assert source.title == "https://cdn.example.test/manual.pdf"
     assert source.origin_locator == "https://cdn.example.test/manual.pdf"
     assert source.original_name == "manual.pdf"
@@ -128,8 +145,10 @@ defmodule Ankole.Brain.SourcesTest do
              Sources.capture(
                ctx.scope,
                %{
-                 kind: "paste",
+                 kind: "file",
                  title: "Architecture note",
+                 original_name: "architecture-note.txt",
+                 media_type: "text/plain",
                  content: "PostgreSQL owns durable truth."
                },
                ctx.owner.uid
@@ -221,7 +240,7 @@ defmodule Ankole.Brain.SourcesTest do
 
     assert {:ok, opened} = Sources.open_console(ctx.scope, entry.document_id)
     assert opened.kind == "signal_message"
-    assert opened.store_key == "public"
+    assert opened.store_key == "shared"
     assert opened.text == entry.text
     assert opened.sha256 == entry.content_hash
     refute Repo.get_by(RetainedSource, document_id: entry.document_id)
@@ -231,9 +250,11 @@ defmodule Ankole.Brain.SourcesTest do
 
   test "source learning materializes one fixed file and appends an explicitly scoped ActorEvent",
        ctx do
+    {:ok, shared_scope} = Scope.for_store(ctx.owner.uid, "shared")
+
     assert {:ok, source} =
              Sources.capture(
-               ctx.scope,
+               shared_scope,
                %{kind: "file", title: "Manual", original_name: "manual.md", content: "# Manual"},
                ctx.owner.uid
              )
@@ -251,7 +272,7 @@ defmodule Ankole.Brain.SourcesTest do
     end
 
     assert {:ok, %{status: :queued, document_id: document_id}} =
-             SourceLearning.enqueue(ctx.scope, source.document_id,
+             SourceLearning.enqueue(shared_scope, source.document_id,
                materialize_fun: materialize,
                append_fun: append
              )
@@ -264,28 +285,40 @@ defmodule Ankole.Brain.SourcesTest do
     assert attrs.type == "brain.source.learn"
     assert attrs.agent_uid == ctx.owner.uid
     assert attrs.source_entry_id == source.document_id
-    assert get_in(attrs, [:payload, "data", "brain_scope"]) == %{"visibility" => "public"}
+    assert get_in(attrs, [:payload, "data", "brain_scope"]) == %{"visibility" => "shared"}
+    assert get_in(attrs, [:payload, "data", "session", "agent_uid"]) == ctx.owner.uid
 
     assert get_in(attrs, [:payload, "data", "retained_source", "document_id"]) ==
              source.document_id
 
-    assert get_in(attrs, [:payload, "data", "retained_source", "path"]) ==
-             "/workspace/source/manual.md"
+    model_path = get_in(attrs, [:payload, "data", "retained_source", "path"])
+    assert model_path == "/agents/#{relative_path}"
+    assert String.starts_with?(model_path, "/agents/#{ctx.owner.uid}/sessions/")
 
     assert get_in(attrs, [:payload, "data", "retained_source", "byte_size"]) ==
              byte_size("# Manual")
 
     assert get_in(attrs, [:payload, "data", "retained_source", "sha256"]) == source.sha256
+
+    instruction = get_in(attrs, [:payload, "data", "entry", "text"])
+    refute instruction =~ source.document_id
+    refute instruction =~ "cursor"
+    assert instruction =~ "source marker that memory_update provides"
   end
 
   test "source learning rejects a human owner before materializing bytes" do
     %{principal: human} = human_fixture()
-    {:ok, scope} = Scope.for_store(human.uid, "public")
+    {:ok, scope} = Scope.for_store(human.uid, "self")
 
     assert {:ok, source} =
              Sources.capture(
                scope,
-               %{kind: "paste", title: "Human note", content: "Retain without an Actor run."},
+               %{
+                 kind: "file",
+                 title: "Human note",
+                 original_name: "human-note.txt",
+                 content: "Retain without an Actor run."
+               },
                human.uid
              )
 
@@ -315,7 +348,12 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, source} =
              Sources.capture(
                ctx.scope,
-               %{kind: "paste", title: "Project note", content: "A durable project note."},
+               %{
+                 kind: "file",
+                 title: "Project note",
+                 original_name: "project-note.txt",
+                 content: "A durable project note."
+               },
                human.uid
              )
 
@@ -332,7 +370,7 @@ defmodule Ankole.Brain.SourcesTest do
 
     assert_receive {:learning_event, attrs}
     instruction = get_in(attrs, [:payload, "data", "entry", "text"])
-    assert instruction =~ "Human-maintained Brain Curation Guide"
+    assert instruction =~ "Human-maintained long-term memory curation guide"
     assert instruction =~ "Create a project page only after it has an enduring owner."
     refute instruction =~ guide_entry_id
     refute instruction =~ "lock_version"
@@ -343,7 +381,12 @@ defmodule Ankole.Brain.SourcesTest do
     assert {:ok, source} =
              Sources.capture(
                ctx.scope,
-               %{kind: "paste", title: "Status source", content: "Status evidence"},
+               %{
+                 kind: "file",
+                 title: "Status source",
+                 original_name: "status-source.txt",
+                 content: "Status evidence"
+               },
                ctx.owner.uid
              )
 
@@ -383,7 +426,7 @@ defmodule Ankole.Brain.SourcesTest do
     %AuditLog{}
     |> AuditLog.changeset(%{
       owner_uid: ctx.owner.uid,
-      store_key: "public",
+      store_key: "self",
       actor_kind: :agent,
       actor_uid: ctx.owner.uid,
       action: "append_block",
@@ -414,6 +457,40 @@ defmodule Ankole.Brain.SourcesTest do
              )
 
     refute Repo.get_by(Ankole.Brain.Schemas.Entry, owner_uid: ctx.owner.uid, name: "Unsupported")
+  end
+
+  test "a source marker must preserve the complete document id", ctx do
+    assert {:ok, source} =
+             Sources.capture(
+               ctx.scope,
+               %{
+                 kind: "file",
+                 title: "Citation source",
+                 original_name: "citation-source.txt",
+                 content: "Exact citation evidence"
+               },
+               ctx.owner.uid
+             )
+
+    raw_id = String.replace_prefix(source.document_id, "brain-source:", "")
+    malformed_marker = "src:#{raw_id}"
+
+    assert {:error, {:invalid_source_citation, ^malformed_marker, :malformed_document_id}} =
+             Knowledge.apply_operations(
+               ctx.scope,
+               %{
+                 operation: "create_entry",
+                 name: "Malformed citation",
+                 type: "topic",
+                 initial_body: "A claim. #{malformed_marker}"
+               },
+               %{kind: :human, uid: ctx.owner.uid}
+             )
+
+    refute Repo.get_by(Ankole.Brain.Schemas.Entry,
+             owner_uid: ctx.owner.uid,
+             name: "Malformed citation"
+           )
   end
 
   test "source integration links remain owner scoped for a shared signal message", ctx do

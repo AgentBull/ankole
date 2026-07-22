@@ -115,7 +115,7 @@ WORKDIR /app
 
 ARG ANKOLE_VERSION=development
 ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=2
+ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=3
 ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
@@ -145,7 +145,6 @@ RUN useradd --system --home-dir /app --shell /usr/sbin/nologin ankole \
 COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/prod/rel/ankole ./
 COPY --from=build --chown=ankole:ankole /repo/app/locales ./lib/locales
 COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
-COPY --from=build --chown=ankole:ankole /repo/plugins ./plugins
 
 USER ankole
 
@@ -160,7 +159,6 @@ ENV ANKOLE_RELEASE_REVISION=${ANKOLE_RELEASE_REVISION}
 ENV ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION}
 ENV ANKOLE_AGENT_COMPUTER_IMAGE=${ANKOLE_AGENT_COMPUTER_IMAGE}
 ENV ANKOLE_LIBRARY_ROOT=/app/app/library
-ENV ANKOLE_PLUGIN_PATHS=/app/plugins
 
 RUN ANKOLE_SECRET_BASE=build-smoke \
   DATABASE_URL=ecto://ankole:ankole@127.0.0.1/ankole_build_smoke \

@@ -17,6 +17,29 @@ defmodule Ankole.AIGateway.CompactionRenderTest do
     assert CompactionRender.approx_tokens(rendered) <= 2_100
   end
 
+  test "uses local aliases instead of persisted function call ids" do
+    call_id = "019f0000-0000-7000-8000-000000000001"
+
+    rendered =
+      CompactionRender.render_items([
+        %{
+          "type" => "function_call",
+          "name" => "memory_open",
+          "call_id" => call_id,
+          "arguments" => ~s({"name":"Project Alpha"})
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => call_id,
+          "output" => ~s({"status":"ok"})
+        }
+      ])
+
+    assert rendered =~ "function_call memory_open call_ref=call_1"
+    assert rendered =~ "function_call_output call_ref=call_1"
+    refute rendered =~ call_id
+  end
+
   test "global budget elides oldest eligible items while preserving users and latest items" do
     items =
       for index <- 1..20 do

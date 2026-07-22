@@ -1,6 +1,7 @@
 defmodule FeishuOpenAPI.Event.EnvelopeTest do
   use ExUnit.Case, async: true
 
+  alias FeishuOpenAPI.CryptoTestSupport
   alias FeishuOpenAPI.Event.Envelope
 
   describe "decode/2" do
@@ -16,7 +17,7 @@ defmodule FeishuOpenAPI.Event.EnvelopeTest do
 
     test "decrypts an encrypted payload" do
       plain = ~s({"schema":"2.0","header":{"event_type":"test"},"event":{}})
-      {:ok, cipher} = FeishuOpenAPI.Crypto.encrypt(plain, "k")
+      {:ok, cipher} = CryptoTestSupport.encrypt(plain, "k")
       body = Torque.encode!(%{encrypt: cipher})
 
       assert {:ok, decoded} = Envelope.decode(body, "k")

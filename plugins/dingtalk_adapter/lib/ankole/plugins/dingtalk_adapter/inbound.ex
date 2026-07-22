@@ -28,13 +28,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   @managed_action_protocol "ankole.interactive_output.action.v1"
 
   @doc "Builds the dispatcher consumer record for one SignalsGateway chat binding."
-  @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
-  def chat_consumer(%AdapterContext{} = context, config, opts \\ []) when is_map(config) do
+  @spec chat_consumer(AdapterContext.t(), map()) :: map()
+  def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
     %{
       kind: :chat,
       context: context,
-      config: config,
-      materialize_attachments: Keyword.get(opts, :materialize_attachments, false)
+      config: config
     }
   end
 
@@ -66,7 +65,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
          :ok <- material_message?(raw_text, attachments),
          channel_kind <- channel_kind(payload),
          explicit <- explicit?(channel_kind, payload),
-         text <- visible_text(raw_text, explicit and strip_leading_mention?(channel_kind, payload)),
+         text <-
+           visible_text(raw_text, explicit and strip_leading_mention?(channel_kind, payload)),
          provider_time <- provider_time(payload) do
       {:ok,
        %{
@@ -171,7 +171,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
         with {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id) do
           input =
-            Map.update!(input, :action, &Map.put(&1, "operator_principal_uid", operator_principal_uid))
+            Map.update!(
+              input,
+              :action,
+              &Map.put(&1, "operator_principal_uid", operator_principal_uid)
+            )
 
           Ingress.emit_action(context.agent_uid, context.binding_name, input)
         end
@@ -422,27 +426,41 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
   defp maybe_materialize_attachments(%{attachments: []} = input, _consumer), do: {:ok, input}
 
-  defp maybe_materialize_attachments(input, %{materialize_attachments: false}), do: {:ok, input}
-
-  defp maybe_materialize_attachments(%{attachments: attachments} = input, %{config: config}) do
+  defp maybe_materialize_attachments(%{attachments: attachments} = input, %{
+         config: config,
+         context: %{agent_uid: agent_uid}
+       }) do
     client = Config.client(config)
     robot_code = Config.effective_robot_code(config)
-    materialized = Enum.map(attachments, &materialize_attachment(&1, client, robot_code))
+
+    materialized =
+      Enum.map(attachments, &materialize_attachment(&1, client, robot_code, agent_uid))
+
     {:ok, %{input | attachments: materialized}}
   end
 
-  defp materialize_attachment(%{"download_code" => code} = attachment, client, robot_code)
+  defp materialize_attachment(
+         %{"download_code" => code} = attachment,
+         client,
+         robot_code,
+         agent_uid
+       )
        when is_binary(code) do
     case Robot.download_message_file(client, robot_code, code) do
       {:ok, %{body: body, filename: filename}} ->
         name = attachment["name"] || filename || "attachment"
         relative_path = materialized_relative_path(attachment, name)
 
-        case WorkerFiles.put("user_files", relative_path, body) do
+        lane_path = Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path)
+
+        case WorkerFiles.put("user_files", lane_path, body) do
           {:ok, result} ->
             attachment
             |> Map.drop(["download_code"])
-            |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
+            |> Map.put(
+              "agent_computer_path",
+              Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
+            )
             |> Map.put("user_files_relative_path", relative_path)
             |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
             |> MapHelpers.maybe_put("size", result["size"])
@@ -462,7 +480,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       Map.drop(attachment, ["download_code"])
   end
 
-  defp materialize_attachment(attachment, _client, _robot_code), do: attachment
+  defp materialize_attachment(attachment, _client, _robot_code, _agent_uid), do: attachment
 
   defp log_materialization_skip(attachment, reason) do
     Logging.warning(

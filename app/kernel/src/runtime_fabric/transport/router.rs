@@ -378,7 +378,6 @@ fn emit_router_frames(
                     sink(RouterEvent::Received {
                         transport_route: route,
                         authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
-                        authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
                         envelope_bytes: payload,
                     });
                 }
@@ -407,7 +406,6 @@ fn emit_router_frames(
             sink(RouterEvent::FileFrame {
                 transport_route: route,
                 authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
-                authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
                 frames,
             });
         }

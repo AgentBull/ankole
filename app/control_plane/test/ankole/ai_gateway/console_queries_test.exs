@@ -42,7 +42,7 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
 
       conversation =
-        conversation_fixture(agent.uid, BackgroundAgentJobs.job_session_id(Ecto.UUID.generate()))
+        conversation_fixture(agent.uid, BackgroundAgentJobs.job_session_id(1000))
 
       message_fixture(conversation)
       message_fixture(conversation)

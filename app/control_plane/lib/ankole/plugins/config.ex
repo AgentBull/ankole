@@ -1,13 +1,14 @@
 defmodule Ankole.Plugins.Config do
   @moduledoc """
-  AppConfigure storage for the global plugin disable list.
+  AppConfigure storage for the global plugin enable list.
 
-  Plugins are installation-global and default-on, so the only operator knob is a
-  durable list of disabled plugin ids. It lives in AppConfigure (PostgreSQL) rather
-  than in process state because the registry reads it once at startup; a change
-  therefore takes effect on the next Ankole process start, not immediately. This
-  is deliberate — activating/deactivating a plugin can add or remove supervised
-  children and config keys, which is a boot-time concern, not a hot-swap.
+  Plugins are installation-global and fail closed, so the operator explicitly
+  opts plugins in through a durable list of enabled plugin ids. It lives in
+  AppConfigure (PostgreSQL) rather than process state because the registry reads
+  it once at startup; a change therefore takes effect on the next Ankole process
+  start, not immediately. This is deliberate — activating or deactivating a
+  plugin can add or remove supervised children and config keys, which is a
+  boot-time concern, not a hot-swap.
   """
 
   alias Ankole.AppConfigure
@@ -15,19 +16,20 @@ defmodule Ankole.Plugins.Config do
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.Spec
 
-  @disabled_ids_key "plugins.disabled_ids"
+  @enabled_ids_key "plugins.enabled_ids"
 
   @doc """
-  Returns the AppConfigure definition for globally disabled plugin ids.
+  Returns the AppConfigure definition for globally enabled plugin ids.
   """
-  @spec disabled_ids_definition() :: Definition.t()
-  def disabled_ids_definition do
+  @spec enabled_ids_definition() :: Definition.t()
+  def enabled_ids_definition do
     AppConfigure.define(
-      key: @disabled_ids_key,
+      key: @enabled_ids_key,
       encrypted: false,
-      schema: disabled_ids_schema(),
+      schema: enabled_ids_schema(),
+      scope: :global,
       default_value: [],
-      description: "Plugin ids disabled on the next Ankole process start."
+      description: "Plugin ids enabled on the next Ankole process start."
     )
   end
 
@@ -36,31 +38,31 @@ defmodule Ankole.Plugins.Config do
   """
   @spec ensure_registered() :: :ok | {:error, term()}
   def ensure_registered do
-    case AppConfigure.register_definitions([disabled_ids_definition()]) do
+    case AppConfigure.register_definitions([enabled_ids_definition()]) do
       :ok -> :ok
-      {:error, {:duplicate_key, @disabled_ids_key}} -> :ok
+      {:error, {:duplicate_key, @enabled_ids_key}} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
   @doc """
-  Reads the global disabled plugin id list.
+  Reads the global enabled plugin id list.
   """
-  @spec disabled_ids() :: {:ok, [String.t()]} | {:error, term()}
-  def disabled_ids do
+  @spec enabled_ids() :: {:ok, [String.t()]} | {:error, term()}
+  def enabled_ids do
     with :ok <- ensure_registered(),
-         {:ok, disabled_ids} <- AppConfigure.get(disabled_ids_definition()) do
-      {:ok, disabled_ids}
+         {:ok, enabled_ids} <- AppConfigure.get(enabled_ids_definition()) do
+      {:ok, enabled_ids}
     end
   end
 
   @doc """
-  Persists the next-start disabled plugin id list.
+  Persists the next-start enabled plugin id list.
   """
-  @spec put_disabled_ids([String.t()]) :: {:ok, [String.t()]} | {:error, term()}
-  def put_disabled_ids(disabled_ids) do
+  @spec put_enabled_ids([String.t()]) :: {:ok, [String.t()]} | {:error, term()}
+  def put_enabled_ids(enabled_ids) do
     with :ok <- ensure_registered() do
-      AppConfigure.put_global(disabled_ids_definition(), disabled_ids)
+      AppConfigure.put_global(enabled_ids_definition(), enabled_ids)
     end
   end
 
@@ -72,8 +74,8 @@ defmodule Ankole.Plugins.Config do
   def put_configured_enabled(plugin_id, enabled)
       when is_binary(plugin_id) and is_boolean(enabled) do
     with :ok <- ensure_registered() do
-      AppConfigure.update_global(disabled_ids_definition(), fn disabled_ids ->
-        {:ok, update_disabled_ids(disabled_ids, plugin_id, enabled)}
+      AppConfigure.update_global(enabled_ids_definition(), fn enabled_ids ->
+        {:ok, update_enabled_ids(enabled_ids, plugin_id, enabled)}
       end)
     end
   end
@@ -81,36 +83,35 @@ defmodule Ankole.Plugins.Config do
   def put_configured_enabled(_plugin_id, _enabled),
     do: {:error, :invalid_plugin_configuration}
 
-  # Validate at write time so a malformed disable list is rejected when an
-  # operator sets it, not silently mishandled at boot. The value must be an array
-  # of well-formed, unique plugin ids; ids need not correspond to a plugin that
-  # currently exists, so disabling an id ahead of installing its plugin is fine.
-  defp disabled_ids_schema do
+  # IDs need not correspond to a currently discovered plugin. Keeping that
+  # validation at the operator-facing catalog boundary permits deliberate
+  # pre-authorization without coupling AppConfigure to one release's module list.
+  defp enabled_ids_schema do
     Schema.new(fn
-      values when is_list(values) -> normalize_disabled_ids(values)
+      values when is_list(values) -> normalize_enabled_ids(values)
       _value -> {:error, :not_array}
     end)
   end
 
-  defp normalize_disabled_ids(values) do
+  defp normalize_enabled_ids(values) do
     values
-    |> Enum.reduce_while({:ok, MapSet.new(), []}, &collect_disabled_id/2)
+    |> Enum.reduce_while({:ok, MapSet.new(), []}, &collect_enabled_id/2)
     |> case do
       {:ok, _seen, ids} -> {:ok, Enum.reverse(ids)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp update_disabled_ids(disabled_ids, plugin_id, true),
-    do: Enum.reject(disabled_ids, &(&1 == plugin_id))
-
-  defp update_disabled_ids(disabled_ids, plugin_id, false) do
-    [plugin_id | disabled_ids]
+  defp update_enabled_ids(enabled_ids, plugin_id, true) do
+    [plugin_id | enabled_ids]
     |> Enum.uniq()
     |> Enum.sort()
   end
 
-  defp collect_disabled_id(value, {:ok, seen, ids}) when is_binary(value) do
+  defp update_enabled_ids(enabled_ids, plugin_id, false),
+    do: Enum.reject(enabled_ids, &(&1 == plugin_id))
+
+  defp collect_enabled_id(value, {:ok, seen, ids}) when is_binary(value) do
     cond do
       not Spec.valid_id?(value) ->
         {:halt, {:error, {:invalid_plugin_id, value}}}
@@ -123,7 +124,7 @@ defmodule Ankole.Plugins.Config do
     end
   end
 
-  defp collect_disabled_id(value, {:ok, _seen, _ids}) do
+  defp collect_enabled_id(value, {:ok, _seen, _ids}) do
     {:halt, {:error, {:invalid_plugin_id, value}}}
   end
 end

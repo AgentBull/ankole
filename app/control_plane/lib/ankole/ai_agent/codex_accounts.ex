@@ -13,7 +13,6 @@ defmodule Ankole.AIAgent.CodexAccounts do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.WorkerFiles
 
   @nonterminal_statuses ~w(queued running waiting_on_user)
 
@@ -104,8 +103,7 @@ defmodule Ankole.AIAgent.CodexAccounts do
 
   @spec delete_account(String.t()) :: {:ok, Account.t()} | {:error, term()}
   def delete_account(account_id) when is_binary(account_id) do
-    with :ok <- ensure_deletable(account_id),
-         :ok <- delete_account_home(account_id) do
+    with :ok <- ensure_deletable(account_id) do
       Repo.transact(fn repo ->
         with %Account{} = account <- lock_account(repo, account_id),
              [] <- model_profile_references(repo, account_id),
@@ -116,23 +114,6 @@ defmodule Ankole.AIAgent.CodexAccounts do
           references when is_list(references) -> {:error, {:codex_account_in_use, references}}
         end
       end)
-    end
-  end
-
-  defp delete_account_home(account_id) do
-    case WorkerFiles.delete("codex_accounts", account_id, recursive: true) do
-      {:ok, _result} ->
-        :ok
-
-      {:error,
-       %{
-         "code" => "operation_failed",
-         "message" => "path does not exist: /codex_accounts/" <> ^account_id
-       }} ->
-        :ok
-
-      {:error, _reason} = error ->
-        error
     end
   end
 
@@ -264,7 +245,7 @@ defmodule Ankole.AIAgent.CodexAccounts do
         assignment.agent_uid == job.agent_uid and
           assignment.session_id ==
             fragment(
-              "? || ?",
+              "? || (?::text)",
               type(^BackgroundAgentJobs.job_session_prefix(), :string),
               job.id
             ) and

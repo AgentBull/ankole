@@ -9,7 +9,9 @@ import { createReplyAttachmentTool } from './reply-attachment-tool'
 export interface ComputerToolsBinding {
   agentUID: string
   conversationID?: string
+  agentHome: string
   workspaceRoot: string
+  userFilesRoot: string
   /** Operator-managed shell variables resolved for this turn's agent. */
   workerEnv?: Record<string, string>
 }
@@ -19,7 +21,7 @@ export interface ComputerToolsBinding {
  *
  * Ankole resolves a remote computer worker from the control plane. The model
  * loop already runs inside Agent Computer, so this factory keeps the migrated
- * tool contracts but binds them to the container's `/workspace`.
+ * tool contracts but binds them to the current Agent Home at its real path.
  */
 export function createComputerTools(binding: ComputerToolsBinding): AgentTool<any>[] {
   const context = createComputerToolContext(binding)
@@ -36,11 +38,13 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
 /** Builds the shared run-scoped context used by main-agent computer tools. */
 function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
   const executionScopeID = binding.conversationID ?? binding.agentUID
-  const computer = createContainerComputer(binding.workspaceRoot, {
+  const computer = createContainerComputer(binding.agentHome, binding.workspaceRoot, {
     workerEnv: binding.workerEnv
   })
   return {
+    agentHome: binding.agentHome,
     workspaceRoot: binding.workspaceRoot,
+    userFilesRoot: binding.userFilesRoot,
     executionScopeID,
     getComputer: async () => computer
   }

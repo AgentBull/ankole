@@ -11,19 +11,14 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @recent_attachment_window_seconds 120
   @max_backfilled_attachments 3
 
-  @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
-  def chat_consumer(%AdapterContext{} = context, config, opts \\ []) do
+  @spec chat_consumer(AdapterContext.t(), map()) :: map()
+  def chat_consumer(%AdapterContext{} = context, config) do
     %{
       kind: :chat,
       context: context,
       config: config,
-      recent_attachment_window_seconds:
-        Keyword.get(opts, :recent_attachment_window_seconds, @recent_attachment_window_seconds),
-      max_backfilled_attachments:
-        Keyword.get(opts, :max_backfilled_attachments, @max_backfilled_attachments),
-      materialize_attachments: Keyword.get(opts, :materialize_attachments, false),
-      attachment_materializer:
-        Keyword.get(opts, :attachment_materializer, &materialize_attachments/3)
+      recent_attachment_window_seconds: @recent_attachment_window_seconds,
+      max_backfilled_attachments: @max_backfilled_attachments
     }
   end
 
@@ -440,27 +435,27 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     {:ok, attachments}
   end
 
-  defp maybe_materialize_attachments(attachments, _message, %{materialize_attachments: false}),
-    do: {:ok, attachments}
+  defp maybe_materialize_attachments(attachments, message, consumer),
+    do: materialize_attachments(attachments, message, consumer)
 
-  defp maybe_materialize_attachments(
-         attachments,
-         message,
-         %{attachment_materializer: fun} = consumer
-       ),
-       do: fun.(attachments, message, consumer)
-
-  defp materialize_attachments(attachments, _message, %{config: config}) do
+  defp materialize_attachments(attachments, _message, %{
+         config: config,
+         context: %{agent_uid: agent_uid}
+       }) do
     client = Config.client(config)
-    {:ok, Enum.map(attachments, &materialize_attachment(&1, client))}
+    {:ok, Enum.map(attachments, &materialize_attachment(&1, client, agent_uid))}
   end
 
-  defp materialize_attachment(attachment, client) do
+  defp materialize_attachment(attachment, client, agent_uid) do
     with {:ok, download} <- SlackOpenAPI.download(client, attachment["url_private"]),
          relative <- materialized_path(attachment, download.filename),
-         {:ok, result} <- WorkerFiles.put("user_files", relative, download.body) do
+         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative),
+         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
-      |> Map.put("agent_computer_path", "/workspace/user-files/#{relative}")
+      |> Map.put(
+        "agent_computer_path",
+        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative)
+      )
       |> Map.put("user_files_relative_path", relative)
       |> MapHelpers.maybe_put("xxh3_128", result["xxh3_128"])
       |> MapHelpers.maybe_put("size", result["size"])

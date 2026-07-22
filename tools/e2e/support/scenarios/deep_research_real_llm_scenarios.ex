@@ -1,6 +1,6 @@
 defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
   @moduledoc """
-  Live Deep Research scenarios through the parent `background_agent_job` tool and Docker worker path.
+  Live Deep Research scenarios through the parent BackgroundAgentJob tools and Docker worker path.
   """
 
   import Ecto.Query
@@ -74,15 +74,11 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     event_id = "evt_deep_research_plugin"
     message_id = "om_deep_research_plugin"
 
-    start_arguments =
-      %{
-        "action" => "start",
-        "title" => "Deep Research Plugin E2E",
-        "task" => task,
-        "agent_plugin_ids" => ["deep-research"],
-        "skill_names" => [@data_source_skill]
-      }
-      |> Ankole.JSON.encode!()
+    start_arguments = %{
+      "title" => "Deep Research Plugin E2E",
+      "task" => task,
+      "workspace_template_id" => "deep-research"
+    }
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -90,7 +86,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
                message_id: message_id,
                chat_id: "oc_deep_research_plugin",
                chat_type: "p2p",
-               text: parent_task(start_arguments),
+               text: parent_task(Ankole.JSON.encode!(start_arguments)),
                mentions: [lark_bot_mention()],
                create_time_ms:
                  DateTime.to_unix(
@@ -107,11 +103,11 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert {:ok, %ActorEvent{}} =
              wait_for_actor_event_completed(container, input.id, deadline(300_000))
 
-    start_tool_results =
-      ai_messages_for_actor_event(input.id) |> tool_results("background_agent_job")
+    assert [start_tool_result] =
+             ai_messages_for_actor_event(input.id) |> tool_results("create_background_job")
 
-    assert Enum.any?(start_tool_results, &(&1.arguments["action"] == "start"))
-    assert Enum.all?(start_tool_results, &(not tool_result_error?(&1)))
+    assert start_tool_result.arguments == start_arguments
+    refute tool_result_error?(start_tool_result)
 
     job =
       Repo.one!(
@@ -121,8 +117,8 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
         )
       )
 
-    assert job.agent_plugin_ids == ["deep-research"]
-    assert job.skill_names == [@data_source_skill]
+    assert job.workspace_template_id == "deep-research"
+    assert String.trim(job.task) == String.trim(task)
 
     dispatch_event =
       Repo.one!(
@@ -151,18 +147,16 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
   defp parent_task(start_arguments) do
     """
-    @_user_1 Exercise the enabled Deep Research Codex Plugin through the background_agent_job tool.
+    @_user_1 Exercise the enabled Deep Research Codex Plugin through the BackgroundAgentJob tools.
 
-    Start one job using this JSON as the background_agent_job arguments, then tell the user it is running:
-    <background_agent_job_start_arguments_json>
+    Call create_background_job exactly once with this JSON, then tell the user it is running:
+    <create_background_job_arguments_json>
     #{start_arguments}
-    </background_agent_job_start_arguments_json>
+    </create_background_job_arguments_json>
 
-    Whenever this job completes or fails, call background_agent_job(status) and verify the actual
-    deliverables. You may directly make and verify a small mechanical correction. If completing the
-    task needs the existing research context, call background_agent_job(steer) on this same job with concise
-    continuation instructions, then say that continuation is running. Otherwise, deliver the completed
-    result to the user. Never create a replacement job.
+    When this Job completes or fails, call show_background_job_details exactly once with the Job ID
+    returned by create_background_job and verify the actual deliverables. Deliver the completed result
+    or report the failure. Never create or respawn another Job.
     Never perform the Job's research in the caller conversation.
     """
   end
@@ -173,10 +167,9 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
          job_id,
          mode,
          container,
-         overall_deadline,
-         minimum_attempt \\ 1
+         overall_deadline
        ) do
-    settled = wait_for_settled_attempt!(job_id, mode, minimum_attempt, overall_deadline)
+    settled = wait_for_settled_attempt!(job_id, mode, overall_deadline)
 
     wakeup =
       settlement_wakeup!(
@@ -193,33 +186,29 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert {:ok, %ActorEvent{}} =
              wait_for_actor_event_completed(container, wakeup.id, deadline(300_000))
 
-    results = ai_messages_for_actor_event(wakeup.id) |> tool_results("background_agent_job")
-    assert Enum.any?(results, &(&1.arguments["action"] == "status"))
-    assert Enum.all?(results, &(not tool_result_error?(&1)))
+    assert [details_result] =
+             ai_messages_for_actor_event(wakeup.id)
+             |> tool_results("show_background_job_details")
 
-    if Enum.any?(results, &(&1.arguments["action"] == "steer")) do
-      process_latest_continuation_if_open!(job_id)
+    assert details_result.arguments == %{"job_id" => job_id}
+    refute tool_result_error?(details_result)
 
-      review_until_complete!(
-        agent_uid,
-        owner_session_id,
-        job_id,
-        mode,
-        container,
-        overall_deadline,
-        settled.attempts + 1
-      )
-    else
-      Repo.get!(Job, job_id)
+    if settled.status == "failed" do
+      flunk("""
+      Deep Research #{mode} job failed.
+      error=#{inspect(settled.error, limit: :infinity, printable_limit: 12_000)}
+      result=#{inspect(settled.result, limit: :infinity, printable_limit: 12_000)}
+      """)
     end
+
+    Repo.get!(Job, job_id)
   end
 
-  defp wait_for_settled_attempt!(job_id, mode, minimum_attempt, overall_deadline) do
+  defp wait_for_settled_attempt!(job_id, mode, overall_deadline) do
     assert {:ok, %Job{} = completed} =
              wait_until(overall_deadline, fn ->
                case Repo.get(Job, job_id) do
-                 %Job{status: status, attempts: attempts} = completed
-                 when status in ["succeeded", "failed"] and attempts >= minimum_attempt ->
+                 %Job{status: status} = completed when status in ["succeeded", "failed"] ->
                    completed
 
                  %Job{status: "stopped"} = stopped ->
@@ -258,20 +247,6 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
              end)
 
     event
-  end
-
-  defp process_latest_continuation_if_open!(job_id) do
-    event =
-      Repo.one(
-        from(event in ActorEvent,
-          where: event.session_id == ^BackgroundAgentJobs.job_session_id(job_id),
-          where: event.type == "command.steer",
-          order_by: [desc: event.queue_sequence],
-          limit: 1
-        )
-      )
-
-    if event, do: process_if_open!(event)
   end
 
   defp process_if_open!(%ActorEvent{id: id}),
@@ -343,15 +318,17 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert {:ok, 300_000} = AppConfigure.put_for_agent(agent_uid, definition, 300_000)
   end
 
-  defp read_report!(container, %Job{id: job_id}) do
+  defp read_report!(container, %Job{id: job_id, agent_uid: agent_uid}) do
     docker_exec!(container, [
       "cat",
-      "/workspace/shared/user-files/background-agent-jobs/#{job_id}/project/report/report.md"
+      Path.join(Ankole.AgentHomePaths.job_workspace(agent_uid, job_id), "report/report.md")
     ])
   end
 
   defp install_data_source_skill!(container, agent_uid) do
-    skill_dir = "/workspace/shared/skills/agents/#{agent_uid}/#{@data_source_skill}"
+    skill_dir =
+      Path.join(Ankole.AgentHomePaths.installed_skills(agent_uid), @data_source_skill)
+
     docker_exec!(container, ["mkdir", "-p", "#{skill_dir}/scripts"])
 
     docker_write_text!(
@@ -393,9 +370,9 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     mounted `#{@data_source_skill}` first-party data source; web research is outside this bounded
     task.
 
-    Cite the complete source record with its skill/query provenance. Write the result to
-    `report/report.md`. The report must state exactly "Aurora's approved budget is 10 units." and
-    must also state that the record's decision is approved. Review the report before submitting.
+    Cite the complete source record with its skill/query provenance. The requested user-facing
+    delivery format is Markdown. The report must state exactly "Aurora's approved budget is 10
+    units." and must also state that the record's decision is approved.
     """
   end
 

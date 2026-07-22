@@ -30,15 +30,6 @@ defmodule Ankole.Plugins.DingTalkAdapterConfigTest do
              })
   end
 
-  test "validate_chat_config rejects a non-http baseURL" do
-    assert {:error, {:invalid_base_url, "baseURL"}} =
-             Config.validate_chat_config(%{
-               "clientId" => "a",
-               "clientSecret" => "s",
-               "baseURL" => "ftp://x"
-             })
-  end
-
   test "validate_identity_config defaults sync and scope, forcing websocket under contacts" do
     assert {:ok, config} =
              Config.validate_identity_config(%{
@@ -80,17 +71,16 @@ defmodule Ankole.Plugins.DingTalkAdapterConfigTest do
              "robot-x"
   end
 
-  test "client builds a DingTalkOpenAPI client and a baseURL overrides both domains" do
+  test "client builds a DingTalkOpenAPI client with provider endpoints" do
     config = %{
       "clientId" => "ding-app",
-      "clientSecret" => "secret",
-      "baseURL" => "http://localhost:4010"
+      "clientSecret" => "secret"
     }
 
     client = Config.client(config)
     assert %DingTalkOpenAPI.Client{} = client
-    assert client.api_base_url == "http://localhost:4010"
-    assert client.oapi_base_url == "http://localhost:4010"
+    assert client.api_base_url == "https://api.dingtalk.com"
+    assert client.oapi_base_url == "https://oapi.dingtalk.com"
     refute inspect(client) =~ "secret"
   end
 end

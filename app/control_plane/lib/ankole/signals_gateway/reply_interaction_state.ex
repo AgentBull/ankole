@@ -43,11 +43,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
   @spec interaction(checkpoint(), String.t()) :: map() | nil
   def interaction(checkpoint, interaction_id)
       when is_map(checkpoint) and is_binary(interaction_id) do
-    case Map.get(interactions(checkpoint), interaction_id) do
-      %{} = interaction -> normalize_interaction(interaction)
-      nil -> legacy_pending_interaction(checkpoint, interaction_id)
-      _invalid -> nil
-    end
+    Map.get(interactions(checkpoint), interaction_id)
   end
 
   @spec resolve(checkpoint(), String.t(), map()) :: {:ok, checkpoint()} | :stale
@@ -228,8 +224,18 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
     end)
   end
 
-  defp interactions(%{"interactions" => interactions}) when is_map(interactions),
-    do: interactions
+  defp interactions(%{"interactions" => interactions}) when is_map(interactions) do
+    Enum.reduce(interactions, %{}, fn
+      {interaction_id, %{} = interaction}, acc when is_binary(interaction_id) ->
+        case normalize_interaction(interaction) do
+          %{} = normalized -> Map.put(acc, interaction_id, normalized)
+          nil -> acc
+        end
+
+      _invalid, acc ->
+        acc
+    end)
+  end
 
   defp interactions(_checkpoint), do: %{}
 
@@ -265,40 +271,40 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
     end
   end
 
-  defp legacy_pending_interaction(checkpoint, interaction_id) do
-    presentation = ReplyPresentation.normalize(checkpoint["presentation"])
+  defp normalize_interaction(interaction) do
+    interaction = stringify_keys(interaction)
 
-    if presentation["state"] == "awaiting_input" and
-         presentation["interaction_status"] == "pending" and
-         Enum.any?(presentation["actions"], fn action ->
-           action["interaction_id"] == interaction_id and action["disabled"] != true
-         end) do
-      %{"interaction_id" => interaction_id, "state" => "pending"}
+    case interaction do
+      %{"state" => "pending"} ->
+        interaction
+
+      %{"state" => "answered", "answer" => %{} = answer} ->
+        case normalize_answer(answer) do
+          %{} = normalized -> Map.put(interaction, "answer", normalized)
+          nil -> nil
+        end
+
+      %{"state" => "superseded"} ->
+        interaction
+
+      _stale ->
+        nil
     end
   end
 
-  defp normalize_interaction(interaction) do
-    interaction = stringify_keys(interaction)
-    state = interaction["state"] || "answered"
+  defp normalize_answer(answer) do
+    answer = stringify_keys(answer)
 
-    interaction
-    |> Map.put("state", state)
-    |> maybe_put_legacy_answer()
-  end
+    case answer do
+      %{"kind" => "choice", "value" => value, "option_id" => option_id}
+      when is_binary(value) and value != "" and is_binary(option_id) and option_id != "" ->
+        answer
 
-  defp maybe_put_legacy_answer(%{"answer" => %{} = _answer} = interaction), do: interaction
+      %{"kind" => "free_text", "value" => value} when is_binary(value) and value != "" ->
+        answer
 
-  defp maybe_put_legacy_answer(interaction) do
-    case {interaction["option_value"], interaction["selected_option_id"]} do
-      {value, option_id} when is_binary(value) and is_binary(option_id) ->
-        Map.put(interaction, "answer", %{
-          "kind" => "choice",
-          "value" => value,
-          "option_id" => option_id
-        })
-
-      _missing ->
-        interaction
+      _stale ->
+        nil
     end
   end
 
@@ -311,7 +317,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionState do
 
   defp terminal_state?(%{} = interaction) do
     state = Map.get(interaction, "state") || Map.get(interaction, :state)
-    state in @terminal_states or is_nil(state)
+    state in @terminal_states
   end
 
   defp terminal_state?(_interaction), do: false

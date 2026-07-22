@@ -12,23 +12,70 @@ defmodule Ankole.Brain.KnowledgeTest do
   setup do
     %{principal: owner} = agent_fixture()
     %{principal: human} = human_fixture()
-    {:ok, public_scope} = Scope.for_store(owner.uid, "public")
+    {:ok, shared_scope} = Scope.for_store(owner.uid, "shared")
+    {:ok, self_scope} = Scope.for_store(owner.uid, "self")
 
     %{
       owner: owner,
       human: human,
       actor: %{kind: :agent, uid: owner.uid},
-      public_scope: public_scope
+      self_scope: self_scope,
+      shared_scope: shared_scope
     }
   end
 
-  test "humans can rename and retype pages while the public curation guide remains human-owned",
+  test "two agents keep signed judgments in one shared entry and can filter by author", ctx do
+    %{principal: second_agent} = agent_fixture()
+    {:ok, second_scope} = Scope.for_store(second_agent.uid, "shared")
+
+    assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
+             Knowledge.apply_operations(
+               ctx.shared_scope,
+               %{
+                 operation: "create_entry",
+                 name: "Shared market judgment",
+                 type: "topic",
+                 initial_body: "Agent one judges the market as stable."
+               },
+               ctx.actor
+             )
+
+    assert {:ok, %{results: [%{entry_lock_version: 2}]}} =
+             Knowledge.apply_operations(
+               second_scope,
+               %{
+                 operation: "append_block",
+                 entry_id: entry_id,
+                 expected_entry_lock_version: 1,
+                 body: "Agent two judges the market as volatile."
+               },
+               %{kind: :agent, uid: second_agent.uid}
+             )
+
+    assert {:ok, %{blocks: blocks}} = Knowledge.open(second_scope, entry_id, block_limit: :all)
+
+    assert Enum.map(blocks, &{&1.author_uid, &1.body}) == [
+             {ctx.owner.uid, "Agent one judges the market as stable."},
+             {second_agent.uid, "Agent two judges the market as volatile."}
+           ]
+
+    assert {:ok, [%Entry{id: ^entry_id}]} =
+             Knowledge.list_entries(ctx.shared_scope, author_uid: ctx.owner.uid)
+
+    assert {:ok, [%Entry{id: ^entry_id}]} =
+             Knowledge.list_entries(second_scope, author_uid: second_agent.uid)
+
+    %{principal: unrelated} = agent_fixture()
+    assert {:ok, []} = Knowledge.list_entries(second_scope, author_uid: unrelated.uid)
+  end
+
+  test "humans can rename and retype pages while the self curation guide remains human-owned",
        ctx do
     human_actor = %{kind: :human, uid: ctx.human.uid}
 
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.self_scope,
                %{
                  operation: "create_entry",
                  name: "Brain Curation Guide",
@@ -40,7 +87,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:error, :curation_guide_human_only} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.self_scope,
                %{
                  operation: "edit_block",
                  block_id: Repo.get_by!(EntryBlock, entry_id: entry_id).id,
@@ -58,7 +105,7 @@ defmodule Ankole.Brain.KnowledgeTest do
               ]
             }} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.self_scope,
                [
                  %{
                    operation: "set_name",
@@ -77,11 +124,11 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, %{entry: %Entry{name: "Domain Curation Guide", type: "topic"}}} =
-             Knowledge.open(ctx.public_scope, entry_id)
+             Knowledge.open(ctx.self_scope, entry_id)
   end
 
   test "applies one optimistic metadata batch, treats nil property as delete, and audits", ctx do
-    {entry_id, 1} = create_entry(ctx.public_scope, ctx.actor, "项目 Alpha", "project")
+    {entry_id, 1} = create_entry(ctx.shared_scope, ctx.actor, "项目 Alpha", "project")
 
     assert {:ok,
             %{
@@ -91,7 +138,7 @@ defmodule Ankole.Brain.KnowledgeTest do
               ]
             }} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                [
                  %{
                    operation: "set_summary",
@@ -112,11 +159,11 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, %{entry: %Entry{summary: "当前执行中", properties: %{"status" => "active"}}}} =
-             Knowledge.open(ctx.public_scope, entry_id)
+             Knowledge.open(ctx.shared_scope, entry_id)
 
     assert {:ok, %{results: [%{entry_lock_version: 4}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_property",
                  entry_id: entry_id,
@@ -127,11 +174,11 @@ defmodule Ankole.Brain.KnowledgeTest do
                ctx.actor
              )
 
-    assert {:ok, %{entry: %Entry{properties: %{}}}} = Knowledge.open(ctx.public_scope, entry_id)
+    assert {:ok, %{entry: %Entry{properties: %{}}}} = Knowledge.open(ctx.shared_scope, entry_id)
 
     assert {:ok, %{results: [%{entry_lock_version: 5}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_summary",
                  entry_id: entry_id,
@@ -141,8 +188,8 @@ defmodule Ankole.Brain.KnowledgeTest do
                ctx.actor
              )
 
-    assert {:ok, %{entry: %Entry{summary: ""}}} = Knowledge.open(ctx.public_scope, entry_id)
-    assert {:ok, audits} = Knowledge.list_audit(ctx.public_scope, entry_id: entry_id)
+    assert {:ok, %{entry: %Entry{summary: ""}}} = Knowledge.open(ctx.shared_scope, entry_id)
+    assert {:ok, audits} = Knowledge.list_audit(ctx.shared_scope, entry_id: entry_id)
 
     assert Enum.map(audits, & &1.action) |> Enum.sort() ==
              Enum.sort([
@@ -154,25 +201,25 @@ defmodule Ankole.Brain.KnowledgeTest do
              ])
   end
 
-  test "opens names and aliases deterministically across DM and public stores", ctx do
-    {public_id, _version} =
-      create_entry(ctx.public_scope, ctx.actor, "张总", "person", aliases: ["张经理"])
+  test "opens names and aliases deterministically across DM and shared stores", ctx do
+    {shared_id, _version} =
+      create_entry(ctx.shared_scope, ctx.actor, "张总", "person", aliases: ["张经理"])
 
     {:ok, dm_scope} = Scope.for_store(ctx.owner.uid, "dm:customer-one")
     {dm_id, _version} = create_entry(dm_scope, ctx.actor, "张总", "person", summary: "私聊上下文")
 
     assert {:ok, %{entry: %Entry{id: ^dm_id}}} = Knowledge.open(dm_scope, "张总")
 
-    assert {:ok, %{entry: %Entry{id: ^public_id}}} =
-             Knowledge.open(dm_scope, "张总", store_key: "public")
+    assert {:ok, %{entry: %Entry{id: ^shared_id}}} =
+             Knowledge.open(dm_scope, "张总", store_key: "shared")
 
-    assert {:ok, %{entry: %Entry{id: ^public_id}}} = Knowledge.open(dm_scope, "张经理")
+    assert {:ok, %{entry: %Entry{id: ^shared_id}}} = Knowledge.open(dm_scope, "张经理")
   end
 
   test "invalid structured identifiers fail without raising", ctx do
     assert {:error, {:invalid_field, :entry_id}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "delete_entry",
                  entry_id: "not-a-uuid",
@@ -182,10 +229,10 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:error, {:invalid_field, :audit_id}} =
-             Knowledge.list_audit(ctx.public_scope, audit_id: "not-a-uuid")
+             Knowledge.list_audit(ctx.shared_scope, audit_id: "not-a-uuid")
 
     assert {:error, {:invalid_field, :audit_id}} =
-             Knowledge.restore_audit(ctx.public_scope, "not-a-uuid", ctx.actor)
+             Knowledge.restore_audit(ctx.shared_scope, "not-a-uuid", ctx.actor)
   end
 
   test "mechanical operations require a causal surface and cannot author content", ctx do
@@ -199,25 +246,25 @@ defmodule Ankole.Brain.KnowledgeTest do
     }
 
     assert {:error, :mechanical_operation_surface_required} =
-             Knowledge.apply_mechanical_operation(ctx.public_scope, empty_entry, %{})
+             Knowledge.apply_mechanical_operation(ctx.shared_scope, empty_entry, %{})
 
     assert {:error, :mechanical_entry_must_be_empty} =
              Knowledge.apply_mechanical_operation(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{empty_entry | summary: "unattributed content"},
                %{"surface" => "test_bootstrap"}
              )
 
     assert {:error, {:actor_required_for_operation, "append_block"}} =
              Knowledge.apply_mechanical_operation(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{operation: "append_block"},
                %{"surface" => "test_bootstrap"}
              )
   end
 
   test "paginates blocks with a stable position/id cursor and renders only the page", ctx do
-    {entry_id, version} = create_entry(ctx.public_scope, ctx.actor, "分页主题", "topic")
+    {entry_id, version} = create_entry(ctx.shared_scope, ctx.actor, "分页主题", "topic")
 
     {version, _block_ids} =
       Enum.reduce(["第一块", "第二块", "第三块"], {version, []}, fn body, {version, ids} ->
@@ -231,7 +278,7 @@ defmodule Ankole.Brain.KnowledgeTest do
            ]
          }} =
           Knowledge.apply_operations(
-            ctx.public_scope,
+            ctx.shared_scope,
             %{
               operation: "append_block",
               entry_id: entry_id,
@@ -249,7 +296,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok,
             %{blocks: [%EntryBlock{body: "第一块"}], next_block_cursor: cursor, markdown: first_page}} =
-             Knowledge.open(ctx.public_scope, entry_id, block_limit: 1)
+             Knowledge.open(ctx.shared_scope, entry_id, block_limit: 1)
 
     assert is_binary(cursor)
     assert first_page =~ "第一块"
@@ -258,23 +305,23 @@ defmodule Ankole.Brain.KnowledgeTest do
     refute first_page =~ "第二块"
 
     assert {:ok, %{blocks: [%EntryBlock{body: "第二块"}], next_block_cursor: next_cursor}} =
-             Knowledge.open(ctx.public_scope, entry_id, block_limit: 1, block_cursor: cursor)
+             Knowledge.open(ctx.shared_scope, entry_id, block_limit: 1, block_cursor: cursor)
 
     assert is_binary(next_cursor)
 
     assert {:ok, %{blocks: blocks, next_block_cursor: nil}} =
-             Knowledge.open(ctx.public_scope, entry_id, block_limit: :all)
+             Knowledge.open(ctx.shared_scope, entry_id, block_limit: :all)
 
     assert Enum.map(blocks, & &1.body) == ["第一块", "第二块", "第三块"]
   end
 
   test "rejects a malicious final projection atomically for pinned memory", ctx do
     {entry_id, 1} =
-      create_entry(ctx.public_scope, ctx.actor, "常驻备忘", "agent_system_pinned_memo")
+      create_entry(ctx.self_scope, ctx.actor, "常驻备忘", "agent_system_pinned_memo")
 
     assert {:error, blank_changeset} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.self_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -288,7 +335,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:error, {:threat_detected, message}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.self_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -301,14 +348,14 @@ defmodule Ankole.Brain.KnowledgeTest do
     assert message =~ "prompt_injection"
 
     assert {:ok, %{entry: %Entry{lock_version: 1}, blocks: []}} =
-             Knowledge.open(ctx.public_scope, entry_id, block_limit: :all)
+             Knowledge.open(ctx.self_scope, entry_id, block_limit: :all)
   end
 
-  test "DM relations may target public but public relations cannot target DM", ctx do
-    {public_source_id, public_version} =
-      create_entry(ctx.public_scope, ctx.actor, "公共主语", "topic")
+  test "DM relations may target shared but shared relations cannot target DM", ctx do
+    {shared_source_id, shared_version} =
+      create_entry(ctx.shared_scope, ctx.actor, "公共主语", "topic")
 
-    {public_target_id, _version} = create_entry(ctx.public_scope, ctx.actor, "公共宾语", "topic")
+    {shared_target_id, _version} = create_entry(ctx.shared_scope, ctx.actor, "公共宾语", "topic")
     {:ok, dm_scope} = Scope.for_store(ctx.owner.uid, "dm:customer-one")
     {dm_source_id, dm_version} = create_entry(dm_scope, ctx.actor, "私聊主语", "topic")
     {dm_target_id, _version} = create_entry(dm_scope, ctx.actor, "私聊宾语", "topic")
@@ -319,7 +366,7 @@ defmodule Ankole.Brain.KnowledgeTest do
                %{
                  operation: "add_relation",
                  entry_id: dm_source_id,
-                 target_entry_id: public_target_id,
+                 target_entry_id: shared_target_id,
                  predicate: "参考",
                  expected_entry_lock_version: dm_version
                },
@@ -337,38 +384,38 @@ defmodule Ankole.Brain.KnowledgeTest do
                %{
                  operation: "add_relation",
                  entry_id: other_dm_source_id,
-                 target_entry_id: public_target_id,
+                 target_entry_id: shared_target_id,
                  predicate: "另一个参考",
                  expected_entry_lock_version: other_dm_version
                },
                ctx.actor
              )
 
-    assert {:ok, %{backlinks: dm_backlinks}} = Knowledge.open(dm_scope, public_target_id)
+    assert {:ok, %{backlinks: dm_backlinks}} = Knowledge.open(dm_scope, shared_target_id)
     assert Enum.map(dm_backlinks, & &1.source.id) == [dm_source_id]
 
-    assert {:ok, %{backlinks: []}} = Knowledge.open(ctx.public_scope, public_target_id)
+    assert {:ok, %{backlinks: []}} = Knowledge.open(ctx.shared_scope, shared_target_id)
 
     assert {:error, :not_found} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "add_relation",
-                 entry_id: public_source_id,
+                 entry_id: shared_source_id,
                  target_entry_id: dm_target_id,
                  predicate: "泄漏",
-                 expected_entry_lock_version: public_version
+                 expected_entry_lock_version: shared_version
                },
                ctx.actor
              )
   end
 
   test "restores a deleted block from its structured audit snapshot", ctx do
-    {entry_id, version} = create_entry(ctx.public_scope, ctx.actor, "恢复主题", "topic")
+    {entry_id, version} = create_entry(ctx.shared_scope, ctx.actor, "恢复主题", "topic")
 
     assert {:ok, %{results: [%{block_id: block_id, block_lock_version: block_version}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -380,7 +427,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{operation: "delete_block"}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "delete_block",
                  block_id: block_id,
@@ -390,7 +437,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, [delete_audit]} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                entry_id: entry_id,
                action: "delete_block",
                limit: 1
@@ -405,14 +452,20 @@ defmodule Ankole.Brain.KnowledgeTest do
               block_id: ^block_id,
               restore_audit_id: restore_audit_id
             }} =
-             Knowledge.restore_audit(ctx.public_scope, delete_audit.id, ctx.actor,
+             Knowledge.restore_audit(ctx.shared_scope, delete_audit.id, ctx.actor,
                metadata: %{"surface" => "test"}
              )
 
-    assert %EntryBlock{body: "可恢复正文"} = Repo.get!(EntryBlock, block_id)
+    assert %EntryBlock{
+             body: "可恢复正文",
+             embedding: nil,
+             embedding_dimensions: nil,
+             embedding_state: :pending,
+             embedding_error: nil
+           } = Repo.get!(EntryBlock, block_id)
 
     assert {:ok, [restore_audit]} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                audit_id: restore_audit_id,
                action: "append_block"
              )
@@ -422,17 +475,17 @@ defmodule Ankole.Brain.KnowledgeTest do
     assert restore_audit.after["body"] == "可恢复正文"
 
     assert {:ok, %{restored: "append_block", block_id: ^block_id}} =
-             Knowledge.restore_audit(ctx.public_scope, restore_audit.id, ctx.actor)
+             Knowledge.restore_audit(ctx.shared_scope, restore_audit.id, ctx.actor)
 
     assert Repo.get(EntryBlock, block_id) == nil
   end
 
   test "audit restore reverses only the audited field and preserves later unrelated edits", ctx do
-    {entry_id, version} = create_entry(ctx.public_scope, ctx.actor, "精确恢复", "topic")
+    {entry_id, version} = create_entry(ctx.shared_scope, ctx.actor, "精确恢复", "topic")
 
     assert {:ok, %{results: [%{entry_lock_version: 2}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_summary",
                  entry_id: entry_id,
@@ -443,7 +496,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, [summary_audit]} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                entry_id: entry_id,
                action: "set_summary",
                limit: 1
@@ -451,7 +504,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{entry_lock_version: 3}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_property",
                  entry_id: entry_id,
@@ -463,18 +516,18 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, %{restored: "set_summary"}} =
-             Knowledge.restore_audit(ctx.public_scope, summary_audit.id, ctx.actor)
+             Knowledge.restore_audit(ctx.shared_scope, summary_audit.id, ctx.actor)
 
     assert {:ok, %{entry: %Entry{summary: "", properties: %{"owner" => "张总"}, lock_version: 4}}} =
-             Knowledge.open(ctx.public_scope, entry_id)
+             Knowledge.open(ctx.shared_scope, entry_id)
   end
 
   test "audit restore conflicts instead of overwriting a later edit to the same fact", ctx do
-    {entry_id, version} = create_entry(ctx.public_scope, ctx.actor, "冲突恢复", "topic")
+    {entry_id, version} = create_entry(ctx.shared_scope, ctx.actor, "冲突恢复", "topic")
 
     assert {:ok, %{results: [%{entry_lock_version: 2}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_summary",
                  entry_id: entry_id,
@@ -485,7 +538,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, [stale_audit]} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                entry_id: entry_id,
                action: "set_summary",
                limit: 1
@@ -493,7 +546,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{entry_lock_version: 3}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_summary",
                  entry_id: entry_id,
@@ -504,20 +557,20 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:error, {:audit_restore_conflict, %{audit_id: audit_id, reason: :state_changed}}} =
-             Knowledge.restore_audit(ctx.public_scope, stale_audit.id, ctx.actor)
+             Knowledge.restore_audit(ctx.shared_scope, stale_audit.id, ctx.actor)
 
     assert audit_id == stale_audit.id
 
     assert {:ok, %{entry: %Entry{summary: "第三版", lock_version: 3}}} =
-             Knowledge.open(ctx.public_scope, entry_id)
+             Knowledge.open(ctx.shared_scope, entry_id)
   end
 
   test "restoring an appended block refuses to delete a later edited block", ctx do
-    {entry_id, version} = create_entry(ctx.public_scope, ctx.actor, "块冲突", "topic")
+    {entry_id, version} = create_entry(ctx.shared_scope, ctx.actor, "块冲突", "topic")
 
     assert {:ok, %{results: [%{block_id: block_id, block_lock_version: 1}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -528,7 +581,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, [append_audit]} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                entry_id: entry_id,
                action: "append_block",
                limit: 1
@@ -536,7 +589,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{block_lock_version: 2}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "edit_block",
                  block_id: block_id,
@@ -547,7 +600,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:error, {:audit_restore_conflict, %{reason: :state_changed}}} =
-             Knowledge.restore_audit(ctx.public_scope, append_audit.id, ctx.actor)
+             Knowledge.restore_audit(ctx.shared_scope, append_audit.id, ctx.actor)
 
     assert %EntryBlock{body: "后来正文", lock_version: 2} = Repo.get!(EntryBlock, block_id)
   end
@@ -559,7 +612,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{operation: "create_entry", name: "批量恢复", type: "topic", summary: ""},
                %{kind: :dreaming, uid: ctx.owner.uid},
                metadata: metadata
@@ -567,7 +620,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{entry_lock_version: 2}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "append_block",
                  entry_id: entry_id,
@@ -580,7 +633,7 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert {:ok, %{results: [%{entry_lock_version: 3}]}} =
              Knowledge.apply_operations(
-               ctx.public_scope,
+               ctx.shared_scope,
                %{
                  operation: "set_summary",
                  entry_id: entry_id,
@@ -592,7 +645,7 @@ defmodule Ankole.Brain.KnowledgeTest do
              )
 
     assert {:ok, audits} =
-             Knowledge.list_audit(ctx.public_scope,
+             Knowledge.list_audit(ctx.shared_scope,
                actor_kind: :dreaming,
                run_id: run_id,
                limit: 10

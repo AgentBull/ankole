@@ -16,8 +16,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.Plugins.LarkAdapter.ConnectionOwner
-  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
-  alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -42,17 +40,16 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
 
-  defmodule TestConnectionSupervisor do
-    @moduledoc false
-
-    def ensure_started(_config, _consumers, _opts), do: {:ok, self()}
-  end
-
   setup do
+    Req.Test.set_req_test_to_shared()
     AppConfigureRegistry.clear_for_test()
     AppConfigureCache.clear_for_test()
     :ok = AppConfigure.register_definitions(LarkAdapter.app_config_definitions())
     :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+    previous = Req.default_options()
+    Req.Test.stub(__MODULE__, &default_lark_request/1)
+    Req.default_options(plug: {Req.Test, __MODULE__})
+    on_exit(fn -> Req.default_options(previous) end)
   end
 
   describe "plugin declaration" do
@@ -99,7 +96,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                "appID",
                "appSecret",
                "domain",
-               "baseURL",
                "platformSubjectNamespace",
                "userName"
              ]
@@ -141,6 +137,58 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert LarkAdapter.app_config_definitions() == []
     end
 
+    test "chat config does not retain bot identity" do
+      assert {:ok, config} =
+               Config.validate_chat_config(%{
+                 "appID" => "cli_x",
+                 "appSecret" => "secret",
+                 "botOpenID" => "ou_legacy_override",
+                 "botUserID" => "cli_legacy_override",
+                 "runtimeBotOpenID" => "ou_process_only"
+               })
+
+      refute Map.has_key?(config, "botOpenID")
+      refute Map.has_key?(config, "botUserID")
+      refute Map.has_key?(config, "runtimeBotOpenID")
+
+      assert {:ok, binding_config} = Config.validate_binding_config(config)
+      assert binding_config == config
+    end
+
+    test "stored chat config cannot override the provider endpoint" do
+      previous = Application.fetch_env(:ankole, Config)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:ankole, Config, value)
+          :error -> Application.delete_env(:ankole, Config)
+        end
+      end)
+
+      assert {:ok, config} =
+               Config.validate_chat_config(%{
+                 "appID" => "cli_x",
+                 "appSecret" => "secret",
+                 "baseURL" => "https://stored.invalid"
+               })
+
+      refute Map.has_key?(config, "baseURL")
+      assert Config.client(config).base_url == Client.base_url_for(:feishu)
+
+      current = Application.get_env(:ankole, Config, [])
+
+      Application.put_env(
+        :ankole,
+        Config,
+        Keyword.put(current, :client_opts, base_url: "https://test.invalid")
+      )
+
+      assert Config.client(config).base_url == "https://test.invalid"
+
+      assert Config.client(config, base_url: "https://explicit.invalid").base_url ==
+               "https://explicit.invalid"
+    end
+
     test "chat and identity config validation applies design defaults" do
       assert {:ok, chat} =
                Config.validate_chat_config(%{
@@ -149,54 +197,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                })
 
       assert chat["domain"] == "feishu"
-      assert chat["baseURL"] == nil
       refute Map.has_key?(chat, "group_message_mode")
       assert chat["platformSubjectNamespace"] == "lark-main"
-      assert chat["botOpenID"] == nil
-      assert chat["botUserID"] == nil
-
-      # A binding no longer requires a hand-entered bot identity: the bot's own
-      # open_id is resolved from bot/v3/info at connection time.
-      assert {:ok, %{"botOpenID" => nil, "botUserID" => nil}} =
-               Config.validate_binding_config(%{
-                 "appID" => "cli_x",
-                 "appSecret" => "secret"
-               })
-
-      assert {:ok, %{"baseURL" => "http://127.0.0.1:4455"}} =
-               Config.validate_chat_config(%{
-                 "appID" => "cli_x",
-                 "appSecret" => "secret",
-                 "baseURL" => "http://127.0.0.1:4455"
-               })
-
-      assert {:error, {:invalid_base_url, "baseURL"}} =
-               Config.validate_chat_config(%{
-                 "appID" => "cli_x",
-                 "appSecret" => "secret",
-                 "baseURL" => "ftp://bad"
-               })
-
-      # With no botOpenID configured, the adapter resolves the bot's own open_id
-      # from bot/v3/info using the app credentials alone.
-      resolved =
-        Config.resolve_runtime_bot_identity(
-          chat,
-          bot_info_fetcher: fn config ->
-            send(self(), {:bot_info_config, Map.take(config, ["appID", "botOpenID"])})
-            {:ok, "ou_runtime_bot"}
-          end
-        )
-
-      assert_received {:bot_info_config, %{"appID" => "cli_x", "botOpenID" => nil}}
-      assert resolved["botOpenID"] == nil
-      assert resolved["runtimeBotOpenID"] == "ou_runtime_bot"
-
-      # An explicit botOpenID override skips the provider lookup entirely.
-      assert Config.resolve_runtime_bot_identity(
-               %{chat | "botOpenID" => "ou_explicit"},
-               bot_info_fetcher: fn _config -> {:error, :should_not_be_called} end
-             ) == %{chat | "botOpenID" => "ou_explicit"}
 
       assert {:ok, identity} =
                Config.validate_identity_config(%{
@@ -246,41 +248,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "durable final edit falls back to a new message after Feishu edit budget exhaustion" do
       parent = self()
 
-      base_url =
-        Ankole.AIGatewayCase.start_upstream_server(fn request ->
-          send(parent, {:lark_outbox_request, request})
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
 
-          case {request.method, request.request_path} do
-            {:put, "/open-apis/im/v1/messages/om_preview"} ->
-              {:json, 400, %{"code" => 230_072, "msg" => "edit count exceeded"}}
+        case {request.method, request.request_path} do
+          {:put, "/open-apis/im/v1/messages/om_preview"} ->
+            {:json, 400, %{"code" => 230_072, "msg" => "edit count exceeded"}}
 
-            {:post, "/open-apis/im/v1/messages"} ->
-              {:json, 200,
-               %{
-                 "code" => 0,
-                 "data" => %{
-                   "message_id" => "om_fallback",
-                   "root_id" => "om_fallback"
-                 }
-               }}
-          end
-        end)
+          {:post, "/open-apis/im/v1/messages"} ->
+            {:json, 200,
+             %{
+               "code" => 0,
+               "data" => %{
+                 "message_id" => "om_fallback",
+                 "root_id" => "om_fallback"
+               }
+             }}
+        end
+      end)
 
       %{principal: agent} = agent_fixture()
       binding_name = "lark-edit-fallback"
 
-      config =
-        chat_config(%{
-          "appID" => "cli_edit_fallback",
-          "baseURL" => base_url
-        })
+      config = chat_config(%{"appID" => "cli_edit_fallback"})
 
       assert {:ok, _config} =
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
-      put_tenant_token(config, [])
-      on_exit(fn -> delete_tenant_token(config, []) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
       outbox = final_edit_outbox(agent.uid, binding_name)
 
@@ -310,41 +307,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "durable final edit falls back when Feishu reports the edit window expired" do
       parent = self()
 
-      base_url =
-        Ankole.AIGatewayCase.start_upstream_server(fn request ->
-          send(parent, {:lark_outbox_request, request})
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
 
-          case {request.method, request.request_path} do
-            {:put, "/open-apis/im/v1/messages/om_preview"} ->
-              {:json, 400, %{"code" => 230_075, "msg" => "edit window expired"}}
+        case {request.method, request.request_path} do
+          {:put, "/open-apis/im/v1/messages/om_preview"} ->
+            {:json, 400, %{"code" => 230_075, "msg" => "edit window expired"}}
 
-            {:post, "/open-apis/im/v1/messages"} ->
-              {:json, 200,
-               %{
-                 "code" => 0,
-                 "data" => %{
-                   "message_id" => "om_expired_fallback",
-                   "root_id" => "om_expired_fallback"
-                 }
-               }}
-          end
-        end)
+          {:post, "/open-apis/im/v1/messages"} ->
+            {:json, 200,
+             %{
+               "code" => 0,
+               "data" => %{
+                 "message_id" => "om_expired_fallback",
+                 "root_id" => "om_expired_fallback"
+               }
+             }}
+        end
+      end)
 
       %{principal: agent} = agent_fixture()
       binding_name = "lark-expired-edit-fallback"
 
-      config =
-        chat_config(%{
-          "appID" => "cli_expired_edit_fallback",
-          "baseURL" => base_url
-        })
+      config = chat_config(%{"appID" => "cli_expired_edit_fallback"})
 
       assert {:ok, _config} =
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
-      put_tenant_token(config, [])
-      on_exit(fn -> delete_tenant_token(config, []) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
       assert {:ok,
               %{
@@ -362,27 +354,22 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "non-budget edit failures remain errors and expose only safe provider fields" do
       parent = self()
 
-      base_url =
-        Ankole.AIGatewayCase.start_upstream_server(fn request ->
-          send(parent, {:lark_outbox_request, request})
-          {:json, 400, %{"code" => 230_071, "msg" => "operator is not sender"}}
-        end)
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
+        {:json, 400, %{"code" => 230_071, "msg" => "operator is not sender"}}
+      end)
 
       %{principal: agent} = agent_fixture()
       binding_name = "lark-edit-no-fallback"
 
-      config =
-        chat_config(%{
-          "appID" => "cli_edit_no_fallback",
-          "baseURL" => base_url
-        })
+      config = chat_config(%{"appID" => "cli_edit_no_fallback"})
 
       assert {:ok, _config} =
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
-      put_tenant_token(config, [])
-      on_exit(fn -> delete_tenant_token(config, []) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
       assert {:error,
               {:provider_error, %{code: 230_071, http_status: 400, msg: "operator is not sender"}}} =
@@ -397,32 +384,27 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     test "sends a materialized image attachment as a native Feishu image message" do
       parent = self()
 
-      base_url =
-        Ankole.AIGatewayCase.start_upstream_server(fn request ->
-          send(parent, {:lark_outbox_request, request})
+      stub_lark_requests(parent, fn request ->
+        send(parent, {:lark_outbox_request, request})
 
-          {:json, 200,
-           %{
-             "code" => 0,
-             "data" => %{"message_id" => "om_image", "root_id" => "om_image"}
-           }}
-        end)
+        {:json, 200,
+         %{
+           "code" => 0,
+           "data" => %{"message_id" => "om_image", "root_id" => "om_image"}
+         }}
+      end)
 
       %{principal: agent} = agent_fixture()
       binding_name = "lark-native-image"
 
-      config =
-        chat_config(%{
-          "appID" => "cli_native_image",
-          "baseURL" => base_url
-        })
+      config = chat_config(%{"appID" => "cli_native_image"})
 
       assert {:ok, _config} =
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
-      put_tenant_token(config, [])
-      on_exit(fn -> delete_tenant_token(config, []) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
       id = Ecto.UUID.generate()
 
@@ -462,167 +444,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "connection ownership" do
-    test "reconciler starts enabled chat bindings through the connection supervisor" do
-      registry = unique_module("LarkConnectionRegistry")
-      supervisor = unique_module("LarkConnectionSupervisor")
-
-      start_supervised!({Registry, keys: :unique, name: registry})
-      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-
-      %{principal: first_agent} = agent_fixture()
-      %{principal: second_agent} = agent_fixture()
-
-      assert {:ok, _} =
-               AppConfigure.put_global_by_key(
-                 Config.chat_config_key("lark-first"),
-                 %{
-                   "appID" => "cli_reconciler",
-                   "appSecret" => "secret",
-                   "platformSubjectNamespace" => "lark-main",
-                   "userName" => "Lark Bot"
-                 }
-               )
-
-      assert {:ok, _} =
-               AppConfigure.put_global_by_key(
-                 Config.chat_config_key("lark-second"),
-                 %{
-                   "appID" => "cli_reconciler",
-                   "appSecret" => "secret",
-                   "platformSubjectNamespace" => "lark-main",
-                   "userName" => "Lark Bot"
-                 }
-               )
-
-      binding_fixture(first_agent.uid, "lark-first", :ignore)
-      binding_fixture(second_agent.uid, "lark-second", :may_intervene)
-
-      assert %{started: 1, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false,
-                 bot_info_fetcher: fn _config -> {:ok, "ou_runtime_bot"} end
-               )
-
-      assert [{"feishu", "cli_reconciler"}] =
-               ConnectionSupervisor.registered_keys(registry: registry)
-    end
-
-    test "reconciler starts enabled identity provider consumers" do
-      registry = unique_module("LarkIdentityConnectionRegistry")
-      supervisor = unique_module("LarkIdentityConnectionSupervisor")
-
-      start_supervised!({Registry, keys: :unique, name: registry})
-      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-
-      assert {:ok, _provider} =
-               IdentityProviders.save_provider(
-                 "lark-main",
-                 "lark",
-                 %{"appID" => "cli_identity_reconciler", "appSecret" => "secret"},
-                 true
-               )
-
-      assert %{started: 1, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert [{pid, _value}] = Registry.lookup(registry, {"feishu", "cli_identity_reconciler"})
-
-      assert %{
-               consumer_count: 1,
-               consumer_kinds: [:identity_provider]
-             } = ConnectionOwner.status(pid)
-    end
-
-    test "reconciler skips identity realtime consumer when directory sync is disabled" do
-      registry = unique_module("LarkIdentityDisabledConnectionRegistry")
-      supervisor = unique_module("LarkIdentityDisabledConnectionSupervisor")
-
-      start_supervised!({Registry, keys: :unique, name: registry})
-      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-
-      assert {:ok, _provider} =
-               IdentityProviders.save_provider(
-                 "lark-disabled",
-                 "lark",
-                 %{
-                   "appID" => "cli_identity_disabled",
-                   "appSecret" => "secret",
-                   "sync" => %{"contacts" => false, "websocket" => true}
-                 },
-                 true
-               )
-
-      assert %{started: 0, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert [] == Registry.lookup(registry, {"feishu", "cli_identity_disabled"})
-    end
-
-    test "keeps one owner per domain and app id and rejects secret conflicts" do
-      registry = unique_module("LarkConnectionRegistry")
-      supervisor = unique_module("LarkConnectionSupervisor")
-
-      start_supervised!({Registry, keys: :unique, name: registry})
-      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
-
-      config = chat_config()
-      context = adapter_context(agent_fixture().principal.uid)
-      consumer = Inbound.chat_consumer(context, config)
-
-      assert {:ok, first_pid} =
-               ConnectionSupervisor.ensure_started(config, [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert {:ok, ^first_pid} =
-               ConnectionSupervisor.ensure_started(config, [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert {:error, :conflicting_app_secret} =
-               ConnectionSupervisor.ensure_started(
-                 %{config | "appSecret" => "different"},
-                 [consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      changed_consumer =
-        Inbound.chat_consumer(
-          AdapterContext.new(
-            agent_uid: context.agent_uid,
-            binding_name: "other-lark",
-            adapter: "lark",
-            user_name: "Bot"
-          ),
-          config
-        )
-
-      assert {:ok, restarted_pid} =
-               ConnectionSupervisor.ensure_started(config, [changed_consumer],
-                 registry: registry,
-                 supervisor: supervisor,
-                 start_client?: false
-               )
-
-      assert restarted_pid != first_pid
-    end
-
     test "connection owner format_status omits client, dispatcher, and secrets" do
       state = %ConnectionOwner{
         key: {"feishu", "cli_status"},
@@ -632,9 +453,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         consumer_kinds: [:chat, :identity_provider],
         client: %{app_secret: "secret"},
         dispatcher: %{secret: "secret"},
-        ws_pid: self(),
-        ws_client_module: FeishuOpenAPI.WS.Client,
-        start_client?: true
+        ws_pid: self()
       }
 
       assert %{state: formatted_state} = ConnectionOwner.format_status(%{state: state})
@@ -644,9 +463,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                secret_fingerprint: "aaaaaaaa",
                consumer_count: 2,
                consumer_kinds: [:chat, :identity_provider],
-               ws_pid: self(),
-               ws_client_module: FeishuOpenAPI.WS.Client,
-               start_client?: true
+               ws_pid: self()
              }
 
       refute Map.has_key?(formatted_state, :client)
@@ -706,6 +523,248 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert reply.reply_to_source_entry_id == "om_root"
     end
 
+    test "post normalization reads content_v2 when legacy content is absent" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_v2", %{
+          "content_v2" => [[%{"tag" => "text", "text" => "native v2"}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "native v2"
+    end
+
+    test "post normalization prefers non-empty content_v2 over legacy content" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_v2_preferred", %{
+          "content" => [[%{"tag" => "text", "text" => "legacy"}]],
+          "content_v2" => [[%{"tag" => "text", "text" => "native v2"}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "native v2"
+    end
+
+    test "post normalization falls back to legacy content when content_v2 is empty" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_v2_empty", %{
+          "content" => [[%{"tag" => "text", "text" => "legacy"}]],
+          "content_v2" => []
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "legacy"
+    end
+
+    test "post normalization falls back from malformed content_v2 variants without raising" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      for {malformed, index} <- Enum.with_index([nil, %{}, "not-a-block-list", 42]) do
+        event =
+          post_receive_event("om_post_v2_malformed_#{index}", %{
+            "content" => [[%{"tag" => "text", "text" => "legacy #{index}"}]],
+            "content_v2" => malformed
+          })
+
+        assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+        assert normalized.text == "legacy #{index}"
+      end
+    end
+
+    test "post normalization unwraps a single locale payload" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_locale", %{
+          "zh_cn" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "本地化正文"}]]
+          }
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "本地化正文"
+    end
+
+    test "post normalization selects a deterministic locale from a multi-locale payload" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_multi_locale", %{
+          "en_us" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "English body"}]]
+          },
+          "zh_cn" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "中文正文"}]]
+          }
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "中文正文"
+
+      fallback_event =
+        post_receive_event("om_post_multi_locale_fallback", %{
+          "fr_fr" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "Corps français"}]]
+          },
+          "de_de" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "Deutscher Text"}]]
+          }
+        })
+
+      assert {:ok, fallback} = Inbound.normalize_message_receive(fallback_event, consumer)
+      assert fallback.text == "Deutscher Text"
+    end
+
+    test "post normalization skips preferred locales without a parsable body" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        post_receive_event("om_post_invalid_preferred_locale", %{
+          "zh_cn" => %{"title" => "没有正文"},
+          "en_us" => %{
+            "content_v2" => [[%{"tag" => "text", "text" => "Complete body"}]]
+          }
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == "Complete body"
+    end
+
+    test "native markdown post blocks preserve their markdown body" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+      markdown = "**bold**\n\n- first\n- second"
+
+      event =
+        post_receive_event("om_post_markdown", %{
+          "content_v2" => [[%{"tag" => "md", "text" => markdown}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == markdown
+      assert normalized.formatted_content == %{"format" => "markdown", "body" => markdown}
+    end
+
+    test "markdown post blocks extract only provider image keys and keep descriptors separate" do
+      %{principal: agent} = agent_fixture()
+
+      consumer =
+        adapter_context(agent.uid)
+        |> Inbound.chat_consumer(chat_config())
+
+      markdown =
+        "provider ![chart](img_v3_chart) web ![site](https://example.com/a.png) inline ![data](data:image/png;base64,abc)"
+
+      event =
+        post_receive_event("om_post_markdown_images", %{
+          "content_v2" => [[%{"tag" => "md", "text" => markdown}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == markdown
+
+      assert [attachment] = normalized.attachments
+      assert attachment["provider_ref"] == "lark:image:img_v3_chart"
+      assert attachment["file_key"] == "img_v3_chart"
+    end
+
+    test "duplicate markdown and native image references materialize only once" do
+      %{principal: agent} = agent_fixture()
+
+      consumer =
+        adapter_context(agent.uid)
+        |> Inbound.chat_consumer(chat_config())
+
+      event =
+        post_receive_event("om_post_duplicate_image", %{
+          "content_v2" => [
+            [
+              %{"tag" => "md", "text" => "![first](img_same) ![second](img_same)"},
+              %{"tag" => "img", "image_key" => "img_same"}
+            ]
+          ]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert [%{"provider_ref" => "lark:image:img_same"}] = normalized.attachments
+    end
+
+    test "markdown image extraction ignores fenced and inline code regions" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      markdown =
+        """
+        ```md
+        ![fenced](img_fenced)
+        ```
+        ~~~markdown
+        ![tilde-fenced](img_tilde_fenced)
+        ~~~
+        `![inline](img_inline)`
+        ![outside](img_outside)
+        """
+        |> String.trim()
+
+      event =
+        post_receive_event("om_post_code_images", %{
+          "content_v2" => [[%{"tag" => "md", "text" => markdown}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == markdown
+      assert [%{"provider_ref" => "lark:image:img_outside"}] = normalized.attachments
+    end
+
+    test "markdown image extraction tracks code spans across lines" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      markdown =
+        """
+        `literal image
+        ![inside](img_multiline_code)`
+        ![outside](img_after_multiline_code)
+        """
+        |> String.trim()
+
+      event =
+        post_receive_event("om_post_multiline_code_image", %{
+          "content_v2" => [[%{"tag" => "md", "text" => markdown}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == markdown
+      assert [%{"provider_ref" => "lark:image:img_after_multiline_code"}] = normalized.attachments
+    end
+
+    test "markdown image extraction treats unmatched backticks as literal text" do
+      %{principal: agent} = agent_fixture()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+      markdown = "unmatched ` text ![visible](img_after_unmatched_tick)"
+
+      event =
+        post_receive_event("om_post_unmatched_tick_image", %{
+          "content_v2" => [[%{"tag" => "md", "text" => markdown}]]
+        })
+
+      assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
+      assert normalized.text == markdown
+      assert [%{"provider_ref" => "lark:image:img_after_unmatched_tick"}] = normalized.attachments
+    end
+
     test "message receive strips provider mention placeholders before command detection" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -729,6 +788,34 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert input.type == "command.retry"
       assert input.payload["data"]["command"]["argsText"] == "12"
+    end
+
+    test "message receive strips provider mention separators before command detection" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      for {separator, index} <- Enum.with_index([": ", ",", "，   ", "：", ":， ：  "]) do
+        event =
+          %{receive_event() | id: "evt_retry_separator_#{index}"}
+          |> update_message(fn message ->
+            %{
+              message
+              | "message_id" => "om_retry_separator_#{index}",
+                "content" => Ankole.JSON.encode!(%{"text" => "@_user_1#{separator}/retry"})
+            }
+          end)
+
+        assert {:ok, [%{status: :accepted, actor_event: input}]} =
+                 Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+        assert input.type == "command.retry"
+
+        assert Repo.get_by!(Entry,
+                 signal_channel_id: "lark:oc_group",
+                 source_entry_id: "om_retry_separator_#{index}"
+               ).text == "/retry"
+      end
     end
 
     test "message receive strips the longest matching mention placeholder first" do
@@ -756,7 +843,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert input.type == "command.retry"
     end
 
-    test "bot and app senders are ignored before they can echo into actor event" do
+    test "bot senders are ignored before they can echo into actor event" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
@@ -768,6 +855,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             "sender_type" => "bot",
             "sender_name" => "Lark Bot",
             "sender_id" => %{"open_id" => "ou_bot"}
+          }
+        end)
+
+      assert {:ok, [%{status: :ignored_provider_self_sender, reason: :provider_self_sender}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Entry, :count) == 0
+    end
+
+    test "app senders are ignored before they can create entries or actor events" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      event =
+        receive_event()
+        |> update_sender(fn _sender ->
+          %{
+            "sender_type" => "app",
+            "sender_name" => "Automation App",
+            "sender_id" => %{"app_id" => "cli_echo"}
+          }
+        end)
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_type" => "image",
+              "content" => ~s({"image_key":"img_echo"}),
+              "mentions" => []
           }
         end)
 
@@ -966,51 +1083,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ] = entry.attachments
 
       assert Repo.aggregate(ActorEvent, :count) == 0
-    end
-
-    test "enabled materializer adds worker file paths to provider attachments" do
-      %{principal: agent} = agent_fixture()
-      binding_fixture(agent.uid, "lark", :record_only)
-
-      materializer = fn attachments, _message, _consumer ->
-        {:ok,
-         Enum.map(attachments, fn attachment ->
-           attachment
-           |> Map.put("agent_computer_path", "/workspace/user-files/inbox/lark/om_file/deck.pdf")
-           |> Map.put("user_files_relative_path", "inbox/lark/om_file/deck.pdf")
-           |> Map.put("xxh3_128", "8db84f6b892cfa6bdad930c907ecb808")
-         end)}
-      end
-
-      consumer =
-        Inbound.chat_consumer(adapter_context(agent.uid), chat_config(),
-          materialize_attachments: true,
-          attachment_materializer: materializer
-        )
-
-      event =
-        receive_event()
-        |> update_message(fn message ->
-          %{
-            message
-            | "message_id" => "om_file",
-              "message_type" => "file",
-              "content" => ~s({"file_key":"file_1","file_name":"deck.pdf"}),
-              "mentions" => []
-          }
-        end)
-
-      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
-               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
-
-      assert [
-               %{
-                 "provider_ref" => "lark:file:file_1",
-                 "agent_computer_path" => "/workspace/user-files/inbox/lark/om_file/deck.pdf",
-                 "user_files_relative_path" => "inbox/lark/om_file/deck.pdf",
-                 "xxh3_128" => "8db84f6b892cfa6bdad930c907ecb808"
-               }
-             ] = entry.attachments
     end
 
     test "user senders without provider-scoped user_id are ignored with warning" do
@@ -1543,6 +1615,60 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert agent_uid == agent.uid
     end
+
+    test "full sync accepts a scalar member id explicitly typed as user_id" do
+      stub_lark_requests(self(), fn request ->
+        case request.request_path do
+          "/open-apis/im/v1/chats" ->
+            {:json, 200,
+             %{
+               "code" => 0,
+               "data" => %{
+                 "has_more" => false,
+                 "items" => [%{"chat_id" => "oc_scalar_user_id", "name" => "Scalar ID Room"}]
+               }
+             }}
+
+          "/open-apis/im/v1/chats/oc_scalar_user_id/members" ->
+            {:json, 200,
+             %{
+               "code" => 0,
+               "data" => %{
+                 "has_more" => false,
+                 "items" => [
+                   %{
+                     "member_id" => "scalar_user_id",
+                     "member_id_type" => "user_id",
+                     "name" => "Scalar Member"
+                   }
+                 ]
+               }
+             }}
+        end
+      end)
+
+      %{principal: agent} = agent_fixture(%{uid: unique_uid("lark-scalar-user-id-agent")})
+      binding_name = "lark-scalar-user-id"
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(
+                 Config.chat_config_key(binding_name),
+                 chat_config(%{"appID" => "cli_scalar_user_id"})
+               )
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      assert {:ok, %{synced_chats: 1, marked_left: 0}} =
+               IMGroups.sync_binding(agent.uid, binding_name)
+
+      assert {:ok, principal_uid} =
+               Principals.resolve_platform_subject_uid("lark-main", "scalar_user_id")
+
+      assert %Channel{principal_group_id: group_id} =
+               Repo.get!(Channel, Inbound.signal_channel_id("oc_scalar_user_id"))
+
+      assert Repo.get_by!(Membership, group_id: group_id, principal_uid: principal_uid)
+    end
   end
 
   describe "identity provider" do
@@ -1646,9 +1772,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
     test "full directory sync reads users and departments through paginated contact API" do
       config = put_in(identity_config(), ["sync", "pageSize"], 17)
-      client_opts = lark_http_client_opts()
-      put_tenant_token(config, client_opts)
-      on_exit(fn -> delete_tenant_token(config, client_opts) end)
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
 
       {:ok, requests} = Agent.start_link(fn -> [] end)
 
@@ -1717,7 +1842,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       end)
 
       assert {:ok, %{users: 2, departments: 1}} =
-               IdentityProvider.sync_directory("lark-main", config, client_opts: client_opts)
+               IdentityProvider.sync_directory("lark-main", config)
 
       assert {:ok, observed} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_full_sync_1")
@@ -1765,42 +1890,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                   "user_id_type" => "user_id"
                 }}
              ]
-    end
-
-    test "identity websocket consumer starts only when realtime directory sync is enabled" do
-      assert {:ok, _provider} =
-               IdentityProviders.save_provider(
-                 "lark-main",
-                 "lark",
-                 %{
-                   "appID" => "cli_identity",
-                   "appSecret" => "secret",
-                   "sync" => %{"contacts" => true, "websocket" => false}
-                 },
-                 true
-               )
-
-      assert %{started: 0, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 connection_supervisor: TestConnectionSupervisor
-               )
-
-      assert {:ok, _provider} =
-               IdentityProviders.save_provider(
-                 "lark-main",
-                 "lark",
-                 %{
-                   "appID" => "cli_identity",
-                   "appSecret" => "secret",
-                   "sync" => %{"contacts" => true, "websocket" => true}
-                 },
-                 true
-               )
-
-      assert %{started: 1, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 connection_supervisor: TestConnectionSupervisor
-               )
     end
 
     test "directory upsert never falls back to open_id as platform subject" do
@@ -2038,17 +2127,18 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   defp chat_config(overrides \\ %{}) do
+    {runtime_bot_open_id, overrides} = Map.pop(overrides, "runtimeBotOpenID", "ou_bot")
+
     {:ok, config} =
       %{
         "appID" => "cli_test",
         "appSecret" => "secret",
-        "platformSubjectNamespace" => "lark-main",
-        "botOpenID" => "ou_bot"
+        "platformSubjectNamespace" => "lark-main"
       }
       |> Map.merge(overrides)
       |> Config.validate_chat_config()
 
-    config
+    Map.put(config, "runtimeBotOpenID", runtime_bot_open_id)
   end
 
   defp identity_config do
@@ -2061,22 +2151,67 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     config
   end
 
-  defp lark_http_client_opts do
-    [req_options: [plug: {Req.Test, __MODULE__}]]
+  defp stub_lark_requests(_parent, responder) do
+    Req.Test.stub(__MODULE__, fn conn ->
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      if conn.request_path == "/open-apis/auth/v3/tenant_access_token/internal" do
+        Req.Test.json(conn, %{
+          "code" => 0,
+          "tenant_access_token" => "tenant-token",
+          "expire" => 7_200
+        })
+      else
+        request = %{
+          method: conn.method |> String.downcase() |> String.to_existing_atom(),
+          request_path: conn.request_path,
+          body: if(body == "", do: %{}, else: Torque.decode!(body))
+        }
+
+        case responder.(request) do
+          {:json, status, response} ->
+            conn
+            |> Plug.Conn.put_status(status)
+            |> Req.Test.json(response)
+        end
+      end
+    end)
   end
 
-  defp put_tenant_token(config, client_opts) do
+  defp default_lark_request(
+         %{request_path: "/open-apis/auth/v3/tenant_access_token/internal"} = conn
+       ) do
+    Req.Test.json(conn, %{
+      "code" => 0,
+      "tenant_access_token" => "tenant-token",
+      "expire" => 7_200
+    })
+  end
+
+  defp default_lark_request(conn) do
+    if String.contains?(conn.request_path, "/resources/") do
+      conn
+      |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="resource.bin"))
+      |> Plug.Conn.send_resp(200, "attachment")
+    else
+      conn
+      |> Plug.Conn.put_status(404)
+      |> Req.Test.json(%{"code" => 404, "msg" => "not stubbed"})
+    end
+  end
+
+  defp put_tenant_token(config) do
     ensure_token_store()
 
     config
-    |> Config.client(client_opts)
+    |> Config.client()
     |> tenant_key(nil)
     |> then(&:ets.insert(TokenStore.table(), {&1, "t-token", :infinity}))
   end
 
-  defp delete_tenant_token(config, client_opts) do
+  defp delete_tenant_token(config) do
     config
-    |> Config.client(client_opts)
+    |> Config.client()
     |> tenant_key(nil)
     |> then(&:ets.delete(TokenStore.table(), &1))
   end
@@ -2122,6 +2257,19 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       },
       raw: %{"schema" => "2.0"}
     }
+  end
+
+  defp post_receive_event(message_id, post_content) do
+    receive_event()
+    |> update_message(fn message ->
+      %{
+        message
+        | "message_id" => message_id,
+          "message_type" => "post",
+          "content" => Ankole.JSON.encode!(post_content),
+          "mentions" => []
+      }
+    end)
   end
 
   defp update_message(%Event{content: content} = event, fun) when is_function(fun, 1) do
@@ -2190,10 +2338,6 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       },
       raw: %{}
     }
-  end
-
-  defp unique_module(prefix) do
-    Module.concat([__MODULE__, :"#{prefix}#{System.unique_integer([:positive])}"])
   end
 
   defp localized_field?(field) do

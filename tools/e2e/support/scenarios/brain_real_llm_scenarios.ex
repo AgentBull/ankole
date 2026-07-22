@@ -11,6 +11,7 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
 
   import Ecto.Query
   import ExUnit.Assertions
+  import Ankole.PrincipalsFixtures, only: [agent_fixture: 0]
 
   import Ankole.E2E.Harness
 
@@ -33,7 +34,10 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   alias Ankole.Brain.Schemas.Cursor
   alias Ankole.Brain.Schemas.Entry, as: BrainEntry
   alias Ankole.Brain.Schemas.EntryBlock
+  alias Ankole.Brain.Schemas.EntryRelation
+  alias Ankole.Brain.Schemas.Episode
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.SourceSync
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Repo
@@ -46,6 +50,31 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   @stale_review_offset_ms 100 * 24 * 60 * 60 * 1_000
   @language_model "openai/gpt-5.6-luna"
   @embedding_model "perplexity/pplx-embed-v1-0.6b"
+  @embedding_dimensions 1_024
+
+  defmodule FakeSourceConnector do
+    @behaviour Ankole.Brain.SourceConnector
+
+    @impl true
+    def availability(%{locator: locator}), do: {:ok, state(locator).availability}
+
+    @impl true
+    def revision(%{locator: locator}), do: {:ok, state(locator).revision}
+
+    @impl true
+    def export(%{locator: locator}) do
+      current = state(locator)
+
+      {:ok,
+       %{
+         title: current.title,
+         markdown: current.markdown,
+         url: current.url
+       }}
+    end
+
+    defp state(locator), do: Process.get({__MODULE__, locator})
+  end
 
   @doc "Adds the model profiles and scoped policy required by Brain dreaming."
   def prepare_brain_real_llm!(%{agent: agent, provider_id: provider_id} = ctx) do
@@ -74,7 +103,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     global_config =
       global_current
       |> Map.put("enabled", true)
-      |> Map.put("model_agent_uid", agent.uid)
 
     assert {:ok, _stored} =
              AppConfigure.put_global(BrainConfig.dreaming_definition(), global_config)
@@ -84,7 +112,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     configured =
       current
       |> Map.put("enabled", true)
-      |> Map.put("model_agent_uid", agent.uid)
       |> Map.put("material_limit", 240)
       |> Map.put("token_limit", 0)
       |> Map.put("mutation_limit", 0)
@@ -95,6 +122,13 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
                BrainConfig.dreaming_definition(),
                configured
              )
+
+    assert {:ok, _stored} =
+             AppConfigure.put_global(BrainConfig.embedding_definition(), %{
+               "enabled" => true,
+               "model_agent_uid" => agent.uid,
+               "dimensions" => @embedding_dimensions
+             })
 
     ctx
   end
@@ -110,14 +144,16 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
         offset_ms: 1_000,
         marker: "BRAIN_PREFERENCE_CREATED",
         text: """
-        我的饮食偏好是烤肉，当前事实标识为 MEAT_PREF_OLD。请用 memory_update 创建且只创建一个名为「饮食偏好」的 preference 词条，把这个当前偏好写清楚。不要创建第二个同义词条。工具成功后回复 BRAIN_PREFERENCE_CREATED。
+        我的饮食偏好是烤肉，当前事实标识为 MEAT_PREF_OLD。请用一次 create_entry 创建且只创建一个名为「饮食偏好」的 preference 词条：正文写清当前偏好，并把 properties.fact_id 明确设为 MEAT_PREF_OLD。不要创建第二个同义词条。工具成功后回复 BRAIN_PREFERENCE_CREATED。
         """
       )
 
     assert_successful_operation!(created.messages, "create_entry")
     original = brain_entry_by_name!(ctx.agent.uid, "饮食偏好")
     assert original.store_key == "dm:ou_alice"
-    assert entry_text(original) =~ "MEAT_PREF_OLD"
+    assert original.properties["fact_id"] == "MEAT_PREF_OLD"
+    assert entry_text(original) =~ "烤肉"
+    [original_block] = entry_blocks(original.id)
 
     corrected =
       addressed_turn!(ctx,
@@ -128,18 +164,22 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
         offset_ms: 2_000,
         marker: "BRAIN_PREFERENCE_CORRECTED",
         text: """
-        纠正之前的偏好：我现在改吃素，当前事实标识为 PLANT_PREF_CURRENT。先用 memory_open 打开「饮食偏好」，再用 memory_update 原位覆盖旧事实；当前投影里不得保留 MEAT_PREF_OLD，也不要新建词条。工具成功后回复 BRAIN_PREFERENCE_CORRECTED。
+        纠正之前的偏好：我现在改吃素，当前事实标识为 PLANT_PREF_CURRENT。先用 memory_open 打开「饮食偏好」，再分别用 edit_block 原位覆盖旧正文、用 set_property 把 fact_id 改成 PLANT_PREF_CURRENT。当前投影里不得保留 MEAT_PREF_OLD，也不要新建词条。两次更新都成功后回复 BRAIN_PREFERENCE_CORRECTED。
         """
       )
 
     assert_tool_succeeded!(corrected.messages, "memory_open")
-    assert_successful_memory_update!(corrected.messages)
+    assert_successful_operation!(corrected.messages, "edit_block")
+    assert_successful_operation!(corrected.messages, "set_property")
     refute_successful_operation!(corrected.messages, "create_entry")
 
     current = brain_entry_by_name!(ctx.agent.uid, "饮食偏好")
-    assert current.lock_version > original.lock_version
-    assert entry_text(current) =~ "PLANT_PREF_CURRENT"
-    refute entry_text(current) =~ "MEAT_PREF_OLD"
+    [current_block] = entry_blocks(current.id)
+    assert current_block.id == original_block.id
+    assert current_block.lock_version > original_block.lock_version
+    assert current.properties["fact_id"] == "PLANT_PREF_CURRENT"
+    assert entry_text(current) =~ "素"
+    refute entry_text(current) =~ "烤肉"
     assert brain_entry_count(ctx.agent.uid, "饮食偏好") == 1
 
     recalled =
@@ -165,6 +205,8 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
 
   @doc "A rumor is recorded as unverified, then replaced by the cited official announcement."
   def run_rumor_to_announcement(ctx) do
+    ensure_lark_group_joined!(ctx, "oc_brain_rumor")
+
     rumor_source =
       record_source!(ctx,
         event_id: "evt_brain_rumor_source",
@@ -232,7 +274,7 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     %{entry: current, turns: [rumor_write, announcement_write]}
   end
 
-  @doc "DM knowledge is structurally hidden from groups while public knowledge remains readable in DM."
+  @doc "DM knowledge is structurally hidden from groups while shared knowledge remains readable in DM."
   def run_dm_isolation(ctx) do
     private =
       addressed_turn!(ctx,
@@ -255,7 +297,7 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
       addressed_turn!(ctx,
         event_id: "evt_brain_group_private_search",
         message_id: "om_brain_group_private_search",
-        chat_id: "oc_brain_public_group",
+        chat_id: "oc_brain_shared_group",
         chat_type: "group",
         offset_ms: 21_000,
         marker: "BRAIN_GROUP_PRIVATE_SEARCH_DONE",
@@ -273,55 +315,322 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
 
     refute private_search_output =~ "NIGHTJAR_PRIVATE_731"
 
-    public =
+    shared =
       addressed_turn!(ctx,
-        event_id: "evt_brain_public_create",
-        message_id: "om_brain_public_create",
-        chat_id: "oc_brain_public_group",
+        event_id: "evt_brain_shared_create",
+        message_id: "om_brain_shared_create",
+        chat_id: "oc_brain_shared_group",
         chat_type: "group",
         offset_ms: 22_000,
-        marker: "BRAIN_PUBLIC_STORED",
+        marker: "BRAIN_SHARED_STORED",
         text: """
-        这是公共团队事实：Public Operations Policy 的当前标识是 PUBLIC_POLICY_GREEN。请用 memory_update 创建且只创建一个名称逐字等于「Public Operations Policy」的 policy 词条。工具成功后回复 BRAIN_PUBLIC_STORED。
+        这是共享团队事实：Shared Operations Policy 的当前标识是 SHARED_POLICY_GREEN。请用 memory_update 创建且只创建一个名称逐字等于「Shared Operations Policy」的 policy 词条。工具成功后回复 BRAIN_SHARED_STORED。
         """
       )
 
-    assert_successful_operation!(public.messages, "create_entry")
+    assert_successful_operation!(shared.messages, "create_entry")
 
-    assert_tool_arguments!(public.messages, "memory_update", %{
+    assert_tool_arguments!(shared.messages, "memory_update", %{
       "operation" => "create_entry",
-      "name" => "Public Operations Policy"
+      "name" => "Shared Operations Policy"
     })
 
-    public_entry = brain_entry_by_name!(ctx.agent.uid, "Public Operations Policy")
-    assert public_entry.store_key == "public"
+    shared_entry = brain_entry_by_name!(ctx.agent.uid, "Shared Operations Policy")
+    assert shared_entry.owner_uid == Scope.shared_owner_uid()
+    assert shared_entry.store_key == "shared"
+    assert entry_text(shared_entry) =~ "SHARED_POLICY_GREEN"
 
     dm_search =
       addressed_turn!(ctx,
-        event_id: "evt_brain_dm_public_search",
-        message_id: "om_brain_dm_public_search",
+        event_id: "evt_brain_dm_shared_search",
+        message_id: "om_brain_dm_shared_search",
         chat_id: "oc_brain_private_dm",
         chat_type: "p2p",
         offset_ms: 23_000,
-        marker: "BRAIN_DM_PUBLIC_SEARCH_DONE",
+        marker: "BRAIN_DM_SHARED_SEARCH_DONE",
         text: """
-        请用 memory_search 在 knowledge 层检索「Public Operations Policy」，只按工具结果回答，然后回复 BRAIN_DM_PUBLIC_SEARCH_DONE。
+        请用 memory_search 在 knowledge 层检索「SHARED_POLICY_GREEN」，只按工具结果回答，然后回复 BRAIN_DM_SHARED_SEARCH_DONE。
         """
       )
 
-    public_search_output = successful_tool_output!(dm_search.messages, "memory_search")
+    shared_search_output = successful_tool_output!(dm_search.messages, "memory_search")
     assert_tool_arguments!(dm_search.messages, "memory_search", %{"layer" => "knowledge"})
-    assert public_search_output =~ "PUBLIC_POLICY_GREEN"
+    assert shared_search_output =~ "SHARED_POLICY_GREEN"
+
+    %{principal: second_agent} = agent_fixture()
+    assert {:ok, second_scope} = Scope.for_store(second_agent.uid, "shared")
+    assert {:ok, opened_by_second_agent} = Knowledge.open(second_scope, shared_entry.id)
+    assert opened_by_second_agent.entry.id == shared_entry.id
+    assert {:error, :not_found} = Knowledge.open(second_scope, private_entry.id)
+
+    assert {:ok, second_agent_search} =
+             Brain.search(second_scope, %{
+               "query" => "SHARED_POLICY_GREEN",
+               "layer" => "knowledge",
+               "store" => "shared"
+             })
+
+    assert Enum.any?(second_agent_search["results"], &(&1["entry_id"] == shared_entry.id))
 
     refute Repo.exists?(
              from(entry in BrainEntry,
                where: entry.owner_uid == ^ctx.agent.uid,
-               where: entry.store_key == "public",
+               where: entry.store_key == "shared",
                where: entry.name == "Project Nightjar"
              )
            )
 
-    %{private: private_entry, public: public_entry}
+    %{private: private_entry, shared: shared_entry}
+  end
+
+  @doc "An exact chat error ranks before one old and weak knowledge entry."
+  def run_unified_recall_ranking(ctx) do
+    weak =
+      create_shared_entry!(
+        ctx.agent.uid,
+        "Checkout network troubleshooting",
+        "runbook",
+        String.duplicate(
+          "General checkout connection diagnosis and broad recovery guidance. ",
+          120
+        ) <>
+          "The error family includes E_CONNRESET_BRAIN_V2_731."
+      )
+
+    old = DateTime.add(DateTime.utc_now(:microsecond), -365, :day)
+
+    BrainEntry
+    |> where([entry], entry.id == ^weak.id)
+    |> Repo.update_all(set: [updated_at: old])
+
+    EntryBlock
+    |> where([block], block.entry_id == ^weak.id)
+    |> Repo.update_all(set: [updated_at: old])
+
+    exact =
+      record_source!(ctx,
+        event_id: "evt_brain_unified_exact",
+        message_id: "om_brain_unified_exact",
+        chat_id: "oc_brain_unified_recall",
+        offset_ms: 25_000,
+        text: "Checkout failed with exact error E_CONNRESET_BRAIN_V2_731 after the socket reset."
+      )
+
+    for index <- 1..20 do
+      record_source!(ctx,
+        event_id: "evt_brain_unified_context_#{index}",
+        message_id: "om_brain_unified_context_#{index}",
+        chat_id: "oc_brain_unified_recall",
+        offset_ms: 25_000 + index,
+        text: "Routine context line #{index}."
+      )
+    end
+
+    recalled =
+      addressed_turn!(ctx,
+        event_id: "evt_brain_unified_search",
+        message_id: "om_brain_unified_search",
+        chat_id: "oc_brain_unified_recall",
+        chat_type: "group",
+        offset_ms: 26_000,
+        marker: "BRAIN_UNIFIED_RECALL_DONE",
+        text: """
+        请用 memory_search 搜索 E_CONNRESET_BRAIN_V2_731，layer=all，channel_scope=current_channel。只按工具结果回答，然后回复 BRAIN_UNIFIED_RECALL_DONE。
+        """
+      )
+
+    output = successful_tool_output!(recalled.messages, "memory_search")
+    assert output =~ exact.document_id
+    assert output =~ weak.id
+    assert substring_position!(output, exact.document_id) < substring_position!(output, weak.id)
+
+    %{chat_source: exact, weak_entry: weak, turn: recalled}
+  end
+
+  @doc "A paraphrased question recalls one embedded Stage A episode and its source messages."
+  def run_episode_paraphrase(ctx) do
+    sources =
+      [
+        {"evt_brain_episode_source_1", "om_brain_episode_source_1", 27_000,
+         "灰度发布在 manifest commit 后冻结。故障标识是 NAV_EPISODE_SOURCE_742。"},
+        {"evt_brain_episode_source_2", "om_brain_episode_source_2", 28_000,
+         "恢复 checkpoint 前必须先 drain cobalt pool，然后再重放部署。"}
+      ]
+      |> Enum.map(fn {event_id, message_id, offset_ms, text} ->
+        record_source!(ctx,
+          event_id: event_id,
+          message_id: message_id,
+          chat_id: "oc_brain_episode_paraphrase",
+          offset_ms: offset_ms,
+          text: text
+        )
+      end)
+
+    ensure_lark_group_joined!(ctx, "oc_brain_episode_paraphrase")
+    channel_id = "lark:oc_brain_episode_paraphrase"
+    assert :ok = Brain.summarize_channel(channel_id)
+
+    episode =
+      Repo.one!(
+        from(episode in Episode,
+          where: episode.signal_channel_id == ^channel_id,
+          order_by: [desc: episode.inserted_at],
+          limit: 1
+        )
+      )
+
+    assert episode.source_entry_ids != []
+    assert {:ok, embedded_count} = Brain.embed_pending_episodes(20)
+    assert embedded_count >= 1
+
+    recalled =
+      addressed_turn!(ctx,
+        event_id: "evt_brain_episode_search",
+        message_id: "om_brain_episode_search",
+        chat_id: "oc_brain_episode_paraphrase",
+        chat_type: "group",
+        offset_ms: 29_000,
+        marker: "BRAIN_EPISODE_PARAPHRASE_DONE",
+        text: """
+        请用 memory_search 在 chat 层回答：部署清单落盘后卡住，回到检查点前应先清空哪个资源池？只按工具结果回答，然后回复 BRAIN_EPISODE_PARAPHRASE_DONE。
+        """
+      )
+
+    output = successful_tool_output!(recalled.messages, "memory_search")
+    assert output =~ episode.id
+    assert output =~ "chat vector"
+    assert Enum.any?(sources, &String.contains?(output, &1.document_id))
+
+    %{episode: episode, sources: sources, turn: recalled}
+  end
+
+  @doc "Stage B rewrites one current topic and records an explicit linked relation."
+  def run_dreaming_convergence(ctx) do
+    project =
+      create_shared_entry!(
+        ctx.agent.uid,
+        "Project Meridian",
+        "project",
+        "The delivery month is September. MERIDIAN_SEPTEMBER_OLD"
+      )
+
+    organization =
+      create_shared_entry!(
+        ctx.agent.uid,
+        "Aurora Organization",
+        "organization",
+        "Aurora Organization is an active delivery organization."
+      )
+
+    Enum.each(
+      [
+        {"evt_brain_converge_update", "om_brain_converge_update", 35_000,
+         "Project Meridian 的交付月已从九月改为十月，旧九月状态作废。当前标识 MERIDIAN_OCTOBER_CURRENT。"},
+        {"evt_brain_converge_relation", "om_brain_converge_relation", 36_000,
+         "Explicit entity relation: Project Meridian is owned by Aurora Organization. This is a direct stated relation, not an inference. Relation marker MERIDIAN_OWNED_BY_AURORA."}
+      ],
+      fn {event_id, message_id, offset_ms, text} ->
+        record_source!(ctx,
+          event_id: event_id,
+          message_id: message_id,
+          chat_id: "oc_brain_dreaming_convergence",
+          offset_ms: offset_ms,
+          text: text
+        )
+      end
+    )
+
+    ensure_lark_group_joined!(ctx, "oc_brain_dreaming_convergence")
+    assert {:ok, %{status: :completed} = run} = Brain.run_dreaming(ctx.agent.uid)
+
+    current = Repo.get!(BrainEntry, project.id)
+    current_text = entry_text(current)
+    assert current.lock_version > project.lock_version
+    assert current_text =~ "MERIDIAN_OCTOBER_CURRENT"
+    refute current_text =~ "MERIDIAN_SEPTEMBER_OLD"
+    assert current_text =~ "[[Aurora Organization]]"
+    assert brain_entry_count(ctx.agent.uid, "Project Meridian") == 1
+
+    relation =
+      Repo.get_by!(EntryRelation,
+        source_entry_id: project.id,
+        target_entry_id: organization.id
+      )
+
+    assert is_binary(relation.predicate) and relation.predicate != ""
+
+    %{project: current, organization: organization, relation: relation, run: run}
+  end
+
+  @doc "A fake connector replaces, protects, and withdraws one shared source mirror."
+  def run_source_mirror_sync(ctx) do
+    locator = "brain-v2-e2e/source-mirror"
+
+    put_fake_source(locator, %{
+      availability: :available,
+      revision: "1",
+      title: "Brain V2 source manual",
+      markdown: "# Current rule\n\nMIRROR_REVISION_ONE is active.",
+      url: "https://docs.example.test/brain-v2"
+    })
+
+    assert {:ok, source} =
+             SourceSync.register("brain_v2_fake", locator,
+               connector: FakeSourceConnector,
+               captured_by_uid: ctx.agent.uid
+             )
+
+    first = source_mirror!(source.document_id)
+    assert first.owner_uid == Scope.shared_owner_uid()
+    assert first.store_key == "shared"
+
+    assert {:ok, scope} = Scope.for_store(ctx.agent.uid, "shared")
+
+    assert {:error, :source_mirror_read_only} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "set_summary",
+                 entry_id: first.id,
+                 expected_entry_lock_version: first.lock_version,
+                 summary: "Local override"
+               },
+               %{kind: :agent, uid: ctx.agent.uid}
+             )
+
+    assert first.id in search_entry_ids!(scope, "MIRROR_REVISION_ONE")
+
+    put_fake_source(locator, %{
+      availability: :available,
+      revision: "2",
+      title: "Brain V2 source manual",
+      markdown: "# Current rule\n\nMIRROR_REVISION_TWO is active.",
+      url: "https://docs.example.test/brain-v2"
+    })
+
+    assert {:ok, %{status: :replaced, revision: "2"}} =
+             SourceSync.sync(source.id, connector: FakeSourceConnector)
+
+    second = source_mirror!(source.document_id)
+    refute second.id == first.id
+    assert search_entry_ids!(scope, "MIRROR_REVISION_ONE") == []
+    assert second.id in search_entry_ids!(scope, "MIRROR_REVISION_TWO")
+
+    put_fake_source(locator, %{
+      availability: :deleted,
+      revision: "2",
+      title: "Brain V2 source manual",
+      markdown: "not exported",
+      url: nil
+    })
+
+    assert {:ok, %{status: :deleted}} =
+             SourceSync.sync(source.id, connector: FakeSourceConnector)
+
+    refute Repo.get(BrainEntry, second.id)
+    assert search_entry_ids!(scope, "MIRROR_REVISION_TWO") == []
+
+    %{source: source, first: first, second: second}
   end
 
   @doc "Stage B consolidates repeated material once and advances its principal cursor."
@@ -370,8 +679,8 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
 
     dreaming_blocks =
       EntryBlock
-      |> where([block], block.owner_uid == ^ctx.agent.uid)
       |> where([block], block.author_kind == :dreaming)
+      |> where([block], block.author_uid == ^ctx.agent.uid)
       |> Repo.all()
 
     assert dreaming_blocks != []
@@ -389,28 +698,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     assert dreaming_block_count(ctx.agent.uid) == block_count
     assert dreaming_audit_count(ctx.agent.uid) == audit_count
     assert %Cursor{} = Repo.get_by(Cursor, scope_kind: :principal, scope_key: ctx.agent.uid)
-
-    recalled =
-      addressed_turn!(ctx,
-        event_id: "evt_brain_dream_search",
-        message_id: "om_brain_dream_search",
-        chat_id: "oc_brain_dreaming",
-        chat_type: "group",
-        offset_ms: 34_000,
-        marker: "BRAIN_DREAM_SEARCHED",
-        text: """
-        请先用 memory_search 在 knowledge 层检索 Project Dawn，并明确设置 author_kind=dreaming；再用 memory_open 打开命中的词条，只按工具结果回答，然后回复 BRAIN_DREAM_SEARCHED。
-        """
-      )
-
-    assert successful_tool_output!(recalled.messages, "memory_search") =~ "Dawn"
-
-    assert_tool_arguments!(recalled.messages, "memory_search", %{
-      "layer" => "knowledge",
-      "author_kind" => "dreaming"
-    })
-
-    assert_tool_succeeded!(recalled.messages, "memory_open")
 
     %{first_run: first_run, second_run: second_run, blocks: dreaming_blocks}
   end
@@ -461,9 +748,9 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     health_output = successful_tool_output!(review.messages, "memory_health_check")
     assert health_output =~ entry.id
     assert health_output =~ conflict_block.id
-    assert health_output =~ "unresolved_conflicts"
+    assert health_output =~ "uncited_generated_blocks"
     assert health_output =~ "stale_entries"
-    assert_tool_succeeded!(review.messages, "memory_open")
+    assert successful_tool_output!(review.messages, "memory_open") =~ "未裁决"
     assert_tool_order!(review.messages, ["skill_view", "memory_health_check", "memory_open"])
     refute tool_result_succeeded?(review.messages, "memory_update")
 
@@ -511,7 +798,7 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
         offset_ms: 50_000,
         marker: "BRAIN_SKILL_LEARNED",
         text: """
-        我纠正你的 nano-pdf 工作方式：情境「交付编辑后的 PDF」→ 注意点「必须逐页渲染检查，标识 PDF_RENDER_EVERY_PAGE」。这是技能专属经验。先用 skill_view 读取 nano-pdf，再按现有重合度选择 skill_append 或 skill_replace 写入一次。工具成功后回复 BRAIN_SKILL_LEARNED。
+        我纠正你的 brain-review 工作方式：情境「复盘含外部来源的记忆」→ 注意点「必须先打开原始来源，标识 REVIEW_OPEN_SOURCE_FIRST」。这是技能专属经验。先用 skill_view 读取 brain-review，再按现有重合度选择 skill_append 或 skill_replace 写入一次。工具成功后回复 BRAIN_SKILL_LEARNED。
         """
       )
 
@@ -522,11 +809,11 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
 
     assert %AgentSkillOverlay{overlay_json: %{"text" => overlay}, content_hash: content_hash} =
              AgentSkillOverlay
-             |> where([row], row.agent_uid == ^ctx.agent.uid and row.skill_name == "nano-pdf")
+             |> where([row], row.agent_uid == ^ctx.agent.uid and row.skill_name == "brain-review")
              |> where([row], is_nil(row.deleted_at))
              |> Repo.one!()
 
-    assert overlay =~ "PDF_RENDER_EVERY_PAGE"
+    assert overlay =~ "REVIEW_OPEN_SOURCE_FIRST"
     assert is_binary(content_hash) and content_hash != ""
 
     loaded =
@@ -538,11 +825,11 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
         offset_ms: 51_000,
         marker: "BRAIN_SKILL_RELOADED",
         text: """
-        这是新的会话。请用 skill_view 重新加载 nano-pdf，并只根据加载到的技能说明确认上次的 PDF 交付注意点，然后回复 BRAIN_SKILL_RELOADED。
+        这是新的会话。请用 skill_view 重新加载 brain-review，并只根据加载到的技能说明确认上次的外部来源复盘注意点，然后回复 BRAIN_SKILL_RELOADED。
         """
       )
 
-    assert successful_tool_output!(loaded.messages, "skill_view") =~ "PDF_RENDER_EVERY_PAGE"
+    assert successful_tool_output!(loaded.messages, "skill_view") =~ "REVIEW_OPEN_SOURCE_FIRST"
 
     %{overlay: overlay, turns: [learned, loaded]}
   end
@@ -558,7 +845,8 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
         text: "Project Ember 的临时访问码是 EMBER_SOURCE_ONLY_942。"
       )
 
-    assert {:ok, scope} = Scope.for_store(ctx.agent.uid, "public")
+    ensure_lark_group_joined!(ctx, "oc_brain_retraction")
+    assert {:ok, scope} = Scope.for_store(ctx.agent.uid, "shared")
     actor = %{kind: :agent, uid: ctx.agent.uid}
 
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
@@ -805,6 +1093,47 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     wait_for_signal_entry!("lark:#{chat_id}", message_id)
   end
 
+  defp create_shared_entry!(actor_uid, name, type, body) do
+    assert {:ok, scope} = Scope.for_store(actor_uid, "shared")
+
+    assert {:ok, %{results: [%{entry_id: entry_id}]}} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "create_entry",
+                 name: name,
+                 type: type,
+                 initial_body: body
+               },
+               %{kind: :agent, uid: actor_uid},
+               metadata: %{"surface" => "brain_real_llm_e2e_fixture"}
+             )
+
+    Repo.get!(BrainEntry, entry_id)
+  end
+
+  defp source_mirror!(document_id) do
+    Repo.one!(
+      from(entry in BrainEntry,
+        where: fragment("?->>'source_document_id' = ?", entry.properties, ^document_id)
+      )
+    )
+  end
+
+  defp search_entry_ids!(scope, query) do
+    assert {:ok, result} =
+             Brain.search(scope, %{
+               "query" => query,
+               "layer" => "knowledge",
+               "store" => "shared"
+             })
+
+    Enum.map(result["results"], & &1["entry_id"])
+  end
+
+  defp put_fake_source(locator, state),
+    do: Process.put({FakeSourceConnector, locator}, state)
+
   defp final_outbox!(actor_event_id, message_id) do
     Repo.one!(
       from(outbox in OutboxEntry,
@@ -816,17 +1145,27 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   end
 
   defp brain_entry_by_name!(owner_uid, name) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
     Repo.one!(
       from(entry in BrainEntry,
-        where: entry.owner_uid == ^owner_uid and entry.name == ^name
+        where:
+          (entry.owner_uid == ^owner_uid or
+             (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")) and
+            entry.name == ^name
       )
     )
   end
 
   defp brain_entry_count(owner_uid, name) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
     Repo.aggregate(
       from(entry in BrainEntry,
-        where: entry.owner_uid == ^owner_uid and entry.name == ^name
+        where:
+          (entry.owner_uid == ^owner_uid or
+             (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")) and
+            entry.name == ^name
       ),
       :count
     )
@@ -861,10 +1200,6 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   defp refute_successful_operation!(messages, operation) do
     assert successful_operation_count(messages, operation) == 0,
            "unexpected successful memory_update operation=#{operation}"
-  end
-
-  defp assert_successful_memory_update!(messages) do
-    assert Enum.any?(tool_results(messages, "memory_update"), &(not tool_result_error?(&1)))
   end
 
   defp assert_tool_succeeded!(messages, tool_name) do
@@ -903,10 +1238,17 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
     |> inspect(limit: :infinity, printable_limit: :infinity)
   end
 
+  defp substring_position!(text, substring) do
+    case :binary.match(text, substring) do
+      {position, _length} -> position
+      :nomatch -> flunk("expected #{inspect(substring)} in #{inspect(text)}")
+    end
+  end
+
   defp dreaming_block_count(owner_uid) do
     Repo.aggregate(
       from(block in EntryBlock,
-        where: block.owner_uid == ^owner_uid and block.author_kind == :dreaming
+        where: block.author_uid == ^owner_uid and block.author_kind == :dreaming
       ),
       :count
     )
@@ -915,7 +1257,7 @@ defmodule Ankole.E2E.Scenarios.BrainRealLLM do
   defp dreaming_audit_count(owner_uid) do
     Repo.aggregate(
       from(log in AuditLog,
-        where: log.owner_uid == ^owner_uid and log.actor_kind == :dreaming
+        where: log.actor_uid == ^owner_uid and log.actor_kind == :dreaming
       ),
       :count
     )

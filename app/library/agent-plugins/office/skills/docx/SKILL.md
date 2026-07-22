@@ -3,11 +3,10 @@ name: docx
 description: "Use this skill for local .docx files as input or output. This OfficeCLI-backed skill creates, reads, edits, and validates Word files; it does not operate Lark Docs URLs or cloud document tokens, which belong to lark-office-suite."
 default_enabled: true
 category: productivity
-long_running: true
+ankole-runtime: background_job
 tags: [docx, document, word, officecli]
 metadata:
-  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/v1.0.129/skills/officecli-docx
-  upstream_tag: v1.0.129
+  upstream: https://github.com/iOfficeAI/OfficeCLI/tree/main/skills/officecli-docx
   modified_for: Ankole Agent Plugin runtime
 ---
 
@@ -17,7 +16,7 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 ## Setup
 
-Ankole Agent Computer images install `officecli` at build time. Verify with `officecli --version`; expected baseline is OfficeCLI v1.0.129. If the command is missing, the worker image is stale and must be rebuilt.
+Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
 
 ## ⚠️ Help-First Rule
 

@@ -1,8 +1,6 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
-  import Ecto.Query, only: [from: 2]
-
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
 
@@ -32,12 +30,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
                      observations: [
                        %FabricProto.InstalledSkillObservation{
                          skill_name: "agent-notes",
-                         relative_path: "agent-notes",
                          description: "Agent installed notes.",
                          default_enabled: true,
-                         metadata_json: Torque.encode!(%{"category" => "custom"}),
-                         xxh3_128: "7b16fe7c3e492b87d9615265f0856cec",
-                         file_count: 2
+                         tags: ["notes"],
+                         category: "custom",
+                         disable_model_invocation: false,
+                         ankole_runtime: "background_job"
                        }
                      ]
                    },
@@ -48,14 +46,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       payload = rpc_response_payload!(envelope, FabricProto.InstalledSkillReplaceResponse)
       assert envelope_body!(envelope, :rpc_response).request_id == "installed-skills-1"
-
-      assert payload.skills ==
-               Repo.aggregate(
-                 from(skill in AgentSkill, where: skill.agent_uid == ^agent.uid),
-                 :count
-               )
-
-      assert payload.files >= 4
+      assert %FabricProto.InstalledSkillReplaceResponse{} = payload
 
       assert %AgentSkill{source_kind: "installed", enabled_override: nil, default_enabled: true} =
                Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
@@ -144,7 +135,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
                      observations: [
                        %FabricProto.InstalledSkillObservation{
                          skill_name: "bad-skill",
-                         xxh3_128: "not-a-fingerprint"
+                         description: "Invalid Skill.",
+                         tags: [""]
                        }
                      ]
                    },
@@ -155,7 +147,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SkillRegistryBrokerTest do
 
       error = rpc_error_payload!(envelope)
       assert error["request_id"] == "installed-skills-invalid"
-      assert error["code"] in ["invalid_skill_fingerprint", "skill_description_missing"]
+      assert error["code"] == "invalid_skill_tags"
     end
   end
 

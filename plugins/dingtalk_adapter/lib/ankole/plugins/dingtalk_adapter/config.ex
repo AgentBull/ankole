@@ -66,7 +66,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
          {:ok, card_template_id} <- optional_string(value, "cardTemplateId", nil),
          {:ok, group_message_mode} <-
            enum_string(value, "group_message_mode", @group_message_modes, "addressed_only"),
-         {:ok, base_url} <- optional_base_url(value, "baseURL"),
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "dingtalk-main"),
          {:ok, user_name} <- optional_string(value, "userName", "钉钉 / DingTalk") do
@@ -77,7 +76,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
          "robotCode" => robot_code,
          "cardTemplateId" => card_template_id,
          "group_message_mode" => group_message_mode,
-         "baseURL" => base_url,
          "platformSubjectNamespace" => platform_subject_namespace,
          "userName" => user_name
        }}
@@ -164,29 +162,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
 
   def load_identity_config_key(_key), do: {:error, :invalid_config_key}
 
-  @doc """
-  Builds a DingTalkOpenAPI client without exposing the secret in inspect output.
-  A configured `baseURL` overrides both the new- and old-domain base URLs (local
-  end-to-end fakes only); explicit `opts` still win.
-  """
-  @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
-  def client(config, opts \\ []) when is_map(config) do
-    base_opts =
-      case Map.get(config, "baseURL") do
-        base_url when is_binary(base_url) ->
-          [api_base_url: base_url, oapi_base_url: base_url]
-
-        _absent ->
-          []
-      end
-
+  @doc "Builds a DingTalkOpenAPI client without exposing the secret in inspect output."
+  @spec client(chat_config() | identity_config()) :: Client.t()
+  def client(config) when is_map(config) do
     Client.new(
-      [
-        client_id: Map.fetch!(config, "clientId"),
-        client_secret: fn -> Map.fetch!(config, "clientSecret") end
-      ]
-      |> Keyword.merge(base_opts)
-      |> Keyword.merge(opts)
+      client_id: Map.fetch!(config, "clientId"),
+      client_secret: fn -> Map.fetch!(config, "clientSecret") end
     )
   end
 
@@ -270,25 +251,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
 
       _value ->
         {:error, {:missing, key}}
-    end
-  end
-
-  defp optional_base_url(map, key) do
-    with {:ok, value} <- optional_string(map, key, nil) do
-      case value do
-        nil ->
-          {:ok, nil}
-
-        url ->
-          case URI.parse(url) do
-            %URI{scheme: scheme, host: host}
-            when scheme in ["http", "https"] and is_binary(host) ->
-              {:ok, url}
-
-            _uri ->
-              {:error, {:invalid_base_url, key}}
-          end
-      end
     end
   end
 

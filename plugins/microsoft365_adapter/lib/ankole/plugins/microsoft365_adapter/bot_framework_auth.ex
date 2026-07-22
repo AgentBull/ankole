@@ -26,12 +26,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth do
   Returns the verified claims. `expected_app_id` is the Microsoft App ID the
   webhook instance segment named; the JWT audience must equal it.
   """
-  @spec verify(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def verify(headers, expected_app_id, activity, opts \\ [])
+  @spec verify(map(), String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def verify(headers, expected_app_id, activity)
       when is_map(headers) and is_binary(expected_app_id) and is_map(activity) do
     with {:ok, token} <- bearer_token(headers),
          {:ok, kid} <- token_kid(token),
-         {:ok, jwk} <- signing_jwk(kid, opts),
+         {:ok, jwk} <- signing_jwk(kid),
          {:ok, claims} <- verify_token(token, jwk),
          :ok <- verify_audience(claims, expected_app_id),
          :ok <- verify_service_url(claims, activity) do
@@ -59,8 +59,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth do
     end
   end
 
-  defp signing_jwk(kid, opts) do
-    case BotOpenID.signing_jwk(kid, Keyword.take(opts, [:metadata_url, :req_options])) do
+  defp signing_jwk(kid) do
+    case BotOpenID.signing_jwk(kid) do
       {:ok, jwk} -> {:ok, jwk}
       {:error, :unknown_kid} -> {:error, :unknown_signing_key}
       {:error, reason} -> {:error, {:jwks_unavailable, reason}}

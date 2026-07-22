@@ -235,7 +235,6 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
-            io.ankole.runtime-image-pair.revision=${{ env.RELEASE_REVISION }}
             io.ankole.runtime-fabric.protocol-version=${{ needs.inspect_existing.outputs.protocol_version }}
           cache-from: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
@@ -321,7 +320,6 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
-            io.ankole.runtime-image-pair.revision=${{ env.RELEASE_REVISION }}
             io.ankole.runtime-fabric.protocol-version=${{ needs.inspect_existing.outputs.protocol_version }}
             io.ankole.agent-os-base.digest=${{ needs.publish_base.outputs.digest }}
           cache-from: type=registry,ref=${{ env.WORKER_IMAGE }}:buildcache-${{ matrix.arch }}
@@ -364,6 +362,7 @@ jobs:
   verify_pair:
     name: Publish verified RuntimeFabric image pair
     needs:
+      - inspect_existing
       - publish_control_plane
       - publish_worker
     runs-on: ubuntu-latest
@@ -407,6 +406,7 @@ jobs:
           pair_dir="${RUNNER_TEMP}/runtime-image-pair"
           bun tools/devkit/src/runtime-image-pair.ts verify \
             --revision "${RELEASE_REVISION}" \
+            --protocol-version "${{ needs.inspect_existing.outputs.protocol_version }}" \
             --control-plane-ref "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}" \
             --control-plane-metadata "${RUNNER_TEMP}/control-plane-image.json" \
             --worker-ref "${WORKER_IMAGE}:${RELEASE_REVISION}" \

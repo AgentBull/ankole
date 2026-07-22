@@ -36,9 +36,6 @@ export function actorEventEnvironmentInfoLines(
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
   if (sendAt) lines.push(`send_at: ${formatTimestamp(sendAt, opts.timezone ?? undefined)}`)
 
-  const signalChannelID = stringValue(channel.id) ?? stringValue(entry.signal_channel_id)
-  if (signalChannelID) lines.push(`signal_channel_id: ${signalChannelID}`)
-
   if (stringValue(channel.kind) === 'im_group') {
     const speaker = speakerLabel(author)
     if (speaker) lines.push(`speaker: ${speaker}`)
@@ -62,16 +59,13 @@ export function turnRequestEnvironmentInfoLines(turnStart: TurnStart): string[] 
 
   const lines = [
     `schedule_turn_mode: ${stringValue(context?.turn_mode) ?? 'unknown'}`,
-    `schedule_event_id: ${stringValue(origin.scheduled_event_id) ?? 'unknown'}`,
     `schedule_due_at: ${stringValue(origin.due_at) ?? 'unknown'}`,
     `schedule_fired_at: ${stringValue(origin.fired_at) ?? 'unknown'}`,
     `schedule_timezone: ${stringValue(origin.timezone) ?? 'unknown'}`,
     `schedule_silent_success_allowed: ${context?.silent_success_allowed === true}`
   ]
 
-  const cronScheduleID = stringValue(origin.cron_schedule_id)
   const cronScheduleName = stringValue(origin.cron_schedule_name)
-  if (cronScheduleID) lines.push(`cron_schedule_id: ${cronScheduleID}`)
   if (cronScheduleName) lines.push(`cron_schedule_name: ${cronScheduleName}`)
 
   const payload = recordValue(origin.payload)
@@ -134,11 +128,7 @@ function isAgentEnvironmentInfoBlock(text: string): boolean {
  * the message.
  */
 function speakerLabel(author: JSONObject): string | undefined {
-  const name =
-    stringValue(author.display_name) ??
-    stringValue(author.name) ??
-    stringValue(author.principal_uid) ??
-    stringValue(author.id)
+  const name = stringValue(author.display_name) ?? stringValue(author.name) ?? stringValue(author.principal_uid)
   if (!name) return undefined
 
   const senderType = stringValue((recordValue(author.metadata) ?? {}).sender_type)

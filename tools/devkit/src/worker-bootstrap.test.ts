@@ -11,11 +11,12 @@ const workerSpec: WorkerBootstrapSpec = {
     extra_hosts: [{ host: 'host.docker.internal', address: 'host-gateway' }]
   },
   env: {
+    ANKOLE_AGENTS_ROOT: '/agents',
     WORKER_ID: 'worker-a',
     RUNTIME_FABRIC_URL: 'tcp://:secret@host.docker.internal:6010'
   },
-  host_setup_dirs: ['/tmp/ankole worker/shared/user-files'],
-  mounts: [{ source: '/tmp/ankole worker/shared', target: '/workspace/shared', readonly: false }]
+  host_setup_dirs: ['/tmp/ankole worker/agents'],
+  mounts: [{ source: '/tmp/ankole worker/agents', target: '/agents', readonly: false }]
 }
 
 describe('parseWorkerBootstrapSpec', () => {
@@ -58,11 +59,13 @@ describe('buildDockerRunArgs', () => {
       '--add-host',
       'host.docker.internal=host-gateway',
       '-e',
+      'ANKOLE_AGENTS_ROOT=/agents',
+      '-e',
       'RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010',
       '-e',
       'WORKER_ID=worker-a',
       '--mount',
-      'type=bind,src=/tmp/ankole worker/shared,dst=/workspace/shared',
+      'type=bind,src=/tmp/ankole worker/agents,dst=/agents',
       '--mount',
       'type=bind,src=/repo/src,dst=/repo/app/agent_computer/src,readonly',
       'ankole-agent-computer:0.1.0',

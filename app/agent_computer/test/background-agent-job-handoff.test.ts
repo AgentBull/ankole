@@ -9,7 +9,7 @@ import { boundedFilesChangedFromCodexDiff } from '../src/tools/codex/protocol'
 
 describe('@ankole/agent-computer BackgroundAgentJob path handoff', () => {
   it('bounds hostile path sets by count and serialized bytes without hiding the total', () => {
-    const manyPaths = Array.from({ length: 50_000 }, (_, index) => `/workspace/user-files/report-${index}.pdf`)
+    const manyPaths = Array.from({ length: 50_000 }, (_, index) => `/agents/agent-1/user-files/report-${index}.pdf`)
     const countBounded = backgroundAgentJobPathHandoff({
       total_count: manyPaths.length,
       paths: manyPaths,
@@ -23,7 +23,7 @@ describe('@ankole/agent-computer BackgroundAgentJob path handoff', () => {
 
     const longPaths = Array.from(
       { length: 8 },
-      (_, index) => `/workspace/user-files/${String(index).padStart(2, '0')}-${'x'.repeat(3_000)}.pdf`
+      (_, index) => `/agents/agent-1/user-files/${String(index).padStart(2, '0')}-${'x'.repeat(3_000)}.pdf`
     )
     const byteBounded = boundedBackgroundAgentJobPaths(longPaths)
 

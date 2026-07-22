@@ -21,7 +21,8 @@ defmodule AnkoleWeb.BrainController do
   alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceEntryResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceListResponse
   alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceCaptureRequest
-  alias AnkoleWeb.Schemas.BrainConsoleAPI.ReviewCandidatesResponse
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.SourceCaptureResponse
+  alias AnkoleWeb.Schemas.BrainConsoleAPI.StatusResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias OpenAPISpex.Schema
 
@@ -187,7 +188,7 @@ defmodule AnkoleWeb.BrainController do
   )
 
   operation(:create_source,
-    summary: "Retain immutable bytes from a URL, file, or pasted text",
+    summary: "Save manual text as knowledge or retain binary source bytes",
     parameters:
       @owner_parameter ++
         [
@@ -200,7 +201,7 @@ defmodule AnkoleWeb.BrainController do
         ],
     request_body: {"Source", "multipart/form-data", SourceCaptureRequest, required: true},
     responses: [
-      created: {"Retained source", "application/json", SourceEntryResponse},
+      created: {"Saved material", "application/json", SourceCaptureResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope},
       unprocessable_entity: {"Invalid source", "application/json", ErrorEnvelope}
@@ -220,11 +221,11 @@ defmodule AnkoleWeb.BrainController do
     ]
   )
 
-  operation(:review_candidates,
-    summary: "List deterministic Brain review candidates",
+  operation(:status,
+    summary: "Read the single long-term memory health surface",
     parameters: @owner_parameter,
     responses: [
-      ok: {"Brain review candidates", "application/json", ReviewCandidatesResponse},
+      ok: {"Long-term memory status", "application/json", StatusResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
       forbidden: {"Forbidden", "application/json", ErrorEnvelope}
     ]
@@ -260,9 +261,9 @@ defmodule AnkoleWeb.BrainController do
   )
 
   operation(:run_dreaming,
-    summary: "Run principal-level Brain curation now",
+    summary: "Run Agent-level Brain curation now",
     description:
-      "Manually starts the same Stage B path used by the scheduled Brain curation job.",
+      "Manually starts the same Agent-only Stage B path used by the scheduled Brain curation job.",
     parameters: @owner_parameter,
     responses: [
       ok: {"Dreaming run result", "application/json", DreamingRunResponse},
@@ -376,10 +377,10 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
-  def review_candidates(conn, params) do
+  def status(conn, params) do
     with {:ok, owner_uid} <- Adapter.required_text(params, "owner_uid"),
          :ok <- ConsolePolicy.authorize(conn, brain_resource(owner_uid), "read"),
-         {:ok, payload} <- Adapter.review_candidates(owner_uid) do
+         {:ok, payload} <- Adapter.status(owner_uid) do
       json(conn, payload)
     else
       {:error, reason} -> error(conn, reason)

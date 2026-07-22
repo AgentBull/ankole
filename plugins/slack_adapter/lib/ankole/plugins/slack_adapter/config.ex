@@ -46,7 +46,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
          :ok <- token_prefix(bot_token, "xoxb-", "botToken"),
          {:ok, app_token} <- required_string(value, "appToken"),
          :ok <- token_prefix(app_token, "xapp-", "appToken"),
-         {:ok, base_url} <- optional_base_url(value, "baseURL"),
          {:ok, namespace} <- optional_string(value, "platformSubjectNamespace", "slack-main"),
          {:ok, user_name} <- optional_string(value, "userName", "Slack"),
          {:ok, bot_user_id} <- optional_string(value, "botUserID", nil) do
@@ -54,7 +53,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
        %{
          "botToken" => bot_token,
          "appToken" => app_token,
-         "baseURL" => base_url,
          "platformSubjectNamespace" => namespace,
          "userName" => user_name,
          "botUserID" => bot_user_id
@@ -79,7 +77,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
          :ok <- optional_token_prefix(bot_token, "xoxb-", "botToken"),
          {:ok, app_token} <- optional_string(value, "appToken", nil),
          :ok <- optional_token_prefix(app_token, "xapp-", "appToken"),
-         {:ok, base_url} <- optional_base_url(value, "baseURL"),
          {:ok, oidc_enabled} <- optional_boolean(oidc, "enabled", true),
          {:ok, oidc_scopes} <- string_array(oidc, "scopes", @default_oidc_scopes),
          {:ok, sync_contacts} <- optional_boolean(sync, "contacts", true),
@@ -95,7 +92,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
          "teamID" => team_id,
          "botToken" => bot_token,
          "appToken" => app_token,
-         "baseURL" => base_url,
          "oidc" => %{"enabled" => oidc_enabled, "scopes" => oidc_scopes},
          "sync" => %{
            "contacts" => sync_contacts,
@@ -125,13 +121,9 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   def load_identity_config_key(_key), do: {:error, :invalid_config_key}
 
-  @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
-  def client(config, opts \\ []) do
-    base =
-      [bot_token: Map.get(config, "botToken"), app_token: Map.get(config, "appToken")]
-      |> maybe_keyword(:base_url, Map.get(config, "baseURL"))
-
-    Client.new(Keyword.merge(base, opts))
+  @spec client(chat_config() | identity_config()) :: Client.t()
+  def client(config) do
+    Client.new(bot_token: Map.get(config, "botToken"), app_token: Map.get(config, "appToken"))
   end
 
   @spec connection_key(chat_config() | identity_config()) :: {String.t(), String.t()}
@@ -149,14 +141,12 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
-  def resolve_runtime_bot_identity(config, opts \\ []) do
+  @spec resolve_runtime_bot_identity(chat_config()) :: chat_config()
+  def resolve_runtime_bot_identity(config) do
     if MapHelpers.presence(Map.get(config, "botUserID")) do
       config
     else
-      fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_identity/1)
-
-      case fetcher.(config) do
+      case fetch_runtime_bot_identity(config) do
         {:ok, identity} ->
           config
           |> maybe_map_put("runtimeBotUserID", Map.get(identity, "user_id"))
@@ -216,25 +206,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     end
   end
 
-  defp optional_base_url(map, key) do
-    with {:ok, value} <- optional_string(map, key, nil) do
-      case value do
-        nil ->
-          {:ok, nil}
-
-        url ->
-          case URI.parse(url) do
-            %URI{scheme: scheme, host: host}
-            when scheme in ["http", "https"] and is_binary(host) ->
-              {:ok, url}
-
-            _uri ->
-              {:error, {:invalid_base_url, key}}
-          end
-      end
-    end
-  end
-
   defp optional_boolean(map, key, default) do
     case MapHelpers.fetch_value(map, key) do
       value when is_boolean(value) -> {:ok, value}
@@ -268,8 +239,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     end
   end
 
-  defp maybe_keyword(keyword, _key, nil), do: keyword
-  defp maybe_keyword(keyword, key, value), do: Keyword.put(keyword, key, value)
   defp maybe_map_put(map, _key, nil), do: map
   defp maybe_map_put(map, key, value), do: Map.put(map, key, value)
 end

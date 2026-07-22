@@ -5,6 +5,7 @@ import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { deepString } from '@pleisto/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { ModelIntegerID, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import { rpcMethods, type RPCRequestInit, type ScheduleRPCRequester } from '../../lanes/rpc_lane'
@@ -17,12 +18,11 @@ export interface CreateScheduleToolsOptions {
 type ScheduleToolDetails = JSONObject
 
 const JSONMap = z.record(z.string(), z.unknown())
-
 const CRON_DESCRIPTION = [
   'Manage recurring schedules for this conversation: list, inspect, create, update, pause, resume, remove, manually run, or view run history.',
   'Use this tool when the user asks about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron-like follow-up in the current conversation.',
   'Recurring schedules support kind=every and kind=cron only.',
-  'After add or update, summarize the saved schedule in the visible reply: name, schedule/timezone, delivery target, and whether quiet_success is enabled.',
+  'After add or update, summarize the saved schedule in the visible reply: name, schedule/timezone, and whether quiet_success is enabled.',
   'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.'
 ].join('\n')
 
@@ -59,8 +59,7 @@ const CheckBackCreateParams = z.object({
     .optional()
     .describe(
       'Allow this checkback to finish without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks must still be visible.'
-    ),
-  idempotency_key: z.string().optional().describe('Stable key for retrying the same schedule request.')
+    )
 })
 
 const CheckBackUpdateFields = z
@@ -84,17 +83,16 @@ const CheckBackLaterOperationParams = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('get'),
-    scheduled_event_id: z.string().uuid()
+    checkback_id: ModelIntegerID
   }),
   z.object({
     action: z.literal('update'),
-    scheduled_event_id: z.string().uuid(),
-    updates: CheckBackUpdateFields,
-    idempotency_key: z.string().optional().describe('Stable key for retrying the same update request.')
+    checkback_id: ModelIntegerID,
+    updates: CheckBackUpdateFields
   }),
   z.object({
     action: z.literal('cancel'),
-    scheduled_event_id: z.string().uuid()
+    checkback_id: ModelIntegerID
   })
 ])
 
@@ -104,17 +102,14 @@ const CheckBackLaterOperationParams = z.discriminatedUnion('action', [
 const CheckBackLaterParams = z
   .object({
     action: z.enum(['create', 'list', 'get', 'update', 'cancel']).describe('Checkback management action.'),
-    scheduled_event_id: z
-      .string()
-      .uuid()
-      .optional()
-      .describe('Required for get, update, and cancel. Use list first when the id is unknown.'),
+    checkback_id: ModelIntegerID.optional().describe(
+      'Required for get, update, and cancel. Use list first when the id is unknown.'
+    ),
     reason: z.string().min(1).max(2000).optional().describe('Required for create: why the checkback is useful.'),
     check: z.string().min(1).max(4000).optional().describe('Required for create: what to do at wakeup.'),
     context_summary: z.string().max(8000).nullable().optional().describe('Optional compact create-time context.'),
     schedule: CheckBackSchedule.optional().describe('Required for create: the one-shot wakeup time.'),
     quiet_success: z.boolean().optional().describe('Optional create-time quiet-success policy.'),
-    idempotency_key: z.string().optional().describe('Optional stable retry key for create or update.'),
     updates: CheckBackUpdateFields.optional().describe('Required for update; provide at least one changed field.'),
     limit: z.number().int().positive().max(25).optional().describe('Optional list result limit, at most 25.')
   })
@@ -141,21 +136,38 @@ const CronSchedule = z.object({
 })
 
 const DeliveryParams = z.object({
-  signal_channel_id: z.string().optional(),
-  provider_thread_id: z.string().optional(),
   quiet_success: z.boolean().optional()
 })
 
-const CronParams = z.object({
-  action: z.enum(['list', 'get', 'runs', 'add', 'update', 'pause', 'resume', 'remove', 'run']),
-  cron_schedule_id: z.string().optional(),
-  name: z.string().optional(),
-  binding_name: z.string().optional(),
-  schedule: z.union([EverySchedule, CronSchedule]).optional(),
-  payload: JSONMap.optional(),
-  delivery: DeliveryParams.optional(),
-  updates: JSONMap.optional(),
-  idempotency_key: z.string().optional(),
+const CronParams = z
+  .object({
+    action: z.enum(['list', 'get', 'runs', 'add', 'update', 'pause', 'resume', 'remove', 'run']),
+    name: z.string().min(1).optional(),
+    schedule: z.union([EverySchedule, CronSchedule]).optional(),
+    payload: JSONMap.optional(),
+    delivery: DeliveryParams.optional(),
+    limit: z.number().int().positive().max(100).optional()
+  })
+  .superRefine((params, context) => {
+    if (params.action !== 'list' && !params.name?.trim()) {
+      context.addIssue({ code: 'custom', path: ['name'], message: `${params.action} requires name` })
+    }
+    if (params.action === 'add' && !params.schedule) {
+      context.addIssue({ code: 'custom', path: ['schedule'], message: 'add requires schedule' })
+    }
+    if (
+      params.action === 'update' &&
+      params.schedule === undefined &&
+      params.payload === undefined &&
+      params.delivery === undefined
+    ) {
+      context.addIssue({ code: 'custom', path: ['action'], message: 'update requires a changed field' })
+    }
+  })
+
+const CronOriginReadParams = z.object({
+  action: z.enum(['list', 'get', 'runs']),
+  name: z.string().min(1).optional(),
   limit: z.number().int().positive().max(100).optional()
 })
 
@@ -179,8 +191,8 @@ function createCheckBackLaterTool(
     description: [
       'Manage one-shot delayed self-wakeups for this conversation: create, list, inspect, update, or cancel pending checkbacks.',
       'Use this tool when the user asks you to wait, remind yourself, follow up later, re-check something after time passes, or changes/revokes an already scheduled checkback.',
-      'Use list/get before update/cancel when you do not know the scheduled_event_id.',
-      'For create provide reason, check, and schedule. For get/update/cancel provide scheduled_event_id; update also requires a non-empty updates object.',
+      'Use list/get before update/cancel when you do not know the checkback_id.',
+      'For create provide reason, check, and schedule. For get/update/cancel provide checkback_id; update also requires a non-empty updates object.',
       'For create/update schedules, use at for a named clock time, market close, deadline, or exact instant; use after only for a genuinely relative delay.',
       'A conversational correction does not change durable work by itself. Never claim a checkback was created, updated, or cancelled until the corresponding tool action returns a confirmed result.',
       'Checkbacks are visible by default. Use quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes.'
@@ -199,13 +211,13 @@ function createCheckBackLaterTool(
           call(rpcMethods.scheduleCheckBackLaterList, value.limit ? { limit: value.limit } : {})
         )
         .with({ action: 'get' }, value =>
-          call(rpcMethods.scheduleCheckBackLaterGet, { scheduledEventId: value.scheduled_event_id })
+          call(rpcMethods.scheduleCheckBackLaterGet, { scheduledEventId: modelIntegerIDToWire(value.checkback_id) })
         )
         .with({ action: 'create' }, value => {
           const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
           return call(rpcMethods.scheduleCheckBackLaterCreate, {
             toolCallId: toolCallID,
-            idempotencyKey: value.idempotency_key ?? defaultCheckBackIdempotencyKey(opts.turnStart, value),
+            idempotencyKey: defaultCheckBackIdempotencyKey(opts.turnStart, value),
             reason: value.reason,
             check: value.check,
             contextSummary: value.context_summary ?? '',
@@ -217,20 +229,20 @@ function createCheckBackLaterTool(
         .with({ action: 'update' }, value => {
           const replyRoute = requiredCheckBackReplyRoute(opts.turnStart)
           return call(rpcMethods.scheduleCheckBackLaterUpdate, {
-            scheduledEventId: value.scheduled_event_id,
+            scheduledEventId: modelIntegerIDToWire(value.checkback_id),
             toolCallId: toolCallID,
-            idempotencyKey: value.idempotency_key ?? defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
+            idempotencyKey: defaultCheckBackUpdateIdempotencyKey(opts.turnStart, value),
             updatesJson: jsonBytes(value.updates),
             replyRouteJson: jsonBytes(replyRoute)
           })
         })
         .with({ action: 'cancel' }, value =>
-          call(rpcMethods.scheduleCheckBackLaterCancel, { scheduledEventId: value.scheduled_event_id })
+          call(rpcMethods.scheduleCheckBackLaterCancel, { scheduledEventId: modelIntegerIDToWire(value.checkback_id) })
         )
         .exhaustive()
 
       return jsonToolResult(response, {
-        presentation: checkBackEffectPresentation(toolCallID, operation)
+        presentation: checkBackEffectPresentation(operation)
       })
     }
   }
@@ -261,29 +273,35 @@ function defaultCheckBackUpdateIdempotencyKey(
 ): string {
   const stableInput = {
     actor_event_id: turnStart.turn.actor_event_id,
-    scheduled_event_id: params.scheduled_event_id,
+    checkback_id: params.checkback_id,
     updates: params.updates
   }
 
-  return `check_back_later:update:${params.scheduled_event_id}:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
+  return `check_back_later:update:${params.checkback_id}:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
 }
 
 /**
  * Builds the recurring schedule management tool.
  */
-function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof CronParams, ScheduleToolDetails> {
+function createCronTool(
+  opts: CreateScheduleToolsOptions
+): AgentTool<typeof CronParams | typeof CronOriginReadParams, ScheduleToolDetails> {
+  const cronOrigin = isCronOriginTurn(opts.turnStart)
+
   return {
     name: 'cron',
-    description: CRON_DESCRIPTION,
-    schema: CronParams,
+    description: cronOrigin
+      ? 'Inspect recurring schedules for this conversation. This cron-origin turn can only list schedules, inspect one schedule, or view its run history.'
+      : CRON_DESCRIPTION,
+    schema: cronOrigin ? CronOriginReadParams : CronParams,
     executionMode: 'sequential',
-    isReadOnly: false,
+    isReadOnly: cronOrigin,
     isDestructive: false,
     describeActivity: () => '安排后续工作',
     async execute(toolCallID, params): Promise<AgentToolResult<ScheduleToolDetails>> {
       rejectCronOriginMutation(params, opts.turnStart)
       const call = opts.requestScheduleRPC
-      const target = () => ({ cronScheduleId: requiredCronScheduleID(params) })
+      const target = () => ({ name: requiredCronScheduleName(params, cronOrigin) })
 
       // Method and payload for one action stay in a single branch so the RPC
       // contract types check each shape exactly.
@@ -307,14 +325,13 @@ function createCronTool(opts: CreateScheduleToolsOptions): AgentTool<typeof Cron
         .exhaustive()
 
       return jsonToolResult(response, {
-        presentation: cronEffectPresentation(toolCallID, params)
+        presentation: cronEffectPresentation(params)
       })
     }
   }
 }
 
 function checkBackEffectPresentation(
-  operationID: string,
   params: z.output<typeof CheckBackLaterOperationParams>
 ): AgentToolResult<ScheduleToolDetails>['presentation'] {
   if (params.action === 'create') {
@@ -322,7 +339,6 @@ function checkBackEffectPresentation(
       {
         kind: 'effect.receipt',
         payload: {
-          operation_id: operationID,
           phase: 'confirmed',
           summary: '已安排后续检查',
           scope: checkBackScheduleScope(params.schedule),
@@ -337,10 +353,9 @@ function checkBackEffectPresentation(
       {
         kind: 'effect.receipt',
         payload: compactRecord({
-          operation_id: operationID,
           phase: 'confirmed',
           summary: '已更新后续检查',
-          target: params.scheduled_event_id,
+          target: params.checkback_id,
           scope: params.updates.schedule ? checkBackScheduleScope(params.updates.schedule) : undefined,
           follow_up:
             params.updates.quiet_success === true
@@ -358,10 +373,9 @@ function checkBackEffectPresentation(
       {
         kind: 'effect.receipt',
         payload: {
-          operation_id: operationID,
           phase: 'confirmed',
           summary: '已取消后续检查',
-          target: params.scheduled_event_id
+          target: params.checkback_id
         }
       }
     ]
@@ -396,7 +410,6 @@ function requiredCheckBackReplyRoute(turnStart: TurnStart): ReplyRoute {
 }
 
 function cronEffectPresentation(
-  operationID: string,
   params: z.output<typeof CronParams>
 ): AgentToolResult<ScheduleToolDetails>['presentation'] {
   const summaries: Partial<Record<z.output<typeof CronParams>['action'], string>> = {
@@ -415,7 +428,6 @@ function cronEffectPresentation(
     {
       kind: 'effect.receipt',
       payload: compactRecord({
-        operation_id: operationID,
         phase: 'confirmed',
         summary,
         target: params.name?.trim() || undefined,
@@ -473,16 +485,17 @@ function cronAddPayload(
 ): RPCRequestInit<'schedule.cron.add'> {
   if (!params.schedule) throw new Error('cron add requires schedule')
   const route = currentReplyRoute(turnStart)
-  const bindingName = params.binding_name ?? route?.binding_name
-  if (!bindingName) throw new Error('cron add requires binding_name or a current provider binding')
+  const bindingName = route?.binding_name
+  if (!bindingName) throw new Error('cron add requires a current provider binding')
+  if (!params.name?.trim()) throw new Error('cron add requires name')
 
   return {
     bindingName,
-    name: params.name ?? '',
+    name: params.name.trim(),
     scheduleJson: jsonBytes(params.schedule),
     payloadJson: jsonBytes(params.payload ?? {}),
     deliveryJson: jsonBytes(cronDelivery(params, route)),
-    idempotencyKey: params.idempotency_key ?? defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
+    idempotencyKey: defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
   }
 }
 
@@ -512,8 +525,7 @@ function defaultCronAddIdempotencyKey(
  */
 function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart): JSONObject {
   const route = currentReplyRoute(turnStart)
-  const updates: JSONObject = { ...params.updates }
-  if (params.name !== undefined) updates.name = params.name
+  const updates: JSONObject = {}
   if (params.schedule !== undefined) updates.schedule = params.schedule
   if (params.payload !== undefined) updates.payload = params.payload
   if (params.delivery !== undefined) updates.delivery = cronDelivery(params, route)
@@ -527,17 +539,22 @@ function cronDelivery(params: z.output<typeof CronParams>, route: ReplyRoute | u
   const delivery = {
     ...(route?.signal_channel_id ? { signal_channel_id: route.signal_channel_id } : {}),
     ...(route?.provider_thread_id ? { provider_thread_id: route.provider_thread_id } : {}),
-    ...params.delivery
+    ...(params.delivery?.quiet_success !== undefined ? { quiet_success: params.delivery.quiet_success } : {})
   }
   return Object.keys(delivery).length > 0 ? delivery : undefined
 }
 
 /**
- * Reads the required cron schedule id for actions that target one schedule.
+ * Reads the stable cron schedule name for actions that target one schedule.
  */
-function requiredCronScheduleID(params: z.output<typeof CronParams>): string {
-  if (!params.cron_schedule_id) throw new Error(`${params.action} requires cron_schedule_id`)
-  return params.cron_schedule_id
+function requiredCronScheduleName(
+  params: z.output<typeof CronParams> | z.output<typeof CronOriginReadParams>,
+  allowOrigin: boolean
+): string {
+  const name = params.name?.trim()
+  if (name) return name
+  if (allowOrigin) return ''
+  throw new Error(`${params.action} requires name`)
 }
 
 type ReplyRoute = {

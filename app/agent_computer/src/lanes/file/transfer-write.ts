@@ -1,6 +1,6 @@
 import { zstdDecompressBlock } from '@ankole/kernel'
 import { mkdirSync, rmSync, statSync } from 'node:fs'
-import { appendFile, copyFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, copyFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chunkSize, creditWindow, readBoolFrame, readU64Frame, sendFrame, u64Frame } from './codec'
 import { fileFingerprint } from './fingerprint'
@@ -98,6 +98,9 @@ export async function handleWriteCommit(context: FileTransferContext, transferID
     rmSync(finalTempPath, { force: true })
     await moveToTargetFilesystem(transfer.decodedPath, finalTempPath)
     await rename(finalTempPath, transfer.targetPath)
+    if (transfer.address.root === 'agent_home_documents') {
+      await chmod(transfer.targetPath, 0o444)
+    }
     fingerprint = fileFingerprint(
       context.state,
       transfer.address.root,

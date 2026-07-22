@@ -118,8 +118,8 @@ defmodule Ankole.Brain.Schemas.Entry do
     |> unique_constraint([:owner_uid, :store_key, :name],
       name: :brain_entries_owner_store_name_index
     )
-    |> unique_constraint(:owner_uid, name: :brain_entries_public_pinned_memo_index)
-    |> unique_constraint(:owner_uid, name: :brain_entries_public_curation_guide_index)
+    |> unique_constraint(:owner_uid, name: :brain_entries_self_pinned_memo_index)
+    |> unique_constraint(:owner_uid, name: :brain_entries_self_curation_guide_index)
     |> unique_constraint(:properties, name: :brain_entries_channel_identity_index)
     |> check_constraint(:store_key, name: :brain_entries_store_key_check)
     |> check_constraint(:name, name: :brain_entries_name_present)

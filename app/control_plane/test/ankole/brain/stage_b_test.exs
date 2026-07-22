@@ -15,15 +15,18 @@ defmodule Ankole.Brain.StageBTest do
   alias Ankole.AppConfigure
   alias Ankole.AuthZ.Group
   alias Ankole.Brain
+  alias Ankole.Brain.Sources
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming.StageB
   alias Ankole.Brain.Jobs.CuratePrincipal
   alias Ankole.Brain.Jobs.EnqueuePrincipalDreaming
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.Cursor
+  alias Ankole.Brain.Schemas.EntryRelation
   alias Ankole.Brain.Scope
   alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, BindingMembership, Channel}
   alias Ankole.SignalsGateway.Entry, as: SignalEntry
+  alias Ankole.SignalsGateway.Projection
   alias Ankole.SystemConfig
 
   @base_time ~U[2026-07-13 00:00:00.000000Z]
@@ -63,6 +66,48 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
   end
 
+  test "a person entry can preserve the signal speaker principal uid" do
+    %{principal: agent} = agent_fixture()
+    %{principal: peer} = human_fixture()
+
+    _message =
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "I prefer concise status updates",
+        "stage-b-person-principal"
+      )
+
+    configure_model!(agent, fn request ->
+      assert [material] = request_payload(request)["materials"]
+      assert material["speaker"] == "Alice"
+      assert material["speaker_principal_uid"] == peer.uid
+
+      response_summary(%{
+        "operations" => [
+          %{
+            "operation" => "create_entry",
+            "name" => "Alice",
+            "type" => "person",
+            "summary" => "Alice's stable preferences",
+            "aliases" => [],
+            "properties" => %{"principal_uid" => material["speaker_principal_uid"]}
+          }
+        ],
+        "skill_updates" => []
+      })
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 1})
+
+    assert {:ok, %{status: :completed, operation_count: 1}} = StageB.run(agent.uid)
+
+    {:ok, scope} = Scope.for_store(agent.uid, "dm:#{peer.uid}")
+    assert {:ok, [entry]} = Knowledge.list_entries(scope, limit: 20)
+    assert entry.type == "person"
+    assert entry.properties["principal_uid"] == peer.uid
+  end
+
   test "mutation failures do not advance the baseline and a new entry can receive a dreaming block" do
     %{principal: agent} = agent_fixture()
     source = visible_signal_material!(agent.uid, "I now prefer vegetables", "stage-b-diet")
@@ -81,8 +126,7 @@ defmodule Ankole.Brain.StageBTest do
         %{
           "operation" => "append_block",
           "entry_ref" => "diet",
-          "body" =>
-            "Alice said “I now prefer vegetables” on the observed date. src:#{source.document_id}"
+          "body" => "Alice said “I now prefer vegetables” on the observed date. src:material_1"
         }
       ],
       "skill_updates" => []
@@ -106,7 +150,7 @@ defmodule Ankole.Brain.StageBTest do
 
     assert principal_cursor!(agent.uid).metadata["signal_document_id"] == source.document_id
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
     assert {:ok, [entry]} = Knowledge.list_entries(scope, limit: 20)
     assert entry.name == "Diet preference"
     assert {:ok, projection} = Knowledge.open(scope, entry.id, block_limit: :all)
@@ -167,30 +211,160 @@ defmodule Ankole.Brain.StageBTest do
     message = task_outcome_material!(agent.uid, "stage-b-curator-retry", "durable topic")
     attempts = :atomics.new(1, signed: false)
 
-    configure_model!(agent, fn _request ->
+    configure_model!(agent, fn request ->
+      system =
+        request.body["input"]
+        |> Enum.find(&(&1["role"] == "system"))
+        |> get_in(["content", Access.at(0), "text"])
+
       case :atomics.add_get(attempts, 1, 1) do
         1 ->
+          assert system =~ "edit_block: operation, entry_name, block_position, and non-empty body"
+
           response_summary(%{
             "operations" => [
               %{
-                "operation" => "add_relation",
-                "entry_id" => Ecto.UUID.generate(),
-                "predicate" => "depends on",
-                "expected_entry_lock_version" => 1
+                "operation" => "edit_block",
+                "body" => "The model omitted its block target."
+              }
+            ],
+            "skill_updates" => []
+          })
+
+        2 ->
+          assert system =~ "Retry correction from the control plane"
+          assert system =~ "edit_block requires entry_name, block_position, and a non-empty body"
+
+          response_summary(%{
+            "operations" => [
+              %{
+                "operation" => "create_entry",
+                "name" => "Invalid empty block",
+                "type" => "topic",
+                "initial_body" => ""
               }
             ],
             "skill_updates" => []
           })
 
         _retry ->
+          assert system =~ "create_entry requires non-empty name and type"
+          assert system =~ "does not accept initial_body"
           response_summary(empty_plan())
       end
     end)
 
     configure_dreaming!(agent.uid, agent.uid)
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert :atomics.get(attempts, 1) == 2
+    assert :atomics.get(attempts, 1) == 3
     assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
+  end
+
+  test "a relation plan links the target in the final source body before commit" do
+    %{principal: agent} = agent_fixture()
+
+    material =
+      visible_signal_material!(
+        agent.uid,
+        "Source Subject is owned by Target Subject.",
+        "stage-b-relation-link"
+      )
+
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
+    source_id = create_knowledge_entry!(scope, agent.uid, "Source Subject")
+    target_id = create_knowledge_entry!(scope, agent.uid, "Target Subject")
+
+    assert {:ok, %{results: [%{block_id: _block_id}]}} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "append_block",
+                 entry_id: source_id,
+                 expected_entry_lock_version: 1,
+                 body: "Target Subject owns this work."
+               },
+               %{kind: :human, uid: agent.uid}
+             )
+
+    attempts = :atomics.new(1, signed: false)
+
+    configure_model!(
+      agent,
+      fn request ->
+        system =
+          request.body["input"]
+          |> Enum.find(&(&1["role"] == "system"))
+          |> get_in(["content", Access.at(0), "text"])
+
+        case :atomics.add_get(attempts, 1, 1) do
+          1 ->
+            assert system =~ "A body link without add_relation is incomplete"
+
+            response_summary(%{
+              "operations" => [
+                %{
+                  "operation" => "add_relation",
+                  "entry_name" => "Source Subject",
+                  "target_entry_name" => "Target Subject",
+                  "predicate" => "owned by"
+                }
+              ],
+              "skill_updates" => []
+            })
+
+          _retry ->
+            assert system =~ "source entry's final body must contain [[Target Subject]]"
+
+            response_summary(%{
+              "operations" => [
+                %{
+                  "operation" => "edit_block",
+                  "entry_name" => "Source Subject",
+                  "block_position" => 1,
+                  "body" => "[[Target Subject]] owns Source Subject. src:material_1"
+                },
+                %{
+                  "operation" => "add_relation",
+                  "entry_name" => "Source Subject",
+                  "target_entry_name" => "Target Subject",
+                  "predicate" => "owned by"
+                }
+              ],
+              "skill_updates" => []
+            })
+        end
+      end,
+      locator: fn request ->
+        system =
+          request.body["input"]
+          |> Enum.find(&(&1["role"] == "system"))
+          |> get_in(["content", Access.at(0), "text"])
+
+        assert system =~ "emit at least one topic for each endpoint"
+        [indexed] = request_payload(request)["material_index"]
+
+        response_summary(%{
+          "material_refs" => [indexed["material_ref"]],
+          "topics" => [
+            %{
+              "query" => "Target Subject",
+              "material_refs" => [indexed["material_ref"]]
+            }
+          ]
+        })
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 2})
+
+    assert {:ok, %{status: :completed, operation_count: 2}} = StageB.run(agent.uid)
+    assert :atomics.get(attempts, 1) == 2
+
+    assert %EntryRelation{predicate: "owned by", target_entry_id: ^target_id} =
+             Repo.get_by!(EntryRelation, source_entry_id: source_id)
+
+    assert {:ok, %{blocks: [%{body: body}]}} = Knowledge.open(scope, source_id, block_limit: :all)
+    assert body =~ "[[Target Subject]]"
   end
 
   test "the principal cursor is a cross-node single-flight lease and advances only after commit" do
@@ -270,16 +444,20 @@ defmodule Ankole.Brain.StageBTest do
       agent,
       fn request ->
         payload = curator_payload(request)
-        assert Enum.map(payload["materials"], & &1["material_id"]) == [second.id]
+        assert Enum.map(payload["materials"], & &1["material_ref"]) == ["material_2"]
         response_summary(empty_plan())
       end,
       locator: fn request ->
         payload = request_payload(request)
-        assert Enum.map(payload["material_index"], & &1["material_id"]) == [first.id, second.id]
+
+        assert Enum.map(payload["material_index"], & &1["material_ref"]) == [
+                 "material_1",
+                 "material_2"
+               ]
 
         response_summary(%{
-          "material_ids" => [second.id],
-          "topics" => [%{"query" => "second material", "material_ids" => [second.id]}]
+          "material_refs" => ["material_2"],
+          "topics" => [%{"query" => "second material", "material_refs" => ["material_2"]}]
         })
       end
     )
@@ -316,7 +494,7 @@ defmodule Ankole.Brain.StageBTest do
         response_summary(empty_plan())
       end,
       locator: fn _request ->
-        response_summary(%{"material_ids" => [], "topics" => []})
+        response_summary(%{"material_refs" => [], "topics" => []})
       end
     )
 
@@ -361,7 +539,7 @@ defmodule Ankole.Brain.StageBTest do
                       }
                     }}
 
-    assert locator_schema["required"] == ["material_ids", "topics"]
+    assert locator_schema["required"] == ["material_refs", "topics"]
 
     assert_receive {:stage_b_response_format, :curator,
                     %{
@@ -453,7 +631,7 @@ defmodule Ankole.Brain.StageBTest do
       fn request ->
         payload = request_payload(request)
         assert [material] = payload["materials"]
-        assert material["material_id"] == actor_event.id
+        assert material["material_ref"] == "material_1"
         assert material["kind"] == "task_outcome"
         assert material["completed_at"] == "2026-07-13 08:00:00 (Asia/Singapore)"
 
@@ -475,13 +653,14 @@ defmodule Ankole.Brain.StageBTest do
         refute encoded =~ "PRIVATE_RECALL_QUERY"
         refute encoded =~ "SECRET_TOOL_OUTPUT"
         refute encoded =~ "call-1"
+        refute encoded =~ actor_event.id
         refute Map.has_key?(material, "store_key")
         response_summary(empty_plan())
       end,
       locator: fn request ->
         payload = request_payload(request)
         assert [material] = payload["material_index"]
-        assert material["material_id"] == actor_event.id
+        assert material["material_ref"] == "material_1"
         assert material["kind"] == "task_outcome"
         assert material["preview"] =~ "Remember the workflow lesson"
 
@@ -502,7 +681,7 @@ defmodule Ankole.Brain.StageBTest do
 
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "stage-b-raw-response",
-        metadata: %{"brain" => %{"visibility" => "public"}}
+        metadata: %{"brain" => %{"visibility" => "self"}}
       )
 
     %Message{}
@@ -529,33 +708,29 @@ defmodule Ankole.Brain.StageBTest do
     })
     |> Repo.insert!()
 
+    configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
     configure_dreaming!(agent.uid, agent.uid)
 
     assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
     refute principal_cursor!(agent.uid).metadata["task_actor_event_id"]
   end
 
-  test "token budget counts locator and curator requests across public and private stores" do
+  test "token budget counts locator and curator requests across shared and private stores" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
 
-    public_message =
-      task_outcome_material!(agent.uid, "stage-b-budget-public", "small public material",
-        completed_at: @base_time
+    shared_message =
+      visible_signal_material!(agent.uid, "small shared material", "stage-b-budget-shared",
+        observed_at: @base_time
       )
 
     private_message =
-      task_outcome_material!(
+      visible_dm_signal_material!(
         agent.uid,
-        "stage-b-budget-private",
+        peer.uid,
         String.duplicate("private ", 25_000),
-        completed_at: DateTime.add(@base_time, 1, :second),
-        brain: %{
-          "visibility" => "dm",
-          "peer_uid" => peer.uid,
-          "channel_id" => "dm:stage-b-budget:#{peer.uid}",
-          "channel_kind" => "im_dm"
-        }
+        "stage-b-budget-private",
+        observed_at: DateTime.add(@base_time, 1, :second)
       )
 
     test_pid = self()
@@ -575,18 +750,24 @@ defmodule Ankole.Brain.StageBTest do
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 20_000})
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == public_message.id
+
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] ==
+             shared_message.document_id
 
     requests = receive_budgeted_requests([])
     assert length(requests) == 2
     assert Enum.sum(Enum.map(requests, &request_token_cost/1)) <= 20_000
 
     assert {:error, :dreaming_token_limit_too_small} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == public_message.id
+
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] ==
+             shared_message.document_id
 
     configure_dreaming!(agent.uid, agent.uid, %{"token_limit" => 0})
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == private_message.id
+
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] ==
+             private_message.document_id
   end
 
   test "curator output rejects noncanonical operations and envelopes without advancing" do
@@ -604,7 +785,7 @@ defmodule Ankole.Brain.StageBTest do
 
     assert {:error,
             {:invalid_dreaming_operation,
-             %{store_key: "public", index: 0, operation: "nil", fields: fields}}} =
+             %{store_key: "self", index: 0, operation: "nil", fields: fields}}} =
              StageB.run(agent.uid)
 
     assert fields == ["operation", "reason"]
@@ -625,7 +806,7 @@ defmodule Ankole.Brain.StageBTest do
 
     assert {:error,
             {:invalid_dreaming_operation,
-             %{store_key: "public", index: 0, operation: nil, fields: alias_fields}}} =
+             %{store_key: "self", index: 0, operation: nil, fields: alias_fields}}} =
              StageB.run(agent.uid)
 
     assert alias_fields == ["name", "op", "type"]
@@ -660,7 +841,7 @@ defmodule Ankole.Brain.StageBTest do
         %{
           "operation" => "append_block",
           "entry_ref" => "source-check",
-          "body" => "Quoted evidence src:#{source.document_id}"
+          "body" => "Quoted evidence src:material_1"
         }
       ],
       "skill_updates" => []
@@ -668,7 +849,7 @@ defmodule Ankole.Brain.StageBTest do
 
     configure_model!(agent, fn request ->
       assert [material] = request_payload(request)["materials"]
-      assert material["material_id"] == source.document_id
+      assert material["material_ref"] == "material_1"
       assert material["kind"] == "signal_message"
       assert material["speaker"] == "Alice"
       assert material["text"] == "source before edit"
@@ -698,7 +879,7 @@ defmodule Ankole.Brain.StageBTest do
     send(upstream_pid, :release_source_curator)
     assert {:ok, %{status: :completed}} = Task.await(task, 10_000)
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
     assert {:ok, [entry]} = Knowledge.list_entries(scope, limit: 20)
     assert {:ok, projection} = Knowledge.open(scope, entry.id, block_limit: :all)
     assert [%{body: body, author_kind: :dreaming}] = projection.blocks
@@ -711,6 +892,21 @@ defmodule Ankole.Brain.StageBTest do
     _task_material = task_outcome_material!(agent.uid, "stage-b-nonblocking-source", "workflow")
     external = external_signal_entry!()
     test_pid = self()
+
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
+    history_id = create_knowledge_entry!(scope, agent.uid, "External source history")
+
+    assert {:ok, %{results: [%{block_id: _block_id}]}} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "append_block",
+                 entry_id: history_id,
+                 expected_entry_lock_version: 1,
+                 body: "Prior external evidence src:#{external.entry.document_id}"
+               },
+               %{kind: :human, uid: agent.uid}
+             )
 
     plan = %{
       "operations" => [
@@ -726,16 +922,36 @@ defmodule Ankole.Brain.StageBTest do
         %{
           "operation" => "append_block",
           "entry_ref" => "nonblocking-source",
-          "body" => "Unverified source src:#{external.entry.document_id}"
+          "body" => "Unverified source src:source_1"
         }
       ],
       "skill_updates" => []
     }
 
-    configure_model!(agent, fn _request ->
-      send(test_pid, :nonblocking_source_curator_called)
-      response_summary(plan)
-    end)
+    configure_model!(
+      agent,
+      fn request ->
+        payload = request_payload(request)
+        encoded = Ankole.JSON.encode!(payload)
+        assert encoded =~ "src:source_1"
+        refute encoded =~ external.entry.document_id
+        send(test_pid, :nonblocking_source_curator_called)
+        response_summary(plan)
+      end,
+      locator: fn request ->
+        [material] = request_payload(request)["material_index"]
+
+        response_summary(%{
+          "material_refs" => [material["material_ref"]],
+          "topics" => [
+            %{
+              "query" => "External source history",
+              "material_refs" => [material["material_ref"]]
+            }
+          ]
+        })
+      end
+    )
 
     configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 2})
 
@@ -783,24 +999,22 @@ defmodule Ankole.Brain.StageBTest do
     end
   end
 
-  test "public and private materials are curated in isolated calls with one global mutation budget" do
+  test "shared and private materials are curated in isolated calls with one global mutation budget" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
 
-    public_message =
-      task_outcome_material!(agent.uid, "stage-b-mixed-public", "PUBLIC_ONLY_MARKER",
-        completed_at: @base_time
+    shared_message =
+      visible_signal_material!(agent.uid, "SHARED_ONLY_MARKER", "stage-b-mixed-shared",
+        observed_at: @base_time
       )
 
     dm_message =
-      task_outcome_material!(agent.uid, "stage-b-mixed-dm", "PRIVATE_ONLY_MARKER",
-        completed_at: DateTime.add(@base_time, 1, :second),
-        brain: %{
-          "visibility" => "dm",
-          "peer_uid" => peer.uid,
-          "channel_id" => "dm:stage-b:#{peer.uid}",
-          "channel_kind" => "im_dm"
-        }
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "PRIVATE_ONLY_MARKER",
+        "stage-b-mixed-dm",
+        observed_at: DateTime.add(@base_time, 1, :second)
       )
 
     test_pid = self()
@@ -811,13 +1025,13 @@ defmodule Ankole.Brain.StageBTest do
 
       store_label =
         cond do
-          encoded =~ "PUBLIC_ONLY_MARKER" -> "public"
+          encoded =~ "SHARED_ONLY_MARKER" -> "shared"
           encoded =~ "PRIVATE_ONLY_MARKER" -> "dm:#{peer.uid}"
         end
 
       send(test_pid, {:store_curator_payload, store_label, payload})
 
-      name = if store_label == "public", do: "Public topic", else: "Private topic"
+      name = if store_label == "shared", do: "Shared topic", else: "Private topic"
 
       response_summary(%{
         "operations" => [
@@ -854,13 +1068,13 @@ defmodule Ankole.Brain.StageBTest do
     assert_store_payload_isolation!(second_payloads, peer.uid)
 
     cursor = principal_cursor!(agent.uid)
-    assert cursor.metadata["task_actor_event_id"] == dm_message.id
-    refute cursor.metadata["task_actor_event_id"] == public_message.id
+    assert cursor.metadata["signal_document_id"] == dm_message.document_id
+    refute cursor.metadata["signal_document_id"] == shared_message.document_id
 
     assert {:ok, entries} = Knowledge.list_entries(all_scope, limit: 20)
 
     assert MapSet.new(Enum.map(entries, &{&1.store_key, &1.name})) ==
-             MapSet.new([{"public", "Public topic"}, {"dm:#{peer.uid}", "Private topic"}])
+             MapSet.new([{"shared", "Shared topic"}, {"dm:#{peer.uid}", "Private topic"}])
 
     traces =
       AIGatewayConversation
@@ -872,9 +1086,55 @@ defmodule Ankole.Brain.StageBTest do
     assert traces
            |> Map.new(&{&1.metadata["brain"]["visibility"], &1.metadata["brain"]})
            |> then(fn by_visibility ->
-             by_visibility["public"] == %{"visibility" => "public"} and
+             by_visibility["shared"] == %{"visibility" => "shared"} and
                by_visibility["dm"]["peer_uid"] == peer.uid and
                by_visibility["dm"]["channel_kind"] == "im_dm"
+           end)
+  end
+
+  test "a captured confidential route survives a later binding change" do
+    %{principal: agent} = agent_fixture()
+
+    message =
+      visible_signal_material!(
+        agent.uid,
+        "captured confidential evidence",
+        "stage-b-captured-confidential-route"
+      )
+
+    captured_store = "channel:#{message.signal_channel_id}"
+
+    message
+    |> SignalEntry.changeset(%{
+      metadata:
+        Projection.put_entry_brain_store_route(message.metadata, agent.uid, captured_store)
+    })
+    |> Repo.update!()
+
+    configure_model!(agent, fn _request ->
+      response_summary(%{
+        "operations" => [
+          %{
+            "operation" => "create_entry",
+            "name" => "Captured confidential topic",
+            "type" => "topic",
+            "summary" => "",
+            "aliases" => [],
+            "properties" => %{}
+          }
+        ],
+        "skill_updates" => []
+      })
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :completed, operation_count: 1}} = StageB.run(agent.uid)
+    {:ok, all_scope} = Scope.for_console(agent.uid, :all)
+    assert {:ok, entries} = Knowledge.list_entries(all_scope, limit: 20)
+
+    assert Enum.any?(entries, fn entry ->
+             entry.name == "Captured confidential topic" and entry.store_key == captured_store
            end)
   end
 
@@ -883,13 +1143,11 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: peer} = human_fixture()
 
     _message =
-      task_outcome_material!(agent.uid, "stage-b-private-skill", "private correction",
-        brain: %{
-          "visibility" => "dm",
-          "peer_uid" => peer.uid,
-          "channel_id" => "dm:stage-b:#{peer.uid}",
-          "channel_kind" => "im_dm"
-        }
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "private correction",
+        "stage-b-private-skill"
       )
 
     test_pid = self()
@@ -913,6 +1171,119 @@ defmodule Ankole.Brain.StageBTest do
     assert_receive {:private_skill_payload, payload}, 1_000
     assert payload["enabled_skills"] == []
     refute Enum.any?(payload["materials"], &Map.has_key?(&1, "store_key"))
+  end
+
+  test "private dreaming calls cannot mutate self or shared knowledge" do
+    %{principal: agent} = agent_fixture()
+    %{principal: peer} = human_fixture()
+
+    _message =
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "private preference",
+        "stage-b-private-global-knowledge"
+      )
+
+    configure_model!(agent, fn _request ->
+      response_summary(%{
+        "operations" => [
+          %{
+            "operation" => "create_entry",
+            "name" => "Leaked private memo",
+            "type" => "agent_system_pinned_memo",
+            "summary" => "",
+            "aliases" => [],
+            "properties" => %{}
+          }
+        ],
+        "skill_updates" => []
+      })
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:error,
+            {:dreaming_store_boundary_violation,
+             %{
+               source_store_key: "dm:" <> peer_uid,
+               target_store_key: "self",
+               operation: "create_entry"
+             }}} = StageB.run(agent.uid)
+
+    assert peer_uid == peer.uid
+    {:ok, self_scope} = Scope.for_store(agent.uid, "self")
+    assert {:ok, []} = Knowledge.list_entries(self_scope, store_key: "self", limit: 20)
+  end
+
+  test "private dreaming cannot edit a visible shared entry" do
+    %{principal: agent} = agent_fixture()
+    %{principal: peer} = human_fixture()
+    {:ok, shared_scope} = Scope.for_store(agent.uid, "shared")
+
+    assert {:ok, %{results: [%{entry_id: shared_entry_id}]}} =
+             Knowledge.apply_operations(
+               shared_scope,
+               %{
+                 operation: "create_entry",
+                 name: "Shared boundary target",
+                 type: "topic",
+                 summary: "shared value",
+                 aliases: [],
+                 properties: %{},
+                 initial_body: "Shared boundary target shared value"
+               },
+               %{kind: :agent, uid: agent.uid}
+             )
+
+    _message =
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "Shared boundary target private correction",
+        "stage-b-private-shared-update"
+      )
+
+    locator = fn request ->
+      refs = request_payload(request)["material_index"] |> Enum.map(& &1["material_ref"])
+
+      response_summary(%{
+        "material_refs" => refs,
+        "topics" => [%{"query" => "Shared boundary target", "material_refs" => refs}]
+      })
+    end
+
+    configure_model!(
+      agent,
+      fn _request ->
+        response_summary(%{
+          "operations" => [
+            %{
+              "operation" => "set_summary",
+              "entry_name" => "Shared boundary target",
+              "summary" => "private value leaked into shared"
+            }
+          ],
+          "skill_updates" => []
+        })
+      end,
+      locator: locator
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:error,
+            {:dreaming_store_boundary_violation,
+             %{
+               source_store_key: "dm:" <> peer_uid,
+               target_store_key: "shared",
+               operation: "set_summary"
+             }}} = StageB.run(agent.uid)
+
+    assert peer_uid == peer.uid
+
+    assert {:ok, %{entry: %{summary: "shared value"}}} =
+             Knowledge.open(shared_scope, shared_entry_id, block_limit: :all)
   end
 
   test "curator receives only dynamic run context and local model-facing timestamps" do
@@ -1046,7 +1417,7 @@ defmodule Ankole.Brain.StageBTest do
   test "locator topics retrieve an old relevant entry instead of the latest directory slice" do
     %{principal: agent} = agent_fixture()
     _message = task_outcome_material!(agent.uid, "stage-b-relevant-knowledge", "verdant quokka")
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
 
     relevant_id = create_knowledge_entry!(scope, agent.uid, "Verdant quokka dossier")
 
@@ -1071,11 +1442,11 @@ defmodule Ankole.Brain.StageBTest do
         [material] = request_payload(request)["material_index"]
 
         response_summary(%{
-          "material_ids" => [material["material_id"]],
+          "material_refs" => [material["material_ref"]],
           "topics" => [
             %{
               "query" => "Verdant quokka dossier",
-              "material_ids" => [material["material_id"]]
+              "material_refs" => [material["material_ref"]]
             }
           ]
         })
@@ -1088,10 +1459,11 @@ defmodule Ankole.Brain.StageBTest do
 
     context =
       Enum.find(payload["current_knowledge"], fn context ->
-        get_in(context, ["entry", "id"]) == relevant_id
+        get_in(context, ["entry", "name"]) == "Verdant quokka dossier"
       end)
 
     assert context
+    refute Map.has_key?(context["entry"], "id")
     refute Map.has_key?(context["entry"], "store_key")
     refute Map.has_key?(context["entry"], "lock_version")
   end
@@ -1102,7 +1474,7 @@ defmodule Ankole.Brain.StageBTest do
     _message =
       task_outcome_material!(agent.uid, "stage-b-projection-fence", "verdant quokka update")
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
     entry_id = create_knowledge_entry!(scope, agent.uid, "Verdant quokka dossier")
 
     configure_model!(
@@ -1112,8 +1484,9 @@ defmodule Ankole.Brain.StageBTest do
           request
           |> request_payload()
           |> Map.fetch!("current_knowledge")
-          |> Enum.find(&(get_in(&1, ["entry", "id"]) == entry_id))
+          |> Enum.find(&(get_in(&1, ["entry", "name"]) == "Verdant quokka dossier"))
 
+        refute Map.has_key?(context["entry"], "id")
         refute Map.has_key?(context["entry"], "lock_version")
         refute Map.has_key?(context["entry"], "store_key")
 
@@ -1121,8 +1494,7 @@ defmodule Ankole.Brain.StageBTest do
           "operations" => [
             %{
               "operation" => "set_summary",
-              "entry_id" => entry_id,
-              "expected_entry_lock_version" => 999,
+              "entry_name" => "Verdant quokka dossier",
               "summary" => "Current verdant quokka evidence"
             }
           ],
@@ -1133,11 +1505,11 @@ defmodule Ankole.Brain.StageBTest do
         [material] = request_payload(request)["material_index"]
 
         response_summary(%{
-          "material_ids" => [material["material_id"]],
+          "material_refs" => [material["material_ref"]],
           "topics" => [
             %{
               "query" => "Verdant quokka dossier",
-              "material_ids" => [material["material_id"]]
+              "material_refs" => [material["material_ref"]]
             }
           ]
         })
@@ -1150,47 +1522,147 @@ defmodule Ankole.Brain.StageBTest do
     assert entry.summary == "Current verdant quokka evidence"
   end
 
-  test "the minute poll schedules each enabled principal once per local date" do
+  test "the minute poll enqueues one microbatch after silence or backlog" do
     %{principal: agent} = agent_fixture()
     _human = human_fixture()
+    material_time = ~U[2026-07-13 20:00:00.000000Z]
 
-    on_exit(fn -> AppConfigure.delete_global(SystemConfig.timezone_definition()) end)
-    assert {:ok, _timezone} = SystemConfig.put_timezone("Asia/Singapore")
-    configure_dreaming!(agent.uid, agent.uid, %{"schedule_local_time" => "04:30"})
+    _first =
+      task_outcome_material!(agent.uid, "stage-b-microbatch-first", "first durable lesson",
+        completed_at: material_time
+      )
+
+    configure_dreaming!(agent.uid, agent.uid, %{
+      "curation_silence_minutes" => 30,
+      "curation_backlog_rows" => 2
+    })
+
+    {:ok, config} = Config.dreaming(agent.uid)
+    refute StageB.eligible?(agent.uid, config, DateTime.add(material_time, 29, :minute))
+    assert StageB.eligible?(agent.uid, config, DateTime.add(material_time, 30, :minute))
 
     before = %Oban.Job{args: %{"now" => "2026-07-13T20:29:00Z"}}
-    due = %Oban.Job{args: %{"now" => "2026-07-13T20:30:00Z"}}
-    next_day = %Oban.Job{args: %{"now" => "2026-07-14T20:30:00Z"}}
+    backlog_due = %Oban.Job{args: %{"now" => "2026-07-13T20:29:31Z"}}
 
     assert :ok = EnqueuePrincipalDreaming.perform(before)
     assert [] = all_enqueued(worker: CuratePrincipal)
 
-    assert :ok = EnqueuePrincipalDreaming.perform(due)
-    assert :ok = EnqueuePrincipalDreaming.perform(due)
+    _second =
+      task_outcome_material!(agent.uid, "stage-b-microbatch-second", "second durable lesson",
+        completed_at: ~U[2026-07-13 20:29:30.000000Z]
+      )
+
+    assert StageB.eligible?(agent.uid, config, ~U[2026-07-13 20:29:31.000000Z])
+    assert :ok = EnqueuePrincipalDreaming.perform(backlog_due)
+    assert :ok = EnqueuePrincipalDreaming.perform(backlog_due)
 
     assert [%Oban.Job{args: first_args}] = all_enqueued(worker: CuratePrincipal)
     assert first_args["principal_uid"] == agent.uid
-    assert first_args["local_date"] == "2026-07-14"
-    assert first_args["timezone"] == "Asia/Singapore"
+    assert Map.keys(first_args) == ["principal_uid"]
+  end
 
-    assert :ok = EnqueuePrincipalDreaming.perform(next_day)
+  test "Stage B rejects a human owner instead of accepting an unused enable override" do
+    %{principal: human} = human_fixture()
 
-    assert [first, second] =
-             all_enqueued(worker: CuratePrincipal)
-             |> Enum.sort_by(& &1.args["local_date"])
+    assert {:error, :brain_dreaming_requires_agent} = Config.dreaming(human.uid)
+    assert {:error, :brain_dreaming_requires_agent} = StageB.run(human.uid)
+  end
 
-    assert first.args["local_date"] == "2026-07-14"
-    assert second.args["local_date"] == "2026-07-15"
+  test "the next Stage B run compacts an over-budget resident memo" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    configure_model!(
+      agent,
+      fn _request -> response_summary(empty_plan()) end,
+      memo: fn request ->
+        send(test_pid, {:memo_compaction_request, request})
+
+        {:json, 200,
+         %{
+           "output_text" =>
+             "When deployment fails, stop and report the exact error before retrying."
+         }}
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+    assert {:ok, knowledge_config} = Config.knowledge()
+
+    assert {:ok, _stored} =
+             AppConfigure.put_global(
+               Config.knowledge_definition(),
+               Map.put(knowledge_config, "pinned_memo_max_tokens", 20)
+             )
+
+    on_exit(fn -> AppConfigure.delete_global(Config.knowledge_definition()) end)
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
+
+    assert {:ok, source} =
+             Sources.capture(
+               scope,
+               %{
+                 kind: "file",
+                 title: "Resident memo source",
+                 original_name: "resident-memo.txt",
+                 content: "Deployment failure rule."
+               },
+               agent.uid
+             )
+
+    assert {:ok, %{results: [%{entry_id: memo_id}]}} =
+             Knowledge.apply_operations(
+               scope,
+               %{
+                 operation: "create_entry",
+                 name: "Resident Memo",
+                 type: "agent_system_pinned_memo",
+                 initial_body:
+                   String.duplicate("repeat this operational rule with excess prose ", 40) <>
+                     "(src:#{source.document_id})"
+               },
+               %{kind: :agent, uid: agent.uid}
+             )
+
+    assert {:ok, %{status: :no_new_material, material_count: 0, memo_compaction: :compacted}} =
+             StageB.run(agent.uid)
+
+    assert_receive {:memo_compaction_request, request}
+    assert request.body["max_output_tokens"] == 20
+
+    assert request.body
+           |> get_in(["input", Access.at(0), "content", Access.at(0), "text"])
+           |> String.contains?("long-term memory system (codename Brain)")
+
+    compaction_input =
+      get_in(request.body, ["input", Access.at(1), "content", Access.at(0), "text"])
+
+    refute compaction_input =~ source.document_id
+    refute compaction_input =~ "src:"
+
+    assert {:ok, %{blocks: [%{body: compacted}]}} =
+             Knowledge.open(scope, memo_id, block_limit: :all)
+
+    assert compacted ==
+             "When deployment fails, stop and report the exact error before retrying."
+
+    assert Ankole.Kernel.estimate_o200k_base_tokens(compacted) <= 20
   end
 
   defp configure_model!(agent, curator_fun, opts \\ []) do
     locator_fun = Keyword.get(opts, :locator, &select_all_locator_response/1)
+
+    memo_fun =
+      Keyword.get(opts, :memo, fn request ->
+        flunk("unexpected memo request: #{inspect(request)}")
+      end)
 
     base_url =
       start_upstream_server(fn request ->
         case stage_b_phase(request) do
           :locator -> locator_fun.(request)
           :curator -> curator_fun.(request)
+          :memo -> memo_fun.(request)
         end
       end)
 
@@ -1214,12 +1686,12 @@ defmodule Ankole.Brain.StageBTest do
              })
   end
 
-  defp configure_dreaming!(owner_uid, model_uid, overrides \\ %{}) do
+  defp configure_dreaming!(owner_uid, _model_uid, overrides \\ %{}) do
     assert {:ok, config} = Config.dreaming(owner_uid)
 
     config =
       config
-      |> Map.merge(%{"enabled" => true, "model_agent_uid" => model_uid})
+      |> Map.put("enabled", true)
       |> Map.merge(overrides)
 
     assert {:ok, _config} =
@@ -1227,7 +1699,7 @@ defmodule Ankole.Brain.StageBTest do
   end
 
   defp task_outcome_material!(owner_uid, key, text, opts \\ []) do
-    brain = Keyword.get(opts, :brain, %{"visibility" => "public"})
+    brain = Keyword.get(opts, :brain, %{"visibility" => "self"})
     event_type = Keyword.get(opts, :type, "im.message.addressed")
 
     {:ok, conversation} =
@@ -1324,8 +1796,8 @@ defmodule Ankole.Brain.StageBTest do
     |> Repo.insert!()
   end
 
-  defp visible_signal_material!(owner_uid, text, content_hash) do
-    now = DateTime.utc_now(:microsecond)
+  defp visible_signal_material!(owner_uid, text, content_hash, opts \\ []) do
+    now = Keyword.get(opts, :observed_at, DateTime.utc_now(:microsecond))
     suffix = Ecto.UUID.generate()
     binding_name = "brain-stage-b-#{suffix}"
     binding_fixture(owner_uid, binding_name, :ignore)
@@ -1371,6 +1843,62 @@ defmodule Ankole.Brain.StageBTest do
       attachments: [],
       links: [],
       author: %{"display_name" => "Alice"},
+      mentions: [],
+      metadata: %{},
+      raw_payload: %{},
+      provider_time: now,
+      reactions: %{},
+      raw_reaction_keys: %{},
+      document_id: "signal-gateway-entry:#{String.replace(suffix, "-", "_")}",
+      content_hash: content_hash,
+      first_seen_at: now,
+      last_seen_at: now
+    })
+    |> Repo.insert!()
+  end
+
+  defp visible_dm_signal_material!(owner_uid, peer_uid, text, content_hash, opts \\ []) do
+    now = Keyword.get(opts, :observed_at, DateTime.utc_now(:microsecond))
+    suffix = Ecto.UUID.generate()
+    channel_id = "brain:stage-b:dm:#{suffix}"
+
+    %Channel{}
+    |> Channel.changeset(%{
+      id: channel_id,
+      kind: :im_dm,
+      reply_mode: :entry,
+      name: "Brain Stage B DM",
+      metadata: %{"dm_peer_principal_uid" => peer_uid},
+      raw_payload: %{},
+      first_seen_at: now,
+      last_seen_at: now
+    })
+    |> Repo.insert!()
+
+    %ActorEvent{}
+    |> ActorEvent.changeset(%{
+      agent_uid: owner_uid,
+      binding_name: "brain-stage-b-dm",
+      session_id: "brain-stage-b-dm-#{suffix}",
+      source_event_id: "brain-stage-b-dm-observed-#{suffix}",
+      signal_channel_id: channel_id,
+      source_entry_id: "message-#{suffix}",
+      type: "im.message.observed",
+      available_at: now,
+      queue_sequence: System.unique_integer([:positive]),
+      input_state: "open",
+      payload: %{}
+    })
+    |> Repo.insert!()
+
+    %SignalEntry{}
+    |> SignalEntry.changeset(%{
+      signal_channel_id: channel_id,
+      source_entry_id: "message-#{suffix}",
+      text: text,
+      attachments: [],
+      links: [],
+      author: %{"display_name" => "Alice", "principal_uid" => peer_uid},
       mentions: [],
       metadata: %{},
       raw_payload: %{},
@@ -1471,24 +1999,38 @@ defmodule Ankole.Brain.StageBTest do
 
   defp select_all_locator_response(request) do
     materials = request_payload(request)["material_index"]
-    ids = Enum.map(materials, & &1["material_id"])
+    refs = Enum.map(materials, & &1["material_ref"])
 
     topics =
-      case ids do
+      case refs do
         [] -> []
-        ids -> [%{"query" => "durable material", "material_ids" => ids}]
+        refs -> [%{"query" => "durable material", "material_refs" => refs}]
       end
 
-    response_summary(%{"material_ids" => ids, "topics" => topics})
+    response_summary(%{"material_refs" => refs, "topics" => topics})
   end
 
   defp stage_b_phase(request) do
-    system =
-      request.body["input"]
-      |> Enum.find(&(&1["role"] == "system"))
-      |> get_in(["content", Access.at(0), "text"])
+    case get_in(request.body, ["text", "format", "name"]) do
+      "brain_stage_b_locator" ->
+        :locator
 
-    if system =~ "stage B locator", do: :locator, else: :curator
+      "brain_stage_b_curator" ->
+        :curator
+
+      _other ->
+        system_text =
+          request.body["input"]
+          |> Enum.find(&(&1["role"] == "system"))
+          |> get_in(["content", Access.at(0), "text"])
+
+        if is_binary(system_text) and String.contains?(system_text, "compress the resident memo") do
+          :memo
+        else
+          payload = request_payload(request)
+          if Map.has_key?(payload, "material_index"), do: :locator, else: :curator
+        end
+    end
   end
 
   defp curator_payload(request) do
@@ -1527,16 +2069,16 @@ defmodule Ankole.Brain.StageBTest do
   end
 
   defp assert_store_payload_isolation!(payloads, peer_uid) do
-    assert Map.keys(payloads) |> MapSet.new() == MapSet.new(["public", "dm:#{peer_uid}"])
+    assert Map.keys(payloads) |> MapSet.new() == MapSet.new(["shared", "dm:#{peer_uid}"])
 
-    public_payload = payloads["public"]
+    shared_payload = payloads["shared"]
     private_payload = payloads["dm:#{peer_uid}"]
-    refute Enum.any?(public_payload["materials"], &Map.has_key?(&1, "store_key"))
+    refute Enum.any?(shared_payload["materials"], &Map.has_key?(&1, "store_key"))
     refute Enum.any?(private_payload["materials"], &Map.has_key?(&1, "store_key"))
-    assert Ankole.JSON.encode!(public_payload) =~ "PUBLIC_ONLY_MARKER"
-    refute Ankole.JSON.encode!(public_payload) =~ "PRIVATE_ONLY_MARKER"
+    assert Ankole.JSON.encode!(shared_payload) =~ "SHARED_ONLY_MARKER"
+    refute Ankole.JSON.encode!(shared_payload) =~ "PRIVATE_ONLY_MARKER"
     assert Ankole.JSON.encode!(private_payload) =~ "PRIVATE_ONLY_MARKER"
-    refute Ankole.JSON.encode!(private_payload) =~ "PUBLIC_ONLY_MARKER"
+    refute Ankole.JSON.encode!(private_payload) =~ "SHARED_ONLY_MARKER"
     assert private_payload["enabled_skills"] == []
   end
 

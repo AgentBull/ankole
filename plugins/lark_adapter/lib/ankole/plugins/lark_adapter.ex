@@ -19,9 +19,6 @@ defmodule Ankole.Plugins.LarkAdapter do
   def plugin_id, do: "lark-adapter"
 
   @impl true
-  def api_version, do: 1
-
-  @impl true
   def display_name do
     %{
       "default" => "Lark Adapter",
@@ -147,16 +144,6 @@ defmodule Ankole.Plugins.LarkAdapter do
           option("feishu", %{"default" => "Feishu.cn", "zh-Hans-CN" => "Feishu.cn"}),
           option("lark", %{"default" => "Larksuite.com", "zh-Hans-CN" => "Larksuite.com"})
         ]
-      ),
-      field(
-        "baseURL",
-        %{"default" => "Base URL", "zh-Hans-CN" => "基础 URL"},
-        %{
-          "default" => "Optional override for local provider-compatible testing.",
-          "zh-Hans-CN" => "可选，本地或兼容服务测试时覆盖 provider URL。"
-        },
-        :string,
-        []
       ),
       field(
         "platformSubjectNamespace",

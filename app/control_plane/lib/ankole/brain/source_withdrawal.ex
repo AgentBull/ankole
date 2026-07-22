@@ -15,6 +15,7 @@ defmodule Ankole.Brain.SourceWithdrawal do
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.AuditLog
+  alias Ankole.Brain.Schemas.Entry
   alias Ankole.Repo
 
   @spec enqueue(String.t(), [Ecto.UUID.t()]) :: {:ok, Oban.Job.t()} | {:error, term()}
@@ -32,21 +33,23 @@ defmodule Ankole.Brain.SourceWithdrawal do
     end
   end
 
-  @spec withdraw(String.t(), [Ecto.UUID.t()]) :: {:ok, map()} | {:error, term()}
-  def withdraw(document_id, actor_event_ids \\ [])
+  @spec withdraw(String.t(), [Ecto.UUID.t()], keyword()) :: {:ok, map()} | {:error, term()}
+  def withdraw(document_id, actor_event_ids \\ [], opts \\ [])
 
-  def withdraw(document_id, actor_event_ids)
-      when is_binary(document_id) and is_list(actor_event_ids) do
+  def withdraw(document_id, actor_event_ids, opts)
+      when is_binary(document_id) and is_list(actor_event_ids) and is_list(opts) do
     source_ref = "src:#{document_id}"
 
     with {:ok, actor_event_ids} <- normalize_actor_event_ids(actor_event_ids) do
-      Repo.transact(fn repo ->
-        with {:ok, causal} <- withdraw_causal_updates(repo, actor_event_ids, document_id),
+      run = fn repo ->
+        with {:ok, mirror} <- withdraw_source_mirror(repo, document_id),
+             {:ok, causal} <- withdraw_causal_updates(repo, actor_event_ids, document_id),
              {:ok, citation_results} <- withdraw_citations(repo, document_id, source_ref) do
           {:ok,
            %{
              status: :completed,
              document_id: document_id,
+             deleted_mirror_entry_count: mirror.deleted_entry_count,
              restored_causal_update_count: length(causal.restored),
              skipped_causal_update_count: length(causal.skipped),
              deleted_block_count: length(citation_results),
@@ -55,7 +58,49 @@ defmodule Ankole.Brain.SourceWithdrawal do
              results: citation_results
            }}
         end
-      end)
+      end
+
+      case Keyword.get(opts, :repo) do
+        nil -> Repo.transact(run)
+        repo when is_atom(repo) -> run.(repo)
+        _invalid -> {:error, :invalid_repo}
+      end
+    end
+  end
+
+  defp withdraw_source_mirror(repo, document_id) do
+    entry =
+      repo.one(
+        from entry in Entry,
+          where: entry.owner_uid == ^Scope.shared_owner_uid() and entry.store_key == "shared",
+          where: fragment("?->>'source_document_id' = ?", entry.properties, ^document_id),
+          where: fragment("?->>'source_mirror' = 'true'", entry.properties),
+          limit: 1
+      )
+
+    case entry do
+      nil ->
+        {:ok, %{deleted_entry_count: 0}}
+
+      %Entry{} = entry ->
+        with {:ok, scope} <- Scope.for_store(Scope.shared_owner_uid(), "shared"),
+             {:ok, _result} <-
+               Knowledge.apply_operations(
+                 scope,
+                 %{
+                   operation: "delete_entry",
+                   entry_id: entry.id,
+                   expected_entry_lock_version: entry.lock_version
+                 },
+                 %{kind: :dreaming, uid: Scope.shared_owner_uid()},
+                 repo: repo,
+                 metadata: %{
+                   "surface" => "source_withdrawal",
+                   "source_document_id" => document_id
+                 }
+               ) do
+          {:ok, %{deleted_entry_count: 1}}
+        end
     end
   end
 

@@ -114,6 +114,48 @@ struct ImageCallMetrics {
     provider_cost: f64,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ImageReferenceAliases {
+    values: Vec<(String, String)>,
+}
+
+impl ImageReferenceAliases {
+    fn from_spec(image_spec: &HostedImageGenerationSpec) -> Self {
+        let mut values = Vec::new();
+
+        for reference in &image_spec.resolved_references {
+            if mask_reference(reference) {
+                continue;
+            }
+            let Some(id) = reference.get("id").and_then(Value::as_str) else {
+                continue;
+            };
+            if values.iter().any(|(_, existing_id)| existing_id == id) {
+                continue;
+            }
+            values.push((format!("img_{}", values.len() + 1), id.to_string()));
+        }
+
+        Self { values }
+    }
+
+    fn alias_for_id(&self, id: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find_map(|(alias, stored_id)| (stored_id == id).then_some(alias.as_str()))
+    }
+
+    fn id_for_alias(&self, alias: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find_map(|(stored_alias, id)| (stored_alias == alias).then_some(id.as_str()))
+    }
+
+    fn aliases(&self) -> impl Iterator<Item = &str> {
+        self.values.iter().map(|(alias, _id)| alias.as_str())
+    }
+}
+
 struct StreamingImageCall<'a> {
     prompt: &'a str,
     partial_limit: usize,
@@ -773,12 +815,18 @@ fn hidden_tool_name(public_request: &Map<String, Value>) -> String {
         .collect::<BTreeSet<_>>();
     let base = "__ankole_hosted_image_generation";
 
-    loop {
-        let candidate = format!("{base}_{}", UUID::new_v4().simple());
+    if !existing.contains(base) {
+        return base.to_string();
+    }
+
+    for suffix in 2usize.. {
+        let candidate = format!("{base}_{suffix}");
         if !existing.contains(candidate.as_str()) {
             return candidate;
         }
     }
+
+    unreachable!("usize image tool suffix space is exhausted")
 }
 
 fn lower_prepared_main_request(
@@ -787,14 +835,15 @@ fn lower_prepared_main_request(
     image_spec: &HostedImageGenerationSpec,
 ) -> Result<Map<String, Value>, StreamError> {
     let mut request = public_request.clone();
+    let references = ImageReferenceAliases::from_spec(image_spec);
     request.insert("stream".to_string(), json!(false));
-    resolve_private_request_references(&mut request, image_spec);
+    resolve_private_request_references(&mut request, image_spec, &references);
     let tools = public_request
         .get("tools")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let hidden_tool = hidden_function_tool(hidden_name, image_spec);
+    let hidden_tool = hidden_function_tool(hidden_name, image_spec, &references);
     let mut lowered_tools = tools
         .iter()
         .map(|tool| {
@@ -818,6 +867,7 @@ fn lower_prepared_main_request(
 fn resolve_private_request_references(
     request: &mut Map<String, Value>,
     image_spec: &HostedImageGenerationSpec,
+    references: &ImageReferenceAliases,
 ) {
     let Some(input) = request.get_mut("input") else {
         return;
@@ -826,10 +876,10 @@ fn resolve_private_request_references(
     match input {
         Value::Array(items) => {
             for (item_index, item) in items.iter_mut().enumerate() {
-                resolve_private_input_item(item, image_spec, Some(item_index));
+                resolve_private_input_item(item, image_spec, references, Some(item_index));
             }
         }
-        Value::Object(_object) => resolve_private_input_item(input, image_spec, None),
+        Value::Object(_object) => resolve_private_input_item(input, image_spec, references, None),
         _input => {}
     }
 }
@@ -837,6 +887,7 @@ fn resolve_private_request_references(
 fn resolve_private_input_item(
     item: &mut Value,
     image_spec: &HostedImageGenerationSpec,
+    references: &ImageReferenceAliases,
     item_index: Option<usize>,
 ) {
     let generated_id = item
@@ -849,8 +900,9 @@ fn resolve_private_input_item(
 
     if let Some(id) = generated_id
         && resolved_reference_url(image_spec, &id).is_some()
+        && let Some(alias) = references.alias_for_id(&id)
     {
-        *item = private_reference_message(&id);
+        *item = private_reference_message(alias);
         return;
     }
 
@@ -864,10 +916,11 @@ fn resolve_private_input_item(
         let reference_id = private_image_reference_id(&part, image_spec, item_index, content_index);
         if let Some(id) = reference_id
             && resolved_reference_url(image_spec, &id).is_some()
+            && let Some(alias) = references.alias_for_id(&id)
         {
             resolved_content.push(json!({
                 "type": "input_text",
-                "text": format!("Image reference: {id}")
+                "text": format!("Image reference: {alias}")
             }));
             resolve_private_image_part(&mut part, image_spec);
         }
@@ -940,22 +993,23 @@ fn resolved_reference_url<'a>(
     })
 }
 
-fn private_reference_message(id: &str) -> Value {
+fn private_reference_message(alias: &str) -> Value {
     json!({
         "role": "user",
         "content": [
-            {"type": "input_text", "text": format!("Previously generated image reference: {id}")}
+            {"type": "input_text", "text": format!("Previously generated image reference: {alias}")}
         ]
     })
 }
 
-fn hidden_function_tool(hidden_name: &str, image_spec: &HostedImageGenerationSpec) -> Value {
-    let reference_ids = image_spec
-        .resolved_references
-        .iter()
-        .filter(|reference| !mask_reference(reference))
-        .filter_map(|reference| reference.get("id").and_then(Value::as_str))
-        .map(|id| json!(id))
+fn hidden_function_tool(
+    hidden_name: &str,
+    image_spec: &HostedImageGenerationSpec,
+    references: &ImageReferenceAliases,
+) -> Value {
+    let reference_aliases = references
+        .aliases()
+        .map(|alias| json!(alias))
         .collect::<Vec<_>>();
     let configured_action = image_spec
         .tool_config
@@ -965,15 +1019,15 @@ fn hidden_function_tool(hidden_name: &str, image_spec: &HostedImageGenerationSpe
     let actions = match configured_action {
         "generate" => vec![json!("generate")],
         "edit" => vec![json!("edit")],
-        _action if reference_ids.is_empty() => vec![json!("generate")],
+        _action if reference_aliases.is_empty() => vec![json!("generate")],
         _action => vec![json!("generate"), json!("edit")],
     };
-    let input_image_items = if reference_ids.is_empty() {
+    let input_image_items = if reference_aliases.is_empty() {
         json!({"type": "string"})
     } else {
-        json!({"type": "string", "enum": reference_ids})
+        json!({"type": "string", "enum": reference_aliases})
     };
-    let input_image_ids = if reference_ids.is_empty() || configured_action == "generate" {
+    let input_image_refs = if references.values.is_empty() || configured_action == "generate" {
         json!({"type": "array", "items": input_image_items, "maxItems": 0})
     } else {
         json!({"type": "array", "items": input_image_items})
@@ -982,16 +1036,16 @@ fn hidden_function_tool(hidden_name: &str, image_spec: &HostedImageGenerationSpe
     json!({
         "type": "function",
         "name": hidden_name,
-        "description": "Generate or edit one image. Write a complete standalone prompt. Select only reference IDs needed for this call.",
+        "description": "Generate or edit one image. Write a complete standalone prompt. Select only the img_N references needed for this call.",
         "strict": true,
         "parameters": {
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "minLength": 1},
                 "action": {"type": "string", "enum": actions},
-                "input_image_ids": input_image_ids
+                "input_image_refs": input_image_refs
             },
-            "required": ["prompt", "action", "input_image_ids"],
+            "required": ["prompt", "action", "input_image_refs"],
             "additionalProperties": false
         }
     })
@@ -1074,6 +1128,7 @@ async fn execute_hidden_call(
     output_index: usize,
     progress: Option<&mpsc::Sender<HostedProgress>>,
 ) -> Result<HiddenCallResult, StreamError> {
+    let references = ImageReferenceAliases::from_spec(image_spec);
     let call_id = call
         .get("call_id")
         .and_then(Value::as_str)
@@ -1123,7 +1178,7 @@ async fn execute_hidden_call(
             ),
         });
     }
-    let selected_ids = match selected_reference_ids(&arguments, image_spec) {
+    let selected_ids = match selected_reference_ids(&arguments, &references) {
         Ok(ids) => ids,
         Err(message) => {
             return Ok(HiddenCallResult::Invalid {
@@ -1135,7 +1190,7 @@ async fn execute_hidden_call(
         return Ok(HiddenCallResult::Invalid {
             internal_output: hidden_error_output(
                 &call_id,
-                "edit requires at least one input_image_id.",
+                "edit requires at least one input_image_ref.",
             ),
         });
     }
@@ -1143,7 +1198,7 @@ async fn execute_hidden_call(
         return Ok(HiddenCallResult::Invalid {
             internal_output: hidden_error_output(
                 &call_id,
-                "generate does not accept input_image_ids; use edit for referenced images.",
+                "generate does not accept input_image_refs; use edit for referenced images.",
             ),
         });
     }
@@ -1200,8 +1255,6 @@ async fn execute_hidden_call(
         "call_id": call_id,
         "output": sonic_rs::to_string(&json!({
             "status": "completed",
-            "image_generation_call_id": id,
-            "model": image_spec.selected_model,
             "mime_type": public_item["mime_type"]
         })).unwrap_or_else(|_| "{\"status\":\"completed\"}".to_string())
     });
@@ -1250,26 +1303,20 @@ fn base64_decoded_len(value: &str) -> u64 {
 
 fn selected_reference_ids(
     arguments: &Map<String, Value>,
-    image_spec: &HostedImageGenerationSpec,
+    references: &ImageReferenceAliases,
 ) -> Result<Vec<String>, String> {
-    let available = image_spec
-        .resolved_references
-        .iter()
-        .filter(|reference| !mask_reference(reference))
-        .filter_map(|reference| reference.get("id").and_then(Value::as_str))
-        .collect::<BTreeSet<_>>();
     let values = arguments
-        .get("input_image_ids")
+        .get("input_image_refs")
         .and_then(Value::as_array)
-        .ok_or_else(|| "input_image_ids must be an array.".to_string())?;
+        .ok_or_else(|| "input_image_refs must be an array.".to_string())?;
     let mut selected = Vec::new();
     for value in values {
-        let id = value
+        let alias = value
             .as_str()
-            .ok_or_else(|| "input_image_ids must contain strings.".to_string())?;
-        if !available.contains(id) {
-            return Err(format!("Unknown input image reference: {id}."));
-        }
+            .ok_or_else(|| "input_image_refs must contain strings.".to_string())?;
+        let id = references
+            .id_for_alias(alias)
+            .ok_or_else(|| format!("Unknown input image reference: {alias}."))?;
         if !selected.iter().any(|selected_id| selected_id == id) {
             selected.push(id.to_string());
         }
@@ -1891,6 +1938,23 @@ mod tests {
         assert!(exceeds_max_tool_calls(Some(8), 8, 1));
     }
 
+    #[test]
+    fn private_image_tool_name_uses_a_stable_collision_suffix() {
+        assert_eq!(hidden_tool_name(&Map::new()), HIDDEN_TOOL);
+
+        let request = json!({
+            "tools": [
+                {"type": "function", "name": HIDDEN_TOOL},
+                {"type": "function", "name": format!("{HIDDEN_TOOL}_2")}
+            ]
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        assert_eq!(hidden_tool_name(&request), format!("{HIDDEN_TOOL}_3"));
+    }
+
     #[tokio::test]
     async fn hosted_total_timeout_bounds_the_entire_main_image_loop() {
         let main_listener = TCPListener::bind("127.0.0.1:0").unwrap();
@@ -1968,7 +2032,7 @@ mod tests {
                                 "type": "function",
                                 "function": {
                                     "name": hidden_name,
-                                    "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_ids\":[]}"
+                                    "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_refs\":[]}"
                                 }
                             }]
                         },
@@ -2289,7 +2353,7 @@ mod tests {
             "type": "function_call",
             "call_id": "call_wrong_action",
             "name": HIDDEN_TOOL,
-            "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_ids\":[]}"
+            "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_refs\":[]}"
         });
 
         let result = execute_hidden_call(&call, &image_spec, 0, None)
@@ -2316,9 +2380,10 @@ mod tests {
             "id": "file_source",
             "image_url": "data:image/png;base64,c291cmNl"
         })];
-        let schema = hidden_function_tool(HIDDEN_TOOL, &image_spec);
+        let references = ImageReferenceAliases::from_spec(&image_spec);
+        let schema = hidden_function_tool(HIDDEN_TOOL, &image_spec, &references);
         assert_eq!(
-            schema["parameters"]["properties"]["input_image_ids"]["maxItems"],
+            schema["parameters"]["properties"]["input_image_refs"]["maxItems"],
             0
         );
 
@@ -2326,7 +2391,7 @@ mod tests {
             "type": "function_call",
             "call_id": "call_generate_with_reference",
             "name": HIDDEN_TOOL,
-            "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_ids\":[\"file_source\"]}"
+            "arguments": "{\"prompt\":\"A lake\",\"action\":\"generate\",\"input_image_refs\":[\"img_1\"]}"
         });
 
         let result = execute_hidden_call(&call, &image_spec, 0, None)
@@ -2339,7 +2404,7 @@ mod tests {
             internal_output["output"]
                 .as_str()
                 .unwrap()
-                .contains("generate does not accept input_image_ids")
+                .contains("generate does not accept input_image_refs")
         );
     }
 
@@ -2661,12 +2726,7 @@ mod tests {
             json!({"type": "input_text", "text": "Edit the source"})
         );
         assert_eq!(file_content[1]["type"], "input_text");
-        assert!(
-            file_content[1]["text"]
-                .as_str()
-                .unwrap()
-                .contains("file_source")
-        );
+        assert!(file_content[1]["text"].as_str().unwrap().contains("img_1"));
         assert_eq!(
             file_content[2],
             json!({
@@ -2676,12 +2736,7 @@ mod tests {
             })
         );
         assert_eq!(file_content[3]["type"], "input_text");
-        assert!(
-            file_content[3]["text"]
-                .as_str()
-                .unwrap()
-                .contains("input[0].content[2]")
-        );
+        assert!(file_content[3]["text"].as_str().unwrap().contains("img_3"));
         assert_eq!(
             file_content[4],
             json!({
@@ -2697,7 +2752,7 @@ mod tests {
             generated_content[0]["text"]
                 .as_str()
                 .unwrap()
-                .contains("ig_previous")
+                .contains("img_2")
         );
         assert_eq!(generated_content.len(), 1);
         assert_eq!(
@@ -2706,14 +2761,20 @@ mod tests {
         );
         assert_eq!(public_request["input"][1]["id"], "ig_previous");
 
-        let selectable_ids =
-            lowered["tools"][0]["parameters"]["properties"]["input_image_ids"]["items"]["enum"]
+        let selectable_refs =
+            lowered["tools"][0]["parameters"]["properties"]["input_image_refs"]["items"]["enum"]
                 .as_array()
                 .unwrap();
-        assert!(selectable_ids.iter().any(|id| id == "file_source"));
-        assert!(selectable_ids.iter().any(|id| id == "ig_previous"));
-        assert!(selectable_ids.iter().any(|id| id == "input[0].content[2]"));
-        assert!(!selectable_ids.iter().any(|id| id == "file_mask"));
+        assert_eq!(
+            selectable_refs,
+            &vec![json!("img_1"), json!("img_2"), json!("img_3")]
+        );
+
+        let lowered_json = Value::Object(lowered).to_string();
+        assert!(!lowered_json.contains("file_source"));
+        assert!(!lowered_json.contains("ig_previous"));
+        assert!(!lowered_json.contains("input[0].content[2]"));
+        assert!(!lowered_json.contains("file_mask"));
     }
 
     #[test]
@@ -2754,7 +2815,7 @@ mod tests {
                                 "type": "function",
                                 "function": {
                                     "name": hidden_name,
-                                    "arguments": "{\"prompt\":\"A moonlit lake\",\"action\":\"generate\",\"input_image_ids\":[]}"
+                                    "arguments": "{\"prompt\":\"A moonlit lake\",\"action\":\"generate\",\"input_image_refs\":[]}"
                                 }
                             }]
                         },
@@ -2999,7 +3060,7 @@ mod tests {
                                 "type": "function",
                                 "function": {
                                     "name": hidden_name,
-                                    "arguments": "{\"prompt\":\"Turn the source into a moonlit lake\",\"action\":\"edit\",\"input_image_ids\":[\"file_source\"]}"
+                                    "arguments": "{\"prompt\":\"Turn the source into a moonlit lake\",\"action\":\"edit\",\"input_image_refs\":[\"img_1\"]}"
                                 }
                             }]
                         },
@@ -3131,7 +3192,9 @@ mod tests {
         assert!(first_main_json.contains(HIDDEN_TOOL));
         assert_eq!(first_main["temperature"], 0.25);
         assert!(first_main.get("service_tier").is_none());
-        assert!(second_main.to_string().contains("call_hidden"));
+        let second_main_json = second_main.to_string();
+        assert!(second_main_json.contains("call_hidden"));
+        assert!(!second_main_json.contains("ig_"));
         assert_eq!(image_request["model"], "openai/gpt-image-2");
         assert_eq!(
             image_request["prompt"],

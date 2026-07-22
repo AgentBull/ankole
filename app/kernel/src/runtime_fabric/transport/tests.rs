@@ -117,14 +117,12 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
         RouterEvent::Received {
             transport_route,
             authenticated_worker_id,
-            authenticated_key_revision,
             envelope_bytes,
         } => {
             let envelope =
                 proto::Envelope::decode(envelope_bytes.as_slice()).expect("decoded envelope");
             assert_eq!(transport_route, "worker-instance-a");
             assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
-            assert_eq!(authenticated_key_revision, Some(1));
             assert!(matches!(
                 envelope.body,
                 Some(proto::envelope::Body::WorkerReady(_))
@@ -162,12 +160,10 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
         RouterEvent::FileFrame {
             transport_route,
             authenticated_worker_id,
-            authenticated_key_revision,
             frames,
         } => {
             assert_eq!(transport_route, "worker-instance-a");
             assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
-            assert_eq!(authenticated_key_revision, Some(1));
             assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
             assert_eq!(frames[1], b"STAT_OK");
             assert_eq!(frames[2], b"transfer-a");
@@ -299,8 +295,9 @@ fn worker_ready_envelope_bytes() -> Vec<u8> {
                 worker_id: "worker-a".to_string(),
                 runtime: "bun".to_string(),
                 version: "test".to_string(),
-                capacity_json: br#"{"available_turn_slots":1}"#.to_vec(),
+                max_turns: 1,
                 incarnation_id: "incarnation-a".to_string(),
+                available_turn_slots: 1,
             },
         )),
     }

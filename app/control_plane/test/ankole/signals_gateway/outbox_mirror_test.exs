@@ -39,7 +39,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  agent.uid,
                  "bot",
                  "post-failed",
-                 %{capabilities: [:post_entry], send: fn _outbox -> {:error, :rate_limited} end},
+                 outbox_adapter([:post_entry], fn _outbox -> {:error, :rate_limited} end),
                  now: @base_time
                )
 
@@ -66,10 +66,9 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  agent.uid,
                  "bot",
                  "post-ok",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox -> {:ok, %{created_source_entry_id: "bot-msg-1"}} end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:ok, %{created_source_entry_id: "bot-msg-1"}}
+                 end),
                  now: @base_time
                )
 
@@ -106,22 +105,19 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  agent.uid,
                  "bot",
                  "post-observe-sending",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     outbox =
-                       Repo.get_by!(OutboxEntry,
-                         agent_uid: agent.uid,
-                         binding_name: "bot",
-                         outbound_key: "post-observe-sending"
-                       )
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   outbox =
+                     Repo.get_by!(OutboxEntry,
+                       agent_uid: agent.uid,
+                       binding_name: "bot",
+                       outbound_key: "post-observe-sending"
+                     )
 
-                     assert outbox.status == :sending
-                     assert %DateTime{} = outbox.platform_send_started_at
+                   assert outbox.status == :sending
+                   assert %DateTime{} = outbox.platform_send_started_at
 
-                     {:ok, %{created_source_entry_id: "durable-send-msg"}}
-                   end
-                 },
+                   {:ok, %{created_source_entry_id: "durable-send-msg"}}
+                 end),
                  now: @base_time
                )
 
@@ -167,16 +163,13 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  agent.uid,
                  "bot",
                  "post-materialized-payload",
-                 %{
-                   capabilities: [:reply_entry],
-                   send: fn _outbox ->
-                     {:ok,
-                      %{
-                        created_source_entry_id: "bot-file-msg-1",
-                        payload: materialized_payload
-                      }}
-                   end
-                 },
+                 outbox_adapter([:reply_entry], fn _outbox ->
+                   {:ok,
+                    %{
+                      created_source_entry_id: "bot-file-msg-1",
+                      payload: materialized_payload
+                    }}
+                 end),
                  now: @base_time
                )
 
@@ -214,7 +207,7 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                  agent.uid,
                  "bot",
                  "post-without-provider-id",
-                 %{capabilities: [:post_entry], send: fn _outbox -> {:ok, %{}} end},
+                 outbox_adapter([:post_entry], fn _outbox -> {:ok, %{}} end),
                  now: @base_time
                )
 
@@ -255,16 +248,13 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
                      agent.uid,
                      "bot",
                      "post-mirror-fails-after-send",
-                     %{
-                       capabilities: [:post_entry],
-                       send: fn _outbox ->
-                         {:ok,
-                          %{
-                            created_source_entry_id: "mirror-fails-after-send",
-                            raw_payload: %{"pid" => test_pid}
-                          }}
-                       end
-                     },
+                     outbox_adapter([:post_entry], fn _outbox ->
+                       {:ok,
+                        %{
+                          created_source_entry_id: "mirror-fails-after-send",
+                          raw_payload: %{"pid" => test_pid}
+                        }}
+                     end),
                      now: @base_time
                    )
 

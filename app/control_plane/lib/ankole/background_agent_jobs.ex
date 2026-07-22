@@ -16,20 +16,23 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @job_session_prefix "job:"
   @job_session_prefix_size byte_size(@job_session_prefix)
+  @minimum_job_id 1000
+  @maximum_job_id 9_007_199_254_740_991
 
   @doc """
   Builds the durable actor-session id for one BackgroundAgentJob.
 
-  The `"job:" <> job_id` format is a frozen public contract: it is persisted in
+  The `"job:" <> Integer.to_string(job_id)` format is a frozen public contract: it is persisted in
   `actor_events.session_id`, worker assignments, and AIGateway
   `conversations.conversation_key`; documented in the Console API session
   schema; and typed by operators in the Console session picker. See
   `docs/design-docs/BackgroundAgentJob.md`. Changing it means a data migration
   plus an API change, not an edit here.
   """
-  @spec job_session_id(String.t()) :: String.t()
-  def job_session_id(job_id) when is_binary(job_id) and job_id != "",
-    do: @job_session_prefix <> job_id
+  @spec job_session_id(pos_integer()) :: String.t()
+  def job_session_id(job_id)
+      when is_integer(job_id) and job_id >= @minimum_job_id and job_id <= @maximum_job_id,
+      do: @job_session_prefix <> Integer.to_string(job_id)
 
   @doc "True when the value is a BackgroundAgentJob session id. Usable in guards."
   defguard is_job_session_id(session_id)
@@ -37,10 +40,28 @@ defmodule Ankole.BackgroundAgentJobs do
                   byte_size(session_id) > @job_session_prefix_size and
                   binary_part(session_id, 0, @job_session_prefix_size) == @job_session_prefix
 
-  @doc "Extracts the job id from a job session id; `:error` for any other term."
-  @spec parse_job_session_id(term()) :: {:ok, String.t()} | :error
-  def parse_job_session_id(@job_session_prefix <> job_id) when job_id != "",
-    do: {:ok, job_id}
+  @doc "Parses a canonical model-safe Job id from its RuntimeFabric decimal string."
+  @spec parse_job_id(term()) :: {:ok, pos_integer()} | :error
+  def parse_job_id(job_id)
+      when is_integer(job_id) and job_id >= @minimum_job_id and job_id <= @maximum_job_id,
+      do: {:ok, job_id}
+
+  def parse_job_id(job_id) when is_binary(job_id) do
+    case Integer.parse(job_id) do
+      {parsed, ""}
+      when parsed >= @minimum_job_id and parsed <= @maximum_job_id ->
+        if Integer.to_string(parsed) == job_id, do: {:ok, parsed}, else: :error
+
+      _parsed ->
+        :error
+    end
+  end
+
+  def parse_job_id(_other), do: :error
+
+  @doc "Extracts the integer Job id from a Job session id; `:error` for any other term."
+  @spec parse_job_session_id(term()) :: {:ok, pos_integer()} | :error
+  def parse_job_session_id(@job_session_prefix <> job_id), do: parse_job_id(job_id)
 
   def parse_job_session_id(_other), do: :error
 
@@ -50,6 +71,9 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
+
+  @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
+  defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
 
   @doc false
   defdelegate claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt),
@@ -111,11 +135,52 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{agent_uid: agent_uid, session_id: @job_session_prefix <> job_id},
+        %ActorEvent{agent_uid: agent_uid, session_id: session_id},
         %{"details_json" => %{"error_code" => "background_agent_job_turn_persistence_rejected"}},
         %DateTime{} = now
       ) do
-    fail_turn_persistence_rejection_in_tx(repo, job_id, agent_uid, now)
+    case parse_job_session_id(session_id) do
+      {:ok, job_id} -> fail_turn_persistence_rejection_in_tx(repo, job_id, agent_uid, now)
+      :error -> {:ok, nil}
+    end
+  end
+
+  def compensate_turn_error_in_tx(
+        repo,
+        %ActorEvent{
+          agent_uid: agent_uid,
+          session_id: session_id,
+          input_state: "dead_letter"
+        },
+        %{"code" => code, "message" => message, "details_json" => details},
+        %DateTime{} = now
+      )
+      when is_binary(code) and is_binary(message) and is_map(details) do
+    with {:ok, job_id} <- parse_job_session_id(session_id),
+         {:ok, result} <-
+           Lifecycle.commit_status_after_runtime_prefix_in_tx(
+             repo,
+             job_id,
+             agent_uid,
+             %{
+               "status" => "failed",
+               "error" => %{
+                 "code" => code,
+                 "summary" => message,
+                 "details" => details
+               }
+             },
+             now,
+             nil,
+             %{"code" => code, "summary" => message}
+           ),
+         {:ok, :ok} <-
+           Dispatch.complete_all_open_events_in_tx(repo, job_id, agent_uid, now) do
+      {:ok, result}
+    else
+      :error -> {:ok, nil}
+      {:error, _reason} = error -> error
+    end
   end
 
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
@@ -135,8 +200,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate pending_steer_events(job_id, agent_uid, excluded_event_id), to: Dispatch
 
-  @doc "Lists work visible from the parent session and channel."
-  defdelegate list_for_channel(agent_uid, owner_session_id, signal_channel_id), to: Queries
+  @doc "Lists a page of work visible from the parent session and channel."
+  def list_for_channel(agent_uid, owner_session_id, signal_channel_id, opts \\ []),
+    do: Queries.list_for_channel(agent_uid, owner_session_id, signal_channel_id, opts)
 
   @doc "Lists installation-wide Console work with a stable keyset cursor."
   def list_for_console(opts \\ []), do: Queries.list_for_console(opts)
@@ -147,11 +213,17 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Projects a job into the named Console API contract."
   defdelegate console_projection(job), to: Queries
 
+  @doc false
+  defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection
+
   @doc "Durably requests cancellation without trusting worker-local state."
   defdelegate request_stop(job_id, attrs), to: Control
 
-  @doc "Journals a cross-worker steering command for one job."
-  defdelegate request_steer(job_id, attrs), to: Control
+  @doc "Journals one message for a running or waiting Job."
+  defdelegate send_message(job_id, attrs), to: Control
+
+  @doc false
+  defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
 
   @doc false
   defdelegate upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, route),

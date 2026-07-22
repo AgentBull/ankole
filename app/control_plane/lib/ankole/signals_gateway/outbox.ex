@@ -25,13 +25,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   import Ankole.SignalsGateway.Utils,
     only: [
       collect_results: 1,
-      fetch_datetime: 2,
-      fetch_list: 2,
-      fetch_map: 3,
-      fetch_value: 2,
       normalize_agent_uid_attr: 1,
-      normalize_uid: 1,
-      optional_text: 2
+      normalize_uid: 1
     ]
 
   @outbox_base_retry_seconds 5
@@ -148,7 +143,7 @@ defmodule Ankole.SignalsGateway.Outbox do
 
       final_text ->
         with {:ok, operation, operation_attrs} <-
-               final_reply_operation(repo, actor_event, message) do
+               final_reply_operation(repo, actor_event) do
           outbound_key = "ai-reply:#{message.id}"
 
           commit_outbox_in_tx(
@@ -209,7 +204,7 @@ defmodule Ankole.SignalsGateway.Outbox do
       )
       when is_binary(text) and is_map(interactive_output) do
     with {:ok, operation, operation_attrs} <-
-           final_reply_operation(repo, actor_event, message) do
+           final_reply_operation(repo, actor_event) do
       outbound_key = "ai-reply:#{message.id}"
 
       commit_outbox_in_tx(
@@ -433,11 +428,17 @@ defmodule Ankole.SignalsGateway.Outbox do
           String.t(),
           String.t(),
           String.t(),
-          OutboxAdapter.t() | map(),
+          OutboxAdapter.t(),
           keyword()
         ) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
-  def dispatch_outbox(agent_uid, binding_name, outbound_key, adapter, options \\ []) do
+  def dispatch_outbox(
+        agent_uid,
+        binding_name,
+        outbound_key,
+        %OutboxAdapter{} = adapter,
+        options \\ []
+      ) do
     with :ok <- await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
       now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -534,34 +535,38 @@ defmodule Ankole.SignalsGateway.Outbox do
   def wake_blocked_for_binding(_agent_uid, _binding_name),
     do: {:error, :invalid_signal_binding}
 
-  defp prepare_outbox_dispatch(agent_uid, binding_name, outbound_key, adapter, now) do
-    with {:ok, adapter} <- OutboxAdapter.normalize(adapter) do
-      Repo.transact(fn repo ->
-        with %OutboxEntry{} = outbox <-
-               fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
-             {:ok, outbox} <- refresh_late_reply_presentation(repo, outbox),
-             {:ok, outbox} <- adopt_late_reply_preview(repo, outbox),
-             {:ok, channel} <- outbox_channel(repo, outbox) do
-          case in_flight_recovery_action(outbox, adapter, now) do
-            {:in_flight, outbox} ->
-              {:ok, outbox}
+  defp prepare_outbox_dispatch(
+         agent_uid,
+         binding_name,
+         outbound_key,
+         %OutboxAdapter{} = adapter,
+         now
+       ) do
+    Repo.transact(fn repo ->
+      with %OutboxEntry{} = outbox <-
+             fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key),
+           {:ok, outbox} <- refresh_late_reply_presentation(repo, outbox),
+           {:ok, outbox} <- adopt_late_reply_preview(repo, outbox),
+           {:ok, channel} <- outbox_channel(repo, outbox) do
+        case in_flight_recovery_action(outbox, adapter, now) do
+          {:in_flight, outbox} ->
+            {:ok, outbox}
 
-            {:reconcile, outbox} ->
-              {:ok, {:reconcile, outbox, channel, adapter}}
+          {:reconcile, outbox} ->
+            {:ok, {:reconcile, outbox, channel, adapter}}
 
-            {:unknown, outbox, reason} ->
-              mark_outbox_unknown(repo, outbox, reason)
+          {:unknown, outbox, reason} ->
+            mark_outbox_unknown(repo, outbox, reason)
 
-            :continue ->
-              prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now)
-          end
-        else
-          nil -> {:error, :outbox_not_found}
-          {:unsupported, outbox} -> mark_outbox_unsupported(repo, outbox)
-          {:error, _reason} = error -> error
+          :continue ->
+            prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now)
         end
-      end)
-    end
+      else
+        nil -> {:error, :outbox_not_found}
+        {:unsupported, outbox} -> mark_outbox_unsupported(repo, outbox)
+        {:error, _reason} = error -> error
+      end
+    end)
   end
 
   # Actor completion and the transient preview use different transactions. A
@@ -656,13 +661,13 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   defp terminal_presentation_from_latest_checkpoint(event, original) do
     latest = reply_presentation_checkpoint(event)
-    state = fetch_value(original, "state") || "completed"
+    state = Map.get(original, "state") || "completed"
 
     answer =
       if state == "stopped" do
-        fetch_value(latest, "answer") || fetch_value(original, "answer") || ""
+        Map.get(latest, "answer") || Map.get(original, "answer") || ""
       else
-        fetch_value(original, "answer") || ""
+        Map.get(original, "answer") || ""
       end
 
     latest
@@ -690,7 +695,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp merge_terminal_meta(presentation, original) do
-    original_meta = fetch_value(original, "meta")
+    original_meta = Map.get(original, "meta")
 
     if is_map(original_meta) do
       Map.put(presentation, "meta", Map.merge(presentation["meta"] || %{}, original_meta))
@@ -812,9 +817,6 @@ defmodule Ankole.SignalsGateway.Outbox do
   # reply. Without a preview it posts a fresh threaded reply or top-level message.
   # The same operation selection serves any actor-event terminal state, so a
   # dead-letter notice finalizes the preview exactly like a successful reply.
-  defp final_reply_operation(repo, %ActorEvent{} = actor_event, %Message{}),
-    do: final_reply_operation(repo, actor_event)
-
   defp final_reply_operation(repo, %ActorEvent{} = actor_event) do
     case actor_event.reply_preview_source_entry_id do
       source_entry_id when is_binary(source_entry_id) ->
@@ -859,39 +861,40 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp clarify_reply_presentation(actor_event, text, interactive_output) do
-    card_visible_text = fetch_value(interactive_output, "body") || text
+    card_visible_text = Map.get(interactive_output, "body") || text
 
     presentation =
       terminal_reply_presentation(actor_event, "awaiting_input", card_visible_text)
 
     controls =
       interactive_output
-      |> fetch_list("choices")
+      |> json_list("choices")
       |> Enum.map(fn choice ->
         %{
-          "id" => fetch_value(choice, "id"),
+          "id" => Map.get(choice, "id"),
           "type" => "button",
-          "label" => fetch_value(choice, "label"),
+          "label" => Map.get(choice, "label"),
+          "description" => Map.get(choice, "description"),
           "source_actor_event_id" => actor_event.id,
-          "interaction_id" => fetch_value(interactive_output, "interaction_id"),
-          "control_id" => fetch_value(interactive_output, "control_id"),
-          "selected_option_id" => fetch_value(choice, "id"),
-          "option_value" => fetch_value(choice, "value"),
-          "revision" => fetch_value(interactive_output, "version")
+          "interaction_id" => Map.get(interactive_output, "interaction_id"),
+          "control_id" => Map.get(interactive_output, "control_id"),
+          "selected_option_id" => Map.get(choice, "id"),
+          "option_value" => Map.get(choice, "value"),
+          "revision" => Map.get(interactive_output, "version")
         }
       end)
       |> maybe_append_free_input_control(actor_event, interactive_output)
 
     ReplyPresentation.apply_event(presentation, "interaction.request", %{
-      "operation_id" => fetch_value(interactive_output, "interaction_id") || "clarify",
+      "operation_id" => Map.get(interactive_output, "interaction_id") || "clarify",
       "revision" => presentation["revision"] + 1,
-      "prompt" => fetch_value(interactive_output, "body") || text,
+      "prompt" => Map.get(interactive_output, "body") || text,
       "controls" => controls
     })
   end
 
   defp maybe_append_free_input_control(controls, actor_event, interactive_output) do
-    if fetch_value(interactive_output, "free_input") == true do
+    if Map.get(interactive_output, "free_input") == true do
       controls ++
         [
           %{
@@ -900,15 +903,15 @@ defmodule Ankole.SignalsGateway.Outbox do
             "label" => "Reply",
             "style" => "primary",
             "source_actor_event_id" => actor_event.id,
-            "interaction_id" => fetch_value(interactive_output, "interaction_id"),
+            "interaction_id" => Map.get(interactive_output, "interaction_id"),
             "control_id" => "clarify-free-input",
-            "revision" => fetch_value(interactive_output, "version"),
+            "revision" => Map.get(interactive_output, "version"),
             "fields" => [
               %{
                 "id" => "clarify-answer",
                 "type" => "input",
                 "label" => "Your answer",
-                "placeholder" => fetch_value(interactive_output, "free_input_hint"),
+                "placeholder" => Map.get(interactive_output, "free_input_hint"),
                 "required" => true,
                 "multiline" => true,
                 "max_length" => 1_000
@@ -1356,8 +1359,8 @@ defmodule Ankole.SignalsGateway.Outbox do
   end
 
   defp mark_outbox_succeeded(repo, outbox, result) do
-    recovery_state = fetch_value(result, :recovery_state) || %{}
-    payload = fetch_value(result, :payload) || outbox.payload
+    recovery_state = result_map(result, :recovery_state, %{})
+    payload = result_map(result, :payload, outbox.payload)
     delivered_operation_attrs = delivered_operation_attrs(outbox, result)
 
     with {:ok, recovery_state} <-
@@ -1385,7 +1388,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   # deterministic rejection. Persist the operation that actually happened so
   # the outbox audit row and the local provider mirror keep the same identity.
   defp delivered_operation_attrs(%OutboxEntry{operation: :edit}, result) do
-    case fetch_value(result, :delivered_operation) do
+    case Map.get(result, :delivered_operation) do
       :post ->
         %{
           operation: :post,
@@ -1397,7 +1400,7 @@ defmodule Ankole.SignalsGateway.Outbox do
         %{
           operation: :reply,
           target_source_entry_id: nil,
-          reply_to_source_entry_id: fetch_value(result, :reply_to_source_entry_id)
+          reply_to_source_entry_id: Map.get(result, :reply_to_source_entry_id)
         }
 
       _operation ->
@@ -1466,7 +1469,7 @@ defmodule Ankole.SignalsGateway.Outbox do
   # Without a provider-derived entry id there is no source mirror identity, so a
   # successful outbox row remains succeeded but does not write signal_gateway_entries.
   defp created_source_entry_id_after_success(%OutboxEntry{} = outbox, result) do
-    optional_text(result, :created_source_entry_id) ||
+    result_text(result, :created_source_entry_id) ||
       outbox.created_source_entry_id
   end
 
@@ -1540,7 +1543,7 @@ defmodule Ankole.SignalsGateway.Outbox do
          now
        )
        when operation in [:post, :reply, :divider, :card] do
-    case optional_text(result, :created_source_entry_id) || outbox.created_source_entry_id do
+    case result_text(result, :created_source_entry_id) || outbox.created_source_entry_id do
       nil ->
         :ok
 
@@ -1551,14 +1554,14 @@ defmodule Ankole.SignalsGateway.Outbox do
           reply_to_source_entry_id: outbox.reply_to_source_entry_id,
           provider_thread_id: outbox.provider_thread_id,
           text: outbox.fallback_visible_text,
-          formatted_content: fetch_map(outbox.payload, :formatted_content, %{}),
-          attachments: fetch_list(outbox.payload, :attachments),
+          formatted_content: json_map(outbox.payload, "formatted_content", %{}),
+          attachments: json_list(outbox.payload, "attachments"),
           links: [],
           author: %{"agent_uid" => outbox.agent_uid},
           mentions: [],
-          metadata: fetch_map(outbox.payload, :metadata, %{}),
-          raw_payload: fetch_map(result, :raw_payload, %{}),
-          provider_time: fetch_datetime(result, :provider_time),
+          metadata: json_map(outbox.payload, "metadata", %{}),
+          raw_payload: result_map(result, :raw_payload, %{}),
+          provider_time: result_datetime(result, :provider_time),
           channel_name: channel && channel.name,
           ai_message_id: outbox.ai_message_id
         }
@@ -1637,10 +1640,9 @@ defmodule Ankole.SignalsGateway.Outbox do
       %Entry{} = entry ->
         fact = %{
           action: if(operation == :reaction_add, do: :add, else: :remove),
-          reaction_key: outbox.payload["reaction_key"] || outbox.payload[:reaction_key],
+          reaction_key: outbox.payload["reaction_key"],
           actor_key: outbox.payload["actor_key"] || outbox.agent_uid,
-          raw_reaction_key:
-            outbox.payload["raw_reaction_key"] || outbox.payload[:raw_reaction_key]
+          raw_reaction_key: outbox.payload["raw_reaction_key"]
         }
 
         entry
@@ -1674,7 +1676,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     text = outbox.fallback_visible_text
 
     rich_content =
-      Projection.rich_content(text, fetch_map(outbox.payload, :formatted_content, %{}))
+      Projection.rich_content(text, json_map(outbox.payload, "formatted_content", %{}))
 
     provider_thread_id = outbox.provider_thread_id || entry.provider_thread_id
 
@@ -1710,7 +1712,7 @@ defmodule Ankole.SignalsGateway.Outbox do
     text = outbox.fallback_visible_text
 
     rich_content =
-      Projection.rich_content(text, fetch_map(outbox.payload, :formatted_content, %{}))
+      Projection.rich_content(text, json_map(outbox.payload, "formatted_content", %{}))
 
     %{
       signal_channel_id: outbox.signal_channel_id,
@@ -1724,7 +1726,7 @@ defmodule Ankole.SignalsGateway.Outbox do
       author: author,
       mentions: [],
       metadata: metadata,
-      raw_payload: fetch_map(result, :raw_payload, %{}),
+      raw_payload: result_map(result, :raw_payload, %{}),
       document_id:
         Projection.entry_document_id(outbox.signal_channel_id, outbox.target_source_entry_id),
       content_hash:
@@ -1744,4 +1746,53 @@ defmodule Ankole.SignalsGateway.Outbox do
       ai_message_id: outbox.ai_message_id
     }
   end
+
+  defp json_map(map, key, default) when is_map(map) and is_binary(key) do
+    case Map.get(map, key) do
+      value when is_map(value) -> value
+      _value -> default
+    end
+  end
+
+  defp json_map(_map, _key, default), do: default
+
+  defp json_list(map, key) when is_map(map) and is_binary(key) do
+    case Map.get(map, key) do
+      value when is_list(value) -> value
+      _value -> []
+    end
+  end
+
+  defp json_list(_map, _key), do: []
+
+  defp result_map(result, key, default) when is_map(result) and is_atom(key) do
+    case Map.get(result, key) do
+      value when is_map(value) -> value
+      _value -> default
+    end
+  end
+
+  defp result_map(_result, _key, default), do: default
+
+  defp result_datetime(result, key) when is_map(result) and is_atom(key) do
+    case Map.get(result, key) do
+      %DateTime{} = datetime -> datetime
+      _value -> nil
+    end
+  end
+
+  defp result_datetime(_result, _key), do: nil
+
+  defp result_text(result, key) when is_map(result) and is_atom(key) do
+    case Map.get(result, key) do
+      value when is_binary(value) -> String.trim(value)
+      _value -> nil
+    end
+    |> case do
+      "" -> nil
+      value -> value
+    end
+  end
+
+  defp result_text(_result, _key), do: nil
 end

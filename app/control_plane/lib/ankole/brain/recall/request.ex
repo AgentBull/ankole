@@ -52,15 +52,15 @@ defmodule Ankole.Brain.Recall.Request do
 
   defp store_keys(%Scope{readable_store_keys: :all}, nil), do: {:ok, :all}
   defp store_keys(%Scope{readable_store_keys: :all}, "current"), do: {:error, :no_current_store}
-  defp store_keys(%Scope{readable_store_keys: :all}, "public"), do: {:ok, ["public"]}
+  defp store_keys(%Scope{readable_store_keys: :all}, "shared"), do: {:ok, ["shared"]}
 
   defp store_keys(%Scope{} = scope, nil), do: {:ok, scope.readable_store_keys}
 
   defp store_keys(%Scope{writable_store_key: store_key}, "current") when is_binary(store_key),
     do: {:ok, [store_key]}
 
-  defp store_keys(%Scope{readable_store_keys: readable}, "public") when is_list(readable) do
-    if "public" in readable, do: {:ok, ["public"]}, else: {:error, :brain_store_not_readable}
+  defp store_keys(%Scope{readable_store_keys: readable}, "shared") when is_list(readable) do
+    if "shared" in readable, do: {:ok, ["shared"]}, else: {:error, :brain_store_not_readable}
   end
 
   defp store_keys(_scope, store), do: {:error, {:invalid_store, store}}

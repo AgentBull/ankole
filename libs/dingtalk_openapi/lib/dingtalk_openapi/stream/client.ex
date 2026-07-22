@@ -8,7 +8,7 @@ defmodule DingTalkOpenAPI.Stream.Client do
        `{clientId, clientSecret, subscriptions, ua, localIp}` → `{endpoint,
        ticket}`. The ticket is valid for ~90s and single-use, so it is always
        fetched fresh and never cached.
-    2. Upgrade a WebSocket at `{endpoint}/connect?ticket=...`.
+    2. Add the ticket to the returned endpoint and upgrade the WebSocket.
     3. Decode JSON text frames and route by `type`:
        * SYSTEM `ping` → echo the `opaque` payload with the same `messageId`,
          synchronously on the WS loop (never queued behind a handler).
@@ -246,7 +246,17 @@ defmodule DingTalkOpenAPI.Stream.Client do
   end
 
   defp connect_url(endpoint, ticket) do
-    "#{String.trim_trailing(endpoint, "/")}/connect?ticket=#{URI.encode_www_form(ticket)}"
+    uri = URI.parse(endpoint)
+
+    query =
+      case uri.query do
+        nil -> %{}
+        existing -> URI.decode_query(existing)
+      end
+      |> Map.put("ticket", ticket)
+      |> URI.encode_query()
+
+    URI.to_string(%{uri | query: query})
   end
 
   defp parse_url(url) do

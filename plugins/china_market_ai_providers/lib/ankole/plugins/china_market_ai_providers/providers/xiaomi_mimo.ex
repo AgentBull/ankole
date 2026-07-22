@@ -25,7 +25,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
     setting(:anthropic_beta)
     setting(:messages_path, default: "v1/messages")
 
-    setting(:xiaomi_mimo_billing_plan, default: "pay_as_you_go", scope: :request)
+    setting(:xiaomi_mimo_billing_plan, default: "pay_as_you_go")
     setting(:thinking, type: :map, scope: :request)
     setting(:stop_sequences, scope: :request)
     setting(:metadata, type: :map, scope: :request)
@@ -45,7 +45,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
     |> UniversalAIRequest.put_new_setting_header("anthropic-version", :anthropic_version)
     |> maybe_put_beta(ctx.settings[:anthropic_beta])
     |> put_auth(ctx)
-    |> UniversalAIRequest.put_provider_options(provider_body_options(ctx))
+    |> UniversalAIRequest.put_provider_options(ctx.provider_options)
   end
 
   @impl true
@@ -94,12 +94,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
       value when value in ["token_plan", :token_plan] -> "token_plan"
       _value -> "pay_as_you_go"
     end
-  end
-
-  defp provider_body_options(ctx) do
-    ctx.provider_options
-    |> Map.delete("xiaomi_mimo_billing_plan")
-    |> Map.delete(:xiaomi_mimo_billing_plan)
   end
 
   defp put_auth(request_or_headers, ctx) do

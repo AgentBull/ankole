@@ -22,11 +22,7 @@ import { CodexAppServerClient } from '../../src/tools/codex/app-server-client'
 import type { HooksListResponse } from '../../src/tools/codex/generated/protocol/v2/HooksListResponse'
 import { materializeCodexConfig } from '../../src/tools/codex/config'
 import { codexAppServerSandboxSpec } from '../../src/tools/codex/sandbox'
-import {
-  materializeCodexJobRuntimeFiles,
-  renderCodexJobAgents,
-  CODEX_JOB_SKILLS_SANDBOX_ROOT
-} from '../../src/core/codex-runner/runtime-files'
+import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
 import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
 
@@ -42,7 +38,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.144.5')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.145.0')
   })
 
   it('can execute the Codex Linux sandbox inside the worker container', async () => {
@@ -361,20 +357,15 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     }
   })
 
-  it('uses project AGENTS and mounts enabled skills read-only inside the real bubblewrap sandbox', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-runtime-mounts-'))
-    const ownerWorkspace = join(root, 'owner-workspace')
-    const workdir = join(ownerWorkspace, 'project')
-    const jobProjectRoot = join(root, 'job-session', 'project')
+  it('uses real Job and Skill paths inside the bubblewrap sandbox', async () => {
+    const root = mkdtempSync('/agents/ankole-codex-contract-')
+    const jobProjectRoot = join(root, 'agent-1', 'jobs', '1000')
     const builtinSkillsRoot = join(root, 'skills')
     const skillRoot = join(builtinSkillsRoot, 'pptx')
     const fakeCodex = join(jobProjectRoot, 'fake-codex')
     const previousCodexBinary = process.env.ANKOLE_CODEX_BINARY
-    mkdirSync(workdir, { recursive: true })
     mkdirSync(jobProjectRoot, { recursive: true })
     mkdirSync(skillRoot, { recursive: true })
-    writeFileSync(join(workdir, 'caller-visible.txt'), 'CALLER_MOUNT_MARKER\n')
-    writeFileSync(join(workdir, 'AGENTS.md'), 'ORIGINAL_LOCAL_AGENTS\n')
     writeFileSync(
       join(skillRoot, 'SKILL.md'),
       ['---', 'name: pptx', 'description: Create PowerPoint presentations.', '---', '', '# PPTX', ''].join('\n')
@@ -383,41 +374,32 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       fakeCodex,
       `#!/bin/sh
 set -eu
-agents_path=/workspace/AGENTS.md
-grep -q 'TASK_AGENTS_MOUNT_MARKER' "$agents_path"
-grep -q 'ORIGINAL_LOCAL_AGENTS' "$agents_path"
-grep -q '# PPTX' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
-grep -q 'PG_OVERLAY_MARKER' ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md
-grep -q 'CALLER_MOUNT_MARKER' /workspace/workspaces/workspace/caller-visible.txt
-printf 'command path works\n' > /workspace/workspaces/workspace/command-probe.txt
+grep -q 'TASK_AGENTS_MARKER' ${jobProjectRoot}/AGENTS.md
+grep -q '# PPTX' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
+grep -q 'PG_OVERLAY_MARKER' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
+printf 'command path works\n' > ${jobProjectRoot}/command-probe.txt
 test "$(bun -e "const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md
-if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/null; then exit 22; fi
 `
     )
     chmodSync(fakeCodex, 0o755)
 
-    const project = prepareCodexJobProject({
-      jobProjectRoot,
-      ownerModelPath: '/workspace/user-files/background-agent-jobs/test/project',
-      ownerWorkspaceRoot: ownerWorkspace,
-      workspaceMounts: [{ id: 'workspace', source: '/workspace/project', access: 'read_write' }]
-    })
+    const project = prepareCodexJobProject({ jobProjectRoot })
     const renderedAgents = renderCodexJobAgents({
-      guidanceWorkspaceRoot: ownerWorkspace,
-      workspaceMounts: project.workspaceMounts,
-      soul: 'TASK_AGENTS_MOUNT_MARKER',
+      jobRoot: project.root,
+      soul: 'TASK_AGENTS_MARKER',
       mission: 'Verify runtime mounts.'
     })
     writeFileSync(join(jobProjectRoot, 'AGENTS.md'), renderedAgents.content)
     const runtimeInput: Parameters<typeof materializeCodexJobRuntimeFiles>[0] = {
       turn: {
-        actor: { agent_uid: 'agent-1', session_id: 'job:019f0000-0000-7000-8000-000000000001' },
+        actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
         activation_uid: 'activation-1',
         actor_epoch: 1,
         actor_event_id: '00000000-0000-0000-0000-000000000001',
         revision: 0
       },
+      jobRoot: project.root,
       enabledSkills: [
         create(RuntimeSkillSummarySchema, {
           skillName: 'pptx',
@@ -443,8 +425,8 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
     }
     const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
     const materialized = materializeCodexConfig({
-      sharedFsRoot: join(root, 'shared'),
-      jobID: '019f0000-0000-7000-8000-000000000001',
+      agentsRoot: root,
+      agentUID: 'agent-1',
       runtime: {
         mode: 'aigateway',
         accountID: 'aigateway',
@@ -481,8 +463,8 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
       expect(stdout).toBe('')
       expect(stderr).toBeString()
       expect(exitCode).toBe(0)
-      expect(readFileSync(join(workdir, 'command-probe.txt'), 'utf8')).toBe('command path works\n')
-      expect(existsSync(join(workdir, 'AGENTS.override.md'))).toBe(false)
+      expect(readFileSync(join(jobProjectRoot, 'command-probe.txt'), 'utf8')).toBe('command path works\n')
+      expect(existsSync(join(jobProjectRoot, 'AGENTS.override.md'))).toBe(false)
       expect(readFileSync(join(skillRoot, 'SKILL.md'), 'utf8')).not.toContain('PG_OVERLAY_MARKER')
 
       if (previousCodexBinary === undefined) delete process.env.ANKOLE_CODEX_BINARY
@@ -502,14 +484,14 @@ if printf 'forbidden' >> ${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md 2>/dev/n
 
       try {
         await realClient.initialize()
-        await realClient.request('skills/extraRoots/set', { extraRoots: [CODEX_JOB_SKILLS_SANDBOX_ROOT] })
+        await realClient.request('skills/extraRoots/set', { extraRoots: [runtimeFiles.skillsRoot] })
         const response = (await realClient.request('skills/list', {
           cwds: [realSandbox.codexCwd],
           forceReload: true
         })) as { data: Array<{ skills: Array<{ name: string; path: string; enabled: boolean }> }> }
         expect(response.data[0]?.skills.find(skill => skill.name === 'pptx')).toMatchObject({
           name: 'pptx',
-          path: `${CODEX_JOB_SKILLS_SANDBOX_ROOT}/pptx/SKILL.md`,
+          path: `${runtimeFiles.skillsRoot}/pptx/SKILL.md`,
           enabled: true
         })
         const thread = (await realClient.request('thread/start', {

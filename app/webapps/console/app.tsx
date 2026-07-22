@@ -4,7 +4,7 @@ import { ConsoleLayout } from './console-shell'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
 import { CodexAccountEditorPage, ProviderEditorPage, ProvidersListPage } from './pages/providers'
-import { SettingEditorPage, SettingsListPage } from './pages/settings'
+import { SettingEditorDrawer, SettingsPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
 import { ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
@@ -19,7 +19,7 @@ import {
   BrainEntryCreatePage,
   BrainEntryEditorPage
 } from './pages/brain'
-import { BrainReviewPage } from './pages/brain-review'
+import { BrainStatusPage } from './pages/brain-status'
 import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
 import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
@@ -35,8 +35,8 @@ configureConsoleAPIClient()
 
 // The Phoenix shell serves the console SPA under `/console/*`, so client-side
 // routing is anchored there. Each resource is a list route plus its editor
-// routes; creating and editing happen on their own pages, never docked beside
-// the list.
+// routes. Settings are the exception: the key route is nested so its editor can
+// stay deep-linkable while opening as a drawer over the list.
 const router = createBrowserRouter(
   [
     {
@@ -70,8 +70,11 @@ const router = createBrowserRouter(
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
         { path: 'schedules', element: <SchedulesListPage /> },
         { path: 'schedules/new', element: <ScheduleCronEditorPage /> },
-        { path: 'settings', element: <SettingsListPage /> },
-        { path: 'settings/:key', element: <SettingEditorPage /> },
+        {
+          path: 'settings',
+          element: <SettingsPage />,
+          children: [{ path: ':key', element: <SettingEditorDrawer /> }]
+        },
         { path: 'worker-envs', element: <WorkerEnvsListPage /> },
         { path: 'worker-envs/new', element: <WorkerEnvEditorPage /> },
         { path: 'worker-envs/:name', element: <WorkerEnvEditorPage /> },
@@ -85,7 +88,7 @@ const router = createBrowserRouter(
         { path: 'brain/sources', element: <BrainSourcesPage /> },
         { path: 'brain/learn', element: <BrainSourceLearnPage /> },
         { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
-        { path: 'brain/review', element: <BrainReviewPage /> },
+        { path: 'brain/status', element: <BrainStatusPage /> },
         { path: 'brain/audit', element: <BrainAuditPage /> },
         { path: 'brain/dreaming', element: <BrainDreamingPage /> },
         { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },

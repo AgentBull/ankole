@@ -9,12 +9,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Security.SSRFFilter
   alias Ankole.SignalsGateway.ReplyPresentation
+  alias FeishuOpenAPI.Client
 
   setup do
+    Req.Test.set_req_test_to_shared()
     Registry.clear_for_test()
     Cache.clear_for_test()
     :ok = SSRFFilter.ensure_registered()
     :ok = AppConfigure.delete_global(SSRFFilter.definition())
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
     %{principal: agent} = agent_fixture()
     %{agent: agent}
   end
@@ -26,22 +30,20 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
 
     parent = self()
 
-    fetch = fn url, ssrf_filter? ->
-      send(parent, {:image_fetch, url, ssrf_filter?})
-      {:ok, %{body: "png-bytes", content_type: "image/png", final_url: url}}
-    end
+    Req.default_options(
+      plug: fn conn ->
+        send(parent, {:image_fetch, conn.request_path})
 
-    upload = fn :client, "png-bytes", "chart.png", "image/png" ->
-      {:ok, "img_v3_chart"}
-    end
+        conn
+        |> Plug.Conn.put_resp_content_type("image/png")
+        |> Plug.Conn.send_resp(200, "png-bytes")
+      end
+    )
 
     assert {:ok, rendered, state} =
-             ImageResolver.resolve(presentation, agent.uid, %{}, :client,
-               image_fetch_fun: fetch,
-               image_upload_fun: upload
-             )
+             ImageResolver.resolve(presentation, agent.uid, %{}, upload_client("img_v3_chart"))
 
-    assert_receive {:image_fetch, "http://10.0.0.8/chart.png", false}
+    assert_receive {:image_fetch, "/chart.png"}
     assert rendered["answer"] == "盘中图：![走势](img_v3_chart)"
     assert get_in(state, ["http://10.0.0.8/chart.png", "status"]) == "ready"
   end
@@ -51,23 +53,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   } do
     assert {:ok, true} = AppConfigure.put_global(SSRFFilter.definition(), true)
 
-    upload = fn _client, _body, _filename, _content_type ->
-      flunk("blocked URLs must not be uploaded")
-    end
-
-    fetch = fn _url, _ssrf_filter? ->
-      flunk("blocked URLs must not be fetched")
-    end
-
     private =
       ReplyPresentation.new()
       |> ReplyPresentation.append_answer("![内部](https://192.168.1.20/a.png)")
 
     assert {:ok, private_rendered, private_state} =
-             ImageResolver.resolve(private, agent.uid, %{}, :client,
-               image_fetch_fun: fetch,
-               image_upload_fun: upload
-             )
+             ImageResolver.resolve(private, agent.uid, %{}, :unused_client)
 
     assert private_rendered["answer"] == "[内部](https://192.168.1.20/a.png)"
 
@@ -81,10 +72,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
       |> ReplyPresentation.append_answer("![凭证](http://169.254.169.254/latest.png)")
 
     assert {:ok, metadata_rendered, metadata_state} =
-             ImageResolver.resolve(metadata, agent.uid, %{}, :client,
-               image_fetch_fun: fetch,
-               image_upload_fun: upload
-             )
+             ImageResolver.resolve(metadata, agent.uid, %{}, :unused_client)
 
     assert metadata_rendered["answer"] ==
              "[凭证](http://169.254.169.254/latest.png)"
@@ -99,14 +87,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
       |> ReplyPresentation.append_answer("![图](https://example.com/chart.png)")
 
     with_streamed_response(["png-", "bytes"], fn chunk_count ->
-      upload = fn :client, "png-bytes", "chart.png", "image/png" ->
-        {:ok, "img_streamed"}
-      end
-
       assert {:ok, rendered, state} =
-               ImageResolver.resolve(presentation, agent.uid, %{}, :client,
-                 image_upload_fun: upload
-               )
+               ImageResolver.resolve(presentation, agent.uid, %{}, upload_client("img_streamed"))
 
       assert :counters.get(chunk_count, 1) == 2
       assert rendered["answer"] == "![图](img_streamed)"
@@ -123,11 +105,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
 
     with_streamed_response([ten_mebibytes, ten_mebibytes, "overflow", "unread"], fn chunk_count ->
       assert {:ok, rendered, state} =
-               ImageResolver.resolve(presentation, agent.uid, %{}, :client,
-                 image_upload_fun: fn _client, _body, _filename, _content_type ->
-                   flunk("an oversized image must not be uploaded")
-                 end
-               )
+               ImageResolver.resolve(presentation, agent.uid, %{}, :unused_client)
 
       assert :counters.get(chunk_count, 1) == 3
       assert rendered["answer"] == "[图](https://example.com/oversized.png)"
@@ -156,11 +134,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
 
     try do
       assert {:ok, rendered, state} =
-               ImageResolver.resolve(presentation, agent.uid, %{}, :client,
-                 image_upload_fun: fn _client, _body, _filename, _content_type ->
-                   flunk("a timed-out image must not be uploaded")
-                 end
-               )
+               ImageResolver.resolve(presentation, agent.uid, %{}, :unused_client)
 
       assert :counters.get(attempts, 1) == 1
       assert rendered["answer"] == "[图](https://example.com/slow.png)"
@@ -183,12 +157,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
     }
 
     assert {:ok, rendered, ^state} =
-             ImageResolver.resolve(presentation, agent.uid, state, :client,
-               image_fetch_fun: fn _url, _policy -> flunk("cached image must not be fetched") end,
-               image_upload_fun: fn _client, _body, _name, _type ->
-                 flunk("cached image must not be uploaded")
-               end
-             )
+             ImageResolver.resolve(presentation, agent.uid, state, :unused_client)
 
     assert rendered["answer"] == "![图](img_cached)"
   end
@@ -200,17 +169,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
       ReplyPresentation.new()
       |> ReplyPresentation.append_answer("盘中图：![走势](#{url})")
 
-    fetch = fn ^url, false ->
-      {:ok, %{body: "png-bytes", content_type: "image/png", final_url: url}}
-    end
+    Req.default_options(
+      plug: fn conn ->
+        conn
+        |> Plug.Conn.put_resp_content_type("image/png")
+        |> Plug.Conn.send_resp(200, "png-bytes")
+      end
+    )
 
     assert {:ok, rendered, state} =
-             ImageResolver.resolve(presentation, agent.uid, %{}, :client,
-               image_fetch_fun: fetch,
-               image_upload_fun: fn _client, _body, _name, _type ->
-                 {:error, :provider_rejected_image}
-               end
-             )
+             ImageResolver.resolve(presentation, agent.uid, %{}, upload_client(nil))
 
     assert rendered["answer"] == "盘中图：[走势](#{url})"
     assert get_in(state, [url, "status"]) == "failed"
@@ -242,5 +210,29 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
     after
       Req.default_options(previous_options)
     end
+  end
+
+  defp upload_client(image_key) do
+    Client.new("cli_image_resolver", fn -> "secret" end,
+      domain: :feishu,
+      req_options: [
+        plug: fn conn ->
+          case conn.request_path do
+            "/open-apis/auth/v3/tenant_access_token/internal" ->
+              Req.Test.json(conn, %{
+                "code" => 0,
+                "tenant_access_token" => "tenant-token",
+                "expire" => 7_200
+              })
+
+            "/open-apis/im/v1/images" when is_binary(image_key) ->
+              Req.Test.json(conn, %{"code" => 0, "data" => %{"image_key" => image_key}})
+
+            "/open-apis/im/v1/images" ->
+              Req.Test.json(conn, %{"code" => 999, "msg" => "upload rejected"})
+          end
+        end
+      ]
+    )
   end
 end

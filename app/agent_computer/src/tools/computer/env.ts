@@ -1,8 +1,6 @@
-import { WORKSPACE_MODEL_ROOT } from '../../core/workspace-paths'
-
 export type CommandEnvOptions = {
   home?: string
-  ankoleWorkspaceRoot?: string
+  ankoleAgentHome?: string
   /** Operator-managed variables resolved from the control plane for this turn's agent. */
   workerEnv?: Record<string, string>
 }
@@ -57,14 +55,14 @@ export function commandEnv(
   const shellBootstrap = process.env.BASH_ENV ?? inputEnv?.BASH_ENV ?? '/etc/profile.d/ankole-agent-computer.sh'
   const env: Record<string, string> = {
     PATH: commandPath(process.env.PATH),
-    HOME: process.env.HOME ?? WORKSPACE_MODEL_ROOT,
+    HOME: options.home ?? process.env.HOME ?? '/agents',
     LANG: process.env.LANG ?? 'C.UTF-8',
     TERM: process.env.TERM ?? 'xterm-256color',
     SHELL: process.env.SHELL ?? '/bin/bash',
     BASH_ENV: shellBootstrap,
     ENV: process.env.ENV ?? inputEnv?.ENV ?? shellBootstrap,
     CODEX_UNSAFE_ALLOW_NO_SANDBOX: process.env.CODEX_UNSAFE_ALLOW_NO_SANDBOX ?? '1',
-    ANKOLE_WORKSPACE_ROOT: process.env.ANKOLE_WORKSPACE_ROOT ?? WORKSPACE_MODEL_ROOT
+    ANKOLE_AGENT_HOME: options.ankoleAgentHome ?? options.home ?? process.env.ANKOLE_AGENT_HOME ?? '/agents'
   }
 
   for (const [key, value] of injectableWorkerEnv(options.workerEnv)) {
@@ -76,7 +74,7 @@ export function commandEnv(
   }
 
   if (options.home !== undefined) env.HOME = options.home
-  if (options.ankoleWorkspaceRoot !== undefined) env.ANKOLE_WORKSPACE_ROOT = options.ankoleWorkspaceRoot
+  if (options.ankoleAgentHome !== undefined) env.ANKOLE_AGENT_HOME = options.ankoleAgentHome
 
   return env
 }

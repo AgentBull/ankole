@@ -172,12 +172,20 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
           },
           capture_method: %Schema{
             type: :string,
-            enum: ["paste", "url", "file"],
             nullable: true
           },
           title: %Schema{type: :string},
           store_key: %Schema{type: :string},
           origin_locator: %Schema{type: :string, nullable: true},
+          connector_id: %Schema{type: :string, nullable: true},
+          revision: %Schema{type: :string, nullable: true},
+          source_url: %Schema{type: :string, nullable: true},
+          sync_state: %Schema{
+            type: :string,
+            enum: ["current", "deleted", "access_lost", "failed"],
+            nullable: true
+          },
+          last_synced_at: %Schema{type: :string, format: :date_time, nullable: true},
           original_name: %Schema{type: :string, nullable: true},
           media_type: %Schema{type: :string},
           byte_size: %Schema{type: :integer, nullable: true},
@@ -445,50 +453,40 @@ defmodule AnkoleWeb.Schemas.BrainConsoleAPI do
     )
   end
 
-  defmodule ReviewCandidatesResponse do
+  defmodule SourceCaptureResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "BrainReviewCandidatesResponse",
+        title: "BrainSourceCaptureResponse",
         type: :object,
         properties: %{
-          review: %Schema{
-            type: :object,
-            properties: %{
-              status: %Schema{type: :string, enum: ["ok"]},
-              checked_entry_count: %Schema{type: :integer, minimum: 0},
-              orphan_entries: %Schema{type: :array, items: JSONValue},
-              long_entries: %Schema{type: :array, items: JSONValue},
-              stale_entries: %Schema{type: :array, items: JSONValue},
-              over_budget_pinned_memos: %Schema{type: :array, items: JSONValue},
-              failed_embeddings: %Schema{type: :array, items: JSONValue},
-              uncited_generated_blocks: %Schema{type: :array, items: JSONValue},
-              broken_citations: %Schema{type: :array, items: JSONValue},
-              unintegrated_sources: %Schema{type: :array, items: JSONValue},
-              old_url_sources: %Schema{type: :array, items: JSONValue},
-              dreaming_blocks: %Schema{type: :array, items: JSONValue}
-            },
-            required: [
-              :status,
-              :checked_entry_count,
-              :orphan_entries,
-              :long_entries,
-              :stale_entries,
-              :over_budget_pinned_memos,
-              :failed_embeddings,
-              :uncited_generated_blocks,
-              :broken_citations,
-              :unintegrated_sources,
-              :old_url_sources,
-              :dreaming_blocks
-            ],
-            additionalProperties: false
-          }
+          resource_kind: %Schema{type: :string, enum: ["entry", "retained_source"]},
+          entry: EntryResponse,
+          source: SourceEntry
         },
-        required: [:review],
+        required: [:resource_kind],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule StatusResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "BrainStatusResponse",
+        type: :object,
+        properties: %{
+          memory_status: JSONValue
+        },
+        required: [:memory_status],
         additionalProperties: false
       },
       struct?: false

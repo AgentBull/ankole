@@ -3,6 +3,7 @@ defmodule Ankole.RuntimeEvents.Event do
 
   @type kind ::
           :actor_session_ready
+          | :agent_home_projection
           | :reply_preview_checkpoint
           | :reply_preview_cleanup
           | :outbox_due
@@ -37,6 +38,7 @@ defmodule Ankole.RuntimeEvents do
   alias Ankole.RuntimeEvents.Notifier
 
   @actor_session_ready_channel "ankole_actor_session_ready"
+  @agent_home_projection_channel "ankole_agent_home_projection"
   @reply_preview_checkpoint_channel "ankole_reply_preview_checkpoint"
   @reply_preview_cleanup_channel "ankole_reply_preview_cleanup"
   @outbox_due_channel "ankole_outbox_due"
@@ -50,6 +52,12 @@ defmodule Ankole.RuntimeEvents do
     channel: @actor_session_ready_channel,
     due_at_field: "due_at",
     timer_key_fields: ["agent_uid", "session_id"]
+  }
+
+  @agent_home_projection %{
+    kind: :agent_home_projection,
+    channel: @agent_home_projection_channel,
+    timer_key_fields: ["agent_uid"]
   }
 
   @reply_preview_checkpoint %{
@@ -117,6 +125,7 @@ defmodule Ankole.RuntimeEvents do
 
   @notification_events [
     @actor_session_ready,
+    @agent_home_projection,
     @reply_preview_checkpoint,
     @reply_preview_cleanup,
     @outbox_due,
@@ -128,6 +137,7 @@ defmodule Ankole.RuntimeEvents do
 
   @handler_events [
     @actor_session_ready,
+    @agent_home_projection,
     @reply_preview_checkpoint,
     @reply_preview_cleanup,
     @outbox_due,
@@ -147,6 +157,9 @@ defmodule Ankole.RuntimeEvents do
 
   @spec actor_session_ready_channel() :: String.t()
   def actor_session_ready_channel, do: channel_for_kind!(:actor_session_ready)
+
+  @spec agent_home_projection_channel() :: String.t()
+  def agent_home_projection_channel, do: channel_for_kind!(:agent_home_projection)
 
   @spec reply_preview_checkpoint_channel() :: String.t()
   def reply_preview_checkpoint_channel, do: channel_for_kind!(:reply_preview_checkpoint)
@@ -192,6 +205,11 @@ defmodule Ankole.RuntimeEvents do
       "session_id" => session_id,
       "due_at" => encode_datetime(due_at)
     })
+  end
+
+  @spec notify_agent_home_projection(module(), String.t()) :: :ok | {:error, term()}
+  def notify_agent_home_projection(repo, agent_uid) do
+    Notifier.notify_in_tx(repo, agent_home_projection_channel(), %{"agent_uid" => agent_uid})
   end
 
   @spec notify_reply_preview_checkpoint(module(), map()) :: :ok | {:error, term()}

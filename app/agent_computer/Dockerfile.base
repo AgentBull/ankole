@@ -8,7 +8,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.96.1
-ARG OFFICECLI_VERSION=v1.0.129
+ARG CODEX_VERSION=0.145.0
+ARG OFFICECLI_VERSION=v1.0.140
 ARG TARGETARCH
 
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -66,8 +67,8 @@ RUN sed -i \
     zip \
     zstd \
   && rm -rf /var/lib/apt/lists/* \
-  && mkdir -p /workspace/shared/user-files /workspace/shared/skills/agents /workspace/.sessions \
-  && chmod -R 0775 /workspace
+  && mkdir -p /agents \
+  && chmod 0775 /agents
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
@@ -77,7 +78,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 RUN set -eux; \
   installed=0; \
   for attempt in 1 2 3; do \
-    if bun add -g @openai/codex@0.144.5; then installed=1; break; fi; \
+    if bun add -g "@openai/codex@${CODEX_VERSION}"; then installed=1; break; fi; \
     rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
@@ -85,7 +86,7 @@ RUN set -eux; \
   rm -f /usr/local/bin/codex; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
   chmod +x /usr/local/bin/codex; \
-  test "$(codex --version)" = "codex-cli 0.144.5"
+  test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"
 
 RUN apt-get -o Acquire::Retries=5 update \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \
@@ -104,7 +105,7 @@ RUN set -eux; \
   test -n "${expected}"; \
   printf '%s  %s\n' "${expected}" /usr/local/bin/officecli | sha256sum -c -; \
   chmod +x /usr/local/bin/officecli; \
-  officecli --version; \
+  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
   rm -f /tmp/officecli-SHA256SUMS
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
@@ -199,3 +200,7 @@ RUN set -eux; \
   fc-match monospace | grep -F 'IBM Plex Mono'; \
   fc-match 'IBM Plex Sans' | grep -F 'IBM Plex Sans SC'; \
   rm -f /tmp/plex-sans-sc.sha256 /tmp/ibm-plex-mono.zip /tmp/source-han-serif-cn.zip
+
+RUN rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node \
+  && ! command -v node \
+  && bun --version >/dev/null

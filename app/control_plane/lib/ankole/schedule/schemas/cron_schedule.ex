@@ -77,6 +77,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :agent_uid,
       :session_id,
       :binding_name,
+      :name,
       :schedule,
       :timezone,
       :payload,
@@ -95,11 +96,12 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> unique_constraint([:agent_uid, :session_id, :idempotency_key],
       name: :actor_cron_schedules_idempotency_index
     )
-    |> unique_constraint([:agent_uid, :name],
+    |> unique_constraint([:agent_uid, :session_id, :name],
       name: :actor_cron_schedules_agent_name_index
     )
     |> check_constraint(:status, name: :actor_cron_schedules_status_check)
     |> check_constraint(:timezone, name: :actor_cron_schedules_timezone_present)
+    |> check_constraint(:name, name: :actor_cron_schedules_name_present)
     |> check_constraint(:idempotency_key,
       name: :actor_cron_schedules_idempotency_key_present
     )

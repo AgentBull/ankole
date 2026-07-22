@@ -4,8 +4,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   import Ecto.Query
 
   alias Ankole.Repo
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
@@ -46,6 +48,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     completed_at
   )
   @active_statuses ~w(in_progress)
+  @terminal_turn_statuses ~w(completed failed interrupted)
+  @message_ready_statuses ~w(waiting_on_user succeeded failed stopped)
   @trajectory_default_limit 3
   @trajectory_max_limit 20
   @trajectory_page_bytes 24 * 1_024
@@ -53,12 +57,13 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @model_string_bytes 4_000
   @attempt_summary_bytes 2_000
   @truncation_suffix "...[truncated]"
+  @internal_uuid_pattern ~r/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
   @cursor_version 1
 
-  @spec upsert_from_worker(String.t(), String.t(), map(), TurnRef.t(), String.t()) ::
+  @spec upsert_from_worker(pos_integer(), String.t(), map(), TurnRef.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, term()}
   def upsert_from_worker(job_id, agent_uid, attrs, %TurnRef{} = turn_ref, route)
-      when is_binary(job_id) and is_binary(agent_uid) and is_map(attrs) and
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
              is_binary(route) do
     Repo.transact(fn repo ->
       with {:ok, :authorized} <-
@@ -66,7 +71,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
            :ok <- Lifecycle.lock_agent_slots_in_tx(repo, agent_uid),
            %Job{} = job <-
              Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-           attrs <- normalize_worker_attrs(attrs, job),
+           {:ok, attrs} <- normalize_worker_attrs(attrs, job),
            {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
            :ok <- validate_attempt(job, attrs),
            {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups) do
@@ -78,22 +83,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end)
   end
 
-  @spec list_for_job(String.t(), keyword()) :: [Turn.t()]
-  def list_for_job(job_id, opts \\ []) when is_binary(job_id) do
+  @spec list_for_job(pos_integer(), keyword()) :: [Turn.t()]
+  def list_for_job(job_id, opts \\ []) when is_integer(job_id) and job_id > 0 do
     limit = opts |> Keyword.get(:limit, 100) |> max(1) |> min(200)
 
-    case Ecto.UUID.cast(job_id) do
-      {:ok, job_id} ->
-        Turn
-        |> where([turn], turn.job_id == ^job_id)
-        |> order_by([turn], desc: turn.started_at, desc: turn.id)
-        |> limit(^limit)
-        |> Repo.all()
-        |> Enum.reverse()
-
-      :error ->
-        []
-    end
+    Turn
+    |> where([turn], turn.job_id == ^job_id)
+    |> order_by([turn], desc: turn.started_at, desc: turn.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.reverse()
   end
 
   @spec execution_projection(Job.t(), keyword()) :: {:ok, map()} | {:error, atom()}
@@ -124,6 +123,186 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       end
     end
   end
+
+  @doc false
+  @spec message_result(Job.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def message_result(%Job{} = job, command_event_id, caller_session_id)
+      when is_binary(command_event_id) and is_binary(caller_session_id) do
+    case command_event(job, command_event_id) do
+      %ActorEvent{} = command_event ->
+        case causal_message_turn(job, command_event_id) do
+          %Turn{status: status} = turn when status in @terminal_turn_statuses ->
+            ready_message_result(job, turn, caller_session_id)
+
+          %Turn{} ->
+            {:ok, pending_message_result(job)}
+
+          nil ->
+            message_without_trajectory(job, command_event)
+        end
+
+      nil ->
+        {:error, :background_agent_job_message_command_not_found}
+    end
+  end
+
+  defp ready_message_result(job, turn, caller_session_id) do
+    newer_lead_turn = newer_lead_turn?(job, turn)
+
+    cond do
+      newer_lead_turn ->
+        {:ok, completed_message_result(job, turn, nil)}
+
+      job.status in @message_ready_statuses ->
+        lifecycle_event = lifecycle_event_for_message(job, turn, caller_session_id)
+        {:ok, completed_message_result(job, turn, lifecycle_event)}
+
+      true ->
+        {:ok, pending_message_result(job)}
+    end
+  end
+
+  defp causal_message_turn(%Job{} = job, command_event_id) do
+    item_key = "client:#{command_event_id}"
+
+    TrajectoryGroup
+    |> join(:inner, [group], turn in Turn, on: turn.id == group.turn_id)
+    |> where([group, turn], group.item_key == ^item_key and turn.job_id == ^job.id)
+    |> where([_group, turn], turn.kind == "agent")
+    |> order_by([group, turn], asc: turn.started_at, asc: turn.id, asc: group.position)
+    |> select([_group, turn], turn)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  defp newer_lead_turn?(%Job{} = job, %Turn{} = causal_turn) do
+    lead_thread_ids =
+      [causal_turn.runtime_thread_id, job.runtime_thread_id]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    Turn
+    |> where([turn], turn.job_id == ^job.id and turn.kind == "agent")
+    |> where([turn], turn.runtime_thread_id in ^lead_thread_ids)
+    |> where(
+      [turn],
+      turn.started_at > ^causal_turn.started_at or
+        (turn.started_at == ^causal_turn.started_at and turn.id > ^causal_turn.id)
+    )
+    |> Repo.exists?()
+  end
+
+  defp completed_message_result(job, turn, lifecycle_event) do
+    {trajectory, earlier_omitted} = message_turn_trajectory(turn)
+
+    %{
+      job_id: job.id,
+      status: job.status,
+      ready: true,
+      last_turn_trajectory: trajectory,
+      earlier_trajectory_omitted: earlier_omitted,
+      lifecycle_actor_event_id: if(lifecycle_event, do: lifecycle_event.id)
+    }
+  end
+
+  defp pending_message_result(job) do
+    %{
+      job_id: job.id,
+      status: job.status,
+      ready: false,
+      last_turn_trajectory: nil,
+      earlier_trajectory_omitted: false,
+      lifecycle_actor_event_id: nil
+    }
+  end
+
+  defp message_without_trajectory(job, command_event) do
+    case command_event do
+      %ActorEvent{input_state: "dead_letter"} ->
+        {:error, :background_agent_job_message_delivery_failed}
+
+      %ActorEvent{completed_at: %DateTime{}} ->
+        {:error, :background_agent_job_message_delivery_failed}
+
+      %ActorEvent{} when job.status in ~w(succeeded failed stopped) ->
+        {:error, :background_agent_job_message_delivery_failed}
+
+      %ActorEvent{} ->
+        {:ok, pending_message_result(job)}
+    end
+  end
+
+  defp command_event(job, command_event_id) do
+    case Ecto.UUID.cast(command_event_id) do
+      {:ok, event_id} ->
+        ActorEvent
+        |> where([event], event.id == ^event_id)
+        |> where([event], event.agent_uid == ^job.agent_uid)
+        |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
+        |> where([event], event.type == "command.steer")
+        |> Repo.one()
+
+      :error ->
+        nil
+    end
+  end
+
+  defp message_turn_trajectory(%Turn{} = turn) do
+    groups =
+      TrajectoryGroup
+      |> where([group], group.turn_id == ^turn.id)
+      |> order_by([group], asc: group.position)
+      |> Repo.all()
+      |> Enum.map(fn group ->
+        %{
+          turn_id: group.turn_id,
+          position: group.position,
+          messages: bound_group(group.content["messages"])
+        }
+      end)
+
+    selected = select_page_groups(groups, @trajectory_max_limit)
+    messages = Enum.flat_map(selected, & &1.messages)
+    header = turn.trajectory || empty_trajectory()
+
+    {Map.put(header, "messages", messages), length(groups) > length(selected)}
+  end
+
+  defp lifecycle_event_for_message(
+         %Job{owner_session_id: caller_session_id, attempts: attempt} = job,
+         %Turn{attempt: attempt},
+         caller_session_id
+       ) do
+    case lifecycle_event_identity(job) do
+      {event_type, source_event_id} ->
+        ActorEvent
+        |> where([event], event.agent_uid == ^job.agent_uid)
+        |> where([event], event.session_id == ^caller_session_id)
+        |> where([event], event.type == ^event_type)
+        |> where([event], event.source_event_id == ^source_event_id)
+        |> where([event], event.input_state == "open" and is_nil(event.completed_at))
+        |> Repo.one()
+
+      nil ->
+        nil
+    end
+  end
+
+  defp lifecycle_event_for_message(%Job{}, %Turn{}, _caller_session_id), do: nil
+
+  defp lifecycle_event_identity(%Job{status: "waiting_on_user"} = job),
+    do: {"background_agent_job.waiting", "background_agent_job:#{job.id}:waiting:#{job.attempts}"}
+
+  defp lifecycle_event_identity(%Job{status: "succeeded"} = job),
+    do:
+      {"background_agent_job.completed",
+       "background_agent_job:#{job.id}:succeeded:#{job.attempts}"}
+
+  defp lifecycle_event_identity(%Job{status: "failed"} = job),
+    do: {"background_agent_job.failed", "background_agent_job:#{job.id}:failed:#{job.attempts}"}
+
+  defp lifecycle_event_identity(%Job{}), do: nil
 
   @doc false
   @spec ensure_lead_closed_for_current_attempt_in_tx(module(), Job.t(), keyword()) ::
@@ -247,7 +426,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       %{
         attempt: attempt,
         turn_statuses: ordered |> Enum.map(& &1.status) |> Enum.uniq(),
-        summary: last_turn_summary(lead) || last_turn_summary(ordered)
+        summary: attempt_summary(lead) || attempt_summary(ordered)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -259,6 +438,20 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   @spec console_projection(Turn.t()) :: map()
   def console_projection(%Turn{} = turn) do
+    trajectory =
+      turn
+      |> trajectory_messages()
+      |> then(&Map.put(turn.trajectory || empty_trajectory(), "messages", &1))
+
+    projection(turn, trajectory)
+  end
+
+  @spec worker_projection(Turn.t()) :: map()
+  def worker_projection(%Turn{} = turn) do
+    projection(turn, turn.trajectory || empty_trajectory())
+  end
+
+  defp projection(turn, trajectory) do
     %{
       id: turn.id,
       attempt: turn.attempt,
@@ -267,7 +460,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       kind: turn.kind,
       status: turn.status,
       revision: turn.revision,
-      trajectory: turn.trajectory || empty_trajectory(),
+      trajectory: trajectory,
       progress: turn.progress || empty_progress(),
       usage: turn.usage,
       error: turn.error || %{},
@@ -354,58 +547,24 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp normalize_worker_attrs(attrs, job) do
-    attrs
-    |> Attrs.normalize()
-    |> Map.take(@worker_fields)
-    |> Map.put("job_id", job.id)
-    |> Map.put_new("kind", "agent")
-    |> Map.put_new("trajectory", Trajectory.empty())
-    |> Map.put_new("progress", empty_progress())
-    |> Map.put_new("error", %{})
-    |> normalize_legacy_trajectory()
+    attrs =
+      attrs
+      |> Attrs.normalize()
+      |> Map.take(@worker_fields)
+      |> Map.put("job_id", job.id)
+      |> Map.put_new("kind", "agent")
+      |> Map.put_new("trajectory", Trajectory.empty_header())
+      |> Map.put_new("progress", empty_progress())
+      |> Map.put_new("error", %{})
+
+    reject_trajectory_messages(attrs)
   end
 
-  defp normalize_legacy_trajectory(
-         %{"trajectory" => %{"messages" => messages} = trajectory} = attrs
-       )
-       when is_list(messages) and messages != [] do
-    groups = Map.get(attrs, "trajectory_groups", [])
+  defp reject_trajectory_messages(%{"trajectory" => %{"messages" => messages}})
+       when is_list(messages) and messages != [],
+       do: {:error, :background_agent_job_trajectory_messages_unsupported}
 
-    attrs
-    |> Map.put("trajectory", Map.put(trajectory, "messages", []))
-    |> Map.put("trajectory_groups", groups ++ legacy_trajectory_groups(messages))
-  end
-
-  defp normalize_legacy_trajectory(attrs), do: attrs
-
-  defp legacy_trajectory_groups(messages), do: do_legacy_trajectory_groups(messages, 0, [])
-
-  defp do_legacy_trajectory_groups([], _position, acc), do: Enum.reverse(acc)
-
-  defp do_legacy_trajectory_groups(
-         [%{"role" => "assistant", "tool_calls" => tool_calls} = assistant | rest],
-         position,
-         acc
-       )
-       when is_list(tool_calls) and tool_calls != [] do
-    ids = tool_calls |> Enum.map(&Map.get(&1, "id")) |> Enum.filter(&is_binary/1) |> MapSet.new()
-
-    {results, remaining} =
-      Enum.split_while(rest, fn
-        %{"role" => "tool", "tool_call_id" => id} -> MapSet.member?(ids, id)
-        _message -> false
-      end)
-
-    item_key = Map.get(assistant, "id") || Enum.at(MapSet.to_list(ids), 0) || "legacy:#{position}"
-    group = %{"position" => position, "item_key" => item_key, "messages" => [assistant | results]}
-    do_legacy_trajectory_groups(remaining, position + 1, [group | acc])
-  end
-
-  defp do_legacy_trajectory_groups([message | rest], position, acc) do
-    item_key = Map.get(message, "id") || "legacy:#{position}"
-    group = %{"position" => position, "item_key" => item_key, "messages" => [message]}
-    do_legacy_trajectory_groups(rest, position + 1, [group | acc])
-  end
+  defp reject_trajectory_messages(attrs), do: {:ok, attrs}
 
   defp validate_attempt(%Job{attempts: attempts}, %{"attempt" => attempts}), do: :ok
   defp validate_attempt(%Job{}, _attrs), do: {:error, :background_agent_job_turn_attempt_mismatch}
@@ -703,30 +862,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           |> Enum.group_by(& &1.turn_id)
 
         Enum.flat_map(lead_turns, fn turn ->
-          case Map.get(stored_by_turn, turn.id, []) do
-            [] ->
-              turn.trajectory
-              |> Map.get("messages", [])
-              |> legacy_trajectory_groups()
-              |> Enum.map(fn group ->
-                %{
-                  turn_id: turn.id,
-                  position: group["position"],
-                  messages: bound_group(group["messages"])
-                }
-              end)
-
-            stored ->
-              stored
-              |> Enum.sort_by(& &1.position)
-              |> Enum.map(fn group ->
-                %{
-                  turn_id: group.turn_id,
-                  position: group.position,
-                  messages: bound_group(group.content["messages"])
-                }
-              end)
-          end
+          stored_by_turn
+          |> Map.get(turn.id, [])
+          |> Enum.sort_by(& &1.position)
+          |> Enum.map(fn group ->
+            %{
+              turn_id: group.turn_id,
+              position: group.position,
+              messages: bound_group(group.content["messages"])
+            }
+          end)
         end)
       end
 
@@ -965,6 +1110,35 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     |> Enum.find_value(&turn_summary/1)
   end
 
+  defp attempt_summary(turns) do
+    error_summary =
+      turns
+      |> Enum.reverse()
+      |> Enum.find_value(fn
+        %Turn{status: status, error: error}
+        when status in ["failed", "interrupted"] and is_map(error) ->
+          Enum.find_value(["summary", "code"], fn key ->
+            case Map.get(error, key) do
+              value when is_binary(value) and value != "" ->
+                value
+                |> remove_internal_uuid_tokens()
+                |> Text.truncate_utf8_window(@attempt_summary_bytes, @truncation_suffix)
+
+              _value ->
+                nil
+            end
+          end)
+
+        _turn ->
+          nil
+      end)
+
+    error_summary || last_turn_summary(turns)
+  end
+
+  defp remove_internal_uuid_tokens(text) when is_binary(text),
+    do: Regex.replace(@internal_uuid_pattern, text, "[internal-id]")
+
   defp turn_summary(%Turn{} = turn) do
     turn
     |> trajectory_messages()
@@ -979,14 +1153,11 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   defp trajectory_messages(%Turn{} = turn) do
-    messages =
-      TrajectoryGroup
-      |> where([group], group.turn_id == ^turn.id)
-      |> order_by([group], asc: group.position)
-      |> Repo.all()
-      |> Enum.flat_map(&Map.get(&1.content, "messages", []))
-
-    if messages == [], do: Map.get(turn.trajectory || %{}, "messages", []), else: messages
+    TrajectoryGroup
+    |> where([group], group.turn_id == ^turn.id)
+    |> order_by([group], asc: group.position)
+    |> Repo.all()
+    |> Enum.flat_map(&Map.get(&1.content, "messages", []))
   end
 
   defp empty_progress do
@@ -998,7 +1169,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     }
   end
 
-  defp empty_trajectory, do: Trajectory.empty()
+  defp empty_trajectory, do: Trajectory.empty_header()
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -155,6 +155,137 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert List.first(body["output"])["encrypted_content"] == "ENCRYPTED_CODEX_STATE"
   end
 
+  test "chat providers round-trip AIGateway encrypted tool parameters" do
+    %{principal: agent} = agent_fixture()
+    secret = "delegate the private investigation"
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "chatcmpl_encrypted_tool",
+           "object" => "chat.completion",
+           "created" => 1_764_967_971,
+           "model" => request.body["model"],
+           "choices" => [
+             %{
+               "index" => 0,
+               "message" => %{
+                 "role" => "assistant",
+                 "content" => nil,
+                 "tool_calls" => [
+                   %{
+                     "id" => "call_encrypted_tool",
+                     "type" => "function",
+                     "function" => %{
+                       "name" => "collaboration__spawn_agent",
+                       "arguments" =>
+                         Ankole.JSON.encode!(%{
+                           "message" => secret,
+                           "task_name" => "research"
+                         })
+                     }
+                   }
+                 ]
+               },
+               "finish_reason" => "tool_calls"
+             }
+           ],
+           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 2, "total_tokens" => 5}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-encrypted-tool",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openrouter",
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-encrypted-tool",
+               model: "openai/gpt-5.5"
+             })
+
+    tools = [
+      %{
+        "type" => "namespace",
+        "name" => "collaboration",
+        "description" => "Codex collaboration tools",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "spawn_agent",
+            "description" => "Spawn a subagent",
+            "parameters" => %{
+              "type" => "object",
+              "properties" => %{
+                "message" => %{"type" => "string", "encrypted" => true},
+                "task_name" => %{"type" => "string"}
+              },
+              "required" => ["message", "task_name"]
+            }
+          }
+        ]
+      }
+    ]
+
+    assert {:ok, %{body: first_body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "start",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, first_request}
+    provider_tool = get_in(first_request.body, ["tools", Access.at(0), "function"])
+    assert provider_tool["name"] == "collaboration__spawn_agent"
+    refute Map.has_key?(provider_tool["parameters"]["properties"]["message"], "encrypted")
+
+    [call] = first_body["output"]
+    assert call["namespace"] == "collaboration"
+    assert call["name"] == "spawn_agent"
+    encoded_arguments = Ankole.JSON.decode!(call["arguments"])
+    assert encoded_arguments["task_name"] == "research"
+
+    assert String.starts_with?(
+             encoded_arguments["message"],
+             "ankole-aigateway-opaque-v1:"
+           )
+
+    refute Ankole.JSON.encode!(first_body) =~ secret
+
+    assert {:ok, %{body: _second_body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => [
+                 call,
+                 %{
+                   "type" => "function_call_output",
+                   "call_id" => call["call_id"],
+                   "output" => "spawned"
+                 }
+               ],
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, second_request}
+
+    replayed_call =
+      second_request.body["messages"]
+      |> Enum.find(&Map.has_key?(&1, "tool_calls"))
+      |> get_in(["tool_calls", Access.at(0), "function", "arguments"])
+      |> Ankole.JSON.decode!()
+
+    assert replayed_call == %{"message" => secret, "task_name" => "research"}
+    refute Ankole.JSON.encode!(second_request.body) =~ "ankole-aigateway-opaque-v1:"
+  end
+
   test "websocket responses require store true before continuation fields" do
     %{principal: agent} = agent_fixture()
     previous_response_id = "resp_#{Ecto.UUID.generate()}"
@@ -1199,69 +1330,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "## Active Task\nOnly the first row was compressed."
 
     assert Enum.drop(artifact.content["output"], 2) == function_call ++ tool_result ++ m4.content
-  end
-
-  test "websocket stateful auto-compaction strips analysis blocks from summaries" do
-    %{principal: agent} = agent_fixture()
-
-    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
-
-    base_url =
-      start_recording_upstream(self(), fn _request ->
-        {:json, 200, response_summary("<analysis>scratch</analysis>\n## Active Task\nX")}
-      end)
-
-    create_openai_compaction_provider!(agent, "openai-compaction-strip-analysis", base_url)
-    {conversation, _tail} = compactable_conversation!(agent, "dispatch-strip-analysis")
-
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [text_message("user", "new current request")],
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "strip-analysis-event"}
-             })
-
-    assert_receive {:gateway_request, _summarizer_request}
-
-    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
-    artifact = Repo.get!(CompactionArtifact, compaction.id)
-    assert get_in(artifact.content, ["summary", "text"]) == "## Active Task\nX"
-  end
-
-  test "websocket stateful auto-compaction retries malformed analysis shape on next selector" do
-    %{principal: agent} = agent_fixture()
-
-    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
-
-    base_url =
-      start_recording_upstream(self(), fn request ->
-        case request.body["model"] do
-          "gpt-compact-light" -> {:json, 200, response_summary("<analysis>truncated...")}
-          "gpt-main" -> {:json, 200, response_summary("## Active Task\nPrimary summary")}
-        end
-      end)
-
-    create_openai_compaction_provider!(agent, "openai-compaction-shape-retry", base_url)
-    {conversation, _tail} = compactable_conversation!(agent, "dispatch-shape-retry")
-
-    assert {:ok, _request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
-               "model" => "primary",
-               "input" => [text_message("user", "new current request")],
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "shape-retry-event"}
-             })
-
-    assert_receive {:gateway_request, light_request}
-    assert_receive {:gateway_request, primary_request}
-    assert light_request.body["model"] == "gpt-compact-light"
-    assert primary_request.body["model"] == "gpt-main"
-
-    [compaction] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
-    assert get_in(compaction.metadata, ["summarizer", "selector"]) == "primary"
   end
 
   test "websocket stateful auto-compaction renders reasoning summaries without encrypted content" do

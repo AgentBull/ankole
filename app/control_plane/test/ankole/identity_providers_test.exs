@@ -2,6 +2,7 @@ defmodule Ankole.IdentityProvidersTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.IdentityProviders
@@ -11,6 +12,7 @@ defmodule Ankole.IdentityProvidersTest do
   alias Ankole.IdentityProviders.StartupSync
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin
+  alias Ankole.Plugins.Config, as: PluginConfig
   alias Ankole.Plugins.LarkAdapter
 
   defmodule TestRealtimeReconciler do
@@ -45,6 +47,29 @@ defmodule Ankole.IdentityProvidersTest do
                IdentityProviderConfig.directory_full_sync_interval_hours_definition(),
                0
              )
+  end
+
+  test "adapter catalog hides active plugins removed from the next-start enable list" do
+    assert Enum.any?(IdentityProviders.list_adapters(), &(&1.plugin_id == "lark-adapter"))
+    assert {:ok, []} = PluginConfig.put_enabled_ids([])
+    assert IdentityProviders.list_adapters() == []
+  end
+
+  test "adapter catalog fails closed when the enable list cannot be decoded" do
+    :ok = PluginConfig.ensure_registered()
+    :ok = AppConfigure.delete_global(PluginConfig.enabled_ids_definition())
+    now = DateTime.utc_now(:second)
+
+    Repo.insert!(%AppConfig{
+      scope: "global",
+      key: "plugins.enabled_ids",
+      value: %{"type" => "plaintext", "value" => "invalid"},
+      inserted_at: now,
+      updated_at: now
+    })
+
+    Cache.clear_for_test()
+    assert IdentityProviders.list_adapters() == []
   end
 
   test "saving an enabled provider enqueues the first full sync" do
@@ -125,6 +150,20 @@ defmodule Ankole.IdentityProvidersTest do
              UnknownIdentityCapabilityPlugin.adapter_declarations()
              |> List.first()
              |> IdentityProviders.validate_adapter_declaration()
+  end
+
+  test "adapter validation loads compiled callback modules before checking them" do
+    declaration =
+      LarkAdapter.adapter_declarations()
+      |> Enum.find(&(&1.contract_id == "principals.identity_provider"))
+
+    reconciler = declaration.connection_reconciler
+    :code.purge(reconciler)
+    :code.delete(reconciler)
+
+    assert :code.is_loaded(reconciler) == false
+    assert :ok = IdentityProviders.validate_adapter_declaration(declaration)
+    assert {:file, _path} = :code.is_loaded(reconciler)
   end
 
   test "list_active_provider_refs returns only enabled refs for one adapter" do

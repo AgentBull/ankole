@@ -296,7 +296,7 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
   end
 
   defp upload_attachment(outbox, attachment, client) do
-    with {:ok, content, name} <- attachment_content(attachment),
+    with {:ok, content, name} <- attachment_content(attachment, outbox.agent_uid),
          {:ok, body} <-
            SlackOpenAPI.upload_external(client,
              filename: name,
@@ -314,18 +314,15 @@ defmodule Ankole.Plugins.SlackAdapter.Outbox do
     end
   end
 
-  defp attachment_content(attachment) do
-    relative =
-      MapHelpers.optional_text(attachment, "user_files_relative_path") ||
-        MapHelpers.optional_text(attachment, "agent_computer_path") ||
-        MapHelpers.optional_text(attachment, "path")
+  defp attachment_content(attachment, agent_uid) do
+    relative = MapHelpers.optional_text(attachment, "user_files_relative_path")
 
-    relative =
-      if is_binary(relative), do: String.replace_prefix(relative, "/workspace/user-files/", "")
+    lane_path =
+      if is_binary(relative),
+        do: Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative)
 
-    with relative when is_binary(relative) <- relative,
-         {:ok, %{"content" => content}} <-
-           WorkerFiles.get("user_files", String.trim_leading(relative, "/")) do
+    with lane_path when is_binary(lane_path) <- lane_path,
+         {:ok, %{"content" => content}} <- WorkerFiles.get("user_files", lane_path) do
       {:ok, content, MapHelpers.optional_text(attachment, "name") || Path.basename(relative)}
     else
       nil -> {:error, :outbound_attachment_path_missing}

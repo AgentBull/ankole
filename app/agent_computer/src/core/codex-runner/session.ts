@@ -1,7 +1,7 @@
 import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { genericHash } from '@ankole/kernel'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { posix, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { errorMessage } from '../../common/errors'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
@@ -37,7 +37,6 @@ import {
   transitionCodexRecovery,
   type CodexRecoveryState
 } from './recovery-policy'
-import { CODEX_JOB_SKILLS_SANDBOX_ROOT } from './runtime-files'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
 import { CodexNoProgressGuard, type CodexNoProgressViolation } from './no-progress-guard'
@@ -84,8 +83,7 @@ class CodexJobSession {
 
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
-    this.threadModel =
-      input.job.model ?? (input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelOverride : undefined)
+    this.threadModel = input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelOverride : undefined
     this.turnRecorder = new BackgroundAgentJobTurnRecorder({
       jobID: input.jobID,
       attempt: input.job.attempts,
@@ -110,19 +108,32 @@ class CodexJobSession {
         reason: 'background_agent_job_committed'
       }
     } catch (caughtError) {
-      this.finalizing = true
-      let error = caughtError
-      this.turnRecorder.finishTurn(this.codexTurnID, 'failed', {
-        code: 'background_agent_job_runtime_exception',
-        summary: errorMessage(error)
-      })
-      try {
-        await this.turnRecorder.flush()
-      } catch (trajectoryError) {
-        error = trajectoryError
+      if (this.finalizing) {
+        try {
+          await this.done
+          this.turnResult = {
+            kind: 'noop_completed',
+            reason: 'background_agent_job_committed'
+          }
+        } catch (finalizationError) {
+          thrownError = finalizationError
+          hasThrownError = true
+        }
+      } else {
+        this.finalizing = true
+        let error = caughtError
+        this.turnRecorder.finishTurn(this.codexTurnID, 'failed', {
+          code: 'background_agent_job_runtime_exception',
+          summary: errorMessage(error)
+        })
+        try {
+          await this.turnRecorder.flush()
+        } catch (trajectoryError) {
+          error = trajectoryError
+        }
+        thrownError = error
+        hasThrownError = true
       }
-      thrownError = error
-      hasThrownError = true
     }
 
     if (this.steerTimer) clearInterval(this.steerTimer)
@@ -165,6 +176,11 @@ class CodexJobSession {
 
   private async execute(): Promise<void> {
     const { sandbox } = this.input
+    const abortSignal = this.input.opts.abortSignal
+    abortSignal?.addEventListener('abort', this.onAbort, { once: true })
+    if (abortSignal?.aborted) this.onAbort()
+    if (await this.finishClaimedFinalization()) return
+
     this.client = new CodexAppServerClient({
       cwd: sandbox.cwd,
       env: sandbox.env,
@@ -176,11 +192,10 @@ class CodexJobSession {
       }
     })
 
-    this.input.opts.abortSignal?.addEventListener('abort', this.onAbort, {
-      once: true
-    })
     const initializeResponse = await this.client.initialize()
+    if (await this.finishClaimedFinalization()) return
     await installAndTrustAgentPlugins(this.client, sandbox.codexCwd, this.input.preparedAgentPlugins)
+    if (await this.finishClaimedFinalization()) return
     const expectedSkillNames = [
       ...this.input.runtimeFiles.expectedSkillNames,
       ...this.input.preparedAgentPlugins.expectedSkillNames
@@ -188,18 +203,24 @@ class CodexJobSession {
     await configureCodexSkills(
       this.client,
       sandbox.codexCwd,
+      this.input.runtimeFiles.skillsRoot,
       this.input.runtimeFiles.expectedSkillNames,
       this.input.preparedAgentPlugins
     )
+    if (await this.finishClaimedFinalization()) return
 
     this.recreatedThreadOnResume = await this.resumeExistingThread()
+    if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
+    if (await this.finishClaimedFinalization()) return
     await this.publishRunningStatus(initializeResponse, expectedSkillNames)
+    if (await this.finishClaimedFinalization()) return
 
     const initialTurnInput = turnInput(this.input.turnStart, this.input.job)
     await this.startCodexTurn(
       this.recreatedThreadOnResume ? recreatedThreadInput(this.input.job, initialTurnInput) : initialTurnInput
     )
+    if (await this.finishClaimedFinalization()) return
     this.startSteeringPoll()
     await this.done
   }
@@ -212,10 +233,7 @@ class CodexJobSession {
         cwd: this.input.sandbox.codexCwd,
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
-        ...(this.threadModel ? { model: this.threadModel } : {}),
-        ...(Object.keys(this.input.projectConfig.threadConfig).length > 0
-          ? { config: this.input.projectConfig.threadConfig }
-          : {})
+        ...(this.threadModel ? { model: this.threadModel } : {})
       })
       this.input.opts.onTurnActivity?.('codex:thread_resumed')
       return false
@@ -230,6 +248,9 @@ class CodexJobSession {
       this.recoveryState = decision.nextState
       if (decision.action === 'durable_retry') throw new CodexJobTransientError(error)
       if (decision.action !== 'replace_thread') throw error
+      if (this.input.job.continuedFromJobId) {
+        throw new Error('Respawned background agent job could not resume its source Codex thread')
+      }
       this.runtimeThreadID = undefined
       return true
     }
@@ -248,12 +269,7 @@ class CodexJobSession {
           codex_account_id: job.codexAccountId,
           codex_user_agent: stringValue(initializeResponse.userAgent),
           job_project_cwd: sandbox.codexCwd,
-          job_project_owner_path: jobProject.ownerModelPath,
-          workspace_mounts: jobProject.workspaceMounts.map(mount => ({
-            mount_id: mount.id,
-            path: mount.modelPath,
-            access: mount.access
-          })),
+          job_workspace: jobProject.root,
           mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePoints),
           ...(this.recreatedThreadOnResume
             ? {
@@ -290,8 +306,24 @@ class CodexJobSession {
       metadata?: JSONObject
     } = {}
   ): Promise<void> {
-    if (this.finalizing) return
+    if (!this.claimFinalization()) return
+    await this.commitClaimed(status, details)
+  }
+
+  private claimFinalization(): boolean {
+    if (this.finalizing) return false
     this.finalizing = true
+    return true
+  }
+
+  private async commitClaimed(
+    status: BackgroundAgentJobStatus,
+    details: {
+      result?: JSONObject
+      error?: JSONObject
+      metadata?: JSONObject
+    } = {}
+  ): Promise<void> {
     try {
       if (status === 'waiting_on_user') {
         this.turnRecorder.interruptTurn(this.codexTurnID, {
@@ -349,10 +381,7 @@ class CodexJobSession {
         sandbox: 'danger-full-access',
         threadSource: 'ankole',
         dynamicTools: this.input.projection.dynamicTools,
-        ...(this.threadModel ? { model: this.threadModel } : {}),
-        ...(Object.keys(this.input.projectConfig.threadConfig).length > 0
-          ? { config: this.input.projectConfig.threadConfig }
-          : {})
+        ...(this.threadModel ? { model: this.threadModel } : {})
       })
     )
     this.runtimeThreadID = stringValue(jsonObject(started.thread).id)
@@ -371,8 +400,7 @@ class CodexJobSession {
         cwd: this.input.sandbox.codexCwd,
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
-        ...(this.threadModel ? { model: this.threadModel } : {}),
-        ...(this.input.job.reasoningEffort ? { effort: this.input.job.reasoningEffort } : {})
+        ...(this.threadModel ? { model: this.threadModel } : {})
       })
     )
     this.codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
@@ -451,7 +479,7 @@ class CodexJobSession {
           codex_turn_status: codexTurnStatus,
           ...(this.latestTokenUsage ? { usage: this.latestTokenUsage } : {}),
           files_changed: filesChanged,
-          project_path: this.input.jobProject.ownerModelPath,
+          project_path: this.input.jobProject.root,
           artifacts: boundedBackgroundAgentJobPaths(artifactPaths, {
             totalCount: filesChanged.total_count,
             truncated: filesChanged.truncated || artifactPaths.length < filesChanged.paths.length
@@ -495,6 +523,9 @@ class CodexJobSession {
         return
       }
       if (decision.action === 'replace_thread') {
+        if (this.input.job.continuedFromJobId) {
+          throw new Error('Respawned background agent job lost its source Codex thread')
+        }
         await this.turnRecorder.flush()
         await this.startNewThread()
         await this.persistRuntimeThreadAnchor('unknown_session')
@@ -657,14 +688,18 @@ class CodexJobSession {
   }
 
   private readonly onAbort = (): void => {
-    if (this.finalizing) return
-    void this.interrupt()
-      .catch(() => undefined)
-      .then(() =>
-        this.commit('stopped', {
-          metadata: { stop_reason: abortReason(this.input.opts.abortSignal) }
-        })
-      )
+    if (!this.claimFinalization()) return
+    void this.interrupt().catch(() => undefined)
+    void this.client?.close().catch(() => undefined)
+    void this.commitClaimed('stopped', {
+      metadata: { stop_reason: abortReason(this.input.opts.abortSignal) }
+    })
+  }
+
+  private async finishClaimedFinalization(): Promise<boolean> {
+    if (!this.finalizing) return false
+    await this.done
+    return true
   }
 
   private async failNoProgress(violation: CodexNoProgressViolation): Promise<void> {
@@ -702,7 +737,10 @@ class CodexJobSession {
         this.codexTurnID,
         updates,
         () => !this.finalizing,
-        (eventID, text) => this.turnRecorder.recordSteering(this.codexTurnID, eventID, text),
+        async (eventID, text) => {
+          this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
+          await this.turnRecorder.flush()
+        },
         this.input.opts.onSteeringApplied
       )
         .catch(error => {
@@ -721,11 +759,12 @@ class CodexJobSession {
 export async function configureCodexSkills(
   client: Pick<CodexAppServerClient, 'request'>,
   cwd: string,
+  skillsRoot: string,
   expectedStandaloneSkillNames: string[],
   preparedAgentPlugins: PreparedAgentPlugins
 ): Promise<string[]> {
   await client.request('skills/extraRoots/set', {
-    extraRoots: [CODEX_JOB_SKILLS_SANDBOX_ROOT]
+    extraRoots: [skillsRoot]
   })
   const before = await listCodexSkills(client, cwd)
   const beforeByName = new Map(before.map(skill => [skill.name, skill]))
@@ -834,17 +873,9 @@ function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): strin
   let input: string
   if (turnStart.actor_event.type === 'command.steer') {
     const command = jsonObject(jsonObject(jsonObject(turnStart.actor_event.payload_json).data).command)
-    const text = stringValue(command.argsText)
-    const answers = jsonObject(command.answers)
-    const answerText = Object.entries(answers)
-      .map(([id, answer]) => `${id}: ${Array.isArray(answer) ? answer.join(', ') : String(answer)}`)
-      .join('\n')
-    const steering = [text, answerText ? `Answers to your questions:\n${answerText}` : undefined]
-      .filter((line): line is string => Boolean(line))
-      .join('\n\n')
-    input = job.runtimeThreadId
-      ? steering
-      : `${job.task}\n\nAdditional instructions from the caller:\n${steering}`.trim()
+    const message = stringValue(command.argsText)
+    if (!message) throw new Error('BackgroundAgentJob message command is missing argsText')
+    input = message
   } else if (job.attempts > 1 && job.runtimeThreadId) {
     input = 'Continue the Job task. Re-check the acceptance criteria in the original task before finishing.'
   } else {
@@ -864,56 +895,24 @@ function ownerVisibleArtifactPaths(project: PreparedCodexJobExecution['jobProjec
 }
 
 function artifactDiscoveryRoots(project: PreparedCodexJobExecution['jobProject']): BackgroundAgentJobPathHandoff {
-  return boundedBackgroundAgentJobPaths([
-    project.ownerModelPath,
-    ...project.workspaceMounts.filter(mount => mount.access === 'read_write').map(mount => mount.ownerModelPath)
-  ])
+  return boundedBackgroundAgentJobPaths([project.root])
 }
 
 function ownerVisibleArtifactPath(
   project: PreparedCodexJobExecution['jobProject'],
   changedPath: string
 ): string | undefined {
-  const relativePath = codexProjectRelativePath(changedPath)
-  if (!relativePath) return undefined
-
-  let hostRoot = project.root
-  let ownerRoot = project.ownerModelPath
-  let pathWithinRoot = relativePath
-  for (const mount of project.workspaceMounts) {
-    const prefix = `workspaces/${mount.id}/`
-    if (!relativePath.startsWith(prefix)) continue
-    hostRoot = mount.sourcePath
-    ownerRoot = mount.ownerModelPath
-    pathWithinRoot = relativePath.slice(prefix.length)
-    break
-  }
-
-  if (!pathWithinRoot || !ownerVisibleUserFilesPath(ownerRoot)) return undefined
-  const hostPath = resolve(hostRoot, pathWithinRoot)
+  const hostPath = changedPath.startsWith('/') ? resolve(changedPath) : resolve(project.root, changedPath)
   if (!existsSync(hostPath)) return undefined
 
   try {
-    const realRoot = realpathSync(hostRoot)
+    const realRoot = realpathSync(project.root)
     const realPath = realpathSync(hostPath)
     if (!pathIsWithin(realRoot, realPath) || !statSync(realPath).isFile()) return undefined
+    return realPath
   } catch {
     return undefined
   }
-
-  return posix.join(ownerRoot, pathWithinRoot)
-}
-
-function codexProjectRelativePath(path: string): string | undefined {
-  const relativePath = posix.relative('/workspace', posix.resolve('/workspace', path))
-  if (!relativePath || relativePath === '..' || relativePath.startsWith('../') || posix.isAbsolute(relativePath)) {
-    return undefined
-  }
-  return relativePath
-}
-
-function ownerVisibleUserFilesPath(path: string): boolean {
-  return path === '/workspace/user-files' || path.startsWith('/workspace/user-files/')
 }
 
 function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
@@ -930,15 +929,8 @@ function pendingSteeringInput(turnStart: TurnStart): string {
     .map(value => {
       const item = jsonObject(value)
       const text = stringValue(item.text)
-      const answers = jsonObject(item.answers)
-      const answerText = Object.entries(answers)
-        .map(([id, answer]) => `${id}: ${Array.isArray(answer) ? answer.join(', ') : String(answer)}`)
-        .join('\n')
-      const instruction = [text, answerText ? `Answers:\n${answerText}` : undefined]
-        .filter((line): line is string => Boolean(line))
-        .join('\n')
       const eventID = stringValue(item.actor_event_id)
-      return instruction ? `${eventID ? `[steer ${eventID}]\n` : ''}${instruction}` : ''
+      return text ? `${eventID ? `[steer ${eventID}]\n` : ''}${text}` : ''
     })
     .filter(Boolean)
     .join('\n\n')
@@ -961,7 +953,7 @@ async function steerActiveTurn(
   turnID: string,
   updates: TurnSteerUpdate[],
   acceptsOutcome: () => boolean,
-  onTrajectorySteering: (eventID: string, text: string) => void,
+  onTrajectorySteering: (eventID: string, text: string) => Promise<void>,
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
 ): Promise<void> {
   for (const update of updates) {
@@ -978,17 +970,19 @@ async function steerActiveTurn(
         input: textInput(text)
       })
       if (!acceptsOutcome()) continue
-      onTrajectorySteering(event.actor_event_id, text)
+      await onTrajectorySteering(event.actor_event_id, text)
       await onSteeringApplied?.(update)
     } catch (error) {
       if (!acceptsOutcome()) continue
-      if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobSteerDeliveryError(error)
+      if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobMessageDeliveryError(error)
     }
   }
 }
 
 function isSteerCompletionRace(error: unknown): boolean {
-  return /(?:turn\s+)?already (?:completed|finished)|turn .* (?:has )?(?:completed|finished)/i.test(errorMessage(error))
+  return /^(?:no active turn to steer|(?:turn\s+)?already (?:completed|finished)|turn .* (?:has )?(?:completed|finished))$/i.test(
+    errorMessage(error).trim()
+  )
 }
 
 class CodexJobTransientError extends Error {
@@ -1004,7 +998,7 @@ class CodexJobTransientError extends Error {
   }
 }
 
-class BackgroundAgentJobSteerDeliveryError extends Error {
+class BackgroundAgentJobMessageDeliveryError extends Error {
   readonly code = 'background_agent_job_steer_delivery_failed'
   readonly retryable = true
 
@@ -1012,7 +1006,7 @@ class BackgroundAgentJobSteerDeliveryError extends Error {
     super(`BackgroundAgentJob steer delivery failed: ${errorMessage(cause)}`, {
       cause: cause instanceof Error ? cause : undefined
     })
-    this.name = 'BackgroundAgentJobSteerDeliveryError'
+    this.name = 'BackgroundAgentJobMessageDeliveryError'
   }
 }
 

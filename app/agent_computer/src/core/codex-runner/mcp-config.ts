@@ -14,7 +14,7 @@ export async function resolveCodexJobMCPServers(input: {
     enabledSkills: input.enabledSkills,
     skillRoots: input.skillRoots,
     turn: input.turn,
-    includeLongRunning: true
+    runtime: 'background_job'
   })
   return mergeMCPServers(servers)
 }

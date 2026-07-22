@@ -20,9 +20,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
 
   @type state :: %{optional(String.t()) => map()}
 
-  @spec resolve(map(), String.t(), state(), term(), keyword()) ::
+  @spec resolve(map(), String.t(), state(), term()) ::
           {:ok, map(), state()} | {:error, term()}
-  def resolve(presentation, agent_uid, state, client, opts \\ [])
+  def resolve(presentation, agent_uid, state, client)
       when is_map(presentation) and is_binary(agent_uid) and is_map(state) do
     answer = presentation["answer"] || ""
     urls = image_urls(answer)
@@ -37,7 +37,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     else
       with {:ok, ssrf_filter?} <- SSRFFilter.enabled?(agent_uid),
            {:ok, state} <-
-             resolve_urls(unresolved_urls, state, client, ssrf_filter?, opts) do
+             resolve_urls(unresolved_urls, state, client, ssrf_filter?) do
         {:ok, apply_resolved(presentation, state), state}
       end
     end
@@ -72,14 +72,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     |> Enum.uniq()
   end
 
-  defp resolve_urls(urls, state, client, ssrf_filter?, opts) do
+  defp resolve_urls(urls, state, client, ssrf_filter?) do
     Enum.reduce_while(urls, {:ok, state}, fn url, {:ok, state} ->
       case state[url] do
         %{"status" => status} when status in ["ready", "failed"] ->
           {:cont, {:ok, state}}
 
         _missing ->
-          case resolve_url(url, client, ssrf_filter?, opts) do
+          case resolve_url(url, client, ssrf_filter?) do
             {:ok, image_key, final_url} ->
               resolved = %{
                 "status" => "ready",
@@ -101,15 +101,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     end)
   end
 
-  defp resolve_url(url, client, ssrf_filter?, opts) do
-    fetch_fun = Keyword.get(opts, :image_fetch_fun, &fetch_image/2)
-    upload_fun = Keyword.get(opts, :image_upload_fun, &upload_image/4)
-
+  defp resolve_url(url, client, ssrf_filter?) do
     with :ok <- validate_url(url, ssrf_filter?),
-         {:ok, fetched} <- fetch_fun.(url, ssrf_filter?),
+         {:ok, fetched} <- fetch_image(url, ssrf_filter?),
          :ok <- validate_image(fetched),
          filename <- image_filename(fetched.final_url, fetched.content_type),
-         {:ok, image_key} <- upload_fun.(client, fetched.body, filename, fetched.content_type) do
+         {:ok, image_key} <- upload_image(client, fetched.body, filename, fetched.content_type) do
       {:ok, image_key, fetched.final_url}
     end
   end

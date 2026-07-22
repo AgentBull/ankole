@@ -7,8 +7,6 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
   cached tenant token once when WorkerEnv resolves for the Turn, but only while
   the binding's Agent has the `lark` Agent Plugin effectively enabled. Strict
   bot mode rejects user identity before any request is sent.
-  Bindings with a custom `baseURL` remain valid for signal delivery but project
-  no CLI environment because the CLI cannot inherit that endpoint override.
   """
 
   alias Ankole.AIAgent.Library.AgentPlugins
@@ -20,21 +18,16 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
           {:ok, %{String.t() => String.t()}} | {:error, term()}
   def resolve_worker_env(%Binding{} = binding) do
     with {:ok, true} <- AgentPlugins.effective_enabled?(binding.agent_uid, "lark"),
-         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref) do
-      if Config.lark_cli_compatible?(config) do
-        with {:ok, token} <- TokenManager.get_tenant_token(Config.client(config)) do
-          {:ok,
-           %{
-             "LARKSUITE_CLI_APP_ID" => Map.fetch!(config, "appID"),
-             "LARKSUITE_CLI_TENANT_ACCESS_TOKEN" => token,
-             "LARKSUITE_CLI_BRAND" => Map.fetch!(config, "domain"),
-             "LARKSUITE_CLI_DEFAULT_AS" => "bot",
-             "LARKSUITE_CLI_STRICT_MODE" => "bot"
-           }}
-        end
-      else
-        {:ok, %{}}
-      end
+         {:ok, config} <- Config.load_chat_config_ref(binding.config_ref),
+         {:ok, token} <- TokenManager.get_tenant_token(Config.client(config)) do
+      {:ok,
+       %{
+         "LARKSUITE_CLI_APP_ID" => Map.fetch!(config, "appID"),
+         "LARKSUITE_CLI_TENANT_ACCESS_TOKEN" => token,
+         "LARKSUITE_CLI_BRAND" => Map.fetch!(config, "domain"),
+         "LARKSUITE_CLI_DEFAULT_AS" => "bot",
+         "LARKSUITE_CLI_STRICT_MODE" => "bot"
+       }}
     else
       {:ok, false} -> {:ok, %{}}
       {:error, _reason} = error -> error

@@ -14,7 +14,7 @@ defmodule Ankole.WorkerFiles do
   any byte credit is granted — so no caller can stream an unbounded file. The
   bound is a module guarantee and cannot be widened per call.
 
-  Operations reach the installation-shared workspace through any ready worker
+  Operations reach the installation-shared Agent Home filesystem through any ready worker
   by default. Passing `worker_id: ...` pins the operation to one specific
   worker so mount reachability stays attributable to that runtime (the Console
   file API relies on this); pinned routes never fall back to another worker.
@@ -23,8 +23,8 @@ defmodule Ankole.WorkerFiles do
   alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
-  @roots ~w(user_files agent_installed_skills workspace_sessions)
-  @internal_roots @roots ++ ~w(background_agent_jobs codex_accounts)
+  @roots ~w(user_files agent_installed_skills agent_sessions)
+  @internal_roots @roots ++ ~w(agent_home_documents)
   @max_transfer_bytes 100 * 1024 * 1024
 
   @type operation_result :: FileTransferLane.operation_result()
@@ -54,6 +54,22 @@ defmodule Ankole.WorkerFiles do
          :ok <- validate_put_size(content),
          {:ok, route} <- route(opts) do
       FileTransferLane.put(route, root, relative_path, content, lane_opts(opts))
+    end
+  end
+
+  @doc false
+  @spec put_internal(String.t(), String.t(), iodata(), keyword()) :: operation_result()
+  def put_internal(root, relative_path, content, opts \\ [])
+      when is_binary(root) and is_binary(relative_path) do
+    content = IO.iodata_to_binary(content)
+
+    with true <- root in @internal_roots,
+         :ok <- validate_put_size(content),
+         {:ok, route} <- route(opts) do
+      FileTransferLane.put(route, root, relative_path, content, lane_opts(opts))
+    else
+      false -> {:error, {:unsupported_file_root, root}}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -88,7 +104,7 @@ defmodule Ankole.WorkerFiles do
   @spec delete(String.t(), String.t(), keyword()) :: operation_result()
   def delete(root, relative_path, opts \\ [])
       when is_binary(root) and is_binary(relative_path) do
-    with :ok <- validate_delete_root(root),
+    with :ok <- validate_public_root(root),
          {:ok, route} <- route(opts) do
       FileTransferLane.delete(route, root, relative_path, lane_opts(opts))
     end
@@ -117,9 +133,6 @@ defmodule Ankole.WorkerFiles do
 
   defp validate_public_root(root) when root in @roots, do: :ok
   defp validate_public_root(root), do: {:error, {:unsupported_file_root, root}}
-
-  defp validate_delete_root(root) when root in @internal_roots, do: :ok
-  defp validate_delete_root(root), do: {:error, {:unsupported_file_root, root}}
 
   defp validate_put_size(content) when byte_size(content) <= @max_transfer_bytes, do: :ok
 

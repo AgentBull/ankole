@@ -30,7 +30,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignmen
     field :worker_id, :string
     field :transport_route, :string
     field :status, :string
-    field :workspace_mount, :string
     field :assigned_at, :utc_datetime_usec
     field :last_used_at, :utc_datetime_usec
     field :metadata, :map, default: %{}
@@ -50,7 +49,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignmen
       :worker_id,
       :transport_route,
       :status,
-      :workspace_mount,
       :assigned_at,
       :last_used_at,
       :metadata
@@ -60,8 +58,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignmen
       :session_id,
       :worker_id,
       :transport_route,
-      :status,
-      :workspace_mount
+      :status
     ])
     |> validate_required([
       :agent_uid,

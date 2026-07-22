@@ -2,12 +2,13 @@
 set -euo pipefail
 
 SCRIPT="${SCRIPT:-/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py}"
-NOTEBOOK_DIR="${NOTEBOOK_DIR:-/workspace/user-files/notebooks}"
-JUPYTER_SOCKET="${JUPYTER_SOCKET:-/workspace/temp/jupyter-smoke.sock}"
+NOTEBOOK_DIR="${NOTEBOOK_DIR:-${HOME}/user-files/notebooks}"
+SESSION_TEMP="${SESSION_TEMP:-${PWD}/temp}"
+JUPYTER_SOCKET="${JUPYTER_SOCKET:-${SESSION_TEMP}/jupyter-smoke.sock}"
 NOTEBOOK_PATH="${NOTEBOOK_PATH:-scratch.ipynb}"
 export JUPYTER_SOCKET NOTEBOOK_DIR NOTEBOOK_PATH
 
-mkdir -p "$NOTEBOOK_DIR" /workspace/temp
+mkdir -p "$NOTEBOOK_DIR" "$SESSION_TEMP"
 rm -f "$JUPYTER_SOCKET"
 
 python -m jupyter lab \
@@ -19,7 +20,7 @@ python -m jupyter lab \
   --IdentityProvider.token='' \
   --ServerApp.password='' \
   --ServerApp.disable_check_xsrf=True \
-  > /workspace/temp/jupyter-smoke.log 2>&1 &
+  > "$SESSION_TEMP/jupyter-smoke.log" 2>&1 &
 
 jupyter_pid=$!
 cleanup() {
@@ -38,7 +39,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 if [ "$ready" != true ]; then
-  cat /workspace/temp/jupyter-smoke.log >&2
+  cat "$SESSION_TEMP/jupyter-smoke.log" >&2
   exit 1
 fi
 
@@ -46,8 +47,9 @@ python - <<'PY'
 import json
 import os
 import pathlib
+import pathlib
 
-notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", "/workspace/user-files/notebooks"))
+notebook_dir = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks")))
 path = notebook_dir / os.environ.get("NOTEBOOK_PATH", "scratch.ipynb")
 path.write_text(json.dumps({
     "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
@@ -60,24 +62,25 @@ PY
 curl -sf --unix-socket "$JUPYTER_SOCKET" -X POST "http://localhost/api/sessions" \
   -H "Content-Type: application/json" \
   -d "{\"path\":\"$NOTEBOOK_PATH\",\"type\":\"notebook\",\"name\":\"$NOTEBOOK_PATH\",\"kernel\":{\"name\":\"python3\"}}" \
-  > /workspace/temp/jupyter-smoke-session.json
+  > "$SESSION_TEMP/jupyter-smoke-session.json"
 
-python "$SCRIPT" servers --compact > /workspace/temp/jupyter-smoke-servers.json
+python "$SCRIPT" servers --compact > "$SESSION_TEMP/jupyter-smoke-servers.json"
 python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" --code $'x = 41\nprint(x)' --compact \
-  > /workspace/temp/jupyter-smoke-step1.json
+  > "$SESSION_TEMP/jupyter-smoke-step1.json"
 python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" --code 'x + 1' --compact \
-  > /workspace/temp/jupyter-smoke-step2.json
+  > "$SESSION_TEMP/jupyter-smoke-step2.json"
 
 python - <<'PY'
 import json
 import os
 
-result = json.load(open("/workspace/temp/jupyter-smoke-step2.json"))
+session_temp = pathlib.Path(os.environ.get("SESSION_TEMP", str(pathlib.Path.cwd() / "temp")))
+result = json.load(open(session_temp / "jupyter-smoke-step2.json"))
 texts = [event.get("data", {}).get("text/plain") for event in result["events"]]
 assert "42" in texts, texts
 assert result["transport"] == "websocket+unix", result
-servers = json.load(open("/workspace/temp/jupyter-smoke-servers.json"))["servers"]
-expected_socket = os.environ.get("JUPYTER_SOCKET", "/workspace/temp/jupyter-smoke.sock")
+servers = json.load(open(session_temp / "jupyter-smoke-servers.json"))["servers"]
+expected_socket = os.environ.get("JUPYTER_SOCKET", str(session_temp / "jupyter-smoke.sock"))
 assert any(server["server"]["socket"] == expected_socket for server in servers), servers
 print("JUPYTER_LIVE_KERNEL_SMOKE_OK")
 PY

@@ -17,7 +17,7 @@ describe('@ankole/agent-computer installed skill sync', () => {
     try {
       const agentUID = `agent-${Date.now()}`
       const turnStart = turnStartFor(agentUID)
-      const skillDir = join(root, agentUID, 'agent-notes')
+      const skillDir = join(root, 'agent-notes')
       mkdirSync(skillDir, { recursive: true })
       writeFileSync(
         join(skillDir, 'SKILL.md'),
@@ -26,6 +26,10 @@ describe('@ankole/agent-computer installed skill sync', () => {
           'name: agent-notes',
           'description: Agent installed notes.',
           'default_enabled: true',
+          'tags: [notes, custom]',
+          'category: custom',
+          'disable-model-invocation: true',
+          'ankole-runtime: background_job',
           '---',
           '',
           '# Agent Notes',
@@ -40,18 +44,21 @@ describe('@ankole/agent-computer installed skill sync', () => {
           expect(method).toBe(rpcMethods.skillsInstalledReplace)
           const request = payload as { observations: PushedObservations }
           pushedObservations.push(request.observations)
-          return create(InstalledSkillReplaceResponseSchema, {
-            changed: true,
-            skills: request.observations.length,
-            files: request.observations.reduce((sum, observation) => sum + (observation.fileCount ?? 0), 0),
-            contentHash: '7b16fe7c3e492b87d9615265f0856cec'
-          })
+          return create(InstalledSkillReplaceResponseSchema, {})
         }) as RPCRequester
       }
 
       await syncInstalledSkillsForTurn(turnStart, opts)
       expect(pushedObservations).toHaveLength(1)
-      expect(pushedObservations[0]![0]).toMatchObject({ skillName: 'agent-notes' })
+      expect(pushedObservations[0]![0]).toMatchObject({
+        skillName: 'agent-notes',
+        description: 'Agent installed notes.',
+        defaultEnabled: true,
+        tags: ['notes', 'custom'],
+        category: 'custom',
+        disableModelInvocation: true,
+        ankoleRuntime: 'background_job'
+      })
 
       await syncInstalledSkillsForTurn(turnStart, opts)
       expect(pushedObservations).toHaveLength(1)
@@ -63,6 +70,39 @@ describe('@ankole/agent-computer installed skill sync', () => {
       await syncInstalledSkillsForTurn(turnStart, opts)
       expect(pushedObservations).toHaveLength(3)
       expect(pushedObservations[2]).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('releases turn preparation when control aborts a pending observation', async () => {
+    const root = tempRoot('turn-context-installed-skills-abort')
+    const controller = new AbortController()
+    let markRPCStarted!: () => void
+    const rpcStarted = new Promise<void>(resolve => {
+      markRPCStarted = resolve
+    })
+    let releaseRPC!: () => void
+    const rpcReleased = new Promise<void>(resolve => {
+      releaseRPC = resolve
+    })
+
+    try {
+      const stopped = new Error('turn stopped during installed skill sync')
+      const pending = syncInstalledSkillsForTurn(turnStartFor(`agent-abort-${Date.now()}`), {
+        agentInstalledSkillsRoot: root,
+        abortSignal: controller.signal,
+        rpc: (async () => {
+          markRPCStarted()
+          await rpcReleased
+          return create(InstalledSkillReplaceResponseSchema, {})
+        }) as RPCRequester
+      })
+
+      await rpcStarted
+      controller.abort(stopped)
+      await expect(pending).rejects.toBe(stopped)
+      releaseRPC()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

@@ -24,6 +24,40 @@ defmodule Ankole.SignalsGatewayIngressTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
+  describe "ingress attribute keys" do
+    test "rejects a string-key alias in the internal ingress envelope" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      input = Map.put(group_entry(), "text", "shadow text")
+
+      assert {:error, {:invalid_ingress_attr_key, "text"}} =
+               Ingress.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+    end
+
+    test "rejects string keys in the internal channel envelope" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      input = put_in(group_entry(), [:channel, "kind"], "im_group")
+
+      assert {:error, {:invalid_ingress_channel_attr_key, "kind"}} =
+               Ingress.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+    end
+
+    test "rejects a key collision while it normalizes an ingress JSON field" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      input =
+        Map.put(group_entry(), :author, %{:display_name => "atom", "display_name" => "string"})
+
+      assert {:error,
+              {:invalid_ingress_json, :author, {:duplicate_normalized_key, "display_name"}}} =
+               Ingress.emit_entry(agent.uid, "lark-main", input, now: @base_time)
+    end
+  end
+
   describe "binding policy and actor handoff" do
     test "ignore skips unaddressed group entries without mirroring or waking" do
       %{principal: agent} = agent_fixture()
@@ -56,8 +90,61 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert entry.text == "hello"
       assert entry.rich_content == nil
       assert entry.provider_thread_id == "thread-1"
+      assert Projection.entry_brain_store_route(entry, agent.uid) == "shared"
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(InboundBatch, :count) == 1
+    end
+
+    test "the entry mirror keeps each agent's Brain store from ingress time" do
+      %{principal: shared_agent} = agent_fixture()
+      %{principal: confidential_agent} = agent_fixture()
+      binding_fixture(shared_agent.uid, "lark-main", :record_only)
+
+      confidential_binding =
+        binding_fixture(confidential_agent.uid, "lark-main", :record_only)
+        |> Ecto.Changeset.change(confidential_memory: true)
+        |> Repo.update!()
+
+      assert confidential_binding.confidential_memory
+
+      assert {:ok, %{status: :recorded, signal_entry: shared_entry}} =
+               Ingress.emit_entry(
+                 shared_agent.uid,
+                 "lark-main",
+                 group_entry(%{metadata: %{"provider_state" => %{"obsolete" => true}}}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: :recorded, signal_entry: confidential_entry}} =
+               Ingress.emit_entry(
+                 confidential_agent.uid,
+                 "lark-main",
+                 group_entry(%{metadata: %{"provider_state" => %{"obsolete" => true}}}),
+                 now: @base_time
+               )
+
+      assert shared_entry.content_hash == confidential_entry.content_hash
+      assert Projection.entry_brain_store_route(confidential_entry, shared_agent.uid) == "shared"
+
+      assert Projection.entry_brain_store_route(confidential_entry, confidential_agent.uid) ==
+               "channel:lark:chat:group-a"
+
+      assert {:ok, %{status: :recorded, signal_entry: refreshed_entry}} =
+               Ingress.emit_entry(
+                 confidential_agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   metadata: %{"provider_state" => %{"current" => true}},
+                   provider_time: DateTime.add(@base_time, 1, :second)
+                 }),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert refreshed_entry.metadata["provider_state"] == %{"current" => true}
+      assert Projection.entry_brain_store_route(refreshed_entry, shared_agent.uid) == "shared"
+
+      assert Projection.entry_brain_store_route(refreshed_entry, confidential_agent.uid) ==
+               "channel:lark:chat:group-a"
     end
 
     test "record_only preserves structured content that adds information beyond text" do
@@ -168,7 +255,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                    provider_thread_id: nil,
                    explicit: true,
                    text: nil,
-                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}],
+                   mentions: [%{kind: "agent", structured: true, agent_uid: agent.uid}],
                    provider_time: DateTime.add(@base_time, 10, :second)
                  }),
                  now: DateTime.add(@base_time, 10, :second)
@@ -635,7 +722,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                    source_entry_id: "msg-recalled-mention",
                    author: bob,
                    text: "@Agent please ignore this after recall",
-                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}]
+                   mentions: [%{kind: "agent", structured: true, agent_uid: agent.uid}]
                  }),
                  now: DateTime.add(@base_time, 100, :millisecond)
                )
@@ -727,7 +814,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                    source_event_id: "evt-mention",
                    source_entry_id: "msg-mention",
                    text: "@Agent do this",
-                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}]
+                   mentions: [%{kind: "agent", structured: true, agent_uid: agent.uid}]
                  }),
                  now: @base_time
                )
@@ -827,7 +914,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       attachment = %{
         "name" => "strategy.pdf",
         "resource_type" => "file",
-        "agent_computer_path" => "/workspace/agent-a/inbox/strategy.pdf"
+        "agent_computer_path" => "/agents/#{agent_a.uid}/user-files/inbox/strategy.pdf"
       }
 
       assert {:ok, %{status: :recorded}} =
@@ -1526,7 +1613,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                    source_entry_id: "msg-bob-mention",
                    author: bob,
                    text: "@Agent help",
-                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}]
+                   mentions: [%{kind: "agent", structured: true, agent_uid: agent.uid}]
                  }),
                  now: DateTime.add(@base_time, 200, :millisecond)
                )

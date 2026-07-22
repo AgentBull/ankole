@@ -2,6 +2,7 @@
 /** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
 import { sanitizeBinaryOutput, truncateUtf16Safe } from '@/common/text-sanitize'
+import { basename, dirname, isAbsolute } from 'node:path'
 
 // Output the model reads (command stdout/stderr) is capped at 50K chars; a single
 // read_file call may return more (100K) since the model asked for that file explicitly.
@@ -124,10 +125,11 @@ function isLowSurrogate(value: number): boolean {
 
 /**
  * Split an agent-supplied path into the relative path + cwd that `writeFiles`
- * needs. A `/workspace/...` absolute path is anchored at `/workspace`; a relative
- * path uses the provided cwd (default `/workspace`).
+ * needs. An absolute path keeps its real parent as cwd; a relative path uses
+ * the current Session or Job workspace supplied by the caller.
  */
 export function splitWritePath(path: string, cwd?: string): { relative: string; cwd: string } {
-  if (path.startsWith('/workspace/')) return { relative: path.slice('/workspace/'.length), cwd: '/workspace' }
-  return { relative: path, cwd: cwd ?? '/workspace' }
+  if (isAbsolute(path)) return { relative: basename(path), cwd: dirname(path) }
+  if (!cwd) throw new Error('cwd is required for a relative write path')
+  return { relative: path, cwd }
 }

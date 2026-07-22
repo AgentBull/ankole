@@ -130,7 +130,18 @@ defmodule AnkoleWeb.ScheduleController do
   operation(:cancel_checkback,
     summary: "Cancel one pending checkback wakeup",
     parameters:
-      @actor_parameters ++ [scheduled_event_id: [in: :path, type: :string, required: true]],
+      @actor_parameters ++
+        [
+          scheduled_event_id: [
+            in: :path,
+            schema: %OpenAPISpex.Schema{
+              type: :integer,
+              minimum: 1000,
+              maximum: 9_007_199_254_740_991
+            },
+            required: true
+          ]
+        ],
     responses: [ok: {"Scheduled event", "application/json", ScheduleEventResponse}]
   )
 
@@ -235,7 +246,7 @@ defmodule AnkoleWeb.ScheduleController do
   def cancel_checkback(conn, params) do
     with {:ok, actor} <- actor_params(params),
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), "delete"),
-         {:ok, scheduled_event_id} <- text_param(params, "scheduled_event_id"),
+         {:ok, scheduled_event_id} <- positive_integer_param(params, "scheduled_event_id"),
          {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
          :ok <- event_belongs_to_actor(event, actor),
          {:ok, cancelled} <- Schedule.cancel_checkback(scheduled_event_id) do
@@ -343,6 +354,13 @@ defmodule AnkoleWeb.ScheduleController do
       value when is_integer(value) -> value
       value when is_binary(value) -> parse_integer(value)
       _value -> nil
+    end
+  end
+
+  defp positive_integer_param(params, key) do
+    case integer_param(params, key) do
+      value when is_integer(value) and value >= 1000 -> {:ok, value}
+      _value -> {:error, {:missing, key}}
     end
   end
 

@@ -370,6 +370,42 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert assignment.transport_route == ready_route
     end
 
+    test "worker placement ignores derived and string capacity shapes" do
+      %{principal: agent} = agent_fixture()
+      derived_route = unique_route()
+      string_route = unique_route()
+      ready_route = unique_route()
+
+      assert {:ok, derived_worker} = admit_worker(derived_route)
+
+      derived_worker
+      |> AgentComputerWorker.changeset(%{
+        capacity: %{"max_turns" => 4},
+        load: %{"active_turns" => 0}
+      })
+      |> Repo.update!()
+
+      assert {:ok, string_worker} = admit_worker(string_route)
+
+      string_worker
+      |> AgentComputerWorker.changeset(%{
+        capacity: %{"available_turn_slots" => "4", "max_turns" => 4}
+      })
+      |> Repo.update!()
+
+      assert {:ok, ready_worker} =
+               admit_worker(ready_route, %{capacity: %{"available_turn_slots" => 1}})
+
+      assert {:ok, assignment} =
+               ActorRuntime.assign_worker(%{
+                 agent_uid: agent.uid,
+                 session_id: "signal-channel:strict-capacity"
+               })
+
+      assert assignment.worker_id == ready_worker.worker_id
+      assert assignment.transport_route == ready_route
+    end
+
     test "turn_error fails the current turn and keeps the input open for a new activation" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -501,13 +537,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
 
       parent = self()
 
-      adapter = %{
-        capabilities: [:post_entry, :reply_entry, :edit_entry],
-        send: fn dispatched ->
+      adapter =
+        outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn dispatched ->
           send(parent, {:dead_letter_notice_sent, dispatched})
           {:ok, %{created_source_entry_id: "provider-dead-letter-#{poison_event.id}"}}
-        end
-      }
+        end)
 
       assert {:ok, %OutboxEntry{status: :succeeded}} =
                SignalsGateway.dispatch_outbox(

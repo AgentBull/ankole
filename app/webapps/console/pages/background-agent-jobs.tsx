@@ -56,8 +56,8 @@ export function BackgroundAgentJobsPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const agentFilter = searchParams.get('agent') ?? ''
-  const selectedID = searchParams.get('job') ?? undefined
-  const [cancelTargetID, setCancelTargetID] = useState<string>()
+  const selectedID = backgroundAgentJobID(searchParams.get('job'))
+  const [cancelTargetID, setCancelTargetID] = useState<number>()
   const list = useQuery({
     ...ankoleWebBackgroundAgentJobControllerIndexOptions({
       query: { agent: agentFilter.trim() || undefined, limit: 100 }
@@ -66,10 +66,10 @@ export function BackgroundAgentJobsPage() {
   })
   const detail = useQuery({
     ...ankoleWebBackgroundAgentJobControllerShowOptions({
-      path: { job_id: selectedID ?? 'not-selected' }
+      path: { job_id: selectedID ?? 1000 }
     }),
-    enabled: Boolean(selectedID),
-    refetchInterval: selectedID ? 5_000 : false,
+    enabled: selectedID !== undefined,
+    refetchInterval: selectedID !== undefined ? 5_000 : false,
     retry: false
   })
   const cancel = useMutation({
@@ -93,9 +93,9 @@ export function BackgroundAgentJobsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const openBackgroundAgentJob = (id: string) => {
+  const openBackgroundAgentJob = (id: number) => {
     const next = new URLSearchParams(searchParams)
-    next.set('job', id)
+    next.set('job', String(id))
     setSearchParams(next)
   }
 
@@ -186,7 +186,7 @@ export function BackgroundAgentJobsPage() {
         </div>
       )}
 
-      <Sheet open={Boolean(selectedID)} onOpenChange={open => !open && closeBackgroundAgentJob()}>
+      <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeBackgroundAgentJob()}>
         <SheetContent className="w-full sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>{selected?.title ?? t('console.background_agent_jobs.detail_title')}</SheetTitle>
@@ -214,33 +214,12 @@ export function BackgroundAgentJobsPage() {
                     label={t('console.background_agent_jobs.duration')}
                     value={formatDuration(selected.duration_seconds)}
                   />
-                  <DetailField label={t('console.background_agent_jobs.model')} value={selected.model ?? '—'} />
                   <DetailField
-                    label={t('console.background_agent_jobs.reasoning_effort')}
-                    value={selected.reasoning_effort ?? '—'}
-                  />
-                  <DetailField
-                    label={t('console.background_agent_jobs.agent_plugins')}
-                    value={selected.agent_plugin_ids.join('\n') || '—'}
-                    wide
-                  />
-                  <DetailField
-                    label={t('console.background_agent_jobs.skill_names')}
-                    value={selected.skill_names.join('\n') || '—'}
-                    wide
-                  />
-                  <DetailField
-                    label={t('console.background_agent_jobs.workspace_mounts')}
-                    value={workspaceMountSummary(selected.workspace_mounts)}
+                    label={t('console.background_agent_jobs.workspace_template')}
+                    value={selected.workspace_template_id ?? '—'}
                     wide
                   />
                   <DetailField label={t('console.background_agent_jobs.task')} value={selected.task ?? '—'} wide />
-                  <DetailField
-                    label={t('console.background_agent_jobs.background')}
-                    value={selected.background ?? '—'}
-                    wide
-                  />
-                  <DetailField label={t('console.background_agent_jobs.notes')} value={selected.notes ?? '—'} wide />
                   <DetailField
                     label={t('console.background_agent_jobs.trajectory_integrity')}
                     value={turnsSummary(selected.turns)}
@@ -387,8 +366,7 @@ function BackgroundAgentJobCard({
             {formatDuration(task.duration_seconds)} ·{' '}
             {t('console.background_agent_jobs.attempt_count', { count: task.attempts })}
           </span>
-          <span>{task.agent_plugin_ids.join(', ') || t('console.background_agent_jobs.no_agent_plugins')}</span>
-          <span>{[task.model, task.reasoning_effort].filter(Boolean).join(' · ') || '—'}</span>
+          <span>{task.workspace_template_id ?? t('console.background_agent_jobs.no_workspace_template')}</span>
         </div>
       </button>
       {cancellable(task.status) ? (
@@ -499,6 +477,13 @@ function cancellable(status: BackgroundAgentJobItem['status']): boolean {
   return status === 'queued' || status === 'running' || status === 'waiting_on_user'
 }
 
+function backgroundAgentJobID(value: string | null): number | undefined {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
+
+  const id = Number(value)
+  return Number.isSafeInteger(id) && id >= 1000 ? id : undefined
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
@@ -511,10 +496,6 @@ function summary(value: Record<string, unknown>): string {
     if (typeof value[key] === 'string' && value[key]) return String(value[key])
   }
   return Object.keys(value).length ? truncate(JSON.stringify(value, null, 2), 4_000) : '—'
-}
-
-function workspaceMountSummary(mounts: BackgroundAgentJobItem['workspace_mounts']): string {
-  return mounts.map(mount => `${mount.id} (${mount.access})\n  ${mount.source}`).join('\n') || '—'
 }
 
 function turnsSummary(turns: BackgroundAgentJobItem['turns']): string {

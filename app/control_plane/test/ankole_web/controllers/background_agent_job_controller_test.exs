@@ -14,6 +14,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias AnkoleWeb.Session, as: WebSession
 
@@ -79,7 +80,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     detail = Map.fetch!(detail_response, "job")
 
     assert detail["title"] == middle.title
-    assert detail["agent_plugin_ids"] == []
+    assert detail["workspace_template_id"] == nil
     refute Map.has_key?(detail, "runtime")
     refute Map.has_key?(detail, "mode")
     assert [stored_turn] = detail["turns"]
@@ -113,6 +114,37 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert cancelled["metadata"]["cancel_requested_by"] =~ "operator:"
   end
 
+  test "cursor pagination neither skips nor repeats jobs with the same queued timestamp", %{
+    conn: conn
+  } do
+    agent = agent_fixture().principal
+    jobs = Enum.map(1..3, &create_job!(agent.uid, "same-time-#{&1}"))
+    queued_at = ~U[2026-07-10 04:00:00.000000Z]
+    Enum.each(jobs, &set_queued_at(&1, queued_at))
+
+    conn = bearer_conn(conn)
+    first = conn |> get(~p"/api/v1/background-agent-jobs?limit=1") |> json_response(200)
+
+    second =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{first["next_cursor"]}")
+      |> json_response(200)
+
+    third =
+      conn
+      |> recycle_bearer()
+      |> get(~p"/api/v1/background-agent-jobs?limit=1&cursor=#{second["next_cursor"]}")
+      |> json_response(200)
+
+    paged_ids = Enum.map([first, second, third], &get_in(&1, ["jobs", Access.at(0), "id"]))
+
+    assert Enum.all?([first["next_cursor"], second["next_cursor"]], &is_binary/1)
+    assert third["next_cursor"] == nil
+    assert length(Enum.uniq(paged_ids)) == 3
+    assert MapSet.new(paged_ids) == MapSet.new(Enum.map(jobs, & &1.id))
+  end
+
   test "missing bearer token is rejected", %{conn: conn} do
     assert conn |> get(~p"/api/v1/background-agent-jobs") |> json_response(401)
   end
@@ -128,7 +160,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
                "agent_uid" => agent.uid,
                "owner_session_id" => "console-parent-research",
                "source_tool_call_id" => "console-tool-research",
-               "agent_plugin_ids" => ["deep-research"],
+               "workspace_template_id" => "deep-research",
                "title" => "Console research job",
                "task" => "Produce a forecast dossier.",
                "reply_route" => %{
@@ -146,7 +178,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
       |> json_response(200)
       |> Map.fetch!("job")
 
-    assert detail["agent_plugin_ids"] == ["deep-research"]
+    assert detail["workspace_template_id"] == "deep-research"
     refute Map.has_key?(detail, "plugin_options")
 
     refute Map.has_key?(detail, "runtime")
@@ -168,9 +200,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
                "owner_session_id" => "console-parent-#{suffix}",
                "source_tool_call_id" => "console-tool-#{suffix}",
                "title" => "Console job #{suffix}",
-               "task" => "Complete console job #{suffix}.",
-               "background" => "Console test context.",
-               "notes" => "Keep the result concise.",
+               "task" => "Complete console job #{suffix}. Keep the result concise.",
                "reply_route" => %{
                  "binding_name" => "bot",
                  "signal_channel_id" => "console-chat-#{suffix}"
@@ -183,51 +213,65 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   defp insert_turn!(job, runtime_thread_id, runtime_turn_id) do
     now = DateTime.utc_now(:microsecond)
 
-    %Turn{}
-    |> Turn.changeset(%{
-      job_id: job.id,
-      attempt: max(job.attempts, 1),
-      runtime_thread_id: runtime_thread_id,
-      runtime_turn_id: runtime_turn_id,
-      kind: "agent",
-      status: "completed",
-      revision: 2,
-      trajectory: %{
-        "format" => "ankole_chatml",
-        "version" => 1,
+    turn =
+      %Turn{}
+      |> Turn.changeset(%{
+        job_id: job.id,
+        attempt: max(job.attempts, 1),
+        runtime_thread_id: runtime_thread_id,
+        runtime_turn_id: runtime_turn_id,
+        kind: "agent",
+        status: "completed",
+        revision: 2,
+        trajectory: %{
+          "format" => "ankole_chatml",
+          "version" => 1
+        },
+        progress: %{
+          "completed_items" => 2,
+          "tool_calls" => 1,
+          "tools_used" => [%{"name" => "shell", "calls" => 1}],
+          "files_changed" => ["brief.md"],
+          "plan" => %{
+            "steps" => [%{"step" => "Write brief", "status" => "completed"}]
+          }
+        },
+        usage: %{
+          "thread_total" => %{
+            "total_tokens" => 21,
+            "input_tokens" => 16,
+            "cached_input_tokens" => 2,
+            "output_tokens" => 5,
+            "reasoning_output_tokens" => 3
+          },
+          "last_model_call" => %{
+            "total_tokens" => 21,
+            "input_tokens" => 16,
+            "cached_input_tokens" => 2,
+            "output_tokens" => 5,
+            "reasoning_output_tokens" => 3
+          },
+          "model_context_window" => 200_000
+        },
+        error: %{},
+        started_at: now,
+        completed_at: now
+      })
+      |> Repo.insert!()
+
+    %TrajectoryGroup{}
+    |> TrajectoryGroup.changeset(%{
+      turn_id: turn.id,
+      position: 0,
+      revision: turn.revision,
+      item_key: "assistant:finished",
+      content: %{
         "messages" => [%{"role" => "assistant", "content" => "Finished semantic report."}]
-      },
-      progress: %{
-        "completed_items" => 2,
-        "tool_calls" => 1,
-        "tools_used" => [%{"name" => "shell", "calls" => 1}],
-        "files_changed" => ["brief.md"],
-        "plan" => %{
-          "steps" => [%{"step" => "Write brief", "status" => "completed"}]
-        }
-      },
-      usage: %{
-        "thread_total" => %{
-          "total_tokens" => 21,
-          "input_tokens" => 16,
-          "cached_input_tokens" => 2,
-          "output_tokens" => 5,
-          "reasoning_output_tokens" => 3
-        },
-        "last_model_call" => %{
-          "total_tokens" => 21,
-          "input_tokens" => 16,
-          "cached_input_tokens" => 2,
-          "output_tokens" => 5,
-          "reasoning_output_tokens" => 3
-        },
-        "model_context_window" => 200_000
-      },
-      error: %{},
-      started_at: now,
-      completed_at: now
+      }
     })
     |> Repo.insert!()
+
+    turn
   end
 
   defp set_queued_at(job, queued_at) do

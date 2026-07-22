@@ -22,22 +22,24 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
 
     assert Enum.map(skills, & &1["skill_name"]) ==
-             ~w(brain-review browser deep-research design-md docx jupyter-live-kernel nano-pdf pptx xlsx)
+             ~w(brain-review browser create-deep-research design-md docx jupyter-live-kernel nano-pdf pptx xlsx)
 
     assert Enum.all?(skills, & &1["default_enabled"])
 
-    research = Enum.find(skills, &(&1["skill_name"] == "deep-research"))
+    research = Enum.find(skills, &(&1["skill_name"] == "create-deep-research"))
     assert research["source_kind"] == "builtin"
     assert research["agent_plugin_id"] == "deep-research"
-    assert research["relative_path"] == "agent-plugins/deep-research/skills/deep-research"
+
+    assert research["relative_path"] ==
+             "agent-plugins/deep-research/skills/create-deep-research"
 
     assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
-    prompt_research = Enum.find(prompt_skills, &(&1["skill_name"] == "deep-research"))
+    prompt_research = Enum.find(prompt_skills, &(&1["skill_name"] == "create-deep-research"))
     assert prompt_research["source_kind"] == "builtin"
     assert prompt_research["agent_plugin_id"] == "deep-research"
     assert prompt_research["skill_root"] == "library"
 
-    assert {:ok, research_view} = Library.skill_view(agent.uid, "deep-research")
+    assert {:ok, research_view} = Library.skill_view(agent.uid, "create-deep-research")
     assert research_view["content"] =~ "Deep Research"
 
     for skill_name <- ~w(lark-im lark-office-suite lark-oa) do
@@ -60,7 +62,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert Enum.find(skills, &(&1["skill_name"] == "design-md"))
 
     assert {:ok, design_skill} = Library.skill_view(agent.uid, "design-md")
-    assert design_skill["content"] =~ "/workspace/.ankole/agent-library/DESIGN.md"
+    assert design_skill["content"] =~ "~/DESIGN.md"
   end
 
   test "new agents are seeded with soul, mission, and design library entries" do
@@ -162,12 +164,11 @@ defmodule Ankole.AIAgent.LibraryTest do
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "agent-notes",
-                 relative_path: "agent-notes",
                  description: "Agent-installed note-taking skill.",
                  default_enabled: true,
-                 metadata: %{"category" => "custom"},
-                 xxh3_128: "7b16fe7c3e492b87d9615265f0856cec",
-                 file_count: 1
+                 tags: ["notes"],
+                 category: "custom",
+                 disable_model_invocation: false
                }
              ])
 
@@ -184,6 +185,15 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
+  test "installed Skills reject an invalid runtime declaration" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:error, {:invalid_ankole_runtime, "worker"}} =
+             Library.replace_installed_skill_observations(agent.uid, [
+               installed_skill_observation("invalid-runtime", "worker")
+             ])
+  end
+
   test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
     %{principal: agent} = agent_fixture()
 
@@ -191,12 +201,11 @@ defmodule Ankole.AIAgent.LibraryTest do
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  "skill_name" => "agent-notes",
-                 "relative_path" => "agent-notes",
                  "description" => "Agent-installed note-taking skill.",
                  "default_enabled" => true,
-                 "metadata" => %{"category" => "custom"},
-                 "content_hash" => "7b16fe7c3e492b87d9615265f0856cec",
-                 "file_count" => 1
+                 "tags" => ["notes"],
+                 "category" => "custom",
+                 "disable_model_invocation" => false
                }
              ])
 
@@ -219,12 +228,10 @@ defmodule Ankole.AIAgent.LibraryTest do
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "nano-pdf",
-                 relative_path: "nano-pdf",
                  description: "Conflicting installed Skill.",
                  default_enabled: true,
-                 metadata: %{},
-                 content_hash: "7b16fe7c3e492b87d9615265f0856cec",
-                 file_count: 1
+                 tags: [],
+                 disable_model_invocation: false
                }
              ])
 
@@ -341,7 +348,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     name: shadowed
     description: Internal description changed.
     default_enabled: true
-    long_running: true
+    ankole-runtime: background_job
     category: test
     ---
 
@@ -352,8 +359,8 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert SourceReader.catalog_hash(sources_after_skill_change) != catalog_hash
 
     assert Enum.find(sources_after_skill_change, &(&1.name == "shadowed")).metadata[
-             "long_running"
-           ] == true
+             "ankole-runtime"
+           ] == "background_job"
 
     %{principal: agent} = agent_fixture()
     assert {:ok, prompt_skills} = Library.skills_for_system_prompt(agent.uid)
@@ -399,6 +406,17 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     #{body}
     """)
+  end
+
+  defp installed_skill_observation(name, runtime) do
+    %{
+      skill_name: name,
+      description: "Installed #{name} Skill.",
+      default_enabled: true,
+      tags: [],
+      disable_model_invocation: false,
+      ankole_runtime: runtime
+    }
   end
 
   defp write_agent_plugin!(library_root, plugin_id, skill_name) do

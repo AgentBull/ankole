@@ -199,6 +199,38 @@ defmodule FeishuOpenAPI.RequestTest do
              FeishuOpenAPI.get(client, "/open-apis/im/v1/chats/:chat_id", path_params: %{})
   end
 
+  test "transient gateway statuses retry through the real request path until recovery", %{
+    client: client
+  } do
+    cases = [
+      {[502, 200], 2},
+      {[503, 503, 200], 3},
+      {[504, 200], 2}
+    ]
+
+    for {statuses, expected_calls} <- cases do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
+        call = Agent.get_and_update(counter, fn count -> {count, count + 1} end)
+        status = Enum.fetch!(statuses, call)
+
+        case status do
+          200 -> Req.Test.json(conn, %{"code" => 0, "data" => %{"recovered" => true}})
+          transient -> conn |> Plug.Conn.put_status(transient) |> Req.Test.text("transient")
+        end
+      end)
+
+      assert {:ok, %{"data" => %{"recovered" => true}}} =
+               FeishuOpenAPI.get(client, "/open-apis/contact/v3/users/u1",
+                 access_token_type: nil,
+                 req_options: [retry_delay: fn _retry_count -> 0 end, retry_log_level: false]
+               )
+
+      assert Agent.get(counter, & &1) == expected_calls
+    end
+  end
+
   test "non-2xx non-envelope responses become http_error", %{client: client} do
     Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
       conn
@@ -244,6 +276,34 @@ defmodule FeishuOpenAPI.RequestTest do
              FeishuOpenAPI.download(client, "/open-apis/drive/v1/files/:file_token/download",
                path_params: %{file_token: "file_x"}
              )
+  end
+
+  test "permanent download failures do not enter transient retry", %{client: client} do
+    for {status, code} <- [{403, 99_991_672}, {404, 99_991_673}] do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+      Req.Test.stub(FeishuOpenAPI.RequestTest, fn conn ->
+        Agent.update(counter, &(&1 + 1))
+
+        conn
+        |> Plug.Conn.put_status(status)
+        |> Req.Test.json(%{"code" => code, "msg" => "permanent failure"})
+      end)
+
+      assert {:error,
+              %FeishuOpenAPI.Error{
+                code: ^code,
+                http_status: ^status,
+                msg: "permanent failure"
+              }} =
+               FeishuOpenAPI.download(client, "/open-apis/drive/v1/files/:file_token/download",
+                 path_params: %{file_token: "file_#{status}"},
+                 access_token_type: nil,
+                 req_options: [retry_delay: fn _retry_count -> 0 end, retry_log_level: false]
+               )
+
+      assert Agent.get(counter, & &1) == 1
+    end
   end
 
   test "non-zero response code yields a structured error", %{client: client} do

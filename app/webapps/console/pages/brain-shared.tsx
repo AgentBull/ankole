@@ -5,7 +5,7 @@ import type { PrincipalItem } from '../api/generated/types.gen'
 import { formatConsoleDate } from '../console-primitives'
 import { LabeledField } from '../console-shell'
 
-export type BrainTask = 'entries' | 'sources' | 'review' | 'audit' | 'dreaming'
+export type BrainTask = 'entries' | 'sources' | 'status' | 'audit' | 'dreaming'
 
 export function BrainTaskNavigation({
   active,
@@ -21,7 +21,7 @@ export function BrainTaskNavigation({
   const items: Array<{ id: BrainTask; label: string; to: string }> = [
     { id: 'entries', label: t('console.brain.entries_tab'), to: `/brain?${search}` },
     { id: 'sources', label: t('console.brain.sources_tab'), to: `/brain/sources?${search}` },
-    { id: 'review', label: t('console.brain.review_tab'), to: `/brain/review?${brainSearch(ownerUID)}` },
+    { id: 'status', label: t('console.brain.status_tab'), to: `/brain/status?${brainSearch(ownerUID)}` },
     { id: 'audit', label: t('console.brain.audit_tab'), to: `/brain/audit?${search}` },
     { id: 'dreaming', label: t('console.brain.dreaming_tab'), to: `/brain/dreaming?${brainSearch(ownerUID)}` }
   ]
@@ -97,7 +97,7 @@ export function BrainStoreField({
 }) {
   const { t } = useTranslation()
   const peerOptions = principals.filter(principal => principal.uid !== ownerUID)
-  const knownStores = new Set(['', 'public', ...peerOptions.map(principal => `dm:${principal.uid}`)])
+  const knownStores = new Set(['', 'shared', 'self', ...peerOptions.map(principal => `dm:${principal.uid}`)])
   const unknownStore = store && !knownStores.has(store) ? store : undefined
 
   return (
@@ -108,7 +108,8 @@ export function BrainStoreField({
         </SelectTrigger>
         <SelectContent>
           {allowAll ? <SelectItem value="__all__">{t('console.brain.store_all')}</SelectItem> : null}
-          <SelectItem value="public">{t('console.brain.store_public')}</SelectItem>
+          <SelectItem value="shared">{t('console.brain.store_shared')}</SelectItem>
+          <SelectItem value="self">{t('console.brain.store_self')}</SelectItem>
           {unknownStore ? <SelectItem value={unknownStore}>{unknownStore}</SelectItem> : null}
           {peerOptions.map(principal => (
             <SelectItem key={principal.uid} value={`dm:${principal.uid}`}>
@@ -125,7 +126,8 @@ export function BrainStoreField({
 
 export function BrainStoreName({ store, principals }: { store: string; principals: PrincipalOption[] }) {
   const { t } = useTranslation()
-  if (store === 'public') return t('console.brain.store_public')
+  if (store === 'shared') return t('console.brain.store_shared')
+  if (store === 'self') return t('console.brain.store_self')
 
   if (store.startsWith('dm:')) {
     const uid = store.slice(3)

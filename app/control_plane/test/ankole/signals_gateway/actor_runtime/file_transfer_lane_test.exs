@@ -8,7 +8,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLaneTest do
 
   setup do
     route = "file-lane-test-#{System.unique_integer([:positive])}"
-    route_auth = %{route: route, worker_id: "worker-file-test", key_revision: 1}
+    route_auth = %{route: route, worker_id: "worker-file-test"}
 
     on_exit(fn -> Broker.unregister_local_worker(route) end)
 
@@ -245,7 +245,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLaneTest do
              )
   end
 
-  test "workspace_sessions root resolves and round-trips list and stat", %{
+  test "agent_sessions root resolves and round-trips list and stat", %{
     route: route,
     route_auth: route_auth
   } do
@@ -257,28 +257,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLaneTest do
     assert {:ok,
             %{
               "command" => "STAT",
-              "root" => "workspace_sessions",
-              "relative_path" => "inbox/message-1/hello.txt",
+              "root" => "agent_sessions",
+              "relative_path" => "agent-1/sessions/session-1/inbox/message-1/hello.txt",
               "kind" => "file"
             }} =
-             FileTransferLane.stat(route, "workspace_sessions", "inbox/message-1/hello.txt")
+             FileTransferLane.stat(
+               route,
+               "agent_sessions",
+               "agent-1/sessions/session-1/inbox/message-1/hello.txt"
+             )
 
     assert {:ok,
             %{
               "command" => "LIST",
-              "root" => "workspace_sessions",
+              "root" => "agent_sessions",
               "recursive" => true,
               "truncated" => false,
               "entries" => [
                 %{
-                  "relative_path" => "inbox/message-1/hello.txt",
+                  "relative_path" => "agent-1/sessions/session-1/inbox/message-1/hello.txt",
                   "kind" => "file",
                   "size" => 4,
                   "modified_unix_ms" => 1_772_000_000_000
                 }
               ]
             }} =
-             FileTransferLane.list(route, "workspace_sessions", "inbox", recursive: true)
+             FileTransferLane.list(route, "agent_sessions", "agent-1/sessions/session-1/inbox",
+               recursive: true
+             )
 
     # Root membership is WorkerFiles policy; the lane still rejects a
     # structurally malformed root segment.
@@ -310,7 +316,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLaneTest do
           bool(false),
           entries_frame([
             %{
-              relative_path: "inbox/message-1/hello.txt",
+              relative_path: listed_entry_path(path, "message-1/hello.txt"),
               kind: "file",
               size: 4,
               modified_unix_ms: 1_772_000_000_000
@@ -335,6 +341,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.FileTransferLaneTest do
           path
         ])
     end
+  end
+
+  defp listed_entry_path(virtual_path, child_path) do
+    [_root | relative_segments] = String.split(virtual_path, "/", trim: true)
+    Path.join(relative_segments ++ [child_path])
   end
 
   defp respond_to_put_get(route_auth, stored, [protocol, command, transfer_id | rest]) do

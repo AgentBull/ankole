@@ -6,7 +6,7 @@ import { parse } from 'smol-toml'
 import { materializeCodexJobProjectConfig } from '../src/core/codex-runner/project-config'
 
 describe('@ankole/agent-computer Codex job project config', () => {
-  it('applies Job overrides and runner safety over the initialized project config', () => {
+  it('preserves template model settings and applies runner safety', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-'))
     const configPath = join(root, '.codex', 'config.toml')
     mkdirSync(join(root, '.codex'), { recursive: true })
@@ -27,7 +27,6 @@ describe('@ankole/agent-computer Codex job project config', () => {
     try {
       const materialized = materializeCodexJobProjectConfig({
         projectRoot: root,
-        execution: { model: 'job-model', reasoningEffort: 'high' },
         pluginsEnabled: true,
         mcpServers: [
           {
@@ -50,13 +49,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
       })
       const config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
 
-      expect(materialized).toEqual({
-        path: configPath,
-        model: 'job-model',
-        threadConfig: { model_reasoning_effort: 'high' }
-      })
-      expect(config.model).toBe('job-model')
-      expect(config.model_reasoning_effort).toBe('high')
+      expect(materialized).toEqual({ path: configPath })
+      expect(config.model).toBe('plugin-model')
+      expect(config.model_reasoning_effort).toBe('medium')
       expect(config.web_search).toBe('disabled')
       expect(config.features.memories).toBe(false)
       expect(config.features.plugins).toBe(true)
@@ -92,11 +87,43 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(() =>
         materializeCodexJobProjectConfig({
           projectRoot: root,
-          execution: {},
           pluginsEnabled: false,
           mcpServers: []
         })
       ).toThrow('invalid Codex project config')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('writes the official subscription model profile and controls priority service', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-subscription-'))
+    const configPath = join(root, '.codex', 'config.toml')
+    mkdirSync(join(root, '.codex'), { recursive: true })
+    writeFileSync(configPath, 'model = "template-model"\nservice_tier = "priority"\n')
+
+    try {
+      materializeCodexJobProjectConfig({
+        projectRoot: root,
+        pluginsEnabled: false,
+        mcpServers: [],
+        modelProfile: { model: 'gpt-5.6-sol', modelReasoningEffort: 'max', fastMode: false }
+      })
+      let config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
+      expect(config.model).toBe('gpt-5.6-sol')
+      expect(config.model_reasoning_effort).toBe('max')
+      expect(config.service_tier).toBeUndefined()
+
+      materializeCodexJobProjectConfig({
+        projectRoot: root,
+        pluginsEnabled: false,
+        mcpServers: [],
+        modelProfile: { model: 'gpt-5.6-terra', modelReasoningEffort: 'ultra', fastMode: true }
+      })
+      config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
+      expect(config.model).toBe('gpt-5.6-terra')
+      expect(config.model_reasoning_effort).toBe('ultra')
+      expect(config.service_tier).toBe('priority')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -107,7 +134,6 @@ describe('@ankole/agent-computer Codex job project config', () => {
     try {
       materializeCodexJobProjectConfig({
         projectRoot: root,
-        execution: {},
         pluginsEnabled: false,
         mcpServers: []
       })

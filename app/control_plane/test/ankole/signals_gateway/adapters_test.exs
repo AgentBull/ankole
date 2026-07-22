@@ -1,12 +1,17 @@
 defmodule Ankole.SignalsGateway.AdaptersTest do
   use Ankole.DataCase, async: false
 
+  alias Ankole.AppConfigure.Cache
+  alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
+  alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
+  alias Ankole.Plugins.Spec
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
   alias Ankole.SignalsGateway.OutboxAdapter
+  alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   defmodule StringKeyOutbox do
     @moduledoc false
@@ -23,9 +28,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
 
     @impl true
     def plugin_id, do: "string-key-signal-adapter"
-
-    @impl true
-    def api_version, do: 1
 
     @impl true
     def adapter_declarations do
@@ -51,9 +53,6 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     def plugin_id, do: "inbound-only-signal-adapter"
 
     @impl true
-    def api_version, do: 1
-
-    @impl true
     def adapter_declarations do
       [
         %{
@@ -63,6 +62,18 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
         }
       ]
     end
+  end
+
+  setup do
+    AppConfigureRegistry.clear_for_test()
+    Cache.clear_for_test()
+
+    on_exit(fn ->
+      AppConfigureRegistry.clear_for_test()
+      Cache.clear_for_test()
+    end)
+
+    :ok
   end
 
   test "resolves the Lark declaration into one normalized adapter definition" do
@@ -89,26 +100,18 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     assert outbox_adapter.reconcile_fun == (&LarkOutbox.reconcile/1)
   end
 
-  test "resolves mock and string-key declarations through the same interface" do
-    registry = start_registry!([MockSignalProviderPlugin, StringKeyPlugin])
+  test "resolves an atom-key declaration through the normalized interface" do
+    registry = start_registry!([MockSignalProviderPlugin])
 
     assert {:ok, %OutboxAdapter{} = mock} =
              Adapters.fetch_outbox("mock-provider", registry)
 
     assert OutboxAdapter.capabilities(mock) ==
              MapSet.new([:post_entry, :reply_entry, :outbound_reconciliation])
+  end
 
-    assert {:ok,
-            %Definition{
-              id: "string-key",
-              display_name: %{"default" => "String Key Adapter"}
-            }} = Adapters.fetch("string-key", registry)
-
-    assert {:ok, %OutboxAdapter{} = string_key} =
-             Adapters.fetch_outbox("string-key", registry)
-
-    assert OutboxAdapter.capabilities(string_key) == MapSet.new([:post_entry])
-    assert string_key.send_fun == (&StringKeyOutbox.send/1)
+  test "rejects string-key callback declarations" do
+    assert {:error, _reason} = Spec.from_module(StringKeyPlugin)
   end
 
   test "returns one error vocabulary for unavailable, missing, and inbound-only adapters" do
@@ -128,11 +131,42 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
              Adapters.fetch_outbox("inbound-only", registry)
   end
 
+  test "rejects string-key outbox callback results" do
+    adapter = %OutboxAdapter{
+      capabilities: MapSet.new([:post_entry]),
+      send_fun: fn _outbox -> {:ok, %{"created_source_entry_id" => "provider-id"}} end,
+      reconcile_fun: nil
+    }
+
+    assert {:error, {:invalid_adapter_result_key, "created_source_entry_id"}} =
+             OutboxAdapter.deliver(adapter, %{})
+  end
+
+  test "rejects string-key reply preview callback results" do
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{"created_source_entry_id" => "provider-id"}} end,
+      update_fun: fn _request -> {:ok, %{}} end,
+      finalize_fun: fn _request -> {:ok, %{}} end,
+      refresh_fun: nil
+    }
+
+    request = %ReplyPreviewAdapter.Request{
+      actor_event: %Ankole.SignalsGateway.ActorEvent{},
+      presentation: %{},
+      mode: :working
+    }
+
+    assert {:error, {:invalid_reply_preview_adapter_result_key, "created_source_entry_id"}} =
+             ReplyPreviewAdapter.open(adapter, request)
+  end
+
   defp start_registry!(modules) do
     name = :"signal_adapter_registry_#{System.unique_integer([:positive])}"
 
+    assert {:ok, _enabled_ids} = Config.put_enabled_ids(Enum.map(modules, & &1.plugin_id()))
+
     start_supervised!(
-      {Registry, name: name, discovery: [paths: [], modules: modules]},
+      {Registry, name: name, modules: modules},
       id: name
     )
 

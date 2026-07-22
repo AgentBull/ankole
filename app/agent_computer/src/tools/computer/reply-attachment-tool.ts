@@ -2,12 +2,12 @@ import { basename, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
-import { insideWorkspace, resolveWorkspacePath } from '../../core/workspace-paths'
+import { insideAgentHome, resolveAgentHomePath } from '../../core/agent-home-paths'
 import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 
 const ReplyAttachmentParams = z.object({
-  path: z.string().min(1).describe('File path under /workspace/user-files to attach to the reply.'),
+  path: z.string().min(1).describe('File path under the current Agent Home user-files directory.'),
   name: z.string().min(1).optional().describe('Display filename for the outbound attachment.'),
   mimeType: z.string().min(1).optional().describe('MIME type for the outbound attachment.')
 })
@@ -25,7 +25,7 @@ interface ReplyAttachmentDetails {
 }
 
 /**
- * Builds the tool that marks one `/workspace/user-files` file for provider reply
+ * Builds the tool that marks one Agent `user-files` file for provider reply
  * attachment.
  *
  * The tool does not upload the file itself; it records structured details that
@@ -36,8 +36,7 @@ export function createReplyAttachmentTool(
 ): AgentTool<typeof ReplyAttachmentParams, ReplyAttachmentDetails> {
   return {
     name: 'reply_attachment',
-    description:
-      "You can send files natively: to deliver a file to the user, call reply_attachment with a local path under /workspace/user-files (e.g. path='/workspace/user-files/report.pdf'). The file will be sent as a native attachment in the current provider reply.",
+    description: `You can send files natively: place the deliverable under ${context.userFilesRoot} and call reply_attachment with that real path.`,
     schema: ReplyAttachmentParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -53,9 +52,14 @@ export function createReplyAttachmentTool(
         throw new Error(`reply_attachment file not found: ${params.path}`)
       }
 
-      const relativePath = userFilesRelativePath(params.path, context.workspaceRoot)
+      const relativePath = userFilesRelativePath(
+        params.path,
+        context.agentHome,
+        context.workspaceRoot,
+        context.userFilesRoot
+      )
       const attachment = {
-        agent_computer_path: `/workspace/user-files/${relativePath}`,
+        agent_computer_path: `${context.userFilesRoot}/${relativePath}`,
         user_files_relative_path: relativePath,
         name: params.name ?? basename(relativePath),
         ...(params.mimeType ? { mime_type: params.mimeType } : {}),
@@ -75,16 +79,15 @@ export function createReplyAttachmentTool(
 /**
  * Converts accepted workspace paths to a user-files-relative path.
  */
-function userFilesRelativePath(path: string, workspaceRoot: string): string {
+function userFilesRelativePath(path: string, agentHome: string, workspaceRoot: string, userFilesRoot: string): string {
   const resolved =
-    path.startsWith('/') && insideWorkspace(workspaceRoot, path)
+    path.startsWith('/') && insideAgentHome(agentHome, path)
       ? resolve(path)
-      : resolveWorkspacePath(workspaceRoot, path)
-  const userFilesRoot = resolve(workspaceRoot, 'user-files')
-  const relativePath = relative(userFilesRoot, resolved).replaceAll('\\', '/')
+      : resolveAgentHomePath(agentHome, path, { cwd: workspaceRoot })
+  const relativePath = relative(resolve(userFilesRoot), resolved).replaceAll('\\', '/')
 
   if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) {
-    throw new Error('reply_attachment only accepts files under /workspace/user-files')
+    throw new Error(`reply_attachment only accepts files under ${userFilesRoot}`)
   }
 
   return relativePath

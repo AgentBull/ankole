@@ -259,9 +259,7 @@ function resolveRunDir(context: BrowserClientContext, requested?: string): strin
   const root = resolve(context.artifactRoot)
   let path: string
   if (!requested) path = resolve(root, 'runs', `ad-hoc-${new Date().toISOString().replace(/[:.]/g, '-')}`)
-  else if (requested.startsWith('/workspace/browser/')) {
-    path = resolve(root, requested.slice('/workspace/browser/'.length))
-  } else if (requested.startsWith('browser/')) path = resolve(root, requested.slice('browser/'.length))
+  else if (requested.startsWith('browser/')) path = resolve(root, requested.slice('browser/'.length))
   else path = isAbsolute(requested) ? resolve(requested) : resolve(root, requested)
   const child = relative(root, path)
   if (child === '..' || child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(child)) {
@@ -270,8 +268,8 @@ function resolveRunDir(context: BrowserClientContext, requested?: string): strin
   return path
 }
 
-function modelRunDir(context: BrowserClientContext, runDir: string): string {
-  return `/workspace/browser/${relative(context.artifactRoot, runDir).replaceAll('\\', '/')}`
+function modelRunDir(_context: BrowserClientContext, runDir: string): string {
+  return runDir
 }
 
 async function readRunResult(runDir: string): Promise<RunResult> {

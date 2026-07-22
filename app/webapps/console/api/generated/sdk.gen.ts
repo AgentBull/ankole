@@ -213,9 +213,6 @@ import type {
   AnkoleWebBrainControllerRestoreAuditsData,
   AnkoleWebBrainControllerRestoreAuditsErrors,
   AnkoleWebBrainControllerRestoreAuditsResponses,
-  AnkoleWebBrainControllerReviewCandidatesData,
-  AnkoleWebBrainControllerReviewCandidatesErrors,
-  AnkoleWebBrainControllerReviewCandidatesResponses,
   AnkoleWebBrainControllerRunDreamingData,
   AnkoleWebBrainControllerRunDreamingErrors,
   AnkoleWebBrainControllerRunDreamingResponses,
@@ -231,6 +228,9 @@ import type {
   AnkoleWebBrainControllerSourceRawErrors,
   AnkoleWebBrainControllerSourceRawResponses,
   AnkoleWebBrainControllerSourceResponses,
+  AnkoleWebBrainControllerStatusData,
+  AnkoleWebBrainControllerStatusErrors,
+  AnkoleWebBrainControllerStatusResponses,
   AnkoleWebCodexAccountControllerCreateData,
   AnkoleWebCodexAccountControllerCreateErrors,
   AnkoleWebCodexAccountControllerCreateResponses,
@@ -323,6 +323,9 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingErrors,
   AnkoleWebSignalBindingControllerPutBindingResponses,
+  AnkoleWebSignalBindingControllerUpdateBindingData,
+  AnkoleWebSignalBindingControllerUpdateBindingErrors,
+  AnkoleWebSignalBindingControllerUpdateBindingResponses,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptErrors,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -651,6 +654,28 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
       }
     ],
     url: '/api/v1/ai-gateway/files/{file_id}',
+    ...options
+  })
+
+/**
+ * Read the single long-term memory health surface
+ */
+export const ankoleWebBrainControllerStatus = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebBrainControllerStatusData, ThrowOnError>
+): RequestResult<AnkoleWebBrainControllerStatusResponses, AnkoleWebBrainControllerStatusErrors, ThrowOnError> =>
+  (options.client ?? client).get<
+    AnkoleWebBrainControllerStatusResponses,
+    AnkoleWebBrainControllerStatusErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/brain/status',
     ...options
   })
 
@@ -1744,7 +1769,7 @@ export const ankoleWebBrainControllerSourceIndex = <ThrowOnError extends boolean
   })
 
 /**
- * Retain immutable bytes from a URL, file, or pasted text
+ * Save manual text as knowledge or retain binary source bytes
  */
 export const ankoleWebBrainControllerCreateSource = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebBrainControllerCreateSourceData, ThrowOnError>
@@ -2395,6 +2420,36 @@ export const ankoleWebSignalBindingControllerDelete = <ThrowOnError extends bool
   })
 
 /**
+ * Reconfigure or move one signal binding
+ */
+export const ankoleWebSignalBindingControllerUpdateBinding = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerUpdateBindingData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerUpdateBindingResponses,
+  AnkoleWebSignalBindingControllerUpdateBindingErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebSignalBindingControllerUpdateBindingResponses,
+    AnkoleWebSignalBindingControllerUpdateBindingErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List effective members of one Principal group
  *
  * Static groups return stored memberships. Computed groups return the members evaluated from their condition.
@@ -2450,32 +2505,6 @@ export const ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverride = <T
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List deterministic Brain review candidates
- */
-export const ankoleWebBrainControllerReviewCandidates = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebBrainControllerReviewCandidatesData, ThrowOnError>
-): RequestResult<
-  AnkoleWebBrainControllerReviewCandidatesResponses,
-  AnkoleWebBrainControllerReviewCandidatesErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebBrainControllerReviewCandidatesResponses,
-    AnkoleWebBrainControllerReviewCandidatesErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/brain/review-candidates',
-    ...options
   })
 
 /**
@@ -3070,9 +3099,9 @@ export const ankoleWebAgentComputerWorkerControllerIndex = <ThrowOnError extends
   })
 
 /**
- * Run principal-level Brain curation now
+ * Run Agent-level Brain curation now
  *
- * Manually starts the same Stage B path used by the scheduled Brain curation job.
+ * Manually starts the same Agent-only Stage B path used by the scheduled Brain curation job.
  */
 export const ankoleWebBrainControllerRunDreaming = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebBrainControllerRunDreamingData, ThrowOnError>
@@ -3336,7 +3365,7 @@ export const ankoleWebAppConfigurationControllerDelete = <ThrowOnError extends b
   })
 
 /**
- * Read one console-editable AppConfigure entry
+ * Read one console-visible AppConfigure entry
  */
 export const ankoleWebAppConfigurationControllerShow = <ThrowOnError extends boolean = false>(
   options: Options<AnkoleWebAppConfigurationControllerShowData, ThrowOnError>

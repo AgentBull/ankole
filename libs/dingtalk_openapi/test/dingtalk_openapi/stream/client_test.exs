@@ -35,7 +35,11 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
           plug: fn conn ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             send(parent, {:register, conn.request_path, Torque.decode!(body)})
-            Req.Test.json(conn, %{"endpoint" => "ws://127.0.0.1:#{port}", "ticket" => "ticket-1"})
+
+            Req.Test.json(conn, %{
+              "endpoint" => "ws://127.0.0.1:#{port}/connect",
+              "ticket" => "ticket-1"
+            })
           end
         ]
       )
@@ -55,6 +59,9 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
     assert %{"type" => "CALLBACK", "topic" => "/v1.0/im/bot/messages/get"} in register_body[
              "subscriptions"
            ]
+
+    assert_receive {:upgrade_request, upgrade_request}, 1_000
+    assert String.starts_with?(upgrade_request, "GET /connect?ticket=ticket-1 HTTP/1.1\r\n")
 
     # SYSTEM ping is echoed with the same messageId and opaque, synchronously.
     assert_receive {:client_frame, ping_reply}, 1_500
@@ -80,6 +87,8 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
          {:ok, request} <- recv_until_headers(socket),
          {:ok, key} <- websocket_key(request),
          :ok <- :gen_tcp.send(socket, upgrade_response(key)) do
+      send(parent, {:upgrade_request, request})
+
       # Push a SYSTEM ping and read the client's opaque echo.
       :ok = :gen_tcp.send(socket, server_text_frame(ping_frame()))
       {:ok, ping_reply} = recv_client_text_frame(socket)

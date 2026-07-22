@@ -52,10 +52,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-unknown",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox -> flunk("in-flight outbox must not be sent again") end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   flunk("in-flight outbox must not be sent again")
+                 end),
                  now: DateTime.add(@base_time, 1, :second)
                )
 
@@ -66,12 +65,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-unknown",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     flunk("unknown in-flight outbox must not be sent again")
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   flunk("unknown in-flight outbox must not be sent again")
+                 end),
                  now: DateTime.add(@base_time, 61, :second)
                )
 
@@ -106,13 +102,11 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-reconcile",
-                 %{
-                   capabilities: [:post_entry, :outbound_reconciliation],
-                   send: fn _outbox -> flunk("reconciled outbox must not be sent again") end,
-                   reconcile: fn _outbox ->
-                     {:ok, %{created_source_entry_id: "confirmed-provider-id"}}
-                   end
-                 },
+                 outbox_adapter(
+                   [:post_entry, :outbound_reconciliation],
+                   fn _outbox -> flunk("reconciled outbox must not be sent again") end,
+                   fn _outbox -> {:ok, %{created_source_entry_id: "confirmed-provider-id"}} end
+                 ),
                  now: DateTime.add(@base_time, 61, :second)
                )
 
@@ -158,11 +152,11 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "started-invalid-reconcile",
-                 %{
-                   capabilities: [:post_entry, :outbound_reconciliation],
-                   send: fn _outbox -> flunk("reconciled outbox must not be sent again") end,
-                   reconcile: fn _outbox -> :ok end
-                 },
+                 outbox_adapter(
+                   [:post_entry, :outbound_reconciliation],
+                   fn _outbox -> flunk("reconciled outbox must not be sent again") end,
+                   fn _outbox -> :ok end
+                 ),
                  now: DateTime.add(@base_time, 61, :second)
                )
 
@@ -266,7 +260,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "post-retry",
-                 %{capabilities: [:post_entry], send: fn _outbox -> {:error, :rate_limited} end},
+                 outbox_adapter([:post_entry], fn _outbox -> {:error, :rate_limited} end),
                  now: @base_time
                )
 
@@ -277,7 +271,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "post-retry",
-                 %{capabilities: [:post_entry], send: fn _outbox -> {:ok, %{}} end},
+                 outbox_adapter([:post_entry], fn _outbox -> {:ok, %{}} end),
                  now: DateTime.add(@base_time, 1, :second)
                )
 
@@ -290,12 +284,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "post-retry",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:ok, %{created_source_entry_id: "retry-provider-id"}}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:ok, %{created_source_entry_id: "retry-provider-id"}}
+                 end),
                  now: due_now
                )
     end
@@ -326,12 +317,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "durable-retry",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:error, {:reply_delivery, :retryable, %{"code" => 300_120}}}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:error, {:reply_delivery, :retryable, %{"code" => 300_120}}}
+                 end),
                  now: @base_time
                )
 
@@ -347,12 +335,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "durable-retry",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:ok, %{created_source_entry_id: "durable-provider-id"}}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:ok, %{created_source_entry_id: "durable-provider-id"}}
+                 end),
                  now: due_now
                )
     end
@@ -382,12 +367,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "durable-blocked",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:error, {:reply_delivery, :operator_action_required, %{"code" => 300_311}}}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:error, {:reply_delivery, :operator_action_required, %{"code" => 300_311}}}
+                 end),
                  now: @base_time
                )
 
@@ -400,7 +382,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "durable-blocked",
-                 %{capabilities: [:post_entry], send: fn _outbox -> {:ok, %{}} end},
+                 outbox_adapter([:post_entry], fn _outbox -> {:ok, %{}} end),
                  now: DateTime.add(@base_time, 1, :day)
                )
 
@@ -421,12 +403,9 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  agent.uid,
                  "bot",
                  "durable-blocked",
-                 %{
-                   capabilities: [:post_entry],
-                   send: fn _outbox ->
-                     {:ok, %{created_source_entry_id: "unblocked-provider-id"}}
-                   end
-                 },
+                 outbox_adapter([:post_entry], fn _outbox ->
+                   {:ok, %{created_source_entry_id: "unblocked-provider-id"}}
+                 end),
                  now: DateTime.add(woken.next_attempt_at, 1, :microsecond)
                )
     end
@@ -462,7 +441,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
         %{
           discovered: %{spec.id => spec},
           active: %{spec.id => spec},
-          disabled_ids: MapSet.new()
+          enabled_ids: MapSet.new([spec.id])
         }
       end)
 

@@ -14,12 +14,13 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
   @doc """
   Ensures exactly one local connection owner exists for a normalized app key.
   """
-  @spec ensure_started(map(), [consumer()], keyword()) ::
-          {:ok, pid()} | {:error, term()}
-  def ensure_started(config, consumers, opts \\ []) when is_map(config) and is_list(consumers) do
+  @spec ensure_started(map(), [consumer()], keyword()) :: {:ok, pid()} | {:error, term()}
+  def ensure_started(config, consumers, opts \\ [])
+      when is_map(config) and is_list(consumers) do
+    registry = Keyword.get(opts, :registry, @registry)
     key = Config.connection_key(config)
 
-    case Registry.lookup(registry(opts), key) do
+    case Registry.lookup(registry, key) do
       [{pid, _value}] ->
         ensure_existing(pid, config, consumers, opts)
 
@@ -31,9 +32,9 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
   @doc """
   Lists connection keys currently owned in this BEAM process.
   """
-  @spec registered_keys(keyword()) :: [term()]
-  def registered_keys(opts \\ []) do
-    registry(opts)
+  @spec registered_keys() :: [term()]
+  def registered_keys do
+    @registry
     |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
     |> Enum.sort()
   end
@@ -52,18 +53,21 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
   end
 
   defp restart_owner(pid, config, consumers, opts) do
-    with :ok <- DynamicSupervisor.terminate_child(supervisor(opts), pid) do
+    supervisor = Keyword.get(opts, :supervisor, @supervisor)
+
+    with :ok <- DynamicSupervisor.terminate_child(supervisor, pid) do
       start_owner(config, consumers, opts)
     end
   end
 
   defp start_owner(config, consumers, opts) do
-    child_opts =
-      opts
-      |> Keyword.take([:registry, :start_client?, :client_opts, :ws_client_module])
-      |> Keyword.merge(config: config, consumers: consumers)
+    supervisor = Keyword.get(opts, :supervisor, @supervisor)
 
-    case DynamicSupervisor.start_child(supervisor(opts), {ConnectionOwner, child_opts}) do
+    child_opts =
+      [config: config, consumers: consumers] ++
+        Keyword.take(opts, [:registry, :client_opts])
+
+    case DynamicSupervisor.start_child(supervisor, {ConnectionOwner, child_opts}) do
       {:ok, pid} ->
         {:ok, pid}
 
@@ -74,7 +78,4 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionSupervisor do
         error
     end
   end
-
-  defp registry(opts), do: Keyword.get(opts, :registry, @registry)
-  defp supervisor(opts), do: Keyword.get(opts, :supervisor, @supervisor)
 end

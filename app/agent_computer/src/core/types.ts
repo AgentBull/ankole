@@ -156,6 +156,8 @@ export interface AgentToolResult<T> {
   content: ContentPart[]
   details: T
   presentation?: ReplyPresentationEvent[]
+  /** Lifecycle ActorEvents to complete with this tool result journal entry. */
+  completeActorEventIDs?: string[]
   /** Finish the current Agent turn after this result is durably recorded. */
   terminate?: boolean
 }
@@ -174,6 +176,8 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   isDestructive?: boolean
   /** Builds one bounded user-facing activity label from schema-validated parameters. */
   describeActivity: (params: z.output<TParameters>) => string | null
+  /** Optionally replaces the activity label with a bounded summary of the completed result. */
+  describeCompletedActivity?: (params: z.output<TParameters>, details: TDetails) => string | null
   execute: (
     toolCallID: string,
     params: z.output<TParameters>,

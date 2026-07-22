@@ -1,7 +1,7 @@
 import { create, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { runtimeFabricValidateEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,6 +38,7 @@ import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope 
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
 import { BackgroundAgentJobTurnPersistenceError } from '../src/core/codex-runner/turn-recorder'
+import { agentHomePaths } from '../src/core/agent-home-paths'
 
 function validatedBytes(envelope: Envelope): Buffer {
   const bytes = encodeEnvelope(envelope)
@@ -67,7 +68,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
-    expect(envelopeProtocolVersion).toBe(2)
+    expect(envelopeProtocolVersion).toBe(3)
     expect(ready.protocolVersion).toBe(envelopeProtocolVersion)
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
@@ -76,11 +77,13 @@ describe('@ankole/agent-computer runtime', () => {
     expect(readyJSON).not.toContain('agentUid')
     expect(readyJSON).not.toContain('actorEpoch')
     if (ready.body.case !== 'workerReady') throw new Error('expected workerReady body')
-    expect(jsonObjectFromBytes(ready.body.value.capacityJson, 'capacity_json')).toMatchObject({
-      max_turns: 9,
-      available_turn_slots: 9
-    })
+    expect(ready.body.value.maxTurns).toBe(9)
+    expect(ready.body.value.availableTurnSlots).toBe(9)
+    if (heartbeat.body.case !== 'workerHeartbeat') throw new Error('expected workerHeartbeat body')
+    expect(heartbeat.body.value.activeTurns).toBe(0)
     if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
+    expect(capacity.body.value.maxTurns).toBe(9)
+    expect(capacity.body.value.activeTurns).toBe(0)
     expect(capacity.body.value.availableTurnSlots).toBe(9)
     expect(validatedBytes(ready)).toBeInstanceOf(Buffer)
     expect(validatedBytes(heartbeat)).toBeInstanceOf(Buffer)
@@ -92,14 +95,9 @@ describe('@ankole/agent-computer runtime', () => {
     const capacity = workerCapacityEnvelope(config, 1, 2)
 
     if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
+    expect(capacity.body.value.maxTurns).toBe(3)
+    expect(capacity.body.value.activeTurns).toBe(2)
     expect(capacity.body.value.availableTurnSlots).toBe(1)
-    expect(jsonObjectFromBytes(capacity.body.value.capacityJson, 'capacity_json')).toEqual({
-      max_turns: 3,
-      available_turn_slots: 1
-    })
-    expect(jsonObjectFromBytes(capacity.body.value.loadJson, 'load_json')).toEqual({
-      active_turns: 2
-    })
   })
 
   it('classifies exhausted BackgroundAgentJob Turn persistence as retryable worker infrastructure failure', () => {
@@ -189,7 +187,7 @@ describe('@ankole/agent-computer runtime', () => {
 
     try {
       const config = workerConfigForRoot(root)
-      mkdirSync(config.userFilesRoot, { recursive: true })
+      mkdirSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles, { recursive: true })
 
       const workspaceRoot = prepareTurnWorkspace(config, {
         turn: {
@@ -214,7 +212,7 @@ describe('@ankole/agent-computer runtime', () => {
       })
 
       expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
-      expect(existsSync(join(workspaceRoot, 'user-files'))).toBe(true)
+      expect(existsSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles)).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -344,10 +342,10 @@ describe('@ankole/agent-computer runtime', () => {
     }
 
     try {
-      mkdirSync(config.sharedFsRoot, { recursive: true })
-      mkdirSync(config.userFilesRoot, { recursive: true })
-      mkdirSync(config.agentInstalledSkillsRoot, { recursive: true })
-      mkdirSync(config.workspaceSessionsRoot, { recursive: true })
+      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
+      mkdirSync(paths.userFiles, { recursive: true })
+      mkdirSync(paths.installedSkills, { recursive: true })
+      mkdirSync(paths.sessions, { recursive: true })
       mkdirSync(config.builtinSkillsRoot, { recursive: true })
 
       const lane = createFileTransferLane(config, sender.sendFileFrame)
@@ -361,7 +359,7 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('WRITE_OPEN'),
         Buffer.from(transferID),
-        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
         u64Frame(Buffer.byteLength(plainText))
       ])
       expect(frameFor(sentFrames, transferID, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
@@ -379,22 +377,43 @@ describe('@ankole/agent-computer runtime', () => {
 
       await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(transferID)])
 
-      expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
+      expect(readFileSync(join(paths.userFiles, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
       const committed = frameFor(sentFrames, transferID, 'WRITE_COMMITTED')
-      expect(committed[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
+      expect(committed[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt')
       expect(readU64Frame(committed[4])).toBe(Buffer.byteLength(plainText))
       expect(committed[5]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
+
+      const documentTransferID = 'transfer-document'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('WRITE_OPEN'),
+        Buffer.from(documentTransferID),
+        Buffer.from('/agent_home_documents/agent-1/SOUL.md'),
+        u64Frame(Buffer.byteLength(plainText))
+      ])
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('DATA'),
+        Buffer.from(documentTransferID),
+        u64Frame(0),
+        u64Frame(0),
+        boolFrame(true),
+        compressed
+      ])
+      await lane.handle([runtimeFabricFileProtocol, Buffer.from('WRITE_COMMIT'), Buffer.from(documentTransferID)])
+      expect(readFileSync(paths.soul, 'utf8')).toBe(plainText)
+      expect(statSync(paths.soul).mode & 0o222).toBe(0)
 
       const getTransferID = 'transfer-2'
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
         Buffer.from(getTransferID),
-        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
         Buffer.from('xxh3_128')
       ])
       const readReady = frameFor(sentFrames, getTransferID, 'READ_READY')
-      expect(readReady[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
+      expect(readReady[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt')
       expect(readU64Frame(readReady[4])).toBe(Buffer.byteLength(plainText))
       await Bun.sleep(25)
       expect(dataChunks(sentFrames, getTransferID)).toHaveLength(0)
@@ -420,11 +439,11 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('READ_OPEN'),
         Buffer.from(abortTransferID),
-        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
         Buffer.from('none')
       ])
       expect(frameFor(sentFrames, abortTransferID, 'READ_READY')[3]?.toString('utf8')).toBe(
-        '/user_files/inbox/lark/message-1/hello.txt'
+        '/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'
       )
       await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferID)])
       await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferID), u64Frame(1)])
@@ -447,17 +466,18 @@ describe('@ankole/agent-computer runtime', () => {
     }
 
     try {
-      mkdirSync(join(config.userFilesRoot, 'inbox/lark/message-1'), {
+      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
+      mkdirSync(join(userFilesRoot, 'inbox/lark/message-1'), {
         recursive: true
       })
-      writeFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'hello world')
+      writeFileSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'hello world')
 
       const lane = createFileTransferLane(config, sender.sendFileFrame)
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-1'),
-        Buffer.from('/user_files/inbox'),
+        Buffer.from('/user_files/agent-1/user-files/inbox'),
         boolFrame(true),
         u64Frame(1000)
       ])
@@ -465,7 +485,7 @@ describe('@ankole/agent-computer runtime', () => {
       const entries = decodeEntries(listFrame[6]!)
       expect(entries).toContainEqual(
         expect.objectContaining({
-          relative_path: 'inbox/lark/message-1/hello.txt',
+          relative_path: 'agent-1/user-files/inbox/lark/message-1/hello.txt',
           kind: 'file',
           size: 11
         })
@@ -475,7 +495,7 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('stat-1'),
-        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
         Buffer.from('xxh3_128')
       ])
       expect(frameFor(sentFrames, 'stat-1', 'STAT_OK')[7]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
@@ -484,21 +504,21 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('MOVE'),
         Buffer.from('move-1'),
-        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
-        Buffer.from('/user_files/inbox/lark/message-1/renamed.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/renamed.txt'),
         boolFrame(false)
       ])
-      expect(existsSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'))).toBe(false)
-      expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
+      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/hello.txt'))).toBe(false)
+      expect(readFileSync(join(userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('DELETE'),
         Buffer.from('delete-1'),
-        Buffer.from('/user_files/inbox/lark/message-1/renamed.txt'),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/renamed.txt'),
         boolFrame(false)
       ])
-      expect(existsSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'))).toBe(false)
+      expect(existsSync(join(userFilesRoot, 'inbox/lark/message-1/renamed.txt'))).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -514,97 +534,47 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     try {
-      mkdirSync(join(config.userFilesRoot, 'replace'), { recursive: true })
-      writeFileSync(join(config.userFilesRoot, 'replace/source.txt'), 'new content')
-      writeFileSync(join(config.userFilesRoot, 'replace/target.txt'), 'old content')
+      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
+      mkdirSync(join(userFilesRoot, 'replace'), { recursive: true })
+      writeFileSync(join(userFilesRoot, 'replace/source.txt'), 'new content')
+      writeFileSync(join(userFilesRoot, 'replace/target.txt'), 'old content')
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('MOVE'),
         Buffer.from('move-overwrite-file'),
-        Buffer.from('/user_files/replace/source.txt'),
-        Buffer.from('/user_files/replace/target.txt'),
+        Buffer.from('/user_files/agent-1/user-files/replace/source.txt'),
+        Buffer.from('/user_files/agent-1/user-files/replace/target.txt'),
         boolFrame(true)
       ])
 
       frameFor(sentFrames, 'move-overwrite-file', 'MOVE_OK')
-      expect(existsSync(join(config.userFilesRoot, 'replace/source.txt'))).toBe(false)
-      expect(readFileSync(join(config.userFilesRoot, 'replace/target.txt'), 'utf8')).toBe('new content')
+      expect(existsSync(join(userFilesRoot, 'replace/source.txt'))).toBe(false)
+      expect(readFileSync(join(userFilesRoot, 'replace/target.txt'), 'utf8')).toBe('new content')
 
-      mkdirSync(join(config.userFilesRoot, 'replace/source-dir'), { recursive: true })
-      mkdirSync(join(config.userFilesRoot, 'replace/target-dir'), { recursive: true })
-      writeFileSync(join(config.userFilesRoot, 'replace/source-dir/source.txt'), 'source content')
-      writeFileSync(join(config.userFilesRoot, 'replace/target-dir/target.txt'), 'target content')
+      mkdirSync(join(userFilesRoot, 'replace/source-dir'), { recursive: true })
+      mkdirSync(join(userFilesRoot, 'replace/target-dir'), { recursive: true })
+      writeFileSync(join(userFilesRoot, 'replace/source-dir/source.txt'), 'source content')
+      writeFileSync(join(userFilesRoot, 'replace/target-dir/target.txt'), 'target content')
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('MOVE'),
         Buffer.from('move-overwrite-directory'),
-        Buffer.from('/user_files/replace/source-dir'),
-        Buffer.from('/user_files/replace/target-dir'),
+        Buffer.from('/user_files/agent-1/user-files/replace/source-dir'),
+        Buffer.from('/user_files/agent-1/user-files/replace/target-dir'),
         boolFrame(true)
       ])
 
       expect(errorMessageFor(sentFrames, 'move-overwrite-directory')).not.toBe('')
-      expect(readFileSync(join(config.userFilesRoot, 'replace/source-dir/source.txt'), 'utf8')).toBe('source content')
-      expect(readFileSync(join(config.userFilesRoot, 'replace/target-dir/target.txt'), 'utf8')).toBe('target content')
+      expect(readFileSync(join(userFilesRoot, 'replace/source-dir/source.txt'), 'utf8')).toBe('source content')
+      expect(readFileSync(join(userFilesRoot, 'replace/target-dir/target.txt'), 'utf8')).toBe('target content')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('deletes only the requested internal BackgroundAgentJob runtime root', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-background-agent-job-'))
-    const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const lane = createFileTransferLane(config, async frames => {
-      sentFrames.push(frames)
-    })
-    const jobID = '019f6aa0-3f4d-7573-b4a8-bde808f3011f'
-    const siblingJobID = '019f6aa0-3f4d-7573-b4a8-bde808f30120'
-    const jobsRoot = join(config.sharedFsRoot, '.ankole', 'background-agent-jobs')
-
-    try {
-      mkdirSync(join(jobsRoot, jobID, 'codex-home'), { recursive: true })
-      writeFileSync(join(jobsRoot, jobID, 'codex-home', 'rollout.jsonl'), 'managed')
-      mkdirSync(join(jobsRoot, siblingJobID, 'codex-home'), {
-        recursive: true
-      })
-      writeFileSync(join(jobsRoot, siblingJobID, 'codex-home', 'rollout.jsonl'), 'sibling')
-      mkdirSync(join(config.userFilesRoot, 'caller-owned'), {
-        recursive: true
-      })
-      writeFileSync(join(config.userFilesRoot, 'caller-owned', 'keep.txt'), 'keep')
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('DELETE'),
-        Buffer.from('delete-background-agent-job'),
-        Buffer.from(`/background_agent_jobs/${jobID}`),
-        boolFrame(true)
-      ])
-
-      expect(existsSync(join(jobsRoot, jobID))).toBe(false)
-      expect(readFileSync(join(jobsRoot, siblingJobID, 'codex-home', 'rollout.jsonl'), 'utf8')).toBe('sibling')
-      expect(readFileSync(join(config.userFilesRoot, 'caller-owned', 'keep.txt'), 'utf8')).toBe('keep')
-      expect(frameFor(sentFrames, 'delete-background-agent-job', 'DELETE_OK')[3]?.toString('utf8')).toBe(
-        `/background_agent_jobs/${jobID}`
-      )
-
-      await lane.handle([
-        runtimeFabricFileProtocol,
-        Buffer.from('STAT'),
-        Buffer.from('escape-background-agent-job'),
-        Buffer.from('/background_agent_jobs/../outside'),
-        Buffer.from('none')
-      ])
-      expect(errorMessageFor(sentFrames, 'escape-background-agent-job')).toMatch(/invalid relative_path/)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('rejects unsafe file lane paths and transfer ids while allowing root lists', async () => {
+  it('rejects unsafe file lane paths and transfer ids while allowing Agent-scoped lists', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-paths-'))
     const config = workerConfigForRoot(root)
     const sentFrames: Buffer[][] = []
@@ -613,18 +583,19 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     try {
-      mkdirSync(config.userFilesRoot, { recursive: true })
-      mkdirSync(config.agentInstalledSkillsRoot, { recursive: true })
+      const paths = agentHomePaths(config.agentsRoot, 'agent-1')
+      mkdirSync(paths.userFiles, { recursive: true })
+      mkdirSync(paths.installedSkills, { recursive: true })
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-root'),
-        Buffer.from('/user_files'),
+        Buffer.from('/user_files/agent-1/user-files'),
         boolFrame(false),
         u64Frame(1000)
       ])
-      expect(frameFor(sentFrames, 'list-root', 'LIST_OK')[3]?.toString('utf8')).toBe('/user_files')
+      expect(frameFor(sentFrames, 'list-root', 'LIST_OK')[3]?.toString('utf8')).toBe('/user_files/agent-1/user-files')
 
       await lane.handle([
         runtimeFabricFileProtocol,
@@ -657,7 +628,7 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('WRITE_OPEN'),
         Buffer.from('../bad-transfer'),
-        Buffer.from('/user_files/safe.txt'),
+        Buffer.from('/user_files/agent-1/user-files/safe.txt'),
         u64Frame(0)
       ])
       expect(errorMessageFor(sentFrames, '../bad-transfer')).toMatch(/invalid transfer_id/)
@@ -675,16 +646,17 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     try {
-      mkdirSync(config.userFilesRoot, { recursive: true })
+      const userFilesRoot = agentHomePaths(config.agentsRoot, 'agent-1').userFiles
+      mkdirSync(userFilesRoot, { recursive: true })
       const outsidePath = join(root, 'outside.txt')
       writeFileSync(outsidePath, 'secret')
-      symlinkSync(outsidePath, join(config.userFilesRoot, 'escaped.txt'))
+      symlinkSync(outsidePath, join(userFilesRoot, 'escaped.txt'))
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('symlink-escape'),
-        Buffer.from('/user_files/escaped.txt'),
+        Buffer.from('/user_files/agent-1/user-files/escaped.txt'),
         Buffer.from('none')
       ])
 
@@ -694,7 +666,7 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 
-  it('resolves the workspace_sessions root and round-trips LIST and STAT', async () => {
+  it('resolves the agent_sessions root and round-trips LIST and STAT', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-sessions-'))
     const config = workerConfigForRoot(root)
     const sentFrames: Buffer[][] = []
@@ -703,25 +675,26 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     try {
-      mkdirSync(join(config.workspaceSessionsRoot, 'agent-1/session-1'), {
+      const sessionsRoot = agentHomePaths(config.agentsRoot, 'agent-1').sessions
+      mkdirSync(join(sessionsRoot, 'session-1'), {
         recursive: true
       })
-      writeFileSync(join(config.workspaceSessionsRoot, 'agent-1/session-1/log.txt'), 'logs')
+      writeFileSync(join(sessionsRoot, 'session-1/log.txt'), 'logs')
 
       await lane.handle([
         runtimeFabricFileProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-sessions'),
-        Buffer.from('/workspace_sessions/agent-1'),
+        Buffer.from('/agent_sessions/agent-1/sessions'),
         boolFrame(true),
         u64Frame(1000)
       ])
       const listFrame = frameFor(sentFrames, 'list-sessions', 'LIST_OK')
-      expect(listFrame[3]?.toString('utf8')).toBe('/workspace_sessions/agent-1')
+      expect(listFrame[3]?.toString('utf8')).toBe('/agent_sessions/agent-1/sessions')
       const entries = decodeEntries(listFrame[6]!)
       expect(entries).toContainEqual(
         expect.objectContaining({
-          relative_path: 'agent-1/session-1/log.txt',
+          relative_path: 'agent-1/sessions/session-1/log.txt',
           kind: 'file',
           size: 4
         })
@@ -731,11 +704,11 @@ describe('@ankole/agent-computer runtime', () => {
         runtimeFabricFileProtocol,
         Buffer.from('STAT'),
         Buffer.from('stat-sessions'),
-        Buffer.from('/workspace_sessions/agent-1/session-1/log.txt'),
+        Buffer.from('/agent_sessions/agent-1/sessions/session-1/log.txt'),
         Buffer.from('xxh3_128')
       ])
       const statFrame = frameFor(sentFrames, 'stat-sessions', 'STAT_OK')
-      expect(statFrame[3]?.toString('utf8')).toBe('/workspace_sessions/agent-1/session-1/log.txt')
+      expect(statFrame[3]?.toString('utf8')).toBe('/agent_sessions/agent-1/sessions/session-1/log.txt')
       expect(readU64Frame(statFrame[5])).toBe(4)
 
       await lane.handle([
@@ -758,11 +731,7 @@ function workerConfig(): WorkerConfig {
     workerAuthKey: 'secret',
     workerID: 'worker-a',
     incarnationID: 'incarnation-a',
-    workspaceRoot: '/workspace',
-    workspaceSessionsRoot: '/workspace/.sessions',
-    sharedFsRoot: '/workspace/shared',
-    userFilesRoot: '/workspace/shared/user-files',
-    agentInstalledSkillsRoot: '/workspace/shared/skills/agents',
+    agentsRoot: '/agents',
     builtinSkillsRoot: '/repo/app/library',
     maxConcurrentTurns: 9
   }
@@ -787,11 +756,7 @@ function workerConfigForRoot(root: string): WorkerConfig {
     workerAuthKey: 'secret',
     workerID: 'worker-a',
     incarnationID: 'incarnation-a',
-    workspaceRoot: join(root, 'workspace'),
-    workspaceSessionsRoot: join(root, 'workspace/.sessions'),
-    sharedFsRoot: join(root, 'shared'),
-    userFilesRoot: join(root, 'shared/user-files'),
-    agentInstalledSkillsRoot: join(root, 'shared/skills/agents'),
+    agentsRoot: join(root, 'agents'),
     builtinSkillsRoot: join(root, 'builtin-skills'),
     maxConcurrentTurns: 9
   }

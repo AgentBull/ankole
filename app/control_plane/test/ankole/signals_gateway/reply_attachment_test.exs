@@ -7,7 +7,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
 
   test "extracts canonical attachments from reply_attachment tool outputs" do
     attachment = %{
-      "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+      "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
       "user_files_relative_path" => "reports/chaos-report.txt",
       "name" => "chaos-report.txt",
       "mime_type" => "text/plain",
@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
     assert {:ok,
             [
               %{
-                "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+                "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
                 "user_files_relative_path" => "reports/chaos-report.txt",
                 "name" => "chaos-report.txt",
                 "mime_type" => "text/plain",
@@ -47,7 +47,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
 
   test "extracts wrapped reply_attachment tool outputs for matching calls" do
     attachment = %{
-      "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+      "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
       "user_files_relative_path" => "reports/chaos-report.txt",
       "name" => "chaos-report.txt",
       "mime_type" => "text/plain",
@@ -104,7 +104,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
         "ok" => true,
         "attachments" => [
           %{
-            "agent_computer_path" => "/workspace/user-files/reports/chaos-report.txt",
+            "agent_computer_path" => "/agents/agent-1/user-files/reports/chaos-report.txt",
             "user_files_relative_path" => "reports/chaos-report.txt",
             "name" => "chaos-report.txt",
             "size" => 28
@@ -148,7 +148,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
                    "tool" => "reply_attachment",
                    "attachments" => [
                      %{
-                       "agent_computer_path" => "/workspace/user-files/report.txt",
+                       "agent_computer_path" => "/agents/agent-1/user-files/report.txt",
                        "name" => "report.txt",
                        "size" => 1
                      }
@@ -161,7 +161,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
   test "rejects paths outside the user-files worker root" do
     assert {:error, :reply_attachment_path_not_under_user_files} =
              ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/workspace/shared/user-files/report.txt",
+               "agent_computer_path" => "/agents/agent-1/jobs/job-1/report.txt",
                "user_files_relative_path" => "report.txt",
                "name" => "report.txt",
                "size" => 1
@@ -171,7 +171,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
   test "rejects path traversal under the user-files worker root" do
     assert {:error, :reply_attachment_relative_path_invalid} =
              ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/workspace/user-files/reports/../secret.txt",
+               "agent_computer_path" => "/agents/agent-1/user-files/reports/../secret.txt",
                "user_files_relative_path" => "reports/../secret.txt",
                "name" => "secret.txt",
                "size" => 1
@@ -181,7 +181,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
   test "rejects null bytes in attachment paths" do
     assert {:error, :reply_attachment_path_contains_null_byte} =
              ReplyAttachment.normalize_attachment(%{
-               "agent_computer_path" => "/workspace/user-files/reports/evil.txt" <> <<0>>,
+               "agent_computer_path" => "/agents/agent-1/user-files/reports/evil.txt" <> <<0>>,
                "user_files_relative_path" => "reports/evil.txt",
                "name" => "evil.txt",
                "size" => 1
@@ -197,7 +197,7 @@ defmodule Ankole.SignalsGateway.ReplyAttachmentTest do
                "done",
                [
                  %{
-                   "agent_computer_path" => "/workspace/user-files/report.txt",
+                   "agent_computer_path" => "/agents/agent-1/user-files/report.txt",
                    "name" => "report.txt",
                    "size" => 1
                  }

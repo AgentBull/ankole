@@ -21,6 +21,12 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.SignalsGateway.OutboxEntry
   alias DingTalkOpenAPI.Event
 
+  setup do
+    previous = Req.default_options()
+    on_exit(fn -> Req.default_options(previous) end)
+    :ok
+  end
+
   describe "plugin declaration" do
     test "declares the trimmed chat face and the identity face" do
       assert DingTalkAdapter.plugin_id() == "dingtalk-adapter"
@@ -249,22 +255,18 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     )
   end
 
-  defp outbox_client(parent, responder) do
-    DingTalkOpenAPI.Client.new(
-      client_id: "cli_outbox",
-      client_secret: "secret",
-      req_options: [
-        plug: fn conn ->
-          {:ok, body, conn} = Plug.Conn.read_body(conn)
+  defp stub_outbox_requests(parent, responder) do
+    Req.default_options(
+      plug: fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
 
-          if conn.request_path == "/v1.0/oauth2/accessToken" do
-            Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
-          else
-            send(parent, {:api_call, conn.method, conn.request_path, decode_body(body)})
-            responder.(conn)
-          end
+        if conn.request_path == "/v1.0/oauth2/accessToken" do
+          Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
+        else
+          send(parent, {:api_call, conn.method, conn.request_path, decode_body(body)})
+          responder.(conn)
         end
-      ]
+      end
     )
   end
 
@@ -290,7 +292,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         fallback_visible_text: "# Title\n\nsome **markdown** body"
       })
 
-    assert {:ok, result} = Outbox.send(entry, client: outbox_client(self(), &ok_send_responder/1))
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:ok, result} = Outbox.send(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/send", body}
     assert body["msgKey"] == "sampleMarkdown"
@@ -308,8 +311,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       Req.Test.json(conn, %{"processQueryKey" => "pqk", "flowControlledStaffIdList" => ["u1"]})
     end
 
-    assert {:error, {:provider_error, %{reason: :rate_limited}}} =
-             Outbox.send(entry, client: outbox_client(self(), responder))
+    stub_outbox_requests(self(), responder)
+
+    assert {:error, {:provider_error, %{reason: :rate_limited}}} = Outbox.send(entry)
   end
 
   test "a disbanded group classifies as target_gone" do
@@ -325,8 +329,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       )
     end
 
+    stub_outbox_requests(self(), responder)
+
     assert {:error, {:provider_error, %{reason: :target_gone, code: "group.disbanded"}}} =
-             Outbox.send(entry, client: outbox_client(self(), responder))
+             Outbox.send(entry)
   end
 
   test "delete recalls by processQueryKey and rejects entries this adapter never sent" do
@@ -335,14 +341,14 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     entry =
       outbox_entry(binding, %{operation: :delete, target_source_entry_id: "pqk-recall"})
 
-    assert {:ok, _result} =
-             Outbox.send(entry, client: outbox_client(self(), &ok_send_responder/1))
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Outbox.send(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/recall", body}
     assert body["processQueryKeys"] == ["pqk-recall"]
 
     assert {:error, :unsupported_target} =
-             Outbox.send(outbox_entry(binding, %{operation: :delete}), [])
+             Outbox.send(outbox_entry(binding, %{operation: :delete}))
   end
 
   test "an unlisted attachment extension fails explicitly before touching the worker" do
@@ -360,8 +366,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     # The sampleFile type list is a strict whitelist: unlisted extensions fail
     # before any worker file read.
-    assert {:error, :unsupported_file_type} =
-             Outbox.send(unsupported_entry, client: outbox_client(self(), &ok_send_responder/1))
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:error, :unsupported_file_type} = Outbox.send(unsupported_entry)
 
     refute_received {:api_call, _method, _path, _body}
   end
@@ -386,7 +392,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         }
       })
 
-    assert {:ok, result} = Outbox.send(entry, client: outbox_client(self(), &ok_send_responder/1))
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:ok, result} = Outbox.send(entry)
     assert result.created_source_entry_id == "ankole:outbox:card-idem-1"
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", body}
@@ -409,8 +416,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         payload: %{"interactive_output" => %{"body" => "Pick one"}}
       })
 
-    assert {:ok, _result} =
-             Outbox.send(entry, client: outbox_client(self(), &ok_send_responder/1))
+    stub_outbox_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Outbox.send(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/send", body}
     assert body["msgParam"] =~ "Pick one"
@@ -419,67 +426,65 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
   # --- identity provider -------------------------------------------------------
 
-  defp identity_client_opts(parent, users) do
-    [
-      req_options: [
-        plug: fn conn ->
-          {:ok, body, conn} = Plug.Conn.read_body(conn)
-          request_body = decode_body(body)
-          send(parent, {:idp_call, conn.request_path, request_body})
+  defp stub_identity_requests(parent, users) do
+    Req.default_options(
+      plug: fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        request_body = decode_body(body)
+        send(parent, {:idp_call, conn.request_path, request_body})
 
-          cond do
-            conn.request_path == "/v1.0/oauth2/accessToken" ->
-              Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
+        cond do
+          conn.request_path == "/v1.0/oauth2/accessToken" ->
+            Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
 
-            conn.request_path == "/v1.0/oauth2/userAccessToken" ->
-              Req.Test.json(conn, %{
-                "accessToken" => "user-tok",
-                "refreshToken" => "refresh",
-                "expireIn" => 7200,
-                "corpId" => "corp-1"
-              })
+          conn.request_path == "/v1.0/oauth2/userAccessToken" ->
+            Req.Test.json(conn, %{
+              "accessToken" => "user-tok",
+              "refreshToken" => "refresh",
+              "expireIn" => 7200,
+              "corpId" => "corp-1"
+            })
 
-            conn.request_path == "/v1.0/contact/users/me" ->
-              Req.Test.json(conn, %{"nick" => "Ada", "unionId" => "union-1"})
+          conn.request_path == "/v1.0/contact/users/me" ->
+            Req.Test.json(conn, %{"nick" => "Ada", "unionId" => "union-1"})
 
-            conn.request_path == "/topapi/user/getbyunionid" ->
-              Req.Test.json(conn, %{"errcode" => 0, "result" => %{"userid" => "staff-1"}})
+          conn.request_path == "/topapi/user/getbyunionid" ->
+            Req.Test.json(conn, %{"errcode" => 0, "result" => %{"userid" => "staff-1"}})
 
-            conn.request_path == "/topapi/v2/department/listsub" ->
-              case request_body["dept_id"] do
-                1 ->
-                  Req.Test.json(conn, %{
-                    "errcode" => 0,
-                    "result" => [%{"dept_id" => 20, "name" => "研发部", "parent_id" => 1}]
-                  })
+          conn.request_path == "/topapi/v2/department/listsub" ->
+            case request_body["dept_id"] do
+              1 ->
+                Req.Test.json(conn, %{
+                  "errcode" => 0,
+                  "result" => [%{"dept_id" => 20, "name" => "研发部", "parent_id" => 1}]
+                })
 
-                _sub ->
-                  Req.Test.json(conn, %{"errcode" => 0, "result" => []})
-              end
+              _sub ->
+                Req.Test.json(conn, %{"errcode" => 0, "result" => []})
+            end
 
-            conn.request_path == "/topapi/v2/user/list" ->
-              Req.Test.json(conn, %{
-                "errcode" => 0,
-                "result" => %{
-                  "has_more" => false,
-                  "list" => if(request_body["dept_id"] == 20, do: users, else: [])
-                }
-              })
+          conn.request_path == "/topapi/v2/user/list" ->
+            Req.Test.json(conn, %{
+              "errcode" => 0,
+              "result" => %{
+                "has_more" => false,
+                "list" => if(request_body["dept_id"] == 20, do: users, else: [])
+              }
+            })
 
-            conn.request_path == "/topapi/v2/user/get" ->
-              userid = request_body["userid"]
+          conn.request_path == "/topapi/v2/user/get" ->
+            userid = request_body["userid"]
 
-              case Enum.find(users, &(&1["userid"] == userid)) do
-                nil -> Req.Test.json(conn, %{"errcode" => 60_121, "errmsg" => "user not found"})
-                user -> Req.Test.json(conn, %{"errcode" => 0, "result" => user})
-              end
+            case Enum.find(users, &(&1["userid"] == userid)) do
+              nil -> Req.Test.json(conn, %{"errcode" => 60_121, "errmsg" => "user not found"})
+              user -> Req.Test.json(conn, %{"errcode" => 0, "result" => user})
+            end
 
-            true ->
-              Req.Test.json(conn, %{"errcode" => 0, "result" => %{}})
-          end
+          true ->
+            Req.Test.json(conn, %{"errcode" => 0, "result" => %{}})
         end
-      ]
-    ]
+      end
+    )
   end
 
   @identity_config %{
@@ -501,10 +506,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       }
     ]
 
+    stub_identity_requests(self(), users)
+
     assert {:ok, %{token: token, user: user}} =
-             IdentityProvider.exchange_code(@identity_config, "auth-code-1",
-               client_opts: identity_client_opts(self(), users)
-             )
+             IdentityProvider.exchange_code(@identity_config, "auth-code-1")
 
     assert token.corp_id == "corp-1"
     assert user["userid"] == "staff-1"
@@ -518,30 +523,28 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   end
 
   test "a unionid with no employee fails the login closed" do
-    opts = [
-      req_options: [
-        plug: fn conn ->
-          {:ok, _body, conn} = Plug.Conn.read_body(conn)
+    Req.default_options(
+      plug: fn conn ->
+        {:ok, _body, conn} = Plug.Conn.read_body(conn)
 
-          case conn.request_path do
-            "/v1.0/oauth2/userAccessToken" ->
-              Req.Test.json(conn, %{"accessToken" => "user-tok", "expireIn" => 7200})
+        case conn.request_path do
+          "/v1.0/oauth2/userAccessToken" ->
+            Req.Test.json(conn, %{"accessToken" => "user-tok", "expireIn" => 7200})
 
-            "/v1.0/contact/users/me" ->
-              Req.Test.json(conn, %{"unionId" => "outsider"})
+          "/v1.0/contact/users/me" ->
+            Req.Test.json(conn, %{"unionId" => "outsider"})
 
-            "/v1.0/oauth2/accessToken" ->
-              Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
+          "/v1.0/oauth2/accessToken" ->
+            Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
 
-            "/topapi/user/getbyunionid" ->
-              Req.Test.json(conn, %{"errcode" => 60_121, "errmsg" => "no employee"})
-          end
+          "/topapi/user/getbyunionid" ->
+            Req.Test.json(conn, %{"errcode" => 60_121, "errmsg" => "no employee"})
         end
-      ]
-    ]
+      end
+    )
 
     assert {:error, %DingTalkOpenAPI.Error{reason: :not_found}} =
-             IdentityProvider.exchange_code(@identity_config, "outsider-code", client_opts: opts)
+             IdentityProvider.exchange_code(@identity_config, "outsider-code")
   end
 
   test "authorization_url carries the configured scope and fails closed when disabled" do
@@ -579,10 +582,10 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       }
     ]
 
+    stub_identity_requests(self(), users)
+
     assert {:ok, %{users: 1, departments: 1}} =
-             IdentityProvider.sync_directory(provider_id, @identity_config,
-               client_opts: identity_client_opts(self(), users)
-             )
+             IdentityProvider.sync_directory(provider_id, @identity_config)
 
     assert [_group_id] = AuthZ.external_group_ids(provider_id, :directory_department, "20")
 
@@ -600,10 +603,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       %{"userid" => "staff-2", "name" => "Bo", "unionid" => "union-2", "dept_id_list" => [20]}
     ]
 
-    consumer =
-      IdentityProvider.identity_consumer(provider_id, @identity_config,
-        client_opts: identity_client_opts(self(), users)
-      )
+    stub_identity_requests(self(), users)
+    consumer = IdentityProvider.identity_consumer(provider_id, @identity_config)
 
     add_event = %Event{
       type: "EVENT",

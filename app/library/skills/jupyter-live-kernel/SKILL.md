@@ -2,7 +2,7 @@
 name: jupyter-live-kernel
 description: Use for iterative Python via a live Jupyter notebook kernel, especially data science, DataFrame inspection, notebook editing, and stateful API exploration. Prefer a one-shot Python process for stateless scripts.
 default_enabled: true
-long_running: true
+ankole-runtime: background_job
 tags:
   - python
   - jupyter
@@ -36,9 +36,9 @@ Ankole Agent Computer images provide system Python, JupyterLab, ipykernel, and t
 ```bash
 SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
 BOOTSTRAP=/repo/app/library/skills/jupyter-live-kernel/scripts/ensure_python_env.sh
-NOTEBOOK_DIR=/workspace/user-files/notebooks
-JUPYTER_SOCKET=/workspace/temp/jupyter.sock
-AGENT_PYTHON=/workspace/user-files/.ankole/python/bin/python
+NOTEBOOK_DIR="$HOME/user-files/notebooks"
+JUPYTER_SOCKET="$PWD/temp/jupyter.sock"
+AGENT_PYTHON="$HOME/user-files/.ankole/python/bin/python"
 ```
 
 All helper traffic to Jupyter Server uses the session-local Unix socket. Do not
@@ -77,7 +77,7 @@ hamelnb helper, pass `--socket "$JUPYTER_SOCKET"` so it does not depend on
 discovery.
 
 For non-trivial multi-line Python, avoid shell-escaping the whole program into
-`--code`. For a disposable scratch script under `/workspace/temp`, create the
+`--code`. For a disposable scratch script under `temp/` in the current Workspace, create the
 code file inside the same foreground `command` with a single-quoted heredoc and
 then pass `--code-file`. This keeps ordinary Python syntax intact and avoids
 quoting bugs in f-strings, JSON, paths, or SQL. Use `patch` instead when
@@ -89,13 +89,14 @@ Minimal shape:
 ```bash
 set -euo pipefail
 SCRIPT=/repo/app/library/skills/jupyter-live-kernel/scripts/jupyter_live_kernel.py
-NOTEBOOK_DIR=/workspace/user-files/notebooks
+NOTEBOOK_DIR="$HOME/user-files/notebooks"
 NOTEBOOK_PATH=analysis.ipynb
-ANALYSIS_CODE_FILE=/workspace/temp/analysis_code.py
-JUPYTER_SOCKET=/workspace/temp/jupyter.sock
-ARTIFACT_PATH=/workspace/user-files/analysis/result.png
+SESSION_TEMP="$PWD/temp"
+ANALYSIS_CODE_FILE="$SESSION_TEMP/analysis_code.py"
+JUPYTER_SOCKET="$SESSION_TEMP/jupyter.sock"
+ARTIFACT_PATH="$HOME/user-files/analysis/result.png"
 export NOTEBOOK_DIR NOTEBOOK_PATH JUPYTER_SOCKET ARTIFACT_PATH
-mkdir -p "$NOTEBOOK_DIR" /workspace/temp "$(dirname "$ARTIFACT_PATH")"
+mkdir -p "$NOTEBOOK_DIR" "$SESSION_TEMP" "$(dirname "$ARTIFACT_PATH")"
 rm -f "$JUPYTER_SOCKET"
 
 cat > "$ANALYSIS_CODE_FILE" <<'PY'
@@ -107,7 +108,7 @@ python -m jupyter lab \
   --notebook-dir="$NOTEBOOK_DIR" --allow-root \
   --IdentityProvider.token='' --ServerApp.password='' \
   --ServerApp.disable_check_xsrf=True \
-  > /workspace/temp/jupyter-analysis.log 2>&1 &
+  > "$SESSION_TEMP/jupyter-analysis.log" 2>&1 &
 jupyter_pid=$!
 cleanup() {
   kill "$jupyter_pid" >/dev/null 2>&1 || true
@@ -128,7 +129,7 @@ test "$ready" = true
 
 python - <<'PY'
 import json, pathlib, os
-path = pathlib.Path(os.environ.get("NOTEBOOK_DIR", "/workspace/user-files/notebooks")) / os.environ.get("NOTEBOOK_PATH", "analysis.ipynb")
+path = pathlib.Path(os.environ.get("NOTEBOOK_DIR", str(pathlib.Path.home() / "user-files/notebooks"))) / os.environ.get("NOTEBOOK_PATH", "analysis.ipynb")
 path.write_text(json.dumps({
     "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
     "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}},
@@ -140,11 +141,11 @@ PY
 curl -sf --unix-socket "$JUPYTER_SOCKET" -X POST http://localhost/api/sessions \
   -H "Content-Type: application/json" \
   -d "{\"path\":\"$NOTEBOOK_PATH\",\"type\":\"notebook\",\"name\":\"$NOTEBOOK_PATH\",\"kernel\":{\"name\":\"python3\"}}" \
-  >/workspace/temp/jupyter-analysis-session.json
+  >"$SESSION_TEMP/jupyter-analysis-session.json"
 
 # ANALYSIS_CODE_FILE should contain task-specific Python code that reads the
 # uploaded input, computes the requested result, and writes ARTIFACT_PATH under
-# /workspace/user-files.
+# the Agent Home user-files directory.
 python "$SCRIPT" execute --socket "$JUPYTER_SOCKET" --path "$NOTEBOOK_PATH" \
   --code-file "$ANALYSIS_CODE_FILE" --compact
 
@@ -153,11 +154,12 @@ test -s "$ARTIFACT_PATH"
 
 ## Start Jupyter
 
-Start one Jupyter server per session workspace. The socket belongs under
-`/workspace/temp`, which is session-local. Remove a stale socket before startup:
+Start one Jupyter server per Session or Job Workspace. The socket belongs under
+its `temp/` directory. Remove a stale socket before startup:
 
 ```bash
-mkdir -p "$NOTEBOOK_DIR" /workspace/temp
+SESSION_TEMP="$PWD/temp"
+mkdir -p "$NOTEBOOK_DIR" "$SESSION_TEMP"
 rm -f "$JUPYTER_SOCKET"
 python -m jupyter lab \
   --no-browser \
@@ -168,7 +170,7 @@ python -m jupyter lab \
   --IdentityProvider.token='' \
   --ServerApp.password='' \
   --ServerApp.disable_check_xsrf=True \
-  > /workspace/temp/jupyter.log 2>&1
+  > "$SESSION_TEMP/jupyter.log" 2>&1
 ```
 
 Run this command in a yielded Codex unified exec session so the server persists across calls, and retain the returned session ID. If using the per-agent env, replace `python` with `"$AGENT_PYTHON"`.
@@ -181,7 +183,7 @@ If no notebook exists, create a scratch notebook:
 mkdir -p "$NOTEBOOK_DIR"
 python - <<'PY'
 import json, pathlib
-path = pathlib.Path("/workspace/user-files/notebooks/scratch.ipynb")
+path = pathlib.Path.home() / "user-files/notebooks/scratch.ipynb"
 if not path.exists():
     path.write_text(json.dumps({
         "cells": [{"cell_type": "code", "execution_count": None, "metadata": {}, "outputs": [], "source": ""}],
@@ -254,5 +256,5 @@ python "$SCRIPT" restart-run-all --socket "$JUPYTER_SOCKET" --path scratch.ipynb
 - First execution after server start can timeout while the kernel initializes; retry once.
 - If startup reports that the socket is already in use, stop the owning server or remove the stale socket before restarting.
 - If the server returns 403, restart it with disabled token/password and `--ServerApp.disable_check_xsrf=True`.
-- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `/workspace/user-files/.ankole/python`.
+- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `~/user-files/.ankole/python`.
 - `contents` reads the saved notebook file. Unsaved frontend edits are not visible to hamelnb until saved.

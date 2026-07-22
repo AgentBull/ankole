@@ -49,7 +49,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert persisted.attempts == 1
   end
 
-  test "explicit steer resumes a settled job after prior execution attempts" do
+  test "a message cannot resume a settled job" do
     %{principal: agent} = agent_fixture()
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
@@ -69,28 +69,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
       ]
     )
 
-    assert {:ok, %{job: %{status: "queued"}}} =
-             BackgroundAgentJobs.request_steer(job.id, %{
+    assert {:error, {:background_agent_job_message_status_invalid, "succeeded"}} =
+             BackgroundAgentJobs.send_message(job.id, %{
                "agent_uid" => agent.uid,
-               "text" => "Continue in the same session.",
+               "message" => "Continue in the same session.",
                "request_id" => "settled-resume"
              })
 
-    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
-               now: DateTime.utc_now(:microsecond),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, envelope}, 200
-    turn_start = turn_start_payload!(envelope)
-    assert decoded_request_context(turn_start)["attempts"] == 4
-
     persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
-    assert persisted.status == "running"
-    assert persisted.attempts == 4
+    assert persisted.status == "succeeded"
+    assert persisted.attempts == 3
     assert persisted.runtime_thread_id == "thread-settled-resume"
   end
 
@@ -128,11 +116,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
       "kind" => "agent",
       "status" => "in_progress",
       "revision" => 0,
-      "trajectory" => %{
-        "format" => "ankole_chatml",
-        "version" => 1,
-        "messages" => [%{"role" => "user", "content" => "Original task"}]
-      },
+      "trajectory" => trajectory_header(),
+      "trajectory_groups" =>
+        trajectory_groups([%{"role" => "user", "content" => "Original task"}]),
       "progress" => empty_turn_progress(),
       "usage" => nil,
       "error" => %{},
@@ -159,10 +145,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert retried.id == first.id
 
-    divergent =
+    unsupported =
       put_in(
         attrs,
         ["trajectory", "messages"],
+        [%{"role" => "user", "content" => "Different payload at the same revision"}]
+      )
+
+    assert {:error, :background_agent_job_trajectory_messages_unsupported} =
+             BackgroundAgentJobs.upsert_turn_from_worker(
+               job.id,
+               agent.uid,
+               unsupported,
+               turn_ref,
+               route
+             )
+
+    divergent =
+      put_in(
+        attrs,
+        ["trajectory_groups", Access.at(0), "messages"],
         [%{"role" => "user", "content" => "Different payload at the same revision"}]
       )
 
@@ -219,11 +221,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "kind" => "agent",
                  "status" => "completed",
                  "revision" => 0,
-                 "trajectory" => %{
-                   "format" => "ankole_chatml",
-                   "version" => 1,
-                   "messages" => [%{"role" => "assistant", "content" => "Challenge complete."}]
-                 },
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
+                     %{"role" => "assistant", "content" => "Challenge complete."}
+                   ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -282,10 +284,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "kind" => "agent",
                  "status" => "interrupted",
                  "revision" => 0,
-                 "trajectory" => %{
-                   "format" => "ankole_chatml",
-                   "version" => 1,
-                   "messages" => [
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
                      %{"role" => "user", "content" => "Ask when information is missing."},
                      %{
                        "role" => "assistant",
@@ -302,8 +303,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                          }
                        ]
                      }
-                   ]
-                 },
+                   ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{"code" => "request_user_input"},
@@ -370,9 +370,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
 
     assert {:ok, %{command_event: steer_event}} =
-             BackgroundAgentJobs.request_steer(job.id, %{
+             BackgroundAgentJobs.send_message(job.id, %{
                "agent_uid" => agent.uid,
-               "text" => "Include the operator runbook.",
+               "message" => "Include the operator runbook.",
                "request_id" => "durable-steer"
              })
 
@@ -431,14 +431,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "kind" => "agent",
                  "status" => "completed",
                  "revision" => 0,
-                 "trajectory" => %{
-                   "format" => "ankole_chatml",
-                   "version" => 1,
-                   "messages" => [
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
                      %{"role" => "user", "content" => "Complete the delegated task."},
                      %{"role" => "assistant", "content" => "Done"}
-                   ]
-                 },
+                   ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -600,10 +598,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert anchored.runtime_thread_id == "thread-existing"
 
     assert {:ok, %{command_event: steer_event}} =
-             BackgroundAgentJobs.request_steer(job.id, %{
+             BackgroundAgentJobs.send_message(job.id, %{
                "agent_uid" => agent.uid,
-               "text" => "Preserve the rollback instructions.",
-               "answers" => %{"risk" => "Low"},
+               "message" => "Preserve the rollback instructions.",
                "request_id" => "replay-steer"
              })
 
@@ -810,6 +807,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert BackgroundAgentJobs.get_job_for_agent(second.id, second_agent.uid).attempts == 1
   end
 
+  test "overlapping Jobs for one Agent keep the account selected by its live delivery" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    create_account = fn name, account_id ->
+      auth_json =
+        Ankole.JSON.encode!(%{
+          "tokens" => %{"account_id" => account_id, "access_token" => "token"}
+        })
+
+      assert {:ok, account} =
+               CodexAccounts.create_account(%{"name" => name, "auth_json" => auth_json})
+
+      account
+    end
+
+    first_account = create_account.("Agent overlap first", "agent-overlap-first")
+    second_account = create_account.("Agent overlap second", "agent-overlap-second")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               "codex_account_id" => first_account.account_id
+             })
+
+    first_job = create_job!(agent.uid, "account-overlap-first")
+
+    first_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(first_key,
+               now: DateTime.add(first_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _first_envelope}, 200
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               "codex_account_id" => second_account.account_id
+             })
+
+    second_job = create_job!(agent.uid, "account-overlap-second")
+    assert second_job.codex_account_id == first_account.account_id
+  end
+
   test "worker placement applies the configurable job-only capacity" do
     %{principal: agent} = agent_fixture()
     definition = BackgroundAgentJobWorkerConfig.definition()
@@ -826,17 +874,138 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, first_assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+               session_id: BackgroundAgentJobs.job_session_id(1000)
              })
 
     assert {:ok, second_assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+               session_id: BackgroundAgentJobs.job_session_id(1001)
              })
 
     assert first_assignment.worker_id == first_worker.worker_id
     assert second_assignment.worker_id == second_worker.worker_id
+  end
+
+  test "live work pins every Session and Job for one Agent to its current worker" do
+    %{principal: agent} = agent_fixture()
+    first_route = unique_route()
+    second_route = unique_route()
+    :ok = Broker.register_local_worker(first_route, self())
+    :ok = Broker.register_local_worker(second_route, self())
+
+    on_exit(fn ->
+      Broker.unregister_local_worker(first_route)
+      Broker.unregister_local_worker(second_route)
+    end)
+
+    assert {:ok, first_worker} =
+             admit_worker(first_route, %{capacity: %{"available_turn_slots" => 4}})
+
+    assert {:ok, _second_worker} =
+             admit_worker(second_route, %{capacity: %{"available_turn_slots" => 4}})
+
+    first_job = create_job!(agent.uid, "agent-sticky-first")
+
+    first_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(first_key,
+               now: DateTime.add(first_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _first_envelope}, 200
+
+    second_job = create_job!(agent.uid, "agent-sticky-second")
+
+    second_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(second_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(second_key,
+               now: DateTime.add(second_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _second_envelope}, 200
+
+    assert Repo.get_by!(ActorSessionWorkerAssignment,
+             agent_uid: agent.uid,
+             session_id: first_key.session_id,
+             status: "assigned"
+           ).worker_id == first_worker.worker_id
+
+    assert Repo.get_by!(ActorSessionWorkerAssignment,
+             agent_uid: agent.uid,
+             session_id: second_key.session_id,
+             status: "assigned"
+           ).worker_id == first_worker.worker_id
+  end
+
+  test "a full pinned worker queues same-Agent work instead of spilling to another worker" do
+    %{principal: agent} = agent_fixture()
+    first_route = unique_route()
+    second_route = unique_route()
+    :ok = Broker.register_local_worker(first_route, self())
+    :ok = Broker.register_local_worker(second_route, self())
+
+    on_exit(fn ->
+      Broker.unregister_local_worker(first_route)
+      Broker.unregister_local_worker(second_route)
+    end)
+
+    assert {:ok, first_worker} =
+             admit_worker(first_route, %{capacity: %{"available_turn_slots" => 1}})
+
+    assert {:ok, second_worker} =
+             admit_worker(second_route, %{capacity: %{"available_turn_slots" => 4}})
+
+    first_job = create_job!(agent.uid, "agent-sticky-full-first")
+
+    first_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
+    }
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(first_key,
+               now: DateTime.add(first_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _first_envelope}, 200
+
+    second_job = create_job!(agent.uid, "agent-sticky-full-second")
+
+    second_key = %{
+      agent_uid: agent.uid,
+      session_id: BackgroundAgentJobs.job_session_id(second_job.id)
+    }
+
+    assert {:ok, %{status: :waiting_for_worker, reason: :worker_capacity}} =
+             ReadyEventProcessor.process_ready_event_for_actor(second_key,
+               now: DateTime.add(second_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    refute Repo.get_by(ActorSessionWorkerAssignment,
+             agent_uid: agent.uid,
+             session_id: second_key.session_id,
+             worker_id: second_worker.worker_id,
+             status: "assigned"
+           )
+
+    assert Repo.get_by!(ActorSessionWorkerAssignment,
+             agent_uid: agent.uid,
+             session_id: first_key.session_id,
+             status: "assigned"
+           ).worker_id == first_worker.worker_id
   end
 
   test "sticky worker placement revalidates worker before locking its assignment" do
@@ -846,7 +1015,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     actor_key = %{
       agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+      session_id: BackgroundAgentJobs.job_session_id(1000)
     }
 
     assert {:ok, first} = WorkerPool.assign_worker(actor_key)
@@ -871,7 +1040,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _assignment} =
              WorkerPool.assign_worker(%{
                agent_uid: agent.uid,
-               session_id: BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+               session_id: BackgroundAgentJobs.job_session_id(1000)
              })
 
     job = create_job!(agent.uid, "worker-capacity")
@@ -985,11 +1154,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                        "kind" => "agent",
                        "status" => "in_progress",
                        "revision" => 0,
-                       "trajectory" => %{
-                         "format" => "ankole_chatml",
-                         "version" => 1,
-                         "messages" => [%{"role" => "user", "content" => "Continue the task."}]
-                       },
+                       "trajectory" => trajectory_header(),
+                       "trajectory_groups" =>
+                         trajectory_groups([
+                           %{"role" => "user", "content" => "Continue the task."}
+                         ]),
                        "progress" => empty_turn_progress(),
                        "usage" => nil,
                        "error" => %{},
@@ -1042,6 +1211,63 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
            )
   end
 
+  test "a non-retryable worker failure before Codex starts fails the job and wakes the parent" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "worker-setup-failed")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    now = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: now,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_ref = turn_start_payload!(envelope).turn
+
+    assert {:ok,
+            %{
+              status: :background_agent_job_failed,
+              dead_lettered?: true,
+              background_agent_job_failure: %{job: failed}
+            }} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "Codex did not install Agent Plugin deep-research",
+                 %{
+                   "llm_error_kind" => "unknown",
+                   "retryable" => false,
+                   "runtime" => "bun"
+                 }
+               ),
+               now: DateTime.add(now, 1, :second)
+             )
+
+    assert failed.status == "failed"
+    assert failed.error["code"] == "worker_turn_failed"
+    assert failed.error["summary"] == "Codex did not install Agent Plugin deep-research"
+    assert failed.error["details"]["retryable"] == false
+
+    failed_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
+    assert failed_event.input_state == "dead_letter"
+    assert %DateTime{} = failed_event.completed_at
+
+    assert Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+             agent_uid: agent.uid,
+             session_id: job.owner_session_id,
+             type: "background_agent_job.failed"
+           )
+  end
+
   test "explicit Turn persistence rejection fails the job and wakes the parent atomically" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
@@ -1079,11 +1305,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "kind" => "agent",
                  "status" => "in_progress",
                  "revision" => 0,
-                 "trajectory" => %{
-                   "format" => "ankole_chatml",
-                   "version" => 1,
-                   "messages" => [%{"role" => "user", "content" => "Run the delegated task."}]
-                 },
+                 "trajectory" => trajectory_header(),
+                 "trajectory_groups" =>
+                   trajectory_groups([
+                     %{"role" => "user", "content" => "Run the delegated task."}
+                   ]),
                  "progress" => empty_turn_progress(),
                  "usage" => nil,
                  "error" => %{},
@@ -1213,5 +1439,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
       "tools_used" => [],
       "files_changed" => []
     }
+  end
+
+  defp trajectory_header, do: %{"format" => "ankole_chatml", "version" => 1}
+
+  defp trajectory_groups(messages) do
+    [%{"position" => 0, "item_key" => "test:0", "messages" => messages}]
   end
 end

@@ -21,6 +21,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
+  alias Ankole.Plugins.Config, as: PluginsConfig
   alias Ankole.Plugins.Registry, as: PluginsRegistry
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -43,9 +44,6 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     @impl true
     def plugin_id, do: "failing-worker-env"
-
-    @impl true
-    def api_version, do: 1
 
     @impl true
     def adapter_declarations do
@@ -331,10 +329,10 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, catalog} = AgentPlugins.enabled_catalog_for_agent(agent.uid)
     assert %{"skills" => lark_skills} = Enum.find(catalog, &(&1["id"] == "lark"))
 
-    assert Enum.map(lark_skills, &{&1["catalog_name"], &1["codex_name"]}) == [
-             {"lark-im", "lark:lark-im"},
-             {"lark-oa", "lark:lark-oa"},
-             {"lark-office-suite", "lark:lark-office-suite"}
+    assert Enum.map(lark_skills, & &1["catalog_name"]) == [
+             "lark-im",
+             "lark-oa",
+             "lark-office-suite"
            ]
 
     assert {:ok, env} = RuntimeEnv.resolve_worker_env(binding)
@@ -399,11 +397,12 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   test "an available binding env failure is returned instead of silently omitting identity" do
     %{principal: agent} = agent_fixture()
 
+    assert {:ok, ["failing-worker-env"]} =
+             PluginsConfig.put_enabled_ids([FailingWorkerEnvPlugin.plugin_id()])
+
     registry =
       start_supervised!(
-        {PluginsRegistry,
-         name: :failing_worker_env_registry,
-         discovery: [paths: [], modules: [FailingWorkerEnvPlugin]]},
+        {PluginsRegistry, name: :failing_worker_env_registry, modules: [FailingWorkerEnvPlugin]},
         id: :failing_worker_env_registry
       )
 
@@ -433,7 +432,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     registry_name = :"empty_worker_env_registry_#{System.unique_integer([:positive])}"
 
     start_supervised!(
-      {PluginsRegistry, name: registry_name, discovery: [paths: [], modules: []]},
+      {PluginsRegistry, name: registry_name, modules: []},
       id: registry_name
     )
 

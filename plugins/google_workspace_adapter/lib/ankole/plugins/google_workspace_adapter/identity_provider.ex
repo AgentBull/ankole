@@ -16,7 +16,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
          {:ok, state} <- required_opt(opts, :state) do
       {:ok,
        Auth.authorize_url(
-         auth_base_url: Map.get(config, "authBaseURL") || "https://accounts.google.com",
+         auth_base_url: "https://accounts.google.com",
          client_id: Map.fetch!(config, "clientID"),
          redirect_uri: redirect_uri,
          state: state,
@@ -28,7 +28,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
 
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.identity_client(config)
 
     with {:ok, token} <-
            Auth.exchange_code(client,
@@ -70,16 +70,16 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   end
 
   @spec sync_directory(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_directory(provider_id, config, opts \\ []) do
+  def sync_directory(provider_id, config, _opts \\ []) do
     with {:ok, %{groups: group_count, user_index: user_index}} <-
-           sync_groups(provider_id, config, opts),
-         {:ok, user_count} <- sync_users(provider_id, config, user_index, opts) do
+           sync_groups(provider_id, config),
+         {:ok, user_count} <- sync_users(provider_id, config, user_index) do
       {:ok, %{users: user_count, groups: group_count}}
     end
   end
 
-  defp sync_groups(provider_id, config, opts) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_groups(provider_id, config) do
+    client = Config.identity_client(config)
 
     Directory.stream_groups(client, customer: "my_customer", maxResults: page_size(config))
     |> Enum.reduce_while({:ok, %{groups: 0, user_index: %{}}}, fn
@@ -104,8 +104,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
     end)
   end
 
-  defp sync_users(provider_id, config, user_index, opts) do
-    client = Config.identity_client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_users(provider_id, config, user_index) do
+    client = Config.identity_client(config)
 
     with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
       Directory.stream_users(client, customer: "my_customer", maxResults: page_size(config))

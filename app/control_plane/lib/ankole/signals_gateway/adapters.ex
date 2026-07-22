@@ -152,7 +152,7 @@ defmodule Ankole.SignalsGateway.Adapters do
              declaration,
              :connection_supervisor,
              :ensure_started,
-             3
+             2
            ),
          :ok <-
            validate_optional_adapter_module(
@@ -204,7 +204,7 @@ defmodule Ankole.SignalsGateway.Adapters do
       :ok
     else
       with {:ok, module} <- declaration_module(declaration, :ingress_module),
-           :ok <- Utils.validate_module_callback(module, :chat_consumer, 3) do
+           :ok <- Utils.validate_module_callback(module, :chat_consumer, 2) do
         Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
           case validate_inbound_capability(module, capability) do
             :ok -> {:cont, :ok}
@@ -291,10 +291,5 @@ defmodule Ankole.SignalsGateway.Adapters do
     end
   end
 
-  defp value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> value
-      :error -> Map.get(map, Atom.to_string(key))
-    end
-  end
+  defp value(map, key) when is_map(map), do: Map.get(map, key)
 end

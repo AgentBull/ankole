@@ -1,178 +1,127 @@
 # App Configuration
 
-Ankole configuration has two separate surfaces:
+Ankole reads settings from two places. The process environment provides values
+that Ankole needs before it can start. AppConfigure stores values that an
+operator can change while Ankole runs.
 
-- bootstrap configuration read from the process environment before the
-  application starts;
-- AppConfigure values read from and written to PostgreSQL while the application
-  is running.
+Put each setting in one place. Code must not ask AppConfigure for a value that
+the process needs during startup.
 
-The boundary is deliberately sharp. Bootstrap configuration describes how the
-process starts. AppConfigure describes operator-managed runtime settings inside
-an already-running Ankole installation. A value belongs to one surface, not both.
+## Settings Needed During Startup
 
-## Bootstrap Configuration
+The process environment provides startup settings such as:
 
-Bootstrap configuration is read during Phoenix/Mix configuration and application
-startup, before Repo, AppConfigure, setup, plugins, or agents can be trusted.
+- `DATABASE_URL`
+- root secret material such as `SECRET_KEY_BASE`
+- Phoenix host, port, TLS, and release-server settings
+- database and HTTP pool sizes
+- development and test paths
 
-Bootstrap configuration owns process and infrastructure facts, including:
+These values describe the process and its infrastructure. Restart the affected
+process after you change one.
 
-- `DATABASE_URL`;
-- root secret material such as `SECRET_KEY_BASE`;
-- Phoenix endpoint host, port, TLS, and release-server settings;
-- database and HTTP pool sizes;
-- local development and test-only paths.
+AppConfigure cannot provide a startup setting because PostgreSQL and its cache
+may not exist yet.
 
-These values are deployment facts. Changing them requires changing the process
-environment and restarting the affected process.
+## Settings That Operators Can Change
 
-AppConfigure must not be used to discover bootstrap values. In particular,
-database URLs, endpoint settings, pool sizes, and root secret material are
-not runtime settings, because the application may need them before PostgreSQL or
-the AppConfigure cache is available.
+AppConfigure stores a declared set of settings in PostgreSQL. Operators, setup
+flows, Ankole subsystems, and trusted Plugins can use them.
 
-## AppConfigure
+Examples include:
 
-AppConfigure is Ankole's database-backed runtime configuration store. It holds a
-small declared set of settings that operators, setup flows, console pages, and
-trusted plugins can change while the application is running.
+- the default locale
+- `runtime_fabric.worker_auth_key`
+- Agent runtime limits and Agent overrides
+- plugin setup values
+- chat and identity-provider settings that are not bootstrap requirements
 
-Typical AppConfigure values include:
+AIGateway stores provider credentials in `ai_gateway_providers`. Agent model
+preferences belong in `agents.options`.
 
-- default locale and other operator-visible product settings;
-- installation-wide generated secrets, such as
-  `runtime_fabric.worker_auth_key`;
-- agent runtime limits and per-agent overrides;
-- plugin-owned setup values;
-- chat-channel or identity-provider settings that are not required to boot the
-  process.
+AppConfigure is not a free-form key-value store. It rejects a key unless code
+has registered that key.
 
-Provider credentials and model preferences are owned by AIGateway and AI Agent
-today: configured provider instances live in `ai_gateway_providers`, and agent
-model preferences live in `agents.options`. They should not be documented as
-AppConfigure keys unless those owning subsystems later migrate them deliberately.
+## Declare Each Key Before Use
 
-AppConfigure is not a generic key-value store. Every key must be declared by its
-owning subsystem or accepted by a registered pattern. The declaration defines
-the key's schema, encryption policy, optional default, and human-facing
-description.
+An `Ankole.AppConfigure.Definition` tells AppConfigure how to handle one key:
 
-The implementation should use an explicit AppConfigure namespace, such as
-`Ankole.AppConfigure.*`, so application code does not confuse runtime database
-settings with bootstrap environment configuration.
+- a stable key
+- a value schema
+- the `encrypted` storage policy
+- the `scoped` or `global` scope policy
+- an optional default value
+- an optional generator
+- an optional description
+- the `console_writable` policy
+- an optional `worker_env_name`
 
-Native cryptographic and low-level shared semantics come from `app/kernel`.
-Elixir code imports them through the Rustler NIF module `Ankole.Kernel`; Bun
-loads the same Rust core through the kernel's Node-API binding. AppConfigure
-should call the kernel boundary for key derivation and AEAD operations instead
-of implementing its own crypto helpers inside the control-plane app.
+The schema accepts only JSON-compatible values. AppConfigure checks values
+before a write, after a read, and when it loads a default.
 
-## Declaration
+`worker_env_name` sends the chosen value to Agent Computer as a POSIX
+environment variable.
 
-Each AppConfigure definition declares:
+The registry rejects duplicate exact keys. It also rejects duplicate `worker_env_name` values.
 
-- stable key, for example `i18n.default_locale` or
-  `runtime_fabric.worker_auth_key`;
-- value schema;
-- whether the stored value is encrypted at rest;
-- whether the definition is scoped or global-only;
-- optional code default;
-- optional generator for owner-managed missing values;
-- optional description for setup and admin surfaces.
+## Declare a Family of Keys
 
-Values are JSON-compatible: null, booleans, numbers, strings, arrays, and
-objects. AppConfigure does not store arbitrary Elixir terms, because the durable
-storage is PostgreSQL `jsonb` and encrypted values are sealed from serialized
-JSON.
+A `PatternDefinition` handles a family of keys. A plugin uses it when instance
+IDs make the full key list unknown at startup.
 
-The schema is part of the key contract. It plays the same role that Zod plays in
-the Bun implementation: values are validated before persistence, after database
-reads, and before code defaults are accepted. The Elixir implementation may use
-Elixir-native schema modules, but it must preserve the same behavior instead of
-using ad hoc casts at call sites.
+An exact definition takes priority over a pattern. The registry rejects a key
+when two patterns match it.
 
-Pattern definitions are allowed when the concrete key set is only known at
-runtime, for example plugin-owned provider instances. Exact definitions take
-precedence over patterns. If more than one pattern matches one key, the key is
-rejected so validation and encryption policy never depend on load order.
+A pattern uses the same schema, encryption, default, generator, scope, and Console policies. Patterns do not declare `worker_env_name` exports.
 
-A pattern may set `console_writable: false` when another subsystem owns its
-mutation contract. Existing concrete rows remain visible and readable through
-AppConfigure, but generic Console PUT and DELETE requests reject them. The
-owning subsystem keeps the only write path that can enforce its wider invariant.
+`console_writable: false` lets only the responsible subsystem change a value.
+The Console can still read it.
 
-Unknown keys are rejected before persistence. This keeps the runtime
-configuration surface bounded and prevents typo-created database rows.
-Duplicate exact keys and duplicate pattern ids are rejected at registration
-time.
+## Global Values and Agent Overrides
 
-## Scope
+Each row applies either to the complete Installation or to one Agent:
 
-Every AppConfigure row has a scope. Scope is independent from the logical key:
+- `global` identifies the Ankole Installation.
+- `agent:<agent_uid>` identifies one Agent override.
 
-- `global` means the current Ankole installation;
-- `agent:<agent_id>` means one agent-specific override.
+A scoped definition allows both forms. A global definition rejects Agent
+overrides.
 
-The agent id is chosen by the agent subsystem and must be stable. It should not
-be embedded in the key path.
+The Agent UID stays in the row's scope, not in its key. The global value and
+Agent overrides use the same key.
 
-This keeps global and per-agent configuration in one table while preserving a
-simple mental model: the same key can have one installation-wide value and zero
-or more agent-specific overrides.
+## How AppConfigure Chooses a Value
 
-Definitions also declare whether agent overrides are allowed:
+For an Agent, AppConfigure checks these values in order:
 
-- scoped definitions are the default. They can resolve from `agent:<agent_id>`
-  and fall back to `global`;
-- global-only definitions always resolve from `global`, even when the caller has
-  a current agent. Agent writes and deletes for those definitions are rejected.
+1. the current Agent row
+2. the global row
+3. the code default
 
-Global-only definitions are for installation-level facts that must not vary per
-agent, such as `runtime_fabric.worker_auth_key`.
+A read without an Agent starts with the global row. A global definition never
+checks an Agent row.
 
-## Resolution
+AppConfigure tries the next choice only when a row is absent. A corrupt or
+undecryptable row returns an error instead of hiding the problem.
 
-Effective reads use this fallback order:
+`Ankole.AppConfigure.Resolution` returns the value and its `agent`, `global`, or `default` source.
 
-1. current agent scope, when the caller has a current agent;
-2. `global`;
-3. the definition's code default, when one exists.
+Environment variables never override an AppConfigure value.
 
-If there is no current agent, the read starts at `global` and then falls back to
-the code default.
+## Row Format in PostgreSQL
 
-For global-only definitions, effective reads skip the agent scope and use only
-`global`, then the code default.
+The `app_configurations` table stores one row for each `{scope, key}` pair. The table has these fields:
 
-Fallback applies only to missing rows. A row that exists but cannot be
-decrypted, decoded, or validated is a storage error. It should not silently
-inherit the next value, because invalid stored configuration usually means
-corruption, a broken migration, or mismatched secret material.
+- `scope`
+- `key`
+- JSONB `value`
+- `inserted_at`
+- `updated_at`
 
-Environment variables are not part of AppConfigure resolution.
+The database allows only one row for each `{scope, key}` pair. It also checks
+the scope and the value wrapper.
 
-## Persistence
-
-The table is `app_configurations`.
-
-It stores one row per `{scope, key}`:
-
-- `scope` as text, required;
-- `key` as text, required;
-- `value` as `jsonb`, required;
-- `created_at`;
-- `updated_at`.
-
-The unique key is `{scope, key}`.
-
-`scope` has a database check constraint:
-
-```sql
-scope = 'global' OR scope ~ '^agent:.+$'
-```
-
-`value` is a self-describing envelope:
+A plaintext value uses this envelope:
 
 ```json
 {
@@ -181,7 +130,7 @@ scope = 'global' OR scope ~ '^agent:.+$'
 }
 ```
 
-Encrypted values use the same envelope shape:
+An encrypted value uses this envelope:
 
 ```json
 {
@@ -190,136 +139,99 @@ Encrypted values use the same envelope shape:
 }
 ```
 
-The database should check that `value` is a JSON object containing `type` and
-`value`. The application definition decides whether `plaintext` or `cipher` is
-valid for a key.
+The registered definition selects the valid wrapper type.
 
-The envelope keeps storage self-describing and leaves room for future sidecar
-fields without adding a separate column for each storage concern.
+## How AppConfigure Protects Secrets
 
-## Read API
+AppConfigure checks a secret and converts it to JSON before encryption.
 
-The public read API should make the resolution context explicit:
+`Ankole.AppConfigure.Crypto` gets the bootstrap secret from `Ankole.SecretKeyBase`. It serializes `[scope, key]` as the derivation context.
 
-- `get(definition, agent_id: id)` resolves `agent:<id>`, `global`, then default;
-- `get(definition)` resolves `global` then default;
-- `get_by_key(key, agent_id: id)` is reserved for registered pattern-backed
-  keys.
+The module uses these kernel functions:
 
-For global-only definitions, `agent_id` is ignored by the read path because the
-definition itself declares that only the installation-wide row is meaningful.
+- `Ankole.Kernel.derive_key/3`
+- `Ankole.Kernel.aead_encrypt/2`
+- `Ankole.Kernel.aead_decrypt/2`
 
-Setup and console surfaces often need to show where a value came from. For those
-surfaces, the read result should include the effective source, such as
-`:agent`, `:global`, or `:default`. Runtime call sites that only need the value
-may use a value-only helper.
+The encryption uses the scope and key. Copying encrypted text to another row
+does not produce a valid value there.
 
-Console projections should also expose the definition scope (`scoped` or
-`global`) so operators can tell whether a key may have agent-specific
-overrides.
+The ETS cache keeps secrets encrypted. AppConfigure decrypts one only for a
+typed read or an authorized Console request.
 
-## Write API
+## Read and Change Values
 
-Writes always target one concrete scope:
+Exact definitions use these public functions:
 
-- `put_global(definition, value)`;
-- `put_for_agent(agent_id, definition, value)`;
-- `delete_global(definition)`;
-- `delete_for_agent(agent_id, definition)`.
+- `resolve/2` and `get/2`
+- `put_global/2` and `put_for_agent/3`
+- `delete_global/1` and `delete_for_agent/2`
+- `generate/1`
 
-Deleting an agent row makes that agent inherit the global row. Deleting a global
-row makes all non-overridden agents inherit the code default, if one exists.
+Runtime keys use the corresponding `*_by_key` functions. The registry must match each runtime key before the operation continues.
 
-For global-only definitions, agent writes and deletes fail before persistence.
-The owning subsystem may still write the global row through the normal global
-write path.
+`update_global/2` holds a short per-key PostgreSQL advisory lock. The callback computes one replacement value and must not do external I/O.
 
-Writes validate through the registered definition before touching PostgreSQL.
-Encrypted definitions serialize the JSON value, derive row-specific key material
-through `Ankole.Kernel.derive_key/3` from the bootstrap root secret plus `scope`
-and `key`, seal the serialized value through `Ankole.Kernel.aead_encrypt/2`, and
-store the sealed string in a `cipher` envelope.
+AppConfigure checks a value before it commits the write. A successful database
+commit means that the write succeeded.
 
-PostgreSQL commit is the write success boundary. After commit, AppConfigure
-refreshes the process-local cache from the current database row rather than a
-captured envelope. A refresh failure is logged but cannot turn the committed
-write into an API failure or suppress later owner callbacks. The failed key is
-left uncached so a later read retries PostgreSQL; PostgreSQL remains the durable
-source of truth.
+After the commit, AppConfigure reloads the row into its cache. If that fails,
+it removes the old cache entry and logs the error. The database write remains
+successful, and a later read can load it again.
 
-## Cache
+Deleting an Agent row restores global or default inheritance. Deleting a global row restores the code default when one exists.
 
-`Ankole.AppConfigure.Cache` owns a reconstructible ETS projection of concrete
-database rows keyed by `{scope, key}`.
+## Cache Behavior
 
-Normal reads do not query PostgreSQL on every call. The effective read path
-checks cached concrete rows in fallback order and only uses the definition
-default when no scoped row exists.
+`Ankole.AppConfigure.Cache` keeps copies of database rows in ETS. It identifies
+each copy by `{scope, key}`.
 
-The ETS projection stores row envelopes, not only successfully decoded values.
-A row that exists but cannot be decrypted, decoded, or validated remains the
-selected row and effective resolution returns a storage error instead of
-treating it as missing and falling through to the next scope. A PostgreSQL load
-failure leaves the key as a cache miss so later reads can retry and converge.
+At startup, the cache tries to load every row. A cache miss reads the requested
+row from PostgreSQL.
 
-The cache has no TTL by default. Configuration is a small declared surface, not
-a request cache. Updates happen through AppConfigure writes and deletes.
-Startup builds the ETS projection from PostgreSQL, and a cache miss may load the
-single missing `{scope, key}` from PostgreSQL. There is no public refresh API:
-runtime configuration changes go through AppConfigure, so the write path is the
-cache invalidation path.
+The cache has no TTL and no public refresh operation. AppConfigure writes and deletes refresh the affected key.
 
-## Secrets
+The cache remembers whether a row exists separately from whether it is valid.
+It never treats an invalid row as absent. PostgreSQL holds the original row.
 
-Secret values are encrypted before persistence and decrypted only into the
-process-local AppConfigure cache or the immediate runtime caller.
+## Generate Values Only on Request
 
-Encryption key derivation includes an unambiguous serialized pair of `scope` and
-`key`, so ciphertext from one row cannot be copied to another row and still
-decrypt as a valid value.
-Derivation, encryption, and decryption are kernel operations:
-`Ankole.Kernel.derive_key/3`, `Ankole.Kernel.aead_encrypt/2`, and
-`Ankole.Kernel.aead_decrypt/2`.
+A definition can provide a generator. `generate/1` checks the generated value
+but does not store it.
 
-Setup and console surfaces should display secret metadata or redacted values,
-not plaintext. Runtime consumers that need plaintext read through the typed
-AppConfigure API.
+The setup flow or responsible subsystem must store an accepted value. A read
+never creates a row.
 
-## Generated Secrets
+ActorRuntime reads `runtime_fabric.worker_auth_key` through AppConfigure before
+it prepares Worker startup data.
 
-Generated secrets are runtime configuration behavior, not bootstrap behavior. A
-definition may describe how to generate a missing value, but a generated value
-is only persisted when an owning setup or write path accepts it.
+## Send Selected Values to Agent Computer
 
-Generated defaults are not silently inserted during normal reads.
+An exact definition can send its chosen value to one Agent Computer environment
+variable. `worker_env_name` names that variable.
 
-Some subsystems need a durable generated secret before external processes can
-connect. In that case the owning subsystem should call the generator and persist
-the value through the normal AppConfigure write path during its own boot or
-setup flow. For example, the actor runtime ensures
-`runtime_fabric.worker_auth_key` exists before rendering worker bootstrap data
-or starting the RuntimeFabric router.
+WorkerEnv combines these values with custom operator entries before each Agent
+execution. It then applies the correct Agent override.
 
-## Supervision
+WorkerEnv controls reserved names, merge order, custom secrets, and process
+injection. AppConfigure supplies only its declared values.
 
-`Ankole.AppConfigure.Cache` starts after `Ankole.Repo` and before subsystems that
-consume runtime configuration at boot.
+## Startup Order
 
-Subsystems that project AppConfigure into runtime state, such as I18n catalog
-reloads or plugin runtime projections, should subscribe to explicit post-write
-hooks from their owning write path.
+The registry and cache start after `Ankole.Repo`. Boot-time consumers start after the AppConfigure processes.
 
-## Invariants
+If a committed setting changes a live process, the subsystem that uses the
+setting must apply it after the write.
 
-- Bootstrap configuration must not depend on Repo or AppConfigure.
-- AppConfigure must not read OS environment variables.
-- Scoped definitions resolve through current agent, global, then code default.
-- Global-only definitions resolve only through global and code default.
-- Scope lives in `app_configurations.scope`, not inside the key path.
-- Definition scope decides whether agent rows are allowed for a key.
-- Missing rows may inherit; invalid rows must fail visibly.
-- Secret values are stored encrypted in PostgreSQL.
-- Code defaults are effective values, not rows that need to be backfilled.
-- Generated values are persisted only by an owning setup or subsystem path, not
-  by passive reads.
-- Plugin settings use the same AppConfigure mechanism as core settings.
+## Rules
+
+- Bootstrap configuration does not depend on Repo or AppConfigure.
+- AppConfigure does not read OS environment variables.
+- Every key has an exact definition or one unambiguous pattern.
+- A definition controls validation, scope, encryption, and Console writes.
+- Only a missing row permits fallback.
+- PostgreSQL stores secret values as encrypted envelopes.
+- Code defaults are effective values, not database rows.
+- Reads never store generated values.
+- A successful PostgreSQL commit means that a write succeeded.
+- Ankole can rebuild the ETS cache from PostgreSQL.

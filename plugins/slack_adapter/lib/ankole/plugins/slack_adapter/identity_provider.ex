@@ -31,7 +31,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
-    base_url = Map.get(config, "baseURL") || "https://slack.com/api"
+    base_url = "https://slack.com/api"
 
     with {:ok, token} <-
            OIDC.exchange_code(nil,
@@ -43,7 +43,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
            ),
          {:ok, claims} <- OIDC.user_info(token.access_token, base_url: base_url),
          user <- normalize_claims(claims),
-         {:ok, user} <- hydrate_user(config, user, opts) do
+         {:ok, user} <- hydrate_user(config, user) do
       {:ok, %{token: token, user: user}}
     end
   end
@@ -77,10 +77,10 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
   end
 
   @spec sync_directory(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def sync_directory(provider_id, config, opts \\ []) do
+  def sync_directory(provider_id, config, _opts \\ []) do
     with {:ok, %{usergroups: group_count, user_index: user_index}} <-
-           sync_usergroups(provider_id, config, opts),
-         {:ok, user_count} <- sync_users(provider_id, config, user_index, opts) do
+           sync_usergroups(provider_id, config),
+         {:ok, user_count} <- sync_users(provider_id, config, user_index) do
       {:ok, %{users: user_count, usergroups: group_count}}
     end
   end
@@ -93,8 +93,8 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     |> MapHelpers.collect_results()
   end
 
-  defp sync_usergroups(provider_id, config, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_usergroups(provider_id, config) do
+    client = Config.client(config)
 
     with {:ok, %{"usergroups" => groups}} <-
            SlackOpenAPI.get(client, "usergroups.list",
@@ -119,8 +119,8 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     end
   end
 
-  defp sync_users(provider_id, config, user_index, opts) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  defp sync_users(provider_id, config, user_index) do
+    client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || 200
 
     with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
@@ -316,10 +316,10 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     end)
   end
 
-  defp hydrate_user(config, user, opts) do
+  defp hydrate_user(config, user) do
     if is_binary(Map.get(config, "botToken")) do
       case SlackOpenAPI.get(
-             Config.client(config, Keyword.get(opts, :client_opts, [])),
+             Config.client(config),
              "users.info",
              query: [user: user["user_id"]]
            ) do

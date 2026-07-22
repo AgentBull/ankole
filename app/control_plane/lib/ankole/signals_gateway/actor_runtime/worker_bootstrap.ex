@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
   Builds the canonical Docker launch contract for Agent Computer workers.
 
   The contract owns the shared container security settings and, for real
-  workers, the RuntimeFabric auth, host connectivity, and workspace layout.
+  workers, the RuntimeFabric auth, host connectivity, and Agent Home layout.
   Launch adapters translate the contract and add only their local lifecycle,
   source-mount, and command differences.
   """
@@ -53,7 +53,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
     with {:ok, spec} <- container_spec(opts),
          {:ok, endpoint} <- fetch_required(opts, :endpoint),
          {:ok, worker_id} <- fetch_required(opts, :worker_id),
-         {:ok, workspace_root} <- fetch_required(opts, :workspace_root),
+         {:ok, agents_root} <- fetch_required(opts, :agents_root),
          {:ok, runtime_fabric_url} <- runtime_fabric_url(endpoint, opts) do
       {:ok,
        %{
@@ -67,10 +67,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
            },
            env: %{
              "WORKER_ID" => worker_id,
-             "RUNTIME_FABRIC_URL" => runtime_fabric_url
+             "RUNTIME_FABRIC_URL" => runtime_fabric_url,
+             "ANKOLE_AGENTS_ROOT" => "/agents"
            },
-           host_setup_dirs: workspace_setup_dirs(workspace_root),
-           mounts: workspace_mounts(workspace_root)
+           host_setup_dirs: [agents_root],
+           mounts: [%{source: agents_root, target: "/agents", readonly: false}]
        }}
     end
   end
@@ -80,21 +81,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
       :error -> WorkerAuthKey.runtime_fabric_url(endpoint)
       {:ok, auth_key} -> WorkerAuthKey.runtime_fabric_url(endpoint, auth_key)
     end
-  end
-
-  defp workspace_setup_dirs(workspace_root) do
-    [
-      "#{workspace_root}/shared/user-files",
-      "#{workspace_root}/shared/skills/agents",
-      "#{workspace_root}/sessions"
-    ]
-  end
-
-  defp workspace_mounts(workspace_root) do
-    [
-      %{source: "#{workspace_root}/shared", target: "/workspace/shared", readonly: false},
-      %{source: "#{workspace_root}/sessions", target: "/workspace/.sessions", readonly: false}
-    ]
   end
 
   defp fetch_required(opts, key) do

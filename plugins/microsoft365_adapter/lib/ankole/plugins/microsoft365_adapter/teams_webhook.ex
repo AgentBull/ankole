@@ -24,7 +24,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
     # unauthenticated probe learns nothing about configured instances.
     case authorize(request, app_id, activity) do
       {:ok, _claims} ->
-        case consumers_for_app(app_id, request) do
+        case consumers_for_app(app_id) do
           {:ok, consumers} -> run_dispatch(activity, consumers, app_id)
           {:error, :unknown_app} -> {:ok, %{status: 404, body: %{"error" => "unknown app"}}}
         end
@@ -59,15 +59,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   end
 
   defp authorize(request, app_id, activity) do
-    BotFrameworkAuth.verify(request.headers, app_id, activity, auth_opts(request))
+    BotFrameworkAuth.verify(request.headers, app_id, activity)
   end
 
-  # Tests may thread a fake OpenID metadata URL through the consumer config;
-  # production uses the fixed Bot Framework metadata document.
-  defp auth_opts(%{auth_opts: opts}) when is_list(opts), do: opts
-  defp auth_opts(_request), do: []
-
-  defp consumers_for_app(app_id, request) do
+  defp consumers_for_app(app_id) do
     consumers =
       "teams"
       |> SignalsGateway.list_enabled_bindings()
@@ -82,7 +77,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
                 user_name: Map.get(config, "userName", "Teams")
               )
 
-            [Inbound.chat_consumer(context, config, consumer_opts(request))]
+            [Inbound.chat_consumer(context, config)]
 
           {:ok, _other_app_config} ->
             []
@@ -106,9 +101,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
       consumers -> {:ok, consumers}
     end
   end
-
-  defp consumer_opts(%{consumer_opts: opts}) when is_list(opts), do: opts
-  defp consumer_opts(_request), do: [materialize_attachments: true]
 
   defp dispatch_activity(activity, consumers) do
     case activity_type(activity) do

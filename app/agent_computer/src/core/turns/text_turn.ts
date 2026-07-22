@@ -1,12 +1,17 @@
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
-import { systemPromptForConversation } from '../../prompts/system_prompt'
+import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
 import { createComputerTools } from '../../tools/computer'
 import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
-import { createBackgroundAgentJobTool } from '../../tools/background-agent-job/background-agent-job-tool'
+import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
+import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
+import { createRespawnBackgroundJobTool } from '../../tools/background-agent-job/respawn-background-job'
+import { createSendMessageToBackgroundJobTool } from '../../tools/background-agent-job/send-message-to-background-job'
+import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent-job/show-background-job-details'
+import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
 import { createMCPTools } from '../../tools/mcp'
@@ -28,7 +33,7 @@ import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { memoryRPCRequester, rpcMethods, scheduleRPCRequester, type RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { memoryRPCRequester, rpcMethods, scheduleRPCRequester } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 const silentSuccessMarker = '<silent_success/>'
@@ -70,12 +75,14 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       actorEvent.type === 'brain.source.learn'
         ? createSourceLearningTurnTools({
             turnStart,
+            agentHome: opts.agentHome,
             workspaceRoot: opts.workspaceRoot,
             requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
           })
         : undefined
     const userPrompt = userMessage(
       await actorEventUserContent(actorEvent.payload_json, actorEvent.type, modelRef, {
+        agentHome: opts.agentHome,
         workspaceRoot: opts.workspaceRoot,
         visionFallbackModel,
         abortSignal: turnActivity.signal
@@ -117,11 +124,13 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       const computerTools = createComputerTools({
         agentUID: turnStart.turn.actor.agent_uid,
         conversationID: turnStart.turn.actor.session_id,
+        agentHome: opts.agentHome,
         workspaceRoot: opts.workspaceRoot,
+        userFilesRoot: opts.userFilesRoot,
         workerEnv: toolWorkerEnv
       })
       const backgroundAgentJobTools = await turnActivity.runStep(
-        resolveBackgroundAgentJobTools(turnStart, opts, agentConversationContext.skills ?? []),
+        resolveBackgroundAgentJobTools(turnStart, opts),
         'background agent job tool availability'
       )
 
@@ -150,13 +159,15 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     }
 
     const promptOptions = {
+      agentHome: opts.agentHome,
+      userFilesRoot: opts.userFilesRoot,
       workspaceRoot: opts.workspaceRoot,
       turnStart,
       agentConversationContext,
       currentChannel: currentChannelFromTurnStart(turnStart),
       availableToolNames: tools.map(tool => tool.name)
     }
-    const systemPrompt = systemPromptForConversation(promptOptions)
+    const systemPrompt = buildAgentSystemPrompt(promptOptions)
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
         timezone: agentConversationContext.conversation?.timezone
@@ -199,20 +210,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   }
 }
 
-async function resolveBackgroundAgentJobTools(
-  turnStart: TurnStart,
-  opts: TextTurnLoopOptions,
-  skills: RuntimeSkillSummary[]
-): Promise<AgentTool[]> {
+async function resolveBackgroundAgentJobTools(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentTool[]> {
   const response = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
 
   return [
-    createBackgroundAgentJobTool({
-      turnStart,
-      agentPluginCatalog: response.agentPlugins,
-      standaloneSkillNames: skills.filter(skill => !skill.agentPluginId).map(skill => skill.skillName),
-      rpc: opts.rpc
-    })
+    createCreateBackgroundJobTool({ turnStart, agentPluginCatalog: response.agentPlugins, rpc: opts.rpc }),
+    createListBackgroundJobsTool({ turnStart, rpc: opts.rpc }),
+    createShowBackgroundJobDetailsTool({ turnStart, rpc: opts.rpc }),
+    createSendMessageToBackgroundJobTool({ turnStart, rpc: opts.rpc }),
+    createRespawnBackgroundJobTool({ turnStart, agentsRoot: opts.agentsRoot, rpc: opts.rpc }),
+    createStopBackgroundJobTool({ turnStart, rpc: opts.rpc })
   ]
 }
 

@@ -78,7 +78,7 @@ type CronScheduleRow = {
 }
 
 type ScheduledEventRow = {
-  id: string
+  id: number
   kind: string
   status: string
   binding_name?: string | null

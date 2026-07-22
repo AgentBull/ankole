@@ -68,7 +68,7 @@ async function invokeBrowserFetchCLI(
   const child = spawn(executable, ['--json', '--timeout', String(timeoutMs), 'fetch', ...urls], {
     env: {
       PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
-      HOME: process.env.HOME ?? '/workspace',
+      HOME: process.env.HOME ?? '/agents',
       LANG: process.env.LANG ?? 'C.UTF-8',
       ANKOLE_BROWSER_SOCKET: runtime.socketPath,
       ANKOLE_BROWSER_ROUTE: runtime.route,

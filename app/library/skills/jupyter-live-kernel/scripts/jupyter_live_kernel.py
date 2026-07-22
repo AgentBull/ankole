@@ -61,7 +61,6 @@ class ServerInfo:
     token: str
     pid: int | None = None
     version: str | None = None
-    raw: dict[str, Any] = field(default_factory=dict)
 
     @property
     def root_url(self) -> str:
@@ -282,7 +281,6 @@ def _server_from_raw(raw: dict[str, Any]) -> ServerInfo | None:
         token=raw.get("token", ""),
         pid=raw.get("pid"),
         version=raw.get("version"),
-        raw=raw,
     )
 
 
@@ -290,14 +288,13 @@ def _server_from_explicit(socket_path: str) -> ServerInfo:
     root_dir = (
         os.environ.get("JUPYTER_NOTEBOOK_DIR")
         or os.environ.get("NOTEBOOK_DIR")
-        or "/workspace/user-files/notebooks"
+        or str(Path.home() / "user-files/notebooks")
     )
     return ServerInfo(
         socket_path=socket_path,
         base_url="/",
         root_dir=root_dir,
         token=os.environ.get("JUPYTER_TOKEN", ""),
-        raw={"source": "explicit-probe", "sock": socket_path},
     )
 
 
@@ -1594,9 +1591,6 @@ def run_all_cells(
     notebook_path = path or target.path
 
     model = _load_notebook_model(server, notebook_path, timeout=timeout)
-    snapshot_blake3 = blake3(
-        json.dumps(model["content"], sort_keys=True).encode("utf-8")
-    ).hexdigest()
     results: list[dict[str, Any]] = []
     executed_cell_count = 0
     skipped_cell_count = 0
@@ -1673,7 +1667,6 @@ def run_all_cells(
         "kernel_name": target.kernel_name,
         "session_id": target.session_id,
         "snapshot_last_modified": model.get("last_modified"),
-        "snapshot_blake3": snapshot_blake3,
         "timeout_per_cell_seconds": timeout,
         "status": overall_status,
         "executed_cell_count": executed_cell_count,

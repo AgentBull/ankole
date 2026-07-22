@@ -296,7 +296,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
     [
       {:reply_attachment, "call_lark_chaos_reply_attachment_command"},
       {:reply_attachment, "call_lark_chaos_reply_attachment"},
-      {:reply_attachment, "/workspace/user-files/reports/chaos-report.txt"},
+      {:reply_attachment, "~/user-files/reports/chaos-report.txt"},
       {:reply_attachment, "chaos-report.txt"},
       {:checkback_tool, "call_lark_chaos_checkback"},
       {:checkback_tool, "lark-chaos-checkback-1"},
@@ -506,7 +506,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p /workspace/user-files/reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > /workspace/user-files/reports/chaos-report.txt",
+          "mkdir -p ~/user-files/reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > ~/user-files/reports/chaos-report.txt",
         "timeout" => 5
       }
     }
@@ -517,7 +517,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_reply_attachment",
       name: "reply_attachment",
       arguments: %{
-        "path" => "/workspace/user-files/reports/chaos-report.txt",
+        "path" => "~/user-files/reports/chaos-report.txt",
         "name" => "chaos-report.txt",
         "mimeType" => "text/plain"
       }
@@ -560,7 +560,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p /workspace/user-files/chaos && printf 'CHAOS_READ_FILE_CONTENT\\n' > /workspace/user-files/chaos/read-file.txt",
+          "mkdir -p ~/user-files/chaos && printf 'CHAOS_READ_FILE_CONTENT\\n' > ~/user-files/chaos/read-file.txt",
         "timeout" => 5
       }
     }
@@ -571,7 +571,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_read_file",
       name: "read_file",
       arguments: %{
-        "path" => "/workspace/user-files/chaos/read-file.txt",
+        "path" => "~/user-files/chaos/read-file.txt",
         "offset" => 1,
         "limit" => 20
       }
@@ -584,7 +584,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p /workspace/user-files/chaos && printf 'before\\nCHAOS_PATCH_OLD\\nafter\\n' > /workspace/user-files/chaos/patch.txt",
+          "mkdir -p ~/user-files/chaos && printf 'before\\nCHAOS_PATCH_OLD\\nafter\\n' > ~/user-files/chaos/patch.txt",
         "timeout" => 5
       }
     }
@@ -595,7 +595,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_patch",
       name: "replace",
       arguments: %{
-        "path" => "/workspace/user-files/chaos/patch.txt",
+        "path" => "~/user-files/chaos/patch.txt",
         "old_string" => "CHAOS_PATCH_OLD",
         "new_string" => "CHAOS_PATCH_NEW"
       }
@@ -607,7 +607,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_patch_read_file",
       name: "read_file",
       arguments: %{
-        "path" => "/workspace/user-files/chaos/patch.txt",
+        "path" => "~/user-files/chaos/patch.txt",
         "offset" => 1,
         "limit" => 20
       }
@@ -620,7 +620,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p /workspace/user-files/chaos && printf 'CHAOS_WORKSPACE_PERSISTED\\n' > /workspace/user-files/chaos/persisted.txt",
+          "mkdir -p ~/user-files/chaos && printf 'CHAOS_WORKSPACE_PERSISTED\\n' > ~/user-files/chaos/persisted.txt",
         "timeout" => 5
       }
     }
@@ -631,7 +631,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_workspace_read",
       name: "read_file",
       arguments: %{
-        "path" => "/workspace/user-files/chaos/persisted.txt",
+        "path" => "~/user-files/chaos/persisted.txt",
         "offset" => 1,
         "limit" => 20
       }

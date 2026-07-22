@@ -122,7 +122,7 @@ defmodule Ankole.Schedule.Store do
     |> repo.one()
   end
 
-  @spec lock_scheduled_event(module(), Ecto.UUID.t()) :: ScheduledEvent.t() | nil
+  @spec lock_scheduled_event(module(), pos_integer()) :: ScheduledEvent.t() | nil
   def lock_scheduled_event(repo, scheduled_event_id) do
     ScheduledEvent
     |> where([event], event.id == ^scheduled_event_id)

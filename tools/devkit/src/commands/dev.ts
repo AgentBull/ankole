@@ -22,7 +22,7 @@ const defaultFabricPort = 6010
 const defaultPhoenixPort = 4000
 const defaultWorkerID = 'local-dev-worker'
 const defaultWorkerImage = 'ankole-agent-computer:0.1.0'
-const defaultWorkspaceRoot = 'var/ankole-dev/worker'
+const defaultAgentsRoot = 'var/ankole-dev/agents'
 const defaultContainerName = 'ankole-dev-agent-computer'
 const managedLabel = 'ankole.dev.managed'
 const sourceHashLabel = 'ankole.dev.source_hash'
@@ -242,7 +242,7 @@ function cleanupManagedWorkerSync(containerName: string): void {
   }
 }
 
-function ensureWorkspaceDirs(spec: WorkerBootstrapSpec): void {
+function ensureAgentDirs(spec: WorkerBootstrapSpec): void {
   for (const dir of spec.host_setup_dirs) {
     mkdirSync(dir, { recursive: true })
   }
@@ -359,13 +359,13 @@ async function runDev(flags: {
   'fabric-port': number
   'worker-id': string
   'worker-image': string
-  'workspace-root': string
+  'agents-root': string
 }): Promise<void> {
   const port = flags.port
   const fabricPort = flags['fabric-port']
   const workerImage = flags['worker-image']
   const workerID = flags['worker-id']
-  const workspaceRoot = path.resolve(repoRootPath, flags['workspace-root'])
+  const agentsRoot = path.resolve(repoRootPath, flags['agents-root'])
   const databaseName = resolveAppDatabaseName()
 
   if (flags.services) {
@@ -380,9 +380,9 @@ async function runDev(flags: {
     endpoint: `tcp://host.docker.internal:${fabricPort}`,
     workerID,
     image: workerImage,
-    workspaceRoot
+    agentsRoot
   })
-  ensureWorkspaceDirs(workerSpec)
+  ensureAgentDirs(workerSpec)
   await cleanupManagedWorker(defaultContainerName)
 
   const controlPlaneEnv = buildControlPlaneEnv(loadAppDevelopmentEnv(), { port, fabricPort })
@@ -469,10 +469,10 @@ export function devCommand(): Crust {
         description: 'Agent Computer Docker image.',
         default: defaultWorkerImage
       },
-      'workspace-root': {
+      'agents-root': {
         type: 'string',
-        description: 'Host workspace root mounted into the worker.',
-        default: defaultWorkspaceRoot
+        description: 'Host Agent Home root mounted at /agents in the worker.',
+        default: defaultAgentsRoot
       }
     })
     .run(({ flags }) => runDev(flags))

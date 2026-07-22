@@ -417,7 +417,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     content =
       ordered
       |> Enum.map_join("\n", fn activity ->
-        "- #{activity_marker(activity["phase"])} #{activity["label"]}"
+        "- #{activity_marker(activity["phase"])} #{escape_markdown_text(activity_label(activity))}"
       end)
 
     panel(
@@ -440,20 +440,21 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
       [activity] ->
         CardI18n.plain_text("activity_title_current", %{
-          current: truncate(activity["label"], 60)
+          current: activity |> activity_label() |> truncate(60) |> escape_markdown_text()
         })
 
       running ->
         latest = List.last(running)
 
         CardI18n.plain_text("activity_title_parallel", %{
-          current: truncate(latest["label"], 60),
+          current: latest |> activity_label() |> truncate(60) |> escape_markdown_text(),
           count: length(running)
         })
     end
   end
 
-  defp activity_title(_activities, _mode), do: CardI18n.plain_text("activity_title")
+  defp activity_title(activities, _mode),
+    do: CardI18n.plain_text("activity_title_summary", %{count: length(activities)})
 
   defp action_elements(%{"actions" => actions} = presentation, mode)
        when is_list(actions) and actions != [] and mode == :terminal do
@@ -468,11 +469,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
           %{
             "tag" => "column_set",
             "element_id" => "actions",
-            "horizontal_spacing" => "8px",
-            "columns" =>
-              Enum.map(buttons, fn button ->
-                %{"tag" => "column", "width" => "auto", "elements" => [button]}
-              end)
+            "columns" => [
+              %{
+                "tag" => "column",
+                "width" => "weighted",
+                "weight" => 1,
+                "vertical_spacing" => "8px",
+                "elements" => buttons
+              }
+            ]
           }
       end
 
@@ -481,7 +486,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {action, index} -> render_form_action(action, presentation, index) end)
 
-    [button_element | forms] |> Enum.reject(&is_nil/1)
+    elements = [button_element | forms] |> Enum.reject(&is_nil/1)
+    if forms == [], do: elements, else: elements ++ [free_input_hint_element()]
   end
 
   defp action_elements(_presentation, _mode), do: []
@@ -500,32 +506,51 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
        when is_binary(interaction_id) and is_binary(source_actor_event_id) and
               is_binary(control_id) and is_binary(selected_option_id) and
               is_binary(option_value) and is_integer(revision) do
-    label = if action["selected"], do: "#{action["label"]}（已选择）", else: action["label"]
+    detailed? = present_text?(action["description"]) or String.length(action["label"]) > 40
 
-    [
-      %{
-        "tag" => "button",
-        "name" => action["id"],
-        "type" => button_type(action["style"]),
-        "disabled" => action["disabled"] == true,
-        "text" => %{"tag" => "plain_text", "content" => label},
-        "behaviors" => [
-          %{
-            "type" => "callback",
-            "value" => %{
-              "version" => @action_value_version,
-              "answerKind" => "choice",
-              "interactionId" => interaction_id,
-              "interactionVersion" => revision,
-              "controlId" => control_id,
-              "selectedOptionId" => selected_option_id,
-              "optionValue" => option_value,
-              "sourceActorEventId" => source_actor_event_id
+    button_text =
+      cond do
+        action["selected"] == true and detailed? ->
+          CardI18n.plain_text("selected_option")
+
+        action["selected"] == true ->
+          CardI18n.plain_text("selected_option_with_label", %{label: action["label"]})
+
+        detailed? ->
+          CardI18n.plain_text("select_option")
+
+        true ->
+          %{"tag" => "plain_text", "content" => action["label"]}
+      end
+
+    context = if detailed?, do: choice_context_elements(action), else: []
+
+    context ++
+      [
+        %{
+          "tag" => "button",
+          "name" => action["id"],
+          "type" => button_type(action["style"]),
+          "width" => "fill",
+          "disabled" => action["disabled"] == true,
+          "text" => button_text,
+          "behaviors" => [
+            %{
+              "type" => "callback",
+              "value" => %{
+                "version" => @action_value_version,
+                "answerKind" => "choice",
+                "interactionId" => interaction_id,
+                "interactionVersion" => revision,
+                "controlId" => control_id,
+                "selectedOptionId" => selected_option_id,
+                "optionValue" => option_value,
+                "sourceActorEventId" => source_actor_event_id
+              }
             }
-          }
-        ]
-      }
-    ]
+          ]
+        }
+      ]
   end
 
   defp render_button_action(_action), do: []
@@ -561,6 +586,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
               "tag" => "button",
               "name" => id,
               "type" => button_type(action["style"] || "primary"),
+              "width" => "fill",
               "form_action_type" => "submit",
               "text" => CardI18n.plain_text("submit_reply"),
               "behaviors" => [
@@ -592,9 +618,48 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       "name" => field["id"],
       "label" => CardI18n.plain_text("free_input_label"),
       "placeholder" => CardI18n.plain_text("free_input_placeholder"),
+      "label_position" => "top",
+      "width" => "fill",
       "required" => field["required"] == true,
       "input_type" => if(field["multiline"] == true, do: "multiline_text", else: "text"),
-      "max_length" => field["max_length"] || 1_000
+      "rows" => if(field["multiline"] == true, do: 3, else: 1),
+      "auto_resize" => field["multiline"] == true,
+      "max_rows" => if(field["multiline"] == true, do: 6, else: 1),
+      "max_length" => field["max_length"] || 1_000,
+      "fallback" => %{
+        "tag" => "fallback_text",
+        "text" => CardI18n.plain_text("free_input_fallback")
+      }
+    }
+  end
+
+  defp choice_context_elements(action) do
+    [choice_text(action["label"], "normal", "default")]
+    |> append(choice_description(action["description"]))
+  end
+
+  defp choice_description(description) when is_binary(description) and description != "",
+    do: choice_text(description, "notation", "grey")
+
+  defp choice_description(_description), do: nil
+
+  defp choice_text(content, size, color) do
+    %{
+      "tag" => "div",
+      "text" => %{
+        "tag" => "plain_text",
+        "content" => content,
+        "text_size" => size,
+        "text_color" => color
+      }
+    }
+  end
+
+  defp free_input_hint_element do
+    %{
+      "tag" => "div",
+      "element_id" => "action_hint",
+      "text" => CardI18n.plain_text("direct_reply_hint") |> metadata_text()
     }
   end
 
@@ -760,6 +825,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp activity_marker("failed"), do: "⚠️"
   defp activity_marker("running"), do: "⏳"
   defp activity_marker(_phase), do: "○"
+
+  defp activity_label(%{"label" => "正在" <> label}), do: String.trim_leading(label)
+  defp activity_label(%{"label" => label}) when is_binary(label), do: label
+  defp activity_label(_activity), do: "处理请求"
 
   defp summary(presentation) do
     presentation
@@ -991,6 +1060,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     |> String.replace("\\", "\\\\")
     |> String.replace("[", "\\[")
     |> String.replace("]", "\\]")
+  end
+
+  defp escape_markdown_text(value) do
+    value
+    |> to_string()
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> then(fn text ->
+      Enum.reduce(["\\", "`", "*", "_", "{", "}", "[", "]", "(", ")", "#", "!", "|"], text, fn
+        marker, escaped -> String.replace(escaped, marker, "\\#{marker}")
+      end)
+    end)
   end
 
   defp escape_link_destination(value) do

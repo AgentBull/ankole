@@ -53,7 +53,9 @@ class FakeComputer implements ContainerComputer {
 function contextFor(computer: ContainerComputer, overrides: Partial<ComputerToolContext> = {}): ComputerToolContext {
   return {
     executionScopeID: 'scope-1',
-    workspaceRoot: '/workspace',
+    agentHome: '/agents/agent-1',
+    workspaceRoot: '/agents/agent-1/sessions/session-1',
+    userFilesRoot: '/agents/agent-1/user-files',
     getComputer: async () => computer,
     ...overrides
   }
@@ -70,7 +72,9 @@ describe('computer tools', () => {
     const tools = createComputerTools({
       agentUID: 'agent-1',
       conversationID: 'conversation-1',
-      workspaceRoot: '/workspace'
+      agentHome: '/agents/agent-1',
+      workspaceRoot: '/agents/agent-1/sessions/session-1',
+      userFilesRoot: '/agents/agent-1/user-files'
     })
     const names = tools.map(tool => tool.name)
 
@@ -108,22 +112,22 @@ describe('computer tools', () => {
     const command = createCommandTool(context)
 
     expect(
-      readFile.describeActivity(readFile.schema.parse({ path: '/workspace/app/agent_computer/src/core/agent-loop.ts' }))
-    ).toContain('core/agent-loop.ts')
+      readFile.describeActivity(readFile.schema.parse({ path: '/agents/agent-1/sessions/session-1/app.ts' }))
+    ).toContain('session-1/app.ts')
     expect(
       replace.describeActivity(
         replace.schema.parse({
-          path: '/workspace/app/agent_computer/src/core/agent-loop.ts',
+          path: '/agents/agent-1/sessions/session-1/app.ts',
           old_string: 'before',
           new_string: 'after'
         })
       )
-    ).toContain('core/agent-loop.ts')
+    ).toContain('session-1/app.ts')
     const patchBodySummary = patch.describeActivity(patch.schema.parse({ patch: 'private patch body' }))
     expect(patchBodySummary).toBeTruthy()
     expect(patchBodySummary).not.toContain('private patch body')
     const attachmentSummary = attachment.describeActivity(
-      attachment.schema.parse({ path: '/workspace/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
+      attachment.schema.parse({ path: '/agents/agent-1/user-files/reports/weekly.pdf', name: 'private-name.pdf' })
     )
     expect(attachmentSummary).toContain('reports/weekly.pdf')
     expect(attachmentSummary).not.toContain('private-name')
@@ -131,13 +135,15 @@ describe('computer tools', () => {
     const commandSummaries = [
       command.describeActivity(
         command.schema.parse({
-          command: 'source /workspace/private.env && mix test test/secret_test.exs --seed 123',
+          command: 'source /agents/agent-1/private.env && mix test test/secret_test.exs --seed 123',
           env: { API_TOKEN: 'do-not-leak' }
         })
       ),
-      command.describeActivity(command.schema.parse({ command: 'rg -n "private query" /workspace/app --hidden' })),
+      command.describeActivity(command.schema.parse({ command: 'rg -n "private query" /agents/agent-1 --hidden' })),
       command.describeActivity(command.schema.parse({ command: 'git diff -- app/private.ex' })),
-      command.describeActivity(command.schema.parse({ command: '/workspace/private/run-secret --token do-not-leak' })),
+      command.describeActivity(
+        command.schema.parse({ command: '/agents/agent-1/private/run-secret --token do-not-leak' })
+      ),
       command.describeActivity(command.schema.parse({ command: 'echo "rg private query"' }))
     ]
 
@@ -165,16 +171,16 @@ describe('computer tools', () => {
     expect(text).toContain('exit_code_note: rg exit 1 = no matches found (not an error)')
   })
 
-  it('records reply attachments only for files under /workspace/user-files', async () => {
+  it('records reply attachments only for files under the Agent user-files directory', async () => {
     const computer = new FakeComputer()
-    computer.files.set('/workspace/user-files/report.txt', Buffer.from('report'))
+    computer.files.set('/agents/agent-1/user-files/report.txt', Buffer.from('report'))
     const tool = createReplyAttachmentTool(contextFor(computer))
 
-    const result = await tool.execute('call-reply-attachment', { path: '/workspace/user-files/report.txt' })
+    const result = await tool.execute('call-reply-attachment', { path: '/agents/agent-1/user-files/report.txt' })
 
     expect(result.details.attachments).toEqual([
       {
-        agent_computer_path: '/workspace/user-files/report.txt',
+        agent_computer_path: '/agents/agent-1/user-files/report.txt',
         user_files_relative_path: 'report.txt',
         name: 'report.txt',
         size: 6
@@ -182,14 +188,14 @@ describe('computer tools', () => {
     ])
   })
 
-  it('rejects reply attachment paths that normalize outside /workspace/user-files', async () => {
+  it('rejects reply attachment paths that normalize outside Agent user-files', async () => {
     const computer = new FakeComputer()
-    computer.files.set('/workspace/user-files/../temp/secret.txt', Buffer.from('secret'))
+    computer.files.set('/agents/agent-1/user-files/../temp/secret.txt', Buffer.from('secret'))
     const tool = createReplyAttachmentTool(contextFor(computer))
 
     await expect(
-      tool.execute('call-reply-attachment-escape', { path: '/workspace/user-files/../temp/secret.txt' })
-    ).rejects.toThrow('reply_attachment only accepts files under /workspace/user-files')
+      tool.execute('call-reply-attachment-escape', { path: '/agents/agent-1/user-files/../temp/secret.txt' })
+    ).rejects.toThrow('reply_attachment only accepts files under /agents/agent-1/user-files')
   })
 
   it('explains foreground timeout recovery when a command hits exit 124', async () => {
@@ -202,7 +208,7 @@ describe('computer tools', () => {
 
     expect(text).toContain('exit_code=124')
     expect(text).toContain('command timed out after 1s')
-    expect(text).toContain('background_agent_job(start)')
+    expect(text).toContain('create_background_job')
     expect(text).not.toContain('background=true')
     expect(text).toContain('partial output')
   })
@@ -376,34 +382,37 @@ describe('computer tools', () => {
 
   it('rejects patch writes that escape the real workspace filesystem boundary', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'ankole-patch-boundary-'))
-    const workspaceRoot = join(tempRoot, 'workspace')
+    const agentHome = join(tempRoot, 'agent-1')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     const outsidePath = join(tempRoot, 'outside.txt')
     mkdirSync(workspaceRoot, { recursive: true })
     writeFileSync(outsidePath, 'secret\n')
 
     try {
-      const computer = createContainerComputer(workspaceRoot)
+      const computer = createContainerComputer(agentHome, workspaceRoot)
       const tool = createReplaceTool({
         executionScopeID: 'scope-patch-boundary',
+        agentHome,
         workspaceRoot,
+        userFilesRoot: join(agentHome, 'user-files'),
         getComputer: async () => computer
       })
 
       await expect(
         tool.execute('call-1', {
-          path: '/workspace/../outside.txt',
+          path: outsidePath,
           old_string: 'secret',
           new_string: 'leaked'
         })
-      ).rejects.toThrow('path escapes workspace root')
+      ).rejects.toThrow('path escapes Agent Home')
 
       await expect(
         tool.execute('call-2', {
-          path: '../created-outside.txt',
+          path: '../../../created-outside.txt',
           old_string: '',
           new_string: 'created outside\n'
         })
-      ).rejects.toThrow('path escapes workspace root')
+      ).rejects.toThrow('path escapes Agent Home')
 
       expect(readFileSync(outsidePath, 'utf-8')).toBe('secret\n')
       expect(existsSync(join(tempRoot, 'created-outside.txt'))).toBe(false)
@@ -412,29 +421,29 @@ describe('computer tools', () => {
     }
   })
 
-  it('allows the declared user-files projection but rejects other symlink escapes', async () => {
+  it('reads direct user-files paths but rejects symbolic-link escapes from Agent Home', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'ankole-computer-symlink-boundary-'))
-    const workspaceRoot = join(tempRoot, 'workspace')
-    const userFilesRoot = join(tempRoot, 'user-files')
+    const agentHome = join(tempRoot, 'agent-1')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
+    const userFilesRoot = join(agentHome, 'user-files')
     const outsidePath = join(tempRoot, 'outside.txt')
     mkdirSync(workspaceRoot, { recursive: true })
     mkdirSync(userFilesRoot, { recursive: true })
     writeFileSync(join(userFilesRoot, 'allowed.txt'), 'allowed')
     writeFileSync(outsidePath, 'secret')
-    symlinkSync(userFilesRoot, join(workspaceRoot, 'user-files'), 'dir')
     symlinkSync(outsidePath, join(workspaceRoot, 'escaped.txt'))
 
     try {
-      const computer = createContainerComputer(workspaceRoot)
-      expect(await computer.readFileToBuffer({ path: '/workspace/user-files/allowed.txt' })).toEqual(
+      const computer = createContainerComputer(agentHome, workspaceRoot)
+      expect(await computer.readFileToBuffer({ path: join(userFilesRoot, 'allowed.txt') })).toEqual(
         Buffer.from('allowed')
       )
-      await expect(computer.readFileToBuffer({ path: '/workspace/escaped.txt' })).rejects.toThrow(
+      await expect(computer.readFileToBuffer({ path: join(workspaceRoot, 'escaped.txt') })).rejects.toThrow(
         'path resolves outside workspace roots'
       )
-      await expect(computer.fs.writeFiles([{ path: '/workspace/escaped.txt', content: 'changed' }])).rejects.toThrow(
-        'path resolves outside workspace roots'
-      )
+      await expect(
+        computer.fs.writeFiles([{ path: join(workspaceRoot, 'escaped.txt'), content: 'changed' }])
+      ).rejects.toThrow('path resolves outside workspace roots')
       expect(readFileSync(outsidePath, 'utf8')).toBe('secret')
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })

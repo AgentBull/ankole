@@ -10,7 +10,6 @@ defmodule Ankole.Brain.Supervision do
 
   import Ecto.Query
 
-  alias Ankole.Brain.HealthCheck
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.AuditLog
@@ -87,8 +86,18 @@ defmodule Ankole.Brain.Supervision do
           {:ok, map()} | {:error, term()}
   def capture_source(owner_uid, store_key, attrs, actor_uid, opts \\ []) do
     with {:ok, scope} <- Scope.for_store(owner_uid, store_key),
-         {:ok, source} <- Sources.capture(scope, attrs, actor_uid, opts) do
-      Sources.open_console(scope, source.document_id)
+         {:ok, material} <- Sources.capture_material(scope, attrs, actor_uid, opts) do
+      case material do
+        %{resource_kind: :retained_source, source: source} ->
+          with {:ok, source} <- Sources.open_console(scope, source.document_id) do
+            {:ok, %{resource_kind: "retained_source", source: source}}
+          end
+
+        %{resource_kind: :entry, entry_id: entry_id} ->
+          with {:ok, projection} <- Knowledge.open(scope, entry_id, block_limit: :all) do
+            {:ok, %{resource_kind: "entry", entry: knowledge_projection(projection)}}
+          end
+      end
     end
   end
 
@@ -108,14 +117,6 @@ defmodule Ankole.Brain.Supervision do
   def source_raw(owner_uid, document_id) do
     with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
       Sources.raw(scope, document_id)
-    end
-  end
-
-  @doc "Recomputes deterministic candidates for an explicitly requested human review."
-  @spec review_candidates(String.t()) :: {:ok, map()} | {:error, term()}
-  def review_candidates(owner_uid) do
-    with {:ok, scope} <- Scope.for_console(owner_uid, :all) do
-      HealthCheck.run(scope)
     end
   end
 
@@ -285,53 +286,61 @@ defmodule Ankole.Brain.Supervision do
   # if a human overrode the same block within the horizon before any later
   # dreaming write of that block. Grouped by the run that produced them.
   defp fitness_run_rows(owner_uid, lookback_start, matured_before, horizon_days) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
     sql = """
     SELECT
-      dp.run_id,
-      count(*) AS produced,
-      count(*) FILTER (WHERE dp.matured) AS matured,
-      count(*) FILTER (WHERE dp.matured AND dp.corrected) AS corrected,
-      min(dp.inserted_at) AS first_at,
-      max(dp.inserted_at) AS last_at
+    dp.run_id,
+    count(*) AS produced,
+    count(*) FILTER (WHERE dp.matured) AS matured,
+    count(*) FILTER (WHERE dp.matured AND dp.corrected) AS corrected,
+    min(dp.inserted_at) AS first_at,
+    max(dp.inserted_at) AS last_at
     FROM (
-      SELECT
-        p.metadata ->> 'run_id' AS run_id,
-        (p.inserted_at <= $3) AS matured,
-        EXISTS (
-          SELECT 1
-          FROM brain_audit_log h
-          WHERE h.owner_uid = $1
-            AND h.actor_kind = 'human'
-            AND h.action IN ('edit_block', 'delete_block')
-            AND h.block_id = p.block_id
-            AND h.inserted_at > p.inserted_at
-            AND h.inserted_at <= p.inserted_at + ($4 * INTERVAL '1 day')
-            AND NOT EXISTS (
-              SELECT 1
-              FROM brain_audit_log later
-              WHERE later.owner_uid = $1
-                AND later.actor_kind = 'dreaming'
-                AND later.action IN ('append_block', 'edit_block')
-                AND later.block_id = p.block_id
-                AND later.inserted_at > p.inserted_at
-                AND later.inserted_at < h.inserted_at
-            )
-        ) AS corrected,
-        p.inserted_at
-      FROM brain_audit_log p
-      WHERE p.owner_uid = $1
-        AND p.actor_kind = 'dreaming'
-        AND p.action IN ('append_block', 'edit_block')
-        AND p.block_id IS NOT NULL
-        AND p.inserted_at >= $2
+    SELECT
+      p.metadata ->> 'run_id' AS run_id,
+      (p.inserted_at <= $4) AS matured,
+      EXISTS (
+        SELECT 1
+        FROM brain_audit_log h
+        WHERE h.owner_uid = p.owner_uid
+          AND h.store_key = p.store_key
+          AND h.actor_kind = 'human'
+          AND h.action IN ('edit_block', 'delete_block')
+          AND h.block_id = p.block_id
+          AND h.inserted_at > p.inserted_at
+          AND h.inserted_at <= p.inserted_at + ($5 * INTERVAL '1 day')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM brain_audit_log later
+            WHERE later.owner_uid = p.owner_uid
+              AND later.store_key = p.store_key
+              AND later.actor_kind = 'dreaming'
+              AND later.action IN ('append_block', 'edit_block')
+              AND later.block_id = p.block_id
+              AND later.inserted_at > p.inserted_at
+              AND later.inserted_at < h.inserted_at
+          )
+      ) AS corrected,
+      p.inserted_at
+    FROM brain_audit_log p
+    WHERE (
+        (p.owner_uid = $1 AND p.store_key <> 'shared') OR
+        (p.owner_uid = $2 AND p.store_key = 'shared' AND p.actor_uid = $1)
+      )
+      AND p.actor_kind = 'dreaming'
+      AND p.action IN ('append_block', 'edit_block')
+      AND p.block_id IS NOT NULL
+      AND p.inserted_at >= $3
     ) dp
     GROUP BY dp.run_id
     ORDER BY max(dp.inserted_at) DESC
-    LIMIT $5
+    LIMIT $6
     """
 
     case Repo.query(sql, [
            owner_uid,
+           shared_owner_uid,
            lookback_start,
            matured_before,
            horizon_days,
@@ -433,10 +442,15 @@ defmodule Ankole.Brain.Supervision do
   defp entry_stores(_repo, _owner_uid, []), do: {:ok, []}
 
   defp entry_stores(repo, owner_uid, entry_ids) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
     rows =
       repo.all(
         from entry in Entry,
-          where: entry.owner_uid == ^owner_uid and entry.id in ^entry_ids,
+          where:
+            entry.id in ^entry_ids and
+              ((entry.owner_uid == ^owner_uid and entry.store_key != "shared") or
+                 (entry.owner_uid == ^shared_owner_uid and entry.store_key == "shared")),
           select: {entry.id, entry.store_key}
       )
 
@@ -446,10 +460,15 @@ defmodule Ankole.Brain.Supervision do
   defp block_stores(_repo, _owner_uid, []), do: {:ok, []}
 
   defp block_stores(repo, owner_uid, block_ids) do
+    shared_owner_uid = Scope.shared_owner_uid()
+
     rows =
       repo.all(
         from block in EntryBlock,
-          where: block.owner_uid == ^owner_uid and block.id in ^block_ids,
+          where:
+            block.id in ^block_ids and
+              ((block.owner_uid == ^owner_uid and block.store_key != "shared") or
+                 (block.owner_uid == ^shared_owner_uid and block.store_key == "shared")),
           select: {block.id, block.store_key}
       )
 

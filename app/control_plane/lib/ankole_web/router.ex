@@ -212,7 +212,7 @@ defmodule AnkoleWeb.Router do
     get "/brain/sources/:document_id/raw", BrainController, :source_raw
     post "/brain/sources", BrainController, :create_source
     post "/brain/sources/:document_id/learning-runs", BrainController, :learn_source
-    get "/brain/review-candidates", BrainController, :review_candidates
+    get "/brain/status", BrainController, :status
     post "/brain/audit-log/restorations", BrainController, :restore_audits
     post "/brain/audit-log/:audit_id/restorations", BrainController, :restore_audit
     post "/brain/dreaming-runs", BrainController, :run_dreaming
@@ -262,6 +262,10 @@ defmodule AnkoleWeb.Router do
     put "/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name",
         SignalBindingController,
         :put_binding
+
+    patch "/agents/:agent_uid/signal-bindings/:binding_name",
+          SignalBindingController,
+          :update_binding
 
     delete "/agents/:agent_uid/signal-bindings/:binding_name",
            SignalBindingController,

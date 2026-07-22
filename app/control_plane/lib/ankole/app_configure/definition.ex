@@ -15,6 +15,7 @@ defmodule Ankole.AppConfigure.Definition do
     :scope,
     :encrypted,
     :worker_env_name,
+    console_writable: true,
     default?: false
   ]
 
@@ -27,6 +28,7 @@ defmodule Ankole.AppConfigure.Definition do
           description: String.t() | nil,
           generator: (-> term()) | nil,
           scope: :scoped | :global,
+          console_writable: boolean(),
           worker_env_name: String.t() | nil
         }
 
@@ -49,6 +51,7 @@ defmodule Ankole.AppConfigure.Definition do
          {:ok, description} <- fetch_optional_string(attrs, :description),
          {:ok, generator} <- fetch_optional_generator(attrs),
          {:ok, scope} <- fetch_scope(attrs),
+         {:ok, console_writable} <- fetch_console_writable(attrs),
          {:ok, worker_env_name} <- fetch_optional_worker_env_name(attrs) do
       {:ok,
        %__MODULE__{
@@ -60,6 +63,7 @@ defmodule Ankole.AppConfigure.Definition do
          description: description,
          generator: generator,
          scope: scope,
+         console_writable: console_writable,
          worker_env_name: worker_env_name
        }}
     end
@@ -171,6 +175,14 @@ defmodule Ankole.AppConfigure.Definition do
       {:ok, nil} -> {:ok, :scoped}
       {:ok, _scope} -> {:error, :invalid_scope}
       :error -> {:ok, :scoped}
+    end
+  end
+
+  defp fetch_console_writable(attrs) do
+    case Map.fetch(attrs, :console_writable) do
+      {:ok, value} when is_boolean(value) -> {:ok, value}
+      {:ok, _value} -> {:error, {:invalid_boolean, :console_writable}}
+      :error -> {:ok, true}
     end
   end
 

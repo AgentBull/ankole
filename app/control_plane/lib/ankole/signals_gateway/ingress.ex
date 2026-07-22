@@ -28,7 +28,6 @@ defmodule Ankole.SignalsGateway.Ingress do
   import Ankole.SignalsGateway.Utils,
     only: [
       collect_results: 1,
-      fetch_value: 2,
       normalize_provider_lifecycle_kind: 1
     ]
 
@@ -70,7 +69,7 @@ defmodule Ankole.SignalsGateway.Ingress do
   def emit_entry_removed(agent_uid, binding_name, input, options \\ []) do
     provider_lifecycle_kind =
       Keyword.get(options, :provider_lifecycle_kind) ||
-        fetch_value(input, :provider_lifecycle_kind)
+        Map.get(input, :provider_lifecycle_kind)
 
     provider_lifecycle_kind = normalize_provider_lifecycle_kind(provider_lifecycle_kind)
 
@@ -181,6 +180,8 @@ defmodule Ankole.SignalsGateway.Ingress do
   # check comes first: if the human already removed this entry, drop the
   # late receive before writing anything.
   defp accept_entry(binding, fact, now) do
+    fact = capture_entry_brain_store_route(binding, fact)
+
     Repo.transact(fn repo ->
       with :ok <- Projection.lock_entry(repo, fact) do
         case Projection.active_tombstone?(repo, fact, now) do
@@ -198,6 +199,38 @@ defmodule Ankole.SignalsGateway.Ingress do
       end
     end)
   end
+
+  defp capture_entry_brain_store_route(%Binding{} = binding, fact) do
+    case observed_entry_brain_store(binding, fact) do
+      store_key when is_binary(store_key) ->
+        metadata =
+          fact
+          |> Map.get(:metadata, %{})
+          |> Projection.put_entry_brain_store_route(fact.agent_uid, store_key)
+
+        Map.put(fact, :metadata, metadata)
+
+      nil ->
+        fact
+    end
+  end
+
+  defp observed_entry_brain_store(
+         %Binding{confidential_memory: true},
+         %{channel_kind: :im_group, signal_channel_id: channel_id}
+       ),
+       do: "channel:#{channel_id}"
+
+  defp observed_entry_brain_store(%Binding{}, %{channel_kind: :im_group}), do: "shared"
+
+  defp observed_entry_brain_store(%Binding{}, %{channel_kind: :im_dm, author: author}) do
+    case Map.get(author || %{}, "principal_uid") do
+      peer_uid when is_binary(peer_uid) and peer_uid != "" -> "dm:#{String.downcase(peer_uid)}"
+      _missing -> nil
+    end
+  end
+
+  defp observed_entry_brain_store(%Binding{}, _fact), do: "shared"
 
   defp lifecycle_constructor(provider_lifecycle_kind) do
     fn binding, input, now ->
@@ -396,7 +429,7 @@ defmodule Ankole.SignalsGateway.Ingress do
     %{
       "name" => "reply_interaction",
       "value" => resolution,
-      "operator_principal_uid" => fetch_value(action, "operator_principal_uid")
+      "operator_principal_uid" => Map.get(action, "operator_principal_uid")
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

@@ -11,6 +11,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.SignalsGateway.AIGatewayLink
 
   @socket_response_history_limit 32
 
@@ -236,7 +237,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp handle_socket_event(%{"type" => "response.tool_results.record"} = event, state) do
     request = prepare_request(event)
 
-    case AIGateway.record_tool_results(state.subject_uid, request) do
+    case AIGatewayLink.record_tool_results(state.subject_uid, request) do
       {:ok, %{body: body}} ->
         event = tool_results_recorded_event(body)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}

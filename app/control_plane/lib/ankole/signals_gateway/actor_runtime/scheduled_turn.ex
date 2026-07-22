@@ -21,26 +21,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ScheduledTurn do
   defp scheduled_turn_context(%ActorEvent{type: type} = input) do
     data = actor_event_data(input)
     wake_payload = map_value(data, "wake_payload") || %{}
-    delivery = map_value(wake_payload, "delivery") || %{}
 
     %{
       "turn_mode" => scheduled_turn_mode(type),
       "schedule_origin" =>
         reject_nil_values(%{
-          "actor_event_type" => type,
-          "actor_event_id" => input.id,
-          "scheduled_event_id" => map_text(data, "scheduled_event_id"),
           "schedule_kind" => map_text(data, "schedule_kind"),
           "due_at" => map_text(data, "due_at"),
           "fired_at" => map_text(data, "fired_at"),
           "timezone" => map_text(data, "timezone"),
-          "cron_schedule_id" => map_text(data, "cron_schedule_id"),
           "cron_schedule_name" => map_text(wake_payload, "cron_schedule_name"),
           "cron_fire_slot_at" => map_text(data, "cron_fire_slot_at"),
           "trigger" => map_text(wake_payload, "trigger"),
-          "reply_route" => map_value(data, "reply_route") || %{},
-          "payload" => map_value(wake_payload, "payload") || %{},
-          "delivery" => delivery
+          "payload" => map_value(wake_payload, "payload") || %{}
         }),
       "silent_success_allowed" => silent_success_allowed?(input)
     }

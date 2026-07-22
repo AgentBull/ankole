@@ -31,7 +31,10 @@ export type TurnHandlerResult =
  * reaches PostgreSQL-owned semantics directly.
  */
 type SharedTurnOptions = {
+  agentsRoot: string
+  agentHome: string
   workspaceRoot: string
+  userFilesRoot: string
   builtinSkillsRoot: string
   agentInstalledSkillsRoot: string
   internalSkillsRoot?: string
@@ -49,9 +52,6 @@ export type TextTurnLoopOptions = SharedTurnOptions & {
 }
 
 export type CodexJobOptions = SharedTurnOptions & {
-  workspaceSessionsRoot: string
-  sharedFsRoot: string
-  userFilesRoot: string
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   onTurnActivity?: (description?: string) => void
 }

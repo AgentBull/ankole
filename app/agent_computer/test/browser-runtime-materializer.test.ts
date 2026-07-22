@@ -57,7 +57,7 @@ describe('rendered web_fetch fallback materialization', () => {
     expect(first.material.navigation.ssrf_filter).toBe(false)
     expect(first.material.backend).toMatchObject({ args: ['--fallback-only'] })
     expect(first.artifactRoot).toContain('ephemeral-artifacts')
-    expect(first.materialPath).not.toContain('/workspace/')
+    expect(first.materialPath).not.toContain('/agents/')
     await Promise.all([first.cleanup(), second.cleanup()])
   })
 
@@ -194,7 +194,7 @@ describe('persistent Codex browser materialization', () => {
       ANKOLE_BROWSER_ROUTE: runtime.route,
       ANKOLE_BROWSER_SOCKET: '/run/ankole-browser/socket/browser.sock',
       ANKOLE_BROWSER_MATERIAL: '/run/ankole-browser/material/session.json',
-      ANKOLE_BROWSER_ARTIFACT_ROOT: '/workspace/browser'
+      ANKOLE_BROWSER_ARTIFACT_ROOT: join(scopeRoot, 'browser')
     })
     expect(sandbox.env.BROWSER_BACKEND_JSON).toBeUndefined()
     expect(sandbox.binds).toEqual([

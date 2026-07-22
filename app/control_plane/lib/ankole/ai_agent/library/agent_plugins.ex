@@ -34,20 +34,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     with {:ok, agent_plugins} <- sources(opts),
          {:ok, skill_sources} <-
            agent_plugins
-           |> Enum.flat_map(fn agent_plugin ->
-             Enum.map(agent_plugin.skills, fn skill ->
-               %{
-                 skill
-                 | source_hash: agent_plugin.content_hash,
-                   default_enabled: true,
-                   metadata:
-                     skill.metadata
-                     |> Map.put("agent_plugin_id", agent_plugin.id)
-                     |> Map.put("agent_plugin_content_hash", agent_plugin.content_hash)
-                     |> Map.put("agent_plugin_version", agent_plugin.version)
-               }
-             end)
-           end)
+           |> Enum.flat_map(& &1.skills)
            |> reject_duplicate_skill_names() do
       {:ok, skill_sources}
     end
@@ -93,21 +80,23 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     end
   end
 
-  @spec validate_selection_for_agent(String.t(), [String.t()], keyword()) ::
-          {:ok, [String.t()]} | {:error, term()}
-  def validate_selection_for_agent(agent_uid, agent_plugin_ids, opts \\ [])
+  @spec validate_workspace_template_for_agent(String.t(), String.t() | nil, keyword()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def validate_workspace_template_for_agent(agent_uid, workspace_template_id, opts \\ [])
 
-  def validate_selection_for_agent(agent_uid, agent_plugin_ids, opts)
-      when is_list(agent_plugin_ids) and length(agent_plugin_ids) <= 16 and is_list(opts) do
-    with {:ok, agent_plugin_ids} <- validate_agent_plugin_ids(agent_plugin_ids),
+  def validate_workspace_template_for_agent(_agent_uid, nil, _opts), do: {:ok, nil}
+
+  def validate_workspace_template_for_agent(agent_uid, workspace_template_id, opts)
+      when is_binary(workspace_template_id) and is_list(opts) do
+    with :ok <- Contract.validate_identifier(workspace_template_id),
          {:ok, capabilities} <- capabilities_for_agent(agent_uid, opts),
-         {:ok, _selected} <- select_capabilities(agent_plugin_ids, capabilities) do
-      {:ok, agent_plugin_ids}
+         {:ok, _capability} <- select_workspace_template(workspace_template_id, capabilities) do
+      {:ok, workspace_template_id}
     end
   end
 
-  def validate_selection_for_agent(_agent_uid, _agent_plugin_ids, _opts),
-    do: {:error, :invalid_agent_plugin_selection}
+  def validate_workspace_template_for_agent(_agent_uid, _workspace_template_id, _opts),
+    do: {:error, :invalid_workspace_template_id}
 
   @spec set_global_default(String.t(), boolean(), keyword()) :: {:ok, map()} | {:error, term()}
   def set_global_default(agent_plugin_id, enabled, opts \\ [])
@@ -219,7 +208,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
       "id" => agent_plugin.id,
       "description" => agent_plugin.description,
       "version" => agent_plugin.version,
-      "content_hash" => agent_plugin.content_hash,
+      "has_workspace_template" => agent_plugin.has_workspace_template,
       "global_default_enabled" => global_default,
       "override_enabled" => if(agent_uid, do: override, else: nil),
       "effective_enabled" => effective,
@@ -239,51 +228,27 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
     %{
       "id" => capability["id"],
       "description" => capability["description"],
-      "version" => capability["version"],
-      "content_hash" => capability["content_hash"],
+      "has_workspace_template" => capability["has_workspace_template"],
       "skills" =>
         capability["skills"]
         |> Enum.filter(& &1["effective_enabled"])
-        |> Enum.map(fn skill ->
-          %{
-            "catalog_name" => skill["name"],
-            "codex_name" => stable_skill_id(capability["id"], skill["name"])
-          }
-        end)
+        |> Enum.map(&%{"catalog_name" => &1["name"]})
     }
   end
 
-  defp select_capabilities(ids, capabilities) do
-    by_id = Map.new(capabilities, &{&1["id"], &1})
+  defp select_workspace_template(workspace_template_id, capabilities) do
+    case Enum.find(capabilities, &(&1["id"] == workspace_template_id)) do
+      nil ->
+        {:error, {:agent_plugin_not_found, workspace_template_id}}
 
-    Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, selected} ->
-      case Map.get(by_id, id) do
-        nil ->
-          {:halt, {:error, {:agent_plugin_not_found, id}}}
+      %{"effective_enabled" => false} ->
+        {:error, {:agent_plugin_disabled, workspace_template_id}}
 
-        %{"effective_enabled" => false} ->
-          {:halt, {:error, {:agent_plugin_disabled, id}}}
+      %{"has_workspace_template" => false} ->
+        {:error, {:agent_plugin_has_no_workspace_template, workspace_template_id}}
 
-        capability ->
-          {:cont, {:ok, [capability | selected]}}
-      end
-    end)
-    |> case do
-      {:ok, selected} -> {:ok, Enum.reverse(selected)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp validate_agent_plugin_ids(ids) do
-    cond do
-      Enum.any?(ids, &(Contract.validate_identifier(&1) != :ok)) ->
-        {:error, :invalid_agent_plugin_ids}
-
-      Enum.uniq(ids) != ids ->
-        {:error, :duplicate_agent_plugin_id}
-
-      true ->
-        {:ok, Enum.sort(ids)}
+      capability ->
+        {:ok, capability}
     end
   end
 

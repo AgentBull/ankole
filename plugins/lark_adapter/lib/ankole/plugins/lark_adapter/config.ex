@@ -71,22 +71,16 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     with {:ok, app_id} <- required_string(value, "appID"),
          {:ok, app_secret} <- required_string(value, "appSecret"),
          {:ok, domain} <- enum_string(value, "domain", @domains, "feishu"),
-         {:ok, base_url} <- optional_base_url(value, "baseURL"),
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "lark-main"),
-         {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu"),
-         {:ok, bot_open_id} <- optional_string(value, "botOpenID", nil),
-         {:ok, bot_user_id} <- optional_string(value, "botUserID", nil) do
+         {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu") do
       {:ok,
        %{
          "appID" => app_id,
          "appSecret" => app_secret,
          "domain" => domain,
-         "baseURL" => base_url,
          "platformSubjectNamespace" => platform_subject_namespace,
-         "userName" => user_name,
-         "botOpenID" => bot_open_id,
-         "botUserID" => bot_user_id
+         "userName" => user_name
        }}
     end
   end
@@ -186,22 +180,22 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @doc """
   Builds a FeishuOpenAPI client without exposing the secret in inspect output.
 
-  A configured `baseURL` overrides the domain-derived provider URL for both the
-  WS endpoint discovery and HTTP calls; explicit `opts` still win over config.
+  The optional application `:client_opts` value is an internal transport seam
+  for integration tests. Stored binding config cannot override the provider
+  endpoint.
   """
   @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
   def client(config, opts \\ []) when is_map(config) do
-    base_opts =
-      case Map.get(config, "baseURL") do
-        base_url when is_binary(base_url) -> [base_url: base_url]
-        _absent -> []
-      end
+    client_opts =
+      :ankole
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:client_opts, [])
 
     Client.new(
       Map.fetch!(config, "appID"),
       fn -> Map.fetch!(config, "appSecret") end,
       [domain: domain_atom(Map.fetch!(config, "domain"))]
-      |> Keyword.merge(base_opts)
+      |> Keyword.merge(client_opts)
       |> Keyword.merge(opts)
     )
   end
@@ -211,24 +205,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   """
   @spec connection_key(chat_config() | identity_config()) :: {String.t(), String.t()}
   def connection_key(config), do: {Map.fetch!(config, "domain"), Map.fetch!(config, "appID")}
-
-  @doc """
-  Returns whether the official lark-cli can use the binding without changing
-  its provider endpoint.
-
-  The pinned CLI selects the OpenAPI host from `domain` and has no base URL
-  override. A custom `baseURL` therefore remains valid for SignalsGateway but
-  cannot back Lark Skills.
-  """
-  @spec lark_cli_compatible?(chat_config()) :: boolean()
-  def lark_cli_compatible?(%{"baseURL" => nil}), do: true
-
-  def lark_cli_compatible?(%{"baseURL" => base_url, "domain" => domain})
-      when is_binary(base_url) and domain in @domains do
-    String.trim_trailing(base_url, "/") == domain_base_url(domain)
-  end
-
-  def lark_cli_compatible?(_config), do: false
 
   @doc """
   Fingerprints a secret for conflict detection without storing the secret in state.
@@ -247,32 +223,22 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   carry the mentioned bot's `open_id`, so the adapter resolves its own
   `open_id` from `bot/v3/info` (using the app credentials alone) while building
   the live connection and keeps it only in the process-local consumer config as
-  `runtimeBotOpenID`. A config that already carries an explicit `botOpenID`
-  override is left untouched.
+  `runtimeBotOpenID`.
   """
   @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
   def resolve_runtime_bot_identity(config, opts \\ []) when is_map(config) do
-    if present_string?(Map.get(config, "botOpenID")) do
-      config
-    else
-      fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
+    config = Map.delete(config, "runtimeBotOpenID")
+    fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
 
-      case fetcher.(config) do
-        {:ok, open_id} when is_binary(open_id) ->
-          Map.put(config, "runtimeBotOpenID", String.trim(open_id))
+    case fetcher.(config) do
+      {:ok, open_id} when is_binary(open_id) ->
+        case String.trim(open_id) do
+          "" -> runtime_bot_identity_failure(config, :missing_bot_open_id)
+          open_id -> Map.put(config, "runtimeBotOpenID", open_id)
+        end
 
-        {:error, reason} ->
-          Logging.warning(
-            "lark_adapter.config.runtime_bot_open_id_failed",
-            "lark adapter could not resolve runtime bot open_id",
-            %{
-              app_id: Map.get(config, "appID"),
-              reason: inspect(reason)
-            }
-          )
-
-          config
-      end
+      {:error, reason} ->
+        runtime_bot_identity_failure(config, reason)
     end
   end
 
@@ -306,12 +272,22 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     end
   end
 
+  defp runtime_bot_identity_failure(config, reason) do
+    Logging.warning(
+      "lark_adapter.config.runtime_bot_open_id_failed",
+      "lark adapter could not resolve runtime bot open_id",
+      %{
+        app_id: Map.get(config, "appID"),
+        reason: inspect(reason)
+      }
+    )
+
+    config
+  end
+
   defp app_config_key("app-config://" <> key), do: {:ok, key}
   defp app_config_key("app-config:" <> key), do: {:ok, key}
   defp app_config_key(key) when is_binary(key), do: {:ok, key}
-
-  defp present_string?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present_string?(_value), do: false
 
   defp load_chat_config_ref_in_tx(repo, config_ref) do
     with {:ok, key} <- app_config_key(config_ref),
@@ -367,25 +343,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
       _value ->
         {:error, {:missing, key}}
-    end
-  end
-
-  defp optional_base_url(map, key) do
-    with {:ok, value} <- optional_string(map, key, nil) do
-      case value do
-        nil ->
-          {:ok, nil}
-
-        url ->
-          case URI.parse(url) do
-            %URI{scheme: scheme, host: host}
-            when scheme in ["http", "https"] and is_binary(host) ->
-              {:ok, url}
-
-            _uri ->
-              {:error, {:invalid_base_url, key}}
-          end
-      end
     end
   end
 

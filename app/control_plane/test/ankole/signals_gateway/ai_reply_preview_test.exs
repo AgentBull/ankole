@@ -687,7 +687,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
       %{
         discovered: %{spec.id => spec},
         active: %{spec.id => spec},
-        disabled_ids: MapSet.new()
+        enabled_ids: MapSet.new([spec.id])
       }
     end)
 

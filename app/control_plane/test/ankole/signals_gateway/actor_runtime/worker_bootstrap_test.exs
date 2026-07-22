@@ -46,8 +46,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
   end
 
   describe "worker_spec/1" do
-    test "adds canonical auth, connectivity, and workspace guarantees" do
-      workspace_root = "/tmp/ankole worker"
+    test "adds canonical auth, connectivity, and Agent Home guarantees" do
+      agents_root = "/tmp/ankole agents"
 
       assert {:ok,
               %Spec{
@@ -62,23 +62,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                   ]
                 },
                 env: %{
+                  "ANKOLE_AGENTS_ROOT" => "/agents",
                   "WORKER_ID" => "worker-a",
                   "RUNTIME_FABRIC_URL" => runtime_fabric_url
                 },
-                host_setup_dirs: [
-                  "/tmp/ankole worker/shared/user-files",
-                  "/tmp/ankole worker/shared/skills/agents",
-                  "/tmp/ankole worker/sessions"
-                ],
+                host_setup_dirs: ["/tmp/ankole agents"],
                 mounts: [
                   %{
-                    source: "/tmp/ankole worker/shared",
-                    target: "/workspace/shared",
-                    readonly: false
-                  },
-                  %{
-                    source: "/tmp/ankole worker/sessions",
-                    target: "/workspace/.sessions",
+                    source: "/tmp/ankole agents",
+                    target: "/agents",
                     readonly: false
                   }
                 ]
@@ -88,7 +80,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                  worker_id: "worker-a",
                  auth_key: "secret with / symbols",
                  image: "ankole-agent-computer:0.1.0",
-                 workspace_root: workspace_root
+                 agents_root: agents_root
                )
 
       assert runtime_fabric_url ==
@@ -106,19 +98,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                "--add-host",
                "host.docker.internal=host-gateway",
                "-e",
+               "ANKOLE_AGENTS_ROOT=/agents",
+               "-e",
                "RUNTIME_FABRIC_URL=tcp://:secret+with+%2F+symbols@host.docker.internal:6010",
                "-e",
                "WORKER_ID=worker-a",
                "--mount",
-               "type=bind,src=/tmp/ankole worker/shared,dst=/workspace/shared",
-               "--mount",
-               "type=bind,src=/tmp/ankole worker/sessions,dst=/workspace/.sessions",
+               "type=bind,src=/tmp/ankole agents,dst=/agents",
                "ankole-agent-computer:0.1.0"
              ]
 
       shell = Docker.shell_command(spec)
-      assert shell =~ "mkdir -p '/tmp/ankole worker/shared/user-files'"
-      assert shell =~ "'type=bind,src=/tmp/ankole worker/shared,dst=/workspace/shared'"
+      assert shell =~ "mkdir -p '/tmp/ankole agents'"
+      assert shell =~ "'type=bind,src=/tmp/ankole agents,dst=/agents'"
 
       assert_raise ArgumentError, ~r/cannot replace canonical environment/, fn ->
         Docker.argv(spec, additional_env: %{"WORKER_ID" => "adapter-worker"})
@@ -133,7 +125,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                  endpoint: "tcp://127.0.0.1:6010",
                  worker_id: "worker-app-config",
                  image: "ankole-agent-computer:test",
-                 workspace_root: "/tmp/ankole-worker"
+                 agents_root: "/tmp/ankole-agents"
                )
 
       assert runtime_fabric_url ==
@@ -141,7 +133,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
     end
 
     test "rejects invalid or incomplete worker inputs" do
-      assert {:error, {:missing, :workspace_root}} =
+      assert {:error, {:missing, :agents_root}} =
                WorkerBootstrap.worker_spec(
                  endpoint: "tcp://127.0.0.1:6010",
                  worker_id: "worker-a",
@@ -155,7 +147,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                  worker_id: "worker-a",
                  image: "ankole-agent-computer:test",
                  auth_key: "",
-                 workspace_root: "/tmp/ankole-worker"
+                 agents_root: "/tmp/ankole-agents"
                )
 
       assert {:error, :invalid_runtime_fabric_endpoint} =
@@ -164,7 +156,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrapTest do
                  worker_id: "worker-a",
                  image: "ankole-agent-computer:test",
                  auth_key: "secret",
-                 workspace_root: "/tmp/ankole-worker"
+                 agents_root: "/tmp/ankole-agents"
                )
     end
   end

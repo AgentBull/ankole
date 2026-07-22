@@ -86,64 +86,6 @@ defmodule Ankole.SignalsGateway.Utils do
 
   def normalize_agent_uid_attr(attrs), do: attrs
 
-  def fetch_value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-
-  def fetch_value(_map, _key), do: nil
-
-  def fetch_map(map, key, default) do
-    case fetch_value(map, key) do
-      value when is_map(value) -> value
-      _value -> default
-    end
-  end
-
-  def fetch_list(map, key) do
-    case fetch_value(map, key) do
-      value when is_list(value) -> value
-      nil -> []
-      value -> [value]
-    end
-  end
-
-  def required_text(map, key) do
-    case optional_text(map, key) do
-      nil -> {:error, {:missing_required_text, key}}
-      value -> {:ok, value}
-    end
-  end
-
-  def optional_text(map, key) when is_map(map) do
-    case fetch_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
-
-      nil ->
-        nil
-
-      value when is_atom(value) ->
-        Atom.to_string(value)
-
-      value when is_integer(value) ->
-        Integer.to_string(value)
-
-      _value ->
-        nil
-    end
-  end
-
-  def optional_text(_map, _key), do: nil
-
-  def fetch_datetime(map, key) do
-    case fetch_value(map, key) do
-      %DateTime{} = datetime -> datetime
-      _value -> nil
-    end
-  end
-
   def normalize_channel_kind(value) when value in [:im_dm, "im_dm"], do: :im_dm
   def normalize_channel_kind(value) when value in [:im_group, "im_group"], do: :im_group
 
@@ -172,19 +114,12 @@ defmodule Ankole.SignalsGateway.Utils do
   def normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
   def normalize_uid(uid), do: uid
 
-  def update_enum_text(map, key) do
-    case fetch_value(map, key) do
-      value when is_atom(value) -> Map.put(map, key, Atom.to_string(value))
-      _value -> map
-    end
-  end
-
   def structured_mention?(mention, agent_uid) when is_map(mention) do
     structured? =
-      truthy?(fetch_value(mention, :structured)) ||
-        fetch_value(mention, :kind) in [:agent, "agent", :bot, "bot"]
+      truthy?(Map.get(mention, "structured")) ||
+        Map.get(mention, "kind") in ["agent", "bot"]
 
-    mentioned_agent = optional_text(mention, :agent_uid)
+    mentioned_agent = json_text(mention, "agent_uid")
 
     structured? and targets_current_agent?(mention) and
       (is_nil(mentioned_agent) or normalize_uid(mentioned_agent) == agent_uid)
@@ -193,10 +128,23 @@ defmodule Ankole.SignalsGateway.Utils do
   def structured_mention?(_mention, _agent_uid), do: false
 
   defp targets_current_agent?(mention) do
-    case fetch_value(mention, :targets_current_agent) do
+    case Map.get(mention, "targets_current_agent") do
       false -> false
       "false" -> false
       _value -> true
+    end
+  end
+
+  defp json_text(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _value ->
+        nil
     end
   end
 end

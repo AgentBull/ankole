@@ -47,7 +47,13 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
 
   operation(:show,
     summary: "Read one background Agent Job and its runtime Turn trajectory",
-    parameters: [job_id: [in: :path, type: :string, required: true]],
+    parameters: [
+      job_id: [
+        in: :path,
+        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        required: true
+      ]
+    ],
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -58,7 +64,13 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
 
   operation(:cancel,
     summary: "Cancel one queued or active background Agent Job",
-    parameters: [job_id: [in: :path, type: :string, required: true]],
+    parameters: [
+      job_id: [
+        in: :path,
+        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        required: true
+      ]
+    ],
     responses: [
       ok: {"Background Agent Job", "application/json", BackgroundAgentJobResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -114,9 +126,10 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   defp job(params) do
     params
     |> param("job_id")
+    |> BackgroundAgentJobs.parse_job_id()
     |> case do
-      id when is_binary(id) -> BackgroundAgentJobs.get_job(id)
-      _value -> nil
+      {:ok, id} -> BackgroundAgentJobs.get_job(id)
+      :error -> nil
     end
   end
 

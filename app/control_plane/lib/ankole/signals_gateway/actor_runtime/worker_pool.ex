@@ -2,8 +2,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @moduledoc """
   Worker placement boundary for actor sessions.
 
-  Maps an actor key to a ready worker. Assignments are sticky (an actor reuses
-  the same worker while it stays usable, to cut churn) but they are only hints:
+  Maps an actor key to a ready worker. Every live Session or Job for one Agent
+  stays on one worker so Agent-level Codex state is never actively used by two
+  worker instances. Assignments remain rebuildable hints:
   the `agent_computer_worker` table remains the liveness source, and every
   placement revalidates the worker behind the assignment. If the assigned worker
   is gone, the assignment is released and re-placed. Crucially, an assignment is
@@ -18,6 +19,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   alias Ecto.Adapters.SQL
 
   alias Ankole.BackgroundAgentJobs
+  alias Ankole.Logging
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobWorkerConfig
@@ -51,7 +54,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     actor_key = normalize_actor_key(actor_key)
 
     with :ok <- lock_actor_assignment_in_tx(repo, actor_key) do
-      do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
+      case live_agent_worker_ids(repo, actor_key.agent_uid) do
+        [] ->
+          do_assign_worker_in_tx(repo, actor_key, now, job_limit(actor_key))
+
+        [worker_id] ->
+          assign_pinned_worker(repo, actor_key, worker_id, now, job_limit(actor_key))
+
+        worker_ids ->
+          Logging.warning(
+            "signals_gateway.worker_pool.agent_worker_overlap",
+            "Agent has live deliveries on multiple workers; placement is held until fences converge",
+            %{agent_uid: actor_key.agent_uid, worker_ids: worker_ids}
+          )
+
+          {:error, :no_worker_available}
+      end
     end
   end
 
@@ -77,7 +95,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @doc """
   Resolves the live route for one specific worker.
 
-  Workers mount the installation's shared RWX workspace, but this operator API
+  Workers mount the installation's shared RWX Agent filesystem, but this operator API
   deliberately targets one worker so mount reachability and failures remain
   attributable to the selected runtime. Unlike `file_worker_route/0`, it never
   falls back to another worker.
@@ -140,7 +158,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     end
   end
 
-  # The actor advisory lock serializes placement for one session. Reading the
+  # The Agent advisory lock serializes placement across all of its Sessions and Jobs. Reading the
   # assignment first without a row lock lets revalidation acquire the worker
   # before the assignment, matching worker-stale recovery's global lock order.
   defp live_assignment_snapshot(repo, actor_key) do
@@ -162,6 +180,47 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
       nil -> {:error, :no_worker_available}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp assign_pinned_worker(repo, actor_key, worker_id, now, job_limit) do
+    worker = lock_assignment_worker(repo, worker_id)
+    assignment = live_assignment_snapshot(repo, actor_key)
+    assignment = if assignment, do: lock_live_assignment(repo, assignment, actor_key)
+
+    cond do
+      not match?(%AgentComputerWorker{status: @ready_worker_status}, worker) ->
+        {:error, :no_worker_available}
+
+      not worker_has_capacity?(worker) or not worker_has_job_capacity?(repo, worker, job_limit) ->
+        {:error, :no_worker_available}
+
+      match?(%ActorSessionWorkerAssignment{worker_id: ^worker_id}, assignment) ->
+        with {:ok, worker} <- reserve_worker_slot(repo, worker) do
+          touch_assignment(repo, assignment, worker, now)
+        end
+
+      match?(%ActorSessionWorkerAssignment{}, assignment) ->
+        with {:ok, _released} <- release_assignment(repo, assignment),
+             {:ok, worker} <- reserve_worker_slot(repo, worker) do
+          insert_assignment(repo, actor_key, worker, now)
+        end
+
+      true ->
+        with {:ok, worker} <- reserve_worker_slot(repo, worker) do
+          insert_assignment(repo, actor_key, worker, now)
+        end
+    end
+  end
+
+  defp live_agent_worker_ids(repo, agent_uid) do
+    ActorEventDelivery
+    |> where([delivery], delivery.agent_uid == ^agent_uid)
+    |> where([delivery], delivery.state in ^ActorEventDelivery.live_states())
+    |> where([delivery], not is_nil(delivery.worker_id))
+    |> select([delivery], delivery.worker_id)
+    |> distinct(true)
+    |> repo.all()
+    |> Enum.sort()
   end
 
   defp reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit) do
@@ -252,43 +311,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   end
 
   defp reserve_capacity(capacity) when is_map(capacity) do
-    case integer_from_map(capacity, "available_turn_slots") do
+    case Map.get(capacity, "available_turn_slots") do
       slots when is_integer(slots) ->
         Map.put(capacity, "available_turn_slots", max(slots - 1, 0))
 
-      nil ->
+      _value ->
         capacity
     end
   end
 
-  defp reserve_capacity(_capacity), do: %{}
-
   defp reserve_load(load) when is_map(load) do
-    active_turns = integer_from_map(load, "active_turns") || 0
+    active_turns =
+      case Map.get(load, "active_turns") do
+        value when is_integer(value) -> value
+        _value -> 0
+      end
+
     Map.put(load, "active_turns", active_turns + 1)
   end
 
   defp reserve_load(_load), do: %{"active_turns" => 1}
 
-  # Accepts either explicit available slots or max-minus-active reporting. This
-  # keeps the worker protocol small while allowing older and newer workers to
-  # share the same homogeneous pool.
-  defp worker_has_capacity?(%AgentComputerWorker{capacity: capacity, load: load}) do
-    available_slots =
-      integer_from_map(capacity, "available_turn_slots") ||
-        case {integer_from_map(capacity, "max_turns"), integer_from_map(load, "active_turns")} do
-          {max_turns, active_turns} when is_integer(max_turns) and is_integer(active_turns) ->
-            max_turns - active_turns
+  defp worker_has_capacity?(%AgentComputerWorker{
+         capacity: %{"available_turn_slots" => slots}
+       })
+       when is_integer(slots),
+       do: slots > 0
 
-          _value ->
-            nil
-        end
-
-    case available_slots do
-      slots when is_integer(slots) -> slots > 0
-      nil -> false
-    end
-  end
+  defp worker_has_capacity?(%AgentComputerWorker{}), do: false
 
   defp worker_has_job_capacity?(_repo, _worker, nil), do: true
 
@@ -345,7 +395,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     case SQL.query(
            repo,
            "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-           [actor_key.agent_uid, actor_key.session_id]
+           [actor_key.agent_uid, "agent-worker"]
          ) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
@@ -357,21 +407,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
        do: BackgroundAgentJobWorkerConfig.max_turns_per_worker()
 
   defp job_limit(_actor_key), do: nil
-
-  defp integer_from_map(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
-      _value -> nil
-    end
-  end
-
-  defp integer_from_map(_map, _key), do: nil
-
-  defp parse_integer(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _value -> nil
-    end
-  end
 end

@@ -1,6 +1,6 @@
 defmodule Ankole.E2E.LarkBrainRealLLME2ETest do
   @moduledoc """
-  Dedicated real-model acceptance for `internals/docs/Brain.zh.md` section 13.
+  Dedicated real-model acceptance for `internals/docs/BrainV2.zh.md`.
 
   This suite is intentionally excluded from the normal gate and `--all`.
   Run it with `tools/e2e/run --brain-real-llm`.
@@ -53,9 +53,23 @@ defmodule Ankole.E2E.LarkBrainRealLLME2ETest do
   end
 
   @tag :brain_dm_isolation
-  test "DM knowledge stays private while public knowledge remains readable from DM" do
+  test "DM knowledge stays private while shared knowledge is readable across agents" do
     ctx = start_brain_stack!()
-    assert %{private: _private, public: _public} = run_dm_isolation(ctx)
+    assert %{private: _private, shared: _shared} = run_dm_isolation(ctx)
+  end
+
+  @tag :brain_unified_recall_ranking
+  test "an exact chat error ranks before old weak knowledge" do
+    ctx = start_brain_stack!()
+
+    assert %{chat_source: _source, weak_entry: _entry, turn: _turn} =
+             run_unified_recall_ranking(ctx)
+  end
+
+  @tag :brain_episode_paraphrase
+  test "a paraphrase recalls an embedded episode and its source messages" do
+    ctx = start_brain_stack!()
+    assert %{episode: _episode, sources: [_ | _], turn: _turn} = run_episode_paraphrase(ctx)
   end
 
   @tag :brain_dreaming_idempotence
@@ -69,6 +83,20 @@ defmodule Ankole.E2E.LarkBrainRealLLME2ETest do
            } = run_dreaming_idempotence(ctx)
   end
 
+  @tag :brain_dreaming_convergence
+  test "dreaming rewrites one topic and records its explicit linked relation" do
+    ctx = start_brain_stack!()
+
+    assert %{project: _project, organization: _organization, relation: _relation} =
+             run_dreaming_convergence(ctx)
+  end
+
+  @tag :brain_source_mirror_sync
+  test "a connector revision replaces a read-only mirror and deletion withdraws it" do
+    ctx = start_brain_stack!()
+    assert %{source: _source, first: _first, second: _second} = run_source_mirror_sync(ctx)
+  end
+
   @tag :brain_human_review
   test "human review begins with health checks and applies the oral decision" do
     ctx = start_brain_stack!()
@@ -79,7 +107,7 @@ defmodule Ankole.E2E.LarkBrainRealLLME2ETest do
   test "skill correction survives into the next skill load" do
     ctx = start_brain_stack!()
     assert %{overlay: overlay, turns: [_learned, _loaded]} = run_skill_learning(ctx)
-    assert overlay =~ "PDF_RENDER_EVERY_PAGE"
+    assert overlay =~ "REVIEW_OPEN_SOURCE_FIRST"
   end
 
   @tag :brain_retraction

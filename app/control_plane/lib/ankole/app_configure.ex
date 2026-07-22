@@ -318,7 +318,7 @@ defmodule Ankole.AppConfigure do
   end
 
   @doc """
-  Returns one editable AppConfigure detail projection for the console.
+  Returns one console-visible AppConfigure detail projection.
   """
   @spec console_detail_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
   def console_detail_by_key(key) when is_binary(key) do
@@ -625,11 +625,14 @@ defmodule Ankole.AppConfigure do
 
   defp writable_console_definition(key) do
     case Registry.classify_key(key) do
+      {:ok, {:exact, %Definition{console_writable: false}}} ->
+        {:error, {:key_managed_by_owner, key}}
+
       {:ok, {:exact, definition}} ->
         {:ok, {:exact, definition}}
 
       {:ok, {:pattern, %PatternDefinition{console_writable: false}}} ->
-        {:error, {:pattern_key_managed_by_owner, key}}
+        {:error, {:key_managed_by_owner, key}}
 
       {:ok, {:pattern, pattern}} ->
         case global_row(key) do
@@ -653,7 +656,7 @@ defmodule Ankole.AppConfigure do
       description: definition.description,
       encrypted: definition.encrypted,
       scope: Atom.to_string(definition.scope),
-      editable: true,
+      editable: definition.console_writable,
       default_present: definition.default?,
       overridden: not is_nil(row)
     }

@@ -28,15 +28,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   import MapHelpers, only: [collect_results: 1, compact_map: 1, fetch_list: 2, optional_text: 2]
 
   @doc "Builds the dispatcher consumer record for one configured identity provider."
-  @spec identity_consumer(String.t(), map(), keyword()) :: map()
-  def identity_consumer(provider_id, config, opts \\ [])
+  @spec identity_consumer(String.t(), map()) :: map()
+  def identity_consumer(provider_id, config)
       when is_binary(provider_id) and is_map(config) do
-    %{
-      kind: :identity_provider,
-      provider_id: provider_id,
-      config: config,
-      client_opts: Keyword.get(opts, :client_opts, [])
-    }
+    %{kind: :identity_provider, provider_id: provider_id, config: config}
   end
 
   @doc "Builds the DingTalk authorization page URL for login."
@@ -57,8 +52,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
 
   @doc "Exchanges a redirect `authCode` for a hydrated enterprise user."
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def exchange_code(config, auth_code, opts \\ []) when is_map(config) and is_binary(auth_code) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+  def exchange_code(config, auth_code, _opts \\ [])
+      when is_map(config) and is_binary(auth_code) do
+    client = Config.client(config)
 
     with {:ok, token} <- OAuth.exchange_code(client, auth_code),
          {:ok, me} <- OAuth.me(client, token.access_token),
@@ -104,9 +100,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   @doc "Runs a full directory sync, stopping on the first write or provider error."
   @spec sync_directory(String.t(), map(), keyword()) ::
           {:ok, %{users: non_neg_integer(), departments: non_neg_integer()}} | {:error, term()}
-  def sync_directory(provider_id, config, opts \\ [])
+  def sync_directory(provider_id, config, _opts \\ [])
       when is_binary(provider_id) and is_map(config) do
-    client = Config.client(config, Keyword.get(opts, :client_opts, []))
+    client = Config.client(config)
 
     with {:ok, department_ids} <- sync_departments(provider_id, client),
          {:ok, users} <- sync_users(provider_id, config, client, department_ids) do
@@ -124,7 +120,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   end
 
   defp handle_contact_event_for_consumer(
-         %{provider_id: provider_id, config: config} = consumer,
+         %{provider_id: provider_id, config: config},
          event_type,
          event
        ) do
@@ -132,7 +128,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
 
     cond do
       event_type in ["user_add_org", "user_modify_org", "user_active_org"] ->
-        requery_users(provider_id, config, user_ids(data), Map.get(consumer, :client_opts, []))
+        requery_users(provider_id, config, user_ids(data))
 
       event_type == "user_leave_org" ->
         # Departure is authoritative and names the departed userids. A full sync
@@ -305,10 +301,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
     end
   end
 
-  defp requery_users(_provider_id, _config, [], _client_opts), do: {:ok, %{status: :no_user_ids}}
+  defp requery_users(_provider_id, _config, []), do: {:ok, %{status: :no_user_ids}}
 
-  defp requery_users(provider_id, config, user_ids, client_opts) do
-    client = Config.client(config, client_opts)
+  defp requery_users(provider_id, config, user_ids) do
+    client = Config.client(config)
 
     user_ids
     |> Enum.reduce_while({:ok, 0}, fn userid, {:ok, count} ->

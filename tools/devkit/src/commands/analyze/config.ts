@@ -34,20 +34,6 @@ export const ALIAS_TSCONFIGS = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// naming: source ownership exceptions
-// ---------------------------------------------------------------------------
-
-/**
- * Source paths whose identifier casing is owned by an external protocol.
- * Keep this narrow: ordinary browser tooling remains subject to Ankole naming.
- */
-export const NAMING_EXTERNAL_PROTOCOL_PATHS = [
-  'app/agent_computer/src/tools/browser/cdp/',
-  'app/agent_computer/test/browser_cdp.test.ts',
-  'app/kernel/index.d.ts'
-] as const
-
-// ---------------------------------------------------------------------------
 // smells: boundary rules
 // ---------------------------------------------------------------------------
 
@@ -88,19 +74,6 @@ export const BOUNDARY_RULES: BoundaryRule[] = [
     reason: 'agent-computer is a worker runtime and must not import frontend packages'
   }
 ]
-
-// ④ public-ish barrels must only re-export from an allowed module list.
-//    Every entry must be on the current runtime path; widening this list is a
-//    deliberate public-surface decision.
-
-export interface BarrelAllowlist {
-  allowed: string[]
-  note: string
-}
-
-export const BARREL_ALLOWLIST: Record<string, BarrelAllowlist> = {}
-
-export const BARREL_EXPORT_CATEGORY = 'barrel-export-out-of-allowlist'
 
 // ---------------------------------------------------------------------------
 // unused: Knip
@@ -143,141 +116,8 @@ export interface UnusedAllowEntry {
  */
 export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
   {
-    file: 'app/library/agent-plugins/deep-research/skills/deep-research/scripts/ach_update.ts',
+    file: 'app/library/agent-plugins/deep-research/workspace-template/tools/list_playbooks.ts',
     owner: 'deep-research Agent Plugin',
-    reason: 'Invoked by the Skill text as a standalone script; the Agent Plugin package is not a Bun workspace.'
-  },
-  {
-    file: 'app/library/agent-plugins/deep-research/skills/deep-research/scripts/archive_source.ts',
-    owner: 'deep-research Agent Plugin',
-    reason: 'Invoked by the Skill text as a standalone script; the Agent Plugin package is not a Bun workspace.'
+    reason: 'Invoked by AGENTS.md for Playbook discovery; the Agent Plugin package is not a Bun workspace.'
   }
 ]
-
-// ---------------------------------------------------------------------------
-// duplicates: jscpd v5
-// ---------------------------------------------------------------------------
-
-export const DUP_FORMATS = 'typescript,tsx,javascript,jsx,elixir,rust'
-export const DUP_THRESHOLDS = { minLines: 50, minTokens: 300 } as const
-
-/** Glob patterns excluded from duplicate scanning (jscpd --ignore). */
-export const DUP_IGNORE_PATTERNS = [
-  '**/node_modules/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/target/**',
-  '**/.turbo/**',
-  '**/coverage/**',
-  '**/.artifacts/**',
-  '**/_build/**',
-  '**/deps/**',
-  '**/*.test.ts',
-  '**/*.test.tsx',
-  '**/*.d.ts',
-  '**/migrations/**',
-  'app/control_plane/lib/ankole/ai_gateway/**',
-  'app/control_plane/lib/ankole_web/ai_gateway_*.ex',
-  'app/control_plane/lib/ankole_web/controllers/ai_gateway_*.ex',
-  'libs/uikit/src/stories/**'
-] as const
-
-export interface DupScan {
-  name: string
-  paths: string[]
-}
-
-/** jscpd scan groups. One cross-module production scan is enough for Ankole. */
-export const DUP_SCANS: DupScan[] = [
-  {
-    name: 'cross-module',
-    paths: [
-      'app/agent_computer/scripts',
-      'app/agent_computer/src',
-      'app/control_plane/lib',
-      'app/kernel/build.rs',
-      'app/kernel/examples',
-      'app/kernel/index.js',
-      'app/kernel/lib',
-      'app/kernel/main.js',
-      'app/kernel/src',
-      'app/webapps',
-      'libs/feishu_openapi/lib',
-      'libs/slack_openapi/lib',
-      'libs/uikit/src',
-      'plugins',
-      'tools/devkit/src'
-    ]
-  }
-]
-
-/** Tracked source extensions used by the --coverage-only assertion. */
-export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.ex', '.rs'])
-
-/**
- * Top-level source areas deliberately NOT duplicate-scanned (so --coverage-only
- * does not flag them). Everything tracked must be either under a DUP_SCANS path
- * or under one of these prefixes.
- */
-export const DUP_INTENTIONALLY_UNSCANNED = [
-  'app/agent_computer/test/',
-  'app/control_plane/config/',
-  'app/control_plane/e2e/',
-  'app/control_plane/lib/ankole/ai_gateway.ex',
-  'app/control_plane/lib/ankole/ai_gateway/',
-  'app/control_plane/lib/ankole_web/ai_gateway_tokens.ex',
-  'app/control_plane/lib/ankole_web/ai_gateway_responses_socket.ex',
-  'app/control_plane/lib/ankole_web/controllers/ai_gateway_controller.ex',
-  'app/control_plane/lib/ankole_web/controllers/ai_gateway_provider_controller.ex',
-  'app/control_plane/lib/ankole_web/controllers/ai_gateway_web_socket_controller.ex',
-  'app/control_plane/test/',
-  'app/kernel/test/',
-  'libs/feishu_openapi/test/',
-  'libs/uikit/src/stories/',
-  // Repo-root e2e support modules compile only in MIX_ENV=test, so they stay
-  // with test harness code instead of the cross-module production scan.
-  'tools/e2e/',
-  'internals/',
-  'knip.config.ts'
-] as const
-
-// ---------------------------------------------------------------------------
-// topology: ts-topology named scopes
-// ---------------------------------------------------------------------------
-
-export interface TopologyScopeConfig {
-  entrypointRoot: string
-  importPrefix: string
-  description: string
-}
-
-export const TOPOLOGY_SCOPES: Record<string, TopologyScopeConfig> = {
-  'agent-computer-core': {
-    entrypointRoot: 'app/agent_computer/src/core',
-    importPrefix: '@/core',
-    description: 'Agent Computer core public surface'
-  },
-  'agent-computer-tools': {
-    entrypointRoot: 'app/agent_computer/src/tools/computer',
-    importPrefix: '@/tools/computer',
-    description: 'Agent Computer computer-tool surface'
-  }
-} as const
-
-export const DEFAULT_TOPOLOGY_SCOPE = 'agent-computer-core'
-
-/**
- * Scopes where `unused-public-surface` is a CI gate. Keep this empty while
- * topology is report-only; add scopes here only when a public surface is stable
- * enough for unused exports to fail CI.
- */
-export const TOPOLOGY_GATED_SCOPES = ['agent-computer-core', 'agent-computer-tools'] as const
-
-export interface TopologyUnusedAllowEntry {
-  scope: string
-  exportName: string
-  owner: string
-  reason: string
-}
-
-export const TOPOLOGY_UNUSED_ALLOWLIST: TopologyUnusedAllowEntry[] = []

@@ -6,46 +6,41 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionSupervisor do
   @registry Ankole.Plugins.SlackAdapter.ConnectionRegistry
   @supervisor Ankole.Plugins.SlackAdapter.ConnectionDynamicSupervisor
 
-  @spec ensure_started(map(), [map()], keyword()) :: {:ok, pid()} | {:error, term()}
-  def ensure_started(config, consumers, opts \\ []) do
-    case Registry.lookup(registry(opts), Config.connection_key(config)) do
-      [{pid, _value}] -> ensure_existing(pid, config, consumers, opts)
-      [] -> start_owner(config, consumers, opts)
+  @spec ensure_started(map(), [map()]) :: {:ok, pid()} | {:error, term()}
+  def ensure_started(config, consumers) do
+    case Registry.lookup(@registry, Config.connection_key(config)) do
+      [{pid, _value}] -> ensure_existing(pid, config, consumers)
+      [] -> start_owner(config, consumers)
     end
   end
 
-  @spec registered_keys(keyword()) :: [term()]
-  def registered_keys(opts \\ []) do
-    registry(opts) |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}]) |> Enum.sort()
+  @spec registered_keys() :: [term()]
+  def registered_keys do
+    @registry |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}]) |> Enum.sort()
   end
 
-  defp ensure_existing(pid, config, consumers, opts) do
+  defp ensure_existing(pid, config, consumers) do
     case ConnectionOwner.ensure_consumers(pid, config, consumers) do
       {:ok, ^pid} ->
         {:ok, pid}
 
       {:error, :consumer_set_changed} ->
-        with :ok <- DynamicSupervisor.terminate_child(supervisor(opts), pid),
-             do: start_owner(config, consumers, opts)
+        with :ok <- DynamicSupervisor.terminate_child(@supervisor, pid),
+             do: start_owner(config, consumers)
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp start_owner(config, consumers, opts) do
-    child_opts =
-      opts
-      |> Keyword.take([:registry, :start_client?, :client_opts, :ws_client_module])
-      |> Keyword.merge(config: config, consumers: consumers)
-
-    case DynamicSupervisor.start_child(supervisor(opts), {ConnectionOwner, child_opts}) do
+  defp start_owner(config, consumers) do
+    case DynamicSupervisor.start_child(
+           @supervisor,
+           {ConnectionOwner, config: config, consumers: consumers}
+         ) do
       {:ok, pid} -> {:ok, pid}
-      {:error, {:already_started, pid}} -> ensure_existing(pid, config, consumers, opts)
+      {:error, {:already_started, pid}} -> ensure_existing(pid, config, consumers)
       {:error, _reason} = error -> error
     end
   end
-
-  defp registry(opts), do: Keyword.get(opts, :registry, @registry)
-  defp supervisor(opts), do: Keyword.get(opts, :supervisor, @supervisor)
 end

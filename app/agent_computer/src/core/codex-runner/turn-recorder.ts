@@ -10,7 +10,7 @@ import {
   type BackgroundAgentJobTurnProgress,
   type BackgroundAgentJobTurnKind,
   type BackgroundAgentJobTurnStatus,
-  type BackgroundAgentJobTurnTrajectory,
+  type BackgroundAgentJobTurnTrajectoryHeader,
   type BackgroundAgentJobTurnTrajectoryGroup,
   type BackgroundAgentJobTurnTrajectoryMessage,
   type BackgroundAgentJobTurnUsage,
@@ -612,7 +612,7 @@ function fileChangePaths(value: unknown): string[] {
   })
 }
 
-function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectory {
+function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectoryHeader {
   const projectionState: SanitizeState = { redacted: turn.redacted, truncated: turn.contentTruncated }
   for (const key of turn.itemOrder) {
     const item = turn.items.get(key)
@@ -626,7 +626,6 @@ function trajectoryHeader(turn: RuntimeTurn): BackgroundAgentJobTurnTrajectory {
   return {
     format: 'ankole_chatml',
     version: 1,
-    messages: [],
     ...(Object.keys(metadata).length > 0 ? { metadata } : {})
   }
 }

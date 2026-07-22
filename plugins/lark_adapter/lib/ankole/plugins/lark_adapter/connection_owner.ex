@@ -20,9 +20,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
     :consumer_kinds,
     :client,
     :dispatcher,
-    :ws_pid,
-    :ws_client_module,
-    start_client?: true
+    :ws_pid
   ]
 
   @doc """
@@ -77,9 +75,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
               secret_fingerprint: short_fingerprint(state.secret_fingerprint),
               consumer_count: state.consumer_count,
               consumer_kinds: state.consumer_kinds,
-              ws_pid: state.ws_pid,
-              ws_client_module: state.ws_client_module,
-              start_client?: state.start_client?
+              ws_pid: state.ws_pid
             }
         }
 
@@ -94,11 +90,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
 
     config = Keyword.fetch!(opts, :config)
     consumers = Keyword.get(opts, :consumers, [])
-    client_opts = Keyword.get(opts, :client_opts, [])
-    client = Config.client(config, client_opts)
+    client = Config.client(config, Keyword.get(opts, :client_opts, []))
     dispatcher = Dispatcher.build(consumers, client: client)
-    start_client? = Keyword.get(opts, :start_client?, true)
-    ws_client_module = Keyword.get(opts, :ws_client_module, FeishuOpenAPI.WS.Client)
 
     state = %__MODULE__{
       key: Config.connection_key(config),
@@ -107,12 +100,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
       consumer_count: length(consumers),
       consumer_kinds: consumer_kinds(consumers),
       client: client,
-      dispatcher: dispatcher,
-      ws_client_module: ws_client_module,
-      start_client?: start_client?
+      dispatcher: dispatcher
     }
 
-    with {:ok, state} <- maybe_start_ws(state) do
+    with {:ok, state} <- start_ws(state) do
       {:ok, state}
     end
   end
@@ -144,8 +135,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
        consumer_count: state.consumer_count,
        consumer_kinds: state.consumer_kinds,
        ws_pid: state.ws_pid,
-       running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid),
-       start_client?: state.start_client?
+       running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid)
      }, state}
   end
 
@@ -165,10 +155,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp maybe_start_ws(%{start_client?: false} = state), do: {:ok, state}
-
-  defp maybe_start_ws(state) do
-    case state.ws_client_module.start_link(client: state.client, dispatcher: state.dispatcher) do
+  defp start_ws(state) do
+    case FeishuOpenAPI.WS.Client.start_link(client: state.client, dispatcher: state.dispatcher) do
       {:ok, pid} -> {:ok, %{state | ws_pid: pid}}
       {:error, _reason} = error -> error
     end

@@ -29,23 +29,20 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   @recent_attachment_window_seconds 120
   @max_backfilled_attachments 3
+  @post_locale_priority ~w(zh_cn en_us ja_jp)
+  @markdown_inline_token ~r/(`+)|!\[[^\]]*\]\(\s*(img_[A-Za-z0-9_-]+)(?:\s+["'][^"']*["'])?\s*\)/u
 
   @doc """
   Builds the dispatcher consumer record for one SignalsGateway chat binding.
   """
-  @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
-  def chat_consumer(%AdapterContext{} = context, config, opts \\ []) when is_map(config) do
+  @spec chat_consumer(AdapterContext.t(), map()) :: map()
+  def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
     %{
       kind: :chat,
       context: context,
       config: config,
-      recent_attachment_window_seconds:
-        Keyword.get(opts, :recent_attachment_window_seconds, @recent_attachment_window_seconds),
-      max_backfilled_attachments:
-        Keyword.get(opts, :max_backfilled_attachments, @max_backfilled_attachments),
-      materialize_attachments: Keyword.get(opts, :materialize_attachments, false),
-      attachment_materializer:
-        Keyword.get(opts, :attachment_materializer, &materialize_lark_attachments/3)
+      recent_attachment_window_seconds: @recent_attachment_window_seconds,
+      max_backfilled_attachments: @max_backfilled_attachments
     }
   end
 
@@ -284,7 +281,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
        ) do
     with {:ok, operator_id} <- operator_actor_key(action.user_id || action.open_id),
          {:ok, operator_principal_uid} <- observe_card_operator(consumer, operator_id),
-         {:ok, chat_id} <- required_text(action, "open_chat_id"),
+         {:ok, chat_id} <- required_text_value(action.open_chat_id, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
       input = %{
         source_event_id: event.id || action_id,
@@ -473,7 +470,21 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       prefix ->
         stripped
         |> String.replace_prefix(prefix, "")
+        |> String.trim_leading()
+        |> strip_leading_mention_separators()
         |> strip_leading_prefixes(prefixes)
+    end
+  end
+
+  defp strip_leading_mention_separators(text) do
+    case String.next_grapheme(text) do
+      {separator, rest} when separator in [":", "：", ",", "，"] ->
+        rest
+        |> String.trim_leading()
+        |> strip_leading_mention_separators()
+
+      _no_separator ->
+        text
     end
   end
 
@@ -506,8 +517,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp material_message?(nil, [_ | _]), do: :ok
   defp material_message?(_text, _attachments), do: {:ignore, :empty_or_unsupported_message}
 
-  defp post_text(%{"content" => blocks}) when is_list(blocks) do
-    blocks
+  defp post_text(content) do
+    content
+    |> post_blocks()
     |> List.flatten()
     |> Enum.map(&post_part_text/1)
     |> Enum.reject(&is_nil/1)
@@ -515,7 +527,51 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> blank_to_nil()
   end
 
-  defp post_text(_content), do: nil
+  defp post_blocks(content) when is_map(content) do
+    content = unwrap_localized_post(content)
+
+    case Map.get(content, "content_v2") do
+      blocks when is_list(blocks) and blocks != [] -> blocks
+      _empty_or_malformed -> legacy_post_blocks(content)
+    end
+  end
+
+  defp post_blocks(_content), do: []
+
+  defp legacy_post_blocks(%{"content" => blocks}) when is_list(blocks), do: blocks
+  defp legacy_post_blocks(_content), do: []
+
+  defp unwrap_localized_post(content) do
+    cond do
+      Map.has_key?(content, "content") or Map.has_key?(content, "content_v2") ->
+        content
+
+      true ->
+        preferred_localized_post(content) || fallback_localized_post(content) || content
+    end
+  end
+
+  defp preferred_localized_post(content) do
+    Enum.find_value(@post_locale_priority, fn locale ->
+      case Map.get(content, locale) do
+        localized when is_map(localized) -> if post_body?(localized), do: localized
+        _missing_or_malformed -> nil
+      end
+    end)
+  end
+
+  defp fallback_localized_post(content) do
+    content
+    |> Enum.sort_by(fn {locale, _localized} -> locale end)
+    |> Enum.find_value(fn
+      {_locale, localized} when is_map(localized) -> if post_body?(localized), do: localized
+      _malformed -> nil
+    end)
+  end
+
+  defp post_body?(%{"content_v2" => blocks}) when is_list(blocks) and blocks != [], do: true
+  defp post_body?(%{"content" => blocks}) when is_list(blocks) and blocks != [], do: true
+  defp post_body?(_content), do: false
 
   defp post_part_text(%{"text" => text}) when is_binary(text), do: text
   defp post_part_text(%{"href" => href}) when is_binary(href), do: href
@@ -603,13 +659,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     {:ok, attachments}
   end
 
-  defp post_resource_attachments(%{"content" => blocks}, message) when is_list(blocks) do
-    blocks
+  defp post_resource_attachments(content, message) do
+    content
+    |> post_blocks()
     |> List.flatten()
     |> Enum.flat_map(&post_part_attachments(&1, message))
   end
-
-  defp post_resource_attachments(_content, _message), do: []
 
   defp post_part_attachments(%{"tag" => "img", "image_key" => image_key}, message)
        when is_binary(image_key) do
@@ -623,7 +678,102 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
+  defp post_part_attachments(%{"tag" => "md", "text" => markdown}, message)
+       when is_binary(markdown) do
+    markdown
+    |> markdown_provider_image_keys()
+    |> Enum.map(&resource_attachment("image", %{"image_key" => &1}, message))
+  end
+
   defp post_part_attachments(_part, _message), do: []
+
+  defp markdown_provider_image_keys(markdown) do
+    markdown
+    |> markdown_visible_blocks()
+    |> Enum.reduce([], &markdown_block_provider_image_keys/2)
+    |> Enum.reverse()
+  end
+
+  defp markdown_visible_blocks(markdown) do
+    {open_fence, current, blocks} =
+      markdown
+      |> String.split("\n", trim: false)
+      |> Enum.reduce({nil, [], []}, fn line, {open_fence, current, blocks} ->
+        cond do
+          open_fence != nil and closes_markdown_fence?(line, open_fence) ->
+            {nil, [], blocks}
+
+          open_fence != nil ->
+            {open_fence, current, blocks}
+
+          fence = markdown_fence_marker(line) ->
+            {fence, [], put_markdown_block(current, blocks)}
+
+          true ->
+            {nil, [line | current], blocks}
+        end
+      end)
+
+    blocks = if is_nil(open_fence), do: put_markdown_block(current, blocks), else: blocks
+    Enum.reverse(blocks)
+  end
+
+  defp put_markdown_block([], blocks), do: blocks
+
+  defp put_markdown_block(lines, blocks) do
+    [lines |> Enum.reverse() |> Enum.join("\n") | blocks]
+  end
+
+  defp markdown_block_provider_image_keys(markdown, keys) do
+    tokens = Regex.scan(@markdown_inline_token, markdown, return: :index)
+
+    remaining_ticks =
+      Enum.reduce(tokens, %{}, fn
+        [_token, {_offset, tick_length}], counts when tick_length > 0 ->
+          Map.update(counts, tick_length, 1, &(&1 + 1))
+
+        _token, counts ->
+          counts
+      end)
+
+    {_open_ticks, _remaining_ticks, keys} =
+      Enum.reduce(tokens, {nil, remaining_ticks, keys}, fn
+        [_token, {_offset, tick_length}], {open_ticks, remaining, keys}
+        when tick_length > 0 ->
+          remaining = Map.update!(remaining, tick_length, &(&1 - 1))
+
+          cond do
+            open_ticks == tick_length -> {nil, remaining, keys}
+            not is_nil(open_ticks) -> {open_ticks, remaining, keys}
+            Map.fetch!(remaining, tick_length) > 0 -> {tick_length, remaining, keys}
+            true -> {nil, remaining, keys}
+          end
+
+        [_token, _ticks, {key_offset, key_length}], {nil, remaining, keys}
+        when key_length > 0 ->
+          {nil, remaining, [binary_part(markdown, key_offset, key_length) | keys]}
+
+        _token, state ->
+          state
+      end)
+
+    keys
+  end
+
+  defp markdown_fence_marker(line) do
+    case Regex.run(~r/^\s*(`{3,}|~{3,})/, line, capture: :all_but_first) do
+      [marker] -> marker
+      nil -> nil
+    end
+  end
+
+  defp closes_markdown_fence?(line, marker) do
+    stripped = String.trim(line)
+    marker_character = String.first(marker)
+
+    String.length(stripped) >= String.length(marker) and
+      stripped == String.duplicate(marker_character, String.length(stripped))
+  end
 
   defp resource_attachment(type, content, message) do
     key =
@@ -686,15 +836,15 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   # Lark events can contain mentions for another bot in the same group. A group
-  # mention only addresses this binding when the mention matches a configured
-  # bot identity; missing identity config must fail closed so multiple agents in
-  # the same group do not all claim the same @bot.
+  # mention only addresses this binding when it matches the bot open_id resolved
+  # for the live connection. A failed identity lookup must fail closed so
+  # multiple agents in the same group do not all claim the same @bot.
   defp mark_local_bot_mention(mention, %{config: config, context: %AdapterContext{} = context}) do
     cond do
-      not bot_identity_configured?(config) ->
+      not runtime_bot_identity_resolved?(config) ->
         Map.put(mention, "targets_current_agent", false)
 
-      mention_targets_configured_bot?(mention, config) ->
+      mention_targets_runtime_bot?(mention, config) ->
         Map.put(mention, "agent_uid", context.agent_uid)
 
       true ->
@@ -733,21 +883,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp maybe_backfill_attachments([], _text, _mentions, _author, _channel, _time, _consumer),
     do: []
 
-  defp maybe_materialize_attachments(attachments, _message, %{materialize_attachments: false}),
-    do: {:ok, attachments}
-
-  defp maybe_materialize_attachments(
-         attachments,
-         message,
-         %{
-           materialize_attachments: true,
-           attachment_materializer: materializer
-         } = consumer
-       )
-       when is_function(materializer, 3) do
+  defp maybe_materialize_attachments(attachments, message, consumer) do
     case Enum.all?(attachments, &materialized_attachment?/1) do
       true -> {:ok, attachments}
-      false -> materializer.(attachments, message, consumer)
+      false -> materialize_lark_attachments(attachments, message, consumer)
     end
   end
 
@@ -756,13 +895,16 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp materialized_attachment?(_attachment), do: false
 
-  defp materialize_lark_attachments(attachments, _message, %{config: config}) do
+  defp materialize_lark_attachments(attachments, _message, %{
+         config: config,
+         context: %{agent_uid: agent_uid}
+       }) do
     client = Config.client(config)
 
-    {:ok, Enum.map(attachments, &materialize_lark_attachment(&1, client))}
+    {:ok, Enum.map(attachments, &materialize_lark_attachment(&1, client, agent_uid))}
   end
 
-  defp materialize_lark_attachment(%{} = attachment, client) do
+  defp materialize_lark_attachment(%{} = attachment, client, agent_uid) do
     with source_message_id when is_binary(source_message_id) <- attachment["source_message_id"],
          file_key when is_binary(file_key) <- attachment["file_key"],
          download_type when is_binary(download_type) <- attachment["download_type"],
@@ -772,9 +914,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              query: [type: download_type]
            ),
          relative_path <- materialized_relative_path(source_message_id, attachment, download),
-         {:ok, result} <- WorkerFiles.put("user_files", relative_path, download.body) do
+         lane_path <- Ankole.AgentHomePaths.user_files_lane_path(agent_uid, relative_path),
+         {:ok, result} <- WorkerFiles.put("user_files", lane_path, download.body) do
       attachment
-      |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
+      |> Map.put(
+        "agent_computer_path",
+        Path.join(Ankole.AgentHomePaths.user_files(agent_uid), relative_path)
+      )
       |> Map.put("user_files_relative_path", relative_path)
       |> maybe_put("xxh3_128", result["xxh3_128"])
       |> maybe_put("size", result["size"])
@@ -875,30 +1021,19 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp mention_targets_current_binding?(_mention, _consumer), do: false
 
-  defp bot_identity_configured?(config) when is_map(config),
-    do:
-      present_text?(configured_bot_open_id(config)) or
-        present_text?(Map.get(config, "botUserID"))
+  defp runtime_bot_identity_resolved?(config) when is_map(config),
+    do: present_text?(Map.get(config, "runtimeBotOpenID"))
 
-  defp bot_identity_configured?(_config), do: false
+  defp runtime_bot_identity_resolved?(_config), do: false
 
-  defp mention_targets_configured_bot?(mention, config) when is_map(mention) and is_map(config) do
-    bot_open_id = configured_bot_open_id(config)
+  defp mention_targets_runtime_bot?(mention, config) when is_map(mention) and is_map(config) do
+    bot_open_id = Map.get(config, "runtimeBotOpenID")
 
     matches_optional_id?(mention["open_id"], bot_open_id) or
-      matches_optional_id?(mention["id"], bot_open_id) or
-      matches_optional_id?(mention["user_id"], Map.get(config, "botUserID")) or
-      matches_optional_id?(mention["id"], Map.get(config, "botUserID"))
+      matches_optional_id?(mention["id"], bot_open_id)
   end
 
-  defp mention_targets_configured_bot?(_mention, _config), do: false
-
-  defp configured_bot_open_id(config) when is_map(config) do
-    case optional_text(config, "botOpenID") do
-      nil -> optional_text(config, "runtimeBotOpenID")
-      open_id -> open_id
-    end
-  end
+  defp mention_targets_runtime_bot?(_mention, _config), do: false
 
   defp matches_optional_id?(value, expected) when is_binary(value) and is_binary(expected),
     do: String.trim(value) != "" and value == expected
@@ -1083,14 +1218,21 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp required_text(%CardAction{} = action, key), do: required_text(Map.from_struct(action), key)
-
   defp required_text(map, key) do
     case optional_text(map, key) do
       value when is_binary(value) -> {:ok, value}
       nil -> {:error, {:missing, key}}
     end
   end
+
+  defp required_text_value(value, key) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, {:missing, key}}
+      value -> {:ok, value}
+    end
+  end
+
+  defp required_text_value(_value, key), do: {:error, {:missing, key}}
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value

@@ -49,15 +49,16 @@ describe('ambient intervention recognizer', () => {
         ...base.actor_event,
         type: 'im.message.may_intervene',
         payload_json: {
+          source: 'signal://lark/ops',
           time: '2020-01-01T00:00:00Z',
           data: {
-            channel: { name: 'Ops' },
+            channel: { id: 'lark:chat:ops', kind: 'im_group', name: 'Ops' },
             observed_messages: [
               {
                 signal_channel_id: 'lark:chat:ops',
                 source_entry_id: 'message-1',
                 sent_at: '2026-07-18T12:00:00Z',
-                speaker: 'Alice',
+                author: { id: '019f0000-0000-7000-8000-000000000041' },
                 text: 'Should we change the benchmark?'
               }
             ]
@@ -68,7 +69,12 @@ describe('ambient intervention recognizer', () => {
 
     const context: AgentConversationContextResponse = create(AgentConversationContextResponseSchema, {
       agent: { displayName: 'Research Agent' },
-      conversation: { timezone: 'Asia/Singapore' }
+      conversation: { timezone: 'Asia/Singapore' },
+      soul: 'Be calm and exact.',
+      mission: 'Help the group make sound decisions.',
+      brainSnapshot: {
+        channelEntry: { residentText: 'The group prefers evidence before action.', truncated: false }
+      }
     })
 
     await recognizeAmbientIntervention(
@@ -81,8 +87,25 @@ describe('ambient intervention recognizer', () => {
       { currentTime: new Date('2026-07-18T12:34:00Z') }
     )
 
-    expect(bodies[0]!.instructions).toContain('current_time: 2026-07-18 20:34')
-    expect(bodies[0]!.instructions).not.toContain('2020-01-01')
-    expect(JSON.stringify(bodies[0]!.input)).toContain('20:00 [human] Alice')
+    const instructions = String(bodies[0]!.instructions)
+    const modelInput = JSON.stringify(bodies[0]!.input)
+
+    expect(instructions).toContain('<display_name>Research Agent</display_name>')
+    expect(instructions).toContain('Be calm and exact.')
+    expect(instructions).toContain('Help the group make sound decisions.')
+    expect(instructions.match(/Research Agent/g)).toHaveLength(1)
+    expect(instructions.match(/Decide whether/g)).toHaveLength(1)
+    expect(instructions).not.toContain('current_time:')
+    expect(instructions).not.toContain('group_name:')
+    expect(instructions).not.toContain('The group prefers evidence before action.')
+    expect(instructions).not.toContain('should_proactively_speak')
+    expect(instructions).not.toContain('2020-01-01')
+    expect(modelInput).toContain('current_time: 2026-07-18 20:34')
+    expect(modelInput).toContain('platform: Lark / Feishu')
+    expect(modelInput).toContain('group_name: Ops')
+    expect(modelInput).toContain('The group prefers evidence before action.')
+    expect(modelInput).toContain('20:00 [human] Unknown')
+    expect(modelInput).not.toContain('019f0000-0000-7000-8000-000000000041')
+    expect(modelInput).not.toContain('Decide whether')
   })
 })

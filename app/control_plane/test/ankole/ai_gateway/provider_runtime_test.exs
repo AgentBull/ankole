@@ -21,7 +21,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
-  alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
@@ -781,33 +780,15 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert context_payload.mission == "Own the next-turn research workflow."
     assert context_payload.soul == "Be exact, calm, and evidence-led."
     assert context_payload.design == "Use cobalt accents and generous whitespace."
+
+    assert {:ok, current_documents} = Library.list_agent_documents(agent.uid)
+
+    assert context_payload.mission_content_hash ==
+             current_documents["mission"]["content_hash"]
+
+    assert context_payload.soul_content_hash == current_documents["soul"]["content_hash"]
+    assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
     assert Enum.any?(context_payload.skills, &(&1.skill_name == "nano-pdf"))
-    assert context_payload.system_prompt_snapshot == ""
-
-    assert {:ok, prompt_response} =
-             StatefulResponses.start_response_run(%{
-               subject_uid: agent.uid,
-               conversation_id: context_payload.conversation.id,
-               metadata: %{"instructions" => "persisted system prompt"}
-             })
-
-    assert {:ok, _prompt_response} = StatefulResponses.commit_complete(prompt_response, [])
-
-    assert {:ok, resumed_context_envelope} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "turn-context-resumed",
-                 "agent_conversation.context.resolve",
-                 %FabricProto.AgentConversationContextRequest{},
-                 turn: mixed_case_turn
-               ),
-               route
-             )
-
-    assert rpc_response_payload!(
-             resumed_context_envelope,
-             FabricProto.AgentConversationContextResponse
-           ).system_prompt_snapshot == "persisted system prompt"
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(

@@ -285,6 +285,37 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
 
+  test "setup-owned AppConfigure keys are visible but not writable through the console API", %{
+    conn: conn
+  } do
+    assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
+    conn = bearer_conn(conn)
+
+    conn = get(conn, ~p"/api/v1/app-configurations")
+    assert %{"app_configurations" => entries} = json_response(conn, 200)
+
+    assert %{"editable" => false, "value" => true} = entry(entries, "setup.completed")
+
+    assert %{"editable" => false, "value" => "ABCDEFGH"} =
+             entry(entries, "setup.bootstrap_activation_code")
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/setup.completed", %{"value" => false})
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/app-configurations/setup.bootstrap_activation_code")
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+    assert {:ok, true} = SetupConfig.completed?()
+    assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
+  end
+
   defp key(prefix, name), do: prefix <> "." <> name
 
   defp entry(entries, key) do

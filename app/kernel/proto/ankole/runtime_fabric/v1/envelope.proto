@@ -37,9 +37,9 @@ enum DurabilityClass {
 }
 
 message Envelope {
-  // Version 2 introduced method-specific protobuf RPC payloads. Additive fields
-  // keep the current version; changing an existing field's wire meaning requires
-  // another bump so mixed worker/control-plane versions fail before admission.
+  // Version 3 introduced typed worker capacity fields. Additive fields keep the
+  // current version; changing an existing field's wire meaning requires another
+  // bump so mixed worker/control-plane versions fail before admission.
   uint32 protocol_version = 1;
   string message_id = 2;
   string correlation_id = 3;
@@ -78,9 +78,12 @@ message AgentComputerWorkerReady {
   // are equivalent because they boot from the same image.
   string runtime = 2;
   string version = 3;
-  bytes capacity_json = 4;
+  // Version 2 used field 4 for capacity_json.
+  reserved 4;
   // Identifies one concrete process lifetime behind the stable worker id.
   string incarnation_id = 5;
+  uint32 max_turns = 6;
+  uint32 available_turn_slots = 7;
 }
 
 message AgentComputerWorkerHeartbeat {
@@ -88,16 +91,20 @@ message AgentComputerWorkerHeartbeat {
   // Worker-local monotonic timestamp for observability only. It must not be
   // compared across workers or process restarts.
   int64 monotonic_ms = 2;
-  bytes load_json = 3;
+  // Version 2 used field 3 for load_json.
+  reserved 3;
   string incarnation_id = 4;
+  uint32 active_turns = 5;
 }
 
 message AgentComputerWorkerCapacity {
   string worker_id = 1;
-  bytes capacity_json = 2;
-  bytes load_json = 3;
+  // Version 2 used fields 2 and 3 for capacity_json and load_json.
+  reserved 2, 3;
   uint32 available_turn_slots = 4;
   string incarnation_id = 5;
+  uint32 max_turns = 6;
+  uint32 active_turns = 7;
 }
 
 message ActorEventEnvelope {

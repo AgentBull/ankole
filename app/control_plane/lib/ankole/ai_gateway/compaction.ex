@@ -1264,20 +1264,17 @@ defmodule Ankole.AIGateway.Compaction do
   defp output_item_texts(_item), do: []
 
   defp summary_text(text) when is_binary(text) do
-    stripped = Regex.replace(~r/<analysis>.*?<\/analysis>/s, text, "")
+    text = String.trim(text)
 
     cond do
-      String.contains?(stripped, "<analysis>") ->
-        {:error, :invalid_summary_shape}
-
-      String.trim(stripped) == "" ->
+      text == "" ->
         {:error, :empty_compaction_summary}
 
-      not has_summary_heading?(stripped) ->
+      not has_summary_heading?(text) ->
         {:error, :invalid_summary_shape}
 
       true ->
-        {:ok, String.trim(stripped)}
+        {:ok, text}
     end
   end
 

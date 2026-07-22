@@ -12,6 +12,8 @@ lark-cli docs +update --doc <url-or-token> --command append --content '<p>Next s
 
 The bot-capable Docs surface includes create, fetch, structured updates, history, media insertion/download, and document resources when command help permits it. Fetch with block IDs before precise block mutations. After overwrite, replace, delete, move, or copy operations, refetch before reusing block IDs.
 
+When a task requires an exact document title, include an explicit `<title>...</title>` before the body in every create or full-document overwrite payload. A later Markdown overwrite can replace the title from the create operation with the first heading. After each title-sensitive write, fetch the same document and compare the returned document title field with the required title. A matching string elsewhere in the response or body does not verify the title.
+
 For create or update payload syntax, read the installed version-matched format reference named by command help:
 
 ```bash

@@ -45,7 +45,6 @@ defmodule Ankole.AppConfigure.PatternDefinition do
 
     with {:ok, id} <- fetch_string(attrs, :id),
          {:ok, key_pattern} <- fetch_regex(attrs),
-         {:ok, console_writable} <- fetch_console_writable(attrs),
          attrs <- Map.put(attrs, :key, id),
          {:ok, %Definition{} = definition} <- Definition.new(attrs) do
       {:ok,
@@ -59,7 +58,7 @@ defmodule Ankole.AppConfigure.PatternDefinition do
          description: definition.description,
          generator: definition.generator,
          scope: definition.scope,
-         console_writable: console_writable
+         console_writable: definition.console_writable
        }}
     end
   end
@@ -106,7 +105,8 @@ defmodule Ankole.AppConfigure.PatternDefinition do
       default_value: definition.default_value,
       description: definition.description,
       generator: definition.generator,
-      scope: definition.scope
+      scope: definition.scope,
+      console_writable: definition.console_writable
     }
   end
 
@@ -126,14 +126,6 @@ defmodule Ankole.AppConfigure.PatternDefinition do
       {:ok, %Regex{} = regex} -> {:ok, regex}
       {:ok, _regex} -> {:error, :invalid_key_pattern}
       :error -> {:error, {:missing, :key_pattern}}
-    end
-  end
-
-  defp fetch_console_writable(attrs) do
-    case Map.fetch(attrs, :console_writable) do
-      {:ok, value} when is_boolean(value) -> {:ok, value}
-      {:ok, _value} -> {:error, {:invalid_boolean, :console_writable}}
-      :error -> {:ok, true}
     end
   end
 end

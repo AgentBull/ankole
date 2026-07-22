@@ -23,18 +23,15 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
     :consumer_kinds,
     :client,
     :dispatcher,
-    :ws_pid,
-    :ws_client_module,
-    start_client?: true
+    :ws_pid
   ]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     config = Keyword.fetch!(opts, :config)
-    registry = Keyword.get(opts, :registry, @registry)
     key = Config.connection_key(config)
 
-    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {registry, key}})
+    GenServer.start_link(__MODULE__, opts, name: {:via, Registry, {@registry, key}})
   end
 
   def child_spec(opts) do
@@ -67,9 +64,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
               secret_fingerprint: short_fingerprint(state.secret_fingerprint),
               consumer_count: state.consumer_count,
               consumer_kinds: state.consumer_kinds,
-              ws_pid: state.ws_pid,
-              ws_client_module: state.ws_client_module,
-              start_client?: state.start_client?
+              ws_pid: state.ws_pid
             }
         }
 
@@ -84,11 +79,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
 
     config = Keyword.fetch!(opts, :config)
     consumers = Keyword.get(opts, :consumers, [])
-    client_opts = Keyword.get(opts, :client_opts, [])
-    client = Config.client(config, client_opts)
+    client = Config.client(config)
     dispatcher = Dispatcher.build(consumers, client: client)
-    start_client? = Keyword.get(opts, :start_client?, true)
-    ws_client_module = Keyword.get(opts, :ws_client_module, DingTalkOpenAPI.Stream.Client)
 
     state = %__MODULE__{
       key: Config.connection_key(config),
@@ -97,9 +89,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
       consumer_count: length(consumers),
       consumer_kinds: consumer_kinds(consumers),
       client: client,
-      dispatcher: dispatcher,
-      ws_client_module: ws_client_module,
-      start_client?: start_client?
+      dispatcher: dispatcher
     }
 
     with {:ok, state} <- maybe_start_ws(state) do
@@ -132,8 +122,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
        consumer_count: state.consumer_count,
        consumer_kinds: state.consumer_kinds,
        ws_pid: state.ws_pid,
-       running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid),
-       start_client?: state.start_client?
+       running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid)
      }, state}
   end
 
@@ -150,10 +139,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionOwner do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  defp maybe_start_ws(%{start_client?: false} = state), do: {:ok, state}
-
   defp maybe_start_ws(state) do
-    case state.ws_client_module.start_link(client: state.client, dispatcher: state.dispatcher) do
+    case DingTalkOpenAPI.Stream.Client.start_link(
+           client: state.client,
+           dispatcher: state.dispatcher
+         ) do
       {:ok, pid} -> {:ok, %{state | ws_pid: pid}}
       {:error, _reason} = error -> error
     end

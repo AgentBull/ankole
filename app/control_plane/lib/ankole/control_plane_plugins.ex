@@ -10,14 +10,14 @@ defmodule Ankole.ControlPlanePlugins do
 
   @spec list() :: {:ok, [map()]} | {:error, term()}
   def list do
-    with {:ok, disabled_ids} <- Plugins.disabled_ids() do
-      disabled = MapSet.new(disabled_ids)
+    with {:ok, enabled_ids} <- Plugins.enabled_ids() do
+      enabled = MapSet.new(enabled_ids)
       active = Plugins.list_active() |> MapSet.new(& &1.id)
 
       {:ok,
        Plugins.list_discovered()
        |> Enum.map(fn plugin ->
-         configured_enabled = not MapSet.member?(disabled, plugin.id)
+         configured_enabled = MapSet.member?(enabled, plugin.id)
          active? = MapSet.member?(active, plugin.id)
 
          %{

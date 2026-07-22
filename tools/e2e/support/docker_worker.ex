@@ -3,7 +3,7 @@ defmodule Ankole.E2E.DockerWorker do
   Docker process adapter for the real Agent Computer worker e2e tests.
 
   `Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap` owns worker auth, security, connectivity,
-  and workspace guarantees. This adapter adds only test container lifecycle,
+  and Agent Home guarantees. This adapter adds only test container lifecycle,
   optional mounted source, and the development command override.
   """
 
@@ -17,7 +17,7 @@ defmodule Ankole.E2E.DockerWorker do
   @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
   def start_docker_worker!(opts) do
     name = unique_worker_name()
-    {workspace_root, persist_workspace?} = workspace_root(name)
+    {agents_root, persist_agents?} = agents_root(name)
 
     {:ok, spec} =
       WorkerBootstrap.worker_spec(
@@ -25,7 +25,7 @@ defmodule Ankole.E2E.DockerWorker do
         worker_id: Keyword.fetch!(opts, :worker_id),
         auth_key: Keyword.fetch!(opts, :worker_auth_key),
         image: @docker_image,
-        workspace_root: workspace_root
+        agents_root: agents_root
       )
 
     Enum.each(spec.host_setup_dirs, &File.mkdir_p!/1)
@@ -50,8 +50,8 @@ defmodule Ankole.E2E.DockerWorker do
       name: name,
       port: port,
       output: [],
-      workspace_root: workspace_root,
-      persist_workspace?: persist_workspace?
+      agents_root: agents_root,
+      persist_agents?: persist_agents?
     }
   end
 
@@ -69,18 +69,18 @@ defmodule Ankole.E2E.DockerWorker do
     System.cmd(docker_path(), args, stderr_to_stdout: true)
   end
 
-  @doc "Force-removes a Docker worker container, its temporary workspace, and its watched port."
+  @doc "Force-removes a Docker worker container, its temporary Agent root, and its watched port."
   def cleanup_docker_worker(%{
         name: name,
         port: port,
-        workspace_root: workspace_root,
-        persist_workspace?: persist_workspace?
+        agents_root: agents_root,
+        persist_agents?: persist_agents?
       }) do
     System.cmd(docker_path(), ["rm", "-f", name], stderr_to_stdout: true)
     close_port(port)
 
-    unless persist_workspace? do
-      File.rm_rf(workspace_root)
+    unless persist_agents? do
+      File.rm_rf(agents_root)
     end
 
     :ok
@@ -116,7 +116,7 @@ defmodule Ankole.E2E.DockerWorker do
   end
 
   @doc "Asserts a running e2e worker received the canonical bootstrap contract."
-  def assert_launch_contract!(%{name: name, workspace_root: workspace_root}) do
+  def assert_launch_contract!(%{name: name, agents_root: agents_root}) do
     {output, 0} = System.cmd(docker_path(), ["inspect", name], stderr_to_stdout: true)
     [inspection] = Ankole.JSON.decode!(output)
 
@@ -133,10 +133,9 @@ defmodule Ankole.E2E.DockerWorker do
 
     assert Enum.any?(env, &String.starts_with?(&1, "WORKER_ID="))
     assert Enum.any?(env, &String.starts_with?(&1, "RUNTIME_FABRIC_URL="))
-    assert mounts["/workspace/shared"]["Source"] == Path.join(workspace_root, "shared")
-    assert mounts["/workspace/shared"]["RW"]
-    assert mounts["/workspace/.sessions"]["Source"] == Path.join(workspace_root, "sessions")
-    assert mounts["/workspace/.sessions"]["RW"]
+    assert Enum.any?(env, &(&1 == "ANKOLE_AGENTS_ROOT=/agents"))
+    assert mounts["/agents"]["Source"] == agents_root
+    assert mounts["/agents"]["RW"]
 
     :ok
   end
@@ -167,8 +166,8 @@ defmodule Ankole.E2E.DockerWorker do
   defp mount_agent_computer_src?,
     do: System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") == "1"
 
-  defp workspace_root(name) do
-    case System.get_env("ANKOLE_E2E_HOST_WORKSPACE_ROOT") do
+  defp agents_root(name) do
+    case System.get_env("ANKOLE_E2E_HOST_AGENTS_ROOT") do
       value when is_binary(value) and value != "" ->
         {Path.join(Path.expand(value), name), true}
 
@@ -183,9 +182,9 @@ defmodule Ankole.E2E.DockerWorker do
   end
 
   defp close_port(port) when is_port(port) do
-    if Port.info(port) do
-      Port.close(port)
-    end
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
   end
 
   defp close_port(_port), do: :ok

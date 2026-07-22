@@ -5,6 +5,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
   TableCell,
   TableRow,
   toast
@@ -20,7 +21,6 @@ import {
   ConfigFields,
   defaultConfig,
   localizedText,
-  setPath,
   type ConfigFieldDefinition,
   type LocalizedText
 } from '../../common/config-fields'
@@ -31,7 +31,8 @@ import {
   ankoleWebSignalBindingControllerAdaptersOptions,
   ankoleWebSignalBindingControllerDeleteMutation,
   ankoleWebSignalBindingControllerIndexOptions,
-  ankoleWebSignalBindingControllerPutBindingMutation
+  ankoleWebSignalBindingControllerPutBindingMutation,
+  ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem } from '../api/generated/types.gen'
 import {
@@ -44,9 +45,10 @@ import {
   StatusIndicator
 } from '../console-shell'
 import {
+  defaultSignalBindingAgentUID,
   SignalBindingEditorModel,
   type GroupMessageMode,
-  type SignalBindingEditorDraft
+  type SignalBindingAdapterDraft
 } from '../state/signal-binding-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 
@@ -69,6 +71,7 @@ export function SignalsListPage() {
       binding.name,
       binding.adapter,
       binding.unaddressed_group_message_policy,
+      binding.confidential_memory,
       binding.enabled
     )
   )
@@ -93,6 +96,7 @@ export function SignalsListPage() {
         t('console.signals.name'),
         t('console.signals.adapter'),
         t('console.signals.policy'),
+        t('console.signals.memory_scope'),
         t('console.signals.state')
       ]}
       isLoading={bindings.isLoading || agents.isLoading}
@@ -139,6 +143,11 @@ export function SignalsListPage() {
           <TableCell>{binding.adapter}</TableCell>
           <TableCell>{binding.unaddressed_group_message_policy}</TableCell>
           <TableCell>
+            {binding.confidential_memory
+              ? t('console.signals.memory_confidential')
+              : t('console.signals.memory_shared')}
+          </TableCell>
+          <TableCell>
             <StatusIndicator tone={binding.enabled ? 'positive' : 'neutral'}>
               {binding.enabled ? t('console.status.enabled') : t('console.status.disabled')}
             </StatusIndicator>
@@ -169,39 +178,72 @@ export function SignalBindingEditorPage() {
   const [searchParams] = useSearchParams()
   const locale = i18n.language
 
-  const agentUID = searchParams.get('agent') ?? ''
+  const sourceAgentUID = searchParams.get('agent') ?? ''
   const lockedAdapter = searchParams.get('adapter') ?? undefined
   const lockedName = searchParams.get('name') ?? undefined
   const reconfigure = Boolean(lockedName)
 
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agentList = agents.data?.agents ?? []
+  const defaultAgentUID = defaultSignalBindingAgentUID(agentList, sourceAgentUID)
   const adapters = useQuery(ankoleWebSignalBindingControllerAdaptersOptions())
   const signalAdapters = adapters.data?.signal_adapters ?? []
+  const currentBindings = useQuery({
+    ...ankoleWebSignalBindingControllerIndexOptions({ path: { agent_uid: sourceAgentUID } }),
+    enabled: reconfigure && Boolean(sourceAgentUID)
+  })
+  const currentBinding = currentBindings.data?.signal_bindings.find(
+    binding => binding.adapter === lockedAdapter && binding.name === lockedName
+  )
 
   const activeAdapter =
     signalAdapters.find(adapter => adapter.adapter_id === model.adapterID.value) ?? signalAdapters[0]
 
-  const ready = signalAdapters.length > 0
+  const ready =
+    agents.data !== undefined && signalAdapters.length > 0 && (!reconfigure || currentBindings.data !== undefined)
   useEffect(() => {
     if (!ready) return
     const adapter = signalAdapters.find(item => item.adapter_id === lockedAdapter) ?? signalAdapters[0]
-    model.initialize(
-      `binding:${agentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`,
-      formFromAdapter(adapter, lockedName)
-    )
-  }, [agentUID, lockedAdapter, lockedName, model, ready, signalAdapters])
+    model.initialize(`binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`, {
+      agentUID: defaultAgentUID,
+      ...formFromAdapter(adapter, lockedName, currentBinding?.confidential_memory ?? false)
+    })
+  }, [
+    currentBinding?.confidential_memory,
+    defaultAgentUID,
+    lockedAdapter,
+    lockedName,
+    model,
+    ready,
+    signalAdapters,
+    sourceAgentUID
+  ])
 
-  const saveBinding = useMutation({
+  const createBinding = useMutation({
     ...ankoleWebSignalBindingControllerPutBindingMutation(),
     onSuccess: (_data, variables) => {
       toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
       void queryClient.invalidateQueries()
-      navigate(`/signals?agent=${encodeURIComponent(agentUID)}`)
+      navigate(`/signals?agent=${encodeURIComponent(variables.path.agent_uid)}`)
+    }
+  })
+  const updateBinding = useMutation({
+    ...ankoleWebSignalBindingControllerUpdateBindingMutation(),
+    onSuccess: (_data, variables) => {
+      toast.success(t('console.signals.saved', { name: variables.path.binding_name }))
+      void queryClient.invalidateQueries()
+      navigate(`/signals?agent=${encodeURIComponent(variables.body.target_agent_uid)}`)
     }
   })
 
   const submit = () => {
     model.clearValidation()
-    if (!activeAdapter || !agentUID) return
+    const targetAgentUID = model.agentUID.value
+    if (!targetAgentUID) {
+      model.validationError.value = t('console.signals.target_agent_required')
+      return
+    }
+    if (!activeAdapter) return
     const name = model.name.value.trim()
     if (!name) {
       model.validationError.value = t('console.signals.binding_name_required')
@@ -212,21 +254,56 @@ export function SignalBindingEditorPage() {
       model.validationError.value = t('console.signals.group_message_mode_invalid')
       return
     }
-    saveBinding.mutate({
-      body: { config: model.config.value, group_message_mode: groupMessageMode },
-      path: { adapter_id: activeAdapter.adapter_id, agent_uid: agentUID, binding_name: name }
-    })
+    const body = {
+      config: reconfigure ? model.configPatch.value : model.config.value,
+      group_message_mode: groupMessageMode,
+      confidential_memory: model.confidentialMemory.value
+    }
+    if (reconfigure) {
+      updateBinding.mutate({
+        body: { ...body, target_agent_uid: targetAgentUID },
+        path: { agent_uid: sourceAgentUID, binding_name: name }
+      })
+    } else {
+      createBinding.mutate({
+        body,
+        path: { adapter_id: activeAdapter.adapter_id, agent_uid: targetAgentUID, binding_name: name }
+      })
+    }
   }
+
+  const targetAgentUID = model.agentUID.value || defaultAgentUID
 
   return (
     <ResourceEditorPage
       title={reconfigure ? t('console.signals.reconfigure') : t('console.signals.new')}
       description={reconfigure ? t('console.signals.reconfigure_hint') : t('console.signals.editor_description')}
-      backTo={`/signals?agent=${encodeURIComponent(agentUID)}`}
-      error={model.validationError.value ?? adapters.error ?? saveBinding.error}
-      submitting={saveBinding.isPending}
+      backTo={`/signals?agent=${encodeURIComponent(targetAgentUID)}`}
+      error={
+        model.validationError.value ??
+        agents.error ??
+        adapters.error ??
+        currentBindings.error ??
+        createBinding.error ??
+        updateBinding.error
+      }
+      submitting={createBinding.isPending || updateBinding.isPending}
       onSubmit={submit}>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-3">
+        <LabeledField label={t('console.signals.target_agent')} required>
+          <Select value={targetAgentUID} onValueChange={value => model.selectAgent(String(value))}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={t('console.signals.select_agent')} />
+            </SelectTrigger>
+            <SelectContent>
+              {agentList.map(agent => (
+                <SelectItem key={agent.uid} value={agent.uid}>
+                  {agent.display_name ? `${agent.display_name} · ${agent.uid}` : agent.uid}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </LabeledField>
         <LabeledField label={t('console.signals.adapter')}>
           {reconfigure ? (
             <ReadOnlyValue>
@@ -271,11 +348,27 @@ export function SignalBindingEditorPage() {
             value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
             onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
           />
+          <LabeledField
+            label={t('console.signals.confidential_memory')}
+            description={t('console.signals.confidential_memory_hint')}>
+            <div className="flex items-center justify-between border border-border p-3">
+              <span className="text-sm text-muted-foreground">
+                {model.confidentialMemory.value
+                  ? t('console.signals.memory_confidential')
+                  : t('console.signals.memory_shared')}
+              </span>
+              <Switch
+                aria-label={t('console.signals.confidential_memory')}
+                checked={model.confidentialMemory.value}
+                onCheckedChange={checked => (model.confidentialMemory.value = checked)}
+              />
+            </div>
+          </LabeledField>
           <ConfigFields
             config={model.config.value}
             fields={asConfigFields(activeAdapter.fields)}
             locale={locale}
-            onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
+            onChange={(path, value) => model.changeConfig(path, value)}
           />
         </>
       ) : null}
@@ -288,16 +381,21 @@ function reconfigureTo(agentUID: string, adapter: string, name: string): string 
   return `new?${query.toString()}`
 }
 
-function emptyForm(): SignalBindingEditorDraft {
-  return { adapterID: '', name: '', groupMessageMode: '', config: {} }
+function emptyForm(): SignalBindingAdapterDraft {
+  return { adapterID: '', name: '', groupMessageMode: '', confidentialMemory: false, config: {} }
 }
 
-function formFromAdapter(adapter: SignalAdapterItem | undefined, name?: string): SignalBindingEditorDraft {
+function formFromAdapter(
+  adapter: SignalAdapterItem | undefined,
+  name?: string,
+  confidentialMemory = false
+): SignalBindingAdapterDraft {
   if (!adapter) return emptyForm()
   return {
     adapterID: adapter.adapter_id,
     name: name ?? `${adapter.adapter_id}-main`,
     groupMessageMode: defaultGroupMessageMode(adapter),
+    confidentialMemory,
     config: defaultConfig(asConfigFields(adapter.fields))
   }
 }

@@ -24,8 +24,22 @@ defmodule Ankole.Schedule.Queries do
     end
   end
 
-  @spec get_scheduled_event(Ecto.UUID.t()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
-  def get_scheduled_event(scheduled_event_id) when is_binary(scheduled_event_id) do
+  @spec get_cron_schedule_by_name(String.t(), String.t(), String.t()) ::
+          {:ok, CronSchedule.t()} | {:error, :not_found}
+  def get_cron_schedule_by_name(agent_uid, session_id, name)
+      when is_binary(agent_uid) and is_binary(session_id) and is_binary(name) do
+    case Repo.get_by(CronSchedule,
+           agent_uid: String.downcase(agent_uid),
+           session_id: session_id,
+           name: name
+         ) do
+      %CronSchedule{} = schedule -> {:ok, schedule}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @spec get_scheduled_event(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
+  def get_scheduled_event(scheduled_event_id) when is_integer(scheduled_event_id) do
     case Repo.get(ScheduledEvent, scheduled_event_id) do
       %ScheduledEvent{} = event -> {:ok, event}
       nil -> {:error, :not_found}

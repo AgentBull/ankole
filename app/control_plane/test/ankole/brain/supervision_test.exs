@@ -16,9 +16,9 @@ defmodule Ankole.Brain.SupervisionTest do
     %{owner_uid: owner.uid, actor_uid: actor.uid, peer_uid: peer.uid}
   end
 
-  test "public supervision seam owns paging and returns schema-free read models", ctx do
-    first_id = create_entry(ctx, "Paged Alpha", "public")
-    second_id = create_entry(ctx, "Paged Beta", "public")
+  test "the supervision seam owns paging and returns schema-free read models", ctx do
+    first_id = create_entry(ctx, "Paged Alpha", "shared")
+    second_id = create_entry(ctx, "Paged Beta", "shared")
 
     assert {:ok, %{entries: [first], next_cursor: cursor}} =
              Brain.list_entries(ctx.owner_uid, query: "Paged", limit: 1)
@@ -35,7 +35,7 @@ defmodule Ankole.Brain.SupervisionTest do
   end
 
   test "block-only operations derive the writable store inside Brain", ctx do
-    entry_id = create_entry(ctx, "Block routing", "public")
+    entry_id = create_entry(ctx, "Block routing", "shared")
 
     assert {:ok,
             %{
@@ -76,7 +76,7 @@ defmodule Ankole.Brain.SupervisionTest do
   end
 
   test "mixed stores are rejected before any operation in the batch commits", ctx do
-    public_id = create_entry(ctx, "Public topic", "public")
+    shared_id = create_entry(ctx, "Public topic", "shared")
     dm_store = "dm:#{ctx.peer_uid}"
     dm_id = create_entry(ctx, "DM topic", dm_store)
 
@@ -86,7 +86,7 @@ defmodule Ankole.Brain.SupervisionTest do
                [
                  %{
                    operation: "set_summary",
-                   entry_id: public_id,
+                   entry_id: shared_id,
                    summary: "changed",
                    expected_entry_lock_version: 1
                  },
@@ -100,11 +100,11 @@ defmodule Ankole.Brain.SupervisionTest do
                ctx.actor_uid
              )
 
-    assert {:ok, %{entry: %{summary: ""}}} = Brain.open_entry(ctx.owner_uid, public_id)
+    assert {:ok, %{entry: %{summary: ""}}} = Brain.open_entry(ctx.owner_uid, shared_id)
     assert {:ok, %{entry: %{summary: ""}}} = Brain.open_entry(ctx.owner_uid, dm_id)
   end
 
-  test "single-audit recovery derives the audited store behind the public seam", ctx do
+  test "single-audit recovery derives the audited store behind the supervision seam", ctx do
     store_key = "dm:#{ctx.peer_uid}"
     entry_id = create_entry(ctx, "Recover me", store_key)
 
@@ -244,7 +244,7 @@ defmodule Ankole.Brain.SupervisionTest do
   end
 
   defp dreaming_append!(ctx, run_id) do
-    entry_id = create_entry(ctx, "Fitness #{Ecto.UUID.generate()}", "public")
+    entry_id = create_entry(ctx, "Fitness #{Ecto.UUID.generate()}", "shared")
 
     {:ok, %{results: [%{block_id: block_id, block_lock_version: block_version}]}} =
       Ankole.Brain.Knowledge.apply_operations(
@@ -296,7 +296,7 @@ defmodule Ankole.Brain.SupervisionTest do
   end
 
   defp scope(ctx) do
-    {:ok, scope} = Ankole.Brain.Scope.for_store(ctx.owner_uid, "public")
+    {:ok, scope} = Ankole.Brain.Scope.for_store(ctx.owner_uid, "shared")
     scope
   end
 

@@ -43,8 +43,6 @@ defmodule FeishuOpenAPI.Event do
   @type verify_config :: %{
           optional(:verification_token) => String.t() | nil,
           optional(:encrypt_key) => String.t() | nil,
-          optional(:skip_sign_verify) => boolean(),
-          optional(:skip_timestamp_check) => boolean(),
           optional(:max_skew_seconds) => non_neg_integer()
         }
 
@@ -58,9 +56,9 @@ defmodule FeishuOpenAPI.Event do
   Steps, in order:
 
   1. JSON decode + (if encrypted) decrypt with `encrypt_key`
-  2. Verify `x-lark-signature` (unless `skip_sign_verify` or `encrypt_key` is nil)
+  2. Verify `x-lark-signature` when `encrypt_key` is configured
   3. Verify `x-lark-request-timestamp` within `max_skew_seconds`
-     (unless `skip_timestamp_check` or `encrypt_key` is nil)
+     when `encrypt_key` is configured
   4. Verify `verification_token` against the envelope's token (unless nil)
   """
   @spec verify_and_decode(verify_config() | struct(), binary(), map() | list()) ::
@@ -162,15 +160,11 @@ defmodule FeishuOpenAPI.Event do
     %{
       verification_token: Map.get(map, :verification_token),
       encrypt_key: Map.get(map, :encrypt_key),
-      skip_sign_verify: Map.get(map, :skip_sign_verify, false),
-      skip_timestamp_check: Map.get(map, :skip_timestamp_check, false),
       max_skew_seconds: Map.get(map, :max_skew_seconds, @default_max_skew_seconds)
     }
   end
 
-  # Signature checking is skipped when explicitly disabled (tests) or when no
-  # encrypt_key is configured (the app simply isn't using signed webhooks).
-  defp verify_signature(%{skip_sign_verify: true}, _body, _headers, _decoded), do: :ok
+  # An app without an encrypt_key is not using signed event webhooks.
   defp verify_signature(%{encrypt_key: nil}, _body, _headers, _decoded), do: :ok
 
   defp verify_signature(%{encrypt_key: key}, body, headers, decoded) do
@@ -189,10 +183,7 @@ defmodule FeishuOpenAPI.Event do
     end
   end
 
-  # Replay-window check, gated the same way as signature verification (an unsigned
-  # request has no trustworthy timestamp to check anyway).
-  defp verify_timestamp(%{skip_sign_verify: true}, _headers, _decoded), do: :ok
-  defp verify_timestamp(%{skip_timestamp_check: true}, _headers, _decoded), do: :ok
+  # An unsigned request has no trustworthy timestamp to check.
   defp verify_timestamp(%{encrypt_key: nil}, _headers, _decoded), do: :ok
 
   defp verify_timestamp(%{max_skew_seconds: max_skew}, headers, decoded) do

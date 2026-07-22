@@ -57,7 +57,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
       assert {:ok, conversation} =
                Ankole.AIGateway.Conversations.ensure_conversation(
                  agent.uid,
-                 Ankole.BackgroundAgentJobs.job_session_id(Ecto.UUID.generate())
+                 Ankole.BackgroundAgentJobs.job_session_id(1000)
                )
 
       Repo.update_all(
@@ -226,12 +226,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                  clarify_outbox.agent_uid,
                  clarify_outbox.binding_name,
                  clarify_outbox.outbound_key,
-                 %{
-                   capabilities: [:post_entry, :reply_entry, :edit_entry],
-                   send: fn _outbox ->
-                     {:ok, %{created_source_entry_id: card_message_id}}
-                   end
-                 },
+                 outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn _outbox ->
+                   {:ok, %{created_source_entry_id: card_message_id}}
+                 end),
                  now: DateTime.add(@base_time, 2, :second)
                )
 

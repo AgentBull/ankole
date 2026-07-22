@@ -473,7 +473,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  group_entry(%{
                    attachments: [
                      %{provider_ref: "lark:file:file-1", name: "report.pdf"},
-                     %{agent_computer_path: "/workspace/user-files/report.pdf"}
+                     %{agent_computer_path: "/agents/#{agent.uid}/user-files/report.pdf"}
                    ]
                  }),
                  now: @base_time
@@ -481,7 +481,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
 
       assert entry.attachments == [
                %{"name" => "report.pdf", "provider_ref" => "lark:file:file-1"},
-               %{"agent_computer_path" => "/workspace/user-files/report.pdf"}
+               %{"agent_computer_path" => "/agents/#{agent.uid}/user-files/report.pdf"}
              ]
     end
   end
@@ -491,7 +491,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:error, {:invalid_json_payload, :metadata, :unsupported_runtime_value}} =
+      assert {:error, {:invalid_ingress_json, :metadata, :unsupported_runtime_value}} =
                Ingress.emit_entry(
                  agent.uid,
                  "bot",

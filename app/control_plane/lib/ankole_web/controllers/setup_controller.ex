@@ -100,8 +100,8 @@ defmodule AnkoleWeb.SetupController do
   """
   def plugins(conn, _params) do
     with :ok <- require_setup_session(conn),
-         {:ok, disabled_ids} <- Plugins.disabled_ids() do
-      disabled = MapSet.new(disabled_ids)
+         {:ok, enabled_ids} <- Plugins.enabled_ids() do
+      enabled = MapSet.new(enabled_ids)
       plugins = Plugins.list_discovered()
 
       json(conn, %{
@@ -109,7 +109,7 @@ defmodule AnkoleWeb.SetupController do
         enabledPluginIDs:
           plugins
           |> Enum.map(& &1.id)
-          |> Enum.reject(&MapSet.member?(disabled, &1))
+          |> Enum.filter(&MapSet.member?(enabled, &1))
       })
     else
       {:error, status, reason} -> error(conn, status, reason)
@@ -246,18 +246,13 @@ defmodule AnkoleWeb.SetupController do
 
     case unknown do
       [] ->
-        # AppConfigure stores disabled plugin ids, not enabled ids. The setup API
-        # accepts enabled ids because that is the natural UI model.
-        disabled_ids =
+        enabled_ids =
           plugins
           |> Enum.map(& &1.id)
-          |> Enum.reject(&MapSet.member?(selected, &1))
+          |> Enum.filter(&MapSet.member?(selected, &1))
 
-        with {:ok, _disabled_ids} <- Plugins.put_disabled_ids(disabled_ids) do
-          {:ok,
-           plugins
-           |> Enum.map(& &1.id)
-           |> Enum.filter(&MapSet.member?(selected, &1))}
+        with {:ok, enabled_ids} <- Plugins.put_enabled_ids(enabled_ids) do
+          {:ok, enabled_ids}
         end
 
       ids ->

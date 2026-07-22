@@ -249,7 +249,27 @@ run_real_llm() {
 
 run_brain_real_llm() {
   (
+    local brain_test_database="ankole_test_brain_real_llm_$$"
+
+    if [[ "$DATABASE_URL" =~ ^(.*/)[^/?]+(\?.*)?$ ]]; then
+      export DATABASE_URL="${BASH_REMATCH[1]}${brain_test_database}${BASH_REMATCH[2]-}"
+    else
+      echo "[e2e] DATABASE_URL must include a database path for --brain-real-llm." >&2
+      exit 1
+    fi
+
     cd "$CONTROL_PLANE_DIR"
+    trap 'MIX_ENV=test mix ecto.drop --quiet >/dev/null 2>&1 || true' EXIT
+
+    MIX_ENV=test mix ecto.create --quiet
+    MIX_ENV=test mix ecto.migrate --quiet
+    MIX_ENV=test mix run -e '
+      case Ankole.Plugins.Config.put_configured_enabled("lark-adapter", true) do
+        {:ok, _enabled_ids} -> :ok
+        {:error, reason} -> raise "failed to enable the Brain e2e Lark plugin: #{inspect(reason)}"
+      end
+    '
+
     MIX_ENV=test \
       ANKOLE_REAL_LLM_E2E=1 \
       mix test ../../tools/e2e/suites/lark_brain_real_llm_e2e_test.exs \

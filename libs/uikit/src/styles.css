@@ -440,6 +440,21 @@
     --jer-select-border: var(--input);
     --jer-select-focus: var(--ring);
     --jer-select-arrow: var(--muted-foreground);
+    --ankole-json-key: var(--color-blue-70);
+    --ankole-json-string: var(--color-teal-70);
+    --ankole-json-number: var(--color-purple-70);
+    --ankole-json-boolean: var(--color-green-70);
+    --ankole-json-null: var(--color-red-70);
+    --ankole-json-punctuation: var(--color-gray-60);
+  }
+
+  [data-theme='dark'] .ankole-json-editor {
+    --ankole-json-key: var(--color-blue-30);
+    --ankole-json-string: var(--color-teal-30);
+    --ankole-json-number: var(--color-purple-30);
+    --ankole-json-boolean: var(--color-green-30);
+    --ankole-json-null: var(--color-red-30);
+    --ankole-json-punctuation: var(--color-gray-40);
   }
 
   .ankole-json-editor.jer-editor-container {

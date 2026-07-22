@@ -15,7 +15,6 @@ defmodule Ankole.Brain.RPCBroker do
   alias Ankole.SignalsGateway.ActorRuntime.Common
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.AIGatewayLink
 
   @default_block_limit 50
   @max_block_limit 200
@@ -26,9 +25,7 @@ defmodule Ankole.Brain.RPCBroker do
   def handle_search(%TurnRef{} = turn_ref, %FabricProto.MemorySearchRequest{} = request, ctx) do
     respond(ctx, fn ->
       with {:ok, %{scope: scope}} <- RuntimeContext.resolve(turn_ref) do
-        Brain.search(scope, search_attrs(request),
-          excluded_document_ids: AIGatewayLink.visible_signal_document_ids(turn_ref)
-        )
+        Brain.search(scope, search_attrs(request))
       end
     end)
   end
@@ -74,6 +71,7 @@ defmodule Ankole.Brain.RPCBroker do
     respond(ctx, fn ->
       with {:ok, operation} <- update_operation(request),
            {:ok, %{scope: scope}} <- RuntimeContext.resolve(turn_ref),
+           {:ok, scope} <- write_scope(scope, presence(request.store)),
            {:ok, write_context} <- SourceLearning.write_context(turn_ref),
            {:ok, result} <-
              Brain.apply_operations(
@@ -152,13 +150,18 @@ defmodule Ankole.Brain.RPCBroker do
   defp read_scope(%Scope{} = scope, store) when store in [nil, "current"],
     do: {:ok, scope, nil}
 
-  defp read_scope(%Scope{} = scope, "public") do
-    with {:ok, scope} <- Scope.restrict_read_store(scope, "public") do
-      {:ok, scope, "public"}
+  defp read_scope(%Scope{} = scope, "shared") do
+    with {:ok, scope} <- Scope.restrict_read_store(scope, "shared") do
+      {:ok, scope, "shared"}
     end
   end
 
   defp read_scope(%Scope{}, store), do: {:error, {:invalid_store, store}}
+
+  defp write_scope(%Scope{} = scope, nil), do: {:ok, scope}
+  defp write_scope(%Scope{} = scope, "current"), do: {:ok, scope}
+  defp write_scope(%Scope{} = scope, "self"), do: Scope.select_self_store(scope)
+  defp write_scope(%Scope{}, store), do: {:error, {:invalid_store, store}}
 
   defp entry_selector(request) do
     case {presence(request.entry_id), presence(request.name)} do

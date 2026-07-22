@@ -57,7 +57,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
     rendered = inspect(skill_result)
     assert rendered =~ "skill://enabled/nano-pdf/SKILL.md"
     assert rendered =~ "nano-pdf Skill is a background-task capability"
-    assert rendered =~ "background_agent_job(start)"
+    assert rendered =~ "create_background_job"
     refute rendered =~ "# nano-pdf"
 
     assert_actor_event_completed!(input.id)
@@ -103,7 +103,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
       assert rendered =~ "#{skill_name} Skill is a background-task capability"
     end
 
-    assert rendered =~ "background_agent_job(start)"
+    assert rendered =~ "create_background_job"
     refute rendered =~ "# Jupyter Live Kernel"
     refute rendered =~ "# nano-pdf"
 
@@ -219,7 +219,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
         agent: agent,
         container: container
       }) do
-    skill_dir = "/workspace/shared/skills/agents/#{agent.uid}/e2e-installed"
+    skill_dir = Path.join(Ankole.AgentHomePaths.installed_skills(agent.uid), "e2e-installed")
     docker_exec!(container, ["mkdir", "-p", skill_dir])
 
     docker_write_text!(

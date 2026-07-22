@@ -1,563 +1,418 @@
 # RuntimeFabric
 
-RuntimeFabric is the control-plane to worker fabric. It has three lanes that
-share worker transport and authentication, but they carry different kinds of
-traffic:
+RuntimeFabric connects the Elixir control plane to Agent Computer workers.
+It carries live messages but does not store them. PostgreSQL stores any data
+that Ankole needs after a restart.
 
-- actor lane: turn lifecycle and live actor control;
-- rpc lane: bidirectional bounded request/response calls for semantic methods;
-- worker file lane: read, write, list, move, and delete operations against a
-  worker-owned filesystem.
+The connection carries three groups of messages:
 
-The lanes are not three product objects. They are a small routing split that
-keeps durable semantics, request/response semantics, and bytes from pretending
-to be the same thing.
+- Actor messages start, steer, stop, and complete Agent turns.
+- RPC messages ask another process to read or change Ankole data.
+- File messages read or change files on a worker.
 
-RuntimeFabric is live transport only. Durable truth — actor events, the AI
-message log, mirrors, outbox — lives in PostgreSQL and is written by the
-control plane. For where this fabric sits in the whole system, see
-`docs/README.md`.
+All three groups use the same worker connection and authentication.
 
-RuntimeFabric uses lane names consistently. The older bus terminology is not
-part of the current public architecture.
+## Which Process Stores What
 
-## Current ZeroMQ Shape
+The control plane stores:
 
-The current implementation multiplexes RuntimeFabric over one ZeroMQ connection
-per worker:
+- ActorEvents and their delivery records
+- Session activations and turn fences
+- AIGateway conversations and messages
+- Agent documents and enabled capabilities
+- copies of provider messages and provider outbox rows
+- Background Agent Job state
 
-- the control plane owns one Rust-managed `ROUTER` socket;
-- each agent computer worker owns one Rust-managed `DEALER` socket;
-- the `DEALER` identity is the transport route used by the control plane;
-- actor and rpc traffic are protobuf envelope payload frames;
-- worker file traffic is raw multipart data-plane traffic marked with
-  `ANKOLE_FILE/1`.
+Workers run Agent code and access mounted files. They do not define PostgreSQL
+rules or commit business records.
 
-The lane split is therefore not a socket split. Actor, rpc, and worker-file
-traffic share the same route identity, socket authentication, high-water marks,
-timeouts, and liveness failure modes. They differ at the frame and codec layer.
+Workers use RPC when they need to read or change stored Ankole data. The control
+plane uses file messages when it needs a worker file.
 
-The control-plane `ROUTER` frame shape for an envelope is:
+All workers in one Installation must still see the same Agent Home storage.
+File messages do not replace shared storage.
+
+## One ZeroMQ Connection per Worker
+
+RuntimeFabric uses one ZeroMQ connection per worker.
+
+- The control plane runs one Rust-managed `ROUTER` socket.
+- Each worker runs one Rust-managed `DEALER` socket.
+- The `DEALER` identity tells the control plane where to send a message.
+
+Actor and RPC messages use Protobuf. File messages use raw multipart frames.
+
+The control-plane envelope shape is:
 
 ```text
 [transport_route, protobuf_envelope]
 ```
 
-The worker `DEALER` sees the envelope as:
+The worker receives:
 
 ```text
 [protobuf_envelope]
 ```
 
-The worker-file frame shapes are:
+The control-plane file shape is:
 
 ```text
 [transport_route, ANKOLE_FILE/1, COMMAND, transfer_id, ...]
+```
+
+The worker receives:
+
+```text
 [ANKOLE_FILE/1, COMMAND, transfer_id, ...]
 ```
 
-The Rust parser tolerates an empty delimiter frame and extra proxy-style leading
-identity frames where useful, but the documented and generated protocol is the
-simpler shape above. That keeps interoperability room without making the
-delimiter part of Ankole's own contract.
+The parser accepts an empty delimiter or extra proxy identity frames, but the
+generated Ankole protocol does not require them.
 
-## Why ZeroMQ Here
+## Rust Owns the ZeroMQ Sockets
 
-ZeroMQ is used as the live actor fabric, not as durable storage. It gives the
-runtime a small set of properties that match the worker pool:
+ZeroMQ requires each socket to stay on one thread. The Rust kernel runs those
+threads.
 
-- `ROUTER`/`DEALER` gives each connected worker a route identity without
-  requiring a long-lived HTTP request or a per-worker server port;
-- mandatory `ROUTER` send turns a missing route into an explicit
-  `unknown_route` result instead of silent message loss;
-- multipart frames let file operations carry binary chunks without JSON/base64
-  or protobuf chunk wrappers;
-- the same connection can carry control, turn, rpc, progress, and worker-file
-  frames without inventing a second in-process worker protocol;
-- Rust can own socket affinity, framing, ZAP, and protobuf validation while
-  Elixir keeps PostgreSQL semantics and commit authority.
+- `ankole-runtime-fabric-router` owns the `ROUTER`.
+- `ankole-runtime-fabric-dealer` owns one `DEALER`.
+- `ankole-runtime-fabric-zap` owns the ZAP `REP` socket.
 
-The tradeoff is intentional: ZeroMQ provides live routing and backpressure
-signals, while PostgreSQL remains the source of replay, fences, reconciliation,
-and final commit. The system should not recover actor state by asking ZeroMQ
-what happened. If a fact matters after process death, it must be journaled or
-committed in PG.
+Elixir and Bun never operate a ZeroMQ socket directly. They send commands to
+the Rust thread.
 
-## Ownership
+Elixir uses `Ankole.Kernel.RuntimeFabric` and the ActorRuntime transport broker.
+Bun uses one host adapter over `RuntimeFabricDealer`.
 
-The control plane owns PostgreSQL semantic state:
+The Bun adapter handles:
 
-- the actor event journal (`actor_events`) and delivery projections;
-- actor event completion facts, session activation fences, and the
-  AIGateway-owned stateful message log (`ai_gateway_messages`);
-- SOUL, MISSION, profile, and skill enablement;
-- per-agent skill overlays;
-- provider mirror and outbox state.
+- limited send retries
+- conversion of native errors
+- decoding of generated envelopes
+- calls to kernel validation
+- separation of envelopes from file frames
+- orderly shutdown of the `DEALER`
 
-Workers are trusted first-party execution environments, but they do not own PG
-domain rules. Worker reads and writes that touch PG semantics go through the
-rpc lane. The worker process may keep a RuntimeFabric connection directly; it
-does not need a native daemon turn-child protocol between Bun and the fabric.
+The adapter does not schedule Actors or decide when a turn ends.
 
-Workers own their mounted filesystem roots. The control plane does not need to
-mount worker NFS. When the control plane needs a file placed into, or read from,
-the worker-visible filesystem, it uses the worker file lane.
+## Socket Defaults Limit Waiting and Queues
 
-The deployment still requires coherent shared storage when more than one worker
-or node may execute turns for the same installation. NFS or an equivalent shared
-filesystem must back the worker-visible shared roots; the worker file lane is a
-bounded transfer API, not a replacement for that deployment contract.
+These defaults keep queues and shutdown delays finite. An operator must not
+treat them as product guarantees.
 
-## Transport Ownership
+| Setting | Default |
+| --- | --- |
+| Send queue limit (ZeroMQ high-water mark) | 1,000 |
+| Receive queue limit (ZeroMQ high-water mark) | 1,000 |
+| Send timeout | 1,000 milliseconds |
+| Receive timeout | 1,000 milliseconds |
+| Linger | 0 milliseconds |
+| Poll interval | 10 milliseconds |
+| Host command timeout | 10,000 milliseconds |
+| Dealer inbox events | 1,024 |
+| Dealer inbox bytes | 64 MiB |
 
-ZeroMQ sockets are thread-affine, so the native kernel owns socket threads:
+The limits let Ankole detect blocked sends, full queues, shutdown, and worker
+loss.
 
-- `ankole-runtime-fabric-router` owns the control-plane `ROUTER`;
-- `ankole-runtime-fabric-dealer` owns the worker `DEALER`;
-- `ankole-runtime-fabric-zap` owns the inproc ZAP `REP` socket when auth is
-  enabled.
+If router startup fails late, Rust closes the bound socket. If the host command
+sender disappears, Rust stops the socket loop.
 
-Elixir and Bun do not manipulate ZeroMQ sockets directly. They send commands
-into the native socket thread and receive validated envelope bytes back through
-the host binding:
+The transport maps common ZeroMQ errors as follows:
 
-- Elixir uses `Ankole.Kernel.RuntimeFabric` and
-  `Ankole.SignalsGateway.ActorRuntime.Transport.Broker`;
-- Bun uses one RuntimeFabric host adapter over the native
-  `RuntimeFabricDealer`; the adapter owns bounded send retry, native-error
-  translation, generated-codec decode plus the kernel validation call, raw
-  envelope-versus-worker-file classification, and explicit dealer stop;
-- each host encodes and decodes envelopes with its codec generated from
-  `envelope.proto`; the kernel validates the bytes on every send and receive
-  path.
+| ZeroMQ error | RuntimeFabric result |
+| --- | --- |
+| `EHOSTUNREACH` | `unknown_route` |
+| `EAGAIN` | `backpressure` |
+| `ETERM` | `socket_closed` |
+| Other errors | `zmq` transport error |
 
-The Bun adapter returns typed receive outcomes (`timeout`, `envelope`, or
-`worker_file`) and typed transport errors. The Rust N-API binding deliberately
-stays physical: create the socket, send an envelope or multipart frame set,
-receive raw frames asynchronously, and stop. Actor/RPC dispatch, worker
-ready/capacity/heartbeat policy, and turn lifecycle remain above the adapter in
-the Agent Computer worker; moving those policies into the adapter would mix
-transport translation with worker semantics and make both modules shallower.
+`unknown_route` marks the worker route as stale. ActorRuntime then decides
+whether to retry stored work.
 
-Current socket defaults favor bounded behavior over hidden buffering:
+## Temporary Routing Tables
 
-- `sndhwm` and `rcvhwm`: `1000`;
-- `sndtimeo_ms` and `rcvtimeo_ms`: `1000`;
-- `linger_ms`: `0`;
-- receive poll interval: `10ms`;
-- host command timeout: `10000ms`.
+ActorRuntime can rebuild these routing tables after a restart:
 
-These are not product guarantees. They are operational defaults that keep
-shutdown, worker loss, and backpressure visible while the runtime is still
-small. Callers may tune them, but they should not depend on unbounded ZeroMQ
-queues for correctness.
+- `actor_event_deliveries`
+- `agent_computer_workers`
+- `actor_session_worker_assignments`
+- `actor_session_activations`
 
-ROUTER initialization is also bounded. If the host times out before receiving a
-router handle, it marks the not-yet-returned socket thread stopped; a late bind
-must release its endpoint instead of becoming an ownerless router. Losing the
-host command sender is likewise a terminal condition for the socket loop.
+These UNLOGGED tables use text states with database checks. Their values describe
+only the current transport state.
 
-ZeroMQ send errors are mapped into actor-runtime language:
+Durable domain tables can still use PostgreSQL enums.
 
-- `EHOSTUNREACH` becomes `unknown_route`;
-- `EAGAIN` becomes `backpressure`;
-- `ETERM` becomes `socket_closed`;
-- other socket errors remain `zmq` transport errors.
+## Authenticate a Worker
 
-`unknown_route` is a scheduling signal. The actor runtime should mark the worker
-route stale and rely on durable delivery projections for retry instead of
-treating the turn as delivered.
+RuntimeFabric uses ZeroMQ ZAP with PLAIN authentication.
+The control plane stores one encrypted AppConfigure key:
 
-## Projection Storage States
+```text
+runtime_fabric.worker_auth_key
+```
 
-RuntimeFabric and ActorRuntime projection tables such as
-`actor_event_deliveries`, `agent_computer_workers`,
-`actor_session_worker_assignments`, and `actor_session_activations` store
-transport and liveness states as `text` plus explicit database `CHECK`
-constraints. These tables are volatile UNLOGGED projections whose state names
-track transport lifecycle and recovery policy.
+The control plane creates this key when necessary. Rust receives only its
+decrypted in-memory value.
 
-Durable domain tables should still prefer PostgreSQL-native enums when the enum
-clarifies the domain and is intended to be reused as a stable model contract
-across code paths. The projection-table exception is deliberate: it keeps the
-transport state machine local to the projection that owns it instead of turning
-worker-routing status names into shared domain types.
-
-## Worker Authentication
-
-RuntimeFabric uses ZeroMQ ZAP with PLAIN for worker bootstrap authentication.
-Operators configure one global `worker_auth_key`; ZAP username/password are
-implementation details:
-
-- the control plane owns `runtime_fabric.worker_auth_key` in AppConfigure;
-- the AppConfigure definition is encrypted and global-scope only;
-- if the key is missing at startup, the control plane generates and persists a
-  generated secret value;
-- PLAIN username is `WORKER_ID`;
-- PLAIN password is the worker auth key from `RUNTIME_FABRIC_URL`;
-- the control plane records the authenticated `worker_id` and key revision
-  against the transport route;
-- lifecycle envelopes are admitted against that authenticated route identity.
-
-`worker_id` identifies the stable operator-managed worker slot, not one OS
-process. Every Agent Computer process generates a fresh `incarnation_id` and
-includes it in `worker_ready`, `worker_heartbeat`, and `worker_capacity`.
-Before `worker_ready` can create or refresh that projection, the Rust kernel
-requires the envelope's `protocol_version` to match the control plane and the
-Elixir admission boundary checks the same header again. A mismatched worker is
-never placed in the ready pool.
-Admitting a new incarnation for the same worker atomically supersedes the old
-process projection and releases delivery fences still owned by that old
-incarnation, so a crash/restart can resume immediately instead of waiting for a
-heartbeat timeout. Lifecycle traffic from the superseded incarnation is fenced
-even if delayed packets arrive later.
-
-A router restart creates a fresh in-memory route/auth map. ZAP may authenticate
-the reconnecting DEALER before exposing its route identity, so the router keeps
-that success pending by `worker_id`; the first authenticated `worker_ready`,
-`worker_heartbeat`, or `worker_capacity` envelope binds the pending identity to
-the observed route. The control plane marks the old projection stale with
-`router_stopped` while the router is down. Matching authenticated lifecycle
-traffic from the same route and incarnation revalidates any stale worker after
-connectivity returns, including heartbeat timeouts and broken mandatory sends.
-Revalidation only returns the process to the ready pool: the stale transition's
-released assignments and superseded deliveries stay fenced, so late Turn writes
-cannot regain ownership. Explicitly stopped workers remain stopped. Raw
-worker-file frames cannot establish this binding because they carry no lifecycle
-`worker_id`.
-
-Worker startup needs only two worker identity/fabric environment variables:
+Worker startup requires these values:
 
 ```text
 WORKER_ID=worker-a
-RUNTIME_FABRIC_URL=tcp://:worker_auth_key@control-plane:port
+RUNTIME_FABRIC_URL=tcp://:<worker-auth-key>@control-plane:port
 ```
 
-`RUNTIME_FABRIC_URL` carries the control-plane endpoint and the shared auth key.
-It does not carry a username; `WORKER_ID` stays separate so Docker Compose,
-Kubernetes, or an operator script can choose a stable process identity. The
-worker parses the URL into the ZeroMQ endpoint `tcp://control-plane:port` and
-the PLAIN password. The same global `worker_auth_key` may be used by many
-workers with different `WORKER_ID` values.
+The URL contains the endpoint and shared password. `WORKER_ID` supplies the
+PLAIN username.
 
-There is no per-worker auth-key table in the mainline and Rust does not receive
-a database URL. Rust only receives the current in-memory worker auth key needed
-for ZAP verification.
+All workers can use the same key. Ankole does not store a different key for
+each worker.
 
-This is authentication for first-party workers on the runtime fabric. It is not
-a user authorization model, not a public-worker hardening story, and not a
-replacement for control-plane fences. A compromised or stale worker still cannot
-commit a newer turn because write effects are checked against PG-owned turn refs
-and revisions.
+`worker_id` names a worker slot chosen by the operator. Each new process creates
+a fresh `incarnation_id`.
 
-CURVE/TLS and public worker admission are not part of the current mainline.
-That keeps the implementation tied to the actual deployment assumption:
-operator-launched Docker workers, private fabric endpoints, an AppConfigure
-global worker key, and control-plane-owned durability.
+Ready, heartbeat, and capacity messages contain both identifiers.
+The control plane also records the authenticated route.
 
-## Envelope Invariants
+A new incarnation replaces the old process for the same worker ID. One
+transaction releases the old assignments and invalidates their turn fences.
 
-`envelope.proto` is the only structural declaration of the envelope. Every
-runtime derives its types and codec from that file mechanically: Rust through
-`prost-build` at compile time, Elixir through `protox` at compile time
-(`Ankole.Kernel.RuntimeFabric.Proto`), and TypeScript through
-`protoc-gen-es` into the committed
-`app/agent_computer/src/fabric/generated/` output (regenerated with
-`bun run gen:proto`; a sidecar hash keeps the committed output pinned to the
-proto, the buf configuration, and the pinned generator versions). A proto
-change therefore propagates to all three languages without hand-written
-mapping code.
+The control plane rejects delayed messages from the old process.
 
-Structural encoding errors surface in the host that built the envelope, but
-the Rust kernel stays the single semantic checker: it validates these
-invariants on every send and receive path before bytes cross the wire or reach
-normal Elixir or Bun handlers:
+A worker becomes stale after 60 seconds without a valid heartbeat. Cleanup can
+remove its routing record after 3,600 seconds.
 
-- `protocol_version` must be `2`;
-- every envelope must have `message_id`, `lane`, `durability`, and exactly one
-  body;
-- body type fixes the allowed lane and durability class;
-- turn and rpc envelopes require `correlation_id`;
-- rpc `correlation_id` must equal `request_id`;
-- `turn_control` must remain a control envelope, not a second actor event
-  payload channel;
-- `worker_progress.kind` is limited to control-plane-visible progress classes.
+After a router restart, the first authenticated worker lifecycle message
+reconnects the route to its ZAP identity.
 
-`*_json` bytes fields carry UTF-8 JSON text produced by the sending host's JSON
-serializer; empty bytes mean "absent". Hosts decode them at the lane boundary
-and treat invalid JSON as a producer bug rather than degrading. RPC frame
-payloads are no longer JSON: protocol version 2 gives field 4 of `RPCRequest`
-and field 2 of `RPCResponse` method-specific protobuf meaning, with turn and
-agent identity on the request frame. Reusing those v1 field numbers changed
-their application-level wire meaning, so version 1 and version 2 runtimes are
-intentionally incompatible.
+A valid worker lifecycle message can make a stale worker active again. It cannot
+restore released assignments or old delivery attempts. A stopped worker cannot
+reactivate itself.
 
-Cross-language conformance is anchored by golden fixtures under
-`app/kernel/proto/golden/`: the committed bytes are decoded read-only by the
-Rust, Elixir, and TypeScript suites. Current `*.v2.bin` fixtures must pass the
-kernel validator. Retained `*.v1.bin` fixtures remain structurally decodable for
-diagnostics but must fail semantic validation before worker admission. This
-means a v1-to-v2 deployment is a coordinated control-plane and worker rollout,
-not a mixed-version rolling deploy. The generated package namespace remains
-`ankole.runtime_fabric.v1`; compatibility admission is owned by the envelope
-header, not by the code-generation namespace. Regenerate current fixtures with
-`cargo test --no-default-features regenerate_golden_envelope_fixtures -- --ignored`
-after an intentional protocol change.
+Raw file frames cannot authenticate a new worker route because they contain no
+worker lifecycle identity.
 
-### Image pairing and protocol rollout
+This protocol authenticates trusted first-party workers. Database turn fences
+still protect each write. Ankole does not provide CURVE, TLS, or public worker
+admission here.
 
-`.github/workflows/runtime-images.yml` is the only main-branch publisher for
-the control-plane and Agent Computer runtime images. One run builds both from
-the same Git SHA, publishes each final multi-platform tag at that SHA at most
-once, and labels both architectures with the release SHA and RuntimeFabric
-protocol version. The pair gate stays closed until both images exist and match
-those labels; it then emits a JSON pair record plus two Helm values files that
-pin the verified manifest digests. The order in which the control-plane and
-worker manifests finish publishing cannot expose a deployable half-pair.
+## Validate Every Actor and RPC Message
 
-The Helm chart accepts only digest-pinned images, the matching 40-character
-release revision, and an explicit rollout phase. Its pre-install/pre-upgrade
-hook pulls both images and checks their baked release revision and protocol
-version before either Deployment changes. The `control-plane` phase keeps the
-worker at zero replicas and uses `Recreate` for the control plane; after that
-phase succeeds with `--wait`, the `worker` phase starts the paired worker. Drain
-the old worker before the first phase. Rollback uses the previous verified pair
-through the same two phases; never roll back only one side.
+`app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` defines the message
+structure.
+The generated package namespace remains `ankole.runtime_fabric.v1`.
+The envelope header currently requires protocol version 3.
 
-An incompatible transition between two singleton processes necessarily has a
-bounded zero-worker maintenance window. The rollout contract makes that window
-explicit instead of serving a mixed protocol. Accepted ActorEvents and
-BackgroundAgentJobs remain PostgreSQL facts and resume after the paired worker
-is admitted; RuntimeFabric itself is not the recovery source.
+The runtimes generate codecs from the same file:
 
-The protobuf lane values are transport-level lanes shared by the whole
-RuntimeFabric connection. They are lower-level than the product lane names and
-are not subsections of the actor lane:
+- Rust uses `prost-build`.
+- Elixir uses `protox`.
+- TypeScript uses `protoc-gen-es`.
 
-- `LANE_CONTROL`: worker lifecycle, turn control, shutdown;
-- `LANE_TURN`: turn start, mailbox update, turn accepted, explicit completion,
-  noop completion, turn error;
-- `LANE_PROGRESS`: worker progress observations;
-- `LANE_RPC`: request/response/error RPC envelopes handled by the RPC lane.
+Generate committed TypeScript output with `bun run gen:proto`.
+A sidecar hash pins the source and generator inputs.
 
-The durability class is about control-plane replay/commit behavior, not ZeroMQ
-persistence. `CONTROL_REPLAYABLE` and `CONTROL_DURABLE` still require PG-backed
-facts; ZeroMQ never becomes the durable ledger.
+The Rust kernel checks every envelope before sending and after receiving it:
 
-## Actor Lane
+- `protocol_version` must equal 3.
+- `message_id`, lane, durability, and body must exist.
+- The body fixes its lane and durability class.
+- Turn and RPC envelopes require a correlation ID.
+- An RPC correlation ID must equal its request ID.
+- A turn reference must contain all turn-fence fields.
+- `turn_completed.final_response_id` must start with `resp_`.
+- `turn_completed.outcome` must be explicit.
+- A `turn_control` steer payload must be empty.
+- Worker progress must use an approved progress class.
 
-The actor lane carries RuntimeFabric protobuf envelopes. It is for turn
-lifecycle and live actor control, not for file bytes.
+Approved worker progress classes are:
 
-Typical actor lane messages:
+- `summary`
+- `checkpoint`
+- `reply_presentation`
+- `artifact_ref`
+- `cancellation_observed`
+- `retryable_error`
+- `final_error`
 
-- `worker_ready`, `worker_heartbeat`, `worker_capacity`;
-- `turn_start`;
-- `turn_accepted`;
-- `mailbox_updated`;
-- `turn_control`;
-- `worker_progress`;
-- `turn_completed`;
-- `turn_noop_completed`;
-- `turn_error`.
+Host code writes UTF-8 JSON into `*_json` byte fields. Empty bytes mean that the
+value is absent.
 
-`turn_start` starts one worker execution for exactly one actor event:
+Each RPC method has its own protobuf payload. The kernel transports those bytes
+without interpreting their business fields.
 
-- `turn`: the `ActorTurnRef` fence;
-- `actor_event`: the single accepted actor event envelope
-  (`actor_event_id`, `queue_sequence`, `type`, `source_event_id`,
-  `source_entry_id`, `payload_json`, `binding_name`, `signal_channel_id`,
-  `provider_thread_id`). There is no events list;
-- `model_ref`: the control-plane-selected runtime model profile for ordinary
-  generation (`profile`, `provider_id`, `model`, `provider_kind`);
-- `request_context`: current-turn facts such as schedule origin, turn mode,
-  `silent_success_allowed`, and the snapshotted `ai_agent` runtime policy,
-  including `max_iterations`.
+Golden fixtures live under `app/kernel/proto/golden`.
+Rust, Elixir, and TypeScript decode the same fixture bytes.
 
-`mailbox_updated` carries exactly one already-journaled actor event; it is how a
-`/steer` event is injected into a running turn at a checkpoint. There is no batch
-update shape.
+Tools can decode version 1 fixtures for diagnosis, but worker admission rejects
+version 1 messages.
 
-`/steer` acknowledgement is deliberately a receive acknowledgement, not a model
-incorporation guarantee. When ActorRuntime has a live, lease-valid activation for
-the session, it bumps that activation revision, creates a delivery for the
-`command.steer` event, sends `mailbox_updated`, and marks the command event
-complete as soon as the broker reports `sent_or_queued`. It does not wait for the
-worker to accept the mailbox update, for a tool checkpoint, or for the final
-AIGateway response. If the broker cannot route/send the update, the steer event
-is not completed.
+## Protocol Lanes and Durability Classes
 
-This matches the intended interactive semantics: the user gets low-latency
-confirmation that the running agent has been nudged. The tradeoff is weaker than
-"the model consumed this steer exactly once": a turn may finish before the worker
-accepts or drains the update, in which case the delivery can be superseded while
-the command event remains complete. Delivery state in `actor_event_deliveries`
-records that transport fact; `actor_events.completed_at` records only that the
-control plane accepted the steer for the active turn.
+The Protobuf protocol uses four technical lanes:
 
-`request_context` is not conversation history and is not agent identity.
-Conversation history never crosses this lane: AIGateway expands it from
-`previous_response_id` or `conversation` on each `response.create`, or starts a
-managed conversation when a stateful Responses request names neither (see
-`docs/design-docs/AIGateway.md`).
+- `LANE_CONTROL` carries worker lifecycle and turn control.
+- `LANE_TURN` carries turn start, acceptance, and completion.
+- `LANE_PROGRESS` carries progress observations.
+- `LANE_RPC` carries RPC requests and results.
 
-`turn_control(command = "retry")` is a stop signal for a turn the control plane
-has already fenced in PostgreSQL. The worker should abort its local tool loop
-and any in-flight `response.create`, and release capacity. It should not report
-the controlled stop as `turn_error`; `turn_error` remains reserved for worker
-execution failure that makes the event retryable through the normal failure
-path.
+The durability flag tells the control plane what it must store or replay.
+It does not make ZeroMQ a stored queue.
 
-Every turn message carries an `ActorTurnRef`. The control plane validates this
-turn fence against current database rows before accepting write effects. The
-important fields are:
+- `CONTROL_DURABLE` requires a durable control-plane fact.
+- `CONTROL_REPLAYABLE` requires a replayable PostgreSQL fact.
+- `CONTROL_EPHEMERAL` carries live observation only.
 
-- actor key: `agent_uid` and `session_id`;
-- `activation_uid`;
-- `actor_epoch`;
-- `actor_event_id`;
-- `revision`.
+## Start and Control Agent Turns
 
-The fence is deliberately not a separate permission system. It is the minimum
-runtime equality check that prevents old workers or old turn attempts from
-committing into a newer actor state.
+The actor lane carries these common messages:
 
-The actor lane carries explicit final-output adoption through
-`turn_completed`. It is `LANE_TURN + CONTROL_REPLAYABLE` and contains:
+- `worker_ready`
+- `worker_heartbeat`
+- `worker_capacity`
+- `turn_start`
+- `mailbox_updated`
+- `turn_accepted`
+- `turn_control`
+- `worker_progress`
+- `turn_completed`
+- `turn_noop_completed`
+- `turn_error`
 
-- the complete `ActorTurnRef` fence;
-- `final_response_id`, a stored `resp_*` chosen by the Agent Computer loop;
-- `outcome = loop_finished | iteration_exhausted`.
+Worker capacity has one scheduling representation. `worker_ready` and
+`worker_capacity` carry integer `max_turns` and `available_turn_slots` fields.
+`worker_heartbeat` and `worker_capacity` carry integer `active_turns` fields.
+The kernel rejects zero maximum capacity, available capacity above the maximum,
+and capacity updates whose active and available values do not equal the maximum.
+The control plane does not derive capacity from load or parse JSON and string
+alternatives.
 
-`loop_finished` means the loop exited normally; it does not assert that the
-user's broader task succeeded. `iteration_exhausted` is terminal and
-non-retryable; its final Response is the budget-exempt no-tools summary and may
-itself have `status = completed`.
+### Start a Turn
 
-SignalsGateway validates the immutable Response chain, then atomically commits
-ActorEvent completion, final/clarify/attachment outbox intents, and delivery
-cleanup. The same commit clears `current_actor_event_id` and gives the live
-activation a bounded warm-idle lease so a near-term event can reuse its worker
-and actor epoch. Idle expiry is recorded as a normal `stopped` activation;
-lease expiry is `failed` and retryable only while an unfinished event is still
-bound. AIGateway's terminal commit closes only one Response and never changes
-Actor state. There is no completion ACK: if completion handling fails, the
-ActorEvent remains open and ordinary lease/redelivery starts a fresh worker
-execution with a fresh local budget. A turn whose event needs no output still
-uses `turn_noop_completed`; silence is never completion. `turn_error` remains
-the retryable worker execution-failure path.
+`turn_start` contains one actor event.
+It does not contain an event list.
 
-## RPC Lane
+The message contains these main values:
 
-The rpc lane also uses RuntimeFabric protobuf envelopes. Its body type is
-`rpc_request`, `rpc_response`, or `rpc_error`. Business payloads are generated
-protobuf messages declared in
-`app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto`: the frame `method`
-string selects the request/response message pair, and `RPCRequest.payload` /
-`RPCResponse.payload` carry that message's binary encoding. Deliberately
-free-form documents (schedule specs, reply routes, Job trajectories, results,
-metadata) stay `bytes *_json` fields inside those messages. Model-facing
-passthrough responses (the `memory_*` and `schedule.*` families) share
-`JSONPassthroughResponse`, whose `body_json` the worker hands to the model
-unchanged. Payloads stay small; large file bytes do not belong in rpc
-payloads. `rpc_error` keeps its typed frame with free-form `details_json`.
+- An `ActorTurnRef` turn fence.
+- One durable ActorEvent envelope.
+- The selected model reference.
+- Current request context.
+- Hosted tool configuration.
 
-The rpc lane is request/response traffic for semantic methods. It is not tied
-to worker-owned files or actor-lane facts. Either side may initiate a bounded
-RPC call when it needs a method owned by the other side.
+Request context contains current request details, not conversation history.
+AIGateway builds model history for each Response.
 
-Worker-to-control-plane methods are grouped by the PG-owned domain they expose:
+### Reject Writes from an Old Turn
 
-- `agent_conversation.context.resolve`: returns the current
-  `ai_gateway_conversations` context: agent display facts, conversation id/key,
-  started time, timezone, soul, mission, enabled skills, and optional cache key.
-  It does not return request context or model history;
-- `skills.overlay.resolve`: returns one agent/skill overlay;
-- `skills.overlay.replace`: replaces one overlay;
-- `skills.installed.replace`: replaces the worker's observed installed-skill set;
-- `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
-  AIGateway API key for the request's explicit `agent_uid`;
-- `app_configure.resolve`: resolves declared worker runtime settings;
-- `background_agent_job.create/get/list/steer/stop`: exposes the model-facing
-  durable Job operations;
-- `background_agent_job.turn.upsert` and
-  `background_agent_job.status.update`: persist bounded execution projection
-  and lifecycle commits from the active CodexRunner Turn;
-- `agent_plugin.list`: returns the Agent's effectively enabled Agent Plugin
-  catalog for explicit selection by an ordinary Job; package behavior never becomes a
-  separate RuntimeFabric method family;
-- `codex.account.resolve` and `codex.account.auth.update`: resolve and persist
-  the frozen ChatGPT subscription account for an active Job Turn;
-- `memory_*` and `schedule.*`: operate the declared memory and scheduling
-  surfaces.
+Every turn message contains an `ActorTurnRef`. This turn fence identifies the
+current attempt and contains these values:
 
-The cross-language method registry is generated into
-`app/kernel/proto/ankole/runtime_fabric/v1/rpc_methods.json` and checked by
-both the Elixir and Bun test suites. Each entry pins the method's
-authorization scope and its fully qualified request/response message names,
-so payload schema binding cannot drift between the runtimes. The kernel never
-decodes rpc payloads: they stay opaque bytes at the transport boundary.
+- `agent_uid`
+- `session_id`
+- `activation_uid`
+- `actor_epoch`
+- `actor_event_id`
+- `revision`
 
-There is deliberately no conversation-history RPC and no summary-commit RPC.
-Model history is AIGateway state: each `response.create` expands it
-server-side, and compaction writes are AIGateway-internal. The worker has
-nothing to fetch and nothing to commit on this lane for either concern.
+The control plane checks these values before it accepts a worker write. An old
+worker or earlier attempt cannot change a newer turn.
 
-There are currently no declared control-plane-to-worker semantic methods. The
-lane still supports bounded request/response traffic in that direction; a method
-should be added only when a real caller owns the user story.
+Read RPCs can use a current live revision.
+Write RPCs must match the revision in the current turn fence.
 
-The turn fence and worker_agent subject are frame facts, not payload fields:
-turn-scoped requests carry `ActorTurnRef` on the `RPCRequest` frame and
-worker_agent requests carry the trusted `agent_uid` there. The server checks
-the route and turn fence before decoding the payload. Read methods may accept
-the current live turn fence. Write methods must match the current revision.
-Request correlation is owned by the frame `request_id`; payload messages carry
-no identity or correlation echoes.
+### Add Input to a Running Turn
 
-The rpc lane should stay coarse enough to avoid chatty PG access. A normal text
-turn resolves agent conversation context once before building the prompt.
-Skill overlays are resolved only when `skill_view` or `skill_append` needs
-them.
+`mailbox_updated` contains one journaled actor event.
+It injects a steer command into a running turn.
 
-The control-plane `RPCLane` is deliberately small and is the single codec
-boundary: it authorizes the frame, decodes the request message named by the
-registry, and encodes the broker's response struct (or wraps a passthrough
-JSON map). Method handlers receive the decoded struct plus the frame facts
-and own their domain checks. That keeps the transport broker from becoming a
-second application service layer.
+The control plane completes the command event after `sent_or_queued`. This means
+that the worker received or queued it, not that the model read it.
 
-The worker's RPC client is in-process and request-id based. It sends
-`rpc_request` envelopes over the same `DEALER` socket and waits for the matching
-`rpc_response` or `rpc_error`. The current timeout is `300s`, which is a worker
-runtime budget, not a database transaction budget.
+The worker can finish before it reads the update. The delivery record keeps
+that weaker result.
 
-## Hermes Floor And Transport Tradeoffs
+### Retry a Turn
 
-| Boundary | Previous Ankole | Hermes reference | Current Ankole | Tradeoff |
-| --- | --- | --- | --- | --- |
-| Worker-to-control-plane RPC | `60s` | No equivalent internal RPC boundary | `300s` | A stuck control-plane call occupies a worker longer, but slow database, secret, catalog, and Job operations no longer fail a valid turn after one minute. |
-| Kernel host command | `1s` | No equivalent shared native transport command | `10s` | Shutdown and transport faults can surface up to nine seconds later; normal host scheduling jitter no longer looks like a kernel failure. |
+`turn_control` with `command = "retry"` stops the named local turn. The worker
+ends its loop, releases capacity, and does not report `turn_error`.
 
-The control-plane RPC client is also request-id based. It sends `rpc_request`
-envelopes through the existing mandatory route send, stores a pending caller in
-the transport broker, and resolves that caller when the worker replies with
-`rpc_response` or `rpc_error` on the same route.
+### Complete a Turn
 
-## Worker File Lane
+`turn_completed` contains the final Response ID and one outcome.
 
-The worker file lane is RuntimeFabric's filesystem lane. It uses raw ZeroMQ
-multipart frames, not protobuf, and it does not base64 encode file content.
-Frame roles are explicit:
+- `loop_finished` means the worker loop ended normally.
+- `iteration_exhausted` means the local iteration budget ended.
 
-- protocol marker, command, and `transfer_id` are text frames;
-- numbers such as sequence, offset, byte credit, sizes, and timestamps are
-  unsigned big-endian binary integer frames;
-- booleans are one-byte frames;
-- paths are virtual worker-root paths such as
-  `/user_files/inbox/lark/message-1/image.png`;
-- directory listings use a compact typed binary table;
-- file content is carried only by `DATA` binary chunk frames.
+Neither outcome proves the broader user task succeeded.
+
+SignalsGateway checks that the Response chain did not change. It then completes
+the ActorEvent and stores the replies in one transaction.
+
+The same commit clears the current ActorEvent and briefly keeps the Session on
+the worker for possible follow-up work.
+
+AIGateway completion closes one Response only.
+It does not complete the actor event.
+
+RuntimeFabric sends no completion acknowledgement. If the commit fails, the
+ActorEvent stays open and ActorRuntime can try again.
+
+A turn with no reply uses `turn_noop_completed`. Silence alone never completes
+a turn. A worker failure uses `turn_error` and the normal retry path.
+
+## Call Functions in Another Process
+
+The RPC lane uses `rpc_request`, `rpc_response`, and `rpc_error` envelopes.
+Both control plane and worker clients correlate calls by request ID.
+
+`app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto` declares business messages.
+`rpc_methods.json` is the method registry SSOT.
+
+Each registry row defines:
+
+- the method name
+- its authorization scope
+- whether a turn method reads or writes
+- the request message type
+- the response message type
+
+Elixir and Bun tests check the same registry. The control plane encodes and
+decodes all business payloads in one place.
+
+Turn-scoped frames carry `ActorTurnRef` outside the payload.
+Worker-agent frames carry a trusted `agent_uid` outside the payload.
+
+The server authorizes the outer frame before it decodes the business payload.
+The payload does not repeat identity or request IDs.
+
+The registry currently contains these method families:
+
+- Agent conversation context.
+- Agent Plugin catalog.
+- AIGateway API key resolution.
+- AppConfigure and WorkerEnv resolution.
+- Background Agent Job lifecycle and trajectory.
+- Codex account resolution and authentication writeback.
+- Brain memory operations.
+- Schedule operations.
+- Installed Skill observations.
+- Skill overlay resolve, append, and replace operations.
+
+Memory and schedule RPCs use `JSONPassthroughResponse`. The worker passes
+`body_json` to the model without changing its fields.
+
+The RPC lane does not carry conversation history or compaction commits.
+AIGateway owns both concerns.
+
+The worker RPC timeout is 300 seconds.
+This runtime timeout is not a PostgreSQL transaction budget.
+
+## Read and Change Worker Files
+
+The worker file lane uses raw ZeroMQ multipart frames.
+It does not use Protobuf or Base64 for file content.
 
 The protocol marker is:
 
@@ -565,267 +420,183 @@ The protocol marker is:
 ANKOLE_FILE/1
 ```
 
-The current frame shape is:
+Text frames carry commands, transfer IDs, and paths. Binary frames carry sizes,
+offsets, sequence values, timestamps, booleans, and compressed file blocks.
+
+The protocol supports these operation groups:
+
+- Write open, data, credit, commit, and abort.
+- Read open, ready, data, credit, done, and abort.
+- Stat.
+- Directory list.
+- Same-root move.
+- File or explicit recursive delete.
+- Structured error and malformed-command responses.
+
+The control plane exposes these public roots:
+
+- `user_files`
+- `agent_installed_skills`
+- `agent_sessions`
+
+Each path begins with the Agent key and its canonical directory.
+For example:
 
 ```text
-[ANKOLE_FILE/1, COMMAND, transfer_id, ...]
+/user_files/<agent-key>/user-files/inbox/file.png
 ```
 
-Transfer commands are intentionally small:
+The internal `agent_home_documents` root accepts only these files:
 
-- `WRITE_OPEN`: start writing a file as a sequence of 2 MiB zstd frames;
-- `WRITE_READY`: worker accepted the scratch write and grants initial byte
-  credit;
-- `DATA`: one independent zstd frame (one 2 MiB logical block) with sequence,
-  wire offset, and eof flag;
-- `CREDIT`: receiver grants more bytes to the sender;
-- `WRITE_COMMIT`: ask the worker to verify the decoded bytes and publish
-  atomically;
-- `WRITE_COMMITTED`: final write result with size and optional XXH3
-  observation;
-- `WRITE_ABORT`: discard an incomplete write;
-- `READ_OPEN`: ask the worker to stream one file;
-- `READ_READY`: read metadata before chunks start;
-- `READ_DONE`: read terminator with chunk count and wire size;
-- `READ_ABORT`: stop an active read stream;
-- `STAT`: return file size, kind, mtime, and optional XXH3 observation;
-- `STAT_OK`: stat result;
-- `LIST`: list directory entries, optionally recursive and bounded;
-- `LIST_OK`: typed list result;
-- `MOVE`: move one file or directory within the same worker root;
-- `MOVE_OK`: move result;
-- `DELETE`: delete one file, or a directory only when explicitly recursive;
-- `DELETE_OK`: delete result;
-- `ERROR`: operation failure with code and message;
-- `RTFM`: malformed file-lane protocol command.
+- `SOUL.md`
+- `MISSION.md`
+- `DESIGN.md`
 
-There is no JSON metadata frame in the file lane. Small structured values are
-separate typed frames because ZeroMQ already gives the protocol multipart
-boundaries. File content is always a `DATA` binary chunk frame. A `WRITE_OPEN`,
-`READ_OPEN`, `STAT`, `DELETE`, or `LIST` operation addresses a path like:
+The public root API does not expose this internal root.
+The file lane never exposes `.codex` state.
+
+`Ankole.WorkerFiles` owns root policy, route selection, and transfer bounds.
+It selects any ready worker by default.
+An operator path can pin one worker ID.
+A pinned operation never falls back to another worker.
+
+One file can contain at most 100 MiB in either direction.
+A write fails before the first frame when the input exceeds this limit.
+
+A read checks the authoritative size in `READ_READY`.
+An oversized read sends `READ_ABORT` before any byte credit.
+
+`MOVE` must stay inside one worker root.
+A directory delete requires `recursive: true`.
+
+## Transfer Files Safely
+
+The worker rejects `..` traversal and symlinks that leave an allowed root. All
+public roots stay under `ANKOLE_AGENTS_ROOT`, which defaults to `/agents`.
+
+Inbound writes use this scratch path:
 
 ```text
-/user_files/inbox/lark/message-1/image.png
+/tmp/ankole-file-transfer/<transfer-id>/
 ```
 
-Supported roots are worker filesystem roots, not S3 buckets:
+`WRITE_COMMIT` moves the checked temporary file into place with an atomic
+rename. `WRITE_ABORT` removes it.
 
-- `user_files`: worker-visible user files;
-- `agent_installed_skills`: worker-visible installed skill files;
-- `workspace_sessions`: worker-visible durable session homes.
+The lane always uses zstd level 3 on the wire.
+It does not negotiate another encoding.
 
-The control plane also has one non-Console root, `codex_accounts`, mapped to
-`/workspace/shared/.ankole/codex`. It exists only so Codex account deletion can
-remove the corresponding account-scoped home through the same bounded file
-lane. It is not part of `WorkerFiles.roots/0` and cannot be selected by the
-operator file browser.
+Each `DATA` frame contains an independent zstd frame. One block contains at most
+2 MiB before compression. The final file keeps the original bytes.
 
-On the control plane, `Ankole.WorkerFiles` is the single owner of this root
-list, of route choice (any ready worker by default, or one pinned worker for
-operator-facing reachability), and of the authoritative transfer byte bound
-(100 MiB per file in either direction). Writes are rejected before any frame
-is sent. Reads are rejected at `READ_READY`: the worker reports the
-authoritative file size there, and an oversize file is answered with
-`READ_ABORT` before any byte credit is granted, so the bound holds atomically
-without a separate `STAT` round trip. Workers still validate their own
-configured roots at the process boundary.
+The Rust kernel provides zstd to both hosts.
+Elixir uses a dirty CPU scheduler.
+Bun uses an asynchronous native task.
 
-File-lane writes only move bytes. They do not make an installed skill visible by
-themselves. Before resolving `agent_conversation.context.resolve` for a turn,
-the worker scans `/workspace/shared/skills/agents/<agent_uid>` and sends an
-authoritative `skills.installed.replace` RPC with observations. The control
-plane records those rows in `agent_skills`; deletion is represented by the
-worker's next empty or reduced observation set.
+A runtime without native zstd support cannot become ready. It does not use an
+external binary or another compression format.
 
-The S3 comparison is only a product metaphor: the control plane can ask the
-worker to read or write file-like objects. It is not a technical decision to
-introduce S3 object keys, buckets, storage classes, presigned URLs, or a generic
-object-store abstraction.
+Stat and read metadata can include an XXH3 128-bit fingerprint.
+This value can show that a file changed. It is not a cryptographic digest.
 
-`MOVE` uses two virtual paths and must stay inside the same worker root.
-Cross-root moves are not part of the lane.
+The process tracks active transfers in memory. The filesystem keeps the file.
+PostgreSQL records how Ankole uses it.
 
-### Worker File Implementation Notes
+## Move Attachments without an Agent Turn
 
-The worker currently implements the file service. It validates each transfer
-against configured worker-visible roots and rejects paths that escape the root.
-The supported roots are:
-
-- `ANKOLE_USER_FILES_ROOT`, defaulting to `/workspace/shared/user-files`;
-- `ANKOLE_AGENT_INSTALLED_SKILLS_ROOT`, defaulting to
-  `/workspace/shared/skills/agents`;
-- `ANKOLE_WORKSPACE_SESSIONS_ROOT`, defaulting to `/workspace/.sessions`.
-
-The internal `codex_accounts` root resolves from `ANKOLE_SHARED_FS_ROOT`,
-defaulting to `/workspace/shared/.ankole/codex`.
-
-Inbound `WRITE_OPEN` writes into a scratch directory under:
-
-```text
-ANKOLE_SHARED_FS_ROOT/.ankole-file-transfer/<transfer_id>/
-```
-
-The worker decompresses each `DATA` chunk (one independent zstd frame) in
-isolation and appends the original bytes to a scratch file, verifying the total
-decoded size. `WRITE_COMMIT` publishes the scratch file with an atomic rename.
-`WRITE_ABORT` removes the scratch directory. `READ_OPEN` streams the file back
-as one zstd frame per 2 MiB block under control-plane byte credit. `READ_ABORT`
-stops the worker-side read when the control-plane caller times out or cancels.
-`STAT` and `READ_READY` can return an XXH3 128-bit observation fingerprint. This
-fingerprint is for change detection and catalog observations, not security
-verification.
-
-The control-plane `FileTransferLane` owns only in-memory request/response
-correlation for the active operation. It does not add a durable worker-file
-state machine, and it holds no policy: root membership, route choice, and the
-byte bound live in `Ankole.WorkerFiles`, which every control-plane caller
-(Console API, provider adapters, cleanup jobs) goes through. Files are durable
-once written under the worker root and referenced from PG semantic rows;
-transient chunk exchange does not need its own PG-backed broker unless
-retry/resume requirements become real.
-
-## Worker File Encoding
-
-The worker file lane always uses zstd on the wire. There is no identity mode and
-no per-operation content-encoding negotiation.
-
-Stored files remain original bytes. Each `DATA` frame carries one independent
-zstd frame over one 2 MiB logical block. For inbound writes, the control plane
-splits the payload into 2 MiB blocks, compresses each block into a self-contained
-zstd frame, and sends one frame per `DATA` chunk; the worker decompresses each
-chunk in isolation and appends the original bytes before the final rename. For
-outbound reads, the worker compresses each 2 MiB block of the stored file into an
-independent zstd frame and returns one frame per `DATA` chunk.
-
-This is a bandwidth optimization, not a storage model. zstd compression and
-decompression live in the Rust kernel and are exposed to both hosts through
-Rustler (Elixir, scheduled as `DirtyCpu`) and napi-rs (Bun, as async tasks on a
-libuv worker thread). Neither the worker image nor the control-plane runtime
-requires an external `zstd` binary; missing kernel support is a readiness error,
-not a reason to fall back to another encoding.
-
-The reason for raw multipart plus default `zstd` is practical:
-
-- binary frames avoid JSON/base64 expansion and extra copies;
-- protobuf remains reserved for small semantic envelopes;
-- zstd never changes the stored bytes;
-- per-block decoding bounds decompressed size at one block (≤ 2 MiB), which
-  removes the unbounded expansion surface a single-stream decoder had;
-- failed zstd availability is a kernel readiness issue, not a fallback storage
-  format.
-
-## Files And Actor Turns
-
-Worker file operations are fully decoupled from actor sessions and turns. This
-matters for read-only or ambient group messages: the system may need to
-materialize an image or file for future recall even when no actor turn is
-started.
+File operations do not require an Actor turn. An adapter can save an attachment
+even when the message does not wake an Agent.
 
 The current inbound path is:
 
-1. A provider adapter receives a message with a provider resource reference or
-   byte stream.
-2. The control plane records provider observations and source references in PG.
-3. The control plane asks a worker to materialize the file through the file
-   lane.
-4. PG stores the worker-visible path observation for later actor events.
+1. A provider adapter receives a resource reference or byte stream.
+2. The control plane records provider observations in PostgreSQL.
+3. The adapter writes bytes through `Ankole.WorkerFiles.put`.
+4. PostgreSQL records the real Agent Home path observation.
 
-For Lark/Feishu resource messages, the production inbound consumer downloads
-the provider resource bytes and writes them through `Ankole.WorkerFiles.put`
-to `user_files`. The signal attachment keeps the provider reference and gains a
-`/workspace/user-files/...` path plus XXH3 observation when materialization
-succeeds.
+The current path does not ask a worker to fetch an arbitrary provider URL.
 
-Provider-direct worker fetch from a URL can be added later as an optimization,
-but it is not the current production contract. The current contract is bytes in
-over the file lane.
+The ordinary outbound path is:
 
-The current outbound path is:
+1. The worker creates a file under the Agent `user-files` directory.
+2. The model calls `reply_attachment` with that real path.
+3. Agent Computer sends `turn_completed` with the final Response ID.
+4. SignalsGateway validates structured attachment outputs.
+5. The actor completion transaction inserts attachment outbox intents.
+6. The provider adapter reads and uploads the file.
+7. SignalsGateway records the outbound mirror after success.
 
-1. A worker writes or references a file under its visible roots.
-2. The model calls `reply_attachment` to register an existing
-   `/workspace/user-files/...` file as a native provider attachment. The tool
-   result is a durable `function_call_output` item in the run row's `content`.
-3. Agent Computer sends `turn_completed` with the final Response id.
-4. SignalsGateway projects attachment outputs from the validated Response chain
-   and inserts explicit `signal_gateway_outbox_entries` intents in the same transaction
-   as Actor completion, referencing `source_actor_event_id` and `ai_message_id`.
-5. The provider adapter reads the file through `Ankole.WorkerFiles.get`,
-   uploads bytes to the provider, and sends the provider-native file message.
-6. On send success, SignalsGateway mirrors the outbound entry with the same
-   worker-visible attachment observation.
+Hosted tools make an exception for complete `image_generation_call` items.
+AIGateway owns their artifact bytes. SignalsGateway materializes those bytes
+under `user-files` during turn adoption.
 
-Completed `image_generation_call` items from the current actor turn are the
-structured hosted-tool exception to steps 1-2. AIGateway already owns their
-bytes as Principal-scoped generated-image artifacts, so SignalsGateway
-materializes each distinct artifact under `user_files` while adopting the
-turn and sends it through the same attachment outbox path. The Agent Computer
-prompt tells the model that this delivery is automatic and that the call id is
-an image-edit reference, not a workspace path. This matches the ordinary
-attachment guarantee without requiring a synthetic `reply_attachment` call.
+Ankole never searches model prose for file paths. The model must return a
+structured attachment record.
 
-Do not infer outbound attachments by scraping text for `/workspace/...` paths.
-The structured attachment field is the contract. The control plane validates
-`reply_attachment` tool outputs through the shared SignalsGateway
-reply-attachment schema before committing outbox rows.
+## Keep Agent Skills in Sync
 
-The Lark/Feishu v1 adapter supports one native file attachment per outbox row.
-Multiple provider-visible files should be modeled as separate outbox intents
-rather than hidden behind one durable row.
+Agent Plugins and Skills combine filesystem packages with control-plane
+enablement state.
 
-Actor turns can reference files, but file materialization does not require an
-actor turn.
+Built-in packages remain on the installation filesystem.
+Agent-installed Skills remain under the Agent Home `installed-skills` directory.
 
-This decoupling matters for ZMQ routing too. A file operation is addressed to a
-worker route and filesystem root, not to an `ActorTurnRef`. Actor references are
-PG semantic rows written elsewhere. If a future file operation needs
-actor-scoped policy, that policy should be checked before issuing the file
-command rather than hidden inside the file lane.
+Before a turn, the worker scans installed Skills and reports the full observed
+set through `skills.installed.replace`. Each observation contains registry
+metadata from `SKILL.md`; it does not contain a content hash or file inventory.
+PostgreSQL stores the current registry set. The worker keeps the files in the
+Agent Home and reads them when it prepares a run.
 
-## Agent Library capabilities
+The worker uses these overlay RPC methods:
 
-Agent Plugins, built-in standalone Skills, and agent-installed standalone
-Skills are filesystem capabilities with control-plane enablement state.
+- `skills.overlay.resolve` reads the database overlay.
+- `skills.overlay.append` appends one durable note.
+- `skills.overlay.replace` replaces the complete overlay.
 
-- Agent Plugins live under `app/library/agent-plugins/`, use the standard Codex
-  manifest, and expose member Skills. Parent state and member Skill state are
-  resolved separately; a disabled parent gates its members without changing
-  their stored choices.
-- Built-in standalone Skills live under `app/library/skills/`. Their global
-  default comes from Skill metadata unless AppConfigure overrides it.
-- Agent-installed Skills live in the worker-visible installed-skills root and
-  inherit their observed source default unless an Agent override exists.
-- PostgreSQL stores sparse Agent Plugin overrides, nullable Skill overrides,
-  display and overlay data, observed XXH3 fingerprints, and observation
-  timestamps. Installation package bytes remain on the filesystem.
-- The control plane does not discover agent-installed Skills by mounting worker
-  storage. Registry rows are refreshed from explicit worker file-lane
-  observations; the worker remains the reader of the actual files.
-- RuntimeFabric returns only the Agent Plugin catalog effectively enabled for
-  the requesting Agent. A Job stores selected Plugin IDs and standalone Skill
-  names; Agent Computer resolves the current catalog before every execution or
-  resume.
+`skill_view` combines `SKILL.md` with the database note. `skill_append` changes
+that note and does not write `AGENT_APPEND.md`.
 
-`skill_view` reads the base skill file from the filesystem and merges the
-database overlay when reading `SKILL.md`. `skill_append` keeps its external tool
-name for compatibility, but it replaces the database overlay. It does not write
-`AGENT_APPEND.md`.
+RuntimeFabric returns only Agent Plugins enabled for the requesting Agent.
+A Job resolves that current catalog and its runtime-eligible Skill names on
+every prepare.
 
-## Non-Goals
+See [Plugins](Plugins.md) for package and enabled-state rules.
 
-RuntimeFabric is not:
+## Deploy Matching Control-Plane and Worker Images
 
-- TigerFS;
-- a control-plane NFS mount;
-- a durable ZeroMQ queue;
-- a general message broker;
-- a separate per-lane socket farm;
-- a full FileMQ implementation;
-- an S3 clone;
-- a protobuf file-chunk protocol;
-- a turn-scoped file-write API;
-- a conversation-history RPC surface;
-- a second PG domain owner inside the worker.
+`.github/workflows/runtime-images.yml` publishes both runtime images.
+One workflow run builds both images from the same 40-character Git revision.
 
-The useful boundary is small: actor facts over protobuf, semantic PG requests
-over protobuf RPC, and bytes over raw multipart frames.
+The workflow publishes immutable multi-platform manifests.
+It verifies release revision, protocol version, and architecture labels.
+
+The pair artifact contains digest-pinned image references.
+It also contains two Helm values files with the verified release revision and
+RuntimeFabric protocol version.
+
+The Helm chart lives under `internals/helm-chart/ankole-agent`.
+It requires digest-pinned images, the matching release revision, the protocol
+version, and an explicit rollout phase.
+
+Before the `control-plane` phase, the deployment scales the old Worker to zero.
+That phase keeps worker replicas at zero. After it succeeds, the `worker` phase
+starts the matching worker image.
+
+This order can briefly leave no workers during an incompatible protocol upgrade.
+Stored ActorEvents and Jobs continue after matching workers connect.
+
+Rollback uses the previous verified pair in the same two phases.
+Do not roll back only one runtime.
+
+## What RuntimeFabric Does Not Do
+
+RuntimeFabric is not any of these systems:
+
+- A durable ZeroMQ queue.
+- A general message broker.
+- A per-lane socket farm.
+- A control-plane NFS mount.
+- An S3-compatible object store.
+- A Protobuf file-chunk protocol.
+- A conversation-history RPC service.
+- A second set of domain records written by the worker.

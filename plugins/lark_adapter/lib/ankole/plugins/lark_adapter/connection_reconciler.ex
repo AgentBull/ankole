@@ -186,7 +186,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
        %{
          config: config,
          secret_fingerprint: Config.secret_fingerprint(config),
-         consumers: [Inbound.chat_consumer(context, config, materialize_attachments: true)]
+         consumers: [Inbound.chat_consumer(context, config)]
        }}
     else
       :error -> {:error, :chat_config_not_found}
@@ -240,10 +240,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   end
 
   defp start_connections({specs, errors}, opts) do
-    supervisor = Keyword.get(opts, :connection_supervisor, ConnectionSupervisor)
-
-    supervisor_opts =
-      Keyword.take(opts, [:registry, :supervisor, :start_client?, :client_opts, :ws_client_module])
+    supervisor_opts = Keyword.take(opts, [:registry, :supervisor, :client_opts])
 
     # Start each deduplicated connection, then partition successes from failures
     # so the caller receives a started-count plus a flat list of per-binding and
@@ -251,7 +248,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     {started, start_errors} =
       specs
       |> Map.values()
-      |> Enum.map(&start_connection(supervisor, &1, supervisor_opts))
+      |> Enum.map(&start_connection(&1, supervisor_opts))
       |> Enum.split_with(&match?({:ok, _pid}, &1))
 
     %{
@@ -260,8 +257,12 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     }
   end
 
-  defp start_connection(supervisor, spec, supervisor_opts) do
-    supervisor.ensure_started(spec.config, Enum.reverse(spec.consumers), supervisor_opts)
+  defp start_connection(spec, supervisor_opts) do
+    ConnectionSupervisor.ensure_started(
+      spec.config,
+      Enum.reverse(spec.consumers),
+      supervisor_opts
+    )
   end
 
   defp binding_error(%Binding{} = binding, reason) do

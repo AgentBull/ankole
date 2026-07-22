@@ -155,8 +155,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.InboundDispatcher do
     %{
       authenticated?: true,
       transport_route: route,
-      worker_id: authenticated_route.worker_id,
-      key_revision: authenticated_route.key_revision
+      worker_id: authenticated_route.worker_id
     }
   end
 

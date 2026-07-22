@@ -17,7 +17,7 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
       add :session_id, :text, null: false
       add :binding_name, :text, null: false
-      add :name, :text
+      add :name, :text, null: false
       add :schedule, :map, null: false
       add :timezone, :text, null: false
       add :payload, :map, null: false
@@ -35,9 +35,9 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
              name: :actor_cron_schedules_idempotency_index
            )
 
-    create unique_index(:actor_cron_schedules, [:agent_uid, :name],
+    create unique_index(:actor_cron_schedules, [:agent_uid, :session_id, :name],
              name: :actor_cron_schedules_agent_name_index,
-             where: "status != 'deleted' AND name IS NOT NULL"
+             where: "status != 'deleted'"
            )
 
     create index(:actor_cron_schedules, [:status, :next_fire_at],
@@ -54,6 +54,10 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     create constraint(:actor_cron_schedules, :actor_cron_schedules_timezone_present,
              check: "length(btrim(timezone)) > 0"
+           )
+
+    create constraint(:actor_cron_schedules, :actor_cron_schedules_name_present,
+             check: "length(btrim(name)) > 0"
            )
 
     create constraint(:actor_cron_schedules, :actor_cron_schedules_idempotency_key_present,
@@ -82,7 +86,7 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     # Concrete fire attempts survive terminal state for audit, retry, and idempotency checks.
     create table(:actor_scheduled_events, primary_key: false) do
-      add :id, :uuid, primary_key: true
+      add :id, :identity, primary_key: true, start_value: 1000
       add :kind, :text, null: false
       add :status, :text, null: false
 
@@ -161,6 +165,10 @@ defmodule Ankole.Repo.Migrations.CreateActorSchedule do
 
     create constraint(:actor_scheduled_events, :actor_scheduled_events_kind_check,
              check: "kind IN ('check_back_later', 'cron_fire')"
+           )
+
+    create constraint(:actor_scheduled_events, :actor_scheduled_events_id_range,
+             check: "id >= 1000 AND id <= 9007199254740991"
            )
 
     create constraint(:actor_scheduled_events, :actor_scheduled_events_status_check,

@@ -4,11 +4,9 @@ import { dirname } from 'node:path'
 import {
   BUILTIN_SKILLS_ROOT,
   INTERNAL_SKILLS_ROOT,
-  WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT,
-  WORKSPACE_MODEL_ROOT,
-  WORKSPACE_USER_FILES_ROOT,
-  toWorkspacePathStrict
-} from '../../core/workspace-paths'
+  WORKER_SHARE_ROOT,
+  assertPathInsideAgentHome
+} from '../../core/agent-home-paths'
 
 export type BubblewrapMode = 'strong' | 'weak'
 
@@ -74,6 +72,8 @@ export function resolveBubblewrapSupport(workspaceRoot: string): BubblewrapSuppo
  */
 export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode): string[] {
   const selectedMode = mode ?? resolveBubblewrapSupport(input.workspaceRoot).mode
+  const agentHome = input.env.HOME || input.workspaceRoot
+  const cwd = assertPathInsideAgentHome(agentHome, input.cwd, 'command cwd escapes Agent Home')
   return [
     bubblewrapExecutable(),
     '--unshare-all',
@@ -86,17 +86,25 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
     '--tmpfs',
     '/tmp',
     ...readOnlySystemBinds(),
-    '--bind',
-    input.workspaceRoot,
-    WORKSPACE_MODEL_ROOT,
-    ...runtimeWorkspaceBinds(),
+    ...bindAtSamePath(WORKER_SHARE_ROOT, false),
+    ...bindAtSamePath(agentHome, false),
+    ...runtimeBinds(),
+    ...extraBindArgs(agentDocumentBinds(agentHome)),
     ...extraBindArgs(input.extraBinds ?? []),
     '--chdir',
-    sandboxWorkspacePath(input.workspaceRoot, input.cwd),
+    cwd,
     '--clearenv',
     ...Object.entries(input.env).flatMap(([key, value]) => ['--setenv', key, value]),
     ...input.commandArgv
   ]
+}
+
+function agentDocumentBinds(agentHome: string): NonNullable<BubblewrapArgvInput['extraBinds']> {
+  return ['SOUL.md', 'MISSION.md', 'DESIGN.md'].map(name => ({
+    source: `${agentHome}/${name}`,
+    target: `${agentHome}/${name}`,
+    readonly: true
+  }))
 }
 
 function extraBindArgs(binds: NonNullable<BubblewrapArgvInput['extraBinds']>): string[] {
@@ -108,7 +116,7 @@ function extraBindArgs(binds: NonNullable<BubblewrapArgvInput['extraBinds']>): s
       const mountDirs = statSync(bind.source).isDirectory() ? parentDirs(bind.target) : parentDirs(dirname(bind.target))
       pushDirs(
         args,
-        mountDirs.filter(dir => dir !== '/tmp' && dir !== WORKSPACE_MODEL_ROOT)
+        mountDirs.filter(dir => dir !== '/tmp')
       )
     }
     args.push(bind.readonly ? '--ro-bind' : '--bind', bind.source, bind.target)
@@ -134,10 +142,10 @@ function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): Probe
       cwd: workspaceRoot,
       env: {
         PATH: '/usr/local/bin:/usr/bin:/bin',
-        HOME: '/workspace',
+        HOME: workspaceRoot,
         LANG: 'C.UTF-8',
         TERM: 'xterm-256color',
-        ANKOLE_WORKSPACE_ROOT: WORKSPACE_MODEL_ROOT
+        ANKOLE_AGENT_HOME: workspaceRoot
       },
       commandArgv: ['/bin/sh', '-lc', 'test -r /proc/self/status && test -w /tmp']
     },
@@ -184,18 +192,8 @@ function procArgs(mode: BubblewrapMode): string[] {
 /**
  * Adds worker runtime mounts that model-facing commands need inside bwrap.
  */
-function runtimeWorkspaceBinds(): string[] {
+function runtimeBinds(): string[] {
   const binds: string[] = []
-  const userFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
-  if (userFilesRoot && existsSync(userFilesRoot)) {
-    binds.push('--bind', userFilesRoot, WORKSPACE_USER_FILES_ROOT)
-  }
-
-  const installedSkillsRoot = process.env.ANKOLE_AGENT_INSTALLED_SKILLS_ROOT
-  if (installedSkillsRoot && existsSync(installedSkillsRoot)) {
-    binds.push('--bind', installedSkillsRoot, WORKSPACE_AGENT_INSTALLED_SKILLS_ROOT)
-  }
-
   const globalToolPackagesRoot = codexGlobalPackagesRoot()
   if (existsSync(globalToolPackagesRoot)) {
     pushDirs(binds, parentDirs(globalToolPackagesRoot))
@@ -293,6 +291,9 @@ function readOnlySystemBinds(): string[] {
 /**
  * Converts a host workspace path to the corresponding sandbox path.
  */
-function sandboxWorkspacePath(workspaceRoot: string, hostPath: string): string {
-  return toWorkspacePathStrict(workspaceRoot, hostPath)
+function bindAtSamePath(path: string, readonly: boolean): string[] {
+  const args: string[] = []
+  pushDirs(args, parentDirs(path))
+  args.push(readonly ? '--ro-bind' : '--bind', path, path)
+  return args
 }

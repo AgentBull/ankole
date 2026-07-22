@@ -16,8 +16,16 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
 
-  describe "configured bot mention routing" do
-    test "message receive ignores a group mention when bot identity is not configured" do
+  setup do
+    Req.Test.set_req_test_to_shared()
+    previous = Req.default_options()
+    Req.Test.stub(__MODULE__, &default_lark_request/1)
+    Req.default_options(plug: {Req.Test, __MODULE__})
+    on_exit(fn -> Req.default_options(previous) end)
+  end
+
+  describe "runtime bot mention routing" do
+    test "message receive ignores a group mention when bot identity is not resolved" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
 
@@ -56,14 +64,14 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert mention["targets_current_agent"] == false
     end
 
-    test "message receive ignores a group mention for another configured bot" do
+    test "message receive ignores a group mention for another bot" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
 
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenID" => "ou_this_bot"})
+          chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -95,14 +103,14 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert mention["targets_current_agent"] == false
     end
 
-    test "message receive accepts a group mention for the configured bot identity" do
+    test "message receive accepts a group mention for the resolved runtime bot identity" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
 
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenID" => "ou_this_bot"})
+          chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -134,11 +142,8 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert agent_uid == agent.uid
     end
 
-    test "message receive accepts runtime bot identity resolved from configured bot user id" do
-      config =
-        %{"botUserID" => "cli_this_bot"}
-        |> chat_config()
-        |> Map.put("runtimeBotOpenID", "ou_this_bot")
+    test "message receive uses only the runtime bot open_id" do
+      config = chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
 
       consumer = Inbound.chat_consumer(adapter_context("agentbull"), config)
 
@@ -163,7 +168,6 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                Inbound.normalize_message_receive(event, consumer)
 
       assert agent_uid == "agentbull"
-      assert config["botOpenID"] == nil
     end
 
     test "message receive strips the current bot mention from visible addressed text" do
@@ -173,7 +177,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenID" => "ou_this_bot"})
+          chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
         )
 
       event =
@@ -207,36 +211,15 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       binding_fixture(agent_a.uid, "lark", :ignore)
       binding_fixture(agent_b.uid, "lark", :ignore)
 
-      materializer = fn attachments, _message, _consumer ->
-        send(self(), {:materialized, Enum.map(attachments, & &1["source_message_id"])})
-
-        {:ok,
-         Enum.map(attachments, fn attachment ->
-           relative_path =
-             "inbox/lark/#{attachment["source_message_id"]}/#{attachment["name"]}"
-
-           attachment
-           |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
-           |> Map.put("user_files_relative_path", relative_path)
-           |> Map.put("size", 610_025)
-         end)}
-      end
-
       consumer_a =
-        Inbound.chat_consumer(
-          adapter_context(agent_a.uid),
-          chat_config(%{"botOpenID" => "ou_agent_a"}),
-          materialize_attachments: true,
-          attachment_materializer: materializer
-        )
+        agent_a.uid
+        |> adapter_context()
+        |> Inbound.chat_consumer(chat_config(%{"runtimeBotOpenID" => "ou_agent_a"}))
 
       consumer_b =
-        Inbound.chat_consumer(
-          adapter_context(agent_b.uid),
-          chat_config(%{"botOpenID" => "ou_agent_b"}),
-          materialize_attachments: true,
-          attachment_materializer: materializer
-        )
+        agent_b.uid
+        |> adapter_context()
+        |> Inbound.chat_consumer(chat_config(%{"runtimeBotOpenID" => "ou_agent_b"}))
 
       parent_file =
         receive_event()
@@ -273,16 +256,14 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
       assert Enum.all?(finalized_parent_results, &(&1.status == :ignored))
       assert Enum.all?(Repo.all(InboundBatch), &(&1.outcome == "no_actor_event"))
-      assert_receive {:materialized, ["om_parent_file"]}, 100
-      refute_receive {:materialized, _source_message_ids}, 10
 
       assert [
                %{
                  "source_entry_id" => "om_parent_file",
                  "attachments" => [
                    %{
-                     "agent_computer_path" =>
-                       "/workspace/user-files/inbox/lark/om_parent_file/strategy.pdf"
+                     "provider_ref" => "lark:file:file_parent",
+                     "source_message_id" => "om_parent_file"
                    }
                  ]
                }
@@ -366,11 +347,9 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                "resolution" => "resolved",
                "attachments" => [
                  %{
-                   "agent_computer_path" =>
-                     "/workspace/user-files/inbox/lark/om_parent_file/strategy.pdf",
+                   "provider_ref" => "lark:file:file_parent",
                    "source_message_id" => "om_parent_file",
-                   "name" => "strategy.pdf",
-                   "size" => 610_025
+                   "name" => "strategy.pdf"
                  }
                ]
              } = get_in(actor_event.payload, ["data", "entry", "reply_to"])
@@ -467,7 +446,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       consumer =
         Inbound.chat_consumer(
           adapter_context(agent.uid),
-          chat_config(%{"botOpenID" => "ou_this_bot"})
+          chat_config(%{"runtimeBotOpenID" => "ou_this_bot"})
         )
 
       no_mention_event =
@@ -561,6 +540,8 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   end
 
   defp chat_config(overrides) do
+    {runtime_bot_open_id, overrides} = Map.pop(overrides, "runtimeBotOpenID")
+
     {:ok, config} =
       %{
         "appID" => "cli_test",
@@ -570,7 +551,10 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       |> Map.merge(overrides)
       |> Config.validate_chat_config()
 
-    config
+    case runtime_bot_open_id do
+      nil -> config
+      open_id -> Map.put(config, "runtimeBotOpenID", open_id)
+    end
   end
 
   defp receive_event do
@@ -608,5 +592,21 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
   defp update_message(%Event{content: content} = event, fun) when is_function(fun, 1) do
     %{event | content: Map.update!(content, "message", fun)}
+  end
+
+  defp default_lark_request(
+         %{request_path: "/open-apis/auth/v3/tenant_access_token/internal"} = conn
+       ) do
+    Req.Test.json(conn, %{
+      "code" => 0,
+      "tenant_access_token" => "tenant-token",
+      "expire" => 7_200
+    })
+  end
+
+  defp default_lark_request(conn) do
+    conn
+    |> Plug.Conn.put_resp_header("content-disposition", ~s(attachment; filename="resource.bin"))
+    |> Plug.Conn.send_resp(200, "attachment")
   end
 end

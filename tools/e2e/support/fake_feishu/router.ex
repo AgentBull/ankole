@@ -85,6 +85,16 @@ defmodule Ankole.E2E.FakeFeishu.Router do
     end)
   end
 
+  get "/open-apis/bot/v3/info" do
+    authed_app(conn, fn conn, app_id ->
+      send_json(conn, 200, %{
+        "code" => 0,
+        "msg" => "success",
+        "bot" => %{"open_id" => bot_open_id(app_id)}
+      })
+    end)
+  end
+
   # The network fake intentionally exercises Lark's supported plain-text
   # fallback rather than emulating CardKit's separate card state machine.
   post "/open-apis/cardkit/v1/cards" do
@@ -205,6 +215,20 @@ defmodule Ankole.E2E.FakeFeishu.Router do
         send_json(conn, 400, %{"code" => 99_991_663, "msg" => "tenant token invalid"})
     end
   end
+
+  defp authed_app(conn, fun) do
+    with ["Bearer " <> token] <- get_req_header(conn, "authorization"),
+         {:ok, app_id} <- State.verify_token(state(conn), token) do
+      fun.(conn, app_id)
+    else
+      _invalid ->
+        send_json(conn, 400, %{"code" => 99_991_663, "msg" => "tenant token invalid"})
+    end
+  end
+
+  defp bot_open_id("cli_chaos_multi_a"), do: "ou_lark_bot_a"
+  defp bot_open_id("cli_chaos_lark_b"), do: "ou_lark_bot_b"
+  defp bot_open_id(_app_id), do: "ou_bot"
 
   defp with_fault(conn, op, fun) do
     case State.take_fault(state(conn), op) do

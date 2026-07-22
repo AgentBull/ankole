@@ -2,28 +2,28 @@ defmodule Ankole.Plugins.Registry do
   @moduledoc """
   GenServer holding the boot-time snapshot of discovered and active plugins.
 
-  The whole plugin set is resolved once in `init/1`: discover specs, reject the
-  globally disabled ids to get the active set, then register the active plugins'
-  AppConfigure keys. State is immutable for the lifetime of the process, so
-  enabling or disabling a plugin requires an Ankole restart — there is no live
-  reload. If discovery, a uniqueness invariant, or config registration fails,
-  `init/1` returns `:stop`, which fails application boot rather than starting up
-  with a half-registered plugin set.
+  The whole plugin set is resolved once in `init/1`. The Registry validates the
+  compiled module list, selects the globally enabled ids, and registers the
+  active plugins' AppConfigure keys. State is immutable for the lifetime of the
+  process, so enabling or disabling a plugin requires an Ankole restart. If
+  module validation, a uniqueness invariant, or config registration fails,
+  `init/1` returns `:stop`. This result stops application startup before it can
+  use a partly registered plugin set.
   """
 
   use GenServer
 
   alias Ankole.AppConfigure
   alias Ankole.Plugins.Config
-  alias Ankole.Plugins.Discovery
   alias Ankole.Plugins.Spec
 
+  @plugin_modules Application.compile_env!(:ankole, :control_plane_plugin_modules)
   @call_timeout 5_000
 
   @type state :: %{
           discovered: %{String.t() => Spec.t()},
           active: %{String.t() => Spec.t()},
-          disabled_ids: MapSet.t(String.t())
+          enabled_ids: MapSet.t(String.t())
         }
 
   @doc """
@@ -62,7 +62,7 @@ defmodule Ankole.Plugins.Registry do
   end
 
   @doc """
-  Returns whether a plugin id is currently active (discovered and not disabled).
+  Returns whether a plugin id is currently active (discovered and enabled).
   """
   @spec active?(String.t(), GenServer.server()) :: boolean()
   def active?(id, server \\ __MODULE__) when is_binary(id) do
@@ -89,31 +89,31 @@ defmodule Ankole.Plugins.Registry do
   end
 
   @doc """
-  Lists disabled plugin ids read at registry startup.
+  Lists enabled plugin ids read at registry startup.
   """
-  @spec disabled_ids(GenServer.server()) :: [String.t()]
-  def disabled_ids(server \\ __MODULE__) do
-    GenServer.call(server, :disabled_ids, @call_timeout)
+  @spec enabled_ids(GenServer.server()) :: [String.t()]
+  def enabled_ids(server \\ __MODULE__) do
+    GenServer.call(server, :enabled_ids, @call_timeout)
   end
 
   @impl true
   def init(opts) do
-    discovery_opts = Keyword.get(opts, :discovery, [])
+    modules = Keyword.get(opts, :modules, @plugin_modules)
 
-    # Resolve everything up front. Note the disable list is read from durable
-    # AppConfigure exactly once here, which is why a disable/enable change only
+    # Resolve everything up front. Note the enable list is read from durable
+    # AppConfigure exactly once here, which is why an enablement change only
     # lands on the next boot. Adapter-uniqueness and config registration run over
-    # the *active* set only, so a disabled plugin can never collide or register.
-    with {:ok, specs} <- Discovery.discover(discovery_opts),
+    # the *active* set only, so an inactive plugin can never collide or register.
+    with {:ok, specs} <- specs_from_modules(modules),
          :ok <- ensure_unique_ids(specs),
          :ok <- Config.ensure_registered(),
-         {:ok, disabled_ids} <- Config.disabled_ids(),
-         active_specs <- active_specs(specs, disabled_ids),
+         {:ok, enabled_ids} <- Config.enabled_ids(),
+         active_specs <- active_specs(specs, enabled_ids),
          :ok <- ensure_unique_adapter_declarations(active_specs),
          :ok <- ensure_valid_adapter_contract_declarations(active_specs),
          :ok <- register_plugin_config(active_specs) do
       maybe_refresh_ai_gateway_provider_cache(opts, active_specs)
-      {:ok, build_state(specs, active_specs, disabled_ids)}
+      {:ok, build_state(specs, active_specs, enabled_ids)}
     else
       {:error, reason} ->
         maybe_log_startup_failure(reason)
@@ -163,8 +163,8 @@ defmodule Ankole.Plugins.Registry do
   end
 
   @impl true
-  def handle_call(:disabled_ids, _from, state) do
-    {:reply, state.disabled_ids |> MapSet.to_list() |> Enum.sort(), state}
+  def handle_call(:enabled_ids, _from, state) do
+    {:reply, state.enabled_ids |> MapSet.to_list() |> Enum.sort(), state}
   end
 
   defp ensure_unique_ids(specs) do
@@ -180,9 +180,25 @@ defmodule Ankole.Plugins.Registry do
     end
   end
 
-  defp active_specs(specs, disabled_ids) do
-    disabled = MapSet.new(disabled_ids)
-    Enum.reject(specs, &MapSet.member?(disabled, &1.id))
+  defp specs_from_modules(modules) when is_list(modules) do
+    modules
+    |> Enum.reduce_while({:ok, []}, fn module, {:ok, specs} ->
+      case Spec.from_module(module) do
+        {:ok, spec} -> {:cont, {:ok, [spec | specs]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, specs} -> {:ok, Enum.sort_by(specs, & &1.id)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp specs_from_modules(modules), do: {:error, {:invalid_plugin_modules, modules}}
+
+  defp active_specs(specs, enabled_ids) do
+    enabled = MapSet.new(enabled_ids)
+    Enum.filter(specs, &MapSet.member?(enabled, &1.id))
   end
 
   # Two active plugins must not claim the same `{contract_id, adapter_id}` slot,
@@ -292,26 +308,21 @@ defmodule Ankole.Plugins.Registry do
     end
   end
 
-  defp build_state(specs, active_specs, disabled_ids) do
+  defp build_state(specs, active_specs, enabled_ids) do
     %{
       discovered: Map.new(specs, &{&1.id, &1}),
       active: Map.new(active_specs, &{&1.id, &1}),
-      disabled_ids: MapSet.new(disabled_ids)
+      enabled_ids: MapSet.new(enabled_ids)
     }
   end
 
-  # Adapter declarations are plain maps authored by plugins, so a key may arrive
-  # as either an atom or a string. These helpers accept both forms.
   defp adapter_contract?(%{contract_id: contract_id}, contract_id), do: true
-  defp adapter_contract?(%{"contract_id" => contract_id}, contract_id), do: true
   defp adapter_contract?(_declaration, _contract_id), do: false
 
   defp adapter_contract_id(%{contract_id: contract_id}), do: contract_id
-  defp adapter_contract_id(%{"contract_id" => contract_id}), do: contract_id
   defp adapter_contract_id(_declaration), do: nil
 
   defp adapter_id(%{id: id}), do: id
-  defp adapter_id(%{"id" => id}), do: id
   defp adapter_id(_declaration), do: nil
 
   defp maybe_log_startup_failure(

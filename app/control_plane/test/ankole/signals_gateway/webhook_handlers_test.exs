@@ -3,6 +3,9 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
 
   import ExUnit.CaptureLog
 
+  alias Ankole.AppConfigure.Cache
+  alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
+  alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
   alias Ankole.SignalsGateway.WebhookHandlers
   alias Ankole.SignalsGateway.WebhookHandlers.Definition
@@ -32,9 +35,6 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
     def plugin_id, do: "echo-webhook-plugin"
 
     @impl true
-    def api_version, do: 1
-
-    @impl true
     def adapter_declarations do
       [
         %{
@@ -55,9 +55,6 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
 
     @impl true
     def plugin_id, do: "missing-callback-webhook-plugin"
-
-    @impl true
-    def api_version, do: 1
 
     @impl true
     def adapter_declarations do
@@ -82,9 +79,6 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
     def plugin_id, do: "empty-kinds-webhook-plugin"
 
     @impl true
-    def api_version, do: 1
-
-    @impl true
     def adapter_declarations do
       [
         %{
@@ -96,6 +90,18 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
         }
       ]
     end
+  end
+
+  setup do
+    AppConfigureRegistry.clear_for_test()
+    Cache.clear_for_test()
+
+    on_exit(fn ->
+      AppConfigureRegistry.clear_for_test()
+      Cache.clear_for_test()
+    end)
+
+    :ok
   end
 
   test "lists and fetches declared webhook handlers" do
@@ -166,8 +172,10 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
   defp start_registry!(modules) do
     name = :"webhook_handler_registry_#{System.unique_integer([:positive])}"
 
+    assert {:ok, _enabled_ids} = Config.put_enabled_ids(Enum.map(modules, & &1.plugin_id()))
+
     start_supervised!(
-      {Registry, name: name, discovery: [paths: [], modules: modules]},
+      {Registry, name: name, modules: modules},
       id: name
     )
 
@@ -177,8 +185,10 @@ defmodule Ankole.SignalsGateway.WebhookHandlersTest do
   defp start_registry(module) do
     name = :"webhook_handler_registry_#{System.unique_integer([:positive])}"
 
+    assert {:ok, [_plugin_id]} = Config.put_enabled_ids([module.plugin_id()])
+
     start_supervised(
-      {Registry, name: name, discovery: [paths: [], modules: [module]]},
+      {Registry, name: name, modules: [module]},
       id: name
     )
   end

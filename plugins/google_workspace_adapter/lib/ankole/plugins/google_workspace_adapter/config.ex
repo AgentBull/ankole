@@ -48,11 +48,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
          {:ok, service_account_key} <- service_account_key(value, sync_contacts),
          {:ok, admin_email} <- admin_email(value, sync_contacts),
          {:ok, page_size} <- integer_between(sync, "pageSize", 500, 1, 500),
-         {:ok, include_suspended} <- optional_boolean(sync, "includeSuspended", false),
-         {:ok, auth_base_url} <- optional_base_url(value, "authBaseURL"),
-         {:ok, token_base_url} <- optional_base_url(value, "tokenBaseURL"),
-         {:ok, api_base_url} <- optional_base_url(value, "apiBaseURL"),
-         {:ok, userinfo_base_url} <- optional_base_url(value, "userinfoBaseURL") do
+         {:ok, include_suspended} <- optional_boolean(sync, "includeSuspended", false) do
       {:ok,
        %{
          "clientID" => client_id,
@@ -68,11 +64,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
            "contacts" => sync_contacts,
            "pageSize" => page_size,
            "includeSuspended" => include_suspended
-         },
-         "authBaseURL" => auth_base_url,
-         "tokenBaseURL" => token_base_url,
-         "apiBaseURL" => api_base_url,
-         "userinfoBaseURL" => userinfo_base_url
+         }
        }}
     end
   end
@@ -93,16 +85,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
   assertion-signer closure, so key material never leaves this module's scope
   and the HTTP library stays crypto-free.
   """
-  @spec identity_client(identity_config(), keyword()) :: Client.t()
-  def identity_client(config, opts \\ []) do
+  @spec identity_client(identity_config()) :: Client.t()
+  def identity_client(config) do
     [client_id: Map.get(config, "clientID")]
     |> maybe_keyword(:client_secret, Map.get(config, "clientSecret"))
     |> Keyword.merge(service_account_options(config))
-    |> maybe_keyword(:auth_base_url, Map.get(config, "authBaseURL"))
-    |> maybe_keyword(:token_base_url, Map.get(config, "tokenBaseURL"))
-    |> maybe_keyword(:api_base_url, Map.get(config, "apiBaseURL"))
-    |> maybe_keyword(:userinfo_base_url, Map.get(config, "userinfoBaseURL"))
-    |> Keyword.merge(opts)
     |> Client.new()
   end
 
@@ -211,23 +198,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
     case MapHelpers.optional_text(map, key) do
       nil -> {:error, {:missing, key}}
       value -> {:ok, value}
-    end
-  end
-
-  defp optional_base_url(map, key) do
-    case MapHelpers.optional_text(map, key) do
-      nil ->
-        {:ok, nil}
-
-      url ->
-        case URI.parse(url) do
-          %URI{scheme: scheme, host: host}
-          when scheme in ["http", "https"] and is_binary(host) ->
-            {:ok, String.trim_trailing(url, "/")}
-
-          _uri ->
-            {:error, {:invalid_base_url, key}}
-        end
     end
   end
 

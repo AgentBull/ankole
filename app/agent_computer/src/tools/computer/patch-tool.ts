@@ -26,7 +26,7 @@ const MaxReplaceTextCharacters = 96 * 1024
 const MaxPatchTextCharacters = 192 * 1024
 
 const WorkingDirectoryParams = {
-  cwd: z.string().max(4096).optional().describe('Base directory for relative paths (default /workspace).'),
+  cwd: z.string().max(4096).optional().describe('Base directory for relative paths (default current workspace).'),
   workdir: z.string().max(4096).optional().describe('Alias for cwd, matching command tool terminology.')
 }
 
@@ -98,7 +98,7 @@ export function createReplaceTool(context: ComputerToolContext): AgentTool<typeo
   return {
     name: 'replace',
     description:
-      "Replace one precise string in one file and return a unified diff. Use this instead of sed/awk edits or echo/cat heredocs. old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. For multi-file or multi-site edits use patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
+      "Replace one precise string in one file and return a unified diff. Use this instead of sed/awk edits or echo/cat heredocs. old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. Use old_string='' only to create a file that does not exist. For multi-file or multi-site edits use patch. Relative paths resolve from cwd/workdir, defaulting to the current workspace.",
     schema: ReplaceParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -110,7 +110,11 @@ export function createReplaceTool(context: ComputerToolContext): AgentTool<typeo
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
       const computer = await context.getComputer(signal)
       try {
-        const result = await applyReplace(computer, params, signal)
+        const result = await applyReplace(
+          computer,
+          { ...params, cwd: patchCwd(params) ?? context.workspaceRoot },
+          signal
+        )
         resetPatchFailures(context.executionScopeID, result.details.filesModified)
         return result
       } catch (error) {
@@ -128,7 +132,7 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
   return {
     name: 'patch',
     description:
-      'Apply a V4A patch for multi-file, multi-site, or larger edits and return unified diffs. Pass only a patch envelope with *** Begin Patch / *** End Patch. For one precise replacement use replace. Relative paths resolve from cwd/workdir, defaulting to /workspace.',
+      'Apply a V4A patch for multi-file, multi-site, or larger edits and return unified diffs. Pass only a patch envelope with *** Begin Patch / *** End Patch. For one precise replacement use replace. Relative paths resolve from cwd/workdir, defaulting to the current workspace.',
     schema: PatchParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -137,7 +141,7 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<PatchDetails>> {
       const computer = await context.getComputer(signal)
       try {
-        const result = await applyV4A(computer, params, signal)
+        const result = await applyV4A(computer, { ...params, cwd: patchCwd(params) ?? context.workspaceRoot }, signal)
         resetPatchFailures(context.executionScopeID, result.details.filesModified)
         return result
       } catch (error) {

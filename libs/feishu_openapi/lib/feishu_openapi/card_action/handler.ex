@@ -35,16 +35,14 @@ defmodule FeishuOpenAPI.CardAction.Handler do
   @type t :: %__MODULE__{
           verification_token: String.t() | nil,
           encrypt_key: String.t() | nil,
-          skip_sign_verify: boolean(),
           handler: callback_handler() | nil
         }
 
   defstruct verification_token: nil,
             encrypt_key: nil,
-            skip_sign_verify: false,
             handler: nil
 
-  @new_opts [:verification_token, :encrypt_key, :skip_sign_verify, :handler]
+  @new_opts [:verification_token, :encrypt_key, :handler]
 
   @doc """
   Build a card-action handler from options (verification token, encrypt key,
@@ -57,7 +55,6 @@ defmodule FeishuOpenAPI.CardAction.Handler do
     %__MODULE__{
       verification_token: opts[:verification_token],
       encrypt_key: opts[:encrypt_key],
-      skip_sign_verify: Keyword.get(opts, :skip_sign_verify, false),
       handler: opts[:handler]
     }
   end
@@ -135,7 +132,6 @@ defmodule FeishuOpenAPI.CardAction.Handler do
 
     validate_optional_binary!(opts, :verification_token)
     validate_optional_binary!(opts, :encrypt_key)
-    validate_boolean!(opts, :skip_sign_verify, false)
     validate_handler!(opts[:handler])
 
     opts
@@ -156,15 +152,6 @@ defmodule FeishuOpenAPI.CardAction.Handler do
       value ->
         raise ArgumentError,
               "card action handler option #{inspect(key)} must be a string, got: #{inspect(value)}"
-    end
-  end
-
-  defp validate_boolean!(opts, key, default) do
-    value = Keyword.get(opts, key, default)
-
-    unless is_boolean(value) do
-      raise ArgumentError,
-            "card action handler option #{inspect(key)} must be a boolean, got: #{inspect(value)}"
     end
   end
 

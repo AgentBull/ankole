@@ -479,26 +479,22 @@ export class BrowserSession {
   }
 
   private artifactPath(value?: string): string {
-    const relativePath = value
-      ? value.replace(/^\/workspace\/browser\/?/, '').replace(/^browser\/?/, '')
-      : `screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`
-    const path = resolve(this.material.artifact_root, relativePath)
+    const path = value
+      ? isAbsolute(value)
+        ? resolve(value)
+        : resolve(this.material.artifact_root, value.replace(/^browser\/?/, ''))
+      : resolve(this.material.artifact_root, `screenshots/${new Date().toISOString().replace(/[:.]/g, '-')}.png`)
     assertInside(this.material.artifact_root, path)
     return path
   }
 
   private modelArtifactPath(path: string): string {
-    return `/workspace/browser/${relative(this.material.artifact_root, path).replaceAll('\\', '/')}`
+    return path
   }
 
   private workspacePath(value: string): string {
     const workspaceRoot = resolve(dirname(this.material.artifact_root))
-    const path = !isAbsolute(value)
-      ? resolve(workspaceRoot, value)
-      : value.startsWith('/workspace/')
-        ? resolve(workspaceRoot, value.slice('/workspace/'.length))
-        : undefined
-    if (!path) throw new BrowserDataError('invalid_command', 'upload path must be inside the injected workspace')
+    const path = isAbsolute(value) ? resolve(value) : resolve(workspaceRoot, value)
     assertInside(workspaceRoot, path)
     return path
   }

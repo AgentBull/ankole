@@ -122,7 +122,8 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             require_non_empty(&payload.worker_id, "worker_ready.worker_id")?;
             require_non_empty(&payload.runtime, "worker_ready.runtime")?;
             require_non_empty(&payload.version, "worker_ready.version")?;
-            require_non_empty(&payload.incarnation_id, "worker_ready.incarnation_id")
+            require_non_empty(&payload.incarnation_id, "worker_ready.incarnation_id")?;
+            validate_worker_ready_capacity(payload)
         }
         proto::envelope::Body::WorkerHeartbeat(payload) => {
             require_non_empty(&payload.worker_id, "worker_heartbeat.worker_id")?;
@@ -130,7 +131,8 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
         }
         proto::envelope::Body::WorkerCapacity(payload) => {
             require_non_empty(&payload.worker_id, "worker_capacity.worker_id")?;
-            require_non_empty(&payload.incarnation_id, "worker_capacity.incarnation_id")
+            require_non_empty(&payload.incarnation_id, "worker_capacity.incarnation_id")?;
+            validate_worker_capacity(payload)
         }
         proto::envelope::Body::TurnStart(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_start.turn")?;
@@ -182,6 +184,38 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
             require_non_empty(&payload.code, "rpc_error.code")
         }
     }
+}
+
+fn validate_worker_ready_capacity(payload: &proto::AgentComputerWorkerReady) -> KernelResult<()> {
+    if payload.max_turns == 0 {
+        return Err(KernelError::new("worker_ready.max_turns must be positive"));
+    }
+
+    if payload.available_turn_slots > payload.max_turns {
+        return Err(KernelError::new(
+            "worker_ready.available_turn_slots must not exceed max_turns",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_worker_capacity(payload: &proto::AgentComputerWorkerCapacity) -> KernelResult<()> {
+    if payload.max_turns == 0 {
+        return Err(KernelError::new(
+            "worker_capacity.max_turns must be positive",
+        ));
+    }
+
+    let observed_turns = u64::from(payload.available_turn_slots) + u64::from(payload.active_turns);
+
+    if observed_turns != u64::from(payload.max_turns) {
+        return Err(KernelError::new(
+            "worker_capacity available and active turns must equal max_turns",
+        ));
+    }
+
+    Ok(())
 }
 
 // Validates the single actor-event envelope carried by turn_start.

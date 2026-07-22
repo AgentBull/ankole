@@ -41,25 +41,19 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   @real_tool_model "z-ai/glm-5.2"
   @real_text_only_model "z-ai/glm-5.2"
   @codex_real_llm_inactivity_timeout_ms 300_000
-  @todolist_owner_workdir "/workspace/user-files/background-agent-jobs/ankole-codex-todolist-real"
-  @todolist_job_workdir "/workspace/workspaces/workspace"
-  @pptx_owner_workdir "/workspace/user-files/background-agent-jobs/ankole-codex-pptx-real"
-  @pptx_job_workdir "/workspace/workspaces/workspace"
   @pptx_name "ankole-skill-handoff.pptx"
-  @pptx_path Path.join(@pptx_owner_workdir, @pptx_name)
-  @pptx_job_path Path.join(@pptx_job_workdir, @pptx_name)
-  @pptx_container_path "/workspace/shared/user-files/background-agent-jobs/ankole-codex-pptx-real/ankole-skill-handoff.pptx"
-  @pptx_background "The audience is Ankole maintainers evaluating whether BackgroundAgentJob execution preserves explicitly selected capabilities."
-  @pptx_notes "Keep the delivery concise and do not create unrelated files. Execution-context marker: ANKOLE_PPTX_AGENTS_CONTEXT."
+  @pptx_user_files_relative_path "background-agent-jobs/ankole-codex-pptx-real/#{@pptx_name}"
   @pptx_task """
-  Create exactly one PowerPoint file at #{@pptx_job_path}.
+  Create exactly one PowerPoint file named #{@pptx_name} in the current Job Workspace.
+  The audience is Ankole maintainers evaluating whether BackgroundAgentJob execution receives the Agent's currently enabled capabilities.
+  Keep the delivery concise and do not create unrelated files. The execution-context marker is ANKOLE_PPTX_AGENTS_CONTEXT.
 
   Requirements and acceptance criteria:
   1. Use the $pptx skill through Codex's native skill support and follow its SKILL.md instructions.
   2. Create exactly two slides. Slide 1 title must be "Ankole Job" and its body must contain exactly "Codex shares enabled skills." Slide 2 title must be "Verified Handoff" and its body must contain exactly "Parent verifies before delivery."
   3. Give both slides an intentional, readable visual layout and speaker notes. Do not create any other deliverable files.
   4. Run officecli save, officecli validate, and officecli view of the final deck in outline mode. Resolve every validation error before finishing.
-  5. In the final report, include the exact marker ANKOLE_CODEX_PPTX_JOB_DONE, the output path, the validation result, and the execution-context marker supplied by the task-level AGENTS Notes. Do not guess that marker from this task; read the AGENTS guidance.
+  5. In the final report, include the exact marker ANKOLE_CODEX_PPTX_JOB_DONE, the output path, the validation result, and the execution-context marker stated above.
   """
   @vision_expected_answer "false"
   @vision_fixture_path Path.expand("../../fixtures/vision-dog.jpeg", __DIR__)
@@ -219,16 +213,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                User story: I need a small reproducible pickup report for today's operations handoff.
 
                Required path:
-               1. Use the command tool to create the directory /workspace/temp/ankole-terminal-tools-real.
-               2. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
+               1. Use the command tool to create the directory temp/ankole-terminal-tools-real in the current Session Workspace.
+               2. Use the patch tool in replace mode with old_string exactly "" to create temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
                   region,owner,items
                   north,Ada,2
                   south,Bo,5
                   north,Cy,4
                   west,Dee,3
-               3. Use the patch tool in replace mode with old_string exactly "" to create /workspace/temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
-               4. Run the script with the command tool from /workspace/temp/ankole-terminal-tools-real.
-               5. Use read_file to inspect /workspace/temp/ankole-terminal-tools-real/report.md.
+               3. Use the patch tool in replace mode with old_string exactly "" to create temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
+               4. Run the script with the command tool from temp/ankole-terminal-tools-real.
+               5. Use read_file to inspect temp/ankole-terminal-tools-real/report.md.
                6. Only after the read_file result proves the report, reply exactly:
                   ANKOLE_TERMINAL_TOOLS_REAL_OK north=6 south=5 west=3 total=14
 
@@ -314,26 +308,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     mention = lark_bot_mention()
 
     task = """
-    Create the smallest possible Vite + React TypeScript in-memory todolist demo in #{@todolist_job_workdir}.
+    Create the smallest possible Vite + React TypeScript in-memory todolist demo in the current Job Workspace.
     Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
     The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count.
     No polish, no extra files, and no tests. Run bun install and bun run build. The final answer must
     include ANKOLE_CODEX_TODOLIST_JOB_DONE.
     """
 
-    start_arguments =
-      Ankole.JSON.encode!(%{
-        "action" => "start",
-        "title" => "Build the real todolist demo",
-        "task" => task,
-        "workspace_mounts" => [
-          %{
-            "id" => "workspace",
-            "source" => @todolist_owner_workdir,
-            "access" => "read_write"
-          }
-        ]
-      })
+    start_arguments = %{
+      "title" => "Build the real todolist demo",
+      "task" => task
+    }
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -343,13 +328,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                text: """
                @_user_1 Run this implementation as a BackgroundAgentJob.
 
-               Call background_agent_job exactly once. Its decoded arguments must equal this JSON object:
-               <background_agent_job_start_arguments_json>
-               #{start_arguments}
-               </background_agent_job_start_arguments_json>
+               Call create_background_job exactly once. Its decoded arguments must equal this JSON object:
+               <create_background_job_arguments_json>
+               #{Ankole.JSON.encode!(start_arguments)}
+               </create_background_job_arguments_json>
 
-               Immediately after background_agent_job(start) returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
-               When the Job completion notification later wakes this conversation, call background_agent_job(status), verify ANKOLE_CODEX_TODOLIST_JOB_DONE, then reply exactly:
+               Immediately after create_background_job returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
+               When the Job completion notification later wakes this conversation, call show_background_job_details with the returned Job ID, verify ANKOLE_CODEX_TODOLIST_JOB_DONE, then reply exactly:
                   ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=job
 
                Do not implement the app in this conversation and do not use web research.
@@ -386,10 +371,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       end
 
     assert start_reply.text =~ "ANKOLE_CODEX_TODOLIST_STARTED"
-    assert tool_result_succeeded?(messages, "background_agent_job")
-
-    called_tools = messages |> function_call_items() |> Enum.map(& &1["name"])
-    assert "background_agent_job" in called_tools
+    assert [create_result] = tool_results(messages, "create_background_job")
+    assert create_result.arguments == start_arguments
+    refute tool_result_error?(create_result)
 
     job =
       Repo.one!(
@@ -399,13 +383,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         )
       )
 
-    assert job.workspace_mounts == [
-             %{
-               "id" => "workspace",
-               "source" => @todolist_owner_workdir,
-               "access" => "read_write"
-             }
-           ]
+    assert job.title == "Build the real todolist demo"
+    assert String.trim(job.task) == String.trim(task)
 
     dispatch_event =
       Repo.one!(
@@ -468,6 +447,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert reply.text =~ "build=passed"
     assert reply.text =~ "verified=job"
 
+    assert [details_result] =
+             ai_messages_for_actor_event(wakeup_event.id)
+             |> tool_results("show_background_job_details")
+
+    assert details_result.arguments == %{"job_id" => job.id}
+    refute tool_result_error?(details_result)
+
     assert get_in(job.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_JOB_DONE",
            """
            real Codex todolist job succeeded without the expected marker.
@@ -513,22 +499,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     mention = lark_bot_mention()
 
-    start_arguments =
-      Ankole.JSON.encode!(%{
-        "action" => "start",
-        "title" => "Create the real PPTX skill artifact",
-        "task" => @pptx_task,
-        "background" => @pptx_background,
-        "notes" => @pptx_notes,
-        "agent_plugin_ids" => ["office"],
-        "workspace_mounts" => [
-          %{
-            "id" => "workspace",
-            "source" => @pptx_owner_workdir,
-            "access" => "read_write"
-          }
-        ]
-      })
+    pptx_path =
+      Path.join(Ankole.AgentHomePaths.user_files(agent.uid), @pptx_user_files_relative_path)
+
+    start_arguments = %{
+      "title" => "Create the real PPTX skill artifact",
+      "task" => @pptx_task
+    }
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -539,18 +516,19 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                @_user_1 Run this PowerPoint task as a BackgroundAgentJob.
 
                Initial-turn state machine:
-               1. Call background_agent_job exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.
-               2. After that one background_agent_job(start) result succeeds, do not call any more tools and never call background_agent_job(start) again. Your very next response must be exactly ANKOLE_CODEX_PPTX_STARTED.
+               1. Call create_background_job exactly once. Its decoded arguments must equal the JSON object below. Copy the complete strings; do not summarize, shorten, repair, or regenerate any field. The task value is intentionally long because it contains every requirement.
+               2. After that one create_background_job result succeeds, do not call any more tools and never call create_background_job again. Your very next response must be exactly ANKOLE_CODEX_PPTX_STARTED.
 
-               <background_agent_job_start_arguments_json>
-               #{start_arguments}
-               </background_agent_job_start_arguments_json>
+               <create_background_job_arguments_json>
+               #{Ankole.JSON.encode!(start_arguments)}
+               </create_background_job_arguments_json>
 
                When the job completion notification wakes this conversation:
-               1. Call background_agent_job(status) and verify both ANKOLE_CODEX_PPTX_JOB_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
-               2. Independently run officecli validate and officecli view in outline mode against #{@pptx_path} with the command tool.
-               3. Call reply_attachment with path=#{inspect(@pptx_path)}, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
-               4. Reply exactly ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes.
+               1. Call show_background_job_details with the returned Job ID and verify both ANKOLE_CODEX_PPTX_JOB_DONE and ANKOLE_PPTX_AGENTS_CONTEXT in the result.
+               2. Create the parent directory for #{pptx_path} if needed. Copy #{@pptx_name} from the exact Job Workspace reported by the completion notification to that path. Do not guess or use another Job directory.
+               3. Independently run officecli validate and officecli view in outline mode against #{pptx_path} with the command tool.
+               4. Call reply_attachment with path=#{inspect(pptx_path)}, name=#{inspect(@pptx_name)}, and mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation".
+               5. Reply exactly ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes.
 
                Do not create the deck yourself and do not use web research.
                """,
@@ -574,12 +552,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert start_message_id == start_message.id
     assert start_reply.text =~ "ANKOLE_CODEX_PPTX_STARTED"
-    assert tool_result_succeeded?(start_messages, "background_agent_job")
-
-    background_agent_job_calls = function_call_items(start_messages, "background_agent_job")
-
-    assert length(background_agent_job_calls) == 1,
-           "expected exactly one background_agent_job call, got: #{inspect(background_agent_job_calls, limit: :infinity, printable_limit: 12_000)}"
+    assert [create_result] = tool_results(start_messages, "create_background_job")
+    assert create_result.arguments == start_arguments
+    refute tool_result_error?(create_result)
 
     job =
       Repo.one!(
@@ -590,22 +565,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       )
 
     assert job.title == "Create the real PPTX skill artifact"
-
-    assert job.skill_names == []
-
-    assert job.agent_plugin_ids == ["office"]
-
-    assert job.workspace_mounts == [
-             %{
-               "id" => "workspace",
-               "source" => @pptx_owner_workdir,
-               "access" => "read_write"
-             }
-           ]
-
+    assert job.workspace_template_id == nil
     assert String.trim(job.task) == String.trim(@pptx_task)
-    assert job.background == @pptx_background
-    assert job.notes == @pptx_notes
 
     dispatch_event =
       Repo.one!(
@@ -670,12 +631,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     # the work, and the artifact checks prove the outcome.
     assert trajectory_text =~ "officecli"
 
-    validate_output = docker_exec!(container, ["officecli", "validate", @pptx_container_path])
+    pptx_job_path = Path.join(Ankole.AgentHomePaths.job_workspace(agent.uid, job.id), @pptx_name)
+    validate_output = docker_exec!(container, ["officecli", "validate", pptx_job_path])
 
     outline_output =
-      docker_exec!(container, ["officecli", "view", @pptx_container_path, "outline"])
+      docker_exec!(container, ["officecli", "view", pptx_job_path, "outline"])
 
-    text_output = docker_exec!(container, ["officecli", "view", @pptx_container_path, "text"])
+    text_output = docker_exec!(container, ["officecli", "view", pptx_job_path, "text"])
 
     assert is_binary(validate_output)
     assert outline_output =~ "2 slides"
@@ -683,7 +645,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert text_output =~ "Verified Handoff"
     assert text_output =~ "Codex shares enabled skills."
     assert text_output =~ "Parent verifies before delivery."
-    assert pptx_slide_count!(container, @pptx_container_path) == 2
+    assert pptx_slide_count!(container, pptx_job_path) == 2
 
     wakeup_event =
       Repo.one!(
@@ -712,10 +674,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              "ANKOLE_CODEX_PPTX_REAL_OK slides=2 validate=passed attached=yes"
 
     assert [attachment] = outbox.payload["attachments"]
-    assert attachment["agent_computer_path"] == @pptx_path
+    assert attachment["agent_computer_path"] == pptx_path
 
     assert attachment["user_files_relative_path"] ==
-             "background-agent-jobs/ankole-codex-pptx-real/#{@pptx_name}"
+             @pptx_user_files_relative_path
 
     assert attachment["name"] == @pptx_name
 
@@ -725,6 +687,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert attachment["size"] > 1_000
 
     wakeup_messages = ai_messages_for_actor_event(wakeup_event.id)
+    assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
+    assert details_result.arguments == %{"job_id" => job.id}
+    refute tool_result_error?(details_result)
     assert command_tool_succeeded?(wakeup_messages)
     assert tool_result_succeeded?(wakeup_messages, "reply_attachment")
 

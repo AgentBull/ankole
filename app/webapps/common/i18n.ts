@@ -37,6 +37,11 @@ i18n
 
 export default i18n
 
+/** Returns the locale ids that the web applications can render. */
+export function availableLocaleIDs(): string[] {
+  return [...supportedLngs]
+}
+
 /** Returns a short native-language label for locale pickers. */
 export function nativeLocaleLabel(locale: string): string {
   if (!supportedLngs.includes(locale)) return locale

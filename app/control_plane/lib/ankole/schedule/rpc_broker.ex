@@ -32,7 +32,6 @@ defmodule Ankole.Schedule.RPCBroker do
         {:ok,
          %{
            "status" => rpc_status(status),
-           "scheduled_event_id" => event.id,
            "due_at" => DateTime.to_iso8601(event.due_at),
            "timezone" => event.timezone,
            "quiet_success" => checkback_quiet_success(event)
@@ -90,12 +89,11 @@ defmodule Ankole.Schedule.RPCBroker do
       with {:ok, event} <- checkback_from_turn(request.scheduled_event_id, turn_ref),
            {:ok, source} <- validate_reply_route(turn_ref, reply_route),
            {:ok, attrs} <- checkback_update_attrs(request, turn_ref, source, ctx, reply_route),
-           {:ok, %{status: status, previous_scheduled_event: previous, scheduled_event: updated}} <-
+           {:ok, %{status: status, scheduled_event: updated}} <-
              Schedule.update_checkback(event.id, attrs) do
         {:ok,
          %{
            "status" => checkback_update_status(status),
-           "previous_scheduled_event_id" => previous.id,
            "checkback" => Schedule.event_model_projection(updated)
          }}
       end
@@ -131,7 +129,7 @@ defmodule Ankole.Schedule.RPCBroker do
          "schedules" =>
            turn_ref.agent_uid
            |> Schedule.list_cron_schedules(turn_ref.session_id)
-           |> Enum.map(&Schedule.cron_projection/1)
+           |> Enum.map(&Schedule.cron_model_projection/1)
        }}
     end)
   end
@@ -140,8 +138,8 @@ defmodule Ankole.Schedule.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_cron_get(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref) do
-        {:ok, %{"status" => "ok", "schedule" => Schedule.cron_projection(schedule)}}
+      with {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref) do
+        {:ok, %{"status" => "ok", "schedule" => Schedule.cron_model_projection(schedule)}}
       end
     end)
   end
@@ -150,7 +148,7 @@ defmodule Ankole.Schedule.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_cron_runs(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref) do
+      with {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref) do
         {:ok,
          %{
            "status" => "ok",
@@ -175,7 +173,7 @@ defmodule Ankole.Schedule.RPCBroker do
         {:ok,
          %{
            "status" => cron_create_status(status),
-           "schedule" => Schedule.cron_projection(schedule)
+           "schedule" => Schedule.cron_model_projection(schedule)
          }}
       end
     end)
@@ -186,11 +184,11 @@ defmodule Ankole.Schedule.RPCBroker do
   def handle_cron_update(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-           {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
+           {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref),
            updates <- Common.decode_json_bytes(request.updates_json) || %{},
            :ok <- validate_cron_update_delivery_route(turn_ref, schedule.binding_name, updates),
            {:ok, updated} <- Schedule.update_cron_schedule(schedule.id, updates) do
-        {:ok, %{"status" => "updated", "schedule" => Schedule.cron_projection(updated)}}
+        {:ok, %{"status" => "updated", "schedule" => Schedule.cron_model_projection(updated)}}
       end
     end)
   end
@@ -224,7 +222,7 @@ defmodule Ankole.Schedule.RPCBroker do
   def handle_cron_run(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-           {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
+           {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref),
            {:ok, %{status: status, scheduled_event: event}} <-
              Schedule.run_cron_schedule(schedule.id) do
         {:ok,
@@ -243,16 +241,31 @@ defmodule Ankole.Schedule.RPCBroker do
     end
   end
 
-  defp cron_schedule_from_turn(cron_schedule_id, %TurnRef{} = turn_ref) do
-    with {:ok, cron_schedule_id} <- required_text(cron_schedule_id, :cron_schedule_id),
-         {:ok, schedule} <- Schedule.get_cron_schedule(cron_schedule_id),
+  defp cron_schedule_from_turn(name, %TurnRef{} = turn_ref) do
+    with {:ok, schedule} <- cron_schedule_from_name_or_origin(name, turn_ref),
          :ok <- cron_belongs_to_turn(schedule, turn_ref) do
       {:ok, schedule}
     end
   end
 
+  defp cron_schedule_from_name_or_origin(name, %TurnRef{} = turn_ref) do
+    case presence(name) do
+      name when is_binary(name) ->
+        Schedule.get_cron_schedule_by_name(turn_ref.agent_uid, turn_ref.session_id, name)
+
+      nil ->
+        case cron_origin_schedule_id(turn_ref) do
+          cron_schedule_id when is_binary(cron_schedule_id) ->
+            Schedule.get_cron_schedule(cron_schedule_id)
+
+          _cron_schedule_id ->
+            {:error, {:missing_text, :name}}
+        end
+    end
+  end
+
   defp checkback_from_turn(scheduled_event_id, %TurnRef{} = turn_ref) do
-    with {:ok, scheduled_event_id} <- required_text(scheduled_event_id, :scheduled_event_id),
+    with {:ok, scheduled_event_id} <- safe_integer(scheduled_event_id, :checkback_id),
          {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
          :ok <- checkback_belongs_to_turn(event, turn_ref) do
       {:ok, event}
@@ -261,9 +274,9 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp mutate_cron_from_turn(request, %TurnRef{} = turn_ref, status, fun) do
     with :ok <- reject_cron_origin_broad_mutation(turn_ref),
-         {:ok, schedule} <- cron_schedule_from_turn(request.cron_schedule_id, turn_ref),
+         {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref),
          {:ok, updated} <- fun.(schedule.id) do
-      {:ok, %{"status" => status, "schedule" => Schedule.cron_projection(updated)}}
+      {:ok, %{"status" => status, "schedule" => Schedule.cron_model_projection(updated)}}
     end
   end
 
@@ -336,13 +349,14 @@ defmodule Ankole.Schedule.RPCBroker do
 
     with {:ok, idempotency_key} <- required_text(request.idempotency_key, :idempotency_key),
          {:ok, binding_name} <- required_text(request.binding_name, :binding_name),
+         {:ok, name} <- required_text(request.name, :name),
          :ok <- validate_cron_delivery_route(turn_ref, binding_name, delivery) do
       {:ok,
        %{
          "agent_uid" => turn_ref.agent_uid,
          "session_id" => turn_ref.session_id,
          "binding_name" => binding_name,
-         "name" => presence(request.name),
+         "name" => name,
          "schedule" => Common.decode_json_bytes(request.schedule_json),
          "payload" => Common.decode_json_bytes(request.payload_json) || %{},
          "delivery" => delivery,
@@ -513,6 +527,18 @@ defmodule Ankole.Schedule.RPCBroker do
       nil -> {:error, {:missing_text, key}}
     end
   end
+
+  defp safe_integer(value, _key) when is_integer(value) and value in 1000..9_007_199_254_740_991,
+    do: {:ok, value}
+
+  defp safe_integer(value, key) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} when integer in 1000..9_007_199_254_740_991 -> {:ok, integer}
+      _parsed -> {:error, {:invalid_integer, key}}
+    end
+  end
+
+  defp safe_integer(_value, key), do: {:error, {:invalid_integer, key}}
 
   defp presence(value) when is_binary(value) do
     case String.trim(value) do

@@ -1,438 +1,292 @@
 # AuthZ
 
-AuthZ authorizes actions for Ankole Principals. It is the durable permission
-boundary for one Ankole Installation, not a SaaS tenant boundary and not a
-runtime-local ACL cache.
+AuthZ answers one question: can this Principal perform this action on this
+resource? A Principal is the human or Agent responsible for the request.
 
-The model is deliberately small:
+PostgreSQL stores the permission rules for one Ankole Installation. AuthZ does
+not separate SaaS tenants or keep a worker-local access list.
 
-- Principals are the subjects.
-- Groups collect Principals through static membership or computed rules.
-- Permission grants attach to exactly one Principal or one group.
-- A request asks whether one Principal can perform one exact action on one
-  concrete resource.
-- The answer is allow only when an effective grant matches owner, action,
-  resource pattern, and condition.
+AuthZ grants permission only through explicit allow rules. It has no deny rule.
+If required data is missing, invalid, disabled, or unmatched, AuthZ denies the
+request.
 
-There are no deny grants. Missing, malformed, disabled, or ambiguous state
-fails closed.
+## How AuthZ Makes a Decision
 
-## Responsibility
+An authorization request contains these values:
 
-AuthZ owns:
+- One Principal UID.
+- One concrete resource.
+- One exact action or a list of exact actions.
+- One JSON context object.
 
-- Principal groups;
-- static group memberships;
-- computed group rules;
-- external directory bindings for groups;
-- permission grants;
-- root admin initialization;
-- last active human admin protection;
-- resource/action request normalization;
-- kernel snapshot assembly;
-- kernel result interpretation;
-- authorization decision ownership.
+A grant permits one action only when:
 
-AuthZ does not own:
+1. The Principal is active.
+2. The grant belongs to the Principal or one of its groups.
+3. The action matches exactly.
+4. The resource pattern matches the concrete resource.
+5. The CEL condition returns true.
 
-- Principal creation or lifecycle identity facts;
-- external identity binding rows for humans and agents;
-- channel actor verification;
-- setup sessions, OIDC handshakes, or one-time login codes;
-- chat room/message projection, delivery, or outbox state;
-- agent conversations, AI gateway messages, memory, mission, soul, or runtime
-  profiles;
-- AppConfigure values or plugin configuration.
+Any failed check denies the action. A batch stops at its first denied action.
 
-Those subsystems may call AuthZ and store `principal_uid` references, but AuthZ
-owns only the policy facts and allow/deny decision.
+## Split Work between Elixir and Rust
 
-## Runtime Placement And Kernel Boundary
+The Elixir control plane:
 
-The durable AuthZ domain belongs to the Elixir control plane and PostgreSQL.
-The control plane should own group/grant writes, root bootstrap, admin safety,
-and the public authorization facade.
+- stores groups, memberships, external bindings, and grants
+- creates the first administrator
+- protects the last active human administrator
+- checks and normalizes request fields
+- loads all data needed for one decision
+- returns the public result
 
-For AuthZ, the `app/kernel` boundary is the pure rule-engine semantics:
+The Rust kernel:
 
-- CEL validation and evaluation;
-- resource-pattern validation;
-- resource-pattern matching;
-- computed group evaluation from a Principal snapshot;
-- grant evaluation from an explicit authorization snapshot;
-- batch decision evaluation for repeated checks over the same snapshot.
+- checks and evaluates CEL
+- checks and matches resource patterns
+- evaluates computed groups
+- evaluates grants and batches
 
-The kernel must not own AuthZ product state. It should not read PostgreSQL,
-create groups, grant permissions, know setup sessions, decide who the first
-admin is, or mutate Principal status. It should evaluate explicit inputs and
-return explicit outputs. PostgreSQL rows must be loaded, locked, normalized,
-filtered, and assembled into snapshots before crossing into the kernel. The
-kernel should not receive a database connection, table name, query builder,
-repository module, transaction handle, or storage-backed lazy lookup callback.
+Elixir passes the kernel all data for one decision. The kernel never reads
+PostgreSQL or changes Ankole data. It does not know about setup sessions or
+first-administrator rules.
 
-Elixir and Bun should not grow separate implementations of AuthZ rule semantics.
-When AuthZ rule behavior needs to mean the same thing in both runtimes, the
-Rust core is the source of that behavior, with Rustler and napi-rs bindings
-translating host types and errors only.
+Rustler and napi-rs expose the same rules to host runtimes. The bindings only
+convert values and errors.
 
-Bun runtimes may execute agent work, AI proxy calls, or integration code. When
-Bun needs an authorization decision, it should call the control-plane boundary
-or receive a decision/snapshot produced by that boundary. The existence of
-kernel bindings does not make Bun a second AuthZ owner. Bun code must not invent
-parallel groups, grants, or Principal authority.
+Bun code does not implement another permission model. It calls the control
+plane or evaluates data prepared by the control plane.
 
-## Facade
-
-The intended Elixir facade should live under `Ankole.AuthZ`. It should expose
-domain operations rather than table-shaped helpers:
-
-- authorize one action for a Principal, resource, and JSON context;
-- authorize multiple actions for the same Principal/resource/context in one
-  snapshot;
-- return boolean checks for low-risk UI visibility paths;
-- parse compact permission keys shaped as `<resource>:<action>`;
-- list, create, update, and delete Principal groups;
-- add and remove static group memberships;
-- create, upsert, update, and delete permission grants;
-- create or update external group bindings from identity-provider sync;
-- ensure built-in groups exist;
-- check whether root initialization is open;
-- claim the first active human admin;
-- prevent disabling or removing the last active human admin.
-
-The facade should return explicit domain errors for operator-facing flows.
-Boolean convenience calls may collapse denials to `false`, but they should not
-hide diagnostics from write paths or bootstrap flows.
-
-The facade should build kernel-ready snapshots from PostgreSQL state, call the
-kernel rule engine for deterministic evaluation, and translate kernel results
-back into AuthZ domain results.
-
-## Tables
-
-The table names below describe the intended durable model. Ankole may implement
-them through Ecto schemas, but the database contract matters more than the
-module names.
+## Stored Groups and Grants
 
 ### `principal_groups`
 
-`principal_groups` stores authorization groups:
+The table stores these fields:
 
-- opaque row `id`;
-- lowercase unique `name`;
-- display `display_name`;
-- `kind`: `static` or `computed`;
-- optional `description`;
-- optional `computed_condition`;
-- `built_in`;
-- `metadata` as a JSON object;
-- timestamps.
+- A UUIDv7 `id`.
+- A unique lowercase `name`.
+- A nonempty `display_name`.
+- A `domain`.
+- A `kind`.
+- A `built_in` flag.
+- Optional `computed_condition` and `description`.
+- A JSON `metadata` object.
+- Timestamps.
 
-Static groups must not have `computed_condition`. Computed groups must have a
-non-empty CEL condition that can be evaluated against a Principal snapshot.
+The `domain` field accepts these values:
 
-Group names are stable policy keys. They should be normalized to lowercase at
-API edges and constrained lowercase in storage.
+- `operator`
+- `directory`
+- `im_group`
 
-Built-in groups are rows, not hard-coded branches. They can own grants the same
-way operator-created groups do, while still being protected from deletion or
-shape drift.
+The `kind` field accepts `static` or `computed`.
+A static group cannot contain `computed_condition`.
+A computed group requires a valid CEL condition.
+Every computed group must use the `operator` domain.
 
 ### `principal_group_memberships`
 
-`principal_group_memberships` stores explicit membership for static groups:
-
-- `principal_uid`, referencing `principals.uid`;
-- `group_id`, referencing `principal_groups.id`;
-- timestamps.
-
-The composite key is:
+This table records explicit membership in static groups.
+Its composite primary key is:
 
 ```text
 principal_uid + group_id
 ```
 
-Computed group membership is never stored here. The rule engine derives it from
-`principal_groups.computed_condition` at authorization time.
-
-Manual membership changes to computed groups must be rejected.
+The table also stores `inserted_at`. The kernel evaluates computed group
+membership when needed and does not create a row here.
 
 ### `principal_group_external_bindings`
 
-`principal_group_external_bindings` stores external directory bindings for
-static groups:
-
-- `provider`;
-- `external_id`;
-- `group_id`, referencing `principal_groups.id`;
-- `metadata` as a JSON object;
-- timestamps.
-
-The primary key is:
+The table maps an external group identity to one AuthZ group.
+Its composite primary key is:
 
 ```text
-provider + external_id
+provider + external_kind + external_id
 ```
 
-Identity-provider sync owns these rows. A provider department, team, or role can
-feed one Ankole static group without making the external directory id the group
-id. If the external directory renames or reshapes a unit, the binding can move to
-another local group while grants remain attached to Ankole group rows.
+The `external_kind` field accepts these values:
 
-This table is not a Principal external identity table. It maps directory group
-facts to AuthZ groups, while `principal_external_identities` maps provider
-subjects to Principals.
+- `directory_department`
+- `im_group`
+
+Provider names use lowercase local namespaces.
+The row also stores `group_id`, JSON metadata, and timestamps.
 
 ### `permission_grants`
 
-`permission_grants` stores allow grants:
+The table stores these fields:
 
-- opaque row `id`;
-- exactly one owner: `principal_uid` or `group_id`;
-- `resource_pattern`;
-- exact `action`;
-- CEL `condition`, defaulting to `true`;
-- optional `description`;
-- `metadata` as a JSON object;
-- timestamps.
+- A UUIDv7 `id`.
+- Either `principal_uid` or `group_id`.
+- `resource_pattern`.
+- `action`.
+- `condition` with default `true`.
+- Optional `description`.
+- A JSON `metadata` object.
+- Timestamps.
 
-The database should enforce:
+Exactly one owner field must exist.
+An action cannot contain a colon.
 
-- exactly one owner;
-- non-empty `resource_pattern`;
-- non-empty `action`;
-- no colon inside `action`;
-- JSON-object `metadata`;
-- indexes for principal-owned grants, group-owned grants, and action lookup;
-- idempotent upsert keys for owner + resource pattern + action + condition.
+The natural key contains owner, resource pattern, action, and condition.
+Separate partial unique indexes cover Principal-owned and group-owned grants.
 
-Grant writes should validate resource patterns and CEL conditions before
-persisting. Authorization should still revalidate persisted grant shape and
-fail closed if stored data becomes invalid.
+## Name Resources and Actions
 
-## Built-In Groups
+A request names one concrete resource. It cannot contain `*`, `?`, brackets,
+or braces.
 
-AuthZ manages two initial built-in groups:
+A stored grant can use a glob pattern. Colons separate resource segments.
 
-- `admin`: static group.
-- `all_humans`: computed group with condition
-  `principal.type == "human" && principal.status == "active"`.
+- `*` stays inside one segment.
+- `**` can cross segment boundaries.
 
-Built-in groups are created idempotently. If a same-name row already exists but
-does not match the expected built-in shape, initialization must fail with a
-conflict instead of silently adopting or mutating the row.
+The kernel translates colons to path separators before `globset` matching.
 
-Public group updates must not set or clear the `built_in` flag. Deleting a
-built-in group is rejected.
+Actions are nonempty exact strings.
+They cannot contain a colon.
 
-## Root Initialization
+`authorize_permission` also accepts `<resource>:<action>` and splits at the
+final colon.
 
-`root_initialized?/0` means the AuthZ storage surface is ready and the built-in
-groups have the expected shape. It is a storage/bootstrap readiness check, not a
-claim-state check.
+## Add a CEL Condition
 
-Root initialization is open only while the built-in `admin` group has no
-membership. The first admin claim must:
+Computed group conditions receive this CEL value:
 
-- accept only an active human Principal;
-- reject agents and disabled humans;
-- ensure the built-in `all_humans` group exists;
-- ensure the built-in `admin` group exists;
-- lock the Principal and admin group;
-- re-check that root initialization is still open;
-- insert the admin membership in the same transaction.
+- `principal`
 
-This is a setup/AuthZ flow layered on top of Principals. Principals supplies the
-human subject; AuthZ owns the admin group, membership, and close-root decision.
+Grant conditions receive these CEL values:
 
-Product setup may expose a higher-level "installation claimed" state once there
-is an explicit active human admin. That projection must not be collapsed into
-`root_initialized?/0`, because failed or invalid root-claim attempts should not
-make AuthZ appear unready after the built-in groups already exist.
+- `principal`
+- `resource`
+- `action`
+- `context`
 
-## Authorization Flow
+Writes validate CEL syntax through the native kernel.
+Writes also validate resource pattern syntax through the native kernel.
 
-Authorization checks one Principal, one concrete resource, and one exact action:
+If stored CEL or a pattern is invalid, the kernel skips that group or grant,
+returns a diagnostic, and denies by default.
 
-1. normalize the Principal UID, resource, action, and JSON context;
-2. load the Principal and require `status = active`;
-3. load static group memberships for that Principal;
-4. load all computed groups and their conditions;
-5. load candidate grants for the Principal, static groups, and computed groups
-   with the requested action;
-6. build an explicit decision snapshot for the kernel;
-7. evaluate computed group membership from the Principal snapshot;
-8. reject invalid persisted computed group conditions as diagnostics;
-9. match each candidate grant by effective owner and exact action;
-10. match the grant resource pattern against the concrete request resource;
-11. evaluate the grant condition with the request environment;
-12. allow if any valid candidate grant matches.
+The control plane logs these diagnostics with `authz.invalid_persisted_data`.
+It also emits the `ankole.authz.invalid_persisted_data` telemetry event.
 
-Batch authorization uses the same model for multiple actions against the same
-Principal, resource, and context. It should load the Principal, effective group
-inputs, and candidate grants once, then evaluate actions in caller order with
-default-deny semantics.
+## Load the Data for One Decision
 
-Steps 1 through 6 are control-plane responsibilities. Steps 7 through 12 are
-kernel rule-engine responsibilities over the snapshot. The boundary is important:
-database loading and product policy stay in AuthZ, while low-level rule meaning
-stays in `app/kernel`.
+The control plane:
 
-## Kernel Decision Snapshot
+1. Checks the Principal UID, resource, action, and context.
+2. Loads the Principal from PostgreSQL.
+3. Loads explicit static group IDs.
+4. Loads all computed group conditions.
+5. Loads candidate grants for the requested actions.
+6. Calls the Rust kernel with all loaded data.
+7. Converts the kernel decision to an AuthZ result.
 
-The kernel authorization input should be a plain, host-neutral snapshot:
+SQL narrows the possible grants for speed. The kernel still checks the owner,
+action, pattern, and condition.
 
-- `principal`: UID, type, status, display name, and avatar URL;
-- `static_group_ids`: explicit static memberships already loaded from storage;
-- `computed_groups`: ids and CEL conditions for candidate computed groups;
-- `grants`: candidate grants with owner, resource pattern, action, and condition;
-- `resource`: one concrete request resource;
-- `action` or `actions`: one exact action or an ordered batch;
-- `context`: JSON request context.
+The kernel can return these decision statuses:
 
-The kernel authorization output should be explicit:
+- `allow`
+- `deny`
+- `principal_disabled`
+- `invalid_request`
 
-- decision status;
-- effective group ids;
-- denied action for batch checks;
-- diagnostics for invalid persisted group or grant data.
+The Elixir API returns `:ok` only for `allow`.
+Boolean `allowed?` returns false for every error or denial.
 
-The snapshot is not a cache format and not a durable record. It is a boundary
-object that lets the control plane keep ownership of storage while the kernel
-keeps ownership of deterministic rule evaluation.
+## Manage Groups
 
-## Request Vocabulary
+`Ankole.AuthZ` supports these group operations:
 
-A permission is a `resource + action` pair.
+- List, read, create, update, and delete operator groups.
+- List static members and group grants.
+- Add or remove static membership.
+- Preview a computed condition against active Principals.
+- Summarize stored members and owned grants.
 
-Resources are colon-hierarchical keys, such as:
+Group names are stable lowercase keys. Previewing a computed group does not
+write membership rows.
 
-```text
-agent:researcher
-chat:channel:abc
-work:item:123
-```
+The API rejects deletion of built-in groups.
+Updates cannot change their name, kind, built-in flag, or computed condition.
 
-Actions are exact tokens, such as:
+Directory synchronization changes only memberships from that directory. It
+does not change operator groups or another provider's bindings.
+
+Chat group synchronization uses the `im_group` domain. Domain checks stop one
+provider path from changing another kind of group.
+
+## Manage Grants
+
+`Ankole.AuthZ` supports these grant operations:
+
+- List Principal-owned or group-owned grants.
+- Create a grant.
+- Upsert a grant by its natural key.
+- Update a grant by ID.
+- Delete a grant by ID.
+
+For an existing natural key, an upsert changes only the description, metadata,
+and `updated_at`.
+
+## Create the First Administrator
+
+Root setup creates two built-in groups. The static `admin` group contains root
+operators for the Installation.
+
+AuthZ computes the `all_humans` group.
+It uses this CEL condition:
 
 ```text
-read
-invoke
-update
-disable
+principal.type == "human" && principal.status == "active"
 ```
 
-The compact permission-key form uses the last colon as separator:
+The first administrator must be an active human Principal. One transaction
+creates both groups, adds that human to `admin`, and creates Console grants.
 
-```text
-<resource>:<action>
-```
+The same Principal can safely repeat the first claim. After that, another
+Principal cannot claim the first-administrator role.
 
-Grant resource patterns may use the AuthZ resource glob syntax. Request
-resources must be concrete and must not contain glob characters, so callers
-cannot ask broad questions such as "do I have anything matching this pattern?"
-through a single authorization check.
+The built-in administrator receives these actions over `**`:
 
-Actions must not contain colons. Colon hierarchy belongs to resource keys and
-the compact permission-key separator.
+- `read`
+- `update`
+- `delete`
+- `reset`
+- `decrypt`
+- `sync`
 
-## Request Environment
+The setup bootstrap can repair these grants after root setup completes.
 
-CEL conditions receive:
+AuthZ prevents removal or disabling of the last active human administrator.
 
-- `principal`;
-- `resource`;
-- `action`;
-- `context`.
+## Public Functions
 
-The Principal object includes:
+`Ankole.AuthZ` provides these decision functions:
 
-- `uid`;
-- `type`;
-- `status`;
-- `displayName`;
-- `avatarUrl`.
+- `authorize/4`
+- `authorize_all/4`
+- `authorize_permission/3`
+- `allowed?/4`
+- `authorize_decision/4`
+- `authorize_all_decision/4`
 
-Caller-supplied context must be a JSON object. The rule engine should expose it
-under a stable namespace such as `context.request` so future system context can
-be added without colliding with caller fields.
+It also exposes data builders for tests and explicit cross-process calls. Write
+functions return detailed domain errors.
 
-## Resource Patterns And CEL
+## Rules
 
-Resource-pattern and CEL semantics should be shared through `app/kernel`. That
-gives Elixir and Bun one implementation for:
+- Use Principals as the only accountable subjects.
+- Store permission rules in PostgreSQL.
+- Give every grant exactly one owner.
+- Match actions exactly.
+- Evaluate only concrete request resources.
+- Use the Rust kernel for shared rule evaluation.
+- Skip invalid persisted rules and emit diagnostics.
+- Deny by default.
+- Protect the last active human administrator.
 
-- validating grant resource patterns;
-- matching grant patterns against concrete request resources;
-- validating CEL expressions;
-- evaluating computed group membership;
-- evaluating grant conditions;
-- reporting diagnostics for invalid persisted policy data.
-
-Invalid persisted computed group conditions, resource patterns, or grant
-conditions must never become an allow decision. They should produce diagnostics
-for operators and otherwise behave as non-matching policy.
-
-## Identity-Provider Sync
-
-Identity-provider sync may create or update:
-
-- human Principals;
-- Principal external identities;
-- static Principal groups;
-- static group memberships;
-- external group bindings.
-
-AuthZ should own the group and membership writes, even when identity-provider
-sync is the caller. The identity provider supplies directory facts; AuthZ owns
-how those facts become local groups and grants.
-
-Directory group membership should materialize into static group membership
-rows. Computed groups remain local CEL rules and should not be used as the
-target of external binding sync.
-
-When a provider's external group binding records a parent department id,
-membership sync expands a user's direct department ids through the known parent
-chain and materializes those ancestor department groups too.
-
-## Failure Semantics
-
-Authorization returns allow or a domain denial/error. Typical denial reasons
-include:
-
-- missing Principal;
-- disabled Principal;
-- malformed request resource, action, or context;
-- no matching grant;
-- invalid persisted group condition;
-- invalid persisted grant resource pattern;
-- invalid persisted grant condition.
-
-Invalid persisted policy data is a security-relevant operator problem, but it
-does not make a request allowed.
-
-Write paths should reject invalid group, membership, grant, and binding shapes
-before storage. Authorization paths should still protect themselves against
-bad persisted data.
-
-Removing an admin member or disabling a Principal must preserve at least one
-active human admin. The check should be transactional where concurrent admin
-removal or disable operations could otherwise observe stale state.
-
-## Invariants
-
-- AuthZ is allow-list based; no grant means denial.
-- Principals are subjects; groups and grants are policy facts.
-- A grant belongs to exactly one Principal or one group.
-- Static memberships are stored rows.
-- Computed memberships are evaluated, not stored.
-- External group bindings feed static groups, not computed groups.
-- Built-in groups are protected rows with expected shape.
-- Root initialization can create only the first active human admin membership.
-- Principal status is checked before grant evaluation can allow.
-- Request resources are concrete, while grant resources may be patterns.
-- Actions are exact tokens and do not contain colons.
-- CEL and resource-pattern behavior must not drift between Elixir and Bun.
-- Invalid persisted policy fails closed and emits diagnostics.
-- AuthZ does not mutate Principal identity records except through explicit
-  status-safety checks owned by the caller.
+See [Principal](Principal.md) for identity and status rules.

@@ -15,20 +15,32 @@ defmodule Ankole.Brain.Dreaming.ResponseFormat do
               "type" => "object",
               "properties" => %{
                 "topic" => %{"type" => "string"},
+                "question" => nullable_string(),
                 "summary" => %{"type" => "string"},
-                "source_entry_ids" => string_array()
+                "resolution" => nullable_string(),
+                "systems" => nullable_string_array(),
+                "resolution_message" => nullable_string(),
+                "messages" => string_array()
               },
-              "required" => ["topic", "summary", "source_entry_ids"],
+              "required" => [
+                "topic",
+                "question",
+                "summary",
+                "resolution",
+                "systems",
+                "resolution_message",
+                "messages"
+              ],
               "additionalProperties" => false
             }
           },
-          "noise_source_entry_ids" => string_array(),
-          "deferred_source_entry_ids" => string_array()
+          "noise_messages" => string_array(),
+          "deferred_messages" => string_array()
         },
         "required" => [
           "episodes",
-          "noise_source_entry_ids",
-          "deferred_source_entry_ids"
+          "noise_messages",
+          "deferred_messages"
         ],
         "additionalProperties" => false
       }
@@ -43,21 +55,21 @@ defmodule Ankole.Brain.Dreaming.ResponseFormat do
       %{
         "type" => "object",
         "properties" => %{
-          "material_ids" => string_array(),
+          "material_refs" => string_array(),
           "topics" => %{
             "type" => "array",
             "items" => %{
               "type" => "object",
               "properties" => %{
                 "query" => %{"type" => "string"},
-                "material_ids" => string_array()
+                "material_refs" => string_array()
               },
-              "required" => ["query", "material_ids"],
+              "required" => ["query", "material_refs"],
               "additionalProperties" => false
             }
           }
         },
-        "required" => ["material_ids", "topics"],
+        "required" => ["material_refs", "topics"],
         "additionalProperties" => false
       }
     )
@@ -117,4 +129,10 @@ defmodule Ankole.Brain.Dreaming.ResponseFormat do
   end
 
   defp string_array, do: %{"type" => "array", "items" => %{"type" => "string"}}
+
+  defp nullable_string, do: %{"type" => ["string", "null"]}
+
+  defp nullable_string_array do
+    %{"type" => ["array", "null"], "items" => %{"type" => "string"}}
+  end
 end

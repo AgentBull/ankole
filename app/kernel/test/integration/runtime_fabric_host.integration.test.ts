@@ -7,7 +7,6 @@ import {
   createEnvelope,
   DurabilityClass,
   envelopeHeader,
-  jsonBytes,
   Lane,
   type Envelope
 } from '../../../agent_computer/src/fabric/envelope_proto'
@@ -90,7 +89,8 @@ function testEnvelope(workerID: string): Envelope {
         incarnationId: `incarnation-${workerID}`,
         runtime: 'bun',
         version: 'test',
-        capacityJson: jsonBytes({ available_turn_slots: 1 })
+        maxTurns: 1,
+        availableTurnSlots: 1
       })
     }
   })

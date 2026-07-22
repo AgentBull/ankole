@@ -227,10 +227,7 @@ export function AgentPluginDetailPage() {
             <CardHeader>
               <CardTitle className="normal-case">{humanizeAgentPluginID(plugin.id)}</CardTitle>
               <CardDescription>
-                {t('console.agent_library_capabilities.plugin_version_hash', {
-                  version: plugin.version,
-                  hash: plugin.content_hash
-                })}
+                {t('console.agent_library_capabilities.plugin_version', { version: plugin.version })}
               </CardDescription>
               <CardAction>
                 <CapabilityControl

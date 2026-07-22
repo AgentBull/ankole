@@ -3,19 +3,16 @@ defmodule Ankole.BackgroundAgentJobs.Trajectory do
 
   @metadata_keys ~w(redacted content_truncated)
 
-  @spec empty() :: map()
-  def empty, do: %{"format" => "ankole_chatml", "version" => 1, "messages" => []}
+  @spec empty_header() :: map()
+  def empty_header, do: %{"format" => "ankole_chatml", "version" => 1}
 
-  @spec valid_turn_value?(term()) :: boolean()
-  def valid_turn_value?(
-        %{"format" => "ankole_chatml", "version" => 1, "messages" => messages} = value
-      )
-      when is_list(messages) do
-    Map.keys(value) -- ~w(format version messages metadata) == [] and
-      valid_metadata?(Map.get(value, "metadata")) and Enum.all?(messages, &valid_message?/1)
+  @spec valid_header?(term()) :: boolean()
+  def valid_header?(%{"format" => "ankole_chatml", "version" => 1} = value) do
+    Map.keys(value) -- ~w(format version metadata) == [] and
+      valid_metadata?(Map.get(value, "metadata"))
   end
 
-  def valid_turn_value?(_value), do: false
+  def valid_header?(_value), do: false
 
   @spec valid_group_content?(term()) :: boolean()
   def valid_group_content?(%{"messages" => messages} = content) when is_list(messages) do

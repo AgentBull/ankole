@@ -50,7 +50,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
                SignalsGateway.mark_actor_event_completed_in_tx(repo, actor_event, completed_at)
              end)
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, %{results: [%{entry_id: entry_id}]}} =
              Knowledge.apply_operations(
@@ -168,7 +168,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
                )
              end)
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, %{results: [%{entry_id: entry_id}]}} =
              Knowledge.apply_operations(
@@ -207,7 +207,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
 
   test "causal withdrawal preserves an entry changed by later unrelated work" do
     %{principal: agent} = agent_fixture()
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
     actor_event_id = Ecto.UUID.generate()
     document_id = "signal-gateway-entry:causal-conflict"
 
@@ -288,7 +288,7 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
                payload: %{}
              })
 
-    {:ok, scope} = Scope.for_store(agent.uid, "public")
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
 
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
              Knowledge.apply_operations(
@@ -332,8 +332,9 @@ defmodule Ankole.Brain.SourceWithdrawalTest do
              Sources.capture(
                scope,
                %{
-                 kind: "paste",
+                 kind: "file",
                  title: "Independent source",
+                 original_name: "independent-source.txt",
                  content: "A separate durable source"
                },
                agent.uid

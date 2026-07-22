@@ -1,4 +1,4 @@
-import { resolveWorkspacePath } from '../../core/workspace-paths'
+import { resolveAgentHomePath } from '../../core/agent-home-paths'
 import { bubblewrapArgv } from './bubblewrap'
 import { commandEnv } from './env'
 
@@ -23,13 +23,17 @@ export interface CommandFinished {
 /**
  * Runs one foreground command inside bubblewrap.
  */
-export async function runWorkspaceCommand(input: CommandInput, workspaceRoot: string): Promise<CommandFinished> {
+export async function runWorkspaceCommand(
+  input: CommandInput,
+  agentHome: string,
+  workspaceRoot: string
+): Promise<CommandFinished> {
   if (input.signal?.aborted) return finishedCommand(130, '', 'command aborted')
 
-  const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
-  const env = commandEnv(input.env, { workerEnv: input.workerEnv })
+  const cwd = input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot
+  const env = commandEnv(input.env, { workerEnv: input.workerEnv, home: agentHome, ankoleAgentHome: agentHome })
   const argv = bubblewrapArgv({
-    workspaceRoot,
+    workspaceRoot: agentHome,
     cwd,
     env,
     commandArgv: commandArgvWithOptionalTimeout(input)
@@ -48,8 +52,8 @@ export function commandArgvWithOptionalTimeout(input: CommandInput, defaultTimeo
 /**
  * Resolves a path against the workspace root.
  */
-export function workspacePath(root: string, path: string): string {
-  return resolveWorkspacePath(root, path)
+export function workspacePath(agentHome: string, cwd: string, path: string): string {
+  return resolveAgentHomePath(agentHome, path, { cwd })
 }
 
 async function runCommandProcess(input: {

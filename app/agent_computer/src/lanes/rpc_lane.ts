@@ -36,9 +36,15 @@ import {
   BackgroundAgentJobGetRequestSchema,
   BackgroundAgentJobListRequestSchema,
   BackgroundAgentJobListResponseSchema,
+  BackgroundAgentJobMessageResultRequestSchema,
+  BackgroundAgentJobMessageResultResponseSchema,
+  BackgroundAgentJobMessageSendRequestSchema,
+  BackgroundAgentJobMessageSendResponseSchema,
+  BackgroundAgentJobRespawnRequestSchema,
+  BackgroundAgentJobRespawnResponseSchema,
   BackgroundAgentJobResponseSchema,
-  BackgroundAgentJobSteerRequestSchema,
   BackgroundAgentJobStopRequestSchema,
+  BackgroundAgentJobStopResponseSchema,
   BackgroundAgentJobStatusUpdateRequestSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
@@ -93,7 +99,9 @@ export const rpcMethods = {
   backgroundAgentJobCreate: 'background_agent_job.create',
   backgroundAgentJobGet: 'background_agent_job.get',
   backgroundAgentJobList: 'background_agent_job.list',
-  backgroundAgentJobSteer: 'background_agent_job.steer',
+  backgroundAgentJobMessageSend: 'background_agent_job.message.send',
+  backgroundAgentJobMessageResult: 'background_agent_job.message.result',
+  backgroundAgentJobRespawn: 'background_agent_job.respawn',
   backgroundAgentJobStop: 'background_agent_job.stop',
   backgroundAgentJobTurnUpsert: 'background_agent_job.turn.upsert',
   backgroundAgentJobStatusUpdate: 'background_agent_job.status.update',
@@ -146,7 +154,9 @@ export const rpcOperationMeta = {
   [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobList]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.backgroundAgentJobSteer]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobMessageSend]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.backgroundAgentJobMessageResult]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.backgroundAgentJobRespawn]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobStop]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobTurnUpsert]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobStatusUpdate]: { scope: 'turn', effect: 'write' },
@@ -217,13 +227,21 @@ export const rpcSchemas = {
     request: BackgroundAgentJobListRequestSchema,
     response: BackgroundAgentJobListResponseSchema
   },
-  [rpcMethods.backgroundAgentJobSteer]: {
-    request: BackgroundAgentJobSteerRequestSchema,
-    response: BackgroundAgentJobResponseSchema
+  [rpcMethods.backgroundAgentJobMessageSend]: {
+    request: BackgroundAgentJobMessageSendRequestSchema,
+    response: BackgroundAgentJobMessageSendResponseSchema
+  },
+  [rpcMethods.backgroundAgentJobMessageResult]: {
+    request: BackgroundAgentJobMessageResultRequestSchema,
+    response: BackgroundAgentJobMessageResultResponseSchema
+  },
+  [rpcMethods.backgroundAgentJobRespawn]: {
+    request: BackgroundAgentJobRespawnRequestSchema,
+    response: BackgroundAgentJobRespawnResponseSchema
   },
   [rpcMethods.backgroundAgentJobStop]: {
     request: BackgroundAgentJobStopRequestSchema,
-    response: BackgroundAgentJobResponseSchema
+    response: BackgroundAgentJobStopResponseSchema
   },
   [rpcMethods.backgroundAgentJobTurnUpsert]: {
     request: BackgroundAgentJobTurnUpsertRequestSchema,
@@ -393,7 +411,7 @@ export class RPCRejectedError extends Error {
   }
 }
 
-const rpcTimeoutMs = 300_000
+const defaultRPCTimeoutMs = 300_000
 
 type RPCWaiter = {
   resolve: (reply: RPCResponseMessage | RPCErrorMessage) => void
@@ -421,8 +439,14 @@ function rpcRequestID(method: RPCMethod): string {
  */
 export class RuntimeRPCClient {
   private waiters = new Map<string, RPCWaiter>()
+  private readonly timeoutMs: number
 
-  constructor(private readonly sendEnvelope: EnvelopeSender) {}
+  constructor(
+    private readonly sendEnvelope: EnvelopeSender,
+    options: { timeoutMs?: number } = {}
+  ) {
+    this.timeoutMs = options.timeoutMs ?? defaultRPCTimeoutMs
+  }
 
   /**
    * Sends one typed RPC request and waits for its reply.
@@ -445,7 +469,7 @@ export class RuntimeRPCClient {
       const timeout = setTimeout(() => {
         this.waiters.delete(requestID)
         reject(new Error(`RPC request timed out: ${method}`))
-      }, rpcTimeoutMs)
+      }, this.timeoutMs)
       this.waiters.set(requestID, { resolve, reject, timeout })
     })
 
@@ -542,13 +566,16 @@ export type {
   AppConfigureResolveResponse,
   BackgroundAgentJobAttemptHistoryEntry,
   BackgroundAgentJobListResponse,
+  BackgroundAgentJobMessageResultResponse,
+  BackgroundAgentJobMessageSendResponse,
+  BackgroundAgentJobRespawnResponse,
   BackgroundAgentJobResponse,
   BackgroundAgentJobResultRef,
   BackgroundAgentJobSummary,
+  BackgroundAgentJobStopResponse,
   BackgroundAgentJobTurn,
   BackgroundAgentJobTurnUpsertRequest,
   BackgroundAgentJobTurnUpsertResponse,
-  BackgroundAgentJobWorkspaceMount,
   BrainSnapshot,
   BrainSnapshotEntry,
   CodexAccountResolveResponse,
@@ -616,6 +643,12 @@ export type BackgroundAgentJobTurnTrajectory = JSONObject & {
   format: 'ankole_chatml'
   version: 1
   messages: BackgroundAgentJobTurnTrajectoryMessage[]
+  metadata?: BackgroundAgentJobTurnTrajectoryMetadata
+}
+
+export type BackgroundAgentJobTurnTrajectoryHeader = JSONObject & {
+  format: 'ankole_chatml'
+  version: 1
   metadata?: BackgroundAgentJobTurnTrajectoryMetadata
 }
 

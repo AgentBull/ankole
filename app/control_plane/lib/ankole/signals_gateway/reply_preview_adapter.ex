@@ -98,7 +98,13 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
   def refresh(%__MODULE__{refresh_fun: nil}, %Request{}),
     do: {:error, :reply_preview_refresh_unsupported}
 
-  defp normalize_result({:ok, result}) when is_map(result), do: {:ok, result}
+  defp normalize_result({:ok, result}) when is_map(result) do
+    case Enum.find(Map.keys(result), &(not is_atom(&1))) do
+      nil -> {:ok, result}
+      key -> {:error, {:invalid_reply_preview_adapter_result_key, Sanitizer.transport(key)}}
+    end
+  end
+
   defp normalize_result({:error, reason}), do: {:error, reason}
 
   defp normalize_result(result) do

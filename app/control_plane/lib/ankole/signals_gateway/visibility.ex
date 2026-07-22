@@ -46,6 +46,41 @@ defmodule Ankole.SignalsGateway.Visibility do
     end
   end
 
+  @doc "Returns true when a joined binding isolates one group from shared memory."
+  @spec confidential_channel?(String.t(), String.t(), keyword()) :: boolean()
+  def confidential_channel?(principal_uid, channel_id, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, principal_uid} <- Principals.normalize_uid(principal_uid) do
+      Channel
+      |> join(:inner, [channel], group in Group, on: group.id == channel.principal_group_id)
+      |> join(:inner, [_channel, _group], binding in Binding,
+        on: binding.agent_uid == ^principal_uid
+      )
+      |> where(
+        [channel, _group, _binding],
+        channel.id == ^channel_id and channel.kind == :im_group
+      )
+      |> where(
+        [_channel, _group, binding],
+        binding.enabled == true and is_nil(binding.unavailable_reason) and
+          binding.confidential_memory == true
+      )
+      |> where(
+        [_channel, group, binding],
+        fragment(
+          "?->'signals_gateway'->'binding_memberships'->(? || '|' || ?)->>'state' = 'joined'",
+          group.metadata,
+          ^principal_uid,
+          binding.name
+        )
+      )
+      |> repo.exists?()
+    else
+      {:error, _reason} -> false
+    end
+  end
+
   defp joined_agent_group_channel_ids(repo, principal_uid) do
     Channel
     |> join(:inner, [channel], group in Group, on: group.id == channel.principal_group_id)

@@ -26,18 +26,19 @@ defmodule Ankole.Brain.Dreaming.Evidence do
   @spec curator_material(map(), String.t()) :: map()
   def curator_material(%{kind: :signal_message} = material, timezone) do
     compact(%{
-      "material_id" => material.document_id,
+      "material_ref" => material.model_ref,
       "kind" => "signal_message",
       "observed_at" => local_time(material.observed_at, timezone),
       "channel" => channel(material),
       "speaker" => Map.get(material, :speaker),
+      "speaker_principal_uid" => Map.get(material, :speaker_principal_uid),
       "text" => material.text || ""
     })
   end
 
   def curator_material(%{kind: :task_outcome} = material, timezone) do
     compact(%{
-      "material_id" => material.actor_event_id,
+      "material_ref" => material.model_ref,
       "kind" => "task_outcome",
       "completed_at" => local_time(material.observed_at, timezone),
       "trigger" => material.trigger,
@@ -185,7 +186,6 @@ defmodule Ankole.Brain.Dreaming.Evidence do
 
   defp channel(material) do
     compact(%{
-      "id" => Map.get(material, :channel_id),
       "kind" => Map.get(material, :channel_kind),
       "name" => Map.get(material, :channel_name)
     })

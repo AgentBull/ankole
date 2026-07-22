@@ -2,12 +2,12 @@ defmodule Ankole.Plugins.Plugin do
   @moduledoc """
   Contract a first-party plugin module declares to the registry.
 
-  A plugin advertises an identity (`plugin_id/0`, `api_version/0`) and may
-  contribute any of: AppConfigure keys, adapter declarations
+  A plugin advertises an identity through `plugin_id/0` and may contribute
+  AppConfigure keys, adapter declarations
   (the data that lets a plugin plug into a subsystem contract such as
   `signals_gateway.adapter` or `principals.identity_provider`), and supervised
   children. Everything except identity is optional, so a minimal plugin only
-  implements the two required callbacks. `Ankole.Plugins.Spec.from_module/1`
+  implements `plugin_id/0`. `Ankole.Plugins.Spec.from_module/1`
   reads these callbacks and normalizes the result into a `Spec`.
   """
 
@@ -18,7 +18,6 @@ defmodule Ankole.Plugins.Plugin do
   @type adapter_declaration :: map()
 
   @callback plugin_id() :: String.t()
-  @callback api_version() :: pos_integer()
   @callback display_name() :: localized_text() | nil
   @callback description() :: localized_text() | nil
   @callback app_config_definitions() :: [Definition.t()]

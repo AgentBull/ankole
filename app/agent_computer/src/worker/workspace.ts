@@ -7,12 +7,12 @@ import {
   readFileSync,
   rmSync,
   statSync,
-  symlinkSync,
   writeFileSync
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { TurnStart } from '../lanes/actor_lane'
+import { WORKER_SHARE_ROOT, agentHomePaths, sessionWorkspacePath } from '../core/agent-home-paths'
 import type { WorkerConfig } from './config'
 
 /**
@@ -24,10 +24,8 @@ import type { WorkerConfig } from './config'
  * browser data-plane runtime shipped in the worker image.
  */
 export function verifyWorkerFilesystem(config: WorkerConfig): void {
-  assertDirectory(config.sharedFsRoot, 'ANKOLE_SHARED_FS_ROOT', true)
-  assertDirectory(config.userFilesRoot, 'ANKOLE_USER_FILES_ROOT', true)
-  assertDirectory(config.agentInstalledSkillsRoot, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT', true)
-  assertDirectory(config.workspaceSessionsRoot, 'ANKOLE_WORKSPACE_SESSIONS_ROOT', true)
+  assertDirectory(config.agentsRoot, 'ANKOLE_AGENTS_ROOT', true)
+  assertDirectory(WORKER_SHARE_ROOT, 'Worker share', true)
   assertDirectory(config.builtinSkillsRoot, 'ANKOLE_BUILTIN_SKILLS_ROOT', false)
   if (config.internalSkillsRoot) {
     assertDirectory(config.internalSkillsRoot, 'ANKOLE_INTERNAL_SKILLS_ROOT', false)
@@ -53,31 +51,37 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
 }
 
 /**
- * Creates the stable workspace root for one actor session.
+ * Creates the direct Session Workspace inside the current Agent Home.
  *
- * User files stay in the shared filesystem and are linked into each session
- * workspace, so a restarted worker can rebuild the session directory without
- * copying durable user data.
+ * `user-files` remains a sibling shared across the Agent's Sessions; no path
+ * alias or symlink is needed because the model sees the real Agent Home paths.
  */
 export function prepareTurnWorkspace(config: WorkerConfig, turnStart: TurnStart): string {
   return prepareActorWorkspace(config, turnStart.turn.actor)
 }
 
 export function prepareActorWorkspace(
-  config: Pick<WorkerConfig, 'workspaceSessionsRoot' | 'userFilesRoot'>,
+  config: Pick<WorkerConfig, 'agentsRoot'>,
   actor: { agent_uid: string; session_id: string }
 ): string {
-  const sessionRoot = join(
-    config.workspaceSessionsRoot,
-    encodePathSegment(actor.agent_uid),
-    encodePathSegment(actor.session_id)
-  )
+  prepareAgentHome(config.agentsRoot, actor.agent_uid)
+  const sessionRoot = sessionWorkspacePath(config.agentsRoot, actor.agent_uid, actor.session_id)
 
   mkdirSync(sessionRoot, { recursive: true })
   mkdirSync(join(sessionRoot, 'temp'), { recursive: true })
-  replacePathWithSymlink(join(sessionRoot, 'user-files'), config.userFilesRoot)
 
   return sessionRoot
+}
+
+export function prepareAgentHome(agentsRoot: string, agentUID: string) {
+  const paths = agentHomePaths(agentsRoot, agentUID)
+  mkdirSync(paths.home, { recursive: true, mode: 0o700 })
+  mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
+  mkdirSync(paths.userFiles, { recursive: true })
+  mkdirSync(paths.installedSkills, { recursive: true })
+  mkdirSync(paths.sessions, { recursive: true })
+  mkdirSync(paths.jobs, { recursive: true })
+  return paths
 }
 
 /**
@@ -119,44 +123,4 @@ function assertFile(path: string, label: string, executable: boolean): void {
     throw new Error(`${label} is not an accessible file: ${resolved}`)
   }
   accessSync(resolved, constants.R_OK | (executable ? constants.X_OK : 0))
-}
-
-/**
- * Replaces a path with a symlink, including the broken-symlink case.
- *
- * Session directories are rebuildable scratch space, so removing a stale path is
- * safer than trying to preserve anything already at the link location.
- */
-function replacePathWithSymlink(linkPath: string, targetPath: string): void {
-  mkdirSync(dirname(linkPath), { recursive: true })
-
-  if (existsSync(linkPath) || pathIsBrokenSymlink(linkPath)) {
-    const stat = lstatSync(linkPath)
-    if (stat.isSymbolicLink()) {
-      rmSync(linkPath, { force: true })
-    } else {
-      rmSync(linkPath, { recursive: true, force: true })
-    }
-  }
-
-  symlinkSync(resolve(targetPath), linkPath, 'dir')
-}
-
-/**
- * Detects symlinks whose targets no longer exist.
- */
-function pathIsBrokenSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink()
-  } catch (error) {
-    return false
-  }
-}
-
-/**
- * Encodes actor identifiers into filesystem path segments without losing their
- * human-readable shape.
- */
-function encodePathSegment(value: string): string {
-  return encodeURIComponent(value).replaceAll('%', '_')
 }
