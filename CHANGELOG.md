@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 26.07.36 (2026-07-23)
+
+- After the RuntimeFabric workflow verifies the immutable image pair, publish the control-plane and Agent Computer manifests through the `main-latest` channel. This lets a manually started internal deployment use the most recent successful OSS pair without rebuilding OSS images or selecting a Git SHA.
+
 ## Version 26.07.35 (2026-07-23)
 
 - Restore the RuntimeFabric image builds after the workspace and Playwright packaging changes: include the OpenAPI client generator workspace in the control-plane dependency and source layers, and accept the platform-specific `headless_shell` and `chrome-headless-shell` executable names when the Agent Computer image installs Playwright. This lets both control-plane architectures generate Console clients and lets linux/amd64 package its browser runtime without changing the linux/arm64 path.

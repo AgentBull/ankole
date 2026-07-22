@@ -17,6 +17,7 @@ env:
   BASE_IMAGE: ghcr.io/agentbull/ankole-agent-os-base
   CONTROL_PLANE_IMAGE: ghcr.io/agentbull/ankole-agent-control-plane
   WORKER_IMAGE: ghcr.io/agentbull/ankole-agent-computer-worker
+  LATEST_TAG: main-latest
   RELEASE_REVISION: ${{ github.sha }}
   STAGING_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
@@ -422,3 +423,19 @@ jobs:
           path: ${{ runner.temp }}/runtime-image-pair
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish latest RuntimeFabric image pair
+        if: ${{ github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${CONTROL_PLANE_IMAGE}:${LATEST_TAG}" \
+            "${CONTROL_PLANE_IMAGE}:${RELEASE_REVISION}"
+          docker buildx imagetools create \
+            --tag "${WORKER_IMAGE}:${LATEST_TAG}" \
+            "${WORKER_IMAGE}:${RELEASE_REVISION}"
+
+          docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${LATEST_TAG}"
+          docker buildx imagetools inspect "${WORKER_IMAGE}:${LATEST_TAG}"
