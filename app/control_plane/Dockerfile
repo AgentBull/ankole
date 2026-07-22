@@ -56,6 +56,7 @@ COPY app/webapps/package.json ./app/webapps/package.json
 COPY libs/feishu_openapi/package.json ./libs/feishu_openapi/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 COPY tools/devkit/package.json ./tools/devkit/package.json
+COPY tools/openapi-client-generator/package.json ./tools/openapi-client-generator/package.json
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
@@ -86,6 +87,7 @@ COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
 COPY libs ./libs
 COPY plugins ./plugins
+COPY tools/openapi-client-generator ./tools/openapi-client-generator
 
 WORKDIR /repo/app/control_plane
 

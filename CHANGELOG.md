@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 26.07.35 (2026-07-23)
+
+- Restore the RuntimeFabric image builds after the workspace and Playwright packaging changes: include the OpenAPI client generator workspace in the control-plane dependency and source layers, and accept the platform-specific `headless_shell` and `chrome-headless-shell` executable names when the Agent Computer image installs Playwright. This lets both control-plane architectures generate Console clients and lets linux/amd64 package its browser runtime without changing the linux/arm64 path.
+
 ## Version 26.07.34 (2026-07-18)
 
 - Replace the model-visible `/workspace` abstraction with the direct `/agents/<agent-key>` Agent Home contract across Agent Computer, RuntimeFabric, adapters, browser artifacts, attachments, source learning, E2E fixtures, Console file roots, and documentation. Session IDs now use shared Base64URL path vectors, BackgroundAgentJobs use direct `jobs/<job-id>` workspaces and project `.codex/config.toml`, selected Skills project into real `.ankole/skills` paths, and the removed `workspace_mounts` field is rejected while its legacy database column remains empty for one rollback-safe stage.

@@ -51,7 +51,8 @@ RUN bun run build \
   && cp -RL node_modules/playwright-core /tmp/ankole-browser-runtime/node_modules/playwright-core \
   && PLAYWRIGHT_BROWSERS_PATH=/tmp/ankole-browser-runtime/browsers \
     /opt/ankole-browser/node/bin/node node_modules/playwright-core/cli.js install chromium-headless-shell \
-  && browser_bin="$(find /tmp/ankole-browser-runtime/browsers -type f -name headless_shell -perm /111 | head -1)" \
+  && browser_bin="$(find /tmp/ankole-browser-runtime/browsers -type f \
+    \( -name headless_shell -o -name chrome-headless-shell \) -perm /111 -print -quit)" \
   && test -n "${browser_bin}" \
   && mkdir -p /tmp/ankole-browser-runtime/browsers/chromium \
   && ln -s "$(realpath --relative-to=/tmp/ankole-browser-runtime/browsers/chromium "${browser_bin}")" \
