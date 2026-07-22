@@ -662,12 +662,21 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "scheduled",
-                "scheduled_event_id" => scheduled_event_id,
                 "timezone" => "Etc/UTC",
                 "quiet_success" => true
-              }} = schedule_rpc("check_back_later.create", request, turn_ref, route)
+              } = created} = schedule_rpc("check_back_later.create", request, turn_ref, route)
 
-      scheduled_event = Repo.get!(ScheduledEvent, scheduled_event_id)
+      refute Map.has_key?(created, "checkback_id")
+      refute Map.has_key?(created, "scheduled_event_id")
+
+      scheduled_event =
+        Repo.get_by!(ScheduledEvent,
+          agent_uid: agent.uid,
+          session_id: source_event.session_id,
+          idempotency_key: "schedule-rpc-checkback-1"
+        )
+
+      scheduled_event_id = scheduled_event.id
       assert scheduled_event.source_actor_event_id == source_event.id
       assert scheduled_event.origin_ai_message_id == generating_message.id
       assert scheduled_event.wake_payload["quiet_success"] == true
@@ -675,9 +684,8 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "already_scheduled",
-                "scheduled_event_id" => ^scheduled_event_id,
                 "quiet_success" => true
-              }} =
+              } = duplicate} =
                schedule_rpc(
                  "check_back_later.create",
                  %{request | quiet_success: false},
@@ -685,10 +693,15 @@ defmodule Ankole.ScheduleTest do
                  route
                )
 
+      refute Map.has_key?(duplicate, "checkback_id")
+      refute Map.has_key?(duplicate, "scheduled_event_id")
+
       assert {:ok,
               %{
                 "status" => "ok",
-                "checkbacks" => [%{"id" => ^scheduled_event_id, "status" => "scheduled"}]
+                "checkbacks" => [
+                  %{"checkback_id" => ^scheduled_event_id, "status" => "scheduled"}
+                ]
               }} =
                schedule_rpc(
                  "check_back_later.list",
@@ -701,8 +714,8 @@ defmodule Ankole.ScheduleTest do
               %{
                 "status" => "ok",
                 "checkback" => %{
-                  "id" => ^scheduled_event_id,
-                  "wake_payload" => %{"check" => "Ask whether the deployment finished."}
+                  "checkback_id" => ^scheduled_event_id,
+                  "check" => "Ask whether the deployment finished."
                 }
               }} =
                schedule_rpc(
@@ -717,14 +730,11 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "updated",
-                "previous_scheduled_event_id" => ^scheduled_event_id,
                 "checkback" => %{
-                  "id" => replacement_event_id,
+                  "checkback_id" => replacement_event_id,
                   "status" => "scheduled",
-                  "wake_payload" => %{
-                    "check" => "Let evidence density determine the PDF length.",
-                    "context_summary" => "The user removed the 6–12 page constraint."
-                  }
+                  "check" => "Let evidence density determine the PDF length.",
+                  "context_summary" => "The user removed the 6–12 page constraint."
                 }
               }} =
                schedule_rpc(
@@ -751,7 +761,9 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "ok",
-                "checkbacks" => [%{"id" => ^replacement_event_id, "status" => "scheduled"}]
+                "checkbacks" => [
+                  %{"checkback_id" => ^replacement_event_id, "status" => "scheduled"}
+                ]
               }} =
                schedule_rpc(
                  "check_back_later.list",
@@ -777,7 +789,10 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "cancelled",
-                "checkback" => %{"id" => ^replacement_event_id, "status" => "cancelled"}
+                "checkback" => %{
+                  "checkback_id" => ^replacement_event_id,
+                  "status" => "cancelled"
+                }
               }} =
                schedule_rpc(
                  "check_back_later.cancel",
@@ -982,8 +997,8 @@ defmodule Ankole.ScheduleTest do
 
       assert {:ok, cron_schedule} =
                Schedule.get_cron_schedule_by_name(
-                 turn_ref.agent_uid,
-                 turn_ref.session_id,
+                 turn_ref.actor.agent_uid,
+                 turn_ref.actor.session_id,
                  "dashboard-morning-check"
                )
 

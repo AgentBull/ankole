@@ -1,5 +1,15 @@
 # Changelog
 
+## Version 26.07.38 (2026-07-23)
+
+- Resume group replies after the Brain visibility migration. A retry can now end a legacy `public` group conversation and start the declared `shared` or `channel` conversation for the same IM group without carrying its stale Brain snapshot. Keep the existing `shared` to `channel` rollover and cover both transitions.
+
+- Repair CardKit recovery when Feishu acknowledges a card without an expected interactive element. Refresh now compares the rendered snapshot with the nonempty element IDs in the durable provider checkpoint, so a missing `actions` element uses `add_elements` instead of the rejected `update_element` request that returned code `300121`. An absent legacy checkpoint list still uses the semantic snapshot because CardKit additions require an existing element anchor.
+
+- Let Brain Stage B edit or delete block position `0`, which is the persisted position of the first block. Make the external-source concurrency test use an isolated non-material webhook row and register cleanup before asynchronous work starts. Keep model inputs small by asserting that Brain Markdown omits author UIDs and that Schedule create acknowledgements omit both internal and model-facing checkback IDs; align the related Schedule, BackgroundAgentJob, hosted-image, and provider-runtime fixtures with their current contracts.
+
+- Stop reply-preview handlers created by ActorRuntime tests before their SQL sandbox owner exits, so durable preview processes do not retain checked-in database connections or leak rows into later tests. Remove stale imports and variables from the affected runtime tests.
+
 ## Version 26.07.37 (2026-07-23)
 
 - Make the rendered Browser fallback return readable content after the main document commits, even when a page never reaches `DOMContentLoaded`. Per-URL failures now carry a Browser error code and retryable state, and Agent Computer logs a bounded, redacted warning with the backend kind, failure stage, and URL index without exposing URLs, CDP endpoints, headers, credentials, or error details. Install the Chromium system libraries in the Agent Computer image, verify that the packaged executable can run, and cover remote-CDP ownership, secret redaction, and the commit-before-load path with real Browser tests.

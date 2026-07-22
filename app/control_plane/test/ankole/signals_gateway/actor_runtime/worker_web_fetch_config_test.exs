@@ -3,12 +3,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
-      rpc_request: 3,
       rpc_request: 4,
       rpc_response_payload!: 2,
-      rpc_error_payload!: 1,
-      envelope_body_type: 1,
-      envelope_body!: 2
+      envelope_body_type: 1
     ]
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto

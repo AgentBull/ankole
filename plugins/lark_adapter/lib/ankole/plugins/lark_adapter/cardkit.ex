@@ -1183,6 +1183,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     with {:ok, actions} <-
            Renderer.batch_actions(previous, request.presentation,
              mode: request.mode,
+             previous_element_ids: checkpoint["element_ids"],
              previous: previous_opts,
              current: render_opts
            ) do

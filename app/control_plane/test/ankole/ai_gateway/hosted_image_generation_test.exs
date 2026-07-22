@@ -595,8 +595,8 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
       hidden_name = get_in(hidden_tool, ["function", "name"])
       properties = get_in(hidden_tool, ["function", "parameters", "properties"])
       action = properties |> get_in(["action", "enum"]) |> List.first()
-      reference_ids = get_in(properties, ["input_image_ids", "items", "enum"]) || []
-      selected_ids = if action == "edit", do: Enum.take(reference_ids, 1), else: []
+      reference_refs = get_in(properties, ["input_image_refs", "items", "enum"]) || []
+      selected_refs = if action == "edit", do: Enum.take(reference_refs, 1), else: []
 
       {:json, 200,
        %{
@@ -620,7 +620,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                        Ankole.JSON.encode!(%{
                          "prompt" => "A moonlit lake in a calm, cinematic style",
                          "action" => action,
-                         "input_image_ids" => selected_ids
+                         "input_image_refs" => selected_refs
                        })
                    }
                  }

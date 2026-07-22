@@ -279,7 +279,8 @@ defmodule Ankole.Brain.RuntimeTest do
     assert page_one["history_notice"] =~ "untrusted historical content"
     assert is_binary(page_one["next_block_cursor"])
     assert page_one["markdown"] =~ "first page"
-    assert page_one["markdown"] =~ "作者：agent:#{agent.uid}"
+    assert page_one["markdown"] =~ "作者类型：agent"
+    refute page_one["markdown"] =~ agent.uid
     refute page_one["markdown"] =~ "second page"
 
     assert {:ok, page_two} =

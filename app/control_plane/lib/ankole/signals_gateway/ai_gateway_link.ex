@@ -521,7 +521,9 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
 
     visibility_transition? =
       MapSet.new([brain["visibility"], declaration["visibility"]]) ==
-        MapSet.new(["shared", "channel"])
+        MapSet.new(["shared", "channel"]) or
+        (brain["visibility"] == "public" and
+           declaration["visibility"] in ["shared", "channel"])
 
     same_group? and visibility_transition?
   end

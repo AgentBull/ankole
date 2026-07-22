@@ -300,7 +300,9 @@ defmodule Ankole.Brain.KnowledgeTest do
 
     assert is_binary(cursor)
     assert first_page =~ "第一块"
-    assert first_page =~ "作者：agent:#{ctx.owner.uid}"
+    assert first_page =~ "块位置：0"
+    assert first_page =~ "作者类型：agent"
+    refute first_page =~ ctx.owner.uid
     assert first_page =~ "最后修改："
     refute first_page =~ "第二块"
 

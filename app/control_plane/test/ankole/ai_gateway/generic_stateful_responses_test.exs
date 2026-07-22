@@ -144,7 +144,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     {:ok, _job} =
       StatefulResponses.ensure_conversation(
         subject.uid,
-        BackgroundAgentJobs.job_session_id("ignored")
+        BackgroundAgentJobs.job_session_id(1000)
       )
 
     {:ok, _other} = StatefulResponses.ensure_conversation(other_subject.uid, "selected")

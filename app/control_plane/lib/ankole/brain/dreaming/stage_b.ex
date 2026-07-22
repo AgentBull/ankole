@@ -1667,7 +1667,7 @@ defmodule Ankole.Brain.Dreaming.StageB do
         else: ~w(operation entry_name block_position)
 
     valid_fields?(operation, allowed) and nonblank?(operation["entry_name"]) and
-      is_integer(operation["block_position"]) and operation["block_position"] > 0 and
+      is_integer(operation["block_position"]) and operation["block_position"] >= 0 and
       (name == "delete_block" or nonblank?(operation["body"]))
   end
 

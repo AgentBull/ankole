@@ -389,7 +389,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                )
 
       assert_receive {:actor_lane, envelope}
-      turn_ref = turn_start_payload!(envelope).turn
+      assert %FabricProto.ActorTurnRef{} = turn_start_payload!(envelope).turn
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
       # A body type the control-plane actor lane does not handle is ignored

@@ -217,6 +217,117 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     refute persisted.reply_preview_cleanup_at
   end
 
+  test "refresh restores an interactive element absent from the acknowledged card", %{
+    event: event
+  } do
+    pending =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("请选择路径")
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请选择路径",
+        "controls" => [
+          %{
+            "id" => "path-a",
+            "type" => "button",
+            "label" => "路径 A",
+            "interaction_id" => "clarify:missing-actions",
+            "source_actor_event_id" => event.id,
+            "control_id" => "path",
+            "selected_option_id" => "path-a",
+            "option_value" => "A",
+            "revision" => 1
+          },
+          %{
+            "id" => "path-other",
+            "type" => "form",
+            "label" => "其他",
+            "interaction_id" => "clarify:missing-actions",
+            "source_actor_event_id" => event.id,
+            "control_id" => "path-other",
+            "revision" => 1,
+            "fields" => [
+              %{
+                "id" => "path-other-answer",
+                "type" => "input",
+                "label" => "其他路径",
+                "required" => true
+              }
+            ]
+          }
+        ]
+      })
+
+    superseded = ReplyPresentation.resolve_interaction(pending, "superseded")
+
+    checkpoint = %{
+      "schema_version" => 1,
+      "adapter" => "lark",
+      "card_id" => "card-missing-actions",
+      "message_id" => "message-missing-actions",
+      "message_uuid" => "message-missing-actions-uuid",
+      "streaming_state" => "closed",
+      "element_ids" => ["state", "answer"],
+      "presentation" => ReplyPresentation.checkpoint(superseded),
+      "previous_presentation" => ReplyPresentation.checkpoint(pending),
+      "answer_content" => "请选择路径",
+      "refresh_pending" => true,
+      "refresh_reason" => "interaction_superseded"
+    }
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    parent = self()
+
+    request_fun = fn _client, :post, "cardkit/v1/cards/:card_id/batch_update", opts ->
+      actions = Ankole.JSON.decode!(opts[:body][:actions])
+      send(parent, {:missing_actions_batch, actions})
+
+      if Enum.any?(actions, fn action ->
+           action["action"] == "update_element" and
+             get_in(action, ["params", "element_id"]) == "actions"
+         end) do
+        {:error,
+         %Error{
+           code: 300_121,
+           msg: "not find elementID : actions",
+           http_status: 200
+         }}
+      else
+        {:ok, %{"data" => %{}}}
+      end
+    end
+
+    assert {:ok, result} =
+             CardKit.refresh(
+               %Request{
+                 actor_event: stored,
+                 presentation: superseded,
+                 previous_presentation: pending,
+                 checkpoint: checkpoint,
+                 mode: :terminal
+               },
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert_receive {:missing_actions_batch, actions}
+
+    refute Enum.any?(actions, fn action ->
+             action["action"] == "update_element" and
+               get_in(action, ["params", "element_id"]) == "actions"
+           end)
+
+    assert Enum.any?(actions, fn action ->
+             action["action"] == "add_elements" and
+               Enum.any?(get_in(action, ["params", "elements"]), fn element ->
+                 element["element_id"] == "actions"
+               end)
+           end)
+
+    refute result.reply_preview_checkpoint["refresh_pending"]
+    assert "actions" in result.reply_preview_checkpoint["element_ids"]
+  end
+
   test "a consumed UUID acknowledges an ambiguous CardKit mutation retry", %{event: event} do
     presentation = ReplyPresentation.new() |> ReplyPresentation.append_answer("恢复中的回答")
 

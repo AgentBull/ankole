@@ -360,11 +360,38 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
     shared_conversation
     |> Ecto.Changeset.change(
       metadata:
-        put_in(shared_conversation.metadata, ["brain", "snapshot"], %{
-          "pinned_memo" => %{"resident_text" => "old shared snapshot"}
+        shared_conversation.metadata
+        |> put_in(["brain", "visibility"], "public")
+        |> put_in(["brain", "snapshot"], %{
+          "pinned_memo" => %{"resident_text" => "legacy public snapshot"}
         })
     )
     |> Repo.update!()
+
+    legacy_event =
+      append_group_actor_event!(
+        agent.uid,
+        binding_name,
+        channel.id,
+        session_id,
+        "legacy-public",
+        now
+      )
+
+    assert {:ok, migrated_shared_conversation} =
+             Repo.transact(fn repo ->
+               AIGatewayLink.ensure_and_lock_conversation_in_tx(
+                 repo,
+                 agent.uid,
+                 session_id,
+                 legacy_event
+               )
+             end)
+
+    refute migrated_shared_conversation.id == shared_conversation.id
+    assert %DateTime{} = Repo.get!(Conversation, shared_conversation.id).ended_at
+    assert migrated_shared_conversation.metadata["brain"]["visibility"] == "shared"
+    refute Map.has_key?(migrated_shared_conversation.metadata["brain"], "snapshot")
 
     binding
     |> Ecto.Changeset.change(confidential_memory: true)
@@ -383,8 +410,8 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
                )
              end)
 
-    refute confidential_conversation.id == shared_conversation.id
-    assert %DateTime{} = Repo.get!(Conversation, shared_conversation.id).ended_at
+    refute confidential_conversation.id == migrated_shared_conversation.id
+    assert %DateTime{} = Repo.get!(Conversation, migrated_shared_conversation.id).ended_at
     assert confidential_conversation.metadata["brain"]["visibility"] == "channel"
     refute Map.has_key?(confidential_conversation.metadata["brain"], "snapshot")
 

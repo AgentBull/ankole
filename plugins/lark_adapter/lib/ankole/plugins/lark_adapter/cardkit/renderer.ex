@@ -54,7 +54,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       current_elements = get_in(current_card, ["body", "elements"])
       previous_by_id = index_elements(previous_elements)
       current_by_id = index_elements(current_elements)
-      previous_ids = Map.keys(previous_by_id) |> MapSet.new()
+      previous_ids = previous_element_ids(previous_by_id, opts)
       current_ids = Map.keys(current_by_id) |> MapSet.new()
 
       removed = MapSet.difference(previous_ids, current_ids) |> MapSet.to_list()
@@ -942,6 +942,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp index_elements(elements) do
     Map.new(elements, fn element -> {element["element_id"], element} end)
+  end
+
+  defp previous_element_ids(previous_by_id, opts) do
+    case Keyword.get(opts, :previous_element_ids) do
+      ids when is_list(ids) ->
+        case Enum.filter(ids, &is_binary/1) do
+          [] -> previous_by_id |> Map.keys() |> MapSet.new()
+          recorded_ids -> MapSet.new(recorded_ids)
+        end
+
+      _not_recorded ->
+        previous_by_id |> Map.keys() |> MapSet.new()
+    end
   end
 
   defp maybe_delete(actions, []), do: actions

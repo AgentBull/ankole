@@ -15,6 +15,7 @@ defmodule Ankole.Brain.StageBTest do
   alias Ankole.AppConfigure
   alias Ankole.AuthZ.Group
   alias Ankole.Brain
+  alias Ankole.Brain.Citations
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming.StageB
@@ -22,6 +23,7 @@ defmodule Ankole.Brain.StageBTest do
   alias Ankole.Brain.Jobs.EnqueuePrincipalDreaming
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Schemas.Cursor
+  alias Ankole.Brain.Schemas.EntryBlock
   alias Ankole.Brain.Schemas.EntryRelation
   alias Ankole.Brain.Scope
   alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, BindingMembership, Channel}
@@ -263,7 +265,7 @@ defmodule Ankole.Brain.StageBTest do
   test "a relation plan links the target in the final source body before commit" do
     %{principal: agent} = agent_fixture()
 
-    material =
+    _material =
       visible_signal_material!(
         agent.uid,
         "Source Subject is owned by Target Subject.",
@@ -320,7 +322,7 @@ defmodule Ankole.Brain.StageBTest do
                 %{
                   "operation" => "edit_block",
                   "entry_name" => "Source Subject",
-                  "block_position" => 1,
+                  "block_position" => 0,
                   "body" => "[[Target Subject]] owns Source Subject. src:material_1"
                 },
                 %{
@@ -346,6 +348,10 @@ defmodule Ankole.Brain.StageBTest do
         response_summary(%{
           "material_refs" => [indexed["material_ref"]],
           "topics" => [
+            %{
+              "query" => "Source Subject",
+              "material_refs" => [indexed["material_ref"]]
+            },
             %{
               "query" => "Target Subject",
               "material_refs" => [indexed["material_ref"]]
@@ -430,7 +436,7 @@ defmodule Ankole.Brain.StageBTest do
   test "locator can skip noise while the cursor consumes the complete scanned batch" do
     %{principal: agent} = agent_fixture()
 
-    first =
+    _first =
       task_outcome_material!(agent.uid, "stage-b-locator-prefix", "first material",
         completed_at: @base_time
       )
@@ -891,22 +897,31 @@ defmodule Ankole.Brain.StageBTest do
     %{principal: agent} = agent_fixture()
     _task_material = task_outcome_material!(agent.uid, "stage-b-nonblocking-source", "workflow")
     external = external_signal_entry!()
+    on_exit(fn -> delete_external_signal_entry!(external) end)
     test_pid = self()
 
     {:ok, scope} = Scope.for_store(agent.uid, "self")
     history_id = create_knowledge_entry!(scope, agent.uid, "External source history")
 
-    assert {:ok, %{results: [%{block_id: _block_id}]}} =
+    assert {:ok, %{results: [%{block_id: block_id}]}} =
              Knowledge.apply_operations(
                scope,
                %{
                  operation: "append_block",
                  entry_id: history_id,
                  expected_entry_lock_version: 1,
-                 body: "Prior external evidence src:#{external.entry.document_id}"
+                 body: "Prior external evidence"
                },
                %{kind: :human, uid: agent.uid}
              )
+
+    block =
+      block_id
+      |> then(&Repo.get!(EntryBlock, &1))
+      |> Ecto.Changeset.change(body: "Prior external evidence src:#{external.entry.document_id}")
+      |> Repo.update!()
+
+    assert :ok = Citations.reindex(Repo, block)
 
     plan = %{
       "operations" => [
@@ -980,23 +995,19 @@ defmodule Ankole.Brain.StageBTest do
         end)
       end)
 
+    assert_receive {:source_update_pending, writer_pid}, 5_000
+
+    dreaming = Task.async(fn -> StageB.run(agent.uid) end)
+    assert_receive :nonblocking_source_curator_called, 5_000
+
     try do
-      assert_receive {:source_update_pending, writer_pid}, 5_000
-
-      dreaming = Task.async(fn -> StageB.run(agent.uid) end)
-      assert_receive :nonblocking_source_curator_called, 5_000
-
-      try do
-        assert {:ok, %{status: :completed, operation_count: 2}} =
-                 Task.await(dreaming, 5_000)
-      after
-        send(writer_pid, :commit_source_update)
-      end
-
-      assert {:ok, %SignalEntry{content_hash: "hash-v2"}} = Task.await(writer, 5_000)
+      assert {:ok, %{status: :completed, operation_count: 2}} =
+               Task.await(dreaming, 5_000)
     after
-      delete_external_signal_entry!(external)
+      send(writer_pid, :commit_source_update)
     end
+
+    assert {:ok, %SignalEntry{content_hash: "hash-v2"}} = Task.await(writer, 5_000)
   end
 
   test "shared and private materials are curated in isolated calls with one global mutation budget" do
@@ -1920,26 +1931,15 @@ defmodule Ankole.Brain.StageBTest do
     {:ok, external} =
       Sandbox.unboxed_run(Repo, fn ->
         Repo.transact(fn repo ->
-          group =
-            %Group{}
-            |> Group.changeset(%{
-              name: "brain-stage-b-external-#{suffix}",
-              display_name: "Brain Stage B External",
-              domain: :im_group,
-              metadata: %{}
-            })
-            |> repo.insert!()
-
           channel =
             %Channel{}
             |> Channel.changeset(%{
               id: "brain:stage-b:external:#{suffix}",
-              kind: :im_group,
-              reply_mode: :entry,
+              kind: :webhook_endpoint,
+              reply_mode: :none,
               name: "Brain Stage B External",
               metadata: %{},
               raw_payload: %{},
-              principal_group_id: group.id,
               first_seen_at: now,
               last_seen_at: now
             })
@@ -1962,12 +1962,13 @@ defmodule Ankole.Brain.StageBTest do
               raw_reaction_keys: %{},
               document_id: "signal-gateway-entry:#{String.replace(suffix, "-", "_")}",
               content_hash: "hash-v1",
+              ai_message_id: Ecto.UUID.generate(),
               first_seen_at: now,
               last_seen_at: now
             })
             |> repo.insert!()
 
-          {:ok, %{entry: entry, channel: channel, group: group}}
+          {:ok, %{entry: entry, channel: channel}}
         end)
       end)
 
@@ -1983,7 +1984,6 @@ defmodule Ankole.Brain.StageBTest do
           )
 
           repo.delete_all(from channel in Channel, where: channel.id == ^external.channel.id)
-          repo.delete_all(from group in Group, where: group.id == ^external.group.id)
           {:ok, :deleted}
         end)
       end)

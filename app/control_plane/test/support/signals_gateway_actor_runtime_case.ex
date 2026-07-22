@@ -71,7 +71,51 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
       @base_time ~U[2026-07-02 01:34:05.000000Z]
       @long_lease_seconds 31_536_000
+
+      setup do
+        existing_preview_pids =
+          Ankole.SignalsGateway.ActorRuntimeCase.preview_handler_pids()
+
+        on_exit(fn ->
+          Ankole.SignalsGateway.ActorRuntimeCase.stop_new_preview_handlers(existing_preview_pids)
+        end)
+
+        :ok
+      end
     end
+  end
+
+  def preview_handler_pids do
+    Ankole.SignalsGateway.PreviewSupervisor
+    |> DynamicSupervisor.which_children()
+    |> Enum.flat_map(fn
+      {_id, pid, :worker, _modules} when is_pid(pid) -> [pid]
+      _child -> []
+    end)
+    |> MapSet.new()
+  end
+
+  def stop_new_preview_handlers(existing_pids) do
+    existing_pids = MapSet.new(existing_pids)
+
+    handlers =
+      existing_pids
+      |> then(fn existing -> MapSet.difference(preview_handler_pids(), existing) end)
+      |> Enum.map(fn pid -> {pid, Process.monitor(pid)} end)
+
+    Enum.each(handlers, fn {pid, _monitor} -> GenServer.cast(pid, :stop) end)
+
+    Enum.each(handlers, fn {pid, monitor} ->
+      receive do
+        {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
+      after
+        6_000 ->
+          Process.demonitor(monitor, [:flush])
+          _ = DynamicSupervisor.terminate_child(Ankole.SignalsGateway.PreviewSupervisor, pid)
+      end
+    end)
+
+    :ok
   end
 
   def admit_worker(route, overrides \\ %{}) do

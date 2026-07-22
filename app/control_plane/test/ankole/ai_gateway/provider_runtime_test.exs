@@ -3,11 +3,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
   import Ankole.SignalsGateway.ActorRuntimeCase,
     only: [
-      rpc_request: 3,
       rpc_request: 4,
       rpc_response_payload!: 2,
-      rpc_passthrough_payload!: 1,
-      rpc_error_payload!: 1,
       envelope_body_type: 1,
       envelope_body!: 2
     ]
@@ -937,13 +934,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         id: Ecto.UUID.generate(),
         subject_uid: agent_uid,
         conversation_key: session_id,
-        metadata: %{
-          "brain" => %{
-            "visibility" => "public",
-            "channel_id" => session_id,
-            "channel_kind" => "im_group"
-          }
-        },
+        metadata: %{"brain" => %{"visibility" => "self"}},
         inserted_at: now,
         updated_at: now
       })
