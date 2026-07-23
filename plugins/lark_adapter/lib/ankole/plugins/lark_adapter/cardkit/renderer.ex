@@ -54,7 +54,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       current_elements = get_in(current_card, ["body", "elements"])
       previous_by_id = index_elements(previous_elements)
       current_by_id = index_elements(current_elements)
-      previous_ids = previous_element_ids(previous_by_id, opts)
+      previous_ids = previous_by_id |> Map.keys() |> MapSet.new()
       current_ids = Map.keys(current_by_id) |> MapSet.new()
 
       removed = MapSet.difference(previous_ids, current_ids) |> MapSet.to_list()
@@ -509,18 +509,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     detailed? = present_text?(action["description"]) or String.length(action["label"]) > 40
 
     button_text =
-      cond do
-        action["selected"] == true and detailed? ->
-          CardI18n.plain_text("selected_option")
-
-        action["selected"] == true ->
-          CardI18n.plain_text("selected_option_with_label", %{label: action["label"]})
-
-        detailed? ->
-          CardI18n.plain_text("select_option")
-
-        true ->
-          %{"tag" => "plain_text", "content" => action["label"]}
+      if action["selected"] == true do
+        CardI18n.plain_text("selected_option_with_label", %{
+          label: action["label"]
+        })
+        |> truncate_plain_text(40)
+      else
+        %{"tag" => "plain_text", "content" => truncate(action["label"], 40)}
       end
 
     context = if detailed?, do: choice_context_elements(action), else: []
@@ -944,19 +939,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     Map.new(elements, fn element -> {element["element_id"], element} end)
   end
 
-  defp previous_element_ids(previous_by_id, opts) do
-    case Keyword.get(opts, :previous_element_ids) do
-      ids when is_list(ids) ->
-        case Enum.filter(ids, &is_binary/1) do
-          [] -> previous_by_id |> Map.keys() |> MapSet.new()
-          recorded_ids -> MapSet.new(recorded_ids)
-        end
-
-      _not_recorded ->
-        previous_by_id |> Map.keys() |> MapSet.new()
-    end
-  end
-
   defp maybe_delete(actions, []), do: actions
 
   defp maybe_delete(actions, ids) do
@@ -1101,6 +1083,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     else
       String.slice(text, 0, max_chars - 1) <> "…"
     end
+  end
+
+  defp truncate_plain_text(text, max_chars) do
+    text
+    |> Map.update!("content", &truncate(&1, max_chars))
+    |> Map.update!("i18n_content", fn content ->
+      Map.new(content, fn {locale, value} -> {locale, truncate(value, max_chars)} end)
+    end)
   end
 
   defp first_cardkit_page?(presentation) do

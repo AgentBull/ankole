@@ -3,9 +3,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   Crash-recoverable CardKit reply lifecycle for Lark / Feishu.
 
   PostgreSQL owns the provider handle, the acknowledged semantic projection,
-  and the global CardKit sequence high-water mark. Live processes are only
-  debouncers: after a control-plane restart the same card is adopted and a
-  strictly higher sequence is leased before the next mutation.
+  and the CardKit sequence high-water mark. One live preview process owns
+  incremental topology. Recovery replaces the existing message with a complete
+  card and uses whole-card edits instead of guessing old elements.
   """
 
   @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
@@ -14,7 +14,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   alias Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
-  alias Ankole.Plugins.LarkAdapter.CardKit.WriteLimiter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.Logging
@@ -30,7 +29,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   @checkpoint_version 1
   @stream_lease_seconds 9 * 60
-  @replacement_limit 1
   @card_id_retry_delays_ms [250, 750, 1_500, 3_000, 5_000]
 
   @impl true
@@ -124,26 +122,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     with {:ok, event} <- fresh_event(request.actor_event),
          %{"card_id" => card_id, "refresh_pending" => true} = checkpoint
          when is_binary(card_id) <- event.reply_preview_checkpoint,
-         {:ok, config} <- config_for_event(event),
-         client <- Config.client(config),
-         request_fun <- &FeishuOpenAPI.request/4,
          request <- refresh_request(request, event, checkpoint),
-         request <- apply_checkpoint_images(request, checkpoint),
-         pages <- CardChain.pages(request.presentation),
-         {active_page, render_opts} <- active_render_context(pages, checkpoint),
-         {:ok, actions, close_streaming?} <-
-           refresh_actions(request, checkpoint, render_opts),
-         :ok <- apply_refresh_actions(event, card_id, actions, client, request_fun),
-         checkpoint <-
-           refreshed_checkpoint(
-             checkpoint,
-             request.presentation,
-             close_streaming?,
-             render_opts,
-             active_page
-           ),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
-      {:ok, delivery_result(first_message_id(checkpoint), checkpoint)}
+         active <- CardChain.active_card(checkpoint) do
+      case active do
+        %{"message_id" => message_id} when is_binary(message_id) and message_id != "" ->
+          rebuild_active_message(event, checkpoint, request)
+
+        _unsent ->
+          resume_unsent_refresh(event, checkpoint, card_id, request)
+      end
     else
       %{} -> {:error, :reply_preview_refresh_not_pending}
       nil -> {:error, :reply_preview_refresh_not_pending}
@@ -184,7 +171,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp do_update(event, checkpoint, _card_id, request) do
+  defp do_update(event, checkpoint, card_id, request) do
+    if inline_message?(checkpoint) do
+      do_update_inline(event, checkpoint, request)
+    else
+      do_update_cardkit(event, checkpoint, card_id, request)
+    end
+  end
+
+  defp do_update_cardkit(event, checkpoint, _card_id, request) do
     with {:ok, config} <- config_for_event(event),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
@@ -267,7 +262,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp do_finalize(event, checkpoint, _card_id, request) do
+  defp do_finalize(event, checkpoint, card_id, request) do
+    if inline_message?(checkpoint) do
+      do_finalize_inline(event, checkpoint, request)
+    else
+      do_finalize_cardkit(event, checkpoint, card_id, request)
+    end
+  end
+
+  defp do_finalize_cardkit(event, checkpoint, _card_id, request) do
     with {:ok, config} <- config_for_event(event),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
@@ -289,15 +292,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
            ),
          %{"card_id" => card_id} <- CardChain.active_card(checkpoint),
          {active_page, render_opts} <- active_render_context(pages, checkpoint),
-         :ok <-
-           close_terminal_stream(
-             event,
-             checkpoint,
-             card_id,
-             render_request.presentation,
-             client,
-             request_fun
-           ),
          {:ok, actions} <- terminal_actions(render_request, checkpoint, render_opts),
          :ok <- apply_terminal_actions(event, card_id, actions, client, request_fun),
          checkpoint <-
@@ -322,6 +316,129 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
+  defp do_update_inline(event, checkpoint, request) do
+    with {:ok, config} <- config_for_event(event),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
+         {:ok, render_request, image_state} <-
+           resolve_render_request(event, checkpoint, request, client),
+         {:ok, checkpoint} <- persist_markdown_images(event, checkpoint, image_state),
+         pages <- CardChain.pages(render_request.presentation),
+         {:ok, checkpoint, chain_result} <-
+           ensure_page_chain(
+             event,
+             checkpoint,
+             render_request,
+             request.presentation,
+             pages,
+             client,
+             request_fun
+           ) do
+      case CardChain.active_card(checkpoint) do
+        %{"transport" => "inline_message", "message_id" => message_id}
+        when is_binary(message_id) and message_id != "" ->
+          {active_page, render_opts} = active_render_context(pages, checkpoint)
+
+          streaming_state =
+            working_streaming_state(checkpoint, render_request.presentation, render_opts)
+
+          with {:ok, card} <-
+                 Renderer.render(
+                   render_request.presentation,
+                   Keyword.put(render_opts, :mode, :working)
+                 ),
+               card <- maybe_close_rebuilt_stream(card, streaming_state == "closed"),
+               :ok <- patch_message_card(client, message_id, card, request_fun),
+               {:ok, checkpoint} <-
+                 persist_acknowledged_checkpoint(
+                   event,
+                   checkpoint,
+                   request.presentation,
+                   streaming_state,
+                   render_opts,
+                   active_page
+                 ) do
+            {:ok,
+             delivery_result(first_message_id(checkpoint), checkpoint)
+             |> Map.merge(chain_result)}
+          end
+
+        %{"card_id" => card_id} when is_binary(card_id) ->
+          do_update_cardkit(event, checkpoint, card_id, %{
+            request
+            | actor_event: event,
+              checkpoint: checkpoint
+          })
+
+        _active ->
+          {:error, :cardkit_active_card_missing}
+      end
+    else
+      {:error, %Error{} = error} -> recover_update(error, event, checkpoint, request)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp do_finalize_inline(event, checkpoint, request) do
+    with {:ok, config} <- config_for_event(event),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
+         {:ok, render_request, image_state} <-
+           resolve_render_request(event, checkpoint, request, client),
+         {:ok, checkpoint} <- persist_markdown_images(event, checkpoint, image_state),
+         pages <- CardChain.pages(render_request.presentation),
+         {:ok, checkpoint, chain_result} <-
+           ensure_page_chain(
+             event,
+             checkpoint,
+             render_request,
+             request.presentation,
+             pages,
+             client,
+             request_fun
+           ) do
+      case CardChain.active_card(checkpoint) do
+        %{"transport" => "inline_message", "message_id" => message_id}
+        when is_binary(message_id) and message_id != "" ->
+          {active_page, render_opts} = active_render_context(pages, checkpoint)
+
+          with {:ok, card} <-
+                 Renderer.render(
+                   render_request.presentation,
+                   Keyword.put(render_opts, :mode, :terminal)
+                 ),
+               :ok <- patch_message_card(client, message_id, card, request_fun),
+               checkpoint <-
+                 terminal_checkpoint(
+                   checkpoint,
+                   request.presentation,
+                   render_opts,
+                   active_page
+                 ),
+               {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+            {:ok,
+             delivery_result(first_message_id(checkpoint), checkpoint)
+             |> Map.merge(chain_result)}
+          end
+
+        %{"card_id" => card_id} when is_binary(card_id) ->
+          do_finalize_cardkit(event, checkpoint, card_id, %{
+            request
+            | actor_event: event,
+              checkpoint: checkpoint
+          })
+
+        _active ->
+          {:error, :cardkit_active_card_missing}
+      end
+    else
+      {:error, %Error{} = error} -> recover_finalize(error, event, checkpoint, request)
+      {:error, :cardkit_soft_budget_exceeded} -> plain_text_fallback(event, request)
+      {:error, :cardkit_answer_rewrite_after_rollover} -> plain_text_fallback(event, request)
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp resolve_render_request(event, checkpoint, request, client) do
     image_state = Map.get(checkpoint, "markdown_images", %{})
 
@@ -336,20 +453,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       {:ok, %{request | presentation: presentation, previous_presentation: previous_presentation},
        image_state}
     end
-  end
-
-  defp apply_checkpoint_images(request, checkpoint) do
-    image_state = Map.get(checkpoint, "markdown_images", %{})
-
-    %{
-      request
-      | presentation: ImageResolver.apply_resolved(request.presentation, image_state),
-        previous_presentation:
-          case request.previous_presentation do
-            previous when is_map(previous) -> ImageResolver.apply_resolved(previous, image_state)
-            _missing -> nil
-          end
-    }
   end
 
   defp persist_markdown_images(event, checkpoint, image_state) do
@@ -494,21 +597,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     )
   end
 
-  defp close_terminal_stream(event, checkpoint, card_id, presentation, client, request_fun) do
-    if checkpoint["streaming_state"] == "open" do
-      apply_batch_mutation(
-        event,
-        card_id,
-        [streaming_setting_action(false, presentation)],
-        "terminal_close",
-        client,
-        request_fun
-      )
-    else
-      :ok
-    end
-  end
-
   defp apply_terminal_actions(_event, _card_id, [], _client, _request_fun), do: :ok
 
   defp apply_terminal_actions(event, card_id, actions, client, request_fun) do
@@ -519,8 +607,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     log_recovery(:update, error, event, checkpoint, request)
 
     case ErrorPolicy.action(error) do
-      :replace_card ->
-        replace_card(event, checkpoint, request)
+      :rebuild_card ->
+        rebuild_latest_active_message(event, request)
 
       :plain_text_fallback ->
         {:error, {:cardkit_plain_text_fallback, ErrorPolicy.provider_error(error)}}
@@ -537,8 +625,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     log_recovery(:finalize, error, event, checkpoint, request)
 
     case ErrorPolicy.action(error) do
-      :replace_card ->
-        replace_card(event, checkpoint, request)
+      :rebuild_card ->
+        rebuild_latest_active_message(event, request)
 
       :plain_text_fallback ->
         plain_text_fallback(event, request)
@@ -566,31 +654,17 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     )
   end
 
-  defp replace_card(event, checkpoint, request) do
-    replacements = non_negative_integer(checkpoint["replacement_count"])
-
-    if replacements >= @replacement_limit do
-      if request.mode == :terminal do
-        plain_text_fallback(event, request)
-      else
-        {:error, :cardkit_replacement_exhausted}
-      end
+  defp rebuild_latest_active_message(event, request) do
+    with {:ok, event} <- fresh_event(event),
+         checkpoint when is_map(checkpoint) <- event.reply_preview_checkpoint do
+      rebuild_active_message(event, checkpoint, %{
+        request
+        | actor_event: event,
+          checkpoint: checkpoint
+      })
     else
-      replacement_checkpoint = %{
-        "schema_version" => @checkpoint_version,
-        "adapter" => "lark",
-        "replacement_count" => replacements + 1,
-        "replaced_card_id" => checkpoint["card_id"],
-        "replaced_message_id" => checkpoint["message_id"],
-        "streaming_state" => "replaced",
-        "presentation" => ReplyPresentation.checkpoint(request.presentation),
-        "subject_uid" => request.subject_uid || checkpoint["subject_uid"],
-        "conversation_id" => request.conversation_id || checkpoint["conversation_id"]
-      }
-
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, replacement_checkpoint) do
-        open_result(%{request | checkpoint: replacement_checkpoint})
-      end
+      nil -> {:error, :reply_preview_checkpoint_missing}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -635,7 +709,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         "conversation_id" => request.conversation_id || previous["conversation_id"],
         "stream_deadline_at" => stream_deadline_at,
         "opened_at" => DateTime.to_iso8601(now),
-        "replacement_count" => non_negative_integer(previous["replacement_count"]),
         "presentation" => ReplyPresentation.checkpoint(request.presentation),
         "markdown_images" => image_state
       }
@@ -807,6 +880,38 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          client,
          request_fun
        ) do
+    if inline_message?(checkpoint) do
+      seal_inline_active_page(
+        event,
+        checkpoint,
+        request,
+        durable_presentation,
+        pages,
+        client,
+        request_fun
+      )
+    else
+      seal_cardkit_active_page(
+        event,
+        checkpoint,
+        request,
+        durable_presentation,
+        pages,
+        client,
+        request_fun
+      )
+    end
+  end
+
+  defp seal_cardkit_active_page(
+         event,
+         checkpoint,
+         request,
+         durable_presentation,
+         pages,
+         client,
+         request_fun
+       ) do
     active = CardChain.active_card(checkpoint)
 
     if active["state"] in ["sealed", "closed"] do
@@ -857,6 +962,63 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              Renderer.element_ids(
                request.presentation,
                Keyword.put(current_opts, :mode, :working)
+             ),
+           checkpoint <-
+             staged
+             |> CardChain.update_card(index, fn card ->
+               card
+               |> put_acknowledged_page(page, page.content)
+               |> Map.put("state", "sealed")
+               |> Map.put("streaming_state", "closed")
+               |> Map.put("element_ids", element_ids)
+             end)
+             |> Map.put("presentation", ReplyPresentation.checkpoint(durable_presentation))
+             |> put_in(["pending_rollover", "phase"], "create")
+             |> Map.delete("pending_mutation")
+             |> Map.delete("cleanup_at")
+             |> Map.put("stream_deadline_at", nil),
+           {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+        {:ok, checkpoint}
+      end
+    end
+  end
+
+  defp seal_inline_active_page(
+         event,
+         checkpoint,
+         request,
+         durable_presentation,
+         pages,
+         client,
+         request_fun
+       ) do
+    active = CardChain.active_card(checkpoint)
+
+    if active["state"] in ["sealed", "closed"] do
+      {:ok, checkpoint}
+    else
+      index = active["index"]
+      page = CardChain.page_at(pages, index)
+      count = length(pages)
+      render_opts = CardChain.page_opts(page, index, count, false)
+
+      rollover = %{
+        "from_index" => index,
+        "to_index" => index + 1,
+        "phase" => "seal",
+        "answer_digest" => CardChain.digest(page.source)
+      }
+
+      staged = Map.put(checkpoint, "pending_rollover", rollover)
+
+      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, staged),
+           {:ok, card} <-
+             Renderer.render(request.presentation, Keyword.put(render_opts, :mode, :working)),
+           :ok <- patch_message_card(client, active["message_id"], card, request_fun),
+           element_ids <-
+             Renderer.element_ids(
+               request.presentation,
+               Keyword.put(render_opts, :mode, :working)
              ),
            checkpoint <-
              staged
@@ -1020,12 +1182,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp create_card(client, card, request_fun) do
-    case cardkit_request(
-           client,
-           :post,
-           "cardkit/v1/cards",
-           [body: %{type: "card_json", data: Ankole.JSON.encode!(card)}],
-           request_fun
+    case request_fun.(client, :post, "cardkit/v1/cards",
+           body: %{type: "card_json", data: Ankole.JSON.encode!(card)}
          ) do
       {:ok, %{"data" => %{"card_id" => card_id}}}
       when is_binary(card_id) and card_id != "" ->
@@ -1157,6 +1315,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
           render_opts
         )
 
+      actions =
+        if checkpoint["streaming_state"] == "open" do
+          actions ++ [streaming_setting_action(false, request.presentation)]
+        else
+          actions
+        end
+
       {:ok, actions}
     end
   end
@@ -1176,44 +1341,81 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     }
   end
 
-  defp refresh_actions(request, checkpoint, render_opts) do
-    previous = request.previous_presentation || ReplyPresentation.new()
-    previous_opts = Keyword.put(render_opts, :answer, checkpoint["answer_content"] || " ")
+  defp resume_unsent_refresh(event, checkpoint, card_id, request) do
+    checkpoint =
+      checkpoint
+      |> Map.delete("refresh_pending")
+      |> Map.delete("refresh_reason")
+      |> Map.delete("previous_presentation")
 
-    with {:ok, actions} <-
-           Renderer.batch_actions(previous, request.presentation,
-             mode: request.mode,
-             previous_element_ids: checkpoint["element_ids"],
-             previous: previous_opts,
-             current: render_opts
-           ) do
-      actions =
-        merge_stale_element_deletes(
-          actions,
-          checkpoint,
-          request.presentation,
-          request.mode,
-          render_opts
-        )
+    with {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      request = %{request | actor_event: event, checkpoint: checkpoint}
 
-      close_streaming? =
-        request.mode == :terminal or checkpoint["refresh_reason"] == "thought_cleanup"
-
-      actions =
-        if close_streaming? do
-          actions ++ [streaming_setting_action(false, request.presentation)]
-        else
-          actions
-        end
-
-      {:ok, actions, close_streaming?}
+      case request.mode do
+        :terminal -> do_finalize(event, checkpoint, card_id, request)
+        :working -> do_update(event, checkpoint, card_id, request)
+      end
     end
   end
 
-  defp apply_refresh_actions(_event, _card_id, [], _client, _request_fun), do: :ok
+  defp rebuild_active_message(event, checkpoint, request) do
+    with {:ok, config} <- config_for_event(event),
+         client <- Config.client(config),
+         request_fun <- &FeishuOpenAPI.request/4,
+         {:ok, render_request, image_state} <-
+           resolve_render_request(event, checkpoint, request, client),
+         {:ok, checkpoint} <- persist_markdown_images(event, checkpoint, image_state),
+         pages <- CardChain.pages(render_request.presentation),
+         :ok <- validate_page_count(checkpoint, pages),
+         :ok <- validate_sealed_prefix(checkpoint, render_request.presentation["answer"] || ""),
+         %{"message_id" => message_id} when is_binary(message_id) and message_id != "" <-
+           CardChain.active_card(checkpoint),
+         {active_page, render_opts} <- active_render_context(pages, checkpoint),
+         close_streaming? <-
+           request.mode == :terminal or checkpoint["refresh_reason"] == "thought_cleanup",
+         {:ok, card} <-
+           Renderer.render(
+             render_request.presentation,
+             Keyword.put(render_opts, :mode, request.mode)
+           ),
+         card <- maybe_close_rebuilt_stream(card, close_streaming?),
+         :ok <- patch_message_card(client, message_id, card, request_fun),
+         checkpoint <-
+           checkpoint
+           |> update_active_card(&Map.put(&1, "transport", "inline_message"))
+           |> Map.put("markdown_images", image_state)
+           |> refreshed_checkpoint(
+             request.presentation,
+             render_request.presentation,
+             close_streaming?,
+             render_opts,
+             active_page
+           ),
+         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      {:ok, delivery_result(first_message_id(checkpoint), checkpoint)}
+    else
+      nil -> {:error, :cardkit_message_id_missing}
+      {:error, _reason} = error -> error
+    end
+  end
 
-  defp apply_refresh_actions(event, card_id, actions, client, request_fun) do
-    apply_batch_mutation(event, card_id, actions, "refresh", client, request_fun)
+  defp maybe_close_rebuilt_stream(card, true),
+    do: put_in(card, ["config", "streaming_mode"], false)
+
+  defp maybe_close_rebuilt_stream(card, false), do: card
+
+  defp patch_message_card(client, message_id, card, request_fun) do
+    case request_fun.(client, :patch, "im/v1/messages/:message_id",
+           path_params: %{message_id: message_id},
+           body: %{content: Ankole.JSON.encode!(card)}
+         ) do
+      {:ok, _response} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp inline_message?(checkpoint) do
+    match?(%{"transport" => "inline_message"}, CardChain.active_card(checkpoint))
   end
 
   defp apply_batch_mutation(event, card_id, actions, purpose, client, request_fun) do
@@ -1320,15 +1522,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              content_digest,
              Ecto.UUID.generate()
            ) do
-      cardkit_request(
+      request_fun.(
         client,
         :put,
         "cardkit/v1/cards/:card_id/elements/:element_id/content",
-        [
-          path_params: %{card_id: card_id, element_id: "answer"},
-          body: %{content: content, sequence: sequence, uuid: uuid}
-        ],
-        request_fun
+        path_params: %{card_id: card_id, element_id: "answer"},
+        body: %{content: content, sequence: sequence, uuid: uuid}
       )
       |> case do
         {:ok, _body} -> :ok
@@ -1393,28 +1592,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp batch_update_json(client, card_id, actions_json, sequence, uuid, request_fun) do
-    case cardkit_request(
-           client,
-           :post,
-           "cardkit/v1/cards/:card_id/batch_update",
-           [
-             path_params: %{card_id: card_id},
-             body: %{
-               actions: actions_json,
-               sequence: sequence,
-               uuid: uuid
-             }
-           ],
-           request_fun
+    case request_fun.(client, :post, "cardkit/v1/cards/:card_id/batch_update",
+           path_params: %{card_id: card_id},
+           body: %{
+             actions: actions_json,
+             sequence: sequence,
+             uuid: uuid
+           }
          ) do
       {:ok, _body} -> :ok
       {:error, _reason} = error -> error
-    end
-  end
-
-  defp cardkit_request(client, method, path, opts, request_fun) do
-    with :ok <- WriteLimiter.wait(client.app_id) do
-      request_fun.(client, method, path, opts)
     end
   end
 
@@ -1573,17 +1760,23 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp refreshed_checkpoint(
          checkpoint,
-         presentation,
+         durable_presentation,
+         rendered_presentation,
          close_streaming?,
          render_opts,
          active_page
        ) do
-    mode = if ReplyPresentation.terminal_state?(presentation), do: :terminal, else: :working
-    element_ids = Renderer.element_ids(presentation, Keyword.put(render_opts, :mode, mode))
-    answer_content = Renderer.answer_content(presentation, Keyword.put(render_opts, :mode, mode))
+    mode =
+      if ReplyPresentation.terminal_state?(durable_presentation), do: :terminal, else: :working
+
+    element_ids =
+      Renderer.element_ids(rendered_presentation, Keyword.put(render_opts, :mode, mode))
+
+    answer_content =
+      Renderer.answer_content(rendered_presentation, Keyword.put(render_opts, :mode, mode))
 
     checkpoint
-    |> Map.put("presentation", ReplyPresentation.checkpoint(presentation))
+    |> Map.put("presentation", ReplyPresentation.checkpoint(durable_presentation))
     |> update_active_card(fn card ->
       card
       |> put_acknowledged_page(active_page, answer_content)
@@ -1812,9 +2005,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp chat_id("lark:" <> encoded), do: URI.decode(encoded)
   defp chat_id(value), do: value
-
-  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: value
-  defp non_negative_integer(_value), do: 0
 
   defp normalize_lifecycle_result({:error, %Error{} = error}) do
     case ErrorPolicy.action(error) do

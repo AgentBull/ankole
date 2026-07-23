@@ -40,4 +40,3 @@ config :ankole, :identity_provider_realtime_reconcile, on_save: false
 config :ankole, :runtime_events, enabled: false
 
 # The limiter test uses a real interval. Other tests do not need wall-clock waits.
-config :ankole, Ankole.Plugins.LarkAdapter.CardKit.WriteLimiter, interval_ms: 0

@@ -5,13 +5,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy do
 
   @stream_closed_codes [200_850, 300_309]
   @missing_card_codes [200_740, 200_750]
+  @topology_conflict_codes [300_121, 300_301]
   @plain_text_fallback_codes [
     230_072,
     230_075,
     10_002,
     200_220,
     200_860,
-    300_301,
     300_302,
     300_303,
     300_305,
@@ -20,7 +20,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy do
     300_313,
     300_314,
     300_315,
-    300_121,
     300_122
   ]
   @operator_codes [999_916_63, 999_916_64, 999_916_68, 300_311]
@@ -28,13 +27,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy do
   @type action ::
           :retry
           | :reopen_stream
-          | :replace_card
+          | :rebuild_card
           | :plain_text_fallback
           | :operator_action_required
 
   @spec action(term()) :: action()
   def action(%Error{code: code}) when code in @stream_closed_codes, do: :reopen_stream
-  def action(%Error{code: code}) when code in @missing_card_codes, do: :replace_card
+  def action(%Error{code: code}) when code in @missing_card_codes, do: :rebuild_card
+  def action(%Error{code: code}) when code in @topology_conflict_codes, do: :rebuild_card
 
   def action(%Error{code: code}) when code in @plain_text_fallback_codes,
     do: :plain_text_fallback

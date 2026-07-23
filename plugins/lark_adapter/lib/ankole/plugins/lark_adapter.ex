@@ -6,7 +6,6 @@ defmodule Ankole.Plugins.LarkAdapter do
   @behaviour Ankole.Plugins.Plugin
 
   alias Ankole.Plugins.LarkAdapter.Config
-  alias Ankole.Plugins.LarkAdapter.CardKit.WriteLimiter
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -102,7 +101,6 @@ defmodule Ankole.Plugins.LarkAdapter do
   def children do
     # Shared plugin processes start once and use provider app config as runtime keys.
     [
-      WriteLimiter,
       {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},

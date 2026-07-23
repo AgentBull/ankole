@@ -123,14 +123,16 @@ new message.
 chain of cards for each visible Agent turn.
 
 The preview coalesces CardKit changes and starts at most one provider sync for a
-turn each second. A shared limiter keeps at least one second between CardKit
-write requests for the same application. Requests for different applications
-do not block each other.
+turn each second. The Feishu client handles explicit provider rate-limit
+responses without placing unrelated replies in one shared queue.
 
 The ActorEvent checkpoint is the durable CardKit ledger. It records card IDs,
 message IDs, source pages, the active page, stream state, the last confirmed
-presentation, and the sequence high-water mark. A restarted process continues
-from that data.
+presentation, and the sequence high-water mark. A restarted process renders
+the durable active page as one complete card and replaces the existing message.
+It then uses whole-message card edits for that page. It does not infer the
+element topology of an old provider card. If the answer needs another page, the
+sealed recovered page stays inline and the new tail returns to CardKit.
 
 Each provider mutation uses a strictly increasing sequence. A retry reuses the
 same logical UUID and sequence. A changed mutation gets a later sequence.
@@ -143,8 +145,9 @@ Closed cards do not change. If later output would change a closed card, the
 final outbox sends a consistent fallback instead.
 
 The stream lease is nine minutes. A known closed-stream error reopens the active
-stream. A missing card can create one replacement. Authentication and permission
-errors require operator action.
+stream. A missing card or an element-topology conflict replaces the active
+message with one complete card without sending a second message. Authentication
+and permission errors require operator action.
 
 Preview updates can disappear. The final assistant reply remains in the outbox.
 SignalsGateway records that reply only after the provider confirms it.
@@ -190,7 +193,9 @@ secret.
 
 A control-plane restart rebuilds long connections. The startup job refreshes
 stored IM groups, and a full directory sync repairs identity drift. CardKit
-checkpoints and outbox rows in PostgreSQL let provider delivery continue.
+checkpoints and outbox rows in PostgreSQL let provider delivery continue. If a
+durable reply succeeded while its preview checkpoint stayed open, startup uses
+the outbox terminal presentation to replace and close the original card.
 
 ## Tests
 

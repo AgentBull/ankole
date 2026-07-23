@@ -13,8 +13,68 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
+
+  defmodule RecoveryReplyPreview do
+    @moduledoc false
+
+    @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+
+    @recipient_key {__MODULE__, :recipient}
+
+    def put_recipient(pid), do: :persistent_term.put(@recipient_key, pid)
+    def delete_recipient, do: :persistent_term.erase(@recipient_key)
+
+    @impl true
+    def open(_request), do: {:ok, %{}}
+
+    @impl true
+    def update(_request), do: {:ok, %{}}
+
+    @impl true
+    def finalize(_request), do: {:ok, %{}}
+
+    @impl true
+    def refresh(request) do
+      send(:persistent_term.get(@recipient_key), {:recovery_refresh, request})
+      {:ok, %{}}
+    end
+  end
+
+  defmodule RecoverySignalProviderPlugin do
+    @moduledoc false
+
+    @behaviour Ankole.Plugins.Plugin
+
+    alias Ankole.PluginFixtures.MockSignalProvider.Inbound
+    alias Ankole.PluginFixtures.MockSignalProvider.Outbox
+    alias Ankole.SignalsGatewayAIReplyPreviewTest.RecoveryReplyPreview
+
+    @impl true
+    def plugin_id, do: "recovery-signal-provider"
+
+    @impl true
+    def display_name, do: %{"default" => "Recovery Signal Provider"}
+
+    @impl true
+    def adapter_declarations do
+      [
+        %{
+          contract_id: "signals_gateway.adapter",
+          id: "mock-provider",
+          plugin_id: plugin_id(),
+          display_name: display_name(),
+          ingress_module: Inbound,
+          outbox_module: Outbox,
+          reply_preview_module: RecoveryReplyPreview,
+          inbound_capabilities: ["entry_receive"],
+          outbound_capabilities: ["post_entry", "reply_entry", "outbound_reconciliation"]
+        }
+      ]
+    end
+  end
 
   setup :use_mock_signal_provider_plugin
 
@@ -527,7 +587,107 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id) == []
   end
 
-  test "stop drains an in-flight rich provider mutation before terminal outbox takes over" do
+  test "checkpoint notifications do not recover a preview that already has a live owner" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("live-owner-recover")
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok = AIReplyPreview.recover(actor_event.id)
+
+    assert [{^pid, _value}] =
+             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+  end
+
+  test "startup closes a completed event whose durable reply outlived an open preview" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    RecoveryReplyPreview.put_recipient(self())
+
+    on_exit(fn ->
+      RecoveryReplyPreview.delete_recipient()
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("terminal-recover")
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+
+    working =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.replace_answer("partial")
+      |> ReplyPresentation.checkpoint()
+
+    terminal =
+      working
+      |> ReplyPresentation.terminal("completed", "durable final answer")
+      |> ReplyPresentation.checkpoint()
+
+    checkpoint = %{
+      "subject_uid" => subject.uid,
+      "conversation_id" => conversation.id,
+      "card_id" => "card-recover",
+      "message_id" => "message-recover",
+      "streaming_state" => "open",
+      "presentation" => working,
+      "cards" => [
+        %{
+          "index" => 0,
+          "card_id" => "card-recover",
+          "message_id" => "message-recover",
+          "streaming_state" => "open"
+        }
+      ],
+      "active_card_index" => 0
+    }
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        completed_at: DateTime.utc_now(:microsecond),
+        reply_preview_checkpoint: checkpoint,
+        reply_preview_source_entry_id: "message-recover"
+      })
+      |> Repo.update!()
+
+    Repo.insert!(%OutboxEntry{
+      agent_uid: actor_event.agent_uid,
+      binding_name: actor_event.binding_name,
+      outbound_key: "terminal-recover:#{actor_event.id}",
+      delivery_class: :durable_ai_reply,
+      operation: :edit,
+      status: :succeeded,
+      signal_channel_id: actor_event.signal_channel_id,
+      target_source_entry_id: "message-recover",
+      source_actor_event_id: actor_event.id,
+      payload: %{"reply_presentation" => terminal},
+      fallback_visible_text: "durable final answer",
+      idempotency_key: "terminal-recover:#{actor_event.id}",
+      attempt_count: 1,
+      max_attempts: 10,
+      last_error: %{},
+      recovery_state: %{}
+    })
+
+    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+    assert :ok = AIReplyPreview.recover(actor_event.id)
+
+    assert_receive {:recovery_refresh, request}
+    assert request.mode == :terminal
+    assert request.presentation["state"] == "completed"
+    assert request.presentation["answer"] == "durable final answer"
+    assert request.checkpoint["refresh_reason"] == "terminal_recovery"
+  end
+
+  test "stop cancels an in-flight rich mutation before terminal outbox takes over" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-drain")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
     owner = self()
@@ -566,14 +726,11 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
-    refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
-    assert Process.alive?(task_pid)
-
-    send(task_pid, :finish_rich_update)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 500
+    refute Process.alive?(task_pid)
   end
 
-  test "terminal handoff bounds a hung rich mutation and fences a late working update" do
+  test "terminal handoff immediately fences a hung rich mutation" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-timeout")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
     owner = self()
@@ -619,7 +776,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 6_000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 500
     refute Process.alive?(task_pid)
 
     checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint

@@ -241,11 +241,11 @@ defmodule FeishuOpenAPIBusinessE2E do
   end
 
   defp update_card_message!(client, message_id, markdown) do
-    FeishuOpenAPI.put!(
+    FeishuOpenAPI.patch!(
       client,
       "im/v1/messages/:message_id",
       path_params: %{message_id: message_id},
-      body: %{msg_type: "interactive", content: Torque.encode!(build_markdown_card(markdown))}
+      body: %{content: Torque.encode!(build_markdown_card(markdown))}
     )
 
     :ok

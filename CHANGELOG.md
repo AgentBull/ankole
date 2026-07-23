@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 26.07.39 (2026-07-23)
+
+- Repair Feishu CardKit crash and deployment recovery. Startup now rebuilds an open provider checkpoint in its original message from durable semantic and terminal-outbox state, uses whole-message PATCH edits for the recovered page, and returns later rollover pages to normal incremental CardKit without inferring the provider's old element topology.
+
+- Remove the shared per-application CardKit write queue and hand terminal delivery immediately to the durable outbox, so one abandoned preview call cannot block later replies. Keep live per-turn coalescing, rebuild missing or duplicate element topologies, and close streaming in the terminal mutation.
+
+- Show each clarification option on its own button instead of the generic selection label. Align the real-provider CardKit edit probe with Feishu's PATCH contract, document the recovery lifecycle, and cover same-message recovery, completed-turn recovery, rollover, terminal handoff, and choice labels.
+
 ## Version 26.07.38 (2026-07-23)
 
 - Resume group replies after the Brain visibility migration. A retry can now end a legacy `public` group conversation and start the declared `shared` or `channel` conversation for the same IM group without carrying its stale Brain snapshot. Keep the existing `shared` to `channel` rollover and cover both transitions.

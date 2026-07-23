@@ -23,6 +23,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   use GenServer, restart: :temporary
 
+  import Ecto.Query
+
   alias Ankole.AIGateway.Events
   alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
@@ -45,7 +47,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @cardkit_flush_interval_ms 1_000
   @cardkit_creation_debounce_ms 350
   @cardkit_retry_max_ms 30_000
-  @terminal_handoff_timeout_ms 5_000
 
   @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer check_back_later.wakeup cron.fire background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
 
@@ -130,9 +131,44 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @doc false
   @spec recover(Ecto.UUID.t()) :: :ok | {:error, term()}
   def recover(actor_event_id) when is_binary(actor_event_id) do
+    case Registry.register(
+           Ankole.SignalsGateway.PreviewRegistry,
+           actor_event_id,
+           :recovery
+         ) do
+      {:ok, _owner} ->
+        result =
+          try do
+            recover_without_owner(actor_event_id)
+          after
+            Registry.unregister(Ankole.SignalsGateway.PreviewRegistry, actor_event_id)
+          end
+
+        start_recovered_preview(result)
+
+      {:error, {:already_registered, _owner}} ->
+        :ok
+    end
+  end
+
+  defp recover_without_owner(actor_event_id) do
     case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true}} = event ->
-        refresh_checkpoint(event)
+      %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true} = checkpoint} = event ->
+        if match?(%DateTime{}, event.completed_at) and provider_checkpoint_open?(checkpoint) do
+          recover_completed_preview(event)
+        else
+          with :ok <- refresh_checkpoint(event) do
+            recovered_preview_target(event.id)
+          end
+        end
+
+      %ActorEvent{completed_at: %DateTime{}, reply_preview_checkpoint: checkpoint} = event
+      when is_map(checkpoint) ->
+        if refreshable_provider_checkpoint?(event) and provider_checkpoint_open?(checkpoint) do
+          recover_completed_preview(event)
+        else
+          {:error, :reply_preview_not_recoverable}
+        end
 
       %ActorEvent{
         input_state: "open",
@@ -143,7 +179,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         }
       } = event
       when is_binary(subject_uid) and is_binary(conversation_id) ->
-        maybe_start_for(event, subject_uid, conversation_id)
+        if refreshable_provider_checkpoint?(event) do
+          with {:ok, event} <- mark_owner_recovery_refresh_pending(event.id),
+               :ok <- refresh_checkpoint(event) do
+            recovered_preview_target(event.id)
+          end
+        else
+          {:start, event, subject_uid, conversation_id}
+        end
 
       %ActorEvent{} ->
         {:error, :reply_preview_not_recoverable}
@@ -151,6 +194,155 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       nil ->
         {:error, :actor_event_not_found}
     end
+  end
+
+  defp start_recovered_preview({:start, event, subject_uid, conversation_id}),
+    do: maybe_start_for(event, subject_uid, conversation_id)
+
+  defp start_recovered_preview(result), do: result
+
+  defp recovered_preview_target(actor_event_id) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{
+        input_state: "open",
+        completed_at: nil,
+        reply_preview_checkpoint: %{
+          "subject_uid" => subject_uid,
+          "conversation_id" => conversation_id
+        }
+      } = event
+      when is_binary(subject_uid) and is_binary(conversation_id) ->
+        {:start, event, subject_uid, conversation_id}
+
+      %ActorEvent{} ->
+        :ok
+
+      nil ->
+        {:error, :actor_event_not_found}
+    end
+  end
+
+  defp refreshable_provider_checkpoint?(%ActorEvent{reply_preview_checkpoint: checkpoint} = event)
+       when is_map(checkpoint) do
+    provider_card_checkpoint?(checkpoint) and
+      match?(
+        %ReplyPreviewAdapter{refresh_fun: fun} when is_function(fun, 1),
+        rich_adapter_for_event(event)
+      )
+  end
+
+  defp provider_card_checkpoint?(%{"card_id" => card_id})
+       when is_binary(card_id) and card_id != "",
+       do: true
+
+  defp provider_card_checkpoint?(%{"cards" => cards}) when is_list(cards) do
+    Enum.any?(cards, fn
+      %{"card_id" => card_id} when is_binary(card_id) and card_id != "" -> true
+      _card -> false
+    end)
+  end
+
+  defp provider_card_checkpoint?(_checkpoint), do: false
+
+  defp provider_checkpoint_open?(checkpoint) do
+    checkpoint["streaming_state"] != "closed" or
+      Enum.any?(Map.get(checkpoint, "cards", []), fn
+        %{"streaming_state" => state} when state != "closed" -> true
+        _card -> false
+      end)
+  end
+
+  defp recover_completed_preview(event) do
+    with true <- refreshable_provider_checkpoint?(event),
+         {:ok, presentation} <- durable_terminal_presentation(event.id),
+         {:ok, event} <- mark_terminal_recovery_refresh_pending(event.id),
+         :ok <- refresh_checkpoint(event, presentation) do
+      :ok
+    else
+      false -> {:error, :reply_preview_not_recoverable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp durable_terminal_presentation(actor_event_id) do
+    presentation =
+      OutboxEntry
+      |> where([entry], entry.source_actor_event_id == ^actor_event_id)
+      |> where([entry], entry.delivery_class == :durable_ai_reply)
+      |> order_by([entry], desc: entry.updated_at)
+      |> Repo.all()
+      |> Enum.find_value(fn
+        %OutboxEntry{payload: %{"reply_presentation" => presentation}}
+        when is_map(presentation) ->
+          presentation
+
+        _outbox ->
+          nil
+      end)
+
+    case presentation do
+      presentation when is_map(presentation) ->
+        presentation = ReplyPresentation.normalize(presentation)
+
+        if ReplyPresentation.terminal_state?(presentation) do
+          {:ok, presentation}
+        else
+          {:error, :reply_preview_terminal_presentation_missing}
+        end
+
+      nil ->
+        {:error, :reply_preview_terminal_presentation_missing}
+    end
+  end
+
+  defp mark_owner_recovery_refresh_pending(actor_event_id) do
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{
+          input_state: "open",
+          completed_at: nil,
+          reply_preview_checkpoint: checkpoint
+        } = event
+        when is_map(checkpoint) ->
+          checkpoint =
+            checkpoint
+            |> Map.put("refresh_pending", true)
+            |> Map.put("refresh_reason", "owner_recovery")
+
+          Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+
+        %ActorEvent{} ->
+          {:error, :reply_preview_not_recoverable}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+  end
+
+  defp mark_terminal_recovery_refresh_pending(actor_event_id) do
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
+        %ActorEvent{completed_at: %DateTime{}, reply_preview_checkpoint: checkpoint} = event
+        when is_map(checkpoint) ->
+          if provider_checkpoint_open?(checkpoint) do
+            checkpoint =
+              checkpoint
+              |> Map.put("refresh_pending", true)
+              |> Map.put("refresh_reason", "terminal_recovery")
+
+            Actors.put_reply_preview_checkpoint_in_tx(repo, event, checkpoint)
+          else
+            {:error, :reply_preview_not_recoverable}
+          end
+
+        %ActorEvent{} ->
+          {:error, :reply_preview_not_recoverable}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
   end
 
   @doc false
@@ -212,13 +404,19 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp refresh_checkpoint(%ActorEvent{} = event) do
     checkpoint = event.reply_preview_checkpoint || %{}
 
+    presentation =
+      checkpoint["presentation"]
+      |> ReplyPresentation.normalize()
+      |> ReplyPresentation.project_trigger(event.type, event.payload)
+
+    refresh_checkpoint(event, presentation)
+  end
+
+  defp refresh_checkpoint(%ActorEvent{} = event, presentation) when is_map(presentation) do
+    checkpoint = event.reply_preview_checkpoint || %{}
+
     with {:ok, binding} <- binding_for_event(event),
          {:ok, adapter} <- Adapters.fetch_reply_preview(binding.adapter) do
-      presentation =
-        checkpoint["presentation"]
-        |> ReplyPresentation.normalize()
-        |> ReplyPresentation.project_trigger(event.type, event.payload)
-
       ReplyPreviewAdapter.refresh(adapter, %Request{
         actor_event: event,
         subject_uid: checkpoint["subject_uid"],
@@ -296,8 +494,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       rich_task_presentation: nil,
       rich_retry_ms: 1_000,
       rich_retry_at: nil,
-      stopping: false,
-      terminal_handoff_timer: nil,
       silent_success_allowed: ScheduledTurn.silent_success_allowed?(event),
       # Worker phase and tool events arrive before a quiet scheduled turn can
       # choose `<silent_success/>`. Do not let those events open a visible card.
@@ -310,10 +506,16 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def handle_cast(:stop, state) do
+    shutdown_rich_task_now(state.rich_task)
+
     state
-    |> ensure_terminal_handoff_timer()
-    |> Map.merge(%{stopping: true, rich_retry_at: nil})
-    |> settle_rich_stop()
+    |> Map.merge(%{
+      rich_task: nil,
+      rich_task_presentation: nil,
+      rich_retry_at: nil,
+      dirty: false
+    })
+    |> finish_rich_stop()
   end
 
   def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
@@ -358,17 +560,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @impl GenServer
-  def handle_info(:flush_edit, %{stopping: true} = state) do
-    case settle_rich_stop(state) do
-      {:noreply, _state} = result ->
-        Process.send_after(self(), :flush_edit, @cardkit_flush_interval_ms)
-        result
-
-      {:stop, _reason, _state} = result ->
-        result
-    end
-  end
-
   def handle_info(:flush_edit, state) do
     if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
       state = maybe_start_rich_sync(state)
@@ -382,45 +573,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
     Process.demonitor(ref, [:flush])
     state = finish_rich_sync(state, result)
-
-    if state.stopping do
-      settle_after_terminal_sync(state, result)
-    else
-      {:noreply, state}
-    end
+    {:noreply, state}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
     result = {:error, {:reply_preview_task_exit, reason}}
     state = finish_rich_sync(state, result)
-
-    if state.stopping do
-      settle_after_terminal_sync(state, result)
-    else
-      {:noreply, state}
-    end
+    {:noreply, state}
   end
-
-  def handle_info(:terminal_handoff_timeout, %{stopping: true} = state) do
-    Logging.warning(
-      "signals_gateway.ai_reply_preview.terminal_handoff_timeout",
-      "AI reply preview exceeded the terminal handoff deadline",
-      preview_fields(state, %{})
-    )
-
-    shutdown_rich_task_now(state.rich_task)
-
-    state
-    |> Map.merge(%{
-      rich_task: nil,
-      rich_task_presentation: nil,
-      dirty: false,
-      terminal_handoff_timer: nil
-    })
-    |> finish_rich_stop()
-  end
-
-  def handle_info(:terminal_handoff_timeout, state), do: {:noreply, state}
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -564,7 +724,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def terminate(_reason, state) do
-    shutdown_rich_task(state.rich_task)
+    shutdown_rich_task_now(state.rich_task)
     _ = Events.unsubscribe(state.subject_uid, state.conversation_id)
     :ok
   end
@@ -697,7 +857,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp rich_retryable?({:reply_delivery, :operator_action_required, _error}), do: false
   defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
-  defp rich_retryable?(:cardkit_replacement_exhausted), do: false
   defp rich_retryable?(_reason), do: true
 
   defp rich_retry_due?(nil), do: true
@@ -758,37 +917,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp checkpoint_latest_rich_presentation(_state), do: :ok
 
-  # A normal Actor lifecycle stop is also the ownership handoff from the
-  # transient preview to the durable terminal outbox. Give one in-flight
-  # mutation a bounded chance to settle. On failure or timeout, checkpoint the
-  # latest semantic projection and let the durable terminal mutation supersede
-  # it with a higher CardKit sequence; retrying transient work indefinitely here
-  # would leave an accepted message stuck on a working card forever.
-  defp settle_rich_stop(
-         %{
-           reply_preview_adapter: %ReplyPreviewAdapter{},
-           silent_rich_pending: false,
-           preview_disabled: false
-         } = state
-       ) do
-    state = maybe_start_rich_sync(state)
-
-    case {state.rich_task, state.dirty} do
-      {%Task{}, _dirty} -> {:noreply, state}
-      {nil, true} -> {:noreply, state}
-      {nil, false} -> finish_rich_stop(state)
-    end
-  end
-
-  defp settle_rich_stop(state), do: finish_rich_stop(state)
-
-  defp settle_after_terminal_sync(state, {:ok, result}) when is_map(result),
-    do: settle_rich_stop(state)
-
-  defp settle_after_terminal_sync(state, _failed_result), do: finish_rich_stop(state)
-
   defp finish_rich_stop(state) do
-    cancel_terminal_handoff_timer(state.terminal_handoff_timer)
     checkpoint_latest_rich_presentation(state)
 
     {:stop, :normal,
@@ -796,31 +925,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
        state
        | rich_task: nil,
          rich_task_presentation: nil,
-         dirty: false,
-         terminal_handoff_timer: nil
+         dirty: false
      }}
   end
-
-  defp ensure_terminal_handoff_timer(%{terminal_handoff_timer: nil} = state) do
-    timer = Process.send_after(self(), :terminal_handoff_timeout, @terminal_handoff_timeout_ms)
-    %{state | terminal_handoff_timer: timer}
-  end
-
-  defp ensure_terminal_handoff_timer(state), do: state
-
-  defp cancel_terminal_handoff_timer(nil), do: :ok
-
-  defp cancel_terminal_handoff_timer(timer) do
-    Process.cancel_timer(timer, async: true, info: false)
-    :ok
-  end
-
-  defp shutdown_rich_task(%Task{} = task) do
-    _ = Task.shutdown(task, 5_000)
-    :ok
-  end
-
-  defp shutdown_rich_task(_task), do: :ok
 
   defp shutdown_rich_task_now(%Task{} = task) do
     _ = Task.shutdown(task, :brutal_kill)

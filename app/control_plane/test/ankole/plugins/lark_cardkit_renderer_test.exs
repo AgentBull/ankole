@@ -450,70 +450,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert get_in(activity_addition, ["params", "target_element_id"]) == "separator"
   end
 
-  test "adds interactive elements absent from the acknowledged provider card" do
-    source_event_id = Ecto.UUID.generate()
-
-    pending =
-      ReplyPresentation.new()
-      |> ReplyPresentation.append_answer("请选择路径")
-      |> ReplyPresentation.apply_event("interaction.request", %{
-        "revision" => 1,
-        "prompt" => "请选择路径",
-        "controls" => [
-          %{
-            "id" => "path-a",
-            "type" => "button",
-            "label" => "路径 A",
-            "interaction_id" => "clarify:missing-actions",
-            "source_actor_event_id" => source_event_id,
-            "control_id" => "path",
-            "selected_option_id" => "path-a",
-            "option_value" => "A",
-            "revision" => 1
-          },
-          %{
-            "id" => "path-other",
-            "type" => "form",
-            "label" => "其他",
-            "interaction_id" => "clarify:missing-actions",
-            "source_actor_event_id" => source_event_id,
-            "control_id" => "path-other",
-            "revision" => 1,
-            "fields" => [
-              %{
-                "id" => "path-other-answer",
-                "type" => "input",
-                "label" => "其他路径",
-                "required" => true
-              }
-            ]
-          }
-        ]
-      })
-
-    superseded = ReplyPresentation.resolve_interaction(pending, "superseded")
-
-    assert {:ok, actions} =
-             Renderer.batch_actions(pending, superseded,
-               mode: :terminal,
-               previous_element_ids: ["state", "answer"]
-             )
-
-    refute Enum.any?(actions, fn action ->
-             action["action"] == "update_element" and
-               get_in(action, ["params", "element_id"]) == "actions"
-           end)
-
-    assert Enum.any?(actions, fn action ->
-             action["action"] == "add_elements" and
-               Enum.any?(get_in(action, ["params", "elements"]), fn element ->
-                 element["element_id"] == "actions"
-               end)
-           end)
-
-    refute Enum.any?(actions, &(&1["action"] == "delete_elements"))
-  end
-
   test "late metadata additions keep the renderer's semantic order" do
     previous =
       ReplyPresentation.new()
@@ -616,7 +552,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert button["width"] == "fill"
     assert button_names == ["operators", "executives", "long-option"]
     assert length(button_names) == length(Enum.uniq(button_names))
-    assert button["text"]["i18n_content"]["zh_cn"] == "已选择"
+    assert button["text"]["i18n_content"]["zh_cn"] == "运营人员（已选择）"
+
+    assert Enum.map(buttons, & &1["text"]["content"]) == [
+             "运营人员 (selected)",
+             "管理层",
+             String.slice(long_label, 0, 39) <> "…"
+           ]
 
     assert Enum.any?(option_elements, fn
              %{"tag" => "div", "text" => %{"content" => "运营人员"}} -> true

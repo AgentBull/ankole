@@ -4,12 +4,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitErrorTest do
   alias Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy
   alias FeishuOpenAPI.Error
 
-  test "classifies provider failures into retry, reopen, replace, fallback, and blocked actions" do
+  test "classifies provider failures into retry, reopen, rebuild, fallback, and blocked actions" do
     assert ErrorPolicy.action(%Error{code: 300_120, msg: "internal"}) == :retry
     assert ErrorPolicy.action(%Error{code: 200_850, msg: "stream timeout"}) == :reopen_stream
     assert ErrorPolicy.action(%Error{code: 300_309, msg: "stream closed"}) == :reopen_stream
-    assert ErrorPolicy.action(%Error{code: 200_740, msg: "missing"}) == :replace_card
-    assert ErrorPolicy.action(%Error{code: 200_750, msg: "expired"}) == :replace_card
+    assert ErrorPolicy.action(%Error{code: 200_740, msg: "missing"}) == :rebuild_card
+    assert ErrorPolicy.action(%Error{code: 200_750, msg: "expired"}) == :rebuild_card
+    assert ErrorPolicy.action(%Error{code: 300_121, msg: "element missing"}) == :rebuild_card
+    assert ErrorPolicy.action(%Error{code: 300_301, msg: "duplicate element"}) == :rebuild_card
     assert ErrorPolicy.action(%Error{code: 200_860, msg: "too large"}) == :plain_text_fallback
 
     assert ErrorPolicy.action(%Error{code: 230_072, msg: "edit limit reached"}) ==

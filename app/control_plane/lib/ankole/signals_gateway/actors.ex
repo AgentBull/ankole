@@ -304,7 +304,8 @@ defmodule Ankole.SignalsGateway.Actors do
     |> where([event], not is_nil(event.reply_preview_checkpoint))
     |> where(
       [event],
-      (event.input_state == "open" and is_nil(event.completed_at) and
+      (((event.input_state == "open" and is_nil(event.completed_at)) or
+          not is_nil(event.completed_at)) and
          fragment(
            "COALESCE(?->>'streaming_state', 'open') NOT IN ('closed', 'replaced')",
            event.reply_preview_checkpoint
