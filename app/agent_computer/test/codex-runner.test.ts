@@ -13,7 +13,6 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runCodexJob } from '../src/core/codex-runner'
-import { maxConsecutiveModelCallsWithoutProgress } from '../src/core/codex-runner/no-progress-guard'
 import { create } from '@bufbuild/protobuf'
 import { xxh3String128Hex } from '@ankole/kernel'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
@@ -55,7 +54,7 @@ type FakeCodexBehavior = {
   turnError?: string | Record<string, unknown>
   artifactPath?: string
   diffPathCount?: number
-  noProgressModelCalls?: number
+  usageBurstThreadID?: string
   initializeDelayMs?: number
   dynamicToolCall?: boolean
   discoveredSkills?: string[]
@@ -199,9 +198,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
-  it('fails a Codex turn after bounded completed model calls produce no observable progress', async () => {
-    const fixture = prepareFixture('unused', {
-      noProgressModelCalls: maxConsecutiveModelCallsWithoutProgress
+  it('keeps the lead turn alive through cumulative usage updates from a child thread', async () => {
+    const fixture = prepareFixture('completed after child usage updates', {
+      usageBurstThreadID: 'child-thread'
     })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
@@ -210,14 +209,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
       const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, turnUpserts))
 
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
-      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'failed'])
-      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)).toMatchObject({
-        code: 'codex_no_progress',
-        consecutive_model_calls: maxConsecutiveModelCallsWithoutProgress,
-        runtime_thread_id: 'thread-1'
-      })
-      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)?.summary).toContain('without an observable item')
-      expect(turnUpserts.some(update => parsedJSON(update.errorJson)?.code === 'codex_no_progress')).toBe(true)
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('completed after child usage updates')
+      expect(turnUpserts.every(update => parsedJSON(update.errorJson)?.code !== 'codex_no_progress')).toBe(true)
     } finally {
       fixture.cleanup()
     }
@@ -880,7 +874,7 @@ const resumeError = ${JSON.stringify(behavior.resumeError)}
 const turnError = ${JSON.stringify(behavior.turnError)}
 const artifactPath = ${JSON.stringify(behavior.artifactPath)}
 const diffPathCount = ${JSON.stringify(behavior.diffPathCount)}
-const noProgressModelCalls = ${JSON.stringify(behavior.noProgressModelCalls)}
+const usageBurstThreadID = ${JSON.stringify(behavior.usageBurstThreadID)}
 const initializeDelayMs = ${JSON.stringify(behavior.initializeDelayMs)}
 const dynamicToolCall = ${JSON.stringify(behavior.dynamicToolCall)}
 const discoveredSkills = ${JSON.stringify(behavior.discoveredSkills ?? [])}
@@ -946,36 +940,33 @@ function handle(message) {
     }
     if (successfulSteer || steerCompletionRace) return
     if (interruptCompletionRace) return
-    if (noProgressModelCalls) {
-      for (let index = 1; index <= noProgressModelCalls; index += 1) {
-        setTimeout(() => {
-          const totalTokens = index * 100
-          write({
-            method: 'thread/tokenUsage/updated',
-            params: {
-              threadId: 'thread-1',
-              tokenUsage: {
-                total: {
-                  totalTokens,
-                  inputTokens: totalTokens - 10,
-                  cachedInputTokens: 0,
-                  outputTokens: 10,
-                  reasoningOutputTokens: 0
-                },
-                last: {
-                  totalTokens: 100,
-                  inputTokens: 90,
-                  cachedInputTokens: 0,
-                  outputTokens: 10,
-                  reasoningOutputTokens: 0
-                },
-                modelContextWindow: 1000
-              }
+    if (usageBurstThreadID) {
+      for (let index = 1; index <= 8; index += 1) {
+        const totalTokens = index * 100
+        write({
+          method: 'thread/tokenUsage/updated',
+          params: {
+            threadId: usageBurstThreadID,
+            tokenUsage: {
+              total: {
+                totalTokens,
+                inputTokens: totalTokens - 10,
+                cachedInputTokens: 0,
+                outputTokens: 10,
+                reasoningOutputTokens: 0
+              },
+              last: {
+                totalTokens: 100,
+                inputTokens: 90,
+                cachedInputTokens: 0,
+                outputTokens: 10,
+                reasoningOutputTokens: 0
+              },
+              modelContextWindow: 1000
             }
-          })
-        }, index * 2)
+          }
+        })
       }
-      return
     }
     const text = turnCount === 1 ? firstResponse : 'final response after retry'
     setTimeout(() => {

@@ -315,18 +315,6 @@ If Codex cannot resume its thread, one attempt can create one replacement
 thread. The replacement reads the Job files and receives a short history of
 earlier attempts.
 
-Five completed model calls without useful progress fail the Job with
-`codex_no_progress`.
-
-These events count as progress:
-
-- an item starts or completes
-- the plan changes
-- the diff changes
-- Codex requests a tool
-
-A long-running tool does not increase the model-call count while it runs.
-
 ## Create and Dispatch a Job Once
 
 Start uses this idempotency key:

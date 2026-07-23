@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 26.07.40 (2026-07-23)
+
+- Remove the CodexRunner `codex_no_progress` termination policy. Cumulative usage notifications do not prove completed model calls or a dead thread, and a child-thread count must not fail the lead BackgroundAgentJob. Keep historical error records readable, let existing explicit terminal, protocol, worker-loss, and operator controls own termination, and cover a lead Turn that completes after repeated child usage updates.
+
 ## Version 26.07.39 (2026-07-23)
 
 - Repair Feishu CardKit crash and deployment recovery. Startup now rebuilds an open provider checkpoint in its original message from durable semantic and terminal-outbox state, uses whole-message PATCH edits for the recovered page, and returns later rollover pages to normal incremental CardKit without inferring the provider's old element topology.
