@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 26.07.41 (2026-07-24)
+
+- Remove the Agent Home path policy from the generic Computer file tools. `read_file`, `replace`, and `patch` now perform byte-preserving reads and writes inside the existing Bubblewrap filesystem view, so its current read-only and read-write mounts are the only filesystem access policy. Remove the duplicate command working-directory boundary check while keeping Bubblewrap's current rule unchanged.
+
+- Keep domain-owned path contracts for reply attachments, Skill resources, retained learning sources, Job artifact handoff, and worker file transfer. Cover direct Skill reads, Worker-share edits, read-only system paths, relative paths, and Codex BackgroundAgentJob access to the built-in Skill mount; document that Computer tools do not add a second path policy.
+
 ## Version 26.07.40 (2026-07-23)
 
 - Remove the CodexRunner `codex_no_progress` termination policy. Cumulative usage notifications do not prove completed model calls or a dead thread, and a child-thread count must not fail the lead BackgroundAgentJob. Keep historical error records readable, let existing explicit terminal, protocol, worker-loss, and operator controls own termination, and cover a lead Turn that completes after repeated child usage updates.

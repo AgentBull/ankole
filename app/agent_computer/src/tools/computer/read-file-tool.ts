@@ -5,7 +5,7 @@ import type { ComputerToolContext } from './context'
 import { MAX_READ_CHARS, looksBinary, numberLines } from './format'
 
 const ReadFileParams = z.object({
-  path: z.string().min(1).describe('Text file to read (real absolute Agent Home path, relative, or ~/path).'),
+  path: z.string().min(1).describe('Text file to read (absolute, relative, or ~/path).'),
   offset: z.number().int().min(1).optional().describe('1-indexed start line (default 1).'),
   limit: z.number().int().min(1).max(2000).optional().describe('Maximum lines to return (default 500, max 2000).'),
   cwd: z.string().optional().describe('Base directory for a relative path (default current workspace).'),

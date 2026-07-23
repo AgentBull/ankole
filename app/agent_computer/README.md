@@ -49,10 +49,11 @@ The durable shared writable runtime mount is `/agents`:
 
 The model-visible absolute path is the container path. The Worker does not
 translate paths or create alias mounts. Relative paths resolve from the current
-Session Workspace or Job Workspace; absolute paths must remain inside the
-current Agent Home. Bubblewrap binds that Agent Home at the same absolute path.
-Same-Agent Sessions and Jobs can therefore see one another's files; this is an
-accepted best-effort isolation model, not a hostile multi-tenant sandbox.
+Session Workspace or Job Workspace. Computer tools use the current Bubblewrap
+filesystem view without a second path policy. The view mounts the current Agent
+Home read-write and the built-in and internal Skill roots read-only. Same-Agent
+Sessions and Jobs can therefore see one another's files; this is an accepted
+best-effort isolation model, not a hostile multi-tenant sandbox.
 
 Every sandbox can also read and write `/var/share`. This directory is local to
 one Worker and can be lost when the Worker stops. Use it only for disposable

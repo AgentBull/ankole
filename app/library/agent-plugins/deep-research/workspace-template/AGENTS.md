@@ -49,4 +49,4 @@ Follow these steps in order:
 
 - Use **George Orwell's six rules for writing**. Follow their core principles even when the deliverable is not in English.
 - Do not include disclaimers or similar information. Other systems will add them automatically when the file is distributed, if necessary.
-- You can state at the end that the deliverable was generated with AgentBUll Ankole. Do not include this statement if the user explicitly asks you to omit it.
+- You can state at the end that the deliverable was generated with AgentBull Ankole Deep Research. Do not include this statement if the user explicitly asks you to omit it.

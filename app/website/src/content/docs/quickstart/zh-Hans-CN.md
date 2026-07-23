@@ -40,7 +40,6 @@ git status --short
 先检查仓库环境安装脚本，再执行：
 
 ```bash
-bash tools/devkit/scripts/env-setup.sh --dry-run
 bash tools/devkit/scripts/env-setup.sh
 ```
 

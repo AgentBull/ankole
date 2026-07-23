@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { BUILTIN_SKILLS_ROOT, WORKER_SHARE_ROOT } from '../src/core/agent-home-paths'
 import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   createContainerComputer,
@@ -380,73 +380,61 @@ describe('computer tools', () => {
     expect(computer.files.get('demo.txt')?.toString('utf-8')).toBe('old\nmiddle\nnew\n')
   })
 
-  it('rejects patch writes that escape the real workspace filesystem boundary', async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'ankole-patch-boundary-'))
-    const agentHome = join(tempRoot, 'agent-1')
+  it('lets the current bubblewrap view decide which absolute paths file tools can use', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-computer-paths-')
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
-    const outsidePath = join(tempRoot, 'outside.txt')
+    const sharePath = join(WORKER_SHARE_ROOT, `ankole-computer-paths-${process.pid}`)
     mkdirSync(workspaceRoot, { recursive: true })
-    writeFileSync(outsidePath, 'secret\n')
+    writeFileSync(sharePath, 'before\n')
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      const tool = createReplaceTool({
-        executionScopeID: 'scope-patch-boundary',
+      const context = {
+        executionScopeID: 'scope-bubblewrap-paths',
         agentHome,
         workspaceRoot,
         userFilesRoot: join(agentHome, 'user-files'),
         getComputer: async () => computer
+      }
+      const tool = createReplaceTool(context)
+      const readTool = createReadFileTool(context)
+
+      await tool.execute('call-1', {
+        path: sharePath,
+        old_string: 'before',
+        new_string: 'after'
       })
 
+      expect(readFileSync(sharePath, 'utf8')).toBe('after\n')
+      const builtinSkill = await readTool.execute('call-2', {
+        path: join(BUILTIN_SKILLS_ROOT, 'skills', 'nano-pdf', 'SKILL.md'),
+        limit: 20
+      })
+      expect(textOf(builtinSkill)).toContain('name: nano-pdf')
       await expect(
-        tool.execute('call-1', {
-          path: outsidePath,
-          old_string: 'secret',
-          new_string: 'leaked'
-        })
-      ).rejects.toThrow('path escapes Agent Home')
-
-      await expect(
-        tool.execute('call-2', {
-          path: '../../../created-outside.txt',
-          old_string: '',
-          new_string: 'created outside\n'
-        })
-      ).rejects.toThrow('path escapes Agent Home')
-
-      expect(readFileSync(outsidePath, 'utf-8')).toBe('secret\n')
-      expect(existsSync(join(tempRoot, 'created-outside.txt'))).toBe(false)
+        computer.fs.writeFiles([{ path: '/usr/ankole-file-tool-write-probe', content: 'blocked' }])
+      ).rejects.toThrow('write file failed')
     } finally {
-      rmSync(tempRoot, { recursive: true, force: true })
+      rmSync(sharePath, { force: true })
+      rmSync(agentHome, { recursive: true, force: true })
     }
   })
 
-  it('reads direct user-files paths but rejects symbolic-link escapes from Agent Home', async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), 'ankole-computer-symlink-boundary-'))
-    const agentHome = join(tempRoot, 'agent-1')
+  it('keeps relative and home-relative file tool paths', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-computer-relative-paths-')
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     const userFilesRoot = join(agentHome, 'user-files')
-    const outsidePath = join(tempRoot, 'outside.txt')
     mkdirSync(workspaceRoot, { recursive: true })
     mkdirSync(userFilesRoot, { recursive: true })
+    writeFileSync(join(workspaceRoot, 'workspace.txt'), 'workspace')
     writeFileSync(join(userFilesRoot, 'allowed.txt'), 'allowed')
-    writeFileSync(outsidePath, 'secret')
-    symlinkSync(outsidePath, join(workspaceRoot, 'escaped.txt'))
 
     try {
       const computer = createContainerComputer(agentHome, workspaceRoot)
-      expect(await computer.readFileToBuffer({ path: join(userFilesRoot, 'allowed.txt') })).toEqual(
-        Buffer.from('allowed')
-      )
-      await expect(computer.readFileToBuffer({ path: join(workspaceRoot, 'escaped.txt') })).rejects.toThrow(
-        'path resolves outside workspace roots'
-      )
-      await expect(
-        computer.fs.writeFiles([{ path: join(workspaceRoot, 'escaped.txt'), content: 'changed' }])
-      ).rejects.toThrow('path resolves outside workspace roots')
-      expect(readFileSync(outsidePath, 'utf8')).toBe('secret')
+      expect(await computer.readFileToBuffer({ path: 'workspace.txt' })).toEqual(Buffer.from('workspace'))
+      expect(await computer.readFileToBuffer({ path: '~/user-files/allowed.txt' })).toEqual(Buffer.from('allowed'))
     } finally {
-      rmSync(tempRoot, { recursive: true, force: true })
+      rmSync(agentHome, { recursive: true, force: true })
     }
   })
 })

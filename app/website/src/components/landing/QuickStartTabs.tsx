@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 const SOURCE_COMMANDS = `git clone https://github.com/AgentBull/ankole.git
 cd ankole
-bash tools/devkit/scripts/env-setup.sh --dry-run
 bash tools/devkit/scripts/env-setup.sh
 # Open a new terminal, then return to the repository root.
 bun install

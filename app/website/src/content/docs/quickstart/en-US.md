@@ -43,7 +43,6 @@ otherwise.
 Inspect the repository installer, then run it:
 
 ```bash
-bash tools/devkit/scripts/env-setup.sh --dry-run
 bash tools/devkit/scripts/env-setup.sh
 ```
 
