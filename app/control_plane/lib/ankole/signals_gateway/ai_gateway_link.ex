@@ -630,6 +630,65 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc false
+  @spec retract_generating_turn_in_tx(
+          module(),
+          actor_key(),
+          String.t() | nil,
+          DateTime.t(),
+          String.t()
+        ) :: {:ok, Message.t() | nil} | {:error, term()}
+  def retract_generating_turn_in_tx(repo, actor_key, actor_event_id, now, reason)
+      when is_binary(reason) do
+    responses = generating_responses_for_actor_event_in_tx(repo, actor_key, actor_event_id)
+
+    responses
+    |> Enum.reduce_while({:ok, []}, fn response, {:ok, retracted} ->
+      case AIGateway.retract_generating_response_in_tx(
+             repo,
+             actor_key.agent_uid,
+             response_id(response),
+             reason,
+             now
+           ) do
+        {:ok, %Message{} = response} -> {:cont, {:ok, [response | retracted]}}
+        {:ok, :already_terminal} -> {:cont, {:ok, retracted}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, retracted} -> {:ok, List.last(retracted)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  @spec turn_replay_safe_in_tx(module(), actor_key(), String.t()) :: boolean()
+  def turn_replay_safe_in_tx(repo, actor_key, actor_event_id)
+      when is_binary(actor_event_id) do
+    case active_conversation_for_update(repo, actor_key.agent_uid, actor_key.session_id) do
+      %Conversation{} = conversation ->
+        case AIGateway.list_conversation_responses_in_tx(
+               repo,
+               actor_key.agent_uid,
+               conversation.id,
+               statuses: ["generating", "complete"],
+               lock: true
+             ) do
+          {:ok, responses} ->
+            responses
+            |> Enum.filter(&(actor_event_id in response_actor_event_ids(&1)))
+            |> Enum.all?(&response_replay_safe?/1)
+
+          {:error, _reason} ->
+            false
+        end
+
+      nil ->
+        true
+    end
+  end
+
+  @doc false
   @spec fail_generating_turn_in_tx(
           module(),
           actor_key(),
@@ -951,6 +1010,16 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
       {:error, _reason} = error -> error
     end
   end
+
+  defp response_replay_safe?(%Message{content: content}) when is_list(content) do
+    Enum.all?(content, fn
+      %{"type" => type} when type in ["message", "reasoning"] -> true
+      %{type: type} when type in ["message", "reasoning"] -> true
+      _item -> false
+    end)
+  end
+
+  defp response_replay_safe?(%Message{}), do: false
 
   defp runtime_error(reason, stage) do
     %{

@@ -29,7 +29,9 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
           required(:model) => String.t(),
           required(:endpoint) => map(),
           required(:provider_tag) => String.t(),
+          required(:provider_tags) => [String.t()],
           required(:provider_slug) => String.t(),
+          required(:provider_slugs) => [String.t()],
           required(:supports_streaming) => boolean()
         }
 
@@ -44,15 +46,24 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
          {:ok, models} <- cached_models(runtime, source, opts),
          {:ok, _model_record} <- exact_model(models, model, opts),
          {:ok, endpoints} <- cached_endpoints(runtime, source, model, opts),
-         {:ok, endpoint} <- satisfying_endpoint(endpoints, tool, reference_count, opts),
-         {:ok, provider_tag} <- provider_tag(endpoint, opts),
-         {:ok, provider_slug} <- provider_slug(endpoint, opts) do
+         {:ok, matching_endpoints} <-
+           satisfying_endpoints(endpoints, tool, reference_count, opts) do
+      endpoint = hd(matching_endpoints)
+
+      provider_tags =
+        matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_tag")) |> Enum.uniq()
+
+      provider_slugs =
+        matching_endpoints |> Enum.map(&Map.fetch!(&1, "provider_slug")) |> Enum.uniq()
+
       {:ok,
        %{
          model: model,
          endpoint: endpoint,
-         provider_tag: provider_tag,
-         provider_slug: provider_slug,
+         provider_tag: hd(provider_tags),
+         provider_tags: provider_tags,
+         provider_slug: hd(provider_slugs),
+         provider_slugs: provider_slugs,
          supports_streaming: Map.get(endpoint, "supports_streaming") == true
        }}
     end
@@ -237,24 +248,25 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
     end
   end
 
-  defp satisfying_endpoint(endpoints, tool, reference_count, opts) do
+  defp satisfying_endpoints(endpoints, tool, reference_count, opts) do
     outer_stream? = Keyword.get(opts, :stream?, false)
     partial_images = Map.get(tool, "partial_images", 0)
 
-    endpoints
-    |> Enum.find(fn endpoint ->
-      endpoint_satisfies?(endpoint, tool, reference_count, outer_stream?, partial_images)
-    end)
-    |> case do
-      %{} = endpoint -> {:ok, endpoint}
-      nil -> endpoint_error(endpoints, tool, reference_count, outer_stream?, partial_images, opts)
+    matching_endpoints =
+      Enum.filter(endpoints, fn endpoint ->
+        endpoint_satisfies?(endpoint, tool, reference_count, outer_stream?, partial_images)
+      end)
+
+    case matching_endpoints do
+      [] -> endpoint_error(endpoints, tool, reference_count, outer_stream?, partial_images, opts)
+      [_endpoint | _rest] -> {:ok, matching_endpoints}
     end
   end
 
   defp endpoint_satisfies?(endpoint, tool, reference_count, outer_stream?, partial_images) do
     supported = Map.get(endpoint, "supported_parameters", %{})
 
-    provider_tag_present?(endpoint) and
+    provider_tag_present?(endpoint) and provider_slug_present?(endpoint) and
       requested_fields_supported?(supported, tool) and
       references_supported?(supported, reference_count) and
       moderation_supported?(endpoint, tool) and
@@ -357,22 +369,11 @@ defmodule Ankole.AIGateway.ImageModelCatalog do
     end
   end
 
-  defp provider_tag(endpoint, opts) do
-    case Map.get(endpoint, "provider_tag") do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> catalog_unavailable(opts)
-    end
-  end
-
-  defp provider_slug(endpoint, opts) do
-    case Map.get(endpoint, "provider_slug") do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> catalog_unavailable(opts)
-    end
-  end
-
   defp provider_tag_present?(endpoint),
     do: is_binary(Map.get(endpoint, "provider_tag")) and Map.get(endpoint, "provider_tag") != ""
+
+  defp provider_slug_present?(endpoint),
+    do: is_binary(Map.get(endpoint, "provider_slug")) and Map.get(endpoint, "provider_slug") != ""
 
   defp endpoint_path(model) do
     [author, slug] = String.split(model, "/", parts: 2)

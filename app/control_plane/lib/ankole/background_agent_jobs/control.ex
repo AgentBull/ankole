@@ -12,6 +12,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Turns
 
   @terminal_statuses Job.terminal_statuses()
 
@@ -98,9 +99,20 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         })
       )
 
-    job
-    |> Job.changeset(%{status: "stopped", completed_at: now, metadata: metadata})
-    |> repo.update()
+    with :ok <-
+           Turns.interrupt_active_for_current_attempt_in_tx(
+             repo,
+             job,
+             %{
+               "code" => "background_agent_job_stopped",
+               "summary" => "The Job stopped before this runtime Turn reported completion."
+             },
+             now
+           ) do
+      job
+      |> Job.changeset(%{status: "stopped", completed_at: now, metadata: metadata})
+      |> repo.update()
+    end
   end
 
   defp complete_pending_job_events(repo, job, now) do

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+  {{- with .Values.controlPlane.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.controlPlane.service.port }}
+      targetPort: http
+      protocol: TCP
+    - name: fabric
+      port: {{ .Values.runtimeFabric.port }}
+      targetPort: fabric
+      protocol: TCP
+  selector:
+    {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+{{- if .Values.postgresql.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ankole-agent.postgresqlName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "postgresql") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresql.port }}
+      targetPort: postgresql
+      protocol: TCP
+  selector:
+    {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "postgresql") | nindent 4 }}
+{{- end }}

@@ -1,7 +1,17 @@
 import { create, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { runtimeFabricValidateEnvelope, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -434,6 +444,26 @@ describe('@ankole/agent-computer runtime', () => {
       expect(readU64Frame(readDone[3])).toBe(getChunks.length)
       expect(readU64Frame(readDone[4])).toBe(Buffer.concat(getChunks).byteLength)
 
+      const missingTransferID = 'transfer-read-missing'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(missingTransferID),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/missing.txt'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, missingTransferID, 'ERROR')[3]?.toString('utf8')).toBe('file_not_found')
+
+      const directoryTransferID = 'transfer-read-directory'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(directoryTransferID),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, directoryTransferID, 'ERROR')[3]?.toString('utf8')).toBe('not_regular_file')
+
       const abortTransferID = 'transfer-read-abort'
       await lane.handle([
         runtimeFabricFileProtocol,
@@ -448,6 +478,41 @@ describe('@ankole/agent-computer runtime', () => {
       await lane.handle([runtimeFabricFileProtocol, Buffer.from('READ_ABORT'), Buffer.from(abortTransferID)])
       await lane.handle([runtimeFabricFileProtocol, Buffer.from('CREDIT'), Buffer.from(abortTransferID), u64Frame(1)])
       expect(frameFor(sentFrames, abortTransferID, 'ERROR')[3]?.toString('utf8')).toBe('operation_failed')
+
+      const replacedPath = join(paths.userFiles, 'inbox/lark/message-1/replaced.txt')
+      const replacementPath = join(paths.userFiles, 'inbox/lark/message-1/replacement.txt')
+      writeFileSync(replacedPath, 'original bytes')
+
+      const replacedTransferID = 'transfer-read-replaced'
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(replacedTransferID),
+        Buffer.from('/user_files/agent-1/user-files/inbox/lark/message-1/replaced.txt'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, replacedTransferID, 'READ_READY')[3]?.toString('utf8')).toBe(
+        '/user_files/agent-1/user-files/inbox/lark/message-1/replaced.txt'
+      )
+
+      writeFileSync(replacementPath, 'replacement bytes have a different size')
+      renameSync(replacementPath, replacedPath)
+
+      await lane.handle([
+        runtimeFabricFileProtocol,
+        Buffer.from('CREDIT'),
+        Buffer.from(replacedTransferID),
+        u64Frame(creditWindow)
+      ])
+
+      const replacedError = await waitForFrame(sentFrames, replacedTransferID, 'ERROR')
+      expect(replacedError[3]?.toString('utf8')).toBe('file_changed')
+      expect(replacedError[4]?.toString('utf8')).toContain('file changed during read')
+      expect(
+        sentFrames.some(
+          frames => frames[1]?.toString('utf8') === 'READ_DONE' && frames[2]?.toString('utf8') === replacedTransferID
+        )
+      ).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
     } finally {

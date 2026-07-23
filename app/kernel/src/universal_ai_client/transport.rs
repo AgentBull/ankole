@@ -9,6 +9,7 @@ use reqwest::Url as URL;
 use reqwest::header::HeaderMap;
 use tokio::net::TcpStream as TCPStream;
 use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::Error as WebSocketError;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::http::header::HeaderName;
@@ -337,15 +338,29 @@ pub async fn open_websocket(spec: &StreamSpec) -> Result<(UpstreamWebSocket, u16
             "upstream WebSocket timeout",
         )
     })?
-    .map_err(|reason| {
-        StreamError::new(
+    .map_err(websocket_connect_error)?;
+
+    Ok((websocket, response.status().as_u16()))
+}
+
+fn websocket_connect_error(reason: WebSocketError) -> StreamError {
+    match reason {
+        WebSocketError::Http(response) => {
+            let status = response.status().as_u16();
+
+            StreamError::new(
+                "websocket_status_rejected",
+                "connect",
+                format!("upstream WebSocket returned status {status}"),
+            )
+            .provider_status(status)
+        }
+        reason => StreamError::new(
             "websocket_connect_failed",
             "connect",
             format!("upstream WebSocket connection failed: {reason}"),
-        )
-    })?;
-
-    Ok((websocket, response.status().as_u16()))
+        ),
+    }
 }
 
 fn build_client(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Client, StreamError> {
@@ -633,6 +648,22 @@ fn parse_same_authority_h3_alt_svc(value: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn websocket_http_rejection_keeps_provider_status_without_body() {
+        let response = tokio_tungstenite::tungstenite::http::Response::builder()
+            .status(429)
+            .body(Some(b"provider secret".to_vec()))
+            .expect("HTTP response should build");
+
+        let error = websocket_connect_error(WebSocketError::Http(Box::new(response)));
+
+        assert_eq!(error.code, "websocket_status_rejected");
+        assert_eq!(error.stage, "connect");
+        assert_eq!(error.provider_status, Some(429));
+        assert_eq!(error.provider_body_excerpt, None);
+        assert!(!error.message.contains("provider secret"));
+    }
 
     #[test]
     fn alt_svc_parser_accepts_same_authority_h3() {

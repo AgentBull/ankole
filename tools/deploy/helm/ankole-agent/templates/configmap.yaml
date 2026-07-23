@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+data:
+  ANKOLE_AI_GATEWAY_BASE_URL: {{ printf "http://%s:%v/api/v1/ai-gateway" (include "ankole-agent.controlPlaneName" .) .Values.controlPlane.service.port | quote }}
+  ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: {{ .Values.runtimeFabric.bindEndpoint | quote }}
+  PHX_HOST: {{ .Values.controlPlane.publicHost | quote }}
+  PORT: {{ .Values.controlPlane.port | quote }}
+  {{- range $key, $value := .Values.controlPlane.extraEnv }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ankole-agent.workerName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+data:
+  ANKOLE_AGENTS_ROOT: /agents
+  {{- range $key, $value := .Values.worker.extraEnv }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

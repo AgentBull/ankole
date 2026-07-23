@@ -1,4 +1,4 @@
-import type { AgentMessage, ReplyPresentationEvent } from '../types'
+import type { AgentLoopLogger, AgentMessage, ReplyPresentationEvent } from '../types'
 import type { AgentConversationContextResponse, AIGatewayAPIKeyResponse, RPCRequester } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/actor_lane'
 import type { BrowserRuntime } from '../../browser-runtime'
@@ -40,6 +40,7 @@ type SharedTurnOptions = {
   internalSkillsRoot?: string
   rpc: RPCRequester
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
+  logger?: AgentLoopLogger
   agentConversationContext?: AgentConversationContextResponse
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal

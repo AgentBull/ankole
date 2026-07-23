@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   @moduledoc false
 
   alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.ImageStreamPersistence
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.StatefulResponses
@@ -80,11 +81,11 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   def fail(%__MODULE__{terminal?: true} = state, _reason, _opts),
     do: {state, [], outcome(state)}
 
-  def fail(%__MODULE__{} = state, reason, opts) when is_binary(reason) do
+  def fail(%__MODULE__{} = state, _reason, opts) do
     code = Keyword.get(opts, :code, "provider_stream_error")
     retryable? = Keyword.get(opts, :retryable, false)
 
-    commit_stateful_error(state.stateful, reason, state.durable_items,
+    commit_stateful_error(state.stateful, state.durable_items,
       code: code,
       retryable: retryable?
     )
@@ -96,8 +97,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       "error" =>
         %{
           "code" => code,
-          "message" => cleanup_error_message(code),
-          "details" => reason
+          "message" => safe_error_message(code)
         }
         |> maybe_put_retryable(retryable?),
       "output" => []
@@ -224,6 +224,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     response = Map.put(response, "output", public_items)
     terminal_error = terminal_error(event["type"], response)
     terminal_metadata = terminal_response_metadata(state, event["type"], response)
+    public_response = public_terminal_response(event["type"], response, terminal_error)
 
     state = %{
       state
@@ -241,7 +242,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       :ok ->
         public_event =
           event
-          |> Map.put("response", response)
+          |> Map.put("response", public_response)
           |> maybe_put_sequence_number(sequence)
           |> rewrite_response_id(state)
 
@@ -268,10 +269,15 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp terminal_error("response.failed", response) do
-    response
-    |> Map.take(["error", "incomplete_details", "status", "id"])
-    |> Map.put_new("type", "response.failed")
-    |> maybe_mark_retryable_terminal_error()
+    classification = FailureDiagnostics.classify({:provider_event_failed, response})
+
+    %{
+      "type" => "response.failed",
+      "code" => Map.get(classification, :error_code, "provider_response_failed"),
+      "message" => FailureDiagnostics.public_message(classification),
+      "retryable" => Map.get(classification, :retryable, false)
+    }
+    |> put_safe_failure_fields(classification)
   end
 
   defp terminal_error("response.incomplete", response) do
@@ -282,6 +288,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         %{
           "type" => "response.incomplete",
           "code" => "partial_function_call_incomplete",
+          "message" => safe_error_message("partial_function_call_incomplete"),
           "status" => Map.get(response, "status", "incomplete"),
           "incomplete_details" => Map.get(response, "incomplete_details"),
           "reason" => reason,
@@ -295,6 +302,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         %{
           "type" => "response.incomplete",
           "code" => "response_incomplete",
+          "message" => safe_error_message("response_incomplete"),
           "status" => Map.get(response, "status", "incomplete"),
           "incomplete_details" => Map.get(response, "incomplete_details"),
           "reason" => reason,
@@ -308,6 +316,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       %{
         "type" => "response.completed",
         "code" => "partial_function_call_completed",
+        "message" => safe_error_message("partial_function_call_completed"),
         "reason" =>
           "provider marked the response completed while a function call remained incomplete",
         "retryable" => false
@@ -316,6 +325,12 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp terminal_error(_type, _response), do: nil
+
+  defp public_terminal_response("response.failed", response, %{} = error) do
+    Map.put(response, "error", Map.delete(error, "type"))
+  end
+
+  defp public_terminal_response(_type, response, _error), do: response
 
   defp response_has_incomplete_function_call?(%{"output" => output}) when is_list(output),
     do: Enum.any?(output, &incomplete_function_call_item?/1)
@@ -490,25 +505,27 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp commit_stateful_terminal_commit_failure(stateful, items, reason) do
+  defp commit_stateful_terminal_commit_failure(stateful, items, _reason) do
     StatefulResponses.commit_error(
       stateful.message_id,
       items,
       %{
-        "reason" => "stateful_terminal_commit_failed",
-        "stage" => "terminal_commit",
-        "details" => inspect(reason)
+        "code" => "stateful_terminal_commit_failed",
+        "message" => safe_error_message("stateful_terminal_commit_failed"),
+        "stage" => "terminal_commit"
       }
     )
   end
 
-  defp commit_stateful_error(nil, _reason, _partial_content, _opts), do: :ok
+  defp commit_stateful_error(nil, _partial_content, _opts), do: :ok
 
-  defp commit_stateful_error(%{message_id: message_id}, reason, partial_content, opts) do
+  defp commit_stateful_error(%{message_id: message_id}, partial_content, opts) do
+    code = Keyword.get(opts, :code, "response_stream_cleanup_error")
+
     error_details =
       %{
-        "code" => Keyword.get(opts, :code, "response_stream_cleanup_error"),
-        "reason" => reason,
+        "code" => code,
+        "message" => safe_error_message(code),
         "stage" => "response_stream_cleanup"
       }
       |> maybe_put_retryable(Keyword.get(opts, :retryable, false))
@@ -528,16 +545,14 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     end
   end
 
-  defp stateful_commit_failed_event(state, reason, sequence_number) do
+  defp stateful_commit_failed_event(state, _reason, sequence_number) do
     response = %{
       "id" => stateful_response_id(state.stateful),
       "object" => "response",
       "status" => "failed",
       "error" => %{
         "code" => "stateful_commit_failed",
-        "message" =>
-          "AIGateway failed to commit the stateful response before forwarding the terminal frame.",
-        "details" => inspect(reason)
+        "message" => safe_error_message("stateful_commit_failed")
       },
       "output" => []
     }
@@ -592,14 +607,11 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp stateful_message_id(%{message_id: message_id}), do: message_id
   defp stateful_message_id(_stateful), do: nil
 
-  defp cleanup_error_message("provider_stream_closed_without_terminal"),
-    do: "AIGateway provider stream closed before a terminal response."
-
-  defp cleanup_error_message("provider_stream_aborted"),
-    do: "AIGateway provider stream was aborted before a terminal response."
-
-  defp cleanup_error_message(_code),
-    do: "AIGateway provider stream failed before a terminal response."
+  defp safe_error_message(code) do
+    %{"code" => code}
+    |> FailureDiagnostics.classify()
+    |> FailureDiagnostics.public_message()
+  end
 
   defp public_sequence_number(%{"sequence_number" => sequence}, _fallback)
        when is_integer(sequence),
@@ -627,42 +639,21 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp maybe_put_retryable(details, true), do: Map.put(details, "retryable", true)
   defp maybe_put_retryable(details, _retryable?), do: details
 
-  defp maybe_mark_retryable_terminal_error(%{} = details) do
-    if retryable_terminal_error?(details), do: Map.put(details, "retryable", true), else: details
+  defp put_safe_failure_fields(details, classification) do
+    classification
+    |> Map.take([
+      :error_stage,
+      :failure_kind,
+      :http_status,
+      :provider_error_code,
+      :provider_error_type,
+      :provider_status
+    ])
+    |> Enum.reduce(details, fn
+      {:failure_kind, value}, acc -> Map.put(acc, "failure_kind", Atom.to_string(value))
+      {key, value}, acc -> Map.put(acc, Atom.to_string(key), value)
+    end)
   end
-
-  defp retryable_terminal_error?(%{"retryable" => true}), do: true
-
-  defp retryable_terminal_error?(%{} = details) do
-    status =
-      integer_value(details["status"]) || integer_value(get_in(details, ["error", "status"]))
-
-    code =
-      (string_value(get_in(details, ["error", "code"])) || string_value(details["code"]) || "")
-      |> String.downcase()
-
-    message =
-      (string_value(get_in(details, ["error", "message"])) ||
-         string_value(details["message"]) || "")
-      |> String.downcase()
-
-    retryable_upstream_status?(status) or
-      String.contains?(code, "429") or
-      String.contains?(code, "rate_limit") or
-      String.contains?(message, "rate limit") or
-      String.contains?(message, "too many requests") or
-      Regex.match?(~r/(^|\D)429(\D|$)/, message)
-  end
-
-  defp retryable_upstream_status?(status) when status in [408, 409, 425, 429], do: true
-  defp retryable_upstream_status?(status) when is_integer(status) and status >= 500, do: true
-  defp retryable_upstream_status?(_status), do: false
-
-  defp integer_value(value) when is_integer(value), do: value
-  defp integer_value(_value), do: nil
-
-  defp string_value(value) when is_binary(value), do: value
-  defp string_value(_value), do: nil
 
   defp publish(%{stateful: %{message: %{} = message}}, type, payload),
     do: Events.publish(message, type, payload)

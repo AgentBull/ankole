@@ -290,17 +290,18 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              client,
              request_fun
            ),
-         %{"card_id" => card_id} <- CardChain.active_card(checkpoint),
-         {active_page, render_opts} <- active_render_context(pages, checkpoint),
-         {:ok, actions} <- terminal_actions(render_request, checkpoint, render_opts),
-         :ok <- apply_terminal_actions(event, card_id, actions, client, request_fun),
-         checkpoint <-
-           terminal_checkpoint(checkpoint, request.presentation, render_opts, active_page),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
-      {:ok,
-       delivery_result(first_message_id(checkpoint), checkpoint)
-       |> Map.merge(send_result)
-       |> Map.merge(chain_result)}
+         {:ok, result} <-
+           finalize_active_message(
+             event,
+             checkpoint,
+             render_request,
+             request.presentation,
+             pages,
+             client,
+             request_fun,
+             Map.merge(send_result, chain_result)
+           ) do
+      {:ok, result}
     else
       {:error, %Error{} = error} ->
         recover_finalize(error, event, checkpoint, request)
@@ -396,46 +397,132 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              pages,
              client,
              request_fun
+           ),
+         {:ok, result} <-
+           finalize_active_message(
+             event,
+             checkpoint,
+             render_request,
+             request.presentation,
+             pages,
+             client,
+             request_fun,
+             chain_result
            ) do
-      case CardChain.active_card(checkpoint) do
-        %{"transport" => "inline_message", "message_id" => message_id}
-        when is_binary(message_id) and message_id != "" ->
-          {active_page, render_opts} = active_render_context(pages, checkpoint)
-
-          with {:ok, card} <-
-                 Renderer.render(
-                   render_request.presentation,
-                   Keyword.put(render_opts, :mode, :terminal)
-                 ),
-               :ok <- patch_message_card(client, message_id, card, request_fun),
-               checkpoint <-
-                 terminal_checkpoint(
-                   checkpoint,
-                   request.presentation,
-                   render_opts,
-                   active_page
-                 ),
-               {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
-            {:ok,
-             delivery_result(first_message_id(checkpoint), checkpoint)
-             |> Map.merge(chain_result)}
-          end
-
-        %{"card_id" => card_id} when is_binary(card_id) ->
-          do_finalize_cardkit(event, checkpoint, card_id, %{
-            request
-            | actor_event: event,
-              checkpoint: checkpoint
-          })
-
-        _active ->
-          {:error, :cardkit_active_card_missing}
-      end
+      {:ok, result}
     else
       {:error, %Error{} = error} -> recover_finalize(error, event, checkpoint, request)
       {:error, :cardkit_soft_budget_exceeded} -> plain_text_fallback(event, request)
       {:error, :cardkit_answer_rewrite_after_rollover} -> plain_text_fallback(event, request)
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp finalize_active_message(
+         event,
+         checkpoint,
+         render_request,
+         durable_presentation,
+         pages,
+         client,
+         request_fun,
+         result_fields
+       ) do
+    with %{"message_id" => message_id} = active
+         when is_binary(message_id) and message_id != "" <-
+           CardChain.active_card(checkpoint),
+         {active_page, render_opts} <- active_render_context(pages, checkpoint),
+         {:ok, checkpoint} <-
+           ensure_terminal_message(
+             checkpoint,
+             active,
+             active_page,
+             render_opts,
+             render_request.presentation,
+             durable_presentation,
+             client,
+             message_id,
+             request_fun
+           ),
+         checkpoint <-
+           terminal_checkpoint(
+             checkpoint,
+             durable_presentation,
+             render_opts,
+             active_page
+           ),
+         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      {:ok,
+       delivery_result(first_message_id(checkpoint), checkpoint)
+       |> Map.merge(result_fields)}
+    else
+      nil -> {:error, :cardkit_active_card_missing}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_terminal_message(
+         checkpoint,
+         %{"state" => "closed"} = active,
+         active_page,
+         render_opts,
+         rendered_presentation,
+         durable_presentation,
+         client,
+         message_id,
+         request_fun
+       ) do
+    if terminal_checkpoint_matches?(checkpoint, durable_presentation) and
+         active["answer_digest"] == CardChain.digest(active_page.source) do
+      {:ok, checkpoint}
+    else
+      patch_terminal_message(
+        checkpoint,
+        render_opts,
+        rendered_presentation,
+        client,
+        message_id,
+        request_fun
+      )
+    end
+  end
+
+  defp ensure_terminal_message(
+         checkpoint,
+         _active,
+         _active_page,
+         render_opts,
+         rendered_presentation,
+         _durable_presentation,
+         client,
+         message_id,
+         request_fun
+       ) do
+    patch_terminal_message(
+      checkpoint,
+      render_opts,
+      rendered_presentation,
+      client,
+      message_id,
+      request_fun
+    )
+  end
+
+  defp patch_terminal_message(
+         checkpoint,
+         render_opts,
+         rendered_presentation,
+         client,
+         message_id,
+         request_fun
+       ) do
+    with {:ok, card} <-
+           Renderer.render(
+             rendered_presentation,
+             Keyword.put(render_opts, :mode, :terminal)
+           ),
+         :ok <- patch_message_card(client, message_id, card, request_fun) do
+      {:ok, update_active_card(checkpoint, &Map.put(&1, "transport", "inline_message"))}
     end
   end
 
@@ -595,12 +682,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       client,
       request_fun
     )
-  end
-
-  defp apply_terminal_actions(_event, _card_id, [], _client, _request_fun), do: :ok
-
-  defp apply_terminal_actions(event, card_id, actions, client, request_fun) do
-    apply_batch_mutation(event, card_id, actions, "terminal", client, request_fun)
   end
 
   defp recover_update(error, event, checkpoint, request) do
@@ -1292,38 +1373,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       action["action"] == "update_element" and
         get_in(action, ["params", "element_id"]) == "answer"
     end)
-  end
-
-  defp terminal_actions(request, checkpoint, render_opts) do
-    previous =
-      checkpoint["presentation"] || request.previous_presentation || ReplyPresentation.new()
-
-    previous_opts = Keyword.put(render_opts, :answer, checkpoint["answer_content"] || " ")
-
-    with {:ok, actions} <-
-           Renderer.batch_actions(previous, request.presentation,
-             mode: :terminal,
-             previous: previous_opts,
-             current: render_opts
-           ) do
-      actions =
-        merge_stale_element_deletes(
-          actions,
-          checkpoint,
-          request.presentation,
-          :terminal,
-          render_opts
-        )
-
-      actions =
-        if checkpoint["streaming_state"] == "open" do
-          actions ++ [streaming_setting_action(false, request.presentation)]
-        else
-          actions
-        end
-
-      {:ok, actions}
-    end
   end
 
   defp refresh_request(request, event, checkpoint) do

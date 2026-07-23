@@ -1,0 +1,44 @@
+---
+import { getCollection, render } from 'astro:content'
+import { isValidLocale, LOCALES, type Locale } from '../../../i18n/config'
+import { t } from '../../../i18n/utils'
+import DocsLayout from '../../../layouts/DocsLayout.astro'
+import { buildDocsNav, docSlug, localizedEntry } from '../../../lib/docs-model'
+
+export async function getStaticPaths() {
+	const docs = await getCollection('docs')
+	const slugs = [...new Set(docs.map(d => docSlug(d.id)))]
+	return LOCALES.flatMap(lang => slugs.map(slug => ({ params: { lang, slug } })))
+}
+
+const { lang, slug } = Astro.params
+if (!isValidLocale(lang)) return Astro.redirect('/')
+const locale = lang as Locale
+
+const docs = await getCollection('docs')
+const entry = localizedEntry(docs, slug, locale)
+if (!entry) return Astro.redirect(`/${locale}/docs/`)
+
+const isFallback = entry.id !== `${slug}/${locale}`
+const { Content, headings } = await render(entry)
+const { sections, flat } = buildDocsNav(docs, locale)
+const index = flat.findIndex(item => item.slug === slug)
+const prev = index > 0 ? flat[index - 1] : undefined
+const next = index >= 0 && index < flat.length - 1 ? flat[index + 1] : undefined
+const fallbackNotice = isFallback ? t(locale, 'docs.fallbackNotice', { lang: t(locale, `lang.${locale}`) }) : undefined
+---
+
+<DocsLayout
+	lang={locale}
+	title={entry.data.title}
+	description={entry.data.description}
+	path={`docs/${slug}`}
+	headings={headings}
+	sections={sections}
+	currentSlug={slug}
+	prev={prev}
+	next={next}
+	fallbackNotice={fallbackNotice}
+>
+	<Content />
+</DocsLayout>

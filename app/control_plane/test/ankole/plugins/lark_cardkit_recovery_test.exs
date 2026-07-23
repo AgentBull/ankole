@@ -796,7 +796,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert List.last(cards)["answer_digest"] == CardChain.digest(current_tail.source)
   end
 
-  test "terminal finalization closes an active text stream before updating final elements", %{
+  test "terminal finalization replaces an active stream with one closed message card", %{
     event: event
   } do
     working = ReplyPresentation.new() |> ReplyPresentation.append_answer("生成中")
@@ -817,14 +817,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
     parent = self()
 
-    request_fun = fn _client, :post, "cardkit/v1/cards/:card_id/batch_update", opts ->
-      send(parent, {
-        :terminal_batch,
-        opts[:body][:sequence],
-        opts[:body][:uuid],
-        Ankole.JSON.decode!(opts[:body][:actions])
-      })
-
+    request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
+      send(parent, {:terminal_patch, opts})
       {:ok, %{"data" => %{}}}
     end
 
@@ -841,30 +835,24 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    assert_receive {:terminal_batch, cleanup_sequence, cleanup_uuid, [cleanup_action]}
-    assert cleanup_action["action"] == "delete_elements"
-    assert get_in(cleanup_action, ["params", "element_ids"]) == ["separator", "state"]
+    assert_receive {:terminal_patch, opts}
+    assert opts[:path_params] == %{message_id: "message-terminal-order"}
+    card = Ankole.JSON.decode!(opts[:body][:content])
+    assert card["config"]["streaming_mode"] == false
 
-    assert_receive {:terminal_batch, update_sequence, update_uuid, update_actions}
-    assert update_sequence == cleanup_sequence + 1
-    refute update_uuid == cleanup_uuid
+    assert get_in(card, ["body", "elements"]) == [
+             %{"tag" => "markdown", "element_id" => "answer", "content" => "最终答案"}
+           ]
 
-    assert Enum.any?(update_actions, fn action ->
-             action["action"] == "update_element" and
-               get_in(action, ["params", "element_id"]) == "answer"
-           end)
-
-    assert Enum.any?(update_actions, fn action ->
-             action["action"] == "partial_update_setting" and
-               get_in(action, ["params", "settings", "config", "streaming_mode"]) == false
-           end)
-
-    refute_receive {:terminal_batch, _sequence, _uuid, _actions}
+    refute_receive {:terminal_patch, _opts}
     assert result.reply_preview_checkpoint["streaming_state"] == "closed"
     assert result.reply_preview_checkpoint["answer_content"] == "最终答案"
+
+    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+             "inline_message"
   end
 
-  test "terminal finalization ignores a conservatively checkpointed element absent from Feishu",
+  test "whole-card finalization ignores stale checkpoint element topology",
        %{event: event} do
     previous =
       ReplyPresentation.new()
@@ -912,20 +900,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
     parent = self()
 
-    request_fun = fn _client, :post, "cardkit/v1/cards/:card_id/batch_update", opts ->
-      actions = Ankole.JSON.decode!(opts[:body][:actions])
-      send(parent, {:missing_transient_batch, opts[:body][:sequence], actions})
-
-      if Enum.any?(actions, &(&1["action"] == "delete_elements")) do
-        {:error,
-         %Error{
-           code: 300_314,
-           msg: "not find elementID : activity",
-           http_status: 200
-         }}
-      else
-        {:ok, %{"data" => %{}}}
-      end
+    request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
+      send(parent, {:terminal_patch, opts})
+      {:ok, %{"data" => %{}}}
     end
 
     assert {:ok, result} =
@@ -941,31 +918,18 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    assert_receive {:missing_transient_batch, cleanup_sequence, [cleanup_action]}
-    assert cleanup_action["action"] == "delete_elements"
-
-    assert_receive {:missing_transient_batch, individual_sequence, [individual_cleanup]}
-    assert individual_sequence == cleanup_sequence + 1
-    assert get_in(individual_cleanup, ["params", "element_ids"]) == ["activity"]
-
-    assert_receive {:missing_transient_batch, terminal_sequence, terminal_actions}
-    assert terminal_sequence == individual_sequence + 1
-    refute Enum.any?(terminal_actions, &(&1["action"] == "delete_elements"))
-
-    assert Enum.any?(terminal_actions, fn action ->
-             action["action"] == "partial_update_setting" and
-               get_in(action, ["params", "settings", "config", "streaming_mode"]) == false
-           end)
-
-    assert Enum.any?(terminal_actions, fn action ->
-             action["action"] == "add_elements"
-           end)
-
-    refute_receive {:missing_transient_batch, _sequence, _actions}
+    assert_receive {:terminal_patch, opts}
+    card = Ankole.JSON.decode!(opts[:body][:content])
+    assert card["config"]["streaming_mode"] == false
+    assert Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
+    refute Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
 
     assert result.reply_preview_checkpoint["streaming_state"] == "closed"
     assert result.reply_preview_checkpoint["presentation"]["state"] == "awaiting_input"
     assert result.reply_preview_checkpoint["presentation"]["actions"] != []
+
+    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+             "inline_message"
   end
 
   test "a thought-cleanup close is not mistaken for terminal delivery", %{event: event} do
@@ -1005,7 +969,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    assert_receive {:terminal_request, :post, "cardkit/v1/cards/:card_id/batch_update", _opts}
+    assert_receive {:terminal_request, :patch, "im/v1/messages/:message_id", _opts}
     assert result.reply_preview_checkpoint["presentation"]["answer"] == "最终答案"
   end
 
@@ -1031,7 +995,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     parent = self()
 
     request_fun = fn
-      _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
+      _client, :patch, "im/v1/messages/:message_id", _opts ->
         {:error, %Error{code: 230_072, msg: "message edit limit reached"}}
 
       _client, :post, path, opts

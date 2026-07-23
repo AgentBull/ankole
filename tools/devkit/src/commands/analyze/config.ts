@@ -116,6 +116,11 @@ export interface UnusedAllowEntry {
  */
 export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
   {
+    file: 'app/library/agent-plugins/deep-research/workspace-template/tools/ach_check.ts',
+    owner: 'deep-research Agent Plugin',
+    reason: 'Invoked by the ACH Playbook; the Agent Plugin package is not a Bun workspace.'
+  },
+  {
     file: 'app/library/agent-plugins/deep-research/workspace-template/tools/list_playbooks.ts',
     owner: 'deep-research Agent Plugin',
     reason: 'Invoked by AGENTS.md for Playbook discovery; the Agent Plugin package is not a Bun workspace.'

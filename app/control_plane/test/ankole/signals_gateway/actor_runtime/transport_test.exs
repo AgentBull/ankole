@@ -99,7 +99,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       %{principal: agent} = agent_fixture()
       config_owner = Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
       previous_config = Application.get_env(:ankole, config_owner)
-      Application.put_env(:ankole, config_owner, worker_facing_base_url: :invalid_test_value)
+      Application.put_env(:ankole, config_owner, base_url: :invalid_test_value)
 
       on_exit(fn ->
         case previous_config do

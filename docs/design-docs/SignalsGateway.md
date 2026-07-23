@@ -167,9 +167,18 @@ separate provider copy of every original message.
 
 Addressed batches use adaptive settle windows:
 
-- Normal text waits 600 milliseconds.
+- Normal text waits 1,000 milliseconds.
 - Attachments wait 1,200 milliseconds.
 - Long text waits 2,000 milliseconds.
+
+Neutral text keeps a 600 millisecond settle window. An attachment does not make
+an otherwise neutral group message address the Agent.
+
+An adapter that must fetch attachment bytes first writes a pending attachment
+observation. A later observation with the same source entry ID replaces it with
+`complete` or `failed`. The attachment window starts at the pending observation,
+not after the download. An open batch waits for all pending attachments, with a
+four second materialization cap.
 
 An addressed batch accepts at most eight entries.
 Its normal text budget is 4,000 characters.
@@ -272,6 +281,11 @@ stops at `max_attempts`, which defaults to ten.
 Final AI replies continue every 15 minutes after that limit because Ankole has
 already committed to showing them to the user.
 
+An adapter can classify a durable reply failure as `operator_action_required`.
+SignalsGateway then blocks the row without another automatic retry. Saving the
+binding after the operator repairs the attachment or configuration wakes the
+blocked row.
+
 A `sending` row can recover after 60 seconds. SignalsGateway asks the provider
 for its result only when the adapter supports that check and has enough IDs.
 
@@ -281,10 +295,11 @@ resend could create a duplicate message.
 After provider success, SignalsGateway updates its copy of the provider message.
 It also links a final reply to `ai_message_id` when available.
 
-When `/retry` retracts a completed Response, the same actor transaction stores
-one delete outbox intent for each provider message linked to the retracted
-`ai_message_id`. A provider deletion failure does not stop the replacement turn.
-The outbox records its retries and final result.
+When `/retry` supersedes a completed or failed turn, the same actor transaction
+stores one delete outbox intent for each known provider reply. A completed
+Response also becomes `retracted`; a failed Response remains an error audit
+fact. A provider deletion failure does not stop the replacement turn. The
+outbox records its retries and final result.
 
 ## Show Progress before the Final Reply
 
@@ -296,6 +311,22 @@ one provider message as new text arrives.
 
 After the first successful preview, the ActorEvent stores the provider message
 ID. The final outbox can edit that message instead of sending another one.
+
+If the same sender adds a contiguous attachment while that ActorEvent is still
+running, SignalsGateway can supersede the incomplete input. A reply edge to
+another message or another structured mention prevents this association. The
+gateway retracts the generating Response, invalidates the old turn fence, adds
+the attachment to the same ActorEvent, and runs that event again after
+materialization. The preview edits the same provider message to say that the
+full request is being analyzed again. Late output from the old fence cannot
+replace the new run.
+
+SignalsGateway does not replay a turn after it observes a tool call, a tool
+result, or a committed outbox operation. Those facts can represent an external
+write whose result is unknown. In that case the attachment becomes a new
+addressed turn after the current turn. The ActorEvent row lock decides a race
+with normal completion: supersession wins by invalidating the old delivery, or
+completion wins and the attachment becomes the next turn.
 
 The final reply waits up to 30 seconds for the preview to finish. If preview
 delivery fails, the stored outbox operation still sends the answer.

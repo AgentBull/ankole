@@ -35,6 +35,11 @@ export type {
   StatefulResponseContext
 } from './llm'
 
+export type AgentLoopLogger = {
+  info(event: string, message: string, fields?: JSONObject): void
+  warning(event: string, message: string, fields?: JSONObject): void
+}
+
 /**
  * Configuration for the agent loop. The worker drives the loop:
  * call model → execute tools → feed results → repeat until no tool calls.
@@ -94,6 +99,9 @@ export interface AgentLoopConfig {
 
   /** Called whenever the loop observes model/provider progress for inactivity tracking. */
   onActivity?: (description?: string) => void
+
+  /** Emits bounded operational diagnostics without prompts, tool data, or provider bodies. */
+  logger?: AgentLoopLogger
 
   /**
    * Emits renderer-safe semantic progress for the visible reply surface.

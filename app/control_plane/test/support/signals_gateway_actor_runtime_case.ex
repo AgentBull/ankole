@@ -790,9 +790,7 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     finalize_result =
-      Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
-        now: DateTime.add(batch.available_at, 1, :microsecond)
-      )
+      Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(now: batch.available_at)
 
     with {:ok, finalized_results} <- finalize_result,
          %ActorEvent{} = actor_event <- finalized_actor_event(finalized_results, batch.id) do

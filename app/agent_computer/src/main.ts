@@ -21,6 +21,7 @@ import {
   availableTurnSlots,
   startTurnProgress,
   turnFailureDetails,
+  turnFailureLogFields,
   turnKey,
   type ActiveTurn
 } from './worker/active_turns'
@@ -73,7 +74,9 @@ async function runWorker(): Promise<void> {
         error_code: event.errorCode,
         error_message: event.errorMessage,
         retryable: event.retryable,
-        ...(event.urlIndex === undefined ? {} : { url_index: event.urlIndex })
+        ...(event.urlIndex === undefined ? {} : { url_index: event.urlIndex }),
+        ...(event.urlScheme === undefined ? {} : { url_scheme: event.urlScheme }),
+        ...(event.urlHost === undefined ? {} : { url_host: event.urlHost })
       })
   })
   let stopping = false
@@ -288,6 +291,7 @@ async function runActiveTurnTask(
   activeTurns: Map<string, ActiveTurn>
 ): Promise<void> {
   const turnStart = active.turnStart
+  const startedAt = Date.now()
   const progress = startTurnProgress(sendEnvelope, active)
 
   try {
@@ -297,6 +301,7 @@ async function runActiveTurnTask(
         actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop',
+        duration_ms: Date.now() - startedAt,
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       return
@@ -304,6 +309,7 @@ async function runActiveTurnTask(
 
     workerLogger.info('worker.turn_completed', 'worker turn completed', {
       actor_event_id: turnStart.turn.actor_event_id,
+      duration_ms: Date.now() - startedAt,
       operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
     })
   } catch (error) {
@@ -312,6 +318,7 @@ async function runActiveTurnTask(
         actor_event_id: turnStart.turn.actor_event_id,
         command: active.controlledStopCommand ?? 'unknown',
         reason: active.controlledStopReason ?? 'controlled_stop',
+        duration_ms: Date.now() - startedAt,
         error: errorValue(error),
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
@@ -325,6 +332,8 @@ async function runActiveTurnTask(
     )
     workerLogger.error('worker.turn_failed', 'worker turn failed', {
       actor_event_id: turnStart.turn.actor_event_id,
+      duration_ms: Date.now() - startedAt,
+      ...turnFailureLogFields(error),
       error: errorValue(error),
       operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
     })
@@ -374,6 +383,7 @@ async function runActiveTurn(
     internalSkillsRoot: config.internalSkillsRoot,
     rpc,
     requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
+    logger: workerLogger,
     pollSteering: () => active.steeringUpdates.splice(0),
     onSteeringApplied: update =>
       sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),

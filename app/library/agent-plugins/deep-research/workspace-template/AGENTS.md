@@ -23,9 +23,10 @@ Follow these steps in order:
 
 ### Stage 2: Analyze and Reason
 
-- Analyze and reason from the available information. Refer to the methods and data sources in the Playbooks as needed. Produce a preliminary analysis report in `research.md`. Make sure that the report has a clear chain of logic and source citations, and that every conclusion is derived step by step. If the current analysis is uncertain or allows multiple interpretations, list all of them and state which one you favor and your estimated confidence. Clearly distinguish facts, opinions, hypotheses, and inferences. During this process, you can use a subagent again to collect supplementary information if necessary.
-- Use one context-isolated subagent as a verifier. It must read only the report and the research purpose provided by the user, and then perform an independent verification. The verification usually needs to include two dimensions: form and substance. For form, focus on whether the report correctly distinguishes facts, opinions, and hypotheses; provides sufficient source citations; and gives the user conclusions with real information value, to avoid statements that are correct but uninformative. For substance, review the report adversarially. Check whether the logic is internally consistent, whether other explanations are possible, and whether the report reverses causality or sets the target before shooting the arrow.
-- Revise and improve the report based on the verifier's feedback until the verifier considers the report acceptable.
+- Before you create the report, check the selected Playbooks. If a selected Playbook defines a verifier protocol, follow its analysis, verification, and report-writing order instead of the default sequence below. The Playbook owns the verifier's inputs and disclosure order.
+- If no selected Playbook defines a verifier protocol, analyze and reason from the available information. Refer to the methods and data sources in the Playbooks as needed. Create and revise the analysis report in `report/report.md`. Make sure that the report has a clear chain of logic and source citations, and that every conclusion is derived step by step. If the current analysis is uncertain or allows multiple interpretations, list all of them and state which one you favor and your estimated confidence. Clearly distinguish facts, opinions, hypotheses, and inferences. During this process, you can use a subagent again to collect supplementary information if necessary.
+- For the default sequence, create one verifier subagent with no inherited conversation turns. Give it only the report and the research purpose provided by the user. The verifier must review both form and substance. For form, check whether the report correctly distinguishes facts, opinions, and hypotheses; provides sufficient source citations; and gives the user conclusions with real information value. For substance, review the report adversarially. Check whether the logic is internally consistent, whether other explanations are possible, and whether the report reverses causality or sets the target before shooting the arrow.
+- The verifier advises and does not own the final judgment. Resolve every material discrepancy by correcting the affected analysis artifacts and report, or keep the disagreement visible with its reason. Verification is complete only when every material discrepancy has been handled in one of these ways.
 
 #### Research principles
 
@@ -38,8 +39,9 @@ Follow these steps in order:
 
 ### Stage 3: Write the Deliverables
 
-- Write the final report for delivery according to the user's requirements. If the user specifies the report format, structure, or other requirements, follow those requirements.
-- If the user does not specify a file format, use Markdown by default. Use the same language that the user used to create the request.
+- Finalize `report/report.md` as the authoritative report according to the user's requirements. If the user specifies the report structure or other requirements, follow them.
+- If the user does not specify a file format, deliver `report/report.md`. Use the same language that the user used to create the request.
+- If the user requests another file format, create it from the authoritative Markdown report.
 - If the user explicitly requests a PDF, PPT, or HTML file but does not specify a visual design,  use `design-md` skills as the design reference.
 - Before completion, use a subagent to perform one more quick formal check of the deliverables. Make sure that there are no typographical, layout, or formatting problems.
 

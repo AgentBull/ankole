@@ -203,6 +203,24 @@ defmodule Ankole.Logging.JSONFormatterTest do
     assert entry["http_request"]["userAgent"] == "curl/8"
   end
 
+  test "Phoenix request logger keeps a slow successful AI request at info" do
+    conn =
+      :post
+      |> Plug.Test.conn("/api/v1/ai-gateway/responses")
+      |> Map.put(:host, "ankole.test")
+      |> Map.put(:status, 200)
+      |> Map.put(:private, %{phoenix_route: "/api/v1/ai-gateway/responses"})
+
+    duration = System.convert_time_unit(65, :second, :native)
+
+    {level, fields} = AnkoleWeb.RequestLogger.build_log(%{duration: duration}, %{conn: conn})
+
+    assert level == :info
+    assert fields.duration_ms == 65_000
+    assert fields.route == "/api/v1/ai-gateway/responses"
+    assert fields.http_request["latency"] == "65.000000s"
+  end
+
   defp format(event) do
     event
     |> JSONFormatter.format(@formatter_config)

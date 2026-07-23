@@ -10,7 +10,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @behaviour WebSock
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.Logging
   alias Ankole.SignalsGateway.AIGatewayLink
 
   @socket_response_history_limit 32
@@ -162,15 +164,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
       {:error, {:invalid_upstream_response, status, body}} ->
-        event =
-          error_event(
-            502,
-            "invalid_upstream_response",
-            "Provider returned an invalid upstream response.",
-            nil,
-            %{"stage" => "socket_open", "upstream_status" => status, "upstream_body" => body}
-          )
-
+        event = invalid_upstream_response_event(status, body)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
       {:error, {:universal_ai_request_failed, %{} = details}} ->
@@ -205,8 +199,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
         event = openai_error_event(error)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
-      {:error, reason} ->
-        event = error_event(422, "ai_gateway_request_failed", inspect(reason))
+      {:error, _reason} ->
+        event = error_event(502, "ai_gateway_request_failed", "AIGateway request failed.")
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
       other ->
@@ -269,7 +263,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
             "provider_stream_error",
             "AIGateway response stream could not continue.",
             nil,
-            %{"reason" => inspect(reason)}
+            safe_failure_details(reason, "stream_read")
           )
 
         push_text_chunks(chunks ++ [Ankole.JSON.encode!(event)], clear_active_stream(state))
@@ -296,7 +290,22 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   def handle_info(_message, state), do: {:ok, state}
 
   @impl WebSock
-  def terminate(_reason, %{active_stream: %{stream: stream}}) do
+  def terminate(
+        reason,
+        %{subject_uid: subject_uid, active_stream: %{stream: stream} = active_stream}
+      ) do
+    Logging.warning(
+      "ai_gateway.responses_socket_interrupted",
+      "AI Gateway response socket closed with an active stream",
+      %{
+        subject_uid: subject_uid,
+        actor_event_id: active_stream[:actor_event_id],
+        model: active_stream[:model],
+        duration_ms: active_stream_duration_ms(active_stream),
+        termination_reason: termination_reason(reason)
+      }
+    )
+
     _ = AIGateway.cancel_response_stream(stream, "socket_terminated")
     :ok
   end
@@ -312,7 +321,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
              %{
                ref: stream.ref,
                stream: stream,
-               request_input: Map.get(request, "input")
+               request_input: Map.get(request, "input"),
+               actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
+               model: Map.get(request, "model"),
+               started_at_ms: System.monotonic_time(:millisecond)
              }}
 
           {:error, reason} ->
@@ -397,6 +409,20 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp clear_active_stream(state), do: Map.delete(state, :active_stream)
+
+  defp active_stream_duration_ms(%{started_at_ms: started_at_ms})
+       when is_integer(started_at_ms) do
+    max(System.monotonic_time(:millisecond) - started_at_ms, 0)
+  end
+
+  defp active_stream_duration_ms(_active_stream), do: nil
+
+  defp termination_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp termination_reason({reason, _details}) when is_atom(reason),
+    do: Atom.to_string(reason)
+
+  defp termination_reason(_reason), do: "unknown"
 
   defp push_text_chunks([], state), do: {:ok, state}
   defp push_text_chunks([chunk], state), do: {:push, {:text, chunk}, state}
@@ -544,17 +570,24 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp upstream_response_failed_event(status, body) do
+    reason = {:upstream_response_failed, status, body}
+
     error_event(
       public_upstream_status(status),
       "upstream_response_failed",
       upstream_error_message(status, body),
       nil,
-      %{
-        "stage" => "socket_open",
-        "upstream_status" => status,
-        "upstream_body" => body,
-        "retryable" => retryable_upstream_status?(status)
-      }
+      safe_failure_details(reason, "socket_open")
+    )
+  end
+
+  defp invalid_upstream_response_event(status, body) do
+    error_event(
+      502,
+      "invalid_upstream_response",
+      "Provider returned an invalid upstream response.",
+      nil,
+      safe_failure_details({:invalid_upstream_response, status, body}, "socket_open")
     )
   end
 
@@ -572,47 +605,53 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   defp upstream_error_message(status, _body), do: "Provider request failed with status #{status}."
 
-  defp retryable_upstream_status?(status) when status in [408, 409, 425, 429], do: true
-  defp retryable_upstream_status?(status) when is_integer(status) and status >= 500, do: true
-  defp retryable_upstream_status?(_status), do: false
-
   defp universal_ai_request_failed_event(details) do
-    status = upstream_status_from_universal_error(details)
+    reason = {:universal_ai_request_failed, details}
+    classification = FailureDiagnostics.classify(reason)
+
+    {status, code, message} =
+      case classification do
+        %{failure_kind: :timeout} ->
+          {504, "upstream_timeout", "Upstream provider timed out."}
+
+        %{failure_kind: :transport} ->
+          {502, "upstream_transport_failed", "Upstream provider request failed."}
+
+        %{failure_kind: :provider_response, provider_status: status} ->
+          {public_upstream_status(status), "upstream_response_failed",
+           "Upstream provider rejected the request."}
+
+        _classification ->
+          {502, "ai_gateway_request_failed", "AIGateway request failed."}
+      end
 
     error_event(
-      public_upstream_status(status),
-      universal_socket_open_code(status),
-      universal_socket_open_message(status, details),
+      status,
+      code,
+      message,
       nil,
-      %{
-        "stage" => "socket_open",
-        "upstream_status" => status,
-        "upstream_body" => details,
-        "retryable" => retryable_upstream_status?(status)
-      }
+      safe_failure_details(reason, "socket_open")
     )
   end
 
-  defp upstream_status_from_universal_error(%{"status" => status}) when is_integer(status),
-    do: status
-
-  defp upstream_status_from_universal_error(%{"message" => message}) when is_binary(message) do
-    case Regex.run(~r/HTTP error:\s*(\d{3})/, message) do
-      [_match, status] -> String.to_integer(status)
-      _no_match -> nil
-    end
+  defp safe_failure_details(reason, stage) do
+    reason
+    |> FailureDiagnostics.classify()
+    |> Map.take([
+      :error_code,
+      :error_stage,
+      :provider_status,
+      :http_status,
+      :provider_error_code,
+      :provider_error_type,
+      :retryable
+    ])
+    |> Enum.reduce(%{"stage" => stage}, fn {key, value}, details ->
+      if is_nil(value) do
+        details
+      else
+        Map.put(details, Atom.to_string(key), value)
+      end
+    end)
   end
-
-  defp upstream_status_from_universal_error(_details), do: nil
-
-  defp universal_socket_open_code(status) when is_integer(status), do: "upstream_response_failed"
-  defp universal_socket_open_code(_status), do: "ai_gateway_request_failed"
-
-  defp universal_socket_open_message(_status, %{"message" => message}) when is_binary(message),
-    do: message
-
-  defp universal_socket_open_message(status, _details) when is_integer(status),
-    do: upstream_error_message(status, %{})
-
-  defp universal_socket_open_message(_status, _details), do: "AIGateway request failed."
 end

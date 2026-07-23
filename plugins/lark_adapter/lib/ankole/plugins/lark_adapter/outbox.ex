@@ -29,6 +29,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @max_text_message_chars 4_000
   @final_edit_fallback_codes [230_072, 230_075]
+  @unavailable_worker_file_codes ~w(file_not_found not_regular_file)
   # Feishu caps the message `uuid` at 50 characters. Keep Ankole's full key in
   # the outbox and derive only the provider-facing value when it is too long.
   @max_message_uuid_chars 50
@@ -77,15 +78,17 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   def send(%OutboxEntry{} = outbox) do
-    with {:ok, config} <- config_for_outbox(outbox),
-         client <- Config.client(config),
-         {:ok, outbox} <- materialize_outbound_attachments(outbox, client),
-         {:ok, requests} <- requests_for_outbox(outbox) do
-      requests
-      |> perform_requests(client, outbox)
-      |> with_materialized_payload(outbox.payload)
-      |> normalize_delivery_error()
-    end
+    result =
+      with {:ok, config} <- config_for_outbox(outbox),
+           client <- Config.client(config),
+           {:ok, outbox} <- materialize_outbound_attachments(outbox, client),
+           {:ok, requests} <- requests_for_outbox(outbox) do
+        requests
+        |> perform_requests(client, outbox)
+        |> with_materialized_payload(outbox.payload)
+      end
+
+    normalize_delivery_error(result)
   end
 
   @impl true
@@ -287,11 +290,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   @doc false
   @spec target_gone_error?(Error.t()) :: boolean()
-  def target_gone_error?(%Error{code: code, msg: msg}) do
-    code in [23_000, 23_002, 23_006] or
-      (is_binary(msg) and
-         String.contains?(String.downcase(msg), ["withdraw", "not exist", "not found"]))
-  end
+  def target_gone_error?(%Error{code: code}), do: code in [23_000, 23_002, 23_006]
 
   defp normalize_send_response({:ok, %{"data" => data} = body}) when is_map(data) do
     {:ok,
@@ -343,7 +342,32 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
       |> compact_map()}}
   end
 
+  defp normalize_delivery_error({:error, :outbound_attachment_path_missing}),
+    do: operator_attachment_error("attachment_path_missing")
+
+  defp normalize_delivery_error({:error, :multiple_outbound_attachments_not_supported}),
+    do: operator_attachment_error("multiple_attachments_not_supported")
+
+  defp normalize_delivery_error({:error, :outbound_attachment_not_uploaded}),
+    do: operator_attachment_error("attachment_not_uploaded")
+
+  defp normalize_delivery_error({:error, {:file_too_large, size, max_bytes}})
+       when is_integer(size) and is_integer(max_bytes) do
+    operator_attachment_error("attachment_file_too_large", %{
+      "size_bytes" => size,
+      "max_bytes" => max_bytes
+    })
+  end
+
+  defp normalize_delivery_error({:error, %{"code" => code}})
+       when code in @unavailable_worker_file_codes,
+       do: operator_attachment_error("attachment_file_missing", %{"worker_file_code" => code})
+
   defp normalize_delivery_error(result), do: result
+
+  defp operator_attachment_error(code, detail \\ %{}) do
+    {:error, {:reply_delivery, :operator_action_required, Map.put(detail, "code", code)}}
+  end
 
   defp message_request(method, path, outbox, body, opts \\ []) do
     reply_to = Keyword.get(opts, :reply_to)

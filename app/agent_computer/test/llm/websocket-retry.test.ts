@@ -230,6 +230,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
 
   it('retries retryable terminal response.failed results in the agent loop', async () => {
     const sentPayloads: JSONObject[] = []
+    const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -251,7 +252,7 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
                     status: 'failed',
                     error: {
                       code: 'upstream_response_failed',
-                      status: 429,
+                      provider_status: 429,
                       message: 'transient upstream response failed'
                     },
                     output: []
@@ -287,6 +288,10 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000007',
         conversationID: '77777777-7777-7777-7777-777777777777'
+      },
+      logger: {
+        info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
+        warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
       }
     })
 
@@ -296,6 +301,35 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
       store: true,
       conversation: 'conv_77777777-7777-7777-7777-777777777777'
     })
+
+    expect(logs.map(log => log.event)).toEqual([
+      'worker.model_call_started',
+      'worker.model_call_failed',
+      'worker.model_call_started',
+      'worker.model_call_completed'
+    ])
+    expect(logs[1]).toMatchObject({
+      level: 'warning',
+      fields: {
+        actor_event_id: '00000000-0000-0000-0000-000000000007',
+        attempt: 1,
+        error_kind: 'rate_limit',
+        error_code: 'upstream_response_failed',
+        status: 429,
+        retryable: true,
+        will_retry: true
+      }
+    })
+    expect(logs[3]).toMatchObject({
+      level: 'info',
+      fields: {
+        attempt: 2,
+        response_id: 'resp_after_failed_429',
+        stop_reason: 'stop'
+      }
+    })
+    expect(JSON.stringify(logs)).not.toContain('transient upstream response failed')
+    expect(JSON.stringify(logs)).not.toContain('retry terminal rate limit')
   })
 
   it('retries an upstream-closed partial call from the stable anchor without executing it', async () => {

@@ -55,10 +55,8 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert claims["sub"] == agent.uid
   end
 
-  test "RuntimeFabric RPC returns the configured worker-facing AIGateway base URL" do
-    put_ai_gateway_broker_env!(
-      worker_facing_base_url: "http://host.docker.internal:49321/api/v1/ai-gateway/"
-    )
+  test "RuntimeFabric RPC returns the configured AIGateway base URL" do
+    put_ai_gateway_broker_env!(base_url: "https://gateway.example.test/api/v1/ai-gateway/")
 
     %{principal: agent} = agent_fixture()
 
@@ -76,7 +74,7 @@ defmodule Ankole.AIGateway.CredentialTest do
     response = rpc_response_payload!(envelope, FabricProto.AIGatewayAPIKeyResponse)
 
     assert response.base_url ==
-             "http://host.docker.internal:49321/api/v1/ai-gateway"
+             "https://gateway.example.test/api/v1/ai-gateway"
   end
 
   test "RuntimeFabric RPC requires the agent uid for an agent-scoped AIGateway API key" do

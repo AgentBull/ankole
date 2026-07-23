@@ -9,6 +9,7 @@ import {
   textFrame,
   u64Frame
 } from './codec'
+import { FileTransferError } from './errors'
 import { handleReadAbort, handleReadOpen, sendReadData } from './transfer-read'
 import {
   cleanupWriteTransfer,
@@ -102,7 +103,7 @@ async function dispatchFrame(context: FileTransferContext, frames: Buffer[]): Pr
     await sendError(
       context.sender,
       transferID,
-      'operation_failed',
+      error instanceof FileTransferError ? error.code : 'operation_failed',
       error instanceof Error ? error.message : String(error)
     )
   }

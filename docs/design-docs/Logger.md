@@ -101,8 +101,11 @@ The request logger uses these severities:
 | --- | --- |
 | Status is 500 or more | `ERROR` |
 | Status is 401, 403, or 429 | `WARNING` |
-| Duration is at least 2,000 ms | `WARNING` |
 | All other statuses | `INFO` |
+
+Every request log keeps its duration and Cloud HTTP latency fields. A normal
+long-running AI request stays at `INFO`; duration alone does not make it an
+incident.
 
 RuntimeFabric, ActorRuntime, Worker turns, file transfers, and provider delivery do not use `http_request`.
 

@@ -3,7 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
 
   alias Ankole.AIGateway.StatefulResponses
 
-  test "retry command replays a completed request that failed before conversation creation" do
+  test "retry command replays a request and deletes its pre-conversation failure notice" do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
     assert {:ok, _worker} = admit_worker(unique_route())
@@ -23,6 +23,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
 
     assert {:ok, %{status: :model_profile_unavailable}} =
              process_ready_events_once(now: DateTime.add(@base_time, 20, :second))
+
+    failure_notice = Repo.get_by!(OutboxEntry, source_actor_event_id: input.id)
+
+    assert {:ok, %OutboxEntry{status: :succeeded}} =
+             SignalsGateway.dispatch_outbox(
+               failure_notice.agent_uid,
+               failure_notice.binding_name,
+               failure_notice.outbound_key,
+               outbox_adapter([:post_entry, :reply_entry], fn _outbox ->
+                 {:ok, %{created_source_entry_id: "provider-profile-failure"}}
+               end),
+               now: DateTime.add(@base_time, 20, :second)
+             )
 
     assert {:ok, %{actor_event: retry_command}} =
              emit_entry(
@@ -49,9 +62,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
            ]
 
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
+
+    assert %OutboxEntry{
+             target_source_entry_id: "provider-profile-failure",
+             ai_message_id: nil,
+             status: :created
+           } =
+             Repo.get_by!(OutboxEntry,
+               source_actor_event_id: retry_command.id,
+               operation: :delete
+             )
   end
 
-  test "retry command copies the latest dead-lettered request and preserves terminal history" do
+  test "retry command deletes a dead-letter card and preserves its error response" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
 
@@ -60,22 +83,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     on_exit(fn -> Broker.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
 
-    assert {:ok, %{actor_event: input}} =
-             emit_entry(
-               agent.uid,
-               "bot",
-               group_entry(%{text: "RETRY DEAD LETTER", explicit: true}),
-               now: @base_time
-             )
+    %{input: input, generating: generating, turn_ref: turn_ref} =
+      start_accepted_aigateway_run(agent.uid, "RETRY DEAD LETTER", @base_time)
 
-    assert {:ok, %{turn_ref: turn_ref}} =
-             process_ready_events_once(
-               now: DateTime.add(@base_time, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
+    preview_source_entry_id = "provider-dead-letter-preview"
 
-    assert_receive {:actor_lane, envelope}
-    assert turn_start_payload!(envelope).turn.actor_event_id == turn_ref.actor_event_id
+    input
+    |> ActorEvent.changeset(%{reply_preview_source_entry_id: preview_source_entry_id})
+    |> Repo.update!()
+
+    assert {:ok, failed_response} =
+             StatefulResponses.commit_error(
+               generating,
+               [
+                 %{
+                   "type" => "message",
+                   "role" => "assistant",
+                   "content" => [%{"type" => "output_text", "text" => "PARTIAL"}]
+                 }
+               ],
+               %{"code" => "worker_loop_failed", "retryable" => false}
+             )
 
     dead_letter_at = DateTime.add(@base_time, 2, :second)
 
@@ -84,6 +112,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
                turn_error_payload(turn_ref, "worker_loop_failed", "worker loop failed", %{}),
                now: dead_letter_at
              )
+
+    assert %OutboxEntry{
+             operation: :edit,
+             target_source_entry_id: ^preview_source_entry_id
+           } = Repo.get_by!(OutboxEntry, source_actor_event_id: input.id)
 
     assert {:ok, %{actor_event: retry_command}} =
              emit_entry(
@@ -108,7 +141,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert retry_event.source_entry_id == retry_command.source_entry_id
     assert get_in(retry_event.payload, ["data", "entry", "text"]) == "RETRY DEAD LETTER"
     assert get_in(retry_event.payload, ["data", "entry", "retry_of_actor_event_id"]) == input.id
+
+    assert get_in(retry_event.payload, ["data", "entry", "retry_of_message_id"]) ==
+             failed_response.id
+
     assert get_in(retry_event.payload, ["data", "entry", "retry_reason"]) == "command.retry"
+    assert Repo.get!(Ankole.AIGateway.Schemas.Message, failed_response.id).status == "error"
 
     assert Repo.aggregate(
              from(event in ActorEvent,
@@ -118,6 +156,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
            ) == 1
 
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
+
+    assert %OutboxEntry{
+             target_source_entry_id: ^preview_source_entry_id,
+             ai_message_id: nil,
+             status: :created
+           } =
+             Repo.get_by!(OutboxEntry,
+               source_actor_event_id: retry_command.id,
+               operation: :delete
+             )
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_events_once(now: DateTime.add(@base_time, 5, :second))
@@ -582,6 +630,349 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     retry_actor_event = turn_start_payload!(retry_envelope).actor_event
     assert retry_actor_event.actor_event_id == input.id
     assert decoded_json_bytes(retry_actor_event.payload_json)["data"]["entry"]["text"] == "PING"
+  end
+
+  test "a contiguous attachment retracts a safe partial turn and reruns the same actor event" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{input: input, generating: generating} =
+      start_accepted_aigateway_run(agent.uid, "Inspect the report", @base_time)
+
+    observed_at = DateTime.add(@base_time, 2, :second)
+    observed_at_text = DateTime.to_iso8601(observed_at)
+
+    pending =
+      group_entry(%{
+        source_event_id: "active-supplement-file",
+        source_entry_id: "active-supplement-file",
+        text: nil,
+        attachments: [
+          %{
+            provider_ref: "lark:file:report",
+            source_message_id: "active-supplement-file",
+            resource_type: "file",
+            name: "report.pdf"
+          }
+        ],
+        metadata: %{
+          "attachment_materialization" => %{
+            "state" => "pending",
+            "observed_at" => observed_at_text
+          }
+        }
+      })
+
+    assert {:ok,
+            %{
+              status: :input_superseded,
+              actor_event: superseded,
+              retry_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+            }} =
+             Ingress.emit_entry(agent.uid, "bot", pending, now: observed_at)
+
+    assert superseded.id == input.id
+    assert superseded.available_at == DateTime.add(observed_at, 4, :second)
+
+    assert Repo.get!(Message, generating.id).status == "retracted"
+
+    assert Repo.get!(Message, generating.id).metadata["retraction"]["reason"] ==
+             "input_superseded"
+
+    assert_receive {:actor_lane, retry_control}
+    assert envelope_body_type(retry_control) == :turn_control
+    assert envelope_body!(retry_control, :turn_control).command == "retry"
+    assert envelope_body!(retry_control, :turn_control).turn.actor_event_id == input.id
+
+    second_observed_at = DateTime.add(observed_at, 100, :millisecond)
+
+    second_pending =
+      group_entry(%{
+        source_event_id: "active-supplement-image",
+        source_entry_id: "active-supplement-image",
+        text: nil,
+        attachments: [
+          %{
+            provider_ref: "lark:image:chart",
+            source_message_id: "active-supplement-image",
+            resource_type: "image",
+            name: "chart.png"
+          }
+        ],
+        metadata: %{
+          "attachment_materialization" => %{
+            "state" => "pending",
+            "observed_at" => DateTime.to_iso8601(second_observed_at)
+          }
+        }
+      })
+
+    assert {:ok, %{status: :input_superseded_refresh}} =
+             Ingress.emit_entry(agent.uid, "bot", second_pending, now: second_observed_at)
+
+    refute_receive {:actor_lane, _second_retry_control}, 50
+
+    materialized_at = DateTime.add(observed_at, 1, :second)
+    materialized_path = "/agents/#{agent.uid}/user-files/inbox/report.pdf"
+
+    materialized =
+      pending
+      |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+      |> put_in(
+        [:attachments, Access.at(0), :agent_computer_path],
+        materialized_path
+      )
+
+    assert {:ok, %{status: :input_superseded_refresh, actor_event: refreshed}} =
+             Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+
+    assert refreshed.id == input.id
+    assert refreshed.available_at == DateTime.add(second_observed_at, 4, :second)
+
+    second_materialized_at = DateTime.add(materialized_at, 100, :millisecond)
+    second_materialized_path = "/agents/#{agent.uid}/user-files/inbox/chart.png"
+
+    second_materialized =
+      second_pending
+      |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+      |> put_in(
+        [:attachments, Access.at(0), :agent_computer_path],
+        second_materialized_path
+      )
+
+    assert {:ok, %{status: :input_superseded_refresh, actor_event: refreshed}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "bot",
+               second_materialized,
+               now: second_materialized_at
+             )
+
+    assert refreshed.available_at == second_materialized_at
+
+    assert [
+             %{
+               "agent_computer_path" => ^materialized_path,
+               "provider_ref" => "lark:file:report"
+             },
+             %{
+               "agent_computer_path" => ^second_materialized_path,
+               "provider_ref" => "lark:image:chart"
+             }
+           ] =
+             get_in(refreshed.payload, ["data", "entry", "attachments"])
+             |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             process_ready_events_once(
+               now: second_materialized_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, retry_envelope}
+    retried_event = turn_start_payload!(retry_envelope).actor_event
+    assert retried_event.actor_event_id == input.id
+
+    assert [
+             %{
+               "agent_computer_path" => ^materialized_path
+             },
+             %{
+               "agent_computer_path" => ^second_materialized_path
+             }
+           ] =
+             retried_event.payload_json
+             |> decoded_json_bytes()
+             |> get_in(["data", "entry", "attachments"])
+             |> Enum.map(&Map.take(&1, ["agent_computer_path"]))
+  end
+
+  test "a tool call guards the active turn and queues the attachment as the next turn" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{input: input, generating: generating} =
+      start_accepted_aigateway_run(agent.uid, "Send the report", @base_time)
+
+    assert {:ok, tool_call_response} =
+             StatefulResponses.commit_complete(generating, [
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-send-report",
+                 "name" => "send_report",
+                 "arguments" => ~s({"channel":"finance"})
+               }
+             ])
+
+    observed_at = DateTime.add(@base_time, 2, :second)
+
+    pending =
+      group_entry(%{
+        source_event_id: "guarded-supplement-file",
+        source_entry_id: "guarded-supplement-file",
+        text: nil,
+        attachments: [
+          %{
+            provider_ref: "lark:file:guarded-report",
+            source_message_id: "guarded-supplement-file",
+            resource_type: "file",
+            name: "report.pdf"
+          }
+        ],
+        metadata: %{
+          "attachment_materialization" => %{
+            "state" => "pending",
+            "observed_at" => DateTime.to_iso8601(observed_at)
+          }
+        }
+      })
+
+    assert {:ok,
+            %{
+              status: :accepted,
+              input_supersession_fallback: :external_side_effect_guard,
+              inbound_batch: pending_batch
+            }} =
+             Ingress.emit_entry(agent.uid, "bot", pending, now: observed_at)
+
+    assert pending_batch.mode == "addressed"
+    assert Repo.get!(Message, tool_call_response.id).status == "complete"
+    refute_receive {:actor_lane, _retry_control}, 50
+
+    materialized_at = DateTime.add(observed_at, 1, :second)
+
+    materialized =
+      pending
+      |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+      |> put_in(
+        [:attachments, Access.at(0), :agent_computer_path],
+        "/agents/#{agent.uid}/user-files/inbox/guarded-report.pdf"
+      )
+
+    assert {:ok, %{status: :accepted, inbound_batch: ready_batch}} =
+             Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+
+    assert ready_batch.id == pending_batch.id
+
+    assert {:ok, [%{actor_event: next_input}]} =
+             Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
+               now: ready_batch.available_at
+             )
+
+    assert next_input.id != input.id
+    assert next_input.type == "im.message.addressed"
+    assert next_input.source_entry_id == "guarded-supplement-file"
+  end
+
+  test "another group member's attachment does not supersede the active request" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{generating: generating} =
+      start_accepted_aigateway_run(agent.uid, "Inspect the report", @base_time)
+
+    observed_at = DateTime.add(@base_time, 2, :second)
+
+    assert {:ok, %{status: :ignored, inbound_batch: batch}} =
+             Ingress.emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{
+                 source_event_id: "bob-unrelated-file",
+                 source_entry_id: "bob-unrelated-file",
+                 author: %{
+                   principal_uid: "bob",
+                   id: "provider-bob",
+                   display_name: "Bob"
+                 },
+                 text: nil,
+                 attachments: [
+                   %{
+                     provider_ref: "lark:file:bob",
+                     source_message_id: "bob-unrelated-file",
+                     resource_type: "file"
+                   }
+                 ],
+                 metadata: %{
+                   "attachment_materialization" => %{
+                     "state" => "pending",
+                     "observed_at" => DateTime.to_iso8601(observed_at)
+                   }
+                 }
+               }),
+               now: observed_at
+             )
+
+    assert batch.mode == "neutral"
+    assert Repo.get!(Message, generating.id).status == "generating"
+    refute_receive {:actor_lane, _retry_control}, 50
+  end
+
+  test "a completion that commits first makes the observed attachment the next turn" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    %{input: input, generating: generating, turn_ref: turn_ref} =
+      start_accepted_aigateway_run(agent.uid, "Inspect the report", @base_time)
+
+    completed_response = complete_aigateway_run(generating, turn_ref)
+    completed_event = Repo.get!(ActorEvent, input.id)
+    observed_at = DateTime.add(completed_event.completed_at, -1, :millisecond)
+    received_at = DateTime.add(completed_event.completed_at, 1, :millisecond)
+
+    assert {:ok,
+            %{
+              status: :accepted,
+              input_supersession_fallback: :completion_won,
+              inbound_batch: next_batch
+            }} =
+             Ingress.emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{
+                 source_event_id: "completion-won-file",
+                 source_entry_id: "completion-won-file",
+                 text: nil,
+                 attachments: [
+                   %{
+                     provider_ref: "lark:file:completion-won",
+                     source_message_id: "completion-won-file",
+                     resource_type: "file"
+                   }
+                 ],
+                 metadata: %{
+                   "attachment_materialization" => %{
+                     "state" => "pending",
+                     "observed_at" => DateTime.to_iso8601(observed_at)
+                   }
+                 }
+               }),
+               now: received_at
+             )
+
+    assert next_batch.mode == "addressed"
+    assert Repo.get!(Message, completed_response.id).status == "complete"
+    refute_receive {:actor_lane, _retry_control}, 50
   end
 
   defp start_accepted_aigateway_run(agent_uid, text, now, opts \\ []) do

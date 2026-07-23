@@ -15,8 +15,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   Usage:
 
-      MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider
+      MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=available
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter
+      MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter --cases=openrouter.image_generation_gemini_generate_and_edit
       MIX_ENV=test mix run ../../tools/e2e/ai_gateway_real_provider_e2e.exs -- --list
 
   Provider names are `openrouter`, `jina`, `google`, `alibaba_cn`,
@@ -49,7 +50,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   @openrouter_llm_model "z-ai/glm-5.2"
   @openrouter_vision_model "google/gemini-3.1-flash-lite"
-  @openrouter_gemini_image_model "google/gemini-3.1-flash-lite-image"
+  @openrouter_gemini_image_model "google/gemini-3.1-flash-image"
   @openrouter_gpt_image_model "openai/gpt-image-2"
   @openrouter_embedding_model "qwen/qwen3-embedding-4b"
   @openrouter_rerank_model "cohere/rerank-4-fast"
@@ -83,7 +84,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
         setup = setup_runtime(providers, credentials)
         image = deterministic_image_data_url()
-        cases = cases(setup, image)
+        cases = setup |> cases(image) |> selected_cases(argv)
 
         require!(cases != [], "no real-provider cases selected")
 
@@ -100,9 +101,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       --list                       Prints case names without reading credentials.
       --providers=a,b              Runs selected provider groups.
       --providers=available        Runs provider groups whose API keys are present.
+      --cases=a,b                  Runs selected exact case names.
 
     Environment:
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter LLM, embedding, and rerank
+      AIGATEWAY_E2E_IMAGE_PATH                    Optional local PNG, JPEG, or WebP input
       JINA_API_KEY                                Jina embeddings and rerank
       GOOGLE_AI_STUDIO_API_KEY                    Google AI Studio OpenAI-compatible API
       DASHSCOPE_API_KEY or ALIBABA_CN_API_KEY     Alibaba Cloud DashScope compatible API
@@ -138,6 +141,29 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         |> String.split(",", trim: true)
         |> Enum.map(&String.trim/1)
         |> Enum.map(&provider_name!/1)
+    end
+  end
+
+  defp selected_cases(cases, argv) do
+    case Enum.find(argv, &String.starts_with?(&1, "--cases=")) do
+      nil ->
+        cases
+
+      "--cases=" <> csv ->
+        selected_names =
+          csv
+          |> String.split(",", trim: true)
+          |> Enum.map(&String.trim/1)
+
+        available_names = Enum.map(cases, &elem(&1, 0))
+        unknown_names = selected_names -- available_names
+
+        require!(
+          unknown_names == [],
+          "unknown or unavailable cases: #{Enum.join(unknown_names, ", ")}"
+        )
+
+        Enum.filter(cases, &(elem(&1, 0) in selected_names))
     end
   end
 
@@ -454,6 +480,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       {"openrouter.llm_function_call", fn -> case_llm_function_call(agent) end},
       {"openrouter.llm_multimodal",
        fn -> case_llm_multimodal(agent, "vision_fallback", image) end},
+      {"openrouter.llm_tool_output_image",
+       fn -> case_llm_tool_output_image(agent, "vision_fallback", image) end},
       {"openrouter.image_generation_gemini_generate_and_edit",
        fn -> case_image_generation_generate_and_edit(agent, gemini_image_model) end},
       {"openrouter.image_generation_gemini_buffered_to_sse",
@@ -755,6 +783,58 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           }
         ],
         "max_output_tokens" => 64,
+        "temperature" => 0
+      })
+
+    response.body
+    |> summarize_llm_response()
+    |> Map.put(:image_source, image.source)
+    |> Map.put(:image_bytes, image.bytes)
+  end
+
+  defp case_llm_tool_output_image(agent, model, image) do
+    {:ok, response} =
+      AIGateway.create_response(agent.uid, %{
+        "model" => model,
+        "input" => [
+          %{
+            "role" => "user",
+            "content" => "Use the image tool, then describe its result in one short sentence."
+          },
+          %{
+            "type" => "function_call",
+            "call_id" => "call_e2e_image",
+            "name" => "view_image",
+            "arguments" => ~s({"path":"/tmp/e2e-image.png"})
+          },
+          %{
+            "type" => "function_call_output",
+            "call_id" => "call_e2e_image",
+            "output" => [
+              %{"type" => "input_image", "image_url" => image.data_url}
+            ]
+          },
+          %{
+            "role" => "user",
+            "content" => "Describe the image result in one short sentence."
+          }
+        ],
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "view_image",
+            "description" => "Shows one local image.",
+            "parameters" => %{
+              "type" => "object",
+              "additionalProperties" => false,
+              "required" => ["path"],
+              "properties" => %{"path" => %{"type" => "string"}}
+            },
+            "strict" => true
+          }
+        ],
+        "tool_choice" => "none",
+        "max_output_tokens" => 128,
         "temperature" => 0
       })
 
@@ -1416,18 +1496,41 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp embedding_dimensions(_value), do: 0
 
   defp deterministic_image_data_url do
-    # A tiny generated image avoids depending on local Downloads contents. Some
-    # multimodal providers reject 1x1 images, so keep this above common minimums.
-    data =
-      Base.decode64!(
-        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFklEQVR42mP4TyFgGDVg1IBRA4aLAQBdePwurSGpXgAAAABJRU5ErkJggg=="
-      )
+    case System.get_env("AIGATEWAY_E2E_IMAGE_PATH") do
+      path when is_binary(path) and path != "" ->
+        data = File.read!(path)
+        media_type = image_media_type!(path)
 
-    %{
-      bytes: byte_size(data),
-      data_url: "data:image/png;base64,#{Base.encode64(data)}",
-      source: "generated-16x16-png"
-    }
+        %{
+          bytes: byte_size(data),
+          data_url: "data:#{media_type};base64,#{Base.encode64(data)}",
+          source: "file:#{Path.basename(path)}"
+        }
+
+      _path ->
+        # A tiny generated image avoids depending on local Downloads contents.
+        # Some multimodal providers reject 1x1 images, so keep this above common
+        # minimums.
+        data =
+          Base.decode64!(
+            "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFklEQVR42mP4TyFgGDVg1IBRA4aLAQBdePwurSGpXgAAAABJRU5ErkJggg=="
+          )
+
+        %{
+          bytes: byte_size(data),
+          data_url: "data:image/png;base64,#{Base.encode64(data)}",
+          source: "generated-16x16-png"
+        }
+    end
+  end
+
+  defp image_media_type!(path) do
+    case path |> Path.extname() |> String.downcase() do
+      ".png" -> "image/png"
+      extension when extension in [".jpg", ".jpeg"] -> "image/jpeg"
+      ".webp" -> "image/webp"
+      extension -> raise "unsupported AIGATEWAY_E2E_IMAGE_PATH extension: #{extension}"
+    end
   end
 
   defp append_record(record) do

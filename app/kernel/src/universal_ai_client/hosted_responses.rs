@@ -2309,6 +2309,8 @@ mod tests {
 
             assert_eq!(public["type"], expected_type);
             assert_eq!(public["code"], expected_code);
+            assert_eq!(public["status"], status);
+            assert_eq!(public["details_json"]["provider_status"], status);
             assert!(error.provider_body_excerpt.is_none());
             assert!(!public.to_string().contains("provider detail"));
             assert!(!public.to_string().contains("credential detail"));

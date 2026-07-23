@@ -119,6 +119,15 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   end
 
   @doc false
+  @spec input_superseded(Ecto.UUID.t()) :: :ok
+  def input_superseded(actor_event_id) when is_binary(actor_event_id) do
+    case Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event_id) do
+      [{pid, _value}] -> GenServer.cast(pid, :input_superseded)
+      [] -> :ok
+    end
+  end
+
+  @doc false
   @spec presentation_event(Ecto.UUID.t(), map()) :: :ok
   def presentation_event(actor_event_id, event)
       when is_binary(actor_event_id) and is_map(event) do
@@ -498,7 +507,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       # Worker phase and tool events arrive before a quiet scheduled turn can
       # choose `<silent_success/>`. Do not let those events open a visible card.
       silent_rich_pending:
-        rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0
+        rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0,
+      input_superseded: false
     }
 
     {:ok, state}
@@ -516,6 +526,10 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       dirty: false
     })
     |> finish_rich_stop()
+  end
+
+  def handle_cast(:input_superseded, state) do
+    {:noreply, show_input_superseded(state)}
   end
 
   def handle_cast(:cleanup_thought, %{reply_preview_adapter: %ReplyPreviewAdapter{}} = state) do
@@ -626,16 +640,28 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     delta = map_value(payload, :text)
 
     if is_binary(delta) do
+      input_superseded? = state.input_superseded
       new_buffer = state.text_buffer <> delta
       preview_text = AIReplyText.normalize_visible_text(new_buffer)
-      state = %{state | text_buffer: new_buffer, preview_text: preview_text}
+
+      state = %{
+        state
+        | text_buffer: new_buffer,
+          preview_text: preview_text,
+          input_superseded: false
+      }
 
       if state.silent_success_allowed and
            AIReplyText.silent_success_marker_prefix?(new_buffer) do
         {:noreply, state}
       else
         if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) do
-          presentation = ReplyPresentation.append_answer(state.presentation, delta)
+          presentation =
+            if input_superseded? do
+              ReplyPresentation.replace_answer(state.presentation, delta)
+            else
+              ReplyPresentation.append_answer(state.presentation, delta)
+            end
 
           {:noreply,
            state
@@ -733,7 +759,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     state = Map.merge(state, %{text_buffer: "", dirty: false})
 
     if match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) and
-         not state.silent_rich_pending do
+         not state.silent_rich_pending and not state.input_superseded do
       presentation =
         state.presentation
         |> ReplyPresentation.replace_answer("")
@@ -742,6 +768,47 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       mark_rich_dirty(state, presentation)
     else
       state
+    end
+  end
+
+  defp show_input_superseded(state) do
+    text = I18n.t("signals_gateway.reply.input_superseded")
+
+    cond do
+      match?(%ReplyPreviewAdapter{}, state.reply_preview_adapter) ->
+        presentation =
+          state.presentation
+          |> ReplyPresentation.replace_answer(text)
+          |> Map.delete("thought")
+
+        state
+        |> Map.put(:input_superseded, true)
+        |> Map.put(:silent_rich_pending, false)
+        |> mark_rich_dirty(presentation)
+        |> maybe_start_rich_sync()
+
+      state.preview_established and is_binary(state.preview_entry_id) ->
+        {edit_sequence, edit_key} = next_edit_key(state, "input-superseded")
+
+        case edit_preview(state.actor_event, state.preview_entry_id, text, edit_key) do
+          :ok ->
+            %{
+              state
+              | text_buffer: "",
+                preview_text: text,
+                dirty: false,
+                edit_sequence: edit_sequence,
+                input_superseded: true
+            }
+
+          {:error, _reason} ->
+            state
+            |> Map.put(:input_superseded, true)
+            |> disable_preview_after_edit_failure(edit_sequence)
+        end
+
+      true ->
+        %{state | input_superseded: true}
     end
   end
 

@@ -55,6 +55,22 @@ working directory. The file owns the cross-hypothesis comparison. Keep source
 content in the source notes and narrative conclusions in the report instead of
 duplicating them in the matrix.
 
+Use these structural fields in the matrix:
+
+- `hypotheses` is a list in which each hypothesis has a non-empty, unique `id`;
+- `rows` is a list in which each row has a non-empty, unique `id`;
+- each row has `source_paths`, a non-empty `analytical_basis`, or both;
+- `source_paths` contains only project-relative files inside `./sources`;
+- each row has a `relations` map with exactly one entry for every live
+  hypothesis ID;
+- each relation entry has `relation` and a non-empty `rationale`; and
+- `judgment.hypothesis_refs` lists only live hypothesis IDs.
+
+The judgment uses a non-empty `confidence_basis` string and a
+`confidence_limits` list whose entries are non-empty strings. Do not add another
+key that contains `confidence`. The authoritative report owns the final
+confidence statement.
+
 Use one active row for one proposition that can be assessed against every live
 hypothesis. A row can contain an observation, a reported claim, an expected but
 absent signal, an analytical assumption, a logical argument, or a base rate.
@@ -85,14 +101,27 @@ The inventory is ready when every active row states one assessable proposition,
 preserves its source or analytical status, and exposes every known dependency
 or cutoff issue that could change its weight.
 
+Before a verifier reads the matrix, run:
+
+```bash
+bun tools/ach_check.ts
+```
+
+Run it again after a later correction changes the hypotheses, rows, relations,
+source paths, or judgment references. The checker detects only structural
+omissions and unsafe or missing local source paths. It does not judge whether a
+hypothesis is plausible or comparable, whether a proposition is true, whether a
+source supports it, whether a relation or rationale is correct, or whether the
+judgment follows.
+
 ## Compare for diagnosticity
 
 For each row, ask `P(E | H)`: if this hypothesis were true, how expected would
 this information be? This is different from asking whether the information
 proves the hypothesis or directly estimating `P(H | E)`.
 
-Use a small qualitative vocabulary consistently. The following relations are
-useful when each one includes a brief rationale:
+Use only the following qualitative relations, and include a brief rationale for
+each one:
 
 - `expected`: the hypothesis specifically predicts the information;
 - `compatible`: the information is possible under the hypothesis but is not a
@@ -146,30 +175,36 @@ The provisional judgment must state:
 Choose further research for its ability to distinguish the remaining
 hypotheses, not for the amount of information it can add.
 
-## Verify the matrix with a blind reconstruction
+## Verify with progressive disclosure
 
-Before you rely on the matrix in the report, create one context-isolated
-subagent. Use two passes so that the matrix cannot anchor the verifier's first
-assessment.
+This verifier protocol replaces the default verifier protocol in `AGENTS.md`.
+Before you rely on the matrix in the report, create one verifier subagent with
+no inherited conversation turns. Keep the same verifier for all three passes so
+it can compare its independent reconstruction with the later material.
 
-In the first pass, give the verifier only:
+### Pass A: Reconstruct from sources
+
+Give the verifier only:
 
 - the user's research purpose and the exact ACH question;
 - the information cutoff and forecast horizon, when applicable; and
 - access to `./sources`, with instructions to determine which notes are
   relevant to the ACH question.
 
+During this pass, instruct the verifier to read only files under `./sources`.
 Do not expose `competing-hypotheses.yaml`, the report, your preferred
-hypothesis, or your reasoning during this pass. Ask the verifier to reconstruct
-the comparison independently. It must identify the plausible hypotheses, the
-most diagnostic information, the expected relation of each item to each
-hypothesis, the linchpins, and its own tentative relative assessment. It must
-also identify expected but absent signals, hidden assumptions, source
-dependencies, cutoff leakage, possible concealment or deception, and the next
-observations that would best distinguish the alternatives.
+hypothesis, or your reasoning. Ask the verifier to reconstruct the comparison
+independently. It must identify the plausible hypotheses, the most diagnostic
+information, the expected relation of each item to each hypothesis, the
+linchpins, and its own tentative relative assessment. It must also identify
+expected but absent signals, hidden assumptions, source dependencies, cutoff
+leakage, possible concealment or deception, and the next observations that
+would best distinguish the alternatives.
 
-After the verifier records its independent reconstruction, give the same
-subagent `competing-hypotheses.yaml`. Ask it to compare the two analyses, trace
+### Pass B: Compare the matrix
+
+After the verifier records its independent reconstruction, give it
+`competing-hypotheses.yaml`. Ask it to compare the two analyses, trace
 source-backed statements to their source notes, inspect the original material
 for every linchpin or disputed row, and report specific defects and their
 reasons. It must check for:
@@ -187,12 +222,28 @@ reasons. It must check for:
 - material differences between its independent assessment and the matrix's
   judgment.
 
+Correct the matrix when an objection is valid. When a material disagreement
+remains, keep it visible in the affected hypothesis, row, or judgment with the
+reason. Rerun `bun tools/ach_check.ts` after a structural correction.
+
+### Pass C: Verify the report
+
+After all Pass B discrepancies have been handled, write or revise
+`report/report.md` from the matrix. Give the same verifier the report and the
+matrix. Ask it to check that the report faithfully presents the relative
+assessment, diagnostic information, counterevidence, unresolved issues,
+confidence basis, and confidence limits without adding a conflicting judgment.
+It must also check the report's source citations, distinctions between facts,
+opinions, and hypotheses, information value, internal logic, causal direction,
+and plausible alternative explanations.
+
+If a valid Pass C objection changes the substantive analysis, update the matrix
+first and then the report. Repeat Pass C for the changed material.
+
 The verifier supplies an adversarial comparison; it does not own the final
-judgment. Correct the matrix when an objection is valid. When a material
-disagreement remains, keep it visible in the affected hypothesis, row, or
-judgment with the reason. Do not create a separate verification state file.
-Verification is complete only when every material discrepancy has either
-changed the matrix or remains visible with a reason.
+judgment. Do not create a separate verification state file. Verification is
+complete only when every material discrepancy from all three passes has changed
+the affected artifact or remains visible with a reason.
 
 ## Keep Bayesian claims separate
 

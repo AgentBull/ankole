@@ -1,0 +1,28 @@
+Ankole is installed.
+
+{{- if .Values.ingress.enabled }}
+
+Open https://{{ (first .Values.ingress.hosts).host }}/setup
+{{- else }}
+
+Forward the control-plane port:
+
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "ankole-agent.controlPlaneName" . }} 4000:{{ .Values.controlPlane.service.port }}
+
+Production setup cookies require HTTPS. Use an HTTPS Ingress before you complete
+the setup flow.
+{{- end }}
+
+Read the first setup activation code:
+
+  kubectl -n {{ .Release.Namespace }} logs deployment/{{ include "ankole-agent.controlPlaneName" . }} -c control-plane | grep "SETUP ACTIVATION CODE"
+
+Check the rollout:
+
+  kubectl -n {{ .Release.Namespace }} get pods
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "ankole-agent.controlPlaneName" . }}
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "ankole-agent.workerName" . }}
+
+The default main-latest image tags move after a verified GitHub image-pair
+publish. Pin both Ankole image digests together before a controlled production
+upgrade.

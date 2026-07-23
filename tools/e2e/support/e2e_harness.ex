@@ -144,10 +144,8 @@ defmodule Ankole.E2E.Harness do
     old_env =
       Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
 
-    # The Docker worker cannot reach the host's localhost; the broker setting
-    # points it at the real Phoenix endpoint exposed on the Docker host gateway.
     Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
-      worker_facing_base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
+      base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
     )
 
     on_exit(fn ->
@@ -239,8 +237,9 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Starts the RuntimeFabric router, the worker-facing AIGateway HTTP server, and
-  one admitted Docker worker. Returns `%{container:, worker_id:, endpoint:, worker_auth_key:}`.
+  Starts the RuntimeFabric router, an AIGateway HTTP server that the Worker can
+  reach, and one admitted Docker worker. Returns
+  `%{container:, worker_id:, endpoint:, worker_auth_key:}`.
   """
   def start_worker!(prefix) do
     worker_id = "#{prefix}-worker-#{System.unique_integer([:positive])}"

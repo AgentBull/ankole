@@ -1,0 +1,52 @@
+---
+import type { MarkdownHeading } from 'astro'
+import DocsPager from '../components/docs/DocsPager.astro'
+import DocsSidebar from '../components/docs/DocsSidebar.astro'
+import DocsToc from '../components/docs/DocsToc.astro'
+import { getSiteTitle } from '../consts'
+import type { Locale } from '../i18n/config'
+import type { DocNavItem, DocsSection } from '../lib/docs-model'
+import BaseLayout from './BaseLayout.astro'
+
+interface Props {
+	lang: Locale
+	title: string
+	description: string
+	/** Path after /{lang}/, used for canonical and hreflang links. */
+	path: string
+	headings: MarkdownHeading[]
+	sections: DocsSection[]
+	currentSlug: string
+	prev?: DocNavItem
+	next?: DocNavItem
+	fallbackNotice?: string
+}
+
+const { lang, title, description, path, headings, sections, currentSlug, prev, next, fallbackNotice } = Astro.props
+---
+
+<BaseLayout lang={lang} title={`${title} · ${getSiteTitle(lang)}`} description={description} path={path}>
+	<div class="mx-auto max-w-7xl px-4 sm:px-6">
+		<div class="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[16rem_minmax(0,1fr)_14rem]">
+			<DocsSidebar lang={lang} sections={sections} currentSlug={currentSlug} />
+			<div class="min-w-0 py-8 lg:py-10">
+				{
+					fallbackNotice && (
+						<div
+							role="note"
+							class="mb-8 border border-brand-60/40 bg-brand-60/5 px-4 py-3 text-sm text-foreground dark:border-brand-40/40 dark:bg-brand-40/10"
+						>
+							{fallbackNotice}
+						</div>
+					)
+				}
+				<article class="prose max-w-none dark:prose-invert">
+					<h1>{title}</h1>
+					<slot />
+				</article>
+				<DocsPager lang={lang} prev={prev} next={next} />
+			</div>
+			<DocsToc lang={lang} headings={headings} />
+		</div>
+	</div>
+</BaseLayout>

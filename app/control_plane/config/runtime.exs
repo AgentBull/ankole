@@ -87,13 +87,12 @@ config :ankole, AnkoleWeb.Endpoint,
   http: [port: port],
   secret_key_base: Ankole.Config.Bootstrap.endpoint_secret_key_base!()
 
-case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL") do
+case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_BASE_URL") do
+  base_url when is_binary(base_url) ->
+    config :ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, base_url: base_url
+
   nil ->
     :ok
-
-  worker_facing_base_url ->
-    config :ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
-      worker_facing_base_url: worker_facing_base_url
 end
 
 if config_env() == :prod do
@@ -123,36 +122,4 @@ if config_env() == :prod do
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ]
-
-  # ## SSL Support
-  #
-  # To get SSL working, you will need to add the `https` key
-  # to your endpoint configuration:
-  #
-  #     config :ankole, AnkoleWeb.Endpoint,
-  #       https: [
-  #         ...,
-  #         port: 443,
-  #         cipher_suite: :strong,
-  #         keyfile: System.get_env("SOME_APP_SSL_KEY_PATH"),
-  #         certfile: System.get_env("SOME_APP_SSL_CERT_PATH")
-  #       ]
-  #
-  # The `cipher_suite` is set to `:strong` to support only the
-  # latest and more secure SSL ciphers. This means old browsers
-  # and clients may not be supported. You can set it to
-  # `:compatible` for wider support.
-  #
-  # `:keyfile` and `:certfile` expect an absolute path to the key
-  # and cert in disk or a relative path inside priv, for example
-  # "priv/ssl/server.key". For all supported SSL configuration
-  # options, see https://hexdocs.pm/plug/Plug.SSL.html#configure/1
-  #
-  # We also recommend setting `force_ssl` in your config/prod.exs,
-  # ensuring no data is ever sent via http, always redirecting to https:
-  #
-  #     config :ankole, AnkoleWeb.Endpoint,
-  #       force_ssl: [hsts: true]
-  #
-  # Check `Plug.SSL` for all available options in `force_ssl`.
 end

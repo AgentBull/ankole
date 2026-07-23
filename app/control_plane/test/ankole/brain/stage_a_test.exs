@@ -10,6 +10,7 @@ defmodule Ankole.Brain.StageATest do
   alias Ankole.Brain
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming.StageA
+  alias Ankole.Brain.Jobs.EmbedPendingEpisodes
   alias Ankole.Brain.Schemas.Cursor
   alias Ankole.Brain.Schemas.Episode
   alias Ankole.Repo
@@ -256,6 +257,12 @@ defmodule Ankole.Brain.StageATest do
              episode_snapshot!(failed.id)
 
     assert is_binary(error)
+  end
+
+  test "disabled episode embedding is unavailable without crashing its job" do
+    assert {:unavailable, reason} = Brain.embed_pending_episodes(20)
+    assert reason =~ "brain_embedding_disabled"
+    assert :ok = EmbedPendingEpisodes.perform(%Oban.Job{args: %{"limit" => 20}})
   end
 
   test "summarize_channel rejects a resolution source outside the supplied window" do

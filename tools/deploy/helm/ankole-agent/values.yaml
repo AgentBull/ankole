@@ -1,0 +1,145 @@
+nameOverride: ""
+fullnameOverride: ""
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+secrets:
+  # Use an existing Secret instead of values below. See the README for its keys.
+  existingSecret: ""
+  # Empty values are generated on install and preserved during upgrades.
+  ankoleSecretBase: ""
+  workerAuthKey: ""
+  # Required when postgresql.enabled is false and existingSecret is empty.
+  databaseURL: ""
+  # Used only by the bundled PostgreSQL service.
+  postgresqlPassword: ""
+
+controlPlane:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/agentbull/ankole-agent-control-plane
+    tag: main-latest
+    digest: ""
+    pullPolicy: Always
+  publicHost: ankole.example.com
+  port: 4000
+  migration:
+    enabled: true
+  extraEnv:
+    PHX_SERVER: "true"
+    POOL_SIZE: "10"
+    ANKOLE_LOG_LEVEL: info
+    ANKOLE_LOG_FORMAT: json
+    ANKOLE_LIBRARY_ROOT: /app/app/library
+  service:
+    type: ClusterIP
+    port: 80
+    annotations: {}
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    runAsNonRoot: true
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+runtimeFabric:
+  port: 6010
+  bindEndpoint: tcp://0.0.0.0:6010
+
+worker:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/agentbull/ankole-agent-computer-worker
+    tag: main-latest
+    digest: ""
+    pullPolicy: Always
+  extraEnv:
+    ANKOLE_LOG_LEVEL: info
+    ANKOLE_LOG_FORMAT: json
+    ANKOLE_MAX_CONCURRENT_TURNS: "9"
+  podAnnotations: {}
+  podSecurityContext: {}
+  # Agent Computer needs these settings for strong bubblewrap isolation.
+  securityContext:
+    allowPrivilegeEscalation: true
+    capabilities:
+      add:
+        - SYS_ADMIN
+    procMount: Unmasked
+    seccompProfile:
+      type: Unconfined
+  agents:
+    persistence:
+      existingClaim: ""
+      storageClass: ""
+      accessModes:
+        - ReadWriteMany
+      size: 100Gi
+      annotations: {}
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+postgresql:
+  enabled: true
+  image:
+    repository: ghcr.io/agentbull/ankole-postgres-for-ankole
+    tag: main-latest
+    digest: ""
+    pullPolicy: Always
+  auth:
+    username: ankole
+    database: ankole
+  port: 5432
+  maxConnections: 300
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 20Gi
+    annotations: {}
+  podAnnotations: {}
+  podSecurityContext:
+    fsGroup: 26
+    fsGroupChangePolicy: OnRootMismatch
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ankole.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Example:
+  # tls:
+  #   - secretName: ankole-tls
+  #     hosts:
+  #       - ankole.example.com

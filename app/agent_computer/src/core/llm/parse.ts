@@ -153,6 +153,7 @@ export function usageFromResponse(usage: unknown): ModelUsage | undefined {
 export function terminalErrorMessage(response: JSONObject | undefined, frame: JSONObject): string | undefined {
   const error = recordValue(response?.error) ?? recordValue(frame.error)
   const status =
+    numberValue(error?.provider_status) ??
     numberValue(error?.status) ??
     numberValue(error?.status_code) ??
     numberValue(error?.http_status) ??

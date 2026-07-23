@@ -394,6 +394,36 @@ defmodule Ankole.Brain.Dreaming.StageB do
     }
   end
 
+  defp retry_guidance({:invalid_dreaming_source_ref, %{store_key: store_key, index: index}})
+       when is_binary(store_key) and is_integer(index) do
+    %{
+      store_key =>
+        "The previous response was rejected at operations[#{index}] because its body used a " <>
+          "source reference that was not present in this request. Use only material_N references " <>
+          "shown in materials or source_N references shown in current_knowledge, and return a " <>
+          "corrected complete plan."
+    }
+  end
+
+  defp retry_guidance(
+         {:dreaming_store_boundary_violation,
+          %{
+            source_store_key: source_store_key,
+            target_store_key: target_store_key,
+            operation: operation,
+            index: index
+          }}
+       )
+       when is_binary(source_store_key) and is_integer(index) do
+    %{
+      source_store_key =>
+        "The previous response was rejected at operations[#{index}]. The #{operation} operation " <>
+          "tried to write store #{inspect(target_store_key)}, which is not writable for evidence " <>
+          "from store #{inspect(source_store_key)}. Use only the writable stores described in " <>
+          "this request and return a corrected complete plan."
+    }
+  end
+
   defp retry_guidance(_reason), do: %{}
 
   defp operation_requirement("create_entry"),
@@ -436,20 +466,22 @@ defmodule Ankole.Brain.Dreaming.StageB do
   defp validate_store_operations(plan, source_store_key, writable_store_keys) do
     plan.batches
     |> Enum.flat_map(& &1.operations)
-    |> Enum.find(fn operation ->
+    |> Enum.with_index()
+    |> Enum.find(fn {operation, _index} ->
       operation["_brain_store_key"] not in writable_store_keys
     end)
     |> case do
       nil ->
         :ok
 
-      operation ->
+      {operation, index} ->
         {:error,
          {:dreaming_store_boundary_violation,
           %{
             source_store_key: source_store_key,
             target_store_key: operation["_brain_store_key"],
-            operation: operation["operation"]
+            operation: operation["operation"],
+            index: index
           }}}
     end
   end
@@ -1470,6 +1502,12 @@ defmodule Ankole.Brain.Dreaming.StageB do
 
         :error ->
           {:halt, {:error, invalid_operation(store_key, index, operation)}}
+
+        {:error, :invalid_dreaming_source_ref} ->
+          {:halt,
+           {:error,
+            {:invalid_dreaming_source_ref,
+             %{store_key: store_key, index: index, operation: operation["operation"]}}}}
 
         {:error, _reason} = error ->
           {:halt, error}

@@ -33,7 +33,7 @@ import {
   type ModelTurn,
   type ToolCall
 } from './llm'
-import { isLocallyRetryableLLMError } from './llm-error-classifier'
+import { classifyLLMError, isLocallyRetryableLLMError } from './llm-error-classifier'
 import type { AgentLoopConfig, AgentLoopResult, AgentTool, AgentToolResult, ReplyPresentationEvent } from './types'
 import { contentText, imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText } from './vision'
 
@@ -124,22 +124,44 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       // Call the model.
       modelIterations += 1
+      let modelAttempt = 0
       const result = await withRetry(
         async () => {
+          modelAttempt += 1
+          const startedAt = Date.now()
+          const requestFields = modelCallFields(config, modelIterations, modelAttempt, pendingMessages, tools)
+          config.logger?.info('worker.model_call_started', 'worker model call started', requestFields)
           config.onActivity?.('model_call_start')
-          const result = await modelTurn.call({
-            instructions: config.systemPrompt,
-            messages: pendingMessages,
-            tools: tools as never,
-            hostedTools: config.hostedTools,
-            maxOutputTokens: config.maxTokens,
-            temperature: config.temperature,
-            text: config.text
-          })
-          config.onActivity?.('model_call_done')
-          const terminalError = terminalModelError(result.message)
-          if (terminalError) throw terminalError
-          return result
+          try {
+            const result = await modelTurn.call({
+              instructions: config.systemPrompt,
+              messages: pendingMessages,
+              tools: tools as never,
+              hostedTools: config.hostedTools,
+              maxOutputTokens: config.maxTokens,
+              temperature: config.temperature,
+              text: config.text
+            })
+            config.onActivity?.('model_call_done')
+            const terminalError = terminalModelError(result.message)
+            if (terminalError) throw terminalError
+            config.logger?.info('worker.model_call_completed', 'worker model call completed', {
+              ...requestFields,
+              duration_ms: Date.now() - startedAt,
+              response_id: result.responseID,
+              stop_reason: result.message.stopReason
+            })
+            return result
+          } catch (error) {
+            const retryable = isLocallyRetryableLLMError(error)
+            config.logger?.warning('worker.model_call_failed', 'worker model call failed', {
+              ...requestFields,
+              duration_ms: Date.now() - startedAt,
+              ...modelErrorFields(error),
+              will_retry: modelAttempt < 3 && retryable && !config.abortSignal?.aborted
+            })
+            throw error
+          }
         },
         {
           maxAttempts: 3,
@@ -202,12 +224,44 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       // next model call should anchor to that response id instead of sending the
       // same function_call_output messages again.
       if (toolJournalMessages.length > 0) {
+        let recordAttempt = 0
         const recorded = await withRetry(
-          () => {
+          async () => {
+            recordAttempt += 1
+            const startedAt = Date.now()
+            const recordFields: JSONObject = {
+              actor_event_id: config.stateful.actorEventID,
+              attempt: recordAttempt,
+              tool_result_count: toolJournalMessages.length,
+              complete_actor_event_count: completeActorEventIDs.length
+            }
+
+            config.logger?.info(
+              'worker.tool_results_record_started',
+              'worker tool results record started',
+              recordFields
+            )
             config.onActivity?.('tool_results_record_start')
-            return modelTurn
-              .recordToolResults(toolJournalMessages, { completeActorEventIDs })
-              .finally(() => config.onActivity?.('tool_results_record_done'))
+            try {
+              const result = await modelTurn.recordToolResults(toolJournalMessages, { completeActorEventIDs })
+              config.logger?.info('worker.tool_results_record_completed', 'worker tool results record completed', {
+                ...recordFields,
+                duration_ms: Date.now() - startedAt,
+                response_id: result.responseID
+              })
+              return result
+            } catch (error) {
+              const retryable = isLocallyRetryableLLMError(error)
+              config.logger?.warning('worker.tool_results_record_failed', 'worker tool results record failed', {
+                ...recordFields,
+                duration_ms: Date.now() - startedAt,
+                ...modelErrorFields(error),
+                will_retry: recordAttempt < 3 && retryable && !config.abortSignal?.aborted
+              })
+              throw error
+            } finally {
+              config.onActivity?.('tool_results_record_done')
+            }
           },
           {
             maxAttempts: 3,
@@ -411,6 +465,12 @@ async function executeToolCall(
 
   if (!tool) {
     const message = `Unknown tool: ${toolCall.name}`
+    config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
+      actor_event_id: config.stateful.actorEventID,
+      tool_name: toolCall.name,
+      tool_call_id: toolCall.id,
+      failure_code: 'unknown_tool'
+    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -435,6 +495,12 @@ async function executeToolCall(
     if (validated.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${validated.repair}`)
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
+    config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
+      actor_event_id: config.stateful.actorEventID,
+      tool_name: toolCall.name,
+      tool_call_id: toolCall.id,
+      failure_code: 'invalid_arguments'
+    })
     return {
       toolName: toolCall.name,
       resultMsg: {
@@ -464,6 +530,16 @@ async function executeToolCall(
   let resultText = ''
   let followUpMessages: UserMessage[] = []
   let failure: ExecutedToolCall['failure']
+  const toolStartedAt = Date.now()
+
+  config.logger?.info('worker.tool_call_started', 'worker tool call started', {
+    actor_event_id: config.stateful.actorEventID,
+    tool_name: toolCall.name,
+    tool_call_id: toolCall.id,
+    execution_mode: tool.executionMode,
+    read_only: tool.isReadOnly === true,
+    destructive: tool.isDestructive === true
+  })
 
   try {
     config.onActivity?.(`tool:${toolCall.name}:start`)
@@ -489,6 +565,24 @@ async function executeToolCall(
     config.onActivity?.(`tool:${toolCall.name}:done`)
   }
 
+  const toolLogFields: JSONObject = {
+    actor_event_id: config.stateful.actorEventID,
+    tool_name: toolCall.name,
+    tool_call_id: toolCall.id,
+    duration_ms: Date.now() - toolStartedAt,
+    output_chars: resultText.length,
+    terminate: toolResult.terminate === true
+  }
+
+  if (failure) {
+    config.logger?.warning('worker.tool_call_failed', 'worker tool call failed', {
+      ...toolLogFields,
+      failure_code: 'runtime_error'
+    })
+  } else {
+    config.logger?.info('worker.tool_call_completed', 'worker tool call completed', toolLogFields)
+  }
+
   if (activity) {
     const completedActivity = failure ? activity : completedToolActivity(activity, tool, parsedArgs, toolResult.details)
 
@@ -509,6 +603,48 @@ async function executeToolCall(
     completeActorEventIDs: toolResult.completeActorEventIDs ?? [],
     terminate: toolResult.terminate === true,
     failure
+  }
+}
+
+function modelCallFields(
+  config: AgentLoopConfig,
+  modelIteration: number,
+  attempt: number,
+  messages: Message[],
+  tools: Record<string, unknown> | undefined
+): JSONObject {
+  return {
+    actor_event_id: config.stateful.actorEventID,
+    model: config.model.name,
+    provider: config.model.provider,
+    selector: config.model.selector,
+    model_iteration: modelIteration,
+    attempt,
+    input_message_count: messages.length,
+    tool_count: tools ? Object.keys(tools).length : 0,
+    hosted_tool_count: config.hostedTools?.length ?? 0
+  }
+}
+
+function modelErrorFields(error: unknown): JSONObject {
+  const classification = classifyLLMError(error)
+  if (!error || typeof error !== 'object') {
+    return { error_kind: classification.kind, retryable: classification.retryable }
+  }
+
+  const record = error as { code?: unknown; status?: unknown }
+  const message = error instanceof Error ? error.message : ''
+  const messageStatus = message.match(/\bstatus=(\d{3})\b/)?.[1]
+  const messageCode = message.match(/\bcode=([A-Za-z0-9_.:-]+)\b/)?.[1]
+  const status =
+    typeof record.status === 'number' ? record.status : messageStatus ? Number.parseInt(messageStatus, 10) : undefined
+  const code = typeof record.code === 'string' ? record.code : messageCode
+
+  return {
+    error_kind: classification.kind,
+    retryable: classification.retryable,
+    ...(code ? { error_code: code } : {}),
+    ...(status !== undefined ? { status } : {})
   }
 }
 

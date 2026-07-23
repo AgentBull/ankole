@@ -543,39 +543,23 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert {:ok, card} = Renderer.render(presentation, mode: :terminal)
     actions = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
     assert [%{"width" => "weighted", "elements" => option_elements}] = actions["columns"]
-    buttons = Enum.filter(option_elements, &(&1["tag"] == "button"))
-    button = hd(buttons)
+    assert [operators, executives, long_option] = option_elements
+    assert Enum.all?(option_elements, &(&1["tag"] == "interactive_container"))
+    assert operators["disabled"]
+    assert operators["width"] == "fill"
+    assert operators["has_border"]
+    assert operators["corner_radius"] == "8px"
 
-    button_names = Enum.map(buttons, & &1["name"])
+    assert [
+             %{"text" => %{"content" => "运营人员 (selected)"} = title},
+             %{"text" => %{"content" => "负责日常运行和故障处理的团队。"}}
+           ] = operators["elements"]
 
-    assert button["disabled"]
-    assert button["width"] == "fill"
-    assert button_names == ["operators", "executives", "long-option"]
-    assert length(button_names) == length(Enum.uniq(button_names))
-    assert button["text"]["i18n_content"]["zh_cn"] == "运营人员（已选择）"
+    assert title["i18n_content"]["zh_cn"] == "运营人员（已选择）"
+    assert [%{"text" => %{"content" => "管理层"}}] = executives["elements"]
+    assert [%{"text" => %{"content" => ^long_label}}] = long_option["elements"]
 
-    assert Enum.map(buttons, & &1["text"]["content"]) == [
-             "运营人员 (selected)",
-             "管理层",
-             String.slice(long_label, 0, 39) <> "…"
-           ]
-
-    assert Enum.any?(option_elements, fn
-             %{"tag" => "div", "text" => %{"content" => "运营人员"}} -> true
-             _element -> false
-           end)
-
-    assert Enum.any?(option_elements, fn
-             %{"tag" => "div", "text" => %{"content" => "负责日常运行和故障处理的团队。"}} -> true
-             _element -> false
-           end)
-
-    assert Enum.any?(option_elements, fn
-             %{"tag" => "div", "text" => %{"content" => ^long_label}} -> true
-             _element -> false
-           end)
-
-    assert get_in(button, ["behaviors", Access.at(0)]) == %{
+    assert get_in(operators, ["behaviors", Access.at(0)]) == %{
              "type" => "callback",
              "value" => %{
                "version" => "ankole.interactive_output.action.v1",
@@ -644,6 +628,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert [input, submit] = form["elements"]
     assert input["tag"] == "input"
     assert input["name"] == "clarify-answer"
+    assert input["label"]["i18n_content"]["zh_cn"] == "自定义答案"
+    assert input["placeholder"]["i18n_content"]["zh_cn"] == "请输入你的答案"
     assert input["input_type"] == "multiline_text"
     assert input["width"] == "fill"
     assert input["rows"] == 3
@@ -653,9 +639,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert get_in(input, ["fallback", "text", "i18n_content", "zh_cn"]) =~ "直接发送文字回复"
     assert submit["width"] == "fill"
     assert submit["form_action_type"] == "submit"
+    assert submit["text"]["i18n_content"]["zh_cn"] == "提交答案"
 
-    hint = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "action_hint"))
-    assert hint["text"]["i18n_content"]["zh_cn"] =~ "直接发送文字回复"
+    elements = get_in(card, ["body", "elements"])
+    separator = Enum.find(elements, &(&1["element_id"] == "action_separator"))
+    assert separator["tag"] == "hr"
+    assert element_index(elements, "actions") < element_index(elements, "action_separator")
+    assert element_index(elements, "action_separator") < element_index(elements, "action_form2")
 
     assert get_in(submit, ["behaviors", Access.at(0)]) == %{
              "type" => "callback",
@@ -682,10 +672,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert actions["columns"]
            |> hd()
            |> Map.fetch!("elements")
-           |> Enum.filter(&(&1["tag"] == "button"))
+           |> Enum.filter(&(&1["tag"] == "interactive_container"))
            |> Enum.all?(& &1["disabled"])
 
-    refute Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "action_hint"))
+    refute Enum.any?(
+             get_in(card, ["body", "elements"]),
+             &(&1["element_id"] == "action_separator")
+           )
 
     state = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "state"))
     assert state["text"]["content"] == "No longer active because the conversation continued"

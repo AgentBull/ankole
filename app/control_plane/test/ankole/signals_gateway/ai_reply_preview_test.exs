@@ -219,6 +219,39 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert edit.target_source_entry_id == state.preview_entry_id
   end
 
+  test "input supersession edits the same preview and replaces the status on new output" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("input-superseded")
+
+    %{response: response, pid: pid} =
+      start_dispatched_preview(subject.uid, actor_event)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "obsolete partial"})
+
+    assert_receive {:mock_provider_outbox_sent, initial}
+    assert initial.operation == :reply
+    preview_entry_id = :sys.get_state(pid).preview_entry_id
+
+    assert :ok = AIReplyPreview.input_superseded(actor_event.id)
+
+    assert_receive {:mock_provider_outbox_sent, superseded_edit}
+    assert superseded_edit.operation == :edit
+    assert superseded_edit.target_source_entry_id == preview_entry_id
+
+    assert superseded_edit.fallback_visible_text ==
+             Ankole.I18n.t("signals_gateway.reply.input_superseded")
+
+    assert :ok = Events.publish(response, :response_started, %{})
+    assert :sys.get_state(pid).input_superseded
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "replacement answer"})
+    send(pid, :flush_edit)
+
+    assert_receive {:mock_provider_outbox_sent, replacement_edit}
+    assert replacement_edit.operation == :edit
+    assert replacement_edit.target_source_entry_id == preview_entry_id
+    assert replacement_edit.fallback_visible_text == "replacement answer"
+  end
+
   test "tool activity establishes and updates preview before assistant text" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("tool-activity")
     %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)

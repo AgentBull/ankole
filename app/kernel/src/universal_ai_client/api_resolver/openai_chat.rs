@@ -746,6 +746,7 @@ fn chat_messages(
         Some(Value::String(text)) => messages.push(json!({ "role": "user", "content": text })),
         Some(Value::Array(items)) => {
             let mut pending_tool_calls = Vec::new();
+            let mut pending_tool_output_images = Vec::new();
             for item in items {
                 match item {
                     Value::Object(map) => {
@@ -753,14 +754,24 @@ fn chat_messages(
                             continue;
                         }
 
-                        match map.get("type").and_then(Value::as_str) {
+                        let item_type = map.get("type").and_then(Value::as_str);
+                        if item_type != Some("function_call_output") {
+                            flush_chat_tool_output_images(
+                                &mut messages,
+                                &mut pending_tool_output_images,
+                            );
+                        }
+
+                        match item_type {
                             Some("function_call") => {
                                 pending_tool_calls.push(chat_function_call(context, map)?);
                                 continue;
                             }
                             Some("function_call_output") => {
                                 flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
-                                messages.push(chat_function_call_output(map));
+                                let (tool_message, image_parts) = chat_function_call_output(map);
+                                messages.push(tool_message);
+                                pending_tool_output_images.extend(image_parts);
                                 continue;
                             }
                             Some("agent_message") => {
@@ -788,12 +799,17 @@ fn chat_messages(
                         }
                     }
                     value => {
+                        flush_chat_tool_output_images(
+                            &mut messages,
+                            &mut pending_tool_output_images,
+                        );
                         flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
                         messages.push(json!({ "role": "user", "content": value_to_text(value) }))
                     }
                 }
             }
             flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+            flush_chat_tool_output_images(&mut messages, &mut pending_tool_output_images);
         }
         _input => {}
     }
@@ -847,6 +863,17 @@ fn flush_chat_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec
     }));
 }
 
+fn flush_chat_tool_output_images(messages: &mut Vec<Value>, image_parts: &mut Vec<Value>) {
+    if image_parts.is_empty() {
+        return;
+    }
+
+    messages.push(json!({
+        "role": "user",
+        "content": std::mem::take(image_parts)
+    }));
+}
+
 fn chat_function_call(
     _context: &ResponseContext,
     map: &Map<String, Value>,
@@ -884,12 +911,82 @@ fn chat_function_call(
     }))
 }
 
-fn chat_function_call_output(map: &Map<String, Value>) -> Value {
-    json!({
-        "role": "tool",
-        "tool_call_id": map.get("call_id").map(value_to_text).unwrap_or_default(),
-        "content": map.get("output").map(value_to_text).unwrap_or_default()
-    })
+fn chat_function_call_output(map: &Map<String, Value>) -> (Value, Vec<Value>) {
+    let tool_call_id = map.get("call_id").map(value_to_text).unwrap_or_default();
+    let (mut text, images) =
+        chat_function_call_output_content(map.get("output").unwrap_or(&Value::Null));
+
+    if text.is_empty() && !images.is_empty() {
+        text = "[Image output is attached in the next user message.]".to_string();
+    }
+
+    let image_parts = if images.is_empty() {
+        Vec::new()
+    } else {
+        let mut parts = vec![json!({
+            "type": "text",
+            "text": format!("Image output from tool call {tool_call_id}.")
+        })];
+        parts.extend(images);
+        parts
+    };
+
+    (
+        json!({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": text
+        }),
+        image_parts,
+    )
+}
+
+fn chat_function_call_output_content(output: &Value) -> (String, Vec<Value>) {
+    let Value::Array(parts) = output else {
+        return (value_to_text(output), Vec::new());
+    };
+
+    let mut text = String::new();
+    let mut images = Vec::new();
+
+    for part in parts {
+        let Some(map) = part.as_object() else {
+            text.push_str(&value_to_text(part));
+            continue;
+        };
+
+        if matches!(
+            map.get("type").and_then(Value::as_str),
+            Some("input_image" | "image_url")
+        ) {
+            match chat_function_call_output_image(map) {
+                Some(image) => images.push(image),
+                None => text.push_str("[image content omitted: unsupported image source]"),
+            }
+            continue;
+        }
+
+        match chat_text_content_part(part) {
+            Some(part_text) => text.push_str(&part_text),
+            None => text.push_str(&value_to_text(part)),
+        }
+    }
+
+    (text, images)
+}
+
+fn chat_function_call_output_image(map: &Map<String, Value>) -> Option<Value> {
+    let image_url = map.get("image_url")?;
+    let valid = match image_url {
+        Value::String(url) => !url.trim().is_empty(),
+        Value::Object(map) => map
+            .get("url")
+            .and_then(Value::as_str)
+            .is_some_and(|url| !url.trim().is_empty()),
+        _value => false,
+    };
+
+    valid.then(|| chat_image_url_part(Some(image_url)))
 }
 
 fn chat_agent_message(map: &Map<String, Value>) -> Result<Value, StreamError> {

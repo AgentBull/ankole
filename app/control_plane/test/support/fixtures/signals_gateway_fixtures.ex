@@ -31,7 +31,7 @@ defmodule Ankole.SignalsGatewayFixtures do
              Ingress.emit_entry(agent_uid, binding_name, entry, now: now)
 
     assert {:ok, results} =
-             finalize_due_inbound_batch_events(now: DateTime.add(now, 600, :millisecond))
+             finalize_due_inbound_batch_events(now: batch.available_at)
 
     actor_event =
       Enum.find_value(results, fn

@@ -17,12 +17,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
+  alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.SignalsGateway.OutboxEntry
+
+  import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1, signal_session_id: 1]
+
+  @attachment_materialization_hard_cap_ms 4_000
 
   @doc """
   Fences a live worker turn and marks its events retryable inside a transaction.
@@ -99,6 +105,53 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   end
 
   @doc """
+  Merges a contiguous attachment into the current IM request when it is safe.
+
+  A pending provider attachment fences a live generation before download
+  finishes. The same source entry later replaces its pending form and releases
+  the ActorEvent when every attachment is materialized or failed.
+  """
+  @spec merge_attachment_supplement_in_tx(module(), map(), map(), DateTime.t()) ::
+          {:ok, :not_supplement | {:consumed, map()} | {:next_turn, atom()}}
+          | {:error, term()}
+  def merge_attachment_supplement_in_tx(repo, fact, entry, now) do
+    case attachment_materialization_state(entry) do
+      state when state in ["pending", "complete", "failed"] ->
+        case event_for_supplement_source_entry(repo, fact, entry["source_entry_id"]) do
+          %ActorEvent{} = event ->
+            merge_into_open_event(repo, event, entry, now, true)
+
+          nil ->
+            if eligible_new_attachment_supplement?(fact, entry) do
+              fact
+              |> latest_attachment_supplement_event(repo)
+              |> classify_attachment_supplement(repo, fact, entry, now)
+            else
+              {:ok, :not_supplement}
+            end
+        end
+
+      _missing ->
+        {:ok, :not_supplement}
+    end
+  end
+
+  @doc false
+  @spec refresh_attachment_supplement_in_tx(module(), map(), map(), DateTime.t()) ::
+          {:ok, :not_supplement | {:consumed, map()} | {:next_turn, atom()}}
+          | {:error, term()}
+  def refresh_attachment_supplement_in_tx(repo, fact, entry, now) do
+    with state when state in ["pending", "complete", "failed"] <-
+           attachment_materialization_state(entry),
+         %ActorEvent{} = event <-
+           event_for_supplement_source_entry(repo, fact, entry["source_entry_id"]) do
+      merge_into_open_event(repo, event, entry, now, true)
+    else
+      _missing -> {:ok, :not_supplement}
+    end
+  end
+
+  @doc """
   Dispatches best-effort retry controls described by a successful mutation result.
   """
   @spec dispatch_retry_controls({:ok, map()} | term()) :: {:ok, map()} | term()
@@ -106,6 +159,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     controls = retry_controls_from_result(result)
 
     outcomes = Enum.map(controls, &dispatch_retry_control/1)
+
+    result
+    |> Map.get(:input_superseded_actor_event_ids, [])
+    |> Enum.each(&AIReplyPreview.input_superseded/1)
 
     {:ok, Map.put(result, :retry_control_outcomes, outcomes)}
   end
@@ -136,6 +193,245 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
         |> Map.put(:send_outcome, reason_text(reason))
         |> Map.put(:send_error, reason)
     end
+  end
+
+  defp classify_attachment_supplement(nil, _repo, _fact, _entry, _now),
+    do: {:ok, :not_supplement}
+
+  defp classify_attachment_supplement(
+         %ActorEvent{completed_at: %DateTime{} = completed_at} = event,
+         repo,
+         _fact,
+         entry,
+         _now
+       ) do
+    if latest_session_event?(repo, event) do
+      case attachment_observed_at(entry) do
+        %DateTime{} = observed_at ->
+          if DateTime.compare(completed_at, observed_at) in [:eq, :gt],
+            do: {:ok, {:next_turn, :completion_won}},
+            else: {:ok, :not_supplement}
+
+        nil ->
+          {:ok, :not_supplement}
+      end
+    else
+      {:ok, :not_supplement}
+    end
+  end
+
+  defp classify_attachment_supplement(
+         %ActorEvent{input_state: "open", completed_at: nil} = event,
+         repo,
+         _fact,
+         entry,
+         now
+       ) do
+    if latest_session_event?(repo, event),
+      do: merge_into_open_event(repo, event, entry, now, false),
+      else: {:ok, :not_supplement}
+  end
+
+  defp classify_attachment_supplement(
+         %ActorEvent{},
+         _repo,
+         _fact,
+         _entry,
+         _now
+       ),
+       do: {:ok, :not_supplement}
+
+  defp merge_into_open_event(repo, event, entry, now, refresh?) do
+    deliveries = live_deliveries_for_event(repo, event)
+
+    cond do
+      deliveries != [] and event_has_committed_outbox?(repo, event.id) ->
+        {:ok, {:next_turn, :external_side_effect_guard}}
+
+      deliveries != [] and
+          not AIGatewayLink.turn_replay_safe_in_tx(
+            repo,
+            %{agent_uid: event.agent_uid, session_id: event.session_id},
+            event.id
+          ) ->
+        {:ok, {:next_turn, :external_side_effect_guard}}
+
+      true ->
+        entries = upsert_event_entry(event_entries(event), entry)
+        payload = supplement_payload(event.payload, entries, event.id, now)
+
+        with {:ok, updated_event} <-
+               event
+               |> ActorEvent.changeset(%{
+                 payload: payload,
+                 source_entry_id: merged_entry_summary(entries)["source_entry_id"],
+                 available_at: supplement_available_at(entries, now)
+               })
+               |> repo.update(),
+             {:ok, retracted_message} <-
+               supersede_event_turn(repo, event, deliveries, now) do
+          reason =
+            if refresh? or deliveries == [],
+              do: :input_superseded_refresh,
+              else: :input_superseded
+
+          {:ok,
+           {:consumed,
+            %{
+              status: reason,
+              actor_event: updated_event,
+              ai_message: retracted_message,
+              retry_controls: retry_controls(deliveries, "input_superseded"),
+              input_superseded_actor_event_ids: if(deliveries == [], do: [], else: [event.id])
+            }}}
+        end
+    end
+  end
+
+  defp supersede_event_turn(_repo, _event, [], _now), do: {:ok, nil}
+
+  defp supersede_event_turn(repo, event, deliveries, now) do
+    actor_event_id =
+      deliveries
+      |> List.first()
+      |> Map.get(:actor_event_id_fence)
+
+    TurnLifecycle.supersede_started_turn_in_tx(
+      repo,
+      %{agent_uid: event.agent_uid, session_id: event.session_id},
+      actor_event_id,
+      now,
+      "input_superseded"
+    )
+  end
+
+  defp event_for_supplement_source_entry(repo, fact, source_entry_id)
+       when is_binary(source_entry_id) do
+    session_id = fact_session_id(fact)
+
+    ActorEvent
+    |> where([event], event.agent_uid == ^fact.agent_uid)
+    |> where([event], event.binding_name == ^fact.binding_name)
+    |> where([event], event.signal_channel_id == ^fact.signal_channel_id)
+    |> where([event], event.session_id == ^session_id)
+    |> where([event], event.type == "im.message.addressed")
+    |> where([event], event.input_state == "open")
+    |> where([event], is_nil(event.completed_at))
+    |> exact_event_thread(fact.provider_thread_id)
+    |> where(
+      [event],
+      event.source_entry_id == ^source_entry_id or
+        fragment(
+          "EXISTS (SELECT 1 FROM jsonb_array_elements(?->'data'->'entries') AS entry WHERE entry->>'source_entry_id' = ?)",
+          event.payload,
+          ^source_entry_id
+        )
+    )
+    |> order_by([event], desc: event.queue_sequence)
+    |> limit(1)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp event_for_supplement_source_entry(_repo, _fact, _source_entry_id), do: nil
+
+  defp latest_attachment_supplement_event(fact, repo) do
+    session_id = fact_session_id(fact)
+
+    ActorEvent
+    |> where([event], event.agent_uid == ^fact.agent_uid)
+    |> where([event], event.binding_name == ^fact.binding_name)
+    |> where([event], event.signal_channel_id == ^fact.signal_channel_id)
+    |> where([event], event.session_id == ^session_id)
+    |> where([event], event.sender_key == ^fact.sender_key)
+    |> where([event], event.type == "im.message.addressed")
+    |> exact_event_thread(fact.provider_thread_id)
+    |> order_by([event], desc: event.queue_sequence)
+    |> limit(1)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp exact_event_thread(query, nil), do: where(query, [event], is_nil(event.provider_thread_id))
+
+  defp exact_event_thread(query, provider_thread_id) do
+    where(query, [event], event.provider_thread_id == ^provider_thread_id)
+  end
+
+  defp fact_session_id(fact),
+    do: Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id)
+
+  defp latest_session_event?(repo, %ActorEvent{} = event) do
+    latest_sequence =
+      ActorEvent
+      |> where([candidate], candidate.agent_uid == ^event.agent_uid)
+      |> where([candidate], candidate.session_id == ^event.session_id)
+      |> select([candidate], max(candidate.queue_sequence))
+      |> repo.one()
+
+    latest_sequence == event.queue_sequence
+  end
+
+  defp event_has_committed_outbox?(repo, actor_event_id) do
+    OutboxEntry
+    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
+    |> repo.exists?()
+  end
+
+  defp supplement_payload(payload, entries, actor_event_id, now) do
+    summary = merged_entry_summary(entries)
+
+    payload
+    |> replace_payload_entries(entries, summary, nil, now)
+    |> put_retry_metadata(actor_event_id, "input_superseded", %{
+      "supplement_source_entry_ids" =>
+        entries
+        |> Enum.filter(
+          &(attachment_materialization_state(&1) in ["pending", "complete", "failed"])
+        )
+        |> Enum.map(& &1["source_entry_id"])
+    })
+  end
+
+  defp upsert_event_entry(entries, entry) do
+    entries
+    |> Enum.reject(&(&1["source_entry_id"] == entry["source_entry_id"]))
+    |> Kernel.++([entry])
+    |> Enum.sort_by(fn value ->
+      {
+        value["provider_time"] || value["sent_at"] || "",
+        value["received_at"] || value["sent_at"] || "",
+        value["source_entry_id"] || ""
+      }
+    end)
+  end
+
+  defp supplement_available_at(entries, now) do
+    entries
+    |> Enum.filter(&(attachment_materialization_state(&1) == "pending"))
+    |> Enum.map(fn entry ->
+      anchor =
+        attachment_observed_at(entry) ||
+          parse_datetime(entry["received_at"]) ||
+          now
+
+      DateTime.add(anchor, @attachment_materialization_hard_cap_ms, :millisecond)
+    end)
+    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> now end)
+  end
+
+  defp attachment_observed_at(entry) do
+    entry
+    |> get_in(["metadata", "attachment_materialization", "observed_at"])
+    |> parse_datetime()
+  end
+
+  defp attachment_materialization_state(entry),
+    do: get_in(entry, ["metadata", "attachment_materialization", "state"])
+
+  defp eligible_new_attachment_supplement?(fact, entry) do
+    entry["non_bot_mention"] != true and
+      (is_nil(entry["reply_to_source_entry_id"]) or fact.channel_kind == :im_dm)
   end
 
   defp live_deliveries_for_actor(repo, actor_key) do

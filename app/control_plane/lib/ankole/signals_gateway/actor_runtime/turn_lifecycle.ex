@@ -522,6 +522,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   end
 
   @doc false
+  @spec supersede_started_turn_in_tx(
+          module(),
+          actor_key(),
+          Ecto.UUID.t() | nil,
+          DateTime.t(),
+          String.t()
+        ) ::
+          {:ok, map() | nil} | {:error, term()}
+  def supersede_started_turn_in_tx(_repo, _actor_key, nil, _now, _reason), do: {:ok, nil}
+
+  def supersede_started_turn_in_tx(repo, actor_key, actor_event_id, now, reason) do
+    with {:ok, retracted_turn} <-
+           AIGatewayLink.retract_generating_turn_in_tx(
+             repo,
+             actor_key,
+             actor_event_id,
+             now,
+             reason
+           ),
+         {_count, _rows} <-
+           supersede_turn_deliveries_by_actor_event_id(actor_event_id, repo, now, reason) do
+      {:ok, retracted_turn}
+    end
+  end
+
+  @doc false
   @spec runtime_event_snapshot() :: [{String.t(), map()}]
   def runtime_event_snapshot, do: activation_deadline_events()
 

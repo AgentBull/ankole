@@ -9,7 +9,6 @@ defmodule AnkoleWeb.RequestLogger do
 
   @handler_id __MODULE__
   @event [:phoenix, :endpoint, :stop]
-  @slow_request_ms 2_000
 
   @spec start_link(term()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -53,7 +52,7 @@ defmodule AnkoleWeb.RequestLogger do
       duration_ms: duration_ms
     }
 
-    {request_level(status, duration_ms), fields}
+    {request_level(status), fields}
   end
 
   defp http_request(conn, status, duration_us) do
@@ -68,10 +67,9 @@ defmodule AnkoleWeb.RequestLogger do
     }
   end
 
-  defp request_level(status, _duration_ms) when status >= 500, do: :error
-  defp request_level(status, _duration_ms) when status in [401, 403, 429], do: :warning
-  defp request_level(_status, duration_ms) when duration_ms >= @slow_request_ms, do: :warning
-  defp request_level(_status, _duration_ms), do: :info
+  defp request_level(status) when status >= 500, do: :error
+  defp request_level(status) when status in [401, 403, 429], do: :warning
+  defp request_level(_status), do: :info
 
   defp duration_us(%{duration: duration}) when is_integer(duration) do
     System.convert_time_unit(duration, :native, :microsecond)

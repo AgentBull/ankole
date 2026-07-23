@@ -1,6 +1,8 @@
 defmodule Ankole.AIGateway.ResponsesDispatchTest do
   use Ankole.AIGatewayCase
 
+  import ExUnit.CaptureLog
+
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Providers
@@ -875,6 +877,111 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert run.content == current_input
     assert run.metadata["error"]["stage"] == "socket_open"
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+  end
+
+  test "socket-open errors persist stable failure facts without provider text" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-safe-socket-error")
+
+    {:ok, message} =
+      start_stateful_message(agent.uid, conversation, "safe-socket-error", [
+        text_message("user", "hello")
+      ])
+
+    assert :ok =
+             StatefulLifecycle.commit_socket_open_error(
+               %{message_id: message.id},
+               {:invalid_upstream_response, 200,
+                %{
+                  "error" => %{
+                    "code" => "invalid_shape",
+                    "message" => "private provider body",
+                    "type" => "provider_protocol_error"
+                  }
+                }}
+             )
+
+    stored_error = Repo.get!(Message, message.id).metadata["error"]
+
+    assert stored_error == %{
+             "code" => "invalid_upstream_response",
+             "failure_kind" => "invalid_response",
+             "message" => "The upstream provider returned an invalid response.",
+             "provider_error_code" => "invalid_shape",
+             "provider_error_type" => "provider_protocol_error",
+             "provider_status" => 200,
+             "retryable" => true,
+             "stage" => "socket_open"
+           }
+
+    encoded_error = Ankole.JSON.encode!(stored_error)
+    refute encoded_error =~ "private provider body"
+
+    for legacy_key <- ~w(body reason status provider_body_excerpt) do
+      refute Map.has_key?(stored_error, legacy_key)
+    end
+
+    assert {:ok,
+            %{
+              body: %{
+                "error" => %{
+                  "code" => "invalid_upstream_response",
+                  "message" => "The upstream provider returned an invalid response."
+                }
+              }
+            }} = StatefulLifecycle.retrieve_response(agent.uid, "resp_#{message.id}")
+  end
+
+  test "retrieve projects legacy stored error maps through the safe public contract" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-legacy-error-projection")
+
+    {:ok, message} =
+      start_stateful_message(agent.uid, conversation, "legacy-error-projection", [
+        text_message("user", "hello")
+      ])
+
+    assert :ok =
+             StatefulLifecycle.commit_socket_open_error(
+               %{message_id: message.id},
+               {:upstream_response_failed, 502, %{}}
+             )
+
+    stored = Repo.get!(Message, message.id)
+
+    legacy_error = %{
+      "body" => "private provider body",
+      "code" => "upstream_response_failed",
+      "message" => "private provider message",
+      "reason" => "private provider reason",
+      "retryable" => true,
+      "status" => 502
+    }
+
+    stored
+    |> Ecto.Changeset.change(metadata: Map.put(stored.metadata, "error", legacy_error))
+    |> Repo.update!()
+
+    assert {:ok, %{body: %{"error" => public_error}}} =
+             StatefulLifecycle.retrieve_response(agent.uid, "resp_#{message.id}")
+
+    assert public_error == %{
+             "code" => "upstream_response_failed",
+             "failure_kind" => "provider_response",
+             "message" => "The upstream provider request failed.",
+             "provider_status" => 502,
+             "retryable" => true
+           }
+
+    encoded_error = Ankole.JSON.encode!(public_error)
+    refute encoded_error =~ "private provider"
+    refute Map.has_key?(public_error, "body")
+    refute Map.has_key?(public_error, "reason")
+    refute Map.has_key?(public_error, "status")
   end
 
   test "websocket stateful conversation run stores checkpoint instead of projected tail as durable anchor" do
@@ -1984,6 +2091,132 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
+  end
+
+  test "stream provider failures log bounded request shape and provider classification" do
+    %{principal: agent} = agent_fixture()
+    image_data_url = "data:image/png;base64,private-image-data"
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 502,
+         %{
+           "error" => %{
+             "code" => "provider_unavailable",
+             "message" => "private provider message",
+             "type" => "server_error"
+           }
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-stream-diagnostics",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openrouter",
+                 "transport" => %{
+                   "http_versions" => ["h1"],
+                   "compression" => ["zstd", "br", "gzip"]
+                 }
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-stream-diagnostics",
+               model: "openai/gpt-5.5"
+             })
+
+    log =
+      capture_log(
+        [
+          level: :error,
+          metadata: [
+            :event,
+            :actor_event_id,
+            :model,
+            :api_resolver,
+            :upstream_host,
+            :request_bytes,
+            :input_item_count,
+            :tool_count,
+            :function_call_output_count,
+            :input_image_count,
+            :inline_image_chars,
+            :error_code,
+            :provider_status,
+            :provider_error_code,
+            :provider_error_type,
+            :retryable
+          ]
+        ],
+        fn ->
+          assert {:error,
+                  {:upstream_response_failed, 502,
+                   %{
+                     "error" => %{
+                       "code" => "provider_unavailable",
+                       "message" => "private provider message",
+                       "type" => "server_error"
+                     }
+                   }}} =
+                   AIGateway.open_sse_stream(agent.uid, %{
+                     "model" => "primary",
+                     "stream" => true,
+                     "metadata" => %{"actor_event_id" => "actor-event-diagnostics"},
+                     "input" => [
+                       %{
+                         "type" => "function_call",
+                         "call_id" => "call_image",
+                         "name" => "view_image",
+                         "arguments" => ~s({"path":"/tmp/private.png"})
+                       },
+                       %{
+                         "type" => "function_call_output",
+                         "call_id" => "call_image",
+                         "output" => [
+                           %{"type" => "input_image", "image_url" => image_data_url}
+                         ]
+                       },
+                       %{"role" => "user", "content" => "private prompt"}
+                     ],
+                     "tools" => [
+                       %{
+                         "type" => "function",
+                         "name" => "view_image",
+                         "parameters" => %{"type" => "object"}
+                       }
+                     ]
+                   })
+        end
+      )
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "chat/completions"
+
+    assert get_in(request.body, ["messages", Access.at(1), "content"]) ==
+             "[Image output is attached in the next user message.]"
+
+    assert log =~ "event=ai_gateway.response_failed"
+    assert log =~ "actor_event_id=actor-event-diagnostics"
+    assert log =~ "model=openai/gpt-5.5"
+    assert log =~ "api_resolver=openai_chat_completions"
+    assert log =~ "upstream_host=127.0.0.1"
+    assert log =~ "input_item_count=3"
+    assert log =~ "tool_count=1"
+    assert log =~ "function_call_output_count=1"
+    assert log =~ "input_image_count=1"
+    assert log =~ "inline_image_chars=#{byte_size(image_data_url)}"
+    assert log =~ "error_code=upstream_response_failed"
+    assert log =~ "provider_status=502"
+    assert log =~ "provider_error_code=provider_unavailable"
+    assert log =~ "provider_error_type=server_error"
+    assert log =~ "retryable=true"
+    refute log =~ "private provider message"
+    refute log =~ "private prompt"
+    refute log =~ "private-image-data"
   end
 
   test "responses reject 2xx upstream bodies that are not JSON objects" do

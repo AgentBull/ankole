@@ -658,6 +658,7 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
   it('emits revisioned semantic tool activity without leaking raw names or arguments', async () => {
     const sentPayloads: JSONObject[] = []
     const presentation: ReplyPresentationEvent[] = []
+    const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []
     let describedParams: { password: string } | undefined
     const secretAdminSchema = z.object({ password: z.string() })
     const model = createModel({
@@ -753,6 +754,10 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           })
         }
       ],
+      logger: {
+        info: (event, _message, fields) => logs.push({ level: 'info', event, fields }),
+        warning: (event, _message, fields) => logs.push({ level: 'warning', event, fields })
+      },
       onPresentationEvent: event => {
         presentation.push(event)
       }
@@ -788,6 +793,40 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     expect(JSON.stringify(presentation)).not.toContain('secret_admin_shell')
     expect(JSON.stringify(presentation)).not.toContain('do-not-leak')
     expect(JSON.stringify(presentation)).not.toContain('sensitive raw output')
+
+    expect(logs.find(log => log.event === 'worker.tool_call_started')).toMatchObject({
+      level: 'info',
+      fields: {
+        actor_event_id: '00000000-0000-0000-0000-000000000023',
+        tool_name: 'secret_admin_shell',
+        tool_call_id: 'call_presentation_tool',
+        destructive: true
+      }
+    })
+    expect(logs.find(log => log.event === 'worker.tool_call_completed')).toMatchObject({
+      level: 'info',
+      fields: {
+        tool_name: 'secret_admin_shell',
+        tool_call_id: 'call_presentation_tool',
+        terminate: false
+      }
+    })
+    expect(logs.find(log => log.event === 'worker.tool_results_record_started')).toMatchObject({
+      level: 'info',
+      fields: {
+        actor_event_id: '00000000-0000-0000-0000-000000000023',
+        attempt: 1,
+        tool_result_count: 1
+      }
+    })
+    expect(logs.find(log => log.event === 'worker.tool_results_record_completed')).toMatchObject({
+      level: 'info',
+      fields: {
+        response_id: 'resp_presentation_results'
+      }
+    })
+    expect(JSON.stringify(logs)).not.toContain('do-not-leak')
+    expect(JSON.stringify(logs)).not.toContain('sensitive raw output')
   })
 
   it('lets a tool suppress activity and falls back safely when description fails', async () => {

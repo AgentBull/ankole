@@ -9,6 +9,7 @@ defmodule AnkoleWeb.AIGatewayController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias OpenAPISpex.Schema
 
@@ -392,8 +393,21 @@ defmodule AnkoleWeb.AIGatewayController do
       {upstream_public_status(status), "upstream_response_failed",
        upstream_error_message(status, body)}
 
-  defp error_tuple({:invalid_upstream_response, status, body}) when is_integer(status),
-    do: {422, "invalid_upstream_response", inspect(%{status: status, body: body})}
+  defp error_tuple({:invalid_upstream_response, status, _body}) when is_integer(status),
+    do: {502, "invalid_upstream_response", "upstream provider returned an invalid response"}
+
+  defp error_tuple({:universal_ai_request_failed, _details} = reason) do
+    case FailureDiagnostics.classify(reason) do
+      %{failure_kind: :timeout} ->
+        {504, "upstream_timeout", "upstream provider timed out"}
+
+      %{failure_kind: :transport} ->
+        {502, "upstream_transport_failed", "upstream provider request failed"}
+
+      _classification ->
+        {502, "ai_gateway_request_failed", "upstream provider request failed"}
+    end
+  end
 
   defp error_tuple({reason, details}) when is_atom(reason),
     do: {422, Atom.to_string(reason), inspect(details)}

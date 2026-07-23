@@ -262,6 +262,60 @@ defmodule Ankole.Brain.StageBTest do
     assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
   end
 
+  test "an unknown source reference is corrected on the next curator attempt" do
+    %{principal: agent} = agent_fixture()
+
+    message =
+      visible_signal_material!(
+        agent.uid,
+        "Source reference retry is a durable lesson.",
+        "stage-b-source-ref-retry"
+      )
+
+    attempts = :atomics.new(1, signed: false)
+
+    configure_model!(agent, fn request ->
+      system =
+        request.body["input"]
+        |> Enum.find(&(&1["role"] == "system"))
+        |> get_in(["content", Access.at(0), "text"])
+
+      source_ref =
+        case :atomics.add_get(attempts, 1, 1) do
+          1 ->
+            "source_999"
+
+          _retry ->
+            assert system =~ "rejected at operations[1]"
+            assert system =~ "Use only material_N references shown in materials"
+            "material_1"
+        end
+
+      response_summary(%{
+        "operations" => [
+          %{
+            "operation" => "create_entry",
+            "client_ref" => "source-ref-retry",
+            "name" => "Source reference retry",
+            "type" => "topic"
+          },
+          %{
+            "operation" => "append_block",
+            "entry_ref" => "source-ref-retry",
+            "body" => "Durable lesson. src:#{source_ref}"
+          }
+        ],
+        "skill_updates" => []
+      })
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid, %{"mutation_limit" => 2})
+
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
+    assert :atomics.get(attempts, 1) == 2
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] == message.document_id
+  end
+
   test "a relation plan links the target in the final source body before commit" do
     %{principal: agent} = agent_fixture()
 
@@ -527,6 +581,7 @@ defmodule Ankole.Brain.StageBTest do
         response_summary(empty_plan())
       end,
       locator: fn request ->
+        assert request.body["reasoning"] == %{"effort" => "high"}
         send(test_pid, {:stage_b_response_format, :locator, request.body["text"]})
         select_all_locator_response(request)
       end
@@ -1227,6 +1282,56 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, []} = Knowledge.list_entries(self_scope, store_key: "self", limit: 20)
   end
 
+  test "a store boundary rejection is explained to the next curator attempt" do
+    %{principal: agent} = agent_fixture()
+    %{principal: peer} = human_fixture()
+
+    _message =
+      visible_dm_signal_material!(
+        agent.uid,
+        peer.uid,
+        "private preference",
+        "stage-b-private-boundary-retry"
+      )
+
+    attempts = :atomics.new(1, signed: false)
+
+    configure_model!(agent, fn request ->
+      system =
+        request.body["input"]
+        |> Enum.find(&(&1["role"] == "system"))
+        |> get_in(["content", Access.at(0), "text"])
+
+      case :atomics.add_get(attempts, 1, 1) do
+        1 ->
+          response_summary(%{
+            "operations" => [
+              %{
+                "operation" => "create_entry",
+                "name" => "Leaked private memo",
+                "type" => "agent_system_pinned_memo"
+              }
+            ],
+            "skill_updates" => []
+          })
+
+        _retry ->
+          assert system =~ "rejected at operations[0]"
+          assert system =~ "tried to write store \"self\""
+          assert system =~ "not writable for evidence from store \"dm:"
+          response_summary(empty_plan())
+      end
+    end)
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
+    assert :atomics.get(attempts, 1) == 2
+
+    {:ok, self_scope} = Scope.for_store(agent.uid, "self")
+    assert {:ok, []} = Knowledge.list_entries(self_scope, store_key: "self", limit: 20)
+  end
+
   test "private dreaming cannot edit a visible shared entry" do
     %{principal: agent} = agent_fixture()
     %{principal: peer} = human_fixture()
@@ -1570,6 +1675,32 @@ defmodule Ankole.Brain.StageBTest do
     assert [%Oban.Job{args: first_args}] = all_enqueued(worker: CuratePrincipal)
     assert first_args["principal_uid"] == agent.uid
     assert Map.keys(first_args) == ["principal_uid"]
+  end
+
+  test "an incomplete principal curation job stays unique for its complete lifetime" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, first} =
+             %{principal_uid: agent.uid}
+             |> CuratePrincipal.new()
+             |> Oban.insert()
+
+    one_hour_ago = DateTime.add(DateTime.utc_now(:microsecond), -1, :hour)
+
+    assert {1, nil} =
+             Repo.update_all(
+               from(job in Oban.Job, where: job.id == ^first.id),
+               set: [inserted_at: one_hour_ago]
+             )
+
+    assert {:ok, second} =
+             %{principal_uid: agent.uid}
+             |> CuratePrincipal.new()
+             |> Oban.insert()
+
+    assert second.conflict?
+    assert second.id == first.id
+    assert [_job] = all_enqueued(worker: CuratePrincipal)
   end
 
   test "Stage B rejects a human owner instead of accepting an unused enable override" do

@@ -774,7 +774,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, [%{actor_event: dm_input}]} =
-               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 600, :millisecond))
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(@base_time, 1_000, :millisecond)
+               )
 
       assert dm_input.type == "im.message.addressed"
       assert dm_batch.mode == "addressed"
@@ -820,7 +822,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, [%{actor_event: mention_input}]} =
-               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 600, :millisecond))
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(@base_time, 1_000, :millisecond)
+               )
 
       assert mention_input.type == "im.message.addressed"
       assert mention_batch.mode == "addressed"
@@ -884,7 +888,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert reply_batch.reply_to_source_entry_id == "msg-agent-report"
 
       assert {:ok, [%{actor_event: actor_event}]} =
-               finalize_due_inbound_batch_events(now: DateTime.add(reply_time, 600, :millisecond))
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(reply_time, 1_000, :millisecond)
+               )
 
       assert actor_event.type == "im.message.addressed"
 
@@ -951,7 +957,9 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert {:ok, results} =
-               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 601, :millisecond))
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(@base_time, 1_001, :millisecond)
+               )
 
       assert [%{actor_event: actor_event}] =
                Enum.filter(results, &Map.has_key?(&1, :actor_event))
@@ -1381,7 +1389,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                |> where([batch], batch.batch_state == "open")
                |> Repo.all()
 
-      due_at = DateTime.add(@base_time, 800, :millisecond)
+      due_at = bob_batch.available_at
 
       assert {:ok, [%{actor_event: bob_input}]} =
                finalize_due_inbound_batch_events(now: due_at)
@@ -1500,7 +1508,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
                )
 
       assert edited_batch.id == first_batch.id
-      assert edited_batch.available_at == DateTime.add(edited_at, 600, :millisecond)
+      assert edited_batch.available_at == DateTime.add(edited_at, 1_000, :millisecond)
       assert Repo.aggregate(Entry, :count) == 1
 
       assert [
@@ -1560,7 +1568,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       |> where([batch], batch.id == ^poisoned_batch.id)
       |> Repo.update_all(set: [binding_name: ""])
 
-      due_at = DateTime.add(@base_time, 800, :millisecond)
+      due_at = good_batch.available_at
 
       assert {:ok, results} = finalize_due_inbound_batch_events(now: due_at)
 
@@ -1621,7 +1629,7 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert addressed_batch.mode == "addressed"
       assert addressed_batch.requester_sender_key == "bob"
 
-      due_at = DateTime.add(@base_time, 800, :millisecond)
+      due_at = addressed_batch.available_at
 
       assert {:ok, [%{actor_event: input}]} =
                finalize_due_inbound_batch_events(now: due_at)
@@ -1755,6 +1763,93 @@ defmodule Ankole.SignalsGatewayIngressTest do
                }
              ] =
                get_in(input.payload, ["data", "entry", "attachments"])
+    end
+
+    test "pending attachment materialization fences the batch and keeps the original quiet anchor" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{inbound_batch: first_batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-pending-text",
+                   source_entry_id: "msg-pending-text",
+                   text: "inspect this"
+                 }),
+                 now: @base_time
+               )
+
+      attachment_at = DateTime.add(@base_time, 500, :millisecond)
+      observed_at = DateTime.to_iso8601(attachment_at)
+
+      pending =
+        group_entry(%{
+          source_event_id: "evt-pending-image",
+          source_entry_id: "msg-pending-image",
+          text: nil,
+          attachments: [
+            %{
+              provider_ref: "lark:image:pending-image",
+              source_message_id: "msg-pending-image",
+              resource_type: "image"
+            }
+          ],
+          metadata: %{
+            "attachment_materialization" => %{
+              "state" => "pending",
+              "observed_at" => observed_at
+            }
+          }
+        })
+
+      assert {:ok, %{inbound_batch: pending_batch}} =
+               Ingress.emit_entry(agent.uid, "bot", pending, now: attachment_at)
+
+      assert pending_batch.id == first_batch.id
+
+      assert pending_batch.available_at ==
+               DateTime.add(attachment_at, 4_000, :millisecond)
+
+      assert pending_batch.hard_cap_at == pending_batch.available_at
+
+      materialized_at = DateTime.add(attachment_at, 2_000, :millisecond)
+      materialized_path = "/agents/#{agent.uid}/user-files/inbox/chart.png"
+
+      materialized =
+        put_in(pending, [:metadata, "attachment_materialization", "state"], "complete")
+        |> put_in(
+          [
+            :attachments,
+            Access.at(0),
+            :agent_computer_path
+          ],
+          materialized_path
+        )
+
+      assert {:ok, %{inbound_batch: materialized_batch}} =
+               Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+
+      assert materialized_batch.available_at ==
+               DateTime.add(attachment_at, 1_200, :millisecond)
+
+      assert is_nil(materialized_batch.hard_cap_at)
+
+      assert {:ok, [%{actor_event: input}]} =
+               finalize_due_inbound_batch_events(now: materialized_at)
+
+      assert get_in(input.payload, ["data", "entry", "text"]) == "inspect this"
+
+      assert [
+               %{
+                 "agent_computer_path" => ^materialized_path,
+                 "provider_ref" => "lark:image:pending-image"
+               }
+             ] =
+               get_in(input.payload, ["data", "entry", "attachments"])
+               |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
     end
 
     test "single addressed message over the normal text budget is not split" do

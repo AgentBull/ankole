@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.HostedToolTelemetry do
   intentionally not accepted by this boundary.
   """
 
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
 
   @event [:ankole, :ai_gateway, :hosted_image_generation]
@@ -41,19 +42,35 @@ defmodule Ankole.AIGateway.HostedToolTelemetry do
   def emit_summary(_summary), do: :ok
 
   @spec emit_failure(map() | nil, term()) :: :ok
-  def emit_failure(_spec, %{"hosted_tool_metadata" => %{} = metadata}), do: emit(metadata)
-  def emit_failure(_spec, %{hosted_tool_metadata: %{} = metadata}), do: emit(metadata)
+  def emit_failure(spec, %{"hosted_tool_metadata" => %{} = metadata} = reason),
+    do: emit_failure_log(spec, reason, metadata)
+
+  def emit_failure(spec, %{hosted_tool_metadata: %{} = metadata} = reason),
+    do: emit_failure_log(spec, reason, metadata)
 
   def emit_failure(spec, reason) do
     image_spec = hosted_image_spec(spec)
 
-    emit(%{
+    metadata = %{
       "result" => "failure",
       "failure_reason" => failure_reason(reason),
       "model" => value(image_spec, "selected_model"),
       "provider_tag" => value(image_spec, "provider_tag"),
       "provider_slug" => value(image_spec, "provider_slug")
-    })
+    }
+
+    emit_failure_log(spec, reason, metadata)
+  end
+
+  defp emit_failure_log(spec, reason, metadata) do
+    :ok = emit(metadata)
+
+    FailureDiagnostics.log(
+      "ai_gateway.hosted_image_generation_failed",
+      "AIGateway hosted image generation failed",
+      failure_log_context(spec, reason, metadata),
+      reason
+    )
   end
 
   defp hosted_image_spec(%{} = spec) do
@@ -69,6 +86,35 @@ defmodule Ankole.AIGateway.HostedToolTelemetry do
   defp failure_reason({tag, _details}) when is_atom(tag), do: Atom.to_string(tag)
   defp failure_reason(tag) when is_atom(tag), do: Atom.to_string(tag)
   defp failure_reason(_reason), do: "unknown"
+
+  defp failure_log_context(spec, reason, metadata) do
+    image_spec = hosted_image_spec(spec)
+
+    %{
+      actor_event_id: string(image_spec, "actor_event_id"),
+      failure_reason: string(metadata, "failure_reason") || failure_reason(reason),
+      model: string(metadata, "model") || string(image_spec, "selected_model"),
+      provider_tag: string(metadata, "provider_tag") || string(image_spec, "provider_tag"),
+      provider_slug: string(metadata, "provider_slug") || string(image_spec, "provider_slug"),
+      provider_tags: string_list(value(image_spec, "provider_tags")),
+      provider_slugs: string_list(value(image_spec, "provider_slugs")),
+      image_latency_ms: positive_number(metadata, "image_latency_ms")
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) or value == [] end)
+  end
+
+  defp string_list(values) when is_list(values) do
+    Enum.filter(values, &(is_binary(&1) and &1 != ""))
+  end
+
+  defp string_list(_values), do: []
+
+  defp positive_number(map, key) do
+    case value(map, key) do
+      value when (is_integer(value) or is_float(value)) and value > 0 -> value
+      _value -> nil
+    end
+  end
 
   defp number(map, key) do
     case value(map, key) do

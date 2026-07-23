@@ -1,0 +1,250 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ankole-agent.controlPlaneName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "control-plane") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controlPlane.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "control-plane") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.controlPlane.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ankole-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- if .Values.controlPlane.migration.enabled }}
+        - name: db-migrate
+          image: {{ include "ankole-agent.image" (dict "image" .Values.controlPlane.image) | quote }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command:
+            - /app/bin/migrate
+          envFrom:
+            - configMapRef:
+                name: {{ include "ankole-agent.controlPlaneName" . }}
+          env:
+            - name: ANKOLE_SECRET_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: ANKOLE_SECRET_BASE
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: DATABASE_URL
+        {{- end }}
+        - name: bootstrap-worker-auth-key
+          image: {{ include "ankole-agent.image" (dict "image" .Values.controlPlane.image) | quote }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command:
+            - /app/bin/bootstrap-worker-auth-key
+          envFrom:
+            - configMapRef:
+                name: {{ include "ankole-agent.controlPlaneName" . }}
+          env:
+            - name: ANKOLE_SECRET_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: ANKOLE_SECRET_BASE
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: DATABASE_URL
+            - name: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+      containers:
+        - name: control-plane
+          image: {{ include "ankole-agent.image" (dict "image" .Values.controlPlane.image) | quote }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          {{- with .Values.controlPlane.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controlPlane.port }}
+              protocol: TCP
+            - name: fabric
+              containerPort: {{ .Values.runtimeFabric.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "ankole-agent.controlPlaneName" . }}
+          env:
+            - name: ANKOLE_SECRET_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: ANKOLE_SECRET_BASE
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: DATABASE_URL
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          {{- with .Values.controlPlane.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.controlPlane.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controlPlane.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ankole-agent.workerName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+    ankole.io/agent-filesystem-contract: agents-v1
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ankole-agent.componentSelectorLabels" (dict "root" . "component" "worker") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.worker.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "ankole-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "ankole-agent.image" (dict "image" .Values.worker.image) | quote }}
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          {{- with .Values.worker.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              fabric_key="$(
+                python3 - <<'PY'
+              import os
+              from urllib.parse import quote
+              print(quote(os.environ["ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY"], safe=""))
+              PY
+              )"
+              export RUNTIME_FABRIC_URL="tcp://:${fabric_key}@{{ include "ankole-agent.controlPlaneName" . }}:{{ .Values.runtimeFabric.port }}"
+              unset ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+              exec bun src/main.ts
+          envFrom:
+            - configMapRef:
+                name: {{ include "ankole-agent.workerName" . }}
+          env:
+            - name: WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ankole-agent.bootstrapSecretName" . }}
+                  key: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+          volumeMounts:
+            - name: agents
+              mountPath: /agents
+          readinessProbe:
+            exec:
+              command:
+                - test
+                - -d
+                - /agents
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command:
+                - test
+                - -f
+                - /etc/ankole-agent-computer-container
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 6
+          {{- with .Values.worker.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: agents
+          persistentVolumeClaim:
+            claimName: {{ include "ankole-agent.agentsClaimName" . }}
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

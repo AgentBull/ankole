@@ -1,0 +1,12 @@
+---
+import { isValidLocale, LOCALES } from '../../../i18n/config'
+import { localePath } from '../../../i18n/utils'
+
+export function getStaticPaths() {
+	return LOCALES.map(lang => ({ params: { lang } }))
+}
+
+const lang = Astro.params.lang ?? ''
+const target = isValidLocale(lang) ? localePath(lang, 'docs/introduction') : '/'
+return Astro.redirect(target)
+---

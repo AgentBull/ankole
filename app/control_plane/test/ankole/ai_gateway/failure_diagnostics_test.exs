@@ -1,0 +1,245 @@
+defmodule Ankole.AIGateway.FailureDiagnosticsTest do
+  use ExUnit.Case, async: false
+
+  import ExUnit.CaptureLog
+
+  alias Ankole.AIGateway.FailureDiagnostics
+  alias Ankole.AIGateway.OpenAIError
+
+  test "keeps a public HTTP status separate from provider status" do
+    log =
+      capture_log(
+        [
+          level: :error,
+          metadata: [:event, :error_code, :http_status, :provider_status, :retryable]
+        ],
+        fn ->
+          assert :ok =
+                   FailureDiagnostics.log(
+                     "ai_gateway.test_failed",
+                     "AIGateway test failed",
+                     %{},
+                     OpenAIError.server(
+                       500,
+                       "artifact_persistence_failed",
+                       "private public error"
+                     )
+                   )
+        end
+      )
+
+    assert log =~ "error_code=artifact_persistence_failed"
+    assert log =~ "http_status=500"
+    assert log =~ "retryable=true"
+    refute log =~ "provider_status="
+    refute log =~ "private public error"
+  end
+
+  test "keeps an invalid upstream response attributed to the provider boundary" do
+    log =
+      capture_log(
+        [
+          level: :error,
+          metadata: [
+            :event,
+            :failure_kind,
+            :error_code,
+            :provider_status,
+            :provider_error_code,
+            :retryable
+          ]
+        ],
+        fn ->
+          assert :ok =
+                   FailureDiagnostics.log(
+                     "ai_gateway.test_failed",
+                     "AIGateway test failed",
+                     %{},
+                     {:invalid_upstream_response, 200,
+                      %{
+                        "error" => %{
+                          "code" => "invalid_shape",
+                          "message" => "private provider body"
+                        }
+                      }}
+                   )
+        end
+      )
+
+    assert log =~ "error_code=invalid_upstream_response"
+    assert log =~ "failure_kind=invalid_response"
+    assert log =~ "provider_status=200"
+    assert log =~ "provider_error_code=invalid_shape"
+    assert log =~ "retryable=true"
+    refute log =~ "private provider body"
+
+    assert %{
+             error_code: "invalid_upstream_response",
+             failure_kind: :invalid_response,
+             provider_status: 200
+           } =
+             FailureDiagnostics.classify(%{
+               "code" => "invalid_upstream_response",
+               "status" => 200
+             })
+
+    assert %{
+             error_code: "upstream_response_failed",
+             failure_kind: :provider_response,
+             provider_status: 502
+           } =
+             FailureDiagnostics.classify(%{
+               "code" => "upstream_response_failed",
+               "status" => 502
+             })
+  end
+
+  test "restores only an enumerated Ankole failure kind from stored metadata" do
+    assert %{
+             error_code: "invalid_request",
+             failure_kind: :provider_response,
+             retryable: false
+           } =
+             FailureDiagnostics.classify_stored(%{
+               "code" => "invalid_request",
+               "failure_kind" => "provider_response",
+               "retryable" => false
+             })
+
+    assert %{failure_kind: :internal} =
+             FailureDiagnostics.classify_stored(%{
+               "code" => "invalid_request",
+               "failure_kind" => "private provider prose"
+             })
+  end
+
+  test "uses a tuple tag when nested details have no error code" do
+    log =
+      capture_log(
+        [level: :error, metadata: [:event, :error_code, :error_stage]],
+        fn ->
+          assert :ok =
+                   FailureDiagnostics.log(
+                     "ai_gateway.test_failed",
+                     "AIGateway test failed",
+                     %{},
+                     {:universal_ai_request_failed, %{"stage" => "connect"}}
+                   )
+        end
+      )
+
+    assert log =~ "error_code=universal_ai_request_failed"
+    assert log =~ "error_stage=connect"
+  end
+
+  test "classifies stable transport and timeout codes as retryable" do
+    assert %{
+             failure_kind: :transport,
+             error_code: "transport_failed",
+             error_stage: "connect",
+             retryable: true
+           } =
+             FailureDiagnostics.classify(
+               {:universal_ai_request_failed,
+                %{"code" => "transport_failed", "stage" => "connect"}}
+             )
+
+    assert %{
+             failure_kind: :timeout,
+             error_code: "total_timeout",
+             retryable: true
+           } =
+             FailureDiagnostics.classify(
+               {:universal_ai_request_failed, %{"code" => "total_timeout"}}
+             )
+  end
+
+  test "builds safe public messages from the stable failure kind" do
+    assert FailureDiagnostics.public_message(%{failure_kind: :transport}) ==
+             "The upstream provider connection failed."
+
+    assert FailureDiagnostics.public_message(%{failure_kind: :invalid_response}) ==
+             "The upstream provider returned an invalid response."
+
+    assert FailureDiagnostics.public_message(%{failure_kind: :internal}) ==
+             "The AIGateway request failed."
+
+    classification = FailureDiagnostics.classify(%{"code" => "provider_stream_error"})
+
+    assert classification.failure_kind == :transport
+
+    assert FailureDiagnostics.public_message(classification) ==
+             "AIGateway provider stream failed before a terminal response."
+  end
+
+  test "classifies provider terminal events from stable fields and ignores messages" do
+    assert %{
+             failure_kind: :provider_response,
+             error_code: "rate_limit_exceeded",
+             retryable: true
+           } =
+             FailureDiagnostics.classify(
+               {:provider_event_failed,
+                %{
+                  "status" => "failed",
+                  "error" => %{
+                    "code" => "rate_limit_exceeded",
+                    "message" => "opaque provider text"
+                  }
+                }}
+             )
+
+    assert %{
+             failure_kind: :provider_response,
+             error_code: "server_error",
+             provider_status: 503,
+             retryable: true
+           } =
+             FailureDiagnostics.classify(
+               {:provider_event_failed,
+                %{"error" => %{"code" => "server_error", "status" => 503}}}
+             )
+
+    assert %{error_code: "invalid_request", failure_kind: :provider_response} =
+             classification =
+             FailureDiagnostics.classify(
+               {:provider_event_failed,
+                %{
+                  "error" => %{
+                    "code" => "invalid_request",
+                    "message" => "rate limit 429 too many requests"
+                  }
+                }}
+             )
+
+    refute Map.get(classification, :retryable) == true
+    refute Map.has_key?(classification, :provider_event?)
+  end
+
+  test "logs a provider rate-limit code as warning without parsing its message" do
+    log =
+      capture_log(
+        [level: :warning, metadata: [:event, :failure_kind, :error_code, :retryable]],
+        fn ->
+          assert :ok =
+                   FailureDiagnostics.log(
+                     "ai_gateway.test_failed",
+                     "AIGateway test failed",
+                     %{},
+                     {:provider_event_failed,
+                      %{
+                        "error" => %{
+                          "code" => "rate_limit_exceeded",
+                          "message" => "untrusted provider prose"
+                        }
+                      }}
+                   )
+        end
+      )
+
+    assert log =~ "failure_kind=provider_response"
+    assert log =~ "error_code=rate_limit_exceeded"
+    assert log =~ "retryable=true"
+    refute log =~ "untrusted provider prose"
+  end
+end

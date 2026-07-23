@@ -1,0 +1,8 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$ANKOLE_HOST} {
+	encode zstd gzip
+	reverse_proxy control-plane:4000
+}

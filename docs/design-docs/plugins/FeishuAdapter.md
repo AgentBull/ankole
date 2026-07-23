@@ -92,10 +92,22 @@ other group messages.
 `user_id` identifies the sender. The adapter keeps `open_id` and `union_id` as
 provider details and ignores a sender without `user_id`.
 
+Reaction events use the operator `user_id` when it is present. They use the
+operator `open_id` as the stable reaction actor key when Feishu omits
+`user_id`.
+
 The adapter supports text, rich posts, stickers, images, files, audio, media,
-video, locations, shared chats, and shared users. It downloads provider files
-and stores successful downloads through WorkerFiles. If a download fails, the
-adapter logs the failure and keeps the provider reference without a local file.
+video, locations, shared chats, and shared users. For a provider file, the
+adapter first submits a durable `pending` observation with the provider
+reference. It does this for every matching chat consumer before the first
+download starts. The adapter then downloads the bytes and stores successful
+downloads through WorkerFiles. It submits `complete` or `failed` with the same
+source entry ID. A failed download keeps the provider reference without a local
+file.
+
+The pending observation time is the attachment settle anchor. A slow download
+does not move the 1,200 millisecond quiet window. SignalsGateway can wait up to
+four seconds for materialization before it releases pending work.
 
 If a message with a structured mention has no attachment but refers to a recent
 file or image, the adapter can reuse up to three attachments from the same
@@ -112,6 +124,13 @@ reply, edit, delete, reconcile, change reactions, send dividers, and send cards.
 The adapter uploads WorkerFiles before it sends image or file messages. Text
 messages use provider UUIDs derived from outbox idempotency keys. Reconciliation
 checks the recorded provider message ID.
+
+If a referenced WorkerFiles attachment is missing, not a regular file, too
+large, or outside the supported attachment contract, the adapter marks the
+durable reply as requiring operator action. SignalsGateway blocks that row
+instead of retrying the same invalid attachment forever. The Worker file
+protocol reports `file_not_found` and `not_regular_file`; the adapter never
+classifies these failures from their human-readable messages.
 
 If a reply target no longer exists, the adapter can post to the chat instead.
 If Lark rejects a final edit because of its edit limit, the adapter can send a
@@ -136,6 +155,12 @@ sealed recovered page stays inline and the new tail returns to CardKit.
 
 Each provider mutation uses a strictly increasing sequence. A retry reuses the
 same logical UUID and sequence. A changed mutation gets a later sequence.
+
+Working cards use CardKit element and content mutations. Finalization replaces
+an existing streamed message with one complete closed card and records that
+page as inline. It does not send terminal element batches against provider
+topology that can have changed. A card created from an already terminal reply
+stays CardKit because its complete content was sent once.
 
 The renderer aims to stay below 24 KiB and 160 elements. It splits Markdown into
 source pages of about 12 KiB without changing the stored Markdown.

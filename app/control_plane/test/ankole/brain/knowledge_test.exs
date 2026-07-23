@@ -7,6 +7,7 @@ defmodule Ankole.Brain.KnowledgeTest do
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Schemas.Entry
   alias Ankole.Brain.Schemas.EntryBlock
+  alias Ankole.Brain.Schemas.EntryRelation
   alias Ankole.Repo
 
   setup do
@@ -410,6 +411,77 @@ defmodule Ankole.Brain.KnowledgeTest do
                },
                ctx.actor
              )
+  end
+
+  test "adding an existing relation is a no-op at the current entry version", ctx do
+    {source_id, source_version} =
+      create_entry(ctx.shared_scope, ctx.actor, "幂等关系主语", "topic")
+
+    {target_id, _target_version} =
+      create_entry(ctx.shared_scope, ctx.actor, "幂等关系宾语", "topic")
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  relation_id: relation_id,
+                  entry_lock_version: next_version
+                }
+              ]
+            }} =
+             Knowledge.apply_operations(
+               ctx.shared_scope,
+               %{
+                 operation: "add_relation",
+                 entry_id: source_id,
+                 target_entry_id: target_id,
+                 predicate: "并列子策略",
+                 expected_entry_lock_version: source_version
+               },
+               ctx.actor
+             )
+
+    assert next_version == source_version + 1
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  relation_id: ^relation_id,
+                  entry_lock_version: ^next_version
+                }
+              ],
+              touched_entry_ids: []
+            }} =
+             Knowledge.apply_operations(
+               ctx.shared_scope,
+               %{
+                 operation: "add_relation",
+                 entry_id: source_id,
+                 target_entry_id: target_id,
+                 predicate: "  并列子策略  ",
+                 expected_entry_lock_version: next_version
+               },
+               ctx.actor
+             )
+
+    assert Repo.aggregate(
+             from(relation in EntryRelation,
+               where:
+                 relation.source_entry_id == ^source_id and
+                   relation.target_entry_id == ^target_id
+             ),
+             :count
+           ) == 1
+
+    assert {:ok, audits} =
+             Knowledge.list_audit(ctx.shared_scope,
+               entry_id: source_id,
+               action: "add_relation",
+               limit: 10
+             )
+
+    assert length(audits) == 1
   end
 
   test "restores a deleted block from its structured audit snapshot", ctx do

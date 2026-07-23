@@ -38,7 +38,9 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
     assert image_providers == ["openrouter"]
   end
 
-  test "selects a pinned GPT Image endpoint and preserves exact model IDs", %{runtime: runtime} do
+  test "keeps compatible GPT Image endpoints eligible and preserves exact model IDs", %{
+    runtime: runtime
+  } do
     http_client = catalog_client()
 
     assert {:ok, selection} =
@@ -60,6 +62,13 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
     assert selection.model == "openai/gpt-image-2"
     assert selection.provider_slug == "openai"
     assert selection.provider_tag == "openai/gpt-image-2:openai"
+    assert selection.provider_slugs == ["openai", "openai-backup"]
+
+    assert selection.provider_tags == [
+             "openai/gpt-image-2:openai",
+             "openai/gpt-image-2:openai-backup"
+           ]
+
     assert selection.supports_streaming
 
     assert {:error, missing} =
@@ -168,7 +177,7 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
                http_client: failing_client
              )
 
-    assert stale.provider_tag == initial.provider_tag
+    assert stale.provider_tags == initial.provider_tags
 
     Cache.clear_for_test()
 
@@ -372,6 +381,31 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
            }}
 
         String.ends_with?(request.url, "/images/models/openai/gpt-image-2/endpoints") ->
+          supported_parameters =
+            Map.merge(
+              %{
+                "input_references" => %{
+                  "type" => "range",
+                  "min" => 0,
+                  "max" => 16
+                },
+                "quality" => %{
+                  "type" => "enum",
+                  "values" => ["auto", "low", "medium", "high"]
+                },
+                "background" => %{
+                  "type" => "enum",
+                  "values" => ["auto", "opaque"]
+                },
+                "output_compression" => %{
+                  "type" => "range",
+                  "min" => 0,
+                  "max" => 100
+                }
+              },
+              supported_overrides
+            )
+
           {:ok,
            %{
              "status" => 200,
@@ -382,30 +416,14 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
                    "provider_tag" => "openai/gpt-image-2:openai",
                    "supports_streaming" => true,
                    "allowed_passthrough_parameters" => ["moderation"],
-                   "supported_parameters" =>
-                     Map.merge(
-                       %{
-                         "input_references" => %{
-                           "type" => "range",
-                           "min" => 0,
-                           "max" => 16
-                         },
-                         "quality" => %{
-                           "type" => "enum",
-                           "values" => ["auto", "low", "medium", "high"]
-                         },
-                         "background" => %{
-                           "type" => "enum",
-                           "values" => ["auto", "opaque"]
-                         },
-                         "output_compression" => %{
-                           "type" => "range",
-                           "min" => 0,
-                           "max" => 100
-                         }
-                       },
-                       supported_overrides
-                     )
+                   "supported_parameters" => supported_parameters
+                 },
+                 %{
+                   "provider_slug" => "openai-backup",
+                   "provider_tag" => "openai/gpt-image-2:openai-backup",
+                   "supports_streaming" => true,
+                   "allowed_passthrough_parameters" => ["moderation"],
+                   "supported_parameters" => supported_parameters
                  }
                ]
              }

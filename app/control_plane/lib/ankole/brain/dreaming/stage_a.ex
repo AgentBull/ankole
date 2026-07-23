@@ -105,6 +105,9 @@ defmodule Ankole.Brain.Dreaming.StageA do
         end)
 
       {:ok, count}
+    else
+      {:error, reason} ->
+        {:unavailable, "episode embedding unavailable: #{inspect(reason)}"}
     end
   end
 

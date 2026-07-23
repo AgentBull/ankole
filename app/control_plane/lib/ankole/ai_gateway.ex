@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway do
 
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.MapUtils
@@ -88,10 +89,15 @@ defmodule Ankole.AIGateway do
   defp emit_persistence_failure(prepared_request, upstream_response, error) do
     case Map.get(upstream_response, :hosted_tool_metadata) do
       %{} = metadata ->
-        metadata
-        |> Map.put("result", "failure")
-        |> Map.put("failure_reason", error.code)
-        |> HostedToolTelemetry.emit()
+        HostedToolTelemetry.emit_failure(prepared_request, %{
+          "code" => error.code,
+          "status" => error.status,
+          "stage" => "artifact_persistence",
+          "hosted_tool_metadata" =>
+            metadata
+            |> Map.put("result", "failure")
+            |> Map.put("failure_reason", error.code)
+        })
 
       _missing ->
         HostedToolTelemetry.emit_failure(prepared_request, error)
@@ -196,6 +202,16 @@ defmodule Ankole.AIGateway do
                 subject_uid,
                 response_id,
                 error_details,
+                now
+              ),
+              to: StatefulResponses
+
+  @doc false
+  defdelegate retract_generating_response_in_tx(
+                repo,
+                subject_uid,
+                response_id,
+                reason,
                 now
               ),
               to: StatefulResponses
@@ -318,8 +334,60 @@ defmodule Ankole.AIGateway do
   def cancel_response_stream(stream, reason \\ "consumer_cancelled"),
     do: ResponseStream.cancel(stream, reason)
 
-  defp execute_prepared_request(_runtime, prepared_request, opts),
-    do: UniversalAIRequest.request(prepared_request, opts)
+  defp execute_prepared_request(runtime, prepared_request, opts) do
+    started_at = System.monotonic_time()
+
+    case UniversalAIRequest.request(prepared_request, opts) do
+      {:error, reason} = error ->
+        log_request_failure(runtime, prepared_request, reason, started_at)
+        error
+
+      result ->
+        result
+    end
+  end
+
+  defp log_request_failure(runtime, prepared_request, reason, started_at) do
+    FailureDiagnostics.log(
+      "ai_gateway.request_failed",
+      "AIGateway provider request failed",
+      %{
+        capability: runtime["capability"],
+        provider_id: runtime["provider_id"],
+        provider_kind: runtime["provider_kind"],
+        model: runtime["model"],
+        api_resolver: prepared_request.api_resolver,
+        upstream_host: request_upstream_host(prepared_request),
+        duration_ms:
+          System.monotonic_time()
+          |> Kernel.-(started_at)
+          |> System.convert_time_unit(:native, :millisecond)
+      },
+      reason
+    )
+  end
+
+  defp request_upstream_host(%UniversalAIRequest{path: path, ctx: ctx}) do
+    url =
+      if String.starts_with?(path, ["https://", "http://"]) do
+        path
+      else
+        UniversalAIRequest.setting(ctx, :base_url)
+      end
+
+    case url do
+      value when is_binary(value) -> URI.parse(value).host
+      _value -> nil
+    end
+  end
+
+  defp request_upstream_host(%{upstream: %{url: url}}) when is_binary(url),
+    do: URI.parse(url).host
+
+  defp request_upstream_host(%{"upstream" => %{"url" => url}}) when is_binary(url),
+    do: URI.parse(url).host
+
+  defp request_upstream_host(_prepared_request), do: nil
 
   defp execute_web_fetch(%{"provider_kind" => "jina_reader"} = runtime, request, opts) do
     request

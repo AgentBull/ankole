@@ -62,6 +62,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey,
       runStep: turnActivity.runStep
     })
+    logAIGatewayRoute(opts, turnStart, model, aiGateway.baseURL)
     const agentConversationContext = await turnActivity.runStep(
       resolveAgentConversationContext(turnStart, opts),
       'agent conversation context'
@@ -158,6 +159,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       ]
     }
 
+    const hostedTools = turnStart.hosted_tools ?? []
+
+    opts.logger?.info('worker.turn_tools_resolved', 'worker turn tools resolved', {
+      actor_event_id: turnStart.turn.actor_event_id,
+      tool_count: tools.length,
+      tool_names: tools.map(tool => tool.name),
+      hosted_tool_count: hostedTools.length,
+      hosted_tool_types: hostedTools.map(tool => tool.type)
+    })
+
     const promptOptions = {
       agentHome: opts.agentHome,
       userFilesRoot: opts.userFilesRoot,
@@ -189,9 +200,10 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         truncation: statefulTruncationFromActorEventPayload(actorEvent.payload_json)
       },
       tools,
-      hostedTools: turnStart.hosted_tools,
+      hostedTools,
       abortSignal: turnActivity.signal,
       onActivity: turnActivity.touch,
+      logger: opts.logger,
       onPresentationEvent: opts.onPresentationEvent,
       withActivitySuspended: turnActivity.withSuspended,
       getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? [])
@@ -207,6 +219,34 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
     turnActivity.cleanup()
+  }
+}
+
+function logAIGatewayRoute(
+  opts: TextTurnLoopOptions,
+  turnStart: TurnStart,
+  model: Parameters<typeof runAgentLoop>[0]['model'],
+  baseURL: string
+): void {
+  opts.logger?.info('worker.aigateway_route_resolved', 'worker AIGateway route resolved', {
+    actor_event_id: turnStart.turn.actor_event_id,
+    model: model.name,
+    provider: model.provider,
+    selector: model.selector,
+    ...safeAIGatewayRoute(baseURL)
+  })
+}
+
+function safeAIGatewayRoute(baseURL: string): Record<string, string> {
+  try {
+    const url = new URL(baseURL)
+
+    return {
+      aigateway_scheme: url.protocol.replace(/:$/, ''),
+      aigateway_host: url.host
+    }
+  } catch {
+    return { aigateway_url_state: 'invalid' }
   }
 }
 

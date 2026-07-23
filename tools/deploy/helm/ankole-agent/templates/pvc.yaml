@@ -1,0 +1,22 @@
+{{- if not .Values.worker.agents.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "ankole-agent.agentsClaimName" . }}
+  labels:
+    {{- include "ankole-agent.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with .Values.worker.agents.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.worker.agents.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.worker.agents.persistence.size }}
+  {{- if .Values.worker.agents.persistence.storageClass }}
+  storageClassName: {{ .Values.worker.agents.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

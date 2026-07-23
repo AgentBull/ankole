@@ -458,14 +458,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp action_elements(%{"actions" => actions} = presentation, mode)
        when is_list(actions) and actions != [] and mode == :terminal do
-    buttons = Enum.flat_map(actions, &render_button_action/1)
+    choices = Enum.flat_map(actions, &render_choice_action/1)
 
-    button_element =
-      case buttons do
+    choice_group =
+      case choices do
         [] ->
           nil
 
-        buttons ->
+        choices ->
           %{
             "tag" => "column_set",
             "element_id" => "actions",
@@ -475,7 +475,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
                 "width" => "weighted",
                 "weight" => 1,
                 "vertical_spacing" => "8px",
-                "elements" => buttons
+                "elements" => choices
               }
             ]
           }
@@ -486,13 +486,27 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       |> Enum.with_index(1)
       |> Enum.flat_map(fn {action, index} -> render_form_action(action, presentation, index) end)
 
-    elements = [button_element | forms] |> Enum.reject(&is_nil/1)
-    if forms == [], do: elements, else: elements ++ [free_input_hint_element()]
+    choice_groups = [choice_group] |> Enum.reject(&is_nil/1)
+
+    form_separator =
+      if choice_groups != [] and forms != [] do
+        [
+          %{
+            "tag" => "hr",
+            "element_id" => "action_separator",
+            "margin" => "0px 0px 0px 0px"
+          }
+        ]
+      else
+        []
+      end
+
+    choice_groups ++ form_separator ++ forms
   end
 
   defp action_elements(_presentation, _mode), do: []
 
-  defp render_button_action(
+  defp render_choice_action(
          %{
            "type" => "button",
            "interaction_id" => interaction_id,
@@ -506,49 +520,40 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
        when is_binary(interaction_id) and is_binary(source_actor_event_id) and
               is_binary(control_id) and is_binary(selected_option_id) and
               is_binary(option_value) and is_integer(revision) do
-    detailed? = present_text?(action["description"]) or String.length(action["label"]) > 40
-
-    button_text =
-      if action["selected"] == true do
-        CardI18n.plain_text("selected_option_with_label", %{
-          label: action["label"]
-        })
-        |> truncate_plain_text(40)
-      else
-        %{"tag" => "plain_text", "content" => truncate(action["label"], 40)}
-      end
-
-    context = if detailed?, do: choice_context_elements(action), else: []
-
-    context ++
-      [
-        %{
-          "tag" => "button",
-          "name" => action["id"],
-          "type" => button_type(action["style"]),
-          "width" => "fill",
-          "disabled" => action["disabled"] == true,
-          "text" => button_text,
-          "behaviors" => [
-            %{
-              "type" => "callback",
-              "value" => %{
-                "version" => @action_value_version,
-                "answerKind" => "choice",
-                "interactionId" => interaction_id,
-                "interactionVersion" => revision,
-                "controlId" => control_id,
-                "selectedOptionId" => selected_option_id,
-                "optionValue" => option_value,
-                "sourceActorEventId" => source_actor_event_id
-              }
+    [
+      %{
+        "tag" => "interactive_container",
+        "width" => "fill",
+        "height" => "auto",
+        "background_style" => choice_background(action["style"]),
+        "has_border" => true,
+        "border_color" => choice_border(action["style"]),
+        "corner_radius" => "8px",
+        "padding" => "8px 12px 8px 12px",
+        "disabled" => action["disabled"] == true,
+        "behaviors" => [
+          %{
+            "type" => "callback",
+            "value" => %{
+              "version" => @action_value_version,
+              "answerKind" => "choice",
+              "interactionId" => interaction_id,
+              "interactionVersion" => revision,
+              "controlId" => control_id,
+              "selectedOptionId" => selected_option_id,
+              "optionValue" => option_value,
+              "sourceActorEventId" => source_actor_event_id
             }
-          ]
-        }
-      ]
+          }
+        ],
+        "elements" =>
+          [choice_title(action)]
+          |> append(choice_description(action["description"]))
+      }
+    ]
   end
 
-  defp render_button_action(_action), do: []
+  defp render_choice_action(_action), do: []
 
   defp render_form_action(
          %{
@@ -628,9 +633,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     }
   end
 
-  defp choice_context_elements(action) do
-    [choice_text(action["label"], "normal", "default")]
-    |> append(choice_description(action["description"]))
+  defp choice_title(action) do
+    text =
+      if action["selected"] == true do
+        CardI18n.plain_text("selected_option_with_label", %{label: action["label"]})
+      else
+        %{"tag" => "plain_text", "content" => action["label"]}
+      end
+
+    %{
+      "tag" => "div",
+      "text" =>
+        Map.merge(text, %{
+          "text_size" => "normal",
+          "text_color" => "default"
+        })
+    }
   end
 
   defp choice_description(description) when is_binary(description) and description != "",
@@ -650,13 +668,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     }
   end
 
-  defp free_input_hint_element do
-    %{
-      "tag" => "div",
-      "element_id" => "action_hint",
-      "text" => CardI18n.plain_text("direct_reply_hint") |> metadata_text()
-    }
-  end
+  defp choice_background("primary"), do: "blue"
+  defp choice_background(_style), do: "default"
+
+  defp choice_border("primary"), do: "blue"
+  defp choice_border("danger"), do: "red"
+  defp choice_border(_style), do: "grey"
 
   defp meta_element(%{"meta" => meta}) when is_map(meta) do
     parts =
@@ -1083,14 +1100,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     else
       String.slice(text, 0, max_chars - 1) <> "…"
     end
-  end
-
-  defp truncate_plain_text(text, max_chars) do
-    text
-    |> Map.update!("content", &truncate(&1, max_chars))
-    |> Map.update!("i18n_content", fn content ->
-      Map.new(content, fn {locale, value} -> {locale, truncate(value, max_chars)} end)
-    end)
   end
 
   defp first_cardkit_page?(presentation) do

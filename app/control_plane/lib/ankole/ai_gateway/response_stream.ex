@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   use GenServer
 
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedToolTelemetry
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
@@ -47,6 +48,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       stateful: Keyword.get(opts, :stateful),
       receiver: receiver,
       telemetry_spec: telemetry_spec(prepared_request),
+      diagnostics: stream_diagnostics(request, prepared_request),
       open_fun: open_fun
     ]
 
@@ -101,6 +103,8 @@ defmodule Ankole.AIGateway.ResponseStream do
        stateful: Keyword.get(opts, :stateful),
        telemetry_spec: Keyword.fetch!(opts, :telemetry_spec),
        telemetry_emitted?: false,
+       diagnostics: Keyword.get(opts, :diagnostics, %{}),
+       failure_logged?: false,
        open_fun: Keyword.fetch!(opts, :open_fun)
      }, {:continue, :open_native_stream}}
   end
@@ -135,6 +139,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:noreply, ready_state}
 
       {:error, reason} ->
+        state = log_failure_once(state, reason)
         maybe_emit_open_failure(state.telemetry_spec, reason)
 
         Process.send_after(
@@ -246,7 +251,7 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:universal_ai_client, ref, :error, error},
         %{native_stream: %{ref: ref}} = state
       ) do
-    state = emit_failure_once(state, error)
+    state = state |> log_failure_once(error) |> emit_failure_once(error)
 
     if State.terminal?(state.semantic) do
       {:stop, :normal, state}
@@ -347,7 +352,11 @@ defmodule Ankole.AIGateway.ResponseStream do
         {:noreply, state}
 
       {:ok, semantic, events, {:terminal, outcome, upstream_action}} ->
-        state = %{state | semantic: semantic}
+        state =
+          state
+          |> Map.put(:semantic, semantic)
+          |> log_terminal_failure_once(outcome)
+
         state = finish_public_stream(state, upstream_action)
         send_events(state, events, {:terminal, outcome})
         {:noreply, state}
@@ -398,10 +407,16 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp fail_stream(state, reason, opts) do
+    failure = %{
+      "code" => Keyword.get(opts, :code, "provider_stream_error"),
+      "stage" => "response_stream",
+      "retryable" => Keyword.get(opts, :retryable, false)
+    }
+
     state =
-      emit_failure_once(state, %{
-        code: Keyword.get(opts, :code, "provider_stream_error")
-      })
+      state
+      |> log_failure_once(failure)
+      |> emit_failure_once(failure)
 
     {semantic, events, outcome} = State.fail(state.semantic, reason, opts)
     {%{state | semantic: semantic}, events, outcome}
@@ -448,6 +463,121 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp hosted_request?(%{hosted_tools: %{image_generation: %{}}}), do: true
   defp hosted_request?(_spec), do: false
 
+  defp log_terminal_failure_once(state, %{terminal_error: %{} = error}),
+    do: log_failure_once(state, error)
+
+  defp log_terminal_failure_once(state, _outcome), do: state
+
+  defp log_failure_once(%{failure_logged?: true} = state, _reason), do: state
+
+  defp log_failure_once(state, reason) do
+    FailureDiagnostics.log(
+      "ai_gateway.response_failed",
+      "AIGateway provider response failed",
+      state.diagnostics,
+      reason
+    )
+
+    %{state | failure_logged?: true}
+  end
+
+  defp stream_diagnostics(request, prepared_request) do
+    response_context =
+      Map.get(prepared_request, :response_context) ||
+        Map.get(prepared_request, "response_context") || %{}
+
+    upstream =
+      Map.get(prepared_request, :upstream) || Map.get(prepared_request, "upstream") || %{}
+
+    {input_image_count, inline_image_chars} = request_image_stats(request)
+
+    %{
+      actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
+      model: map_value(response_context, "model") || Map.get(request, "model"),
+      api_resolver:
+        prepared_request
+        |> map_value("api_resolver")
+        |> string(),
+      upstream_host:
+        upstream
+        |> map_value("url")
+        |> upstream_host(),
+      request_bytes: encoded_size(request),
+      input_item_count: item_count(Map.get(request, "input")),
+      tool_count: item_count(Map.get(request, "tools")),
+      function_call_output_count: function_call_output_count(Map.get(request, "input")),
+      input_image_count: input_image_count,
+      inline_image_chars: inline_image_chars
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
+  end
+
+  defp request_image_stats(value) when is_list(value) do
+    Enum.reduce(value, {0, 0}, fn item, {count, chars} ->
+      {item_count, item_chars} = request_image_stats(item)
+      {count + item_count, chars + item_chars}
+    end)
+  end
+
+  defp request_image_stats(%{} = value) do
+    if map_value(value, "type") in ["input_image", "image_url"] do
+      {1, inline_image_chars(map_value(value, "image_url"))}
+    else
+      value
+      |> Map.values()
+      |> request_image_stats()
+    end
+  end
+
+  defp request_image_stats(_value), do: {0, 0}
+
+  defp inline_image_chars(url) when is_binary(url) do
+    if String.starts_with?(url, "data:image/"), do: byte_size(url), else: 0
+  end
+
+  defp inline_image_chars(%{} = url), do: inline_image_chars(map_value(url, "url"))
+  defp inline_image_chars(_url), do: 0
+
+  defp function_call_output_count(input) when is_list(input) do
+    Enum.count(input, fn
+      %{} = item -> map_value(item, "type") == "function_call_output"
+      _item -> false
+    end)
+  end
+
+  defp function_call_output_count(_input), do: 0
+
+  defp encoded_size(value) do
+    case Ankole.JSON.encode(value) do
+      {:ok, encoded} -> byte_size(encoded)
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp item_count(items) when is_list(items), do: length(items)
+  defp item_count(nil), do: 0
+  defp item_count(_item), do: 1
+
+  defp upstream_host(url) when is_binary(url), do: URI.parse(url).host
+  defp upstream_host(_url), do: nil
+
+  defp map_value(map, key) when is_map(map) do
+    Map.get(map, key) ||
+      Enum.find_value(map, fn
+        {atom_key, value} when is_atom(atom_key) ->
+          if Atom.to_string(atom_key) == key, do: value
+
+        _entry ->
+          nil
+      end)
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp string(value) when is_binary(value) and value != "", do: value
+  defp string(value) when is_atom(value), do: Atom.to_string(value)
+  defp string(_value), do: nil
+
   defp telemetry_spec(prepared_request) do
     hosted_tools =
       Map.get(prepared_request, :hosted_tools) || Map.get(prepared_request, "hosted_tools") || %{}
@@ -459,7 +589,15 @@ defmodule Ankole.AIGateway.ResponseStream do
       %{} ->
         %{
           hosted_tools: %{
-            image_generation: Map.take(image, ["selected_model", "provider_tag", "provider_slug"])
+            image_generation:
+              Map.take(image, [
+                "actor_event_id",
+                "selected_model",
+                "provider_tag",
+                "provider_tags",
+                "provider_slug",
+                "provider_slugs"
+              ])
           }
         }
 

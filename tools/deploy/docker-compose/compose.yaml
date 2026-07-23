@@ -1,0 +1,152 @@
+name: ankole
+
+x-control-plane-environment: &control-plane-environment
+  ANKOLE_SECRET_BASE: ${ANKOLE_SECRET_BASE:?Set ANKOLE_SECRET_BASE in .env}
+  DATABASE_URL: ecto://ankole:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgresql:5432/ankole
+  PHX_SERVER: "true"
+  PHX_HOST: ${ANKOLE_HOST:?Set ANKOLE_HOST in .env}
+  PORT: "4000"
+  POOL_SIZE: ${ANKOLE_DATABASE_POOL_SIZE:-10}
+  ANKOLE_LOG_LEVEL: ${ANKOLE_LOG_LEVEL:-info}
+  ANKOLE_LOG_FORMAT: json
+  ANKOLE_LIBRARY_ROOT: /app/app/library
+  ANKOLE_AI_GATEWAY_BASE_URL: http://control-plane:4000/api/v1/ai-gateway
+  ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: tcp://0.0.0.0:6010
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  postgresql:
+    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest}
+    pull_policy: always
+    restart: unless-stopped
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_search
+      - -c
+      - max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}
+    environment:
+      POSTGRES_USER: ankole
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ankole
+    volumes:
+      - postgresql_data:/var/lib/pgsql/18/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ankole -d ankole
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    logging: *default-logging
+    networks:
+      - backend
+
+  migrate:
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
+    pull_policy: always
+    restart: "no"
+    command:
+      - /app/bin/migrate
+    environment: *control-plane-environment
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - backend
+
+  bootstrap-worker-auth-key:
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
+    pull_policy: always
+    restart: "no"
+    command:
+      - /app/bin/bootstrap-worker-auth-key
+    environment:
+      <<: *control-plane-environment
+      ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?Set ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY in .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    logging: *default-logging
+    networks:
+      - backend
+
+  control-plane:
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment: *control-plane-environment
+    depends_on:
+      bootstrap-worker-auth-key:
+        condition: service_completed_successfully
+    expose:
+      - "4000"
+      - "6010"
+    logging: *default-logging
+    networks:
+      - backend
+      - frontend
+
+  worker:
+    image: ${ANKOLE_WORKER_IMAGE:-ghcr.io/agentbull/ankole-agent-computer-worker:main-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      WORKER_ID: ${ANKOLE_WORKER_ID:-worker-local-1}
+      RUNTIME_FABRIC_URL: tcp://:${ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY:?Set ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY in .env}@control-plane:6010
+      ANKOLE_AGENTS_ROOT: /agents
+      ANKOLE_MAX_CONCURRENT_TURNS: ${ANKOLE_MAX_CONCURRENT_TURNS:-9}
+      ANKOLE_LOG_LEVEL: ${ANKOLE_LOG_LEVEL:-info}
+      ANKOLE_LOG_FORMAT: json
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp=unconfined
+      - systempaths=unconfined
+    volumes:
+      - agents_data:/agents
+    depends_on:
+      control-plane:
+        condition: service_started
+    logging: *default-logging
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      ANKOLE_HOST: ${ANKOLE_HOST:?Set ANKOLE_HOST in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      control-plane:
+        condition: service_started
+    logging: *default-logging
+    networks:
+      - frontend
+
+volumes:
+  postgresql_data:
+  agents_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+    internal: true
+  frontend:

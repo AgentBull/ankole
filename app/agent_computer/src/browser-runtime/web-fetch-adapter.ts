@@ -22,6 +22,8 @@ export type BrowserWebFetchFailureEvent = {
   errorMessage: string
   retryable: boolean
   urlIndex?: number
+  urlScheme?: string
+  urlHost?: string
 }
 
 type BrowserWebFetchAdapterOptions = {
@@ -49,7 +51,7 @@ export class BrowserWebFetchAdapter {
         if (!signal?.aborted) this.reportFailure(runtime, { stage: 'invoke', ...observedFailure(error) })
         throw error
       }
-      this.reportResultFailures(runtime, result)
+      this.reportResultFailures(runtime, result, urls)
       return result
     } finally {
       await this.purge(runtime)
@@ -58,7 +60,7 @@ export class BrowserWebFetchAdapter {
     }
   }
 
-  private reportResultFailures(runtime: MaterializedBrowserRuntime, value: unknown): void {
+  private reportResultFailures(runtime: MaterializedBrowserRuntime, value: unknown, urls: string[]): void {
     if (!isRecord(value) || !Array.isArray(value.results)) return
     for (const [urlIndex, result] of value.results.entries()) {
       if (!isRecord(result) || typeof result.error !== 'string') continue
@@ -68,7 +70,8 @@ export class BrowserWebFetchAdapter {
         errorCode: parsedCode.success ? parsedCode.data : 'internal',
         errorMessage: redactedErrorMessage(result.error),
         retryable: result.retryable === true,
-        urlIndex
+        urlIndex,
+        ...safeURLLogFields(urls[urlIndex])
       })
     }
   }
@@ -205,6 +208,20 @@ function redactedErrorMessage(value: string): string {
       '$1=[redacted]'
     )
     .slice(0, 500)
+}
+
+function safeURLLogFields(value: string | undefined): Pick<BrowserWebFetchFailureEvent, 'urlScheme' | 'urlHost'> {
+  if (!value) return {}
+
+  try {
+    const url = new URL(value)
+    return {
+      urlScheme: url.protocol.replace(/:$/, ''),
+      urlHost: url.host
+    }
+  } catch {
+    return {}
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

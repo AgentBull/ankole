@@ -90,6 +90,11 @@ Workspace and it does not create a replacement directory.
 returns only `job_id` and the concrete status. The Console can keep an operator
 stop reason, but the model tool does not accept one.
 
+When a Job becomes `succeeded`, `failed`, or `stopped`, the same transaction
+changes each active Turn in the current attempt to `interrupted`. A completed
+lead Turn remains completed, so a successful Job keeps its required result
+trajectory without leaving active child Turns behind.
+
 The authorized parent turn supplies the Agent, originating conversation, tool
 call, and reply route. The task can use real paths inside that Agent Home.
 

@@ -1,5 +1,6 @@
 import { zstdCompressBlock } from '@ankole/kernel'
-import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, existsSync, fstatSync, openSync, readSync, statSync } from 'node:fs'
+import type { Stats } from 'node:fs'
 import {
   boolFrame,
   chunkSize,
@@ -11,9 +12,10 @@ import {
   u64Frame,
   zstdLevel
 } from './codec'
+import { FileTransferError, type FileTransferErrorCode } from './errors'
 import { fileFingerprint } from './fingerprint'
 import { assertExistingFileAddress, parseVirtualPathFrame, resolveFileAddress } from './path-security'
-import type { FileTransferContext, GetTransfer } from './types'
+import type { FileAddress, FileTransferContext, GetTransfer } from './types'
 
 export async function handleReadOpen(
   context: FileTransferContext,
@@ -26,19 +28,7 @@ export async function handleReadOpen(
 
   const address = parseVirtualPathFrame(frames[3], 'read path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
-  const lexicalFilePath = resolveFileAddress(context.config, address)
-  const filePath = existsSync(lexicalFilePath)
-    ? assertExistingFileAddress(context.config, address, lexicalFilePath)
-    : lexicalFilePath
-  if (!existsSync(filePath)) {
-    throw new Error(`file does not exist: ${address.virtualPath}`)
-  }
-  if (!statSync(filePath).isFile()) {
-    throw new Error(`not a regular file: ${address.virtualPath}`)
-  }
-
-  const stableStat = statSync(filePath)
-  const fd = openSync(filePath, 'r')
+  const { filePath, fd, stableStat } = openReadSource(context, address)
 
   const transfer: GetTransfer = {
     transferID,
@@ -69,6 +59,52 @@ export async function handleReadOpen(
     handleReadAbort(context, transferID)
     throw error
   }
+}
+
+function openReadSource(
+  context: FileTransferContext,
+  address: FileAddress
+): { filePath: string; fd: number; stableStat: Stats } {
+  const lexicalFilePath = resolveFileAddress(context.config, address)
+  let fd = -1
+
+  try {
+    const filePath = assertExistingFileAddress(context.config, address, lexicalFilePath)
+    fd = openSync(filePath, 'r')
+    const stableStat = fstatSync(fd, { bigint: false })
+
+    if (!stableStat.isFile()) {
+      throw new FileTransferError('not_regular_file', `not a regular file: ${address.virtualPath}`)
+    }
+
+    return { filePath, fd, stableStat }
+  } catch (error) {
+    if (fd !== -1) {
+      try {
+        closeSync(fd)
+      } catch {
+        // The read did not start, so only best-effort descriptor cleanup remains.
+      }
+    }
+
+    if (error instanceof FileTransferError) throw error
+
+    switch (nodeErrorCode(error)) {
+      case 'ENOENT':
+        throw new FileTransferError('file_not_found', `file does not exist: ${address.virtualPath}`)
+
+      case 'EISDIR':
+        throw new FileTransferError('not_regular_file', `not a regular file: ${address.virtualPath}`)
+
+      default:
+        throw error
+    }
+  }
+}
+
+function nodeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
+  return typeof error.code === 'string' ? error.code : undefined
 }
 
 export function sendReadData(context: FileTransferContext, transferID: string, frames: Buffer[]): void {
@@ -175,7 +211,12 @@ async function maybeFinishReadTransfer(context: FileTransferContext, transfer: G
   }
 
   if (!readSourceStillStable(transfer)) {
-    await finishReadTransferWithError(context, transfer, `file changed during read: ${transfer.address.virtualPath}`)
+    await finishReadTransferWithError(
+      context,
+      transfer,
+      `file changed during read: ${transfer.address.virtualPath}`,
+      'file_changed'
+    )
     return
   }
 
@@ -214,7 +255,8 @@ function closeTransferFile(transfer: GetTransfer): void {
 async function finishReadTransferWithError(
   context: FileTransferContext,
   transfer: GetTransfer,
-  message: string
+  message: string,
+  code: FileTransferErrorCode | 'operation_failed' = 'operation_failed'
 ): Promise<void> {
   if (transfer.finished) return
 
@@ -222,7 +264,7 @@ async function finishReadTransferWithError(
   closeTransferFile(transfer)
   context.state.gets.delete(transfer.transferID)
   try {
-    await sendError(context.sender, transfer.transferID, 'operation_failed', message)
+    await sendError(context.sender, transfer.transferID, code, message)
   } catch {
     // If the sender is gone, there is no second channel for reporting the failure.
   }

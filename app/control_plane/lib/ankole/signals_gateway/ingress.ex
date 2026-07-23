@@ -51,6 +51,7 @@ defmodule Ankole.SignalsGateway.Ingress do
          :match <- IngressPipeline.filter(binding, fact) do
       binding
       |> accept_entry(fact, now)
+      |> TurnRetry.dispatch_retry_controls()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error

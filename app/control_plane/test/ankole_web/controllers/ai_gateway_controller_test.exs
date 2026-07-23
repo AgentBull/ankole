@@ -4,6 +4,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   import AnkoleWeb.AIGatewayControllerTestHelpers
+  import ExUnit.CaptureLog
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
@@ -788,6 +789,168 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert search_request.body["gl"] == "us"
     assert search_request.body["hl"] == "en"
     refute Map.has_key?(search_request.body, "model")
+  end
+
+  test "failed synchronous provider requests log safe routing diagnostics", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn %{path: "search"} ->
+        {:json, 422,
+         %{
+           "error" => %{
+             "code" => "response_validation_failed",
+             "message" => "private upstream response",
+             "type" => "server_error"
+           }
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "agentbull-web-diagnostics",
+               provider_kind: "agentbull_cloud",
+               base_url: base_url
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "agentbull-web-diagnostics",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    log =
+      capture_log(
+        [
+          level: :warning,
+          metadata: [
+            :event,
+            :capability,
+            :provider_id,
+            :provider_kind,
+            :model,
+            :api_resolver,
+            :upstream_host,
+            :duration_ms,
+            :error_code,
+            :provider_status,
+            :provider_error_code,
+            :provider_error_type,
+            :retryable
+          ]
+        ],
+        fn ->
+          conn =
+            conn
+            |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+            |> post(~p"/api/v1/ai-gateway/web_search", %{
+              "model" => "web_search.default",
+              "query" => "private query",
+              "limit" => 3
+            })
+
+          assert %{"error" => %{"code" => "upstream_response_failed"}} =
+                   json_response(conn, 422)
+        end
+      )
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "search"
+    assert log =~ "event=ai_gateway.request_failed"
+    assert log =~ "capability=web_search"
+    assert log =~ "provider_id=agentbull-web-diagnostics"
+    assert log =~ "provider_kind=agentbull_cloud"
+    assert log =~ "model=default"
+    assert log =~ "api_resolver=agentbull_web_search"
+    assert log =~ "upstream_host=127.0.0.1"
+    assert log =~ "error_code=upstream_response_failed"
+    assert log =~ "provider_status=422"
+    assert log =~ "provider_error_code=response_validation_failed"
+    assert log =~ "provider_error_type=server_error"
+    refute log =~ "retryable=true"
+    refute log =~ "private query"
+    refute log =~ "private upstream response"
+  end
+
+  test "an invalid upstream success body returns a safe bad gateway error", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, ["private-upstream-body"]}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-invalid-controller-body",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openrouter",
+                 "transport" => %{
+                   "http_versions" => ["h1"],
+                   "compression" => ["zstd", "br", "gzip"]
+                 }
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-invalid-controller-body",
+               model: "openai/gpt-5.5"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "hello"
+      })
+
+    assert %{
+             "error" => %{
+               "code" => "invalid_upstream_response",
+               "message" => "upstream provider returned an invalid response"
+             }
+           } = json_response(conn, 502)
+
+    refute response(conn, 502) =~ "private-upstream-body"
+  end
+
+  test "web_search reports upstream transport failures as bad gateway", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "agentbull-web-transport-failure",
+               provider_kind: "agentbull_cloud",
+               base_url: "http://127.0.0.1:1"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "web_search", %{
+               provider_id: "agentbull-web-transport-failure",
+               model: "default"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> post(~p"/api/v1/ai-gateway/web_search", %{
+        "model" => "web_search.default",
+        "query" => "ankole",
+        "limit" => 3
+      })
+
+    assert %{"error" => %{"code" => "upstream_transport_failed"}} =
+             json_response(conn, 502)
   end
 
   test "web_search validates query and limit before provider dispatch", %{conn: conn} do

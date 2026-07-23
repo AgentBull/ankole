@@ -26,9 +26,13 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.SignalsGateway.ActorRuntime.FileTransferLane
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
   alias FeishuOpenAPI.Client
   alias FeishuOpenAPI.Event
@@ -232,6 +236,18 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "outbound provider constraints" do
+    test "classifies missing reply targets by stable Feishu codes only" do
+      assert Outbox.target_gone_error?(%FeishuOpenAPI.Error{
+               code: 23_000,
+               msg: "opaque provider text"
+             })
+
+      refute Outbox.target_gone_error?(%FeishuOpenAPI.Error{
+               code: 50_000,
+               msg: "message was withdrawn and not found"
+             })
+    end
+
     test "preserves short idempotency keys and hashes long keys into Feishu's UUID limit" do
       short_key = "reply:short"
       long_key = "ai-preview:#{Ecto.UUID.generate()}:initial"
@@ -479,6 +495,65 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                       }}
 
       assert Ankole.JSON.decode!(content) == %{"image_key" => "img_native"}
+    end
+
+    test "blocks a durable reply when its WorkerFiles attachment no longer exists" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-missing-worker-attachment"
+      config = chat_config(%{"appID" => "cli_missing_worker_attachment"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      route = "lark-missing-attachment-#{System.unique_integer([:positive])}"
+      route_auth = %{route: route, worker_id: "lark-missing-attachment"}
+      insert_ready_worker!(route)
+
+      :ok =
+        Broker.register_local_worker(route, fn
+          {:file_transfer_lane, [protocol, "READ_OPEN", transfer_id | _rest]} ->
+            FileTransferLane.handle_worker_frame(route_auth, [
+              protocol,
+              "ERROR",
+              transfer_id,
+              "file_not_found",
+              "the worker could not open the attachment"
+            ])
+        end)
+
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      outbox = %OutboxEntry{
+        agent_uid: agent.uid,
+        binding_name: binding_name,
+        outbound_key: "missing-worker-attachment",
+        delivery_class: :durable_ai_reply,
+        operation: :post,
+        signal_channel_id: "lark:oc_group",
+        payload: %{
+          "attachments" => [
+            %{
+              "name" => "missing.pdf",
+              "mime_type" => "application/pdf",
+              "user_files_relative_path" => "exports/missing.pdf"
+            }
+          ]
+        },
+        fallback_visible_text: "missing.pdf",
+        idempotency_key: "missing-worker-attachment"
+      }
+
+      assert {:error,
+              {:reply_delivery, :operator_action_required,
+               %{
+                 "code" => "attachment_file_missing",
+                 "worker_file_code" => "file_not_found"
+               }}} =
+               Outbox.send(outbox)
+
+      refute_receive {:lark_outbox_request, _request}, 100
     end
   end
 
@@ -1124,6 +1199,81 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
+    test "attachment receipt is durable before the provider download starts" do
+      parent = self()
+      %{principal: agent_a} = agent_fixture()
+      %{principal: agent_b} = agent_fixture()
+      binding_fixture(agent_a.uid, "lark", :record_only)
+      binding_fixture(agent_b.uid, "lark", :record_only)
+      config = chat_config()
+
+      consumers = [
+        Inbound.chat_consumer(adapter_context(agent_a.uid), config),
+        Inbound.chat_consumer(adapter_context(agent_b.uid), config)
+      ]
+
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      stub_lark_requests(parent, fn request ->
+        assert request.request_path ==
+                 "/open-apis/im/v1/messages/om_pending_file/resources/file_pending"
+
+        pending_batches =
+          Enum.map([agent_a.uid, agent_b.uid], fn agent_uid ->
+            Repo.get_by!(InboundBatch,
+              agent_uid: agent_uid,
+              binding_name: "lark",
+              signal_channel_id: "lark:oc_group",
+              batch_state: "open"
+            )
+          end)
+
+        send(parent, {:pending_attachment_before_download, pending_batches})
+        {:json, 400, %{"code" => 400, "msg" => "download unavailable"}}
+      end)
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_pending_file",
+              "message_type" => "file",
+              "content" => ~s({"file_key":"file_pending","file_name":"pending.pdf"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, results} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, consumers)
+
+      assert Enum.map(results, & &1.status) == [:recorded, :recorded]
+      assert_receive {:pending_attachment_before_download, pending_batches}
+
+      assert Enum.all?(pending_batches, fn pending_batch ->
+               get_in(
+                 List.first(pending_batch.entries),
+                 ["metadata", "attachment_materialization", "state"]
+               ) == "pending"
+             end)
+
+      assert Enum.all?(results, fn %{signal_entry: entry} ->
+               entry.metadata["attachment_materialization"]["state"] == "failed" and
+                 entry.attachments == [
+                   %{
+                     "download_type" => "file",
+                     "file_key" => "file_pending",
+                     "name" => "pending.pdf",
+                     "provider" => "lark",
+                     "provider_ref" => "lark:file:file_pending",
+                     "resource_type" => "file",
+                     "source_message_id" => "om_pending_file"
+                   }
+                 ]
+             end)
+    end
+
     test "user senders without provider-scoped user_id are ignored with warning" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -1183,6 +1333,28 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                signal_channel_id: "lark:oc_group",
                source_entry_id: "om_1"
              )
+    end
+
+    test "reaction events use operator open_id when user_id is absent" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :ignore)
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), chat_config())
+
+      assert {:ok, [%{status: :accepted}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", receive_event(), [consumer])
+
+      event =
+        reaction_event()
+        |> put_in([Access.key!(:content), "operator"], %{"open_id" => "ou_open_only"})
+
+      assert {:ok, [%{status: :mirrored, signal_entry: reacted}]} =
+               Inbound.handle_reaction_created(
+                 "im.message.reaction.created_v1",
+                 event,
+                 [consumer]
+               )
+
+      assert reacted.reactions["thumbs_up"] == ["ou_open_only"]
     end
 
     test "recall without chat_type preserves an observed DM channel kind" do
@@ -2263,6 +2435,23 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     if :ets.info(TokenStore.table()) == :undefined do
       :ets.new(TokenStore.table(), [:named_table, :public, :set, read_concurrency: true])
     end
+  end
+
+  defp insert_ready_worker!(route) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert!(%AgentComputerWorker{
+      worker_id: "lark-worker-#{System.unique_integer([:positive])}",
+      incarnation_id: Ecto.UUID.generate(),
+      status: "ready",
+      version: "test",
+      capacity: %{},
+      load: %{},
+      transport_route: route,
+      last_worker_heartbeat_at: now,
+      started_at: now,
+      metadata: %{"runtime" => "test"}
+    })
   end
 
   defp receive_event do

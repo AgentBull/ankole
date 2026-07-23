@@ -1024,6 +1024,54 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc """
+  Marks one explicitly identified generating response as retracted.
+
+  This transition preserves the partial response as an audit fact while
+  excluding it from future history after its input was superseded.
+  """
+  @spec retract_generating_response_in_tx(
+          module(),
+          String.t(),
+          binary(),
+          String.t(),
+          DateTime.t()
+        ) :: {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
+  def retract_generating_response_in_tx(repo, subject_uid, response_id, reason, now)
+      when is_binary(reason) do
+    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
+         {:ok, message_id} <- decode_response_id(response_id) do
+      case lock_response_for_subject(repo, subject_uid, message_id) do
+        %Message{status: "generating"} = message ->
+          metadata =
+            Map.put(message.metadata || %{}, "retraction", %{
+              "reason" => reason,
+              "retracted_at" => DateTime.to_iso8601(now)
+            })
+
+          case repo.update_all(
+                 from(candidate in Message,
+                   where: candidate.id == ^message.id and candidate.status == "generating",
+                   select: candidate
+                 ),
+                 [set: [status: "retracted", metadata: metadata, updated_at: now]],
+                 returning: true
+               ) do
+            {1, [%Message{} = updated]} -> {:ok, updated}
+            {0, []} -> {:ok, :already_terminal}
+          end
+
+        %Message{} ->
+          {:ok, :already_terminal}
+
+        nil ->
+          {:error, :not_found}
+      end
+    else
+      _invalid -> {:error, :not_found}
+    end
+  end
+
+  @doc """
   Reconciles one orphan deadline using only the response row's own heartbeat.
   """
   @spec reconcile_orphaned_response(binary(), keyword()) ::

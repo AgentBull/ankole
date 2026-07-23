@@ -193,7 +193,13 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
          :ok <- enforce_status_transition(job, attrs),
          :ok <- enforce_running_limit(repo, job, attrs),
          :ok <- enforce_no_unapplied_terminal_steer(repo, job, attrs, turn_ref),
-         :ok <- maybe_interrupt_active_turns(repo, job, turn_interruption, now),
+         :ok <-
+           maybe_interrupt_active_turns(
+             repo,
+             job,
+             turn_interruption || terminal_turn_interruption(attrs),
+             now
+           ),
          :ok <- enforce_turn_trajectory_completion(repo, job, attrs),
          {:ok, job} <-
            job
@@ -269,6 +275,45 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
        do: Turns.ensure_lead_closed_for_current_attempt_in_tx(repo, job)
 
   defp enforce_turn_trajectory_completion(_repo, %Job{}, _attrs), do: :ok
+
+  defp terminal_turn_interruption(%{"status" => "succeeded"}) do
+    %{
+      "code" => "background_agent_job_succeeded",
+      "summary" => "The Job completed before this runtime Turn reported completion."
+    }
+  end
+
+  defp terminal_turn_interruption(%{"status" => "failed"} = attrs) do
+    case Map.get(attrs, "error") do
+      %{} = error ->
+        case {Attrs.text(error, "code"), Attrs.text(error, "summary")} do
+          {code, summary} when is_binary(code) and is_binary(summary) ->
+            %{"code" => code, "summary" => summary}
+
+          _invalid ->
+            failed_turn_interruption()
+        end
+
+      _missing ->
+        failed_turn_interruption()
+    end
+  end
+
+  defp terminal_turn_interruption(%{"status" => "stopped"}) do
+    %{
+      "code" => "background_agent_job_stopped",
+      "summary" => "The Job stopped before this runtime Turn reported completion."
+    }
+  end
+
+  defp terminal_turn_interruption(_attrs), do: nil
+
+  defp failed_turn_interruption do
+    %{
+      "code" => "background_agent_job_failed",
+      "summary" => "The Job failed before this runtime Turn reported completion."
+    }
+  end
 
   defp maybe_interrupt_active_turns(
          repo,

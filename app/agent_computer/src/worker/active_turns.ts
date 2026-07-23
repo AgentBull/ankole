@@ -118,6 +118,21 @@ export function turnFailureDetails(error: unknown): JSONObject {
   return details
 }
 
+export function turnFailureLogFields(error: unknown): JSONObject {
+  const classification = classifyLLMError(error)
+  const workerError = workerErrorDetails(error)
+  const gateway = aigatewayErrorDetails(error)
+
+  return {
+    llm_error_kind: classification.kind,
+    retryable: workerError.retryable ?? classification.retryable,
+    should_compress: classification.shouldCompress,
+    should_fallback_provider: classification.shouldFallbackProvider,
+    ...(workerError.code ? { error_code: workerError.code } : {}),
+    ...(typeof gateway?.status === 'number' ? { aigateway_status: gateway.status } : {})
+  }
+}
+
 /**
  * Extracts structured AIGateway error fields without depending on one concrete
  * error class.

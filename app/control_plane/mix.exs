@@ -104,6 +104,8 @@ defmodule Ankole.MixProject do
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
       {:tzdata, "~> 1.1"},
+      {:hackney, "~> 4.7", override: true},
+      {:h2, "~> 0.11", override: true},
       {:dotenvy, "~> 1.1"},
       {:torque, "~> 0.2.4"},
       {:llm_db, "~> 2026.7"},

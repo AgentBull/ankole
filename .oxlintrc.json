@@ -28,6 +28,7 @@
     "typescript/no-explicit-any": "off",
     "typescript/no-non-null-assertion": "off",
     "typescript/no-unnecessary-type-constraint": "warn",
+    "typescript/triple-slash-reference": "off",
     "dot-notation": "off",
     "unicorn/no-array-for-each": "off"
   },

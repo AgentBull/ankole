@@ -1423,6 +1423,7 @@ defmodule Ankole.SignalsGateway.Outbox do
            })
            |> repo.update(),
          :ok <- notify_outbox_deadline(repo, outbox) do
+      log_delivery_failure(outbox, reason)
       {:ok, outbox}
     end
   end
@@ -1454,6 +1455,74 @@ defmodule Ankole.SignalsGateway.Outbox do
       %{}
     }
   end
+
+  defp log_delivery_failure(%OutboxEntry{} = outbox, reason) do
+    {failure_class, failure_code} = delivery_failure_identity(reason)
+
+    fields = %{
+      agent_uid: outbox.agent_uid,
+      binding_name: outbox.binding_name,
+      outbound_key: outbox.outbound_key,
+      source_actor_event_id: outbox.source_actor_event_id,
+      operation: outbox.operation,
+      delivery_class: outbox.delivery_class,
+      attempt_count: outbox.attempt_count,
+      max_attempts: outbox.max_attempts,
+      failure_class: failure_class,
+      failure_code: failure_code,
+      recovery_state: outbox.recovery_state["state"],
+      retry_scheduled: not is_nil(outbox.next_attempt_at),
+      next_attempt_at: encode_log_datetime(outbox.next_attempt_at)
+    }
+
+    if is_nil(outbox.next_attempt_at) do
+      Logging.error(
+        "signals_gateway.outbox.delivery_failed",
+        "signals gateway outbox delivery stopped",
+        fields
+      )
+    else
+      Logging.warning(
+        "signals_gateway.outbox.delivery_failed",
+        "signals gateway outbox delivery will retry",
+        fields
+      )
+    end
+  end
+
+  defp delivery_failure_identity({:reply_delivery, :operator_action_required, detail}),
+    do: {"operator_action_required", delivery_failure_code(detail)}
+
+  defp delivery_failure_identity({:reply_delivery, :retryable, detail}),
+    do: {"retryable", delivery_failure_code(detail)}
+
+  defp delivery_failure_identity({:provider_error, detail}),
+    do: {"provider_error", delivery_failure_code(detail)}
+
+  defp delivery_failure_identity(reason) when is_atom(reason),
+    do: {"adapter_error", Atom.to_string(reason)}
+
+  defp delivery_failure_identity({reason, _detail}) when is_atom(reason),
+    do: {"adapter_error", Atom.to_string(reason)}
+
+  defp delivery_failure_identity(reason),
+    do: {"adapter_error", delivery_failure_code(reason)}
+
+  defp delivery_failure_code(%{} = detail) do
+    detail
+    |> Map.get(:code, Map.get(detail, "code"))
+    |> normalize_log_code()
+  end
+
+  defp delivery_failure_code(_detail), do: nil
+
+  defp normalize_log_code(value) when is_binary(value), do: value
+  defp normalize_log_code(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_log_code(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_log_code(_value), do: nil
+
+  defp encode_log_datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp encode_log_datetime(nil), do: nil
 
   defp mark_outbox_unknown(repo, outbox, reason) do
     outbox

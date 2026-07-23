@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
 
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
+  import ExUnit.CaptureLog
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -362,16 +363,29 @@ defmodule Ankole.SignalsGatewayOutboxRecoveryTest do
                  fallback_visible_text: "blocked until config changes"
                })
 
-      assert {:ok, blocked} =
-               SignalsGateway.dispatch_outbox(
-                 agent.uid,
-                 "bot",
-                 "durable-blocked",
-                 outbox_adapter([:post_entry], fn _outbox ->
-                   {:error, {:reply_delivery, :operator_action_required, %{"code" => 300_311}}}
-                 end),
-                 now: @base_time
-               )
+      log =
+        capture_log([level: :error], fn ->
+          assert {:ok, %OutboxEntry{status: :failed}} =
+                   SignalsGateway.dispatch_outbox(
+                     agent.uid,
+                     "bot",
+                     "durable-blocked",
+                     outbox_adapter([:post_entry], fn _outbox ->
+                       {:error,
+                        {:reply_delivery, :operator_action_required, %{"code" => 300_311}}}
+                     end),
+                     now: @base_time
+                   )
+        end)
+
+      assert log =~ "signals gateway outbox delivery stopped"
+
+      blocked =
+        Repo.get_by!(OutboxEntry,
+          agent_uid: agent.uid,
+          binding_name: "bot",
+          outbound_key: "durable-blocked"
+        )
 
       assert blocked.status == :failed
       assert blocked.next_attempt_at == nil

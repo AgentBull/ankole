@@ -1,0 +1,77 @@
+---
+import { sectionKey, type DocsSection } from '../../lib/docs-model'
+import type { Locale } from '../../i18n/config'
+import { localePath, t } from '../../i18n/utils'
+
+interface Props {
+	lang: Locale
+	sections: DocsSection[]
+	currentSlug: string
+}
+
+const { lang, sections, currentSlug } = Astro.props
+---
+
+<aside class="lg:sticky lg:top-14 lg:max-h-[calc(100vh-3.5rem)] lg:self-start lg:overflow-y-auto lg:py-10">
+	<details class="docs-sidebar border-b border-border py-4 lg:border-0 lg:py-0">
+		<summary class="flex cursor-pointer list-none items-center justify-between text-sm font-semibold text-foreground lg:hidden">
+			{t(lang, 'docs.sidebar.title')}
+			<span class="chevron" aria-hidden="true"></span>
+		</summary>
+		<nav aria-label={t(lang, 'docs.sidebar.title')} class="mt-4 lg:mt-0">
+			{
+				sections.map(section => (
+					<div class="mb-6">
+						<h2 class="px-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+							{t(lang, `docs.section.${sectionKey(section.section)}`)}
+						</h2>
+						<ul class="mt-2 list-none space-y-0.5 p-0">
+							{section.docs.map(doc => (
+								<li>
+									<a
+										href={localePath(lang, `docs/${doc.slug}`)}
+										aria-current={doc.slug === currentSlug ? 'page' : undefined}
+										class:list={[
+											'block border-l-2 px-3 py-1.5 text-sm no-underline transition-colors',
+											doc.slug === currentSlug
+												? 'border-brand-60 bg-background-secondary font-medium text-foreground dark:border-brand-40'
+												: 'border-transparent text-muted-foreground hover:border-border hover:text-foreground'
+										]}
+									>
+										{doc.title}
+									</a>
+								</li>
+							))}
+						</ul>
+					</div>
+				))
+			}
+		</nav>
+	</details>
+</aside>
+
+<style>
+	.chevron {
+		width: 0.5rem;
+		height: 0.5rem;
+		border-right: 1.5px solid currentColor;
+		border-bottom: 1.5px solid currentColor;
+		transform: rotate(45deg);
+		transition: transform 0.15s;
+	}
+
+	details[open] .chevron {
+		transform: rotate(225deg);
+	}
+
+	.docs-sidebar > summary::-webkit-details-marker {
+		display: none;
+	}
+
+	/* The collapsible is a mobile affordance; on desktop the nav is always visible. */
+	@media (min-width: 1024px) {
+		.docs-sidebar > nav {
+			display: block;
+		}
+	}
+</style>

@@ -51,7 +51,15 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   """
   @spec handle_message_receive(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, %Event{} = event, consumers) do
-    result = dispatch_chat(consumers, &emit_message_receive(&1, event))
+    observed_at = DateTime.utc_now(:microsecond)
+
+    result =
+      consumers
+      |> Enum.filter(&match?(%{kind: :chat}, &1))
+      |> Enum.map(&prepare_message_receive(&1, event, observed_at))
+      |> collect_results()
+      |> emit_prepared_messages()
+
     maybe_log_missing_platform_subject(event, result)
     result
   end
@@ -99,8 +107,29 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
           {:ok, map()} | {:ignore, atom()} | {:error, term()}
   def normalize_message_receive(
         %Event{} = event,
-        %{context: %AdapterContext{}, config: config} = consumer
+        %{context: %AdapterContext{}} = consumer
       ) do
+    observed_at = DateTime.utc_now(:microsecond)
+
+    with {:ok, input, message} <- normalize_message_receive_input(event, consumer),
+         {:ok, attachments} <-
+           maybe_materialize_attachments(input.attachments, message, consumer) do
+      {:ok,
+       input
+       |> Map.put(:attachments, attachments)
+       |> put_attachment_materialization(
+         materialization_result(attachments),
+         observed_at
+       )}
+    end
+  end
+
+  def normalize_message_receive(_event, _consumer), do: {:error, :invalid_chat_consumer}
+
+  defp normalize_message_receive_input(
+         %Event{} = event,
+         %{context: %AdapterContext{}, config: config} = consumer
+       ) do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
     sender = fetch_map(content, "sender", %{})
@@ -133,8 +162,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
                  signal_channel_id,
                  provider_time,
                  consumer
-               ),
-             {:ok, attachments} <- maybe_materialize_attachments(attachments, message, consumer) do
+               ) do
           {:ok,
            %{
              source_event_id: event.id || source_entry_id,
@@ -170,38 +198,105 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              },
              raw_payload: compact_map(event.raw),
              provider_time: provider_time
-           }}
+           }, message}
         end
     end
   end
 
-  def normalize_message_receive(_event, _consumer), do: {:error, :invalid_chat_consumer}
+  defp prepare_message_receive(
+         %{context: %AdapterContext{}} = consumer,
+         %Event{} = event,
+         observed_at
+       ) do
+    case normalize_message_receive_input(event, consumer) do
+      {:ok, input, message} ->
+        {:ok,
+         %{
+           consumer: consumer,
+           input: input,
+           message: message,
+           observed_at: observed_at
+         }}
 
-  defp emit_message_receive(%{context: %AdapterContext{}} = consumer) do
-    fn event ->
-      case normalize_message_receive(event, consumer) do
-        {:ok, input} ->
-          with :ok <- observe_author(consumer, input) do
-            context = consumer.context
-            result = Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+      {:ignore, reason} ->
+        {:ok, %{result: {:ok, %{status: ignored_status(reason), reason: reason}}}}
 
-            if match?({:ok, _}, result) do
-              IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
-            end
-
-            result
-          end
-
-        {:ignore, reason} ->
-          {:ok, %{status: ignored_status(reason), reason: reason}}
-
-        {:error, _reason} = error ->
-          error
-      end
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp emit_message_receive(consumer, event), do: emit_message_receive(consumer).(event)
+  defp emit_prepared_messages({:ok, prepared}) do
+    with :ok <- observe_prepared_authors(prepared),
+         :ok <- emit_pending_attachments(prepared) do
+      prepared
+      |> Enum.map(&emit_prepared_message/1)
+      |> collect_results()
+    end
+  end
+
+  defp emit_prepared_messages({:error, _reason} = error), do: error
+
+  defp observe_prepared_authors(prepared) do
+    Enum.reduce_while(prepared, :ok, fn
+      %{consumer: consumer, input: input}, :ok ->
+        case observe_author(consumer, input) do
+          :ok -> {:cont, :ok}
+          {:error, _reason} = error -> {:halt, error}
+        end
+
+      %{result: _result}, :ok ->
+        {:cont, :ok}
+    end)
+  end
+
+  defp emit_pending_attachments(prepared) do
+    Enum.reduce_while(prepared, :ok, fn
+      %{consumer: consumer, input: input, observed_at: observed_at}, :ok ->
+        if attachment_materialization_required?(input.attachments) do
+          input
+          |> put_attachment_materialization("pending", observed_at)
+          |> emit_normalized_message(consumer, false)
+          |> case do
+            {:ok, _result} -> {:cont, :ok}
+            {:error, _reason} = error -> {:halt, error}
+          end
+        else
+          {:cont, :ok}
+        end
+
+      %{result: _result}, :ok ->
+        {:cont, :ok}
+    end)
+  end
+
+  defp emit_prepared_message(%{result: result}), do: result
+
+  defp emit_prepared_message(%{
+         consumer: consumer,
+         input: input,
+         message: message,
+         observed_at: observed_at
+       }) do
+    with {:ok, attachments} <-
+           maybe_materialize_attachments(input.attachments, message, consumer) do
+      input
+      |> Map.put(:attachments, attachments)
+      |> put_attachment_materialization(materialization_result(attachments), observed_at)
+      |> emit_normalized_message(consumer, true)
+    end
+  end
+
+  defp emit_normalized_message(input, consumer, refresh_group?) do
+    context = consumer.context
+    result = Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+
+    if refresh_group? and match?({:ok, _}, result) do
+      IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
+    end
+
+    result
+  end
 
   defp emit_message_removed(%{context: %AdapterContext{}} = consumer, %Event{} = event) do
     content = event.content || %{}
@@ -236,7 +331,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
     operator = fetch_map(content, "operator", fetch_map(content, "operator_id", %{}))
-    operator_id = optional_text(operator, "user_id") || optional_text(content, "operator_user_id")
+
+    operator_id =
+      optional_text(operator, "user_id") ||
+        optional_text(content, "operator_user_id") ||
+        optional_text(operator, "open_id") ||
+        optional_text(content, "operator_open_id")
 
     with {:ok, actor_key} <- operator_actor_key(operator_id),
          {:ok, source_entry_id} <- required_text(message, "message_id"),
@@ -260,7 +360,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       {:error, :missing_operator_id} ->
         Logging.warning(
           "lark_adapter.inbound.reaction_missing_operator",
-          "lark adapter ignored reaction without operator user id",
+          "lark adapter ignored reaction without operator id",
           %{
             event_id: event.id,
             event_type: event.type
@@ -888,6 +988,29 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       true -> {:ok, attachments}
       false -> materialize_lark_attachments(attachments, message, consumer)
     end
+  end
+
+  defp attachment_materialization_required?([_ | _] = attachments),
+    do: not Enum.all?(attachments, &materialized_attachment?/1)
+
+  defp attachment_materialization_required?(_attachments), do: false
+
+  defp materialization_result([_ | _] = attachments) do
+    if Enum.all?(attachments, &materialized_attachment?/1), do: "complete", else: "failed"
+  end
+
+  defp materialization_result(_attachments), do: nil
+
+  defp put_attachment_materialization(input, nil, _observed_at), do: input
+
+  defp put_attachment_materialization(input, state, %DateTime{} = observed_at) do
+    metadata =
+      Map.put(input.metadata, "attachment_materialization", %{
+        "state" => state,
+        "observed_at" => DateTime.to_iso8601(observed_at)
+      })
+
+    Map.put(input, :metadata, metadata)
   end
 
   defp materialized_attachment?(attachment) when is_map(attachment),

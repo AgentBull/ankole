@@ -1,4 +1,4 @@
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use super::super::error::StreamError;
 
@@ -71,6 +71,13 @@ pub(super) fn to_public_openai_error_json(error: &StreamError) -> Value {
     object.insert("type".to_string(), Value::String(error_type.to_string()));
     object.insert("param".to_string(), Value::Null);
     object.insert("code".to_string(), Value::String(code.to_string()));
+    if let Some(status) = error.provider_status {
+        object.insert("status".to_string(), Value::from(status));
+        object.insert(
+            "details_json".to_string(),
+            json!({"provider_status": status}),
+        );
+    }
     Value::Object(object)
 }
 
@@ -172,5 +179,7 @@ mod tests {
         assert_eq!(public["type"], "image_generation_user_error");
         assert_eq!(public["code"], "moderation_blocked");
         assert_eq!(public["message"], "The image request was rejected.");
+        assert_eq!(public["status"], 400);
+        assert_eq!(public["details_json"]["provider_status"], 400);
     }
 }

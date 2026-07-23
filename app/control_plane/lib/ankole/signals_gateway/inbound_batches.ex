@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.SignalsGateway.ActorEventEnvelope
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.IngressFact
   alias Ankole.SignalsGateway.Projection
@@ -28,8 +29,10 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       unthread_key: 1
     ]
 
-  @addressed_text_window_ms 600
+  @addressed_text_window_ms 1_000
+  @neutral_text_window_ms 600
   @addressed_attachment_window_ms 1_200
+  @attachment_materialization_hard_cap_ms 4_000
   @addressed_long_text_window_ms 2_000
   @addressed_long_text_threshold 3_000
   @addressed_text_budget 4_000
@@ -117,11 +120,18 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         false ->
           with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
                source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+               {:ok, supplement} <-
+                 maybe_apply_live_attachment_supplement(
+                   batch,
+                   repo,
+                   fact,
+                   source_entry,
+                   now
+                 ),
                {:ok, result} <-
-                 batch
-                 |> maybe_finalize_due_batch(repo, now)
-                 |> maybe_finalize_reply_boundary(repo, fact, now)
-                 |> route_inbound_batch_entry(
+                 route_after_live_attachment_supplement(
+                   supplement,
+                   batch,
                    repo,
                    binding,
                    channel,
@@ -177,6 +187,132 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp maybe_put_result(result, _key, nil), do: result
   defp maybe_put_result(result, key, value), do: Map.put(result, key, value)
+
+  defp maybe_apply_live_attachment_supplement(
+         nil,
+         repo,
+         fact,
+         source_entry,
+         now
+       ) do
+    TurnRetry.merge_attachment_supplement_in_tx(repo, fact, source_entry, now)
+  end
+
+  defp maybe_apply_live_attachment_supplement(
+         %InboundBatch{},
+         repo,
+         fact,
+         source_entry,
+         now
+       ) do
+    TurnRetry.refresh_attachment_supplement_in_tx(repo, fact, source_entry, now)
+  end
+
+  defp route_after_live_attachment_supplement(
+         :not_supplement,
+         batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         source_entry,
+         policy,
+         type,
+         now
+       ) do
+    batch
+    |> maybe_finalize_due_batch(repo, now)
+    |> maybe_finalize_reply_boundary(repo, fact, now)
+    |> route_inbound_batch_entry(
+      repo,
+      binding,
+      channel,
+      fact,
+      source_entry,
+      policy,
+      type,
+      now
+    )
+  end
+
+  defp route_after_live_attachment_supplement(
+         {:consumed, result},
+         _batch,
+         repo,
+         _binding,
+         _channel,
+         fact,
+         _source_entry,
+         _policy,
+         _type,
+         now
+       ) do
+    with {:ok, mirror_entry} <- Projection.mirror_receive_entry(repo, fact, now) do
+      {:ok, Map.put(result, :signal_entry, mirror_entry)}
+    end
+  end
+
+  defp route_after_live_attachment_supplement(
+         {:next_turn, reason},
+         nil,
+         repo,
+         binding,
+         channel,
+         fact,
+         source_entry,
+         _policy,
+         _type,
+         now
+       ) do
+    source_entry = Map.put(source_entry, "explicit", true)
+
+    with {:ok, result} <-
+           append_addressed_inbound_entry(
+             nil,
+             repo,
+             binding,
+             channel,
+             fact,
+             source_entry,
+             :ignore,
+             now
+           ) do
+      {:ok, Map.put(result, :input_supersession_fallback, reason)}
+    end
+  end
+
+  defp route_after_live_attachment_supplement(
+         {:next_turn, reason},
+         %InboundBatch{} = batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         source_entry,
+         _policy,
+         _type,
+         now
+       ) do
+    source_entry = Map.put(source_entry, "explicit", true)
+
+    with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+         {:ok, result} <-
+           append_addressed_inbound_entry(
+             nil,
+             repo,
+             binding,
+             channel,
+             fact,
+             source_entry,
+             :ignore,
+             now
+           ) do
+      {:ok,
+       result
+       |> merge_finalized_actor_events(closed)
+       |> Map.put(:input_supersession_fallback, reason)}
+    end
+  end
 
   defp maybe_mirror_im_entry(repo, fact, policy, type, now) do
     case should_mirror_im_entry?(policy, type) do
@@ -640,7 +776,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
           reply_to_source_entry_id: reply_target_from_entries(entries),
           requester_sender_key: requester_sender_key(mode, entries),
           available_at: inbound_due_at(mode, batch.policy, entries, batch, now),
-          hard_cap_at: inbound_hard_cap_at(mode, batch.policy, batch, now),
+          hard_cap_at: inbound_hard_cap_at(mode, batch.policy, entries, batch, now),
           batch_revision: batch.batch_revision + 1
         })
         |> repo.update()
@@ -689,7 +825,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       requester_sender_key: requester_sender_key(mode, entries),
       entries: entries,
       available_at: inbound_due_at(mode, policy, entries, nil, now),
-      hard_cap_at: inbound_hard_cap_at(mode, policy, nil, now)
+      hard_cap_at: inbound_hard_cap_at(mode, policy, entries, nil, now)
     }
 
     %InboundBatch{}
@@ -710,7 +846,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         entries: entries,
         requester_sender_key: requester_sender_key(batch.mode, entries),
         available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
-        hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, batch, now),
+        hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, entries, batch, now),
         batch_revision: batch.batch_revision + 1
       })
       |> repo.update()
@@ -728,7 +864,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       policy: Atom.to_string(policy),
       requester_sender_key: requester_sender_key("addressed", entries),
       available_at: inbound_due_at("addressed", policy, entries, batch, now),
-      hard_cap_at: inbound_hard_cap_at("addressed", policy, batch, now),
+      hard_cap_at: inbound_hard_cap_at("addressed", policy, entries, batch, now),
       batch_revision: batch.batch_revision + 1
     })
     |> repo.update()
@@ -1062,33 +1198,68 @@ defmodule Ankole.SignalsGateway.InboundBatches do
   end
 
   defp inbound_due_at("addressed", _policy, entries, _batch, now) do
-    DateTime.add(now, addressed_entry_window_ms(List.last(entries) || %{}), :millisecond)
+    case pending_attachment_deadline(entries, now) do
+      %DateTime{} = deadline ->
+        deadline
+
+      nil ->
+        entry = List.last(entries) || %{}
+        anchor = attachment_observed_at(entry) || now
+        DateTime.add(anchor, addressed_entry_window_ms(entry), :millisecond)
+    end
   end
 
-  defp inbound_due_at("neutral", "may_intervene", _entries, %InboundBatch{} = batch, now) do
-    min_datetime(DateTime.add(now, @ambient_batch_window_ms, :millisecond), batch.hard_cap_at)
-  end
+  defp inbound_due_at("neutral", "may_intervene", entries, _batch, now) do
+    case pending_attachment_deadline(entries, now) do
+      %DateTime{} = deadline ->
+        deadline
 
-  defp inbound_due_at("neutral", "may_intervene", _entries, nil, now) do
-    DateTime.add(now, @ambient_batch_window_ms, :millisecond)
+      nil ->
+        min_datetime(
+          DateTime.add(now, @ambient_batch_window_ms, :millisecond),
+          ambient_hard_cap_at(entries, now)
+        )
+    end
   end
 
   defp inbound_due_at("neutral", _policy, entries, _batch, now) do
-    DateTime.add(now, addressed_entry_window_ms(List.last(entries) || %{}), :millisecond)
+    case pending_attachment_deadline(entries, now) do
+      %DateTime{} = deadline ->
+        deadline
+
+      nil ->
+        entry = List.last(entries) || %{}
+        anchor = attachment_observed_at(entry) || now
+        DateTime.add(anchor, neutral_entry_window_ms(entry), :millisecond)
+    end
   end
 
-  defp inbound_hard_cap_at("neutral", "may_intervene", nil, now) do
-    DateTime.add(now, @ambient_hard_cap_ms, :millisecond)
+  defp inbound_hard_cap_at(mode, policy, entries, _batch, now) do
+    case pending_attachment_deadline(entries, now) do
+      %DateTime{} = deadline ->
+        deadline
+
+      nil ->
+        ambient_hard_cap_at(mode, policy, entries, now)
+    end
   end
 
-  defp inbound_hard_cap_at("neutral", "may_intervene", %InboundBatch{hard_cap_at: nil}, now) do
-    DateTime.add(now, @ambient_hard_cap_ms, :millisecond)
+  defp ambient_hard_cap_at("neutral", "may_intervene", entries, now),
+    do: ambient_hard_cap_at(entries, now)
+
+  defp ambient_hard_cap_at(_mode, _policy, _entries, _now), do: nil
+
+  defp ambient_hard_cap_at(entries, now) do
+    anchor =
+      entries
+      |> List.first()
+      |> case do
+        %{} = entry -> parse_datetime(entry["received_at"]) || now
+        _missing -> now
+      end
+
+    DateTime.add(anchor, @ambient_hard_cap_ms, :millisecond)
   end
-
-  defp inbound_hard_cap_at("neutral", "may_intervene", %InboundBatch{} = batch, _now),
-    do: batch.hard_cap_at
-
-  defp inbound_hard_cap_at(_mode, _policy, _batch, _now), do: nil
 
   defp addressed_entry_window_ms(entry) do
     cond do
@@ -1102,6 +1273,39 @@ defmodule Ankole.SignalsGateway.InboundBatches do
         @addressed_text_window_ms
     end
   end
+
+  defp neutral_entry_window_ms(entry) do
+    if entry_has_attachments?(entry),
+      do: @addressed_attachment_window_ms,
+      else: @neutral_text_window_ms
+  end
+
+  defp pending_attachment_deadline(entries, now) do
+    entries
+    |> Enum.filter(&(attachment_materialization_state(&1) == "pending"))
+    |> Enum.map(fn entry ->
+      anchor =
+        attachment_observed_at(entry) ||
+          parse_datetime(entry["received_at"]) ||
+          now
+
+      DateTime.add(anchor, @attachment_materialization_hard_cap_ms, :millisecond)
+    end)
+    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
+  end
+
+  defp attachment_observed_at(entry) when is_map(entry) do
+    entry
+    |> get_in(["metadata", "attachment_materialization", "observed_at"])
+    |> parse_datetime()
+  end
+
+  defp attachment_observed_at(_entry), do: nil
+
+  defp attachment_materialization_state(entry) when is_map(entry),
+    do: get_in(entry, ["metadata", "attachment_materialization", "state"])
+
+  defp attachment_materialization_state(_entry), do: nil
 
   defp entry_has_attachments?(entry) do
     case entry["attachments"] do

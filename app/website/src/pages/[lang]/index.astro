@@ -1,0 +1,30 @@
+---
+import CtaSection from '../../components/landing/CtaSection.astro'
+import Differentiators from '../../components/landing/Differentiators.astro'
+import Features from '../../components/landing/Features.astro'
+import Hero from '../../components/landing/Hero.astro'
+import QuickStart from '../../components/landing/QuickStart.astro'
+import RuntimeBets from '../../components/landing/RuntimeBets.astro'
+import UseCases from '../../components/landing/UseCases.astro'
+import { getSiteDescription, getSiteTitle } from '../../consts'
+import { isValidLocale, LOCALES, type Locale } from '../../i18n/config'
+import BaseLayout from '../../layouts/BaseLayout.astro'
+
+export function getStaticPaths() {
+	return LOCALES.map(lang => ({ params: { lang } }))
+}
+
+const { lang } = Astro.params
+if (!isValidLocale(lang)) return Astro.redirect('/')
+const locale = lang as Locale
+---
+
+<BaseLayout lang={locale} title={getSiteTitle(locale)} description={getSiteDescription(locale)} path="">
+	<Hero lang={locale} />
+	<QuickStart lang={locale} />
+	<Differentiators lang={locale} />
+	<Features lang={locale} />
+	<UseCases lang={locale} />
+	<RuntimeBets lang={locale} />
+	<CtaSection lang={locale} />
+</BaseLayout>

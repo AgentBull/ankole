@@ -98,6 +98,53 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     end
   end
 
+  test "logs bounded context when a socket closes with an active response stream" do
+    ref = make_ref()
+
+    state = %{
+      subject_uid: "principal-test",
+      active_stream: %{
+        ref: ref,
+        stream: fake_stream(ref),
+        request_input: [%{"content" => "private prompt"}],
+        actor_event_id: "actor-event-test",
+        model: "google/gemini-3.1-flash-image",
+        started_at_ms: System.monotonic_time(:millisecond) - 25
+      }
+    }
+
+    log =
+      capture_log(
+        [
+          level: :warning,
+          metadata: [
+            :event,
+            :subject_uid,
+            :actor_event_id,
+            :model,
+            :duration_ms,
+            :termination_reason
+          ]
+        ],
+        fn ->
+          assert :ok =
+                   AIGatewayResponsesSocket.terminate(
+                     {:remote, "private transport details"},
+                     state
+                   )
+        end
+      )
+
+    assert log =~ "event=ai_gateway.responses_socket_interrupted"
+    assert log =~ "subject_uid=principal-test"
+    assert log =~ "actor_event_id=actor-event-test"
+    assert log =~ "model=google/gemini-3.1-flash-image"
+    assert log =~ "duration_ms="
+    assert log =~ "termination_reason=remote"
+    refute log =~ "private prompt"
+    refute log =~ "private transport details"
+  end
+
   test "stateful frames rewrite nested response id before forwarding" do
     {_agent, _conversation, actor_event, message} = stateful_message("socket-rewrite")
     ref = make_ref()
@@ -1499,7 +1546,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "provider stream errors preserve accumulated partial response items" do
-    {_agent, _conversation, actor_event, message} =
+    {agent, _conversation, actor_event, message} =
       stateful_message("socket-error-partial", [
         %{
           "type" => "message",
@@ -1539,19 +1586,30 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                "status" => "failed",
                "error" => %{
                  "code" => "provider_stream_error",
-                 "retryable" => true,
-                 "details" => details
+                 "retryable" => true
                }
              }
            } = Ankole.JSON.decode!(pushed)
 
-    assert details =~ "upstream closed"
+    refute pushed =~ "upstream closed"
 
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
     assert stored.content == message.content ++ [partial_item]
     assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
+    refute inspect(stored.metadata["error"]) =~ "upstream closed"
+
+    assert {:ok,
+            %{
+              body: %{
+                "error" => %{
+                  "code" => "provider_stream_error",
+                  "message" => "AIGateway provider stream failed before a terminal response."
+                }
+              }
+            }} = AIGateway.retrieve_response(agent.uid, expected_response_id)
+
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 
@@ -1595,8 +1653,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                "status" => "failed",
                "error" => %{
                  "code" => "provider_stream_closed_without_terminal",
-                 "retryable" => true,
-                 "details" => "provider_stream_closed_without_terminal"
+                 "retryable" => true
                }
              }
            } = Ankole.JSON.decode!(pushed)
@@ -1607,6 +1664,60 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.metadata["error"]["code"] == "provider_stream_closed_without_terminal"
     assert stored.metadata["error"]["retryable"] == true
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+  end
+
+  test "provider terminal failure keeps safe attribution through persist and retrieve" do
+    {agent, _conversation, actor_event, message} =
+      stateful_message("socket-provider-failure-round-trip")
+
+    ref = make_ref()
+    active = active_stream(ref, message, actor_event)
+
+    chunk = %{
+      "type" => "response.failed",
+      "sequence_number" => 12,
+      "response" => %{
+        "id" => "provider_resp_failed",
+        "object" => "response",
+        "status" => "failed",
+        "error" => %{
+          "code" => "invalid_request",
+          "message" => "private provider message"
+        },
+        "output" => []
+      }
+    }
+
+    assert {:push, {:text, pushed}, _state} =
+             handle_test_event(%{active_stream: active}, ref, chunk, 12)
+
+    assert %{
+             "type" => "response.failed",
+             "response" => %{
+               "error" => %{
+                 "code" => "invalid_request",
+                 "failure_kind" => "provider_response",
+                 "message" => "The upstream provider request failed.",
+                 "retryable" => false
+               }
+             }
+           } = Ankole.JSON.decode!(pushed)
+
+    refute pushed =~ "private provider message"
+
+    stored_error = Repo.get!(Message, message.id).metadata["error"]
+    assert stored_error["failure_kind"] == "provider_response"
+    refute Ankole.JSON.encode!(stored_error) =~ "private provider message"
+
+    assert {:ok, %{body: %{"error" => retrieved_error}}} =
+             AIGateway.retrieve_response(agent.uid, "resp_#{message.id}")
+
+    assert retrieved_error == %{
+             "code" => "invalid_request",
+             "failure_kind" => "provider_response",
+             "message" => "The upstream provider request failed.",
+             "retryable" => false
+           }
   end
 
   test "stateful overflow sends structured context_overflow error frame" do
@@ -1934,7 +2045,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert %{
              "type" => "error",
              "status" => 502,
-             "error" => %{"code" => "ai_gateway_request_failed"}
+             "error" => %{
+               "code" => "upstream_transport_failed",
+               "details_json" => %{
+                 "stage" => "socket_open",
+                 "error_code" => "websocket_connect_failed",
+                 "error_stage" => "connect",
+                 "retryable" => true
+               }
+             }
            } = Ankole.JSON.decode!(pushed)
 
     runs =
@@ -1946,6 +2065,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == "complete"))
     assert Enum.any?(runs, &(&1.id != first_run.id and &1.status == "error"))
+
+    failed_run = Enum.find(runs, &(&1.id != first_run.id))
+
+    assert failed_run.metadata["error"] == %{
+             "code" => "websocket_connect_failed",
+             "error_stage" => "connect",
+             "failure_kind" => "transport",
+             "message" => "The upstream provider connection failed.",
+             "retryable" => true,
+             "stage" => "socket_open"
+           }
   end
 
   test "stateful response.create rejects raw conversation ids" do
@@ -2080,15 +2210,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "error" => %{
                "code" => "upstream_response_failed",
                "message" => message,
-               "details_json" => %{
-                 "stage" => "socket_open",
-                 "upstream_status" => 429,
-                 "retryable" => true
-               }
+               "details_json" =>
+                 %{
+                   "stage" => "socket_open",
+                   "provider_status" => 429,
+                   "retryable" => true
+                 } = details
              }
            } = Ankole.JSON.decode!(pushed)
 
-    assert message =~ "429"
+    assert message == "Provider request failed with status 429."
+    refute Map.has_key?(details, "upstream_body")
 
     [run] =
       Message
@@ -2098,13 +2230,115 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       )
 
     assert run.status == "error"
-    assert run.metadata["error"]["stage"] == "socket_open"
+
+    assert run.metadata["error"] == %{
+             "code" => "upstream_response_failed",
+             "failure_kind" => "provider_response",
+             "message" => "The upstream provider request failed.",
+             "provider_status" => 429,
+             "retryable" => true,
+             "stage" => "socket_open"
+           }
+
     assert run.metadata["instructions"] == "Reply tersely."
     assert run.metadata["service_tier"] == "agent-default"
     assert run.metadata["prompt_cache_key"] == "cache-noop"
     assert run.metadata["request_model"] == "primary"
     refute Map.has_key?(run.metadata, "model")
     assert get_in(run.metadata, ["request_metadata", "request_tag"]) == "kept"
+    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+  end
+
+  test "stateful upstream socket-open keeps a large non-JSON 503 response out of public and stored errors" do
+    %{principal: agent} = agent_fixture()
+    private_marker = "provider-private-marker-503"
+
+    base_url =
+      start_upstream_server(fn _request ->
+        {:raw, 503, "text/plain",
+         private_marker <> ":" <> String.duplicate("unavailable;", 32_768)}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-socket-upstream-large-503",
+               provider_kind: "openai",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openai",
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-socket-upstream-large-503",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "socket-upstream-large-503")
+
+    actor_event =
+      actor_event_fixture(
+        agent.uid,
+        conversation.conversation_key,
+        "socket-event-upstream-large-503"
+      )
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => [text_message("user", "new request")],
+        "store" => true,
+        "conversation" => "conv_#{conversation.id}",
+        "metadata" => %{"actor_event_id" => actor_event.id}
+      })
+
+    assert {:push, {:text, pushed}, _state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "status" => 503,
+             "error" => %{
+               "code" => "upstream_response_failed",
+               "message" => "Provider request failed with status 503.",
+               "details_json" => %{
+                 "stage" => "socket_open",
+                 "provider_status" => 503,
+                 "retryable" => true
+               }
+             }
+           } = Ankole.JSON.decode!(pushed)
+
+    refute pushed =~ private_marker
+    refute pushed =~ "unavailable;"
+
+    [run] =
+      Message
+      |> Repo.all()
+      |> Enum.filter(
+        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
+      )
+
+    assert run.status == "error"
+
+    assert run.metadata["error"] == %{
+             "code" => "upstream_response_failed",
+             "failure_kind" => "provider_response",
+             "message" => "The upstream provider request failed.",
+             "provider_status" => 503,
+             "retryable" => true,
+             "stage" => "socket_open"
+           }
+
+    refute inspect(run.metadata) =~ private_marker
+    refute inspect(run.metadata) =~ "unavailable;"
     assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
   end
 

@@ -1,0 +1,81 @@
+---
+import logo from '../assets/logo.svg'
+import { GITHUB_URL, getSiteTitle } from '../consts'
+import type { Locale } from '../i18n/config'
+import { localePath, t } from '../i18n/utils'
+
+interface Props {
+	lang: Locale
+}
+
+const { lang } = Astro.props
+const year = new Date().getFullYear()
+
+const columns = [
+	{
+		heading: t(lang, 'footer.product'),
+		links: [
+			{ href: localePath(lang, 'docs'), label: t(lang, 'footer.product.docs') },
+			{ href: localePath(lang, 'docs/quickstart'), label: t(lang, 'footer.product.quickstart') },
+			{ href: localePath(lang, 'docs/installation'), label: t(lang, 'footer.product.installation') },
+			{ href: localePath(lang, 'docs/architecture'), label: t(lang, 'footer.product.architecture') }
+		]
+	},
+	{
+		heading: t(lang, 'footer.resources'),
+		links: [
+			{ href: GITHUB_URL, label: t(lang, 'footer.resources.github') },
+			{ href: `${GITHUB_URL}/tree/main/docs/design-docs`, label: t(lang, 'footer.resources.designDocs') },
+			{ href: `${GITHUB_URL}/blob/main/CHANGELOG.md`, label: t(lang, 'footer.resources.changelog') }
+		]
+	},
+	{
+		heading: t(lang, 'footer.project'),
+		links: [
+			{ href: `${GITHUB_URL}/blob/main/LICENSE`, label: t(lang, 'footer.project.license') },
+			{ href: `${GITHUB_URL}/blob/main/CONTRIBUTING.md`, label: t(lang, 'footer.project.contributing') },
+			{ href: `${GITHUB_URL}/issues`, label: t(lang, 'footer.project.issues') }
+		]
+	}
+]
+---
+
+<footer class="border-t border-border bg-background-secondary">
+	<div class="mx-auto max-w-7xl px-4 py-12 sm:px-6">
+		<div class="grid grid-cols-2 gap-8 sm:grid-cols-4">
+			<div class="col-span-2 sm:col-span-1">
+				<a href={localePath(lang)} class="flex items-center gap-2 no-underline">
+					<img src={logo.src} alt="" width="24" height="24" class="size-6" />
+					<span class="text-base font-semibold tracking-tight text-foreground">{getSiteTitle(lang)}</span>
+				</a>
+				<p class="mt-3 max-w-xs text-sm leading-6 text-muted-foreground">{t(lang, 'site.description')}</p>
+			</div>
+			{
+				columns.map(column => (
+					<div>
+						<h2 class="text-sm font-semibold text-foreground">{column.heading}</h2>
+						<ul class="mt-3 list-none space-y-2 p-0">
+							{column.links.map(link => (
+								<li>
+									<a
+										href={link.href}
+										class="text-sm text-muted-foreground no-underline transition-colors hover:text-foreground"
+										{...(link.href.startsWith('http') ? { target: '_blank', rel: 'noreferrer' } : {})}
+									>
+										{link.label}
+									</a>
+								</li>
+							))}
+						</ul>
+					</div>
+				))
+			}
+		</div>
+		<div
+			class="mt-12 flex flex-col gap-1 border-t border-border pt-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
+		>
+			<span>{t(lang, 'footer.copyright', { year })}</span>
+			<span>{t(lang, 'footer.licenseLine')}</span>
+		</div>
+	</div>
+</footer>

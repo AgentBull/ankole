@@ -215,7 +215,7 @@ console.log(JSON.stringify({
     expect(JSON.stringify(failures)).not.toContain('header-secret')
   })
 
-  test('reports a remote page failure by index without logging its URL', async () => {
+  test('reports a remote page failure with only its safe URL origin', async () => {
     const root = await mkdtemp('/tmp/ankole-browser-web-fetch-remote-page-')
     roots.push(root)
     const fakeCLI = join(root, 'fake-ankole-browser')
@@ -269,9 +269,12 @@ console.log(JSON.stringify({
         errorCode: 'timeout',
         errorMessage: 'page.goto: Timeout 14000ms exceeded at [redacted endpoint]',
         retryable: true,
-        urlIndex: 0
+        urlIndex: 0,
+        urlScheme: 'https',
+        urlHost: 'example.com'
       }
     ])
+    expect(JSON.stringify(failures)).not.toContain('/private')
     expect(JSON.stringify(failures)).not.toContain('url-secret')
     expect(JSON.stringify(failures)).not.toContain('endpoint-secret')
     expect(JSON.stringify(failures)).not.toContain('header-secret')

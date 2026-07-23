@@ -171,6 +171,19 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                      },
                      "input_references" => %{"type" => "range", "min" => 0, "max" => 16}
                    }
+                 },
+                 %{
+                   "provider_slug" => "openai-backup",
+                   "provider_tag" => "openai/gpt-image-2:openai-backup",
+                   "supports_streaming" => false,
+                   "allowed_passthrough_parameters" => ["moderation"],
+                   "supported_parameters" => %{
+                     "quality" => %{
+                       "type" => "enum",
+                       "values" => ["auto", "low", "medium", "high"]
+                     },
+                     "input_references" => %{"type" => "range", "min" => 0, "max" => 16}
+                   }
                  }
                ]
              }}
@@ -279,10 +292,16 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert image_request["n"] == 1
 
     assert image_request["provider"] == %{
-             "only" => ["openai/gpt-image-2:openai"],
-             "allow_fallbacks" => false,
+             "only" => [
+               "openai/gpt-image-2:openai",
+               "openai/gpt-image-2:openai-backup"
+             ],
+             "allow_fallbacks" => true,
              "require_parameters" => true,
-             "options" => %{"openai" => %{"moderation" => "low"}}
+             "options" => %{
+               "openai" => %{"moderation" => "low"},
+               "openai-backup" => %{"moderation" => "low"}
+             }
            }
 
     assert Enum.any?(second_main["messages"], fn message ->
@@ -495,6 +514,62 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert_receive {:hosted_stream_failure_telemetry, %{result: "failure"}}, 1_000
     refute_receive {:hosted_stream_failure_telemetry, _metadata}, 100
+  end
+
+  test "hosted provider failures keep a safe status for Worker retry classification" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_upstream_server(fn request ->
+        case {request.method, request.path} do
+          {:get, "api/v1/models"} ->
+            {:json, 200, %{"data" => []}}
+
+          {:get, "api/v1/images/models"} ->
+            {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+
+          {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
+            {:json, 200,
+             %{
+               "endpoints" => [
+                 %{
+                   "provider_slug" => "openai",
+                   "provider_tag" => "openai/gpt-image-2:openai",
+                   "supports_streaming" => false,
+                   "allowed_passthrough_parameters" => [],
+                   "supported_parameters" => %{}
+                 }
+               ]
+             }}
+
+          {:post, "api/v1/chat/completions"} ->
+            main_model_response(request.body)
+
+          {:post, "api/v1/images"} ->
+            {:json, 503, %{"error" => %{"message" => "private provider detail"}}}
+        end
+      end)
+
+    _provider_id = configure_openrouter_profiles(agent.uid, base_url, "provider-failure")
+
+    assert {:ok, stream, _meta} =
+             AIGateway.open_sse_stream(agent.uid, %{
+               "model" => "primary",
+               "input" => "Generate an image.",
+               "stream" => true,
+               "tools" => [%{"type" => "image_generation"}],
+               "tool_choice" => %{"type" => "image_generation"}
+             })
+
+    events = collect_response_events(stream, [])
+
+    assert [%{"response" => %{"error" => error}}] =
+             Enum.filter(events, &(&1["type"] == "response.failed"))
+
+    assert error["provider_status"] == 503
+    assert error["retryable"] == true
+    assert error["code"] == "upstream_error"
+    refute Ankole.JSON.encode!(events) =~ "private provider detail"
   end
 
   test "stateful history keeps an image call id and resolves it before an edit" do

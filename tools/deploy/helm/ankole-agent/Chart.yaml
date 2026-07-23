@@ -1,0 +1,11 @@
+apiVersion: v2
+name: ankole-agent
+description: Self-hosted Ankole control plane, Agent Computer, and optional PostgreSQL
+type: application
+version: 0.1.0
+appVersion: "main-latest"
+home: https://github.com/AgentBull/ankole
+sources:
+  - https://github.com/AgentBull/ankole
+maintainers:
+  - name: AgentBull

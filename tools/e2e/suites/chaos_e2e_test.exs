@@ -11,6 +11,8 @@ defmodule Ankole.E2E.ChaosE2ETest do
   import Ecto.Query
   import Ankole.E2E.Harness
 
+  import Ankole.E2E.Scenarios.ScheduleAndTool, only: [run_reply_attachment_tool_loop: 1]
+
   import Ankole.E2E.WaitHelpers,
     only: [deadline: 1, wait_until: 2, wait_for_completed_final_reply: 3]
 
@@ -156,6 +158,56 @@ defmodule Ankole.E2E.ChaosE2ETest do
       :reply,
       "om_chaos_router_restart_1"
     )
+  end
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  test "an attachment removed after the turn commits blocks delivery without a phantom file message" do
+    ctx = start_worker_e2e_stack!()
+    %{outbox: outbox} = run_reply_attachment_tool_loop(ctx)
+
+    assert [
+             %{"user_files_relative_path" => relative_path}
+           ] = outbox.payload["attachments"]
+
+    host_path =
+      Path.join([
+        ctx.container.agents_root,
+        ctx.agent.uid,
+        "user-files",
+        relative_path
+      ])
+
+    assert File.regular?(host_path)
+    assert :ok = File.rm(host_path)
+
+    results = run_outbox_dispatch!()
+    key = outbox.outbound_key
+
+    failed_row =
+      Enum.find_value(results, fn
+        {_status, %OutboxEntry{outbound_key: ^key} = row} -> row
+        _other -> nil
+      end)
+
+    assert failed_row, "outbox row missing from dispatch results: #{inspect(results)}"
+    assert failed_row.status == :failed
+    assert failed_row.attempt_count == 1
+    assert failed_row.next_attempt_at == nil
+
+    assert failed_row.recovery_state == %{
+             "reason" => "operator_action_required",
+             "state" => "blocked"
+           }
+
+    assert get_in(failed_row.last_error, ["reason", "code"]) == "attachment_file_missing"
+    assert get_in(failed_row.last_error, ["reason", "worker_file_code"]) == "file_not_found"
+
+    refute_receive {:fake_feishu, {:file_uploaded, _file_key}}, 100
+
+    refute ctx.fake_feishu.state
+           |> FakeFeishu.State.visible_messages("oc_chaos_reply_attachment")
+           |> Enum.any?(&(&1.sender == :bot and &1.msg_type == "file"))
   end
 
   @tag timeout: 120_000

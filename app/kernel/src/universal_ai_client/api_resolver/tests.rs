@@ -845,6 +845,99 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
 }
 
 #[test]
+fn openai_chat_build_body_keeps_tool_output_images_out_of_tool_text() {
+    let image_data_url = "data:image/png;base64,iVBORw0KGgo=";
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-vision-test".to_string(),
+            request: json!({
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call_image",
+                        "name": "view_image",
+                        "arguments": "{\"path\":\"/tmp/contact-sheet.png\"}"
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_text",
+                        "name": "read_file",
+                        "arguments": "{\"path\":\"/tmp/report.txt\"}"
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_image",
+                        "output": [{
+                            "type": "input_image",
+                            "image_url": image_data_url
+                        }]
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_text",
+                        "output": "report"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    let messages = body["messages"].as_array().unwrap();
+
+    assert_eq!(messages[0]["role"], "assistant");
+    assert_eq!(messages[0]["tool_calls"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        messages[1],
+        json!({
+            "role": "tool",
+            "tool_call_id": "call_image",
+            "content": "[Image output is attached in the next user message.]"
+        })
+    );
+    assert_eq!(
+        messages[2],
+        json!({
+            "role": "tool",
+            "tool_call_id": "call_text",
+            "content": "report"
+        })
+    );
+    assert_eq!(messages[3]["role"], "user");
+    assert_eq!(
+        messages[3]["content"][0],
+        json!({
+            "type": "text",
+            "text": "Image output from tool call call_image."
+        })
+    );
+    assert_eq!(
+        messages[3]["content"][1],
+        json!({
+            "type": "image_url",
+            "image_url": {"url": image_data_url}
+        })
+    );
+    assert!(
+        !messages[1]["content"]
+            .as_str()
+            .unwrap()
+            .contains(image_data_url)
+    );
+    assert_eq!(
+        serde_json::to_string(&body)
+            .unwrap()
+            .matches(image_data_url)
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn openai_chat_build_body_coalesces_interleaved_system_messages_at_the_front() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,

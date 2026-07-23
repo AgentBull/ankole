@@ -663,40 +663,56 @@ defmodule Ankole.Brain.Knowledge do
          {:ok, expected_version} <- required_version(operation, :expected_entry_lock_version),
          %Entry{} = source <- fetch_entry_for_write(repo, scope, entry_id, true),
          :ok <- ensure_version(:entry, source.id, source.lock_version, expected_version),
-         %Entry{} = target <- fetch_relation_target(repo, source, target_entry_id),
-         {:ok, relation} <-
-           repo.insert(
-             EntryRelation.changeset(%EntryRelation{}, %{
-               owner_uid: source.owner_uid,
-               store_key: source.store_key,
-               source_entry_id: source.id,
-               predicate: value(operation, :predicate),
-               target_entry_id: target.id
-             })
-           ),
-         {:ok, source} <- bump_entry(repo, source),
-         {:ok, _audit} <-
-           insert_audit(
-             repo,
-             scope,
-             actor,
-             "add_relation",
-             %{entry_id: source.id, relation_id: relation.id},
-             nil,
-             relation_snapshot(relation),
-             Map.put(metadata, "entry_lock_version", source.lock_version)
-           ) do
-      {:ok,
-       %{
-         operation: "add_relation",
-         entry_id: source.id,
-         entry_lock_version: source.lock_version,
-         relation_id: relation.id
-       }, [source.id, target.id]}
+         %Entry{} = target <- fetch_relation_target(repo, source, target_entry_id) do
+      insert_relation_unless_present(repo, scope, actor, operation, metadata, source, target)
     else
       nil -> {:error, :not_found}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp insert_relation_unless_present(repo, scope, actor, operation, metadata, source, target) do
+    predicate = value(operation, :predicate)
+
+    case fetch_relation_by_edge(repo, source.id, predicate, target.id) do
+      %EntryRelation{} = relation ->
+        {:ok, relation_result(source, relation), []}
+
+      nil ->
+        with {:ok, relation} <-
+               repo.insert(
+                 EntryRelation.changeset(%EntryRelation{}, %{
+                   owner_uid: source.owner_uid,
+                   store_key: source.store_key,
+                   source_entry_id: source.id,
+                   predicate: predicate,
+                   target_entry_id: target.id
+                 })
+               ),
+             {:ok, source} <- bump_entry(repo, source),
+             {:ok, _audit} <-
+               insert_audit(
+                 repo,
+                 scope,
+                 actor,
+                 "add_relation",
+                 %{entry_id: source.id, relation_id: relation.id},
+                 nil,
+                 relation_snapshot(relation),
+                 Map.put(metadata, "entry_lock_version", source.lock_version)
+               ) do
+          {:ok, relation_result(source, relation), [source.id, target.id]}
+        end
+    end
+  end
+
+  defp relation_result(source, relation) do
+    %{
+      operation: "add_relation",
+      entry_id: source.id,
+      entry_lock_version: source.lock_version,
+      relation_id: relation.id
+    }
   end
 
   defp remove_relation(repo, scope, actor, operation, metadata) do
@@ -988,6 +1004,19 @@ defmodule Ankole.Brain.Knowledge do
             relation.store_key == ^source.store_key and relation.source_entry_id == ^source.id
     )
   end
+
+  defp fetch_relation_by_edge(repo, source_entry_id, predicate, target_entry_id)
+       when is_binary(predicate) do
+    repo.one(
+      from relation in EntryRelation,
+        where:
+          relation.source_entry_id == ^source_entry_id and
+            relation.predicate == ^String.trim(predicate) and
+            relation.target_entry_id == ^target_entry_id
+    )
+  end
+
+  defp fetch_relation_by_edge(_repo, _source_entry_id, _predicate, _target_entry_id), do: nil
 
   defp fetch_audit_for_write(repo, scope, audit_id) do
     owner_uid = write_owner_uid(scope)

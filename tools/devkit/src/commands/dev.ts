@@ -40,14 +40,14 @@ export function buildControlPlaneEnv(
   env: NodeJS.ProcessEnv,
   opts: { port: number; fabricPort: number }
 ): NodeJS.ProcessEnv {
-  const workerFacingBaseURL =
-    env.ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
+  const aiGatewayBaseURL =
+    env.ANKOLE_AI_GATEWAY_BASE_URL?.trim() || `http://host.docker.internal:${opts.port}/api/v1/ai-gateway`
 
   return {
     ...env,
     PORT: String(opts.port),
     ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT: `tcp://127.0.0.1:${opts.fabricPort}`,
-    ANKOLE_AI_GATEWAY_WORKER_FACING_BASE_URL: workerFacingBaseURL
+    ANKOLE_AI_GATEWAY_BASE_URL: aiGatewayBaseURL
   }
 }
 

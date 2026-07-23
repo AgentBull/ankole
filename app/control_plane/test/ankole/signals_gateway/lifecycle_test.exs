@@ -170,7 +170,9 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                )
 
       assert {:ok, [%{actor_event: original_input}]} =
-               finalize_due_inbound_batch_events(now: DateTime.add(@base_time, 800, :millisecond))
+               finalize_due_inbound_batch_events(
+                 now: DateTime.add(@base_time, 1_200, :millisecond)
+               )
 
       assert original_input.source_entry_id == "msg-batch-b"
 

@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.Resolver
@@ -641,89 +642,38 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp maybe_put(map, _key, nil, true), do: map
   defp maybe_put(map, key, value, true), do: Map.put(map, key, value)
 
-  defp socket_open_error_details({:upstream_response_failed, status, body}) do
-    %{
-      "code" => "upstream_response_failed",
-      "message" => upstream_error_message(status, body),
-      "reason" => "provider_call_failed: upstream_response_failed",
-      "stage" => "socket_open",
-      "status" => status,
-      "body" => body,
-      "retryable" => retryable_upstream_status?(status)
-    }
-  end
-
-  defp socket_open_error_details({:invalid_upstream_response, status, body}) do
-    %{
-      "code" => "invalid_upstream_response",
-      "message" => "Provider returned an invalid upstream response.",
-      "reason" => "provider_call_failed: invalid_upstream_response",
-      "stage" => "socket_open",
-      "status" => status,
-      "body" => body,
-      "retryable" => false
-    }
-  end
-
-  defp socket_open_error_details({:universal_ai_request_failed, %{} = details}) do
-    status = upstream_status_from_universal_error(details)
-
-    %{
-      "code" => universal_socket_open_code(status),
-      "message" => universal_socket_open_message(status, details),
-      "reason" => "provider_call_failed: universal_ai_request_failed",
-      "stage" => "socket_open",
-      "status" => status,
-      "body" => details,
-      "retryable" => retryable_upstream_status?(status)
-    }
-  end
-
   defp socket_open_error_details(reason) do
+    classification = FailureDiagnostics.classify(reason)
+    code = Map.get(classification, :error_code, "provider_call_failed")
+
     %{
-      "code" => "provider_call_failed",
-      "message" => inspect(reason),
-      "reason" => "provider_call_failed: #{inspect(reason)}",
+      "code" => code,
+      "message" => FailureDiagnostics.public_message(classification),
       "stage" => "socket_open",
-      "retryable" => false
+      "retryable" => Map.get(classification, :retryable, false)
     }
+    |> put_safe_failure_fields(classification)
   end
 
-  defp upstream_error_message(_status, %{"error" => %{"message" => message}})
-       when is_binary(message),
-       do: message
-
-  defp upstream_error_message(_status, %{"message" => message}) when is_binary(message),
-    do: message
-
-  defp upstream_error_message(status, _body), do: "Provider request failed with status #{status}."
-
-  defp upstream_status_from_universal_error(%{"status" => status}) when is_integer(status),
-    do: status
-
-  defp upstream_status_from_universal_error(%{"message" => message}) when is_binary(message) do
-    case Regex.run(~r/HTTP error:\s*(\d{3})/, message) do
-      [_match, status] -> String.to_integer(status)
-      _no_match -> nil
-    end
+  defp put_safe_failure_fields(details, classification) do
+    classification
+    |> Map.take([
+      :error_stage,
+      :failure_kind,
+      :http_status,
+      :provider_error_code,
+      :provider_error_type,
+      :provider_status,
+      :retryable
+    ])
+    |> Enum.reduce(details, fn {key, value}, acc ->
+      Map.put(acc, Atom.to_string(key), safe_failure_value(value))
+    end)
   end
 
-  defp upstream_status_from_universal_error(_details), do: nil
-
-  defp universal_socket_open_code(status) when is_integer(status), do: "upstream_response_failed"
-  defp universal_socket_open_code(_status), do: "provider_call_failed"
-
-  defp universal_socket_open_message(_status, %{"message" => message}) when is_binary(message),
-    do: message
-
-  defp universal_socket_open_message(status, _details) when is_integer(status),
-    do: upstream_error_message(status, %{})
-
-  defp universal_socket_open_message(_status, _details), do: "Provider request failed."
-
-  defp retryable_upstream_status?(status) when status in [408, 409, 425, 429], do: true
-  defp retryable_upstream_status?(status) when is_integer(status) and status >= 500, do: true
-  defp retryable_upstream_status?(_status), do: false
+  defp safe_failure_value(value) when is_boolean(value), do: value
+  defp safe_failure_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp safe_failure_value(value), do: value
 
   # The message log stores durable Response items directly. Do not re-derive
   # history from the legacy row-level role hint. Provider-facing replay strips
@@ -915,10 +865,15 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp response_model(_metadata), do: "unknown"
 
-  defp response_error("error", %{"error" => %{} = error}), do: error
+  defp response_error("error", %{"error" => %{} = error}) do
+    classification = FailureDiagnostics.classify_stored(error)
 
-  defp response_error("error", %{"error" => error}),
-    do: %{"code" => "error", "message" => inspect(error)}
+    %{
+      "code" => Map.get(classification, :error_code, "error"),
+      "message" => FailureDiagnostics.public_message(classification)
+    }
+    |> put_safe_failure_fields(classification)
+  end
 
   defp response_error("error", _metadata),
     do: %{"code" => "error", "message" => "response failed"}

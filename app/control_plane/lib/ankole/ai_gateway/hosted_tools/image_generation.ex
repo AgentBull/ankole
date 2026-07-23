@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
+  alias Ankole.Logging
 
   @allowed_fields ~w(
     type action background input_fidelity input_image_mask model moderation
@@ -75,6 +76,8 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
              length(input_references),
              catalog_opts
            ),
+         :ok <-
+           log_routing(subject_uid, request, tool, tool_index, references, selection, opts),
          runtime = Map.put(runtime, "model", selection.model),
          image_request = image_request(tool, references, selection, opts),
          {:ok, prepared_request} <-
@@ -91,11 +94,14 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
       {:ok,
        %{
          "tool_config" => tool,
+         "actor_event_id" => get_in(request, ["metadata", "actor_event_id"]),
          "selected_model" => selection.model,
          "prepared_request" => prepared_request,
          "endpoint_capabilities" => selection.endpoint,
          "provider_tag" => selection.provider_tag,
+         "provider_tags" => selection.provider_tags,
          "provider_slug" => selection.provider_slug,
+         "provider_slugs" => selection.provider_slugs,
          "resolved_references" => references,
          "limits" => %{
            "max_decoded_image_bytes" => Artifacts.max_image_bytes(),
@@ -424,19 +430,41 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
 
   defp provider_routing(tool, selection) do
     %{
-      "only" => [selection.provider_tag],
-      "allow_fallbacks" => false,
+      "only" => selection.provider_tags,
+      "allow_fallbacks" => true,
       "require_parameters" => true
     }
-    |> maybe_put_moderation(tool, selection.provider_slug)
+    |> maybe_put_moderation(tool, selection.provider_slugs)
   end
 
-  defp maybe_put_moderation(provider, %{"moderation" => moderation}, provider_slug)
+  defp maybe_put_moderation(provider, %{"moderation" => moderation}, provider_slugs)
        when is_binary(moderation) do
-    Map.put(provider, "options", %{provider_slug => %{"moderation" => moderation}})
+    options = Map.new(provider_slugs, &{&1, %{"moderation" => moderation}})
+    Map.put(provider, "options", options)
   end
 
-  defp maybe_put_moderation(provider, _tool, _provider_slug), do: provider
+  defp maybe_put_moderation(provider, _tool, _provider_slugs), do: provider
+
+  defp log_routing(subject_uid, request, tool, tool_index, references, selection, opts) do
+    Logging.info(
+      "ai_gateway.image_generation_route_selected",
+      "AIGateway image generation route selected",
+      %{
+        subject_uid: subject_uid,
+        actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
+        tool_index: tool_index,
+        model: selection.model,
+        provider_tags: selection.provider_tags,
+        provider_slugs: selection.provider_slugs,
+        candidate_count: length(selection.provider_tags),
+        allow_fallbacks: true,
+        action: Map.get(tool, "action", "auto"),
+        reference_count: Enum.count(references, &(not mask_reference?(&1))),
+        partial_images: Map.get(tool, "partial_images", 0),
+        stream: Keyword.get(opts, :stream?, false)
+      }
+    )
+  end
 
   defp copy_if_present(target, source, fields) do
     Enum.reduce(fields, target, fn field, acc ->

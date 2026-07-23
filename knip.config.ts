@@ -12,6 +12,10 @@ const config: KnipConfig = {
   // graph for Knip to analyze.
   ignoreWorkspaces: ['app/control_plane', 'libs/feishu_openapi'],
   workspaces: {
+    'app/ankole-browser': {
+      entry: ['src/cli/main.ts', 'src/daemon/main.ts', 'src/runner/bootstrap.ts', 'test/**/*.ts'],
+      project: ['src/**/*.ts', 'test/**/*.ts']
+    },
     'app/agent_computer': {
       entry: ['src/main.ts', 'test/**/*.ts'],
       project: ['src/**/*.ts', 'test/**/*.ts'],
@@ -49,6 +53,7 @@ const config: KnipConfig = {
   // not app-owned dead-code analysis. var/ holds runtime volumes, not source.
   ignore: [
     '**/*.d.ts',
+    '**/.astro/**',
     '**/generated/**',
     'var/**',
     'internals/skills/**',

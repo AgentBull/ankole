@@ -283,7 +283,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert retried.workspace_template_id == "deep-research"
   end
 
-  test "success requires a completed lead Turn but does not gate on Codex child Turn state" do
+  test "success requires a completed lead Turn and interrupts active child Turns" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, %{job: research}} =
@@ -325,7 +325,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert succeeded.status == "succeeded"
     assert turn.status == "completed"
     assert turn.trajectory["format"] == "ankole_chatml"
-    assert Repo.reload!(active_child).status == "in_progress"
+
+    active_child = Repo.reload!(active_child)
+    assert active_child.status == "interrupted"
+    assert active_child.error["code"] == "background_agent_job_succeeded"
+    assert %DateTime{} = active_child.completed_at
   end
 
   test "success cannot bypass the current-attempt trajectory by omitting the runtime thread anchor" do
@@ -795,8 +799,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: running}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
-               "status" => "running"
+               "status" => "running",
+               "runtime_thread_id" => "thread-running-stop"
              })
+
+    running = set_attempts!(running, 1)
+
+    active_running_turn =
+      insert_turn!(running, 1, "thread-running-stop", "turn-running-stop", "in_progress")
 
     assert {:ok, %{job: running_stopped, command_event: %ActorEvent{} = stop_event}} =
              BackgroundAgentJobs.request_stop(running.id, %{
@@ -814,6 +824,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert stop_event.session_id == BackgroundAgentJobs.job_session_id(running.id)
     assert stop_event.source_entry_id == nil
     assert get_in(stop_event.payload, ["data", "command", "argsText"]) == "Changed priorities"
+
+    active_running_turn = Repo.reload!(active_running_turn)
+    assert active_running_turn.status == "interrupted"
+    assert active_running_turn.error["code"] == "background_agent_job_stopped"
+    assert %DateTime{} = active_running_turn.completed_at
 
     waiting = create_job!(agent.uid, "waiting-stop")
 

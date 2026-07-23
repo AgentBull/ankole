@@ -1,0 +1,3 @@
+.env
+*.dump
+ankole-local-ca.crt

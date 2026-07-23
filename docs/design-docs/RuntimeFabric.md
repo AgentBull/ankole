@@ -338,6 +338,17 @@ that weaker result.
 `turn_control` with `command = "retry"` stops the named local turn. The worker
 ends its loop, releases capacity, and does not report `turn_error`.
 
+An input supersession uses this control only as a best-effort token stop. The
+control plane first retracts the generating Response and invalidates the
+delivery fence in PostgreSQL. It updates the same ActorEvent with the new
+attachment and does not release that event until attachment materialization
+finishes or reaches its cap. A late worker completion cannot pass the old
+fence.
+
+The control plane does not supersede a turn after it sees a tool call, a tool
+result, or a committed outbox operation. It queues the attachment as a new turn
+because replay could repeat an external write.
+
 ### Complete a Turn
 
 `turn_completed` contains the final Response ID and one outcome.
@@ -433,6 +444,15 @@ The protocol supports these operation groups:
 - File or explicit recursive delete.
 - Structured error and malformed-command responses.
 
+`READ_OPEN` uses `file_not_found` when the source path is absent and
+`not_regular_file` when the source is not a regular file. These codes are the
+cross-runtime recovery contract. The accompanying error message is for
+diagnosis and is not a recovery key.
+
+A read that observes a different path after `READ_READY` uses `file_changed`.
+The control plane can retry this failure, but it does not accept bytes from the
+old file descriptor as a successful read.
+
 The control plane exposes these public roots:
 
 - `user_files`
@@ -510,9 +530,10 @@ even when the message does not wake an Agent.
 The current inbound path is:
 
 1. A provider adapter receives a resource reference or byte stream.
-2. The control plane records provider observations in PostgreSQL.
+2. The control plane records a pending provider observation in PostgreSQL.
 3. The adapter writes bytes through `Ankole.WorkerFiles.put`.
-4. PostgreSQL records the real Agent Home path observation.
+4. The adapter replaces the pending observation with the real Agent Home path
+   or a failed materialization state.
 
 The current path does not ask a worker to fetch an arbitrary provider URL.
 

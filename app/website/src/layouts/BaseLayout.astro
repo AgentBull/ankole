@@ -1,0 +1,37 @@
+---
+import BaseHead from '../components/BaseHead.astro'
+import Footer from '../components/Footer.astro'
+import Header from '../components/Header.astro'
+import { BCP47, type Locale } from '../i18n/config'
+import { t } from '../i18n/utils'
+
+interface Props {
+	lang: Locale
+	title: string
+	description: string
+	/** Path after /{lang}/, used for canonical and hreflang links. */
+	path?: string
+}
+
+const { lang, title, description, path = '' } = Astro.props
+---
+
+<!doctype html>
+<html lang={BCP47[lang]}>
+	<head>
+		<BaseHead title={title} description={description} lang={lang} path={path} />
+	</head>
+	<body class="bg-background font-sans text-foreground antialiased">
+		<a
+			href="#main-content"
+			class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+		>
+			{t(lang, 'a11y.skipToContent')}
+		</a>
+		<Header lang={lang} />
+		<div id="main-content">
+			<slot />
+		</div>
+		<Footer lang={lang} />
+	</body>
+</html>

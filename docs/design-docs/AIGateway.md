@@ -170,6 +170,14 @@ Their default lifetime is 30 days.
 
 The control plane derives the signing key from `SecretKeyBase`.
 The Worker requests an Agent token through an authenticated RuntimeFabric RPC.
+That response also supplies the AIGateway base URL.
+
+The deployment can set `ANKOLE_AI_GATEWAY_BASE_URL` to any AIGateway endpoint
+that its Workers can reach. If it is absent, the broker uses the Phoenix
+endpoint URL. The Kubernetes chart sets the value to the control-plane Service
+DNS name. Docker and other deployments can use a host, ingress, or external
+endpoint instead. AIGateway does not classify the endpoint as internal or
+external.
 
 Every runtime request has one authenticated `subject_uid`. Every query for a
 conversation, message, or artifact filters by that Principal.
@@ -342,14 +350,53 @@ expiry.
 
 The image-generation hosted tool resolves the `image_generate` model profile.
 OpenRouter is the current built-in provider for this capability.
+The endpoint catalog removes endpoints that cannot satisfy the request. All
+remaining endpoints stay eligible. OpenRouter owns routing and fallback
+between these endpoints.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
+An upstream failure keeps its provider HTTP status in safe public error details.
+The provider body and provider message stay private. This status lets the
+Worker classify a safe retry without copying provider routing into Ankole.
+
+## Observe the Execution Path
+
+Agent Computer logs the resolved AIGateway scheme and host at the start of a
+turn. It does not infer network topology from the host. It logs the resolved
+tool names once. It also logs each main model attempt, retry decision, tool
+execution, and tool-result record operation with the ActorEvent ID and elapsed
+time.
+
+AIGateway logs an active WebSocket interruption with the ActorEvent ID, model,
+and elapsed time. It logs every failed synchronous provider request with the
+capability, provider, model, resolver, upstream host, duration, safe provider
+status, and retry classification. The image-generation path logs all eligible
+provider endpoints and logs failures with separate provider and public HTTP
+statuses plus the execution stage.
+
+One failure diagnostic owner normalizes synchronous, streaming, and hosted-tool
+failures. Provider 4xx rejections and explicit consumer cancellations use
+`WARNING`. Provider 5xx responses, transport failures, and internal execution
+failures use `ERROR`.
+
+These logs do not contain prompts, tool arguments, tool results, provider
+messages, provider response bodies, image bytes, or credentials.
+Stateful socket-open, provider terminal, and stream transport failures persist
+only safe classification fields. Public failure frames and stored Responses do
+not contain provider messages or provider response bodies. Each public or
+stored error keeps a stable code and a fixed safe message. Response retrieval
+also projects legacy error metadata through this safe shape.
+
+The HTTP edge preserves upstream 4xx responses, maps upstream and transport
+failures to 502, and maps native upstream timeouts to 504. It does not report a
+provider transport failure as a 422 request error.
 
 ## Split Work between Elixir and Rust
 
-Elixir chooses the provider, model, endpoint, and headers. It prepares the
-provider request and removes Ankole-only state fields before sending it.
+Elixir chooses the provider, model, eligible endpoints, and headers. It
+prepares the provider request and removes Ankole-only state fields before
+sending it.
 
 The Rust kernel sends the `UniversalAIRequest` and converts supported HTTP, SSE,
 and WebSocket responses to one event format.

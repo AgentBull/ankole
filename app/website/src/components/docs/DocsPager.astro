@@ -1,0 +1,47 @@
+---
+import { RiArrowLeftLine, RiArrowRightLine } from '@remixicon/react'
+import type { Locale } from '../../i18n/config'
+import { localePath, t } from '../../i18n/utils'
+import type { DocNavItem } from '../../lib/docs-model'
+
+interface Props {
+	lang: Locale
+	prev?: DocNavItem
+	next?: DocNavItem
+}
+
+const { lang, prev, next } = Astro.props
+---
+
+{
+	(prev || next) && (
+		<nav class="mt-16 grid grid-cols-1 gap-4 border-t border-border pt-8 sm:grid-cols-2">
+			{prev ? (
+				<a
+					href={localePath(lang, `docs/${prev.slug}`)}
+					class="group border border-border p-4 no-underline transition-colors hover:bg-background-secondary"
+				>
+					<span class="flex items-center gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+						<RiArrowLeftLine className="size-3.5" />
+						{t(lang, 'docs.pager.previous')}
+					</span>
+					<span class="mt-2 block text-sm font-medium text-foreground">{prev.title}</span>
+				</a>
+			) : (
+				<span class="hidden sm:block" />
+			)}
+			{next && (
+				<a
+					href={localePath(lang, `docs/${next.slug}`)}
+					class="group border border-border p-4 text-right no-underline transition-colors hover:bg-background-secondary sm:col-start-2"
+				>
+					<span class="flex items-center justify-end gap-1 text-xs uppercase tracking-widest text-muted-foreground">
+						{t(lang, 'docs.pager.next')}
+						<RiArrowRightLine className="size-3.5" />
+					</span>
+					<span class="mt-2 block text-sm font-medium text-foreground">{next.title}</span>
+				</a>
+			)}
+		</nav>
+	)
+}
