@@ -14,6 +14,8 @@ metadata:
 
 Use `lark-cli` with the application bot identity supplied by this Agent's Lark signal binding. This skill deliberately keeps only OA operations that are meaningful under tenant access; it never impersonates an employee.
 
+Approval definitions, instances, and approval tasks belong to `lark-approvals`.
+
 Before the first command, read [references/bot-runtime.md](references/bot-runtime.md). Then read the domain reference:
 
 - Tasks, OKRs, and attendance: [references/tasks-okr-attendance.md](references/tasks-okr-attendance.md)

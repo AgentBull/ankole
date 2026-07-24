@@ -9,8 +9,6 @@ export interface CommandInput {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
-  /** Operator-managed variables injected below the caller's `env`. */
-  workerEnv?: Record<string, string>
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -20,12 +18,21 @@ export interface CommandFinished {
   output(mode?: CommandOutputMode, opts?: { signal?: AbortSignal }): Promise<string>
 }
 
-export interface WorkspaceProcessInput {
+interface WorkspaceCommandInput extends CommandInput {
+  /** Operator-managed variables injected below the caller's `env`. */
+  workerEnv?: Record<string, string>
+  /** Trusted turn variables injected above the caller's `env`. */
+  runtimeEnv?: Record<string, string>
+}
+
+interface WorkspaceProcessInput {
   commandArgv: string[]
   cwd?: string
   env?: Record<string, string>
   /** Operator-managed variables injected below the caller's `env`. */
   workerEnv?: Record<string, string>
+  /** Trusted turn variables injected above the caller's `env`. */
+  runtimeEnv?: Record<string, string>
   stdin?: string | Buffer
   signal?: AbortSignal
 }
@@ -40,7 +47,7 @@ export interface WorkspaceProcessFinished {
  * Runs one foreground command inside bubblewrap.
  */
 export async function runWorkspaceCommand(
-  input: CommandInput,
+  input: WorkspaceCommandInput,
   agentHome: string,
   workspaceRoot: string
 ): Promise<CommandFinished> {
@@ -50,6 +57,7 @@ export async function runWorkspaceCommand(
       cwd: input.cwd,
       env: input.env,
       workerEnv: input.workerEnv,
+      runtimeEnv: input.runtimeEnv,
       signal: input.signal
     },
     agentHome,
@@ -71,7 +79,12 @@ export async function runWorkspaceProcess(
   }
 
   const cwd = input.cwd ? workspacePath(agentHome, workspaceRoot, input.cwd) : workspaceRoot
-  const env = commandEnv(input.env, { workerEnv: input.workerEnv, home: agentHome, ankoleAgentHome: agentHome })
+  const env = commandEnv(input.env, {
+    workerEnv: input.workerEnv,
+    runtimeEnv: input.runtimeEnv,
+    home: agentHome,
+    ankoleAgentHome: agentHome
+  })
   const argv = bubblewrapArgv({
     workspaceRoot: agentHome,
     cwd,

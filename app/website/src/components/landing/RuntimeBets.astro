@@ -1,6 +1,9 @@
 ---
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
+import Reveal from '../Reveal'
+import Section from './Section.astro'
+import SectionHeading from './SectionHeading.astro'
 
 interface Props {
 	lang: Locale
@@ -14,22 +17,36 @@ const bets = ['actors', 'otp', 'fabric', 'computer', 'ledger'].map(key => ({
 }))
 ---
 
-<section class="border-b border-border bg-background-secondary">
-	<div class="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20">
-		<h2 class="text-3xl font-semibold tracking-tight text-foreground">{t(lang, 'bets.title')}</h2>
-		<p class="mt-3 max-w-3xl text-muted-foreground">{t(lang, 'bets.subtitle')}</p>
-		<div class="mt-12 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
-			{
-				bets.map((bet, index) => (
-					<div class="bg-background p-6 first:sm:col-span-2 lg:first:col-span-1">
-						<span class="font-mono text-sm text-brand-60 dark:text-brand-40">
+<Section tone="raised">
+	<SectionHeading
+		index="05"
+		eyebrow={t(lang, 'section.bets')}
+		title={t(lang, 'bets.title')}
+		subtitle={t(lang, 'bets.subtitle')}
+		wide
+	/>
+
+	<div class="mt-14 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
+		{
+			bets.map((bet, index) => (
+				<Reveal
+					client:visible={{ rootMargin: '200px' }}
+					delay={(index % 3) * 0.06}
+					className={index === 0 ? 'bg-background sm:col-span-2' : 'bg-background'}
+				>
+					<div class="group relative h-full p-8">
+						<span
+							class="absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-brand-60 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:scale-x-100 dark:bg-brand-40"
+							aria-hidden="true"
+						/>
+						<span class="font-mono text-xl text-brand-60 tabular-nums dark:text-brand-40">
 							{String(index + 1).padStart(2, '0')}
 						</span>
-						<h3 class="mt-2 text-base font-semibold text-foreground">{bet.title}</h3>
-						<p class="mt-2 text-sm leading-6 text-muted-foreground">{bet.body}</p>
+						<h3 class="mt-4 text-base font-semibold text-foreground">{bet.title}</h3>
+						<p class="mt-3 text-sm leading-6 text-muted-foreground">{bet.body}</p>
 					</div>
-				))
-			}
-		</div>
+				</Reveal>
+			))
+		}
 	</div>
-</section>
+</Section>

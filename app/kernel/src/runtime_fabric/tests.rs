@@ -32,6 +32,11 @@ fn accepts_and_round_trips_turn_start() {
             }),
             request_context_json: br#"{"kind":"schedule","silent_success_allowed":true}"#.to_vec(),
             hosted_tools_json: br#"[{"type":"image_generation"}]"#.to_vec(),
+            runtime_env: [(
+                "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL".into(),
+                "human-alice".into(),
+            )]
+            .into(),
         }),
     );
 
@@ -195,6 +200,7 @@ fn rejects_body_lane_and_durability_mismatches() {
             model_ref: None,
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
+            runtime_env: Default::default(),
         }),
     ));
     assert!(wrong_turn_start_lane.contains("turn_start must use lane LANE_TURN"));
@@ -221,6 +227,7 @@ fn rejects_model_ref_with_zero_max_completion_tokens() {
             }),
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
+            runtime_env: Default::default(),
         }),
     ));
 
@@ -321,6 +328,7 @@ fn turn_lane_bodies_require_correlation_id() {
             model_ref: None,
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
+            runtime_env: Default::default(),
         }),
     ));
 
@@ -572,6 +580,7 @@ fn golden_turn_start(max_completion_tokens: Option<u32>) -> proto::Envelope {
             }),
             request_context_json: br#"{"kind":"schedule","silent_success_allowed":true}"#.to_vec(),
             hosted_tools_json: br#"[{"type":"image_generation"}]"#.to_vec(),
+            runtime_env: Default::default(),
         }),
     )
 }

@@ -52,6 +52,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
     assert no_limit_start.model_ref.max_completion_tokens == nil
   end
 
+  test "carries trusted turn runtime environment values" do
+    envelope =
+      TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        model_ref: model_ref(),
+        request_context: %{},
+        runtime_env: %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"}
+      })
+
+    assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
+
+    assert turn_start.runtime_env == %{
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"
+           }
+  end
+
   defp turn_ref do
     %TurnRef{
       agent_uid: "agent-test",

@@ -305,6 +305,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     name in @reserved_names or String.starts_with?(name, @reserved_prefix)
   end
 
+  @doc """
+  Returns exact operator-configured secret values for one Agent.
+
+  Declared and custom variables carry explicit encryption metadata, so this
+  reads only AppConfigure and the custom variable table. Binding-derived
+  provider tokens are outside this set. They are short-lived credentials that
+  the adapter mints for the Worker shell, and resolving them here would make an
+  unrelated caller depend on provider health.
+  """
+  @spec sensitive_values(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def sensitive_values(agent_uid) do
+    with {:ok, scope} <- agent_scope(agent_uid),
+         {:ok, declared} <- declared_sensitive_values(agent_uid),
+         {:ok, global_custom} <- custom_sensitive_values(@global_scope),
+         {:ok, agent_custom} <- custom_sensitive_values(scope) do
+      {:ok,
+       (declared ++ global_custom ++ agent_custom)
+       |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+       |> Enum.uniq()}
+    end
+  end
+
   # ---- declared track ----
 
   defp declared_definitions do
@@ -318,6 +340,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
       case declared_value(definition, agent_uid) do
         {:ok, nil} -> {:cont, {:ok, acc}}
         {:ok, value} -> {:cont, {:ok, Map.put(acc, definition.worker_env_name, value)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp declared_sensitive_values(agent_uid) do
+    declared_definitions()
+    |> Enum.filter(& &1.encrypted)
+    |> Enum.reduce_while({:ok, []}, fn definition, {:ok, acc} ->
+      case declared_value(definition, agent_uid) do
+        {:ok, nil} -> {:cont, {:ok, acc}}
+        {:ok, value} -> {:cont, {:ok, [value | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -440,6 +474,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
       case row_value(row) do
         {:ok, value} ->
           {:cont, {:ok, Map.put(acc, row.name, value)}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:worker_env_row_error, scope, row.name, reason}}}
+      end
+    end)
+  end
+
+  defp custom_sensitive_values(scope) do
+    scope
+    |> custom_rows()
+    |> Enum.filter(& &1.secret)
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
+      case row_value(row) do
+        {:ok, value} ->
+          {:cont, {:ok, [value | acc]}}
 
         {:error, reason} ->
           {:halt, {:error, {:worker_env_row_error, scope, row.name, reason}}}

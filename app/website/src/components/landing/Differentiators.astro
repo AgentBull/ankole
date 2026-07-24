@@ -1,6 +1,9 @@
 ---
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
+import Reveal from '../Reveal'
+import Section from './Section.astro'
+import SectionHeading from './SectionHeading.astro'
 
 interface Props {
 	lang: Locale
@@ -14,22 +17,35 @@ const items = ['shared', 'identity', 'sessions', 'context', 'control'].map(key =
 }))
 ---
 
-<section class="border-b border-border">
-	<div class="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-20">
-		<h2 class="text-3xl font-semibold tracking-tight text-foreground">{t(lang, 'differentiators.title')}</h2>
-		<p class="mt-3 max-w-2xl text-muted-foreground">{t(lang, 'differentiators.subtitle')}</p>
-		<ol class="mt-12 list-none border-t border-border p-0">
-			{
-				items.map((item, index) => (
-					<li class="grid gap-2 border-b border-border py-6 sm:grid-cols-[4rem_1fr_2fr] sm:gap-8">
-						<span class="font-mono text-sm leading-7 text-brand-60 dark:text-brand-40">
+<Section>
+	<SectionHeading
+		index="02"
+		eyebrow={t(lang, 'section.differentiators')}
+		title={t(lang, 'differentiators.title')}
+		subtitle={t(lang, 'differentiators.subtitle')}
+	/>
+
+	<ol class="mt-14 list-none border-t border-border p-0">
+		{
+			items.map((item, index) => (
+				<li>
+					<Reveal
+						client:visible={{ rootMargin: '200px' }}
+						delay={index * 0.05}
+						className="group relative grid gap-3 border-b border-border py-7 pl-5 transition-colors duration-150 ease-[var(--ease-productive)] hover:bg-background-secondary sm:grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1.6fr)] sm:gap-8"
+					>
+						<span
+							class="absolute inset-y-0 left-0 w-0.5 origin-center scale-y-0 bg-brand-60 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:scale-y-100 dark:bg-brand-40"
+							aria-hidden="true"
+						/>
+						<span class="font-mono text-xl leading-8 text-brand-60 tabular-nums dark:text-brand-40">
 							{String(index + 1).padStart(2, '0')}
 						</span>
-						<h3 class="text-base font-semibold leading-7 text-foreground">{item.title}</h3>
-						<p class="leading-7 text-muted-foreground">{item.body}</p>
-					</li>
-				))
-			}
-		</ol>
-	</div>
-</section>
+						<h3 class="text-lg font-semibold leading-8 text-balance text-foreground">{item.title}</h3>
+						<p class="leading-8 text-muted-foreground">{item.body}</p>
+					</Reveal>
+				</li>
+			))
+		}
+	</ol>
+</Section>

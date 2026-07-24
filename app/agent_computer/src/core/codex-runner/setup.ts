@@ -164,6 +164,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       materialized,
       runtimeFiles,
       workerEnv: codexWorkerEnv,
+      runtimeEnv: opts.runtimeEnv,
       ...(browserRuntimeMaterial ? { browserRuntime: browserSandboxRuntime(browserRuntimeMaterial) } : {})
     })
   } catch (error) {

@@ -43,7 +43,7 @@ Follow these steps in order:
 - If the user does not specify a file format, deliver `report/report.md`. Use the same language that the user used to create the request.
 - If the user requests another file format, create it from the authoritative Markdown report.
 - If the user explicitly requests a PDF, PPT, or HTML file but does not specify a visual design,  use `design-md` skills as the design reference.
-- Before completion, use a subagent to perform one more quick formal check of the deliverables. Make sure that there are no typographical, layout, or formatting problems.
+- Before completion, use a subagent to perform one more quick formal check of the deliverables. For a PDF, check only that its text matches the authoritative report and that its structure is correct, for example the page count and no empty or truncated pages. For the other formats, make sure that there are no typographical, layout, or formatting problems.
 
 #### Deliverable Writing Style
 

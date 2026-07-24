@@ -193,6 +193,53 @@ WorkerEnv never sends `appSecret`.
 The Agent Plugin enables Skills. The signal binding supplies credentials only
 and cannot make a Skill available.
 
+The `lark-approvals` Skill is a separate user path. A Turn from an active human
+Principal receives a Turn runtime Principal value. Agent Computer
+uses that Principal and `runtime_fabric.worker_auth_key` to derive an opaque
+Lark CLI profile name. It uses HMAC-SHA256 and does not put the worker key in the
+Agent shell.
+
+The Skill wrapper removes the bot credential environment before every command.
+This is necessary because the Lark CLI environment credential provider has
+priority over a selected stored profile. The wrapper then passes the derived
+profile explicitly. Approval commands use `--as user`. Approval file upload
+uses `--as bot` to get a tenant token from the same PersonalAgent app.
+
+Separation between senders is a Skill rule, not a sandbox boundary. The shared
+configuration directory lists every registered profile, and `lark-cli` stays on
+the Agent shell path, so a command that bypasses the wrapper could select
+another person's profile. The Skill states this and always calls the wrapper.
+The current extension model is first-party and trusted, so Ankole does not add
+per-human filesystem isolation for it.
+
+Each Agent Computer's shared Lark CLI configuration holds one derived profile
+and one PersonalAgent app for each human Principal. The first setup has two
+separate provider flows:
+
+1. PersonalAgent app registration creates the app and stores its generated app
+   ID and app secret with `lark-cli profile add --app-secret-stdin`.
+2. The user approves and publishes the `approval:approval` and
+   `approval:instance.file` app scopes in the developer console before the
+   first approval file upload.
+3. User device login grants the user approval scopes and stores the user token
+   for that app.
+
+`auth login` does not create the app. The wrapper never asks the user for an app
+secret and never puts one in a command argument or WorkerEnv. User login cannot
+grant app scopes. If upload reports `app_scope_not_applied`, the Skill gives the
+provider scope link to the user and stops instead of changing app permissions.
+
+Lark CLI strict mode remains `bot` in the binding WorkerEnv. Each user profile
+has a profile-level `strict-mode=off` override because it must supply both the
+user token and the PersonalAgent app tenant token. The wrapper removes the
+environment strict-mode value and pins the identity for each command.
+
+Profile creation, profile policy repair, first login, login completion, and
+logout use a file lock in the Agent Computer's shared Lark CLI configuration
+directory. Approval reads, approval file uploads, and approval writes do not use
+this lock, so different user profiles can run in parallel. A scheduled or
+otherwise unattended Turn has no human profile and cannot use this Skill.
+
 ## Import People and Departments
 
 OIDC login resolves the person to `user_id`. Full sync writes users, departments,

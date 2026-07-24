@@ -1,6 +1,7 @@
 defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.SourceReader
 
   test "duplicate trusted roots fail explicitly even for byte-identical packages" do
@@ -40,6 +41,33 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     assert hd(plugin.skills).metadata["ankole-runtime"] == "main"
     refute Map.has_key?(plugin, :files)
     refute Map.has_key?(plugin, :ankole)
+  end
+
+  test "GitHub stays disabled until the installation enables it" do
+    source = Path.expand("../../../../library/agent-plugins/deep-research", __DIR__)
+    root = tmp_root!("github-default")
+    package_root = Path.join([root, "agent-plugins", "github"])
+    File.mkdir_p!(Path.dirname(package_root))
+    File.cp_r!(source, package_root)
+
+    manifest_path = Path.join(package_root, ".codex-plugin/plugin.json")
+
+    manifest =
+      manifest_path
+      |> File.read!()
+      |> Ankole.JSON.decode!()
+      |> Map.put("name", "github")
+
+    File.write!(manifest_path, Ankole.JSON.encode!(manifest))
+
+    assert {:ok, [capability]} =
+             AgentPlugins.global_capabilities(
+               library_roots: [root],
+               agent_library_defaults: %{agent_plugins: %{}, skills: %{}}
+             )
+
+    refute capability["global_default_enabled"]
+    refute capability["effective_enabled"]
   end
 
   test "standard manifest components outside Skills are left to Codex" do

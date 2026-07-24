@@ -18,6 +18,16 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
 
+## Playbooks
+
+A Playbook carries the extra rules for one kind of document. Before you plan the document, list the Playbooks and read every one that matches the request:
+
+```bash
+bun /repo/app/library/agent-plugins/office/tools/list_playbooks.ts docx
+```
+
+Each line gives the Playbook name, its absolute path, and the condition that selects it. A Playbook inherits every rule in this skill and adds to it, so read this skill first and keep both. When no Playbook matches, build from this skill alone.
+
 ## ⚠️ Help-First Rule
 
 **This skill teaches what good docx looks like, not every command flag. When a property name, enum value, or alias is uncertain, consult help BEFORE guessing.**
@@ -241,7 +251,7 @@ officecli add "$FILE" "/body/p[3]" --type field --prop fieldType=mergefield --pr
 - **SEQ numbering** (`Figure 1/2/3`): `officecli set "$FILE" / --prop recalcFields=seq` counts SEQ fields in body document order and writes the cached values (`evaluated` flips true; switches/formats in `help docx document`). Heading-relative `\s` and SEQ in headers/footers defer to Word.
 - **PAGE / PAGEREF / NUMPAGES / TOC page numbers** need pagination, which officecli has no engine for — `officecli set "$FILE" /settings --prop updateFields=true` defers them to Word on open.
 
-Use both on a multi-figure document. Academic papers: see `references/academic-paper.md`.
+Use both on a multi-figure document. Academic papers: see the `academic-paper` Playbook.
 
 ### Headers & Footers (page numbering)
 
@@ -427,7 +437,7 @@ officecli add "$FILE" "/body/p[3]" --type footnote --prop text="See Appendix A f
 
 **Watermark.** `add / --type watermark --prop text="DRAFT" --prop color=BFBFBF --prop opacity=0.8` in one command (default opacity 0.5); `set /watermark --prop opacity=…` adjusts it later.
 
-**When to switch references.** Stay in docx for chapter drafts, ≤ 3 footnotes, ≤ 2 equations, no bibliography/cross-refs. Read **`references/academic-paper.md`** for citation styles (APA / Chicago / IEEE / GB 7714), in-text↔reference auto-linking, numbered equations with `\ref`, "List of Figures", or auto-updating cross-refs. For **data capture** — fillable forms, contracts with user-fill slots, questionnaires, mail-merge templates (`<w:sdt>` content controls, `<w:ffData>`, `documentProtection=forms`) — stay in docx and consult `officecli help docx`.
+**When to switch to a Playbook.** Stay in docx for chapter drafts, ≤ 3 footnotes, ≤ 2 equations, no bibliography/cross-refs. Read the **`academic-paper` Playbook** for citation styles (APA / Chicago / IEEE / GB 7714), in-text↔reference auto-linking, numbered equations with `\ref`, "List of Figures", or auto-updating cross-refs. For **data capture** — fillable forms, contracts with user-fill slots, questionnaires, mail-merge templates (`<w:sdt>` content controls, `<w:ffData>`, `documentProtection=forms`) — stay in docx and consult `officecli help docx`.
 
 ### Raw-set escape hatch (L1 / L2 / L3)
 

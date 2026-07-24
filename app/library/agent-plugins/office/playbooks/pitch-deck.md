@@ -1,28 +1,18 @@
-# OfficeCLI Pitch Deck Skill
+---
+name: pitch-deck
+description: "Use when a deck must raise capital: a seed, Series A to C, or bridge round, a VC meeting, or any deck that needs stage-appropriate metrics, a fundraising narrative arc, and a Use-of-Funds ask."
+products: [pptx]
+---
 
-**This skill is a scene layer on top of `pptx`.** Every pptx hard rule — visual delivery floor (title ≥ 36pt / body ≥ 18pt / title ≥ 2× body), 12-column grid on 33.87×19.05cm, 4 canonical palettes, chart-choice decision table, connector canon (`shape` / `from` / `to` / `tailEnd=triangle`), shell escape, resident + batch, Delivery Gate 1–5a — is inherited, not re-taught. This file adds only what **fundraising** needs on top: stage diagnosis (A / B / C), 5 赛道 arc templates, 10 key-slide recipes (cover / problem / solution / market / product / model / traction / team / financials / ask), pitch-specific numbers convention, a VC ship-check, and a pitch-specific fresh-eyes Gate 6.
+# Pitch Deck Playbook
 
-When the pptx base rules cover it, the text here says `→ see pptx v2 §X`. Read `pptx/SKILL.md` first if you have not.
+**This Playbook is a scene layer on top of the `pptx` Skill.** Every pptx hard rule — visual delivery floor (title ≥ 36pt / body ≥ 18pt / title ≥ 2× body), 12-column grid on 33.87×19.05cm, 4 canonical palettes, chart-choice decision table, connector canon (`shape` / `from` / `to` / `tailEnd=triangle`), shell escape, resident + batch, Delivery Gate 1–5a — is inherited, not re-taught. This file adds only what **fundraising** needs on top: stage diagnosis (A / B / C), 5 赛道 arc templates, 10 key-slide recipes (cover / problem / solution / market / product / model / traction / team / financials / ask), pitch-specific numbers convention, a VC ship-check, and a pitch-specific fresh-eyes Gate 6.
 
-## Setup
-
-Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
-
-## ⚠️ Help-First Rule
-
-**This skill teaches what a fundraising deck requires, not every command flag.** When a prop name, enum value, or preset is uncertain, consult help BEFORE guessing.
-
-```bash
-officecli help pptx                          # All pptx elements
-officecli help pptx <element>                # Full schema (e.g. chart, shape, connector, picture)
-officecli help pptx <element> --json         # Machine-readable
-```
-
-Help reflects the installed CLI version. When this skill and help disagree, **help wins.** Every `--prop X=` in this file has been grep-verified against `officecli help pptx <element>` — if help adds / renames a prop in a later version, trust help.
+When the pptx base rules cover it, the text here says `→ see pptx v2 §X`. Read the `pptx` Skill first if you have not. Its Help-First Rule applies here too: when this Playbook and `officecli help` disagree, **help wins**.
 
 ## Mental Model & Inheritance
 
-**Inherits pptx v2.** You should have read `pptx/SKILL.md` first. This skill assumes you know how to: add slides + shapes + charts + connectors; address by `@name=` / `@id=`; quote paths; use `batch` heredocs; write `--prop tailEnd=triangle` on every flow connector; and run the 5-gate Delivery Gate. If any of those are unfamiliar, open a pptx v2 session before continuing.
+**Inherits pptx v2.** You should have read the `pptx` Skill first. This Playbook assumes you know how to: add slides + shapes + charts + connectors; address by `@name=` / `@id=`; quote paths; use `batch` heredocs; write `--prop tailEnd=triangle` on every flow connector; and run the 5-gate Delivery Gate. If any of those are unfamiliar, open a pptx v2 session before continuing.
 
 ## Shell & Execution Discipline
 
@@ -43,7 +33,7 @@ A pitch deck is a pptx with a **fundraising layer** on top: VC-oriented narrativ
 
 ### Reverse handoff — when to go BACK to pptx base
 
-Stay in **pptx v2 base** for board reviews, all-hands, sales decks, product launches, training decks — anything not tied to raising capital. Use **this skill** only when: (a) the user mentions a specific round (seed / Series A / B / C) or a VC meeting, AND (b) the deck needs at least 4 of {problem, traction, team with credentials, Use-of-Funds, stage-appropriate unit econ, financial projections}.
+Stay in **pptx v2 base** for board reviews, all-hands, sales decks, product launches, training decks — anything not tied to raising capital. Use **this Playbook** only when: (a) the user mentions a specific round (seed / Series A / B / C) or a VC meeting, AND (b) the deck needs at least 4 of {problem, traction, team with credentials, Use-of-Funds, stage-appropriate unit econ, financial projections}.
 
 If the user says "fundraising deck" but the context is a corporate BU quarterly ask, that is a board review. Route to pptx v2 Recipe (d) 10-slide blueprint. If the user says "board review" but the context is a small company raising a bridge round, route here.
 
@@ -59,7 +49,7 @@ If the user says "fundraising deck" but the context is a corporate BU quarterly 
 | **Series C** | $30M+ ARR | 100+ FTE | 20 – 24 | **Financials + Scale + Moat (40%)** + Market expansion + Team depth | Multi-year GAAP, rule-of-40, GM trajectory, international expansion plan, defensibility | No moat slide; revenue growth without margin story; team slide has no prior CEO / CFO |
 | **Bridge / SAFE** | any | any | 8 – 10 | **Specific bridge reason** + runway math + commitments | Prior round context; specific milestone the bridge funds; committed investor amount | Treating a bridge like a Series A — too many slides dilutes the ask |
 
-**Decision procedure.** From one or two user sentences ("Series B, $18M ARR, 120 customers, $35M raise"), pick exactly one stage row. All later choices in this skill reference your stage: which 赛道 template to pull, which recipes are mandatory vs optional, and which Delivery Gate 6 checks fire.
+**Decision procedure.** From one or two user sentences ("Series B, $18M ARR, 120 customers, $35M raise"), pick exactly one stage row. All later choices in this Playbook reference your stage: which 赛道 template to pull, which recipes are mandatory vs optional, and which Delivery Gate 6 checks fire.
 
 **Corner cases.** Bridge rounds & convertibles between A → B are closer to A or B depending on whether the bridge milestone is "finish PMF" (A shape) or "hit unit-econ target" (B shape). "Extension" rounds at the same stage reuse the earlier stage's skeleton and add a one-slide "progress since last round" update.
 
@@ -797,4 +787,4 @@ Pitch-specific:
 
 ## Help pointer
 
-When in doubt: `officecli help pptx`, `officecli help pptx <element>`, `officecli help pptx <element> --json`. Help is the authoritative schema; this skill is the decision guide for fundraising deltas on top of pptx v2.
+When in doubt: `officecli help pptx`, `officecli help pptx <element>`, `officecli help pptx <element> --json`. Help is the authoritative schema; this Playbook is the decision guide for fundraising deltas on top of pptx v2.

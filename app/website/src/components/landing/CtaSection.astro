@@ -4,6 +4,7 @@ import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
 import { GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
+import Reveal from '../Reveal'
 
 interface Props {
 	lang: Locale
@@ -12,26 +13,43 @@ interface Props {
 const { lang } = Astro.props
 ---
 
-<section>
-	<div class="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
-		<div class="border border-border bg-background-secondary p-8 sm:p-16">
-			<h2 class="max-w-2xl text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">{t(lang, 'cta.title')}</h2>
-			<p class="mt-4 max-w-2xl text-muted-foreground">{t(lang, 'cta.body')}</p>
-			<div class="mt-8 flex flex-wrap items-center gap-3">
-				<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
-					{t(lang, 'cta.primary')}
-					<RiArrowRightLine />
-				</a>
-				<a
-					href={GITHUB_URL}
-					target="_blank"
-					rel="noreferrer"
-					class={buttonVariants({ variant: 'outline', size: 'lg' })}
-				>
-					<RiGithubFill />
-					{t(lang, 'cta.secondary')}
-				</a>
-			</div>
+<section class="relative">
+	<div class="mx-auto max-w-7xl px-4 sm:px-6">
+		<div class="border-x border-border px-4 py-20 sm:px-8 sm:py-24">
+			<Reveal client:visible={{ rootMargin: '240px' }} variant="wipe">
+				<div class="relative overflow-hidden border border-border bg-background-secondary p-8 sm:p-16">
+					<div
+						class="grid-field pointer-events-none absolute inset-0 [mask-image:radial-gradient(70%_80%_at_100%_50%,black,transparent)]"
+						aria-hidden="true"
+					>
+					</div>
+					<div class="brand-plane pointer-events-none absolute inset-0" aria-hidden="true"></div>
+
+					<div class="relative">
+						<h2
+							class="max-w-2xl text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-5xl"
+						>
+							{t(lang, 'cta.title')}
+						</h2>
+						<p class="mt-5 max-w-2xl text-lg leading-8 text-muted-foreground">{t(lang, 'cta.body')}</p>
+						<div class="mt-10 flex flex-wrap items-center gap-3">
+							<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
+								{t(lang, 'cta.primary')}
+								<RiArrowRightLine />
+							</a>
+							<a
+								href={GITHUB_URL}
+								target="_blank"
+								rel="noreferrer"
+								class={buttonVariants({ variant: 'outline', size: 'lg' })}
+							>
+								<RiGithubFill />
+								{t(lang, 'cta.secondary')}
+							</a>
+						</div>
+					</div>
+				</div>
+			</Reveal>
 		</div>
 	</div>
 </section>

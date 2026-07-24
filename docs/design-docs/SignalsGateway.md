@@ -124,6 +124,20 @@ Every outbound adapter implements `send/1`. An adapter that declares
 `outbound_reconciliation` also implements `reconcile/1`. Callback result maps
 use atom keys.
 
+SignalsGateway filters provider-visible text immediately before it calls an
+outbound or reply-preview adapter. The filter replaces the exact RuntimeFabric
+worker authentication key and the declared or custom WorkerEnv secrets of that
+Agent. It does not redact content only because it looks like a JWT, bearer
+token, private key, or credential assignment. If it cannot resolve the
+configured secret set, it does not call the provider adapter.
+
+Two values stay outside the set. A secret shorter than 12 bytes is not replaced,
+because replacing a short common string would corrupt each reply. An
+adapter-minted provider token is not replaced either: reading one requires the
+provider to be reachable, which would make every reply depend on provider
+health, and the adapter already gives that short-lived token to the Worker
+shell.
+
 Provider-specific setup and webhook behavior belong in each Plugin document.
 
 ## Receive an Event

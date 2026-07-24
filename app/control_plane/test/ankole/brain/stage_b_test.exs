@@ -164,48 +164,99 @@ defmodule Ankole.Brain.StageBTest do
     assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
   end
 
-  test "an unprojectable task window advances the cursor instead of pinning it" do
+  test "task outcomes admit only explicit Brain task event types" do
     %{principal: agent} = agent_fixture()
+    base_time = ~U[2026-07-13 10:00:00.000000Z]
 
-    undeclared =
-      for index <- 1..3 do
-        unroutable_task_outcome!(
-          agent.uid,
-          "stage-b-undeclared",
-          "external api message #{index}"
-        )
+    allowed_types = ~w(
+      check_back_later.wakeup
+      cron.fire
+      im.message.addressed
+      signal.action.invoked
+    )
+
+    excluded_types = ~w(
+      background_agent_job.completed
+      background_agent_job.failed
+      command.new
+      im.message.may_intervene
+      session.reset_due
+      unknown.future_event
+    )
+
+    Enum.with_index(excluded_types, fn type, index ->
+      task_outcome_material!(
+        agent.uid,
+        "stage-b-excluded-#{index}",
+        "excluded #{type}",
+        type: type,
+        completed_at: DateTime.add(base_time, index, :second)
+      )
+    end)
+
+    Enum.with_index(allowed_types, fn type, index ->
+      task_outcome_material!(
+        agent.uid,
+        "stage-b-allowed-#{index}",
+        "allowed #{type}",
+        type: type,
+        completed_at: DateTime.add(base_time, 10 + index, :second)
+      )
+    end)
+
+    configure_model!(
+      agent,
+      fn request ->
+        request_texts =
+          request
+          |> curator_payload()
+          |> Map.fetch!("materials")
+          |> Enum.flat_map(& &1["request"])
+          |> Enum.map(& &1["text"])
+          |> Enum.sort()
+
+        assert request_texts == allowed_types |> Enum.map(&"allowed #{&1}") |> Enum.sort()
+
+        response_summary(empty_plan())
       end
+    )
 
-    configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
-    configure_dreaming!(agent.uid, agent.uid, %{"material_limit" => 3})
+    configure_dreaming!(agent.uid, agent.uid, %{"material_limit" => 20})
 
-    assert {:ok, %{status: :no_new_material, material_count: 0}} = StageB.run(agent.uid)
-
-    skipped = principal_cursor!(agent.uid)
-    assert skipped.metadata["task_actor_event_id"] == List.last(undeclared).id
-
-    declared = task_outcome_material!(agent.uid, "stage-b-declared", "durable preference appears")
-
-    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == declared.id
+    assert {:ok, %{status: :completed, material_count: 4}} = StageB.run(agent.uid)
   end
 
-  test "an unprojectable task window is skipped even when signal material commits" do
+  test "excluded actor events do not fill the task window or reset material silence" do
     %{principal: agent} = agent_fixture()
+    material_time = ~U[2026-07-13 20:00:00.000000Z]
 
-    undeclared =
-      unroutable_task_outcome!(agent.uid, "stage-b-undeclared-mixed", "external only")
+    allowed =
+      task_outcome_material!(agent.uid, "stage-b-narrow-allowed", "allowed task",
+        completed_at: material_time
+      )
 
-    signal = visible_signal_material!(agent.uid, "durable signal fact", "stage-b-mixed-hash")
+    for index <- 1..5 do
+      task_outcome_material!(
+        agent.uid,
+        "stage-b-narrow-excluded-#{index}",
+        "irrelevant reset #{index}",
+        type: "session.reset_due",
+        completed_at: DateTime.add(material_time, index, :minute)
+      )
+    end
 
     configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
-    configure_dreaming!(agent.uid, agent.uid, %{})
 
+    configure_dreaming!(agent.uid, agent.uid, %{
+      "material_limit" => 1,
+      "curation_silence_minutes" => 30,
+      "curation_backlog_rows" => 50
+    })
+
+    {:ok, config} = Config.dreaming(agent.uid)
+    assert StageB.eligible?(agent.uid, config, DateTime.add(material_time, 30, :minute))
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
-
-    metadata = principal_cursor!(agent.uid).metadata
-    assert metadata["task_actor_event_id"] == undeclared.id
-    assert metadata["signal_document_id"] == signal.document_id
+    assert principal_cursor!(agent.uid).metadata["task_actor_event_id"] == allowed.id
   end
 
   test "an invalid curator mutation is retried before the material cursor advances" do
@@ -313,6 +364,92 @@ defmodule Ankole.Brain.StageBTest do
 
     assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
     assert :atomics.get(attempts, 1) == 2
+    assert principal_cursor!(agent.uid).metadata["signal_document_id"] == message.document_id
+  end
+
+  test "model-local source references cannot cross the durable plan boundary" do
+    %{principal: agent} = agent_fixture()
+
+    message =
+      visible_signal_material!(
+        agent.uid,
+        "Temporary model references must never become durable knowledge.",
+        "stage-b-local-source-ref"
+      )
+
+    configure_dreaming!(agent.uid, agent.uid)
+
+    invalid_operations = [
+      {0,
+       [
+         %{
+           "operation" => "create_entry",
+           "name" => "Leaking summary",
+           "type" => "topic",
+           "summary" => "See material_1"
+         }
+       ]},
+      {0,
+       [
+         %{
+           "operation" => "create_entry",
+           "name" => "Leaking property",
+           "type" => "topic",
+           "properties" => %{"nested" => [%{"reference" => "material_1"}]}
+         }
+       ]},
+      {1,
+       [
+         %{
+           "operation" => "create_entry",
+           "client_ref" => "leaking-body",
+           "name" => "Leaking body",
+           "type" => "topic"
+         },
+         %{
+           "operation" => "append_block",
+           "entry_ref" => "leaking-body",
+           "body" => "Bare material_1 must not persist."
+         }
+       ]}
+    ]
+
+    Enum.each(invalid_operations, fn {expected_index, operations} ->
+      configure_model!(agent, fn _request ->
+        response_summary(%{"operations" => operations, "skill_updates" => []})
+      end)
+
+      assert {:error,
+              {:invalid_dreaming_source_ref,
+               %{store_key: "shared", index: index, operation: operation}}} =
+               StageB.run(agent.uid)
+
+      assert index == expected_index
+      assert is_binary(operation)
+      refute principal_cursor!(agent.uid).metadata["signal_document_id"]
+    end)
+
+    configure_model!(agent, fn _request ->
+      response_summary(%{
+        "operations" => [],
+        "skill_updates" => [
+          %{
+            "skill_name" => "nano-pdf",
+            "mode" => "append",
+            "content" => "Use source_1 when validating pages."
+          }
+        ]
+      })
+    end)
+
+    assert {:error, {:invalid_dreaming_skill_source_ref, %{store_key: "shared", index: 0}}} =
+             StageB.run(agent.uid)
+
+    refute principal_cursor!(agent.uid).metadata["signal_document_id"]
+
+    configure_model!(agent, fn _request -> response_summary(empty_plan()) end)
+
+    assert {:ok, %{status: :completed, material_count: 1}} = StageB.run(agent.uid)
     assert principal_cursor!(agent.uid).metadata["signal_document_id"] == message.document_id
   end
 
@@ -1917,25 +2054,6 @@ defmodule Ankole.Brain.StageBTest do
         })
         |> Repo.update!()
     end
-  end
-
-  defp unroutable_task_outcome!(owner_uid, key, text) do
-    completed_at = DateTime.utc_now(:microsecond)
-
-    %ActorEvent{}
-    |> ActorEvent.changeset(%{
-      agent_uid: owner_uid,
-      binding_name: "brain-stage-b",
-      session_id: key,
-      source_event_id: "stage-b-unroutable-#{Ecto.UUID.generate()}",
-      type: "im.message.addressed",
-      available_at: completed_at,
-      queue_sequence: System.unique_integer([:positive]),
-      input_state: "open",
-      completed_at: completed_at,
-      payload: %{"data" => %{"entry" => %{"text" => text}}}
-    })
-    |> Repo.insert!()
   end
 
   defp visible_signal_material!(owner_uid, text, content_hash, opts \\ []) do

@@ -34,6 +34,8 @@ and briefly state your assumptions and the choices left to the Job.
 When no unresolved aspect remains, summarize the shared understanding. Do not
 create the Job until the human confirms it.
 
+P.s. Remember to remind the human that deep research may take 30-90 minutes, because it may involve multiple rounds of research, analysis, and deduction to produce a high-quality report. If the human is not willing to wait, suggest that they ask for a quick answer instead.
+
 ## Start the Job
 
 Call `create_background_job` once with these arguments:

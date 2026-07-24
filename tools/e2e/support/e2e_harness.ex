@@ -15,6 +15,7 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
@@ -856,9 +857,11 @@ defmodule Ankole.E2E.Harness do
       Regex.match?(~r/<ankole_untrusted_tool_output[^>]*>\s*Error:/, raw)
   end
 
+  # `show_background_job_details` and other Job tools always carry a declared
+  # `error` field, so only a present value means the call failed.
   def tool_result_error?(%{result: result}) when is_map(result) do
     Map.get(result, "is_error") == true or Map.get(result, "isError") == true or
-      Map.has_key?(result, "error")
+      not is_nil(Map.get(result, "error"))
   end
 
   def tool_result_error?(_tool_result), do: true
@@ -1042,6 +1045,21 @@ defmodule Ankole.E2E.Harness do
   defp find_json_container_end(_value, _position, _stack, _in_string?, _escaped?), do: :error
 
   # -- misc ---------------------------------------------------------------------
+
+  @doc """
+  Reads the persisted trajectory messages of one Job Turn in position order.
+
+  `Ankole.BackgroundAgentJobs.Turns` stores only the ankole_chatml header on the
+  Turn row and keeps every message in its append-only trajectory group rows, so
+  a raw Turn read never carries `messages`.
+  """
+  def job_turn_trajectory_messages(%{id: turn_id}) when is_binary(turn_id) do
+    TrajectoryGroup
+    |> where([group], group.turn_id == ^turn_id)
+    |> order_by([group], asc: group.position)
+    |> Repo.all()
+    |> Enum.flat_map(&(&1.content["messages"] || []))
+  end
 
   def lark_bot_mention(open_id \\ "ou_bot", key \\ "@_user_1", name \\ "Lark Chaos Bot"),
     do: %{"key" => key, "name" => name, "id" => %{"open_id" => open_id}}

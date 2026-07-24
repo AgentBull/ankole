@@ -18,6 +18,16 @@ For visual styling, use `design-md` when the user requests the internal design s
 
 Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
 
+## Playbooks
+
+A Playbook carries the extra rules for one kind of deck. Before you plan the deck, list the Playbooks and read every one that matches the request:
+
+```bash
+bun /repo/app/library/agent-plugins/office/tools/list_playbooks.ts pptx
+```
+
+Each line gives the Playbook name, its absolute path, and the condition that selects it. A Playbook inherits every rule in this skill and adds to it, so read this skill first and keep both. When no Playbook matches, build from this skill alone.
+
 ## ⚠️ Help-First Rule
 
 **This skill teaches what good slides look like, not every command flag. When a property name, enum value, or alias is uncertain, consult help BEFORE guessing.**

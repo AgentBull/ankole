@@ -65,7 +65,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     assert terminal_turn.status == "completed"
     assert terminal_turn.trajectory["format"] == "ankole_chatml"
     assert terminal_turn.trajectory["version"] == 1
-    assert terminal_turn.trajectory["messages"] != []
+    assert job_turn_trajectory_messages(terminal_turn) != []
 
     %{job: job, report: report}
   end

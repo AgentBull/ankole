@@ -29,6 +29,7 @@ import { workerLogger } from './worker/logging'
 import { requestAIGatewayAPIKey, stringFromDetails, throwingRPCRequester } from './worker/rpc_requests'
 import { BrowserRuntime } from './browser-runtime'
 import { agentHomePaths } from './core/agent-home-paths'
+import { buildTurnRuntimeEnv } from './core/turns/turn_runtime_env'
 
 const heartbeatIntervalMs = 15_000
 
@@ -361,6 +362,7 @@ async function runActiveTurn(
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
   const paths = agentHomePaths(config.agentsRoot, turnStart.turn.actor.agent_uid)
+  const runtimeEnv = buildTurnRuntimeEnv(turnStart, config.workerAuthKey)
   workerLogger.info('worker.turn_started', 'worker turn started', {
     actor_event_id: turnStart.turn.actor_event_id,
     operation: turnOperation(turnStart.turn.actor_event_id)
@@ -381,6 +383,7 @@ async function runActiveTurn(
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: paths.installedSkills,
     internalSkillsRoot: config.internalSkillsRoot,
+    runtimeEnv,
     rpc,
     requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
     logger: workerLogger,

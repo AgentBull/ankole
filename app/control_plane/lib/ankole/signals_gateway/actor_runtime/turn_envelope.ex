@@ -54,7 +54,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
            actor_event: actor_event_envelope(actor_event),
            model_ref: turn_model_ref(turn_start_spec),
            request_context_json: Torque.encode!(turn_request_context(turn_start_spec)),
-           hosted_tools_json: json_bytes(turn_hosted_tools(turn_start_spec))
+           hosted_tools_json: json_bytes(turn_hosted_tools(turn_start_spec)),
+           runtime_env: turn_runtime_env(turn_start_spec)
          }}
     }
   end
@@ -140,6 +141,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
 
   defp turn_request_context(turn_start_spec) do
     map_get(turn_start_spec, :request_context) || %{}
+  end
+
+  defp turn_runtime_env(turn_start_spec) do
+    case map_get(turn_start_spec, :runtime_env) do
+      %{} = runtime_env ->
+        Map.new(runtime_env, fn
+          {name, value} when is_binary(name) and is_binary(value) -> {name, value}
+          invalid -> raise ArgumentError, "invalid turn runtime env entry: #{inspect(invalid)}"
+        end)
+
+      nil ->
+        %{}
+
+      runtime_env ->
+        raise ArgumentError, "invalid turn runtime env: #{inspect(runtime_env)}"
+    end
   end
 
   defp turn_hosted_tools(turn_start_spec) do

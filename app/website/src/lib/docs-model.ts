@@ -15,6 +15,7 @@ export interface DocLike {
 export interface DocNavItem {
   slug: string
   title: string
+  description: string
 }
 
 export interface DocsSection {
@@ -55,7 +56,11 @@ export function buildDocsNav<T extends DocLike>(
   const sections: DocsSection[] = []
   const flat: DocNavItem[] = []
   for (const doc of items) {
-    const item: DocNavItem = { slug: docSlug(doc.id), title: doc.data.title }
+    const item: DocNavItem = {
+      slug: docSlug(doc.id),
+      title: doc.data.title,
+      description: doc.data.description
+    }
     flat.push(item)
     const existing = sections.find(s => s.section === doc.data.section)
     if (existing) {

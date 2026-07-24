@@ -216,6 +216,12 @@ execution. It then applies the correct Agent override.
 WorkerEnv controls reserved names, merge order, custom secrets, and process
 injection. AppConfigure supplies only its declared values.
 
+WorkerEnv contains static operator-managed values. It does not carry facts that
+change for each Actor Turn. RuntimeFabric `turn_start` carries those facts in a
+separate runtime environment map. Runtime environment names use the
+`ANKOLE_RUNTIME_` prefix, and operator WorkerEnv entries cannot use that
+namespace.
+
 ## Startup Order
 
 The registry and cache start after `Ankole.Repo`. Boot-time consumers start after the AppConfigure processes.

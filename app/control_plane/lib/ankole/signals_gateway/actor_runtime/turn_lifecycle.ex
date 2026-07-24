@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
   alias Ankole.SignalsGateway.ActorRuntime.TurnStartFailure
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
@@ -54,7 +55,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   def start_worker_turn(actor_key, %ActorEvent{} = actor_event, opts \\ []) do
     actor_key = normalize_actor_key(actor_key)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    turn_start_spec_result = prepare_turn_start_spec(actor_key, opts)
+    turn_start_spec_result = prepare_turn_start_spec(actor_key, actor_event, opts)
 
     Repo.transact(fn repo ->
       with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now),
@@ -119,25 +120,30 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     end
   end
 
-  defp prepare_turn_start_spec(actor_key, opts) do
-    case Keyword.get(opts, :conversation, :required) do
-      :none ->
-        request_context =
-          %{
-            "actor_key" => %{
-              "agent_uid" => actor_key.agent_uid,
-              "session_id" => actor_key.session_id
+  defp prepare_turn_start_spec(actor_key, actor_event, opts) do
+    result =
+      case Keyword.get(opts, :conversation, :required) do
+        :none ->
+          request_context =
+            %{
+              "actor_key" => %{
+                "agent_uid" => actor_key.agent_uid,
+                "session_id" => actor_key.session_id
+              }
             }
-          }
-          |> Map.merge(Keyword.get(opts, :request_context, %{}))
+            |> Map.merge(Keyword.get(opts, :request_context, %{}))
 
-        {:ok, %{request_context: request_context}}
+          {:ok, %{request_context: request_context}}
 
-      :required ->
-        TurnPolicy.build_turn_start_spec(actor_key, opts)
+        :required ->
+          TurnPolicy.build_turn_start_spec(actor_key, opts)
 
-      mode ->
-        {:error, {:invalid_turn_conversation_mode, mode}}
+        mode ->
+          {:error, {:invalid_turn_conversation_mode, mode}}
+      end
+
+    with {:ok, turn_start_spec} <- result do
+      {:ok, Map.put(turn_start_spec, :runtime_env, TurnRuntimeEnv.resolve(actor_event))}
     end
   end
 

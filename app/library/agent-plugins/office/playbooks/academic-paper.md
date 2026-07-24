@@ -1,28 +1,18 @@
-# OfficeCLI Academic Paper Skill
+---
+name: academic-paper
+description: "Use when a document needs scholarly apparatus: a citation style and bibliography, numbered equations, auto-updating cross-references, or a multi-column journal layout."
+products: [docx]
+---
 
-**This skill is a scene layer on top of `docx`.** Every docx hard rule — style architecture, heading hierarchy, shell quoting, `break=newPage` alias, belt-and-suspenders page breaks, live PAGE field, Delivery Gate, renderer quirks — is inherited, not re-taught. This file adds only what academic papers need on top: citation styles, equations, SEQ / PAGEREF cross-refs, multi-column journal layout, bibliography hanging indent, abstract/keywords/affiliation block.
+# Academic Paper Playbook
 
-When the docx base rules cover it, the text here says `→ see docx §X`. Read docx first if you have not.
+**This Playbook is a scene layer on top of the `docx` Skill.** Every docx hard rule — style architecture, heading hierarchy, shell quoting, `break=newPage` alias, belt-and-suspenders page breaks, live PAGE field, Delivery Gate, renderer quirks — is inherited, not re-taught. This file adds only what academic papers need on top: citation styles, equations, SEQ / PAGEREF cross-refs, multi-column journal layout, bibliography hanging indent, abstract/keywords/affiliation block.
 
-## Setup
-
-Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
-
-## ⚠️ Help-First Rule
-
-**This skill teaches what an academic paper requires, not every command flag.** When a prop name, enum value, or field instruction is uncertain, consult help BEFORE guessing.
-
-```bash
-officecli help docx                          # All docx elements
-officecli help docx <element>                # Full schema (e.g. section, equation, field, footnote)
-officecli help docx <element> --json         # Machine-readable
-```
-
-Help is pinned to the installed CLI version. **When this skill and help disagree, help wins.** Every `--prop X=` in this file has been grep-verified against `officecli help docx <element>` — if help adds / renames a prop in a later version, trust help.
+When the docx base rules cover it, the text here says `→ see docx §X`. Read the `docx` Skill first if you have not. Its Help-First Rule applies here too: when this Playbook and `officecli help` disagree, **help wins**.
 
 ## Mental Model & Inheritance
 
-**Inherits docx.** You should have read `skills/docx/SKILL.md` first. This skill assumes you know how to add paragraphs, set styles, build tables, insert images, manage TOC/footer/headers, force page breaks, and run the Delivery Gate. If any of those are unfamiliar, open a second session on docx before continuing.
+**Inherits docx.** You should have read the `docx` Skill first. This Playbook assumes you know how to add paragraphs, set styles, build tables, insert images, manage TOC/footer/headers, force page breaks, and run the Delivery Gate. If any of those are unfamiliar, open a second session on docx before continuing.
 
 ## Shell & Execution Discipline
 
@@ -41,7 +31,7 @@ An academic paper is a docx with a **scholarly layer** on top: verifiable citati
 
 ### Reverse handoff — when to go BACK to docx
 
-Stay in **docx** for white papers, policy briefs, technical reports, HR templates — anything without a venue / citation style. Use **this skill** only when the document will carry at least TWO of: citation-style biblio, equations, SEQ/PAGEREF cross-refs, multi-column, abstract + keywords block.
+Stay in **docx** for white papers, policy briefs, technical reports, HR templates — anything without a venue / citation style. Use **this Playbook** only when the document will carry at least TWO of: citation-style biblio, equations, SEQ/PAGEREF cross-refs, multi-column, abstract + keywords block.
 
 ## Workflow — 5 verbs
 
@@ -490,8 +480,8 @@ Academic-specific:
 
 ## Renderer quirks (cross-viewer)
 
-→ see docx §Renderer quirks. PAGE / TOC cached values, OMML baseline shifts, scheme colors — all identical quirks apply to academic papers. Before calling an equation or a citation marker broken, open the file in the user's target viewer (Word, WPS, Pages) — if it renders correctly there, it is a viewer quirk, not a skill defect.
+→ see docx §Renderer quirks. PAGE / TOC cached values, OMML baseline shifts, scheme colors — all identical quirks apply to academic papers. Before calling an equation or a citation marker broken, open the file in the user's target viewer (Word, WPS, Pages) — if it renders correctly there, it is a viewer quirk, not a document defect.
 
 ## Help pointer
 
-When in doubt: `officecli help docx`, `officecli help docx <element>`, `officecli help docx <element> --json`. Help is the authoritative schema; this skill is the decision guide for academic deltas on top of docx.
+When in doubt: `officecli help docx`, `officecli help docx <element>`, `officecli help docx <element> --json`. Help is the authoritative schema; this Playbook is the decision guide for academic deltas on top of docx.

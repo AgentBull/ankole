@@ -1,5 +1,27 @@
 # Changelog
 
+## Version 26.07.42 (2026-07-24)
+
+- Fix AIGateway automatic compaction usage accounting. Treat each provider usage value as a cumulative snapshot and use the newest snapshot in the visible Response history instead of adding snapshots from earlier Responses. Cover the 15-row production shape where the snapshot sum is `158,977` tokens but the newest snapshot is `23,763` tokens.
+
+- Make automatic overflow truncation keep the last compaction checkpoint and the configured stable tail, then expand the tail backward until function calls and outputs in both history and the current input form a valid boundary. Keeping the checkpoint preserves the only remaining record of the conversation before it. Return `context_overflow` when no safe boundary exists, and stop reporting an unsupported post-truncation token estimate before the provider measures the new input. Document both rules in the AIGateway design document.
+
+- Add Turn-scoped `ANKOLE_RUNTIME_*` environment facts to RuntimeFabric. The control plane supplies only the active human sender Principal, including an authorized human who answers a structured reply, and Agent Computer derives an opaque per-human Lark profile with an HMAC of that Principal and the Worker authentication key. Keep the Worker key out of model-visible Turn data, and reject operator or control-plane overrides of Worker-owned runtime names.
+
+- Add the `lark-approvals` Skill for approval work as the active human instead of the Agent bot. Adapt the complete upstream 1.2.0 command and form references to Ankole's one-to-many digital coworker model. Its wrapper registers one Feishu PersonalAgent application and profile for each human, removes inherited bot credential variables, and pins approval commands to user identity. It sets profile-level strict mode to `off` so approval file upload can use the same PersonalAgent app's tenant identity, while the wrapper keeps command identity explicit. It locks profile and authentication changes and lets normal approval calls run in parallel. Stop when the wrapper cannot resolve an active human, and stop with the real reason when it cannot set profile strict mode, instead of reading shared CLI state, bypassing the wrapper, or failing later with an unrelated identity error. Record that separation between senders is a Skill rule and not a sandbox boundary: one shared CLI configuration directory lists every registered profile, so the Skill always calls the wrapper. Embed the approval file-upload request, response, field, limit, required app-scope, and permission-recovery contract. Require every new approval to follow one SOP: prepare a Markdown draft, show it with `clarify` buttons and a modification field, and upload attachments or create the instance only after the current user clicks `同意并提交`. Upload each attachment once, stop on failure or an unknown response, and retry only after the user fixes and confirms the documented application-permission problem. Extend the same SOP with reimbursement-specific archive extraction and invoice review. Route approval work to this Skill from `lark-im` and `lark-oa`, and validate its user-identity command examples against the pinned `lark-cli` catalog at build time. Add 7-Zip and `unrar-free` to the Worker base image for 7z, RAR, and RAR 5 archives, and move the base image to Office CLI `v1.0.141`.
+
+- Redact the exact Worker authentication key and the declared or custom WorkerEnv secrets of one Agent at the provider-bound reply preview and outbox boundaries. Fail closed when that set cannot be resolved, but do not classify JWTs, bearer examples, private-key examples, or credential-like assignments by syntax. Keep two values outside the set: a secret shorter than 12 bytes, whose replacement would corrupt normal text, and an adapter-minted provider token, whose resolution would make every reply depend on provider health.
+
+- Narrow the Brain Stage B task window to completed `im.message.addressed`, `signal.action.invoked`, `check_back_later.wakeup`, and `cron.fire` events that have a final Response. Reject a complete curation plan when a turn-local `material_N` or `source_N` reference remains outside a supported block body citation, including inside a Skill update, and tell the model how to correct it.
+
+- Show retryable Stage B curation jobs in the Brain status surface. Raise `curation_jobs_failing` only on a job's last attempt, because Oban retries a transient provider failure without an operator.
+
+- Add a Console editor for the `brain.embedding` setting. It offers only active Agents that have a complete embedding ModelProfile, validates the enabled contract before saving, and links to Agent configuration when no Agent qualifies.
+
+- Read the forwarded request scheme at the endpoint so an OIDC callback URL behind a TLS-terminating ingress uses `https`. The Installation must not accept requests from outside that ingress.
+
+- Stop enabling the `github` Agent Plugin for every Agent by default, and ship internal Agent Plugins in the internal control-plane image.
+
 ## Version 26.07.41 (2026-07-24)
 
 - Remove the Agent Home path policy from the generic Computer file tools. `read_file`, `replace`, and `patch` now perform byte-preserving reads and writes inside the existing Bubblewrap filesystem view, so its current read-only and read-write mounts are the only filesystem access policy. Remove the duplicate command working-directory boundary check while keeping Bubblewrap's current rule unchanged.

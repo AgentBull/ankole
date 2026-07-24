@@ -17,6 +17,8 @@ export interface ContainerComputer {
 interface ContainerComputerOptions {
   /** Operator-managed variables applied to every command. */
   workerEnv?: Record<string, string>
+  /** Trusted turn variables applied to every command. */
+  runtimeEnv?: Record<string, string>
 }
 
 const ReadFileScript = `
@@ -53,10 +55,11 @@ export function createContainerComputer(
   const root = resolve(agentHome)
   const cwd = resolve(workspaceRoot)
   const workerEnv = options.workerEnv
+  const runtimeEnv = options.runtimeEnv
 
   return {
     runCommand(input) {
-      return runWorkspaceCommand({ workerEnv, ...input }, root, cwd)
+      return runWorkspaceCommand({ ...input, workerEnv, runtimeEnv }, root, cwd)
     },
     async readFileToBuffer(input, opts) {
       const target = computerPath(root, cwd, input.path, input.cwd)
@@ -64,6 +67,7 @@ export function createContainerComputer(
         {
           commandArgv: [process.execPath, '-e', ReadFileScript, target],
           workerEnv,
+          runtimeEnv,
           signal: opts?.signal
         },
         root,
@@ -81,6 +85,7 @@ export function createContainerComputer(
             {
               commandArgv: [process.execPath, '-e', WriteFileScript, target],
               workerEnv,
+              runtimeEnv,
               stdin: file.content,
               signal: opts?.signal
             },

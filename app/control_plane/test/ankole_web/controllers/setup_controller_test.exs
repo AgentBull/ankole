@@ -5,11 +5,15 @@ defmodule AnkoleWeb.SetupControllerTest do
   import ExUnit.CaptureLog
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Grant
+  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.Plugins.Config, as: PluginsConfig
+  alias Ankole.Plugins.LarkAdapter
   alias Ankole.Repo
   alias Ankole.Setup.Bootstrap
   alias Ankole.Setup.Config, as: SetupConfig
@@ -70,6 +74,41 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert json_response(conn, 401)["error"] == "invalid bootstrap activation code"
     assert get_session(conn, :setup_session) == nil
     assert get_session(conn, :setup_oidc_state) == nil
+  end
+
+  test "OIDC authorization uses the forwarded HTTPS origin for its callback", %{conn: conn} do
+    :ok = IdentityProviderConfig.ensure_registered()
+    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "lark-main",
+               "lark",
+               %{"appID" => "cli_identity", "appSecret" => "secret"},
+               true
+             )
+
+    conn =
+      conn
+      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> put_req_header("x-forwarded-proto", "https")
+      |> post(~p"/.internal-apis/setup/identity-providers/lark-main/oidc/authorizations")
+
+    %{"authorizationURL" => authorization_url} = json_response(conn, 200)
+
+    redirect_uri =
+      authorization_url
+      |> URI.parse()
+      |> Map.fetch!(:query)
+      |> URI.decode_query()
+      |> Map.fetch!("redirect_uri")
+
+    assert redirect_uri ==
+             "https://ankole.example.com/sessions/oidc/lark-main/callback"
+
+    assert WebSession.setup_oidc_state(conn)["redirect_uri"] == redirect_uri
   end
 
   test "bootstrap repairs console admin grants once when setup is complete" do

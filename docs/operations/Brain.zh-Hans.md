@@ -139,6 +139,10 @@ Stage B 在材料静默时间或积压条数达到任一门槛后入队，默认
 `token_limit` 和 `mutation_limit` 为 `0` 表示 operator 没有限制。模型、校验、预算或
 事务失败时，游标都不推进。
 
+Stage B 的 task outcome 只接受已有最终 Response 的 `im.message.addressed`、
+`signal.action.invoked`、`check_back_later.wakeup` 和 `cron.fire`。其他
+ActorEvent 类型不作为策展材料。
+
 所有字段和默认值见 [Brain 设计文档](../design-docs/Brain.md)。
 
 ## 查看唯一状态面
@@ -152,8 +156,10 @@ Stage B 在材料静默时间或积压条数达到任一门槛后入队，默认
 3. **Stage A 可用性。** 查看每个频道的 processor 和 `light` 档；选择失败原因写在
    `unavailable_reason`。
 4. **Stage B 可用性。** 检查被策展 Principal 的 `light` 档和最近成功时间。
-5. **卡死策展。** Oban Lifeline 会在执行 30 分钟后救援 Stage B 任务；同一 Principal
-   反复出现时，继续查重试和服务商错误。
+5. **失败或卡死策展。** retryable Stage B 任务出现在 `stage_b.retryable_jobs`，
+   只有在最后一次尝试时才产生 `curation_jobs_failing` 告警，之前的重试不需要
+   operator 介入。Oban Lifeline 会在执行 30 分钟后救援任务；同一 Principal 反复
+   出现时，继续查服务商和校验错误。
 6. **向量积压或失败。** 修复服务商或档位，再重新跑对应批任务。
 7. **内容纪律。** 通过正常带版本的 Brain 操作处理日期命名、近重名、超过 200 投影
    行、零正文、超预算 memo、引用和来源问题。

@@ -38,6 +38,8 @@ type SharedTurnOptions = {
   builtinSkillsRoot: string
   agentInstalledSkillsRoot: string
   internalSkillsRoot?: string
+  /** Trusted ephemeral variables derived for this Actor turn. */
+  runtimeEnv?: Record<string, string>
   rpc: RPCRequester
   requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
   logger?: AgentLoopLogger

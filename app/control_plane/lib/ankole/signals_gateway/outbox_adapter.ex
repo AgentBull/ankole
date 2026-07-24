@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   a durable `sending` outbox row. Capabilities come from the plugin declaration.
   """
 
+  alias Ankole.SignalsGateway.OutboundSecretFilter
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Utils
 
@@ -86,8 +87,11 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   Calls the adapter delivery function.
   """
   @spec deliver(t(), term()) :: adapter_result()
-  def deliver(%__MODULE__{send_fun: send_fun}, outbox) when is_function(send_fun, 1),
-    do: normalize_adapter_result(send_fun.(outbox))
+  def deliver(%__MODULE__{send_fun: send_fun}, outbox) when is_function(send_fun, 1) do
+    with {:ok, filtered_outbox} <- OutboundSecretFilter.filter_outbox(outbox) do
+      normalize_adapter_result(send_fun.(filtered_outbox))
+    end
+  end
 
   def deliver(%__MODULE__{}, _outbox), do: {:error, :adapter_send_missing}
 
@@ -96,8 +100,11 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
   """
   @spec reconcile(t(), term()) :: adapter_result()
   def reconcile(%__MODULE__{reconcile_fun: reconcile_fun}, outbox)
-      when is_function(reconcile_fun, 1),
-      do: normalize_adapter_result(reconcile_fun.(outbox))
+      when is_function(reconcile_fun, 1) do
+    with {:ok, filtered_outbox} <- OutboundSecretFilter.filter_outbox(outbox) do
+      normalize_adapter_result(reconcile_fun.(filtered_outbox))
+    end
+  end
 
   def reconcile(%__MODULE__{}, _outbox), do: {:error, :adapter_reconcile_missing}
 

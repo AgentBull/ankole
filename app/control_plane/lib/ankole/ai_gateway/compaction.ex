@@ -2,8 +2,10 @@ defmodule Ankole.AIGateway.Compaction do
   @moduledoc """
   AIGateway-owned automatic history compaction.
 
-  Automatic token decisions use provider-returned usage stored on AIGateway
-  messages. AIGateway does not estimate token counts from content.
+  Automatic token decisions use the newest provider-returned usage stored on
+  the visible AIGateway history. Each usage value is a cumulative snapshot, not
+  an amount to add to earlier Response usage. AIGateway does not estimate token
+  counts from content.
   """
 
   alias Ankole.AppConfigure
@@ -338,6 +340,7 @@ defmodule Ankole.AIGateway.Compaction do
       {:error, :no_compaction_candidate} ->
         overflow_fallback(
           history,
+          current_input,
           request,
           total_tokens,
           :no_compaction_candidate,
@@ -345,7 +348,7 @@ defmodule Ankole.AIGateway.Compaction do
         )
 
       {:error, reason} ->
-        overflow_fallback(history, request, total_tokens, reason, threshold)
+        overflow_fallback(history, current_input, request, total_tokens, reason, threshold)
     end
   end
 
@@ -608,47 +611,49 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
-  defp overflow_fallback(history, request, total_tokens, reason, threshold) do
+  defp overflow_fallback(history, current_input, request, total_tokens, reason, threshold) do
     if auto_truncation?(request) do
-      truncate_history(history, request, total_tokens, reason, threshold)
+      truncate_history(history, current_input, request, total_tokens, reason, threshold)
     else
       {:error, context_overflow(total_tokens, reason, "disabled", threshold)}
     end
   end
 
-  defp truncate_history(history, request, total_tokens, reason, threshold) do
-    truncated_history = truncate_history_to_budget(history, threshold.tokens)
-    truncated_tokens = history_usage_tokens(truncated_history)
-    previous_response_id = previous_response_id_for(history, request)
+  defp truncate_history(history, current_input, request, total_tokens, reason, threshold) do
+    with {:ok, truncated_history} <-
+           truncate_history_to_stable_tail(history, current_input) do
+      previous_response_id = previous_response_id_for(history, request)
 
-    auto_truncation =
-      auto_truncation_metadata(
-        history,
-        truncated_history,
-        total_tokens,
-        truncated_tokens,
-        reason,
-        threshold
-      )
+      auto_truncation =
+        auto_truncation_metadata(
+          history,
+          truncated_history,
+          total_tokens,
+          reason,
+          threshold
+        )
 
-    {:ok,
-     %{
-       history: truncated_history,
-       previous_response_id: previous_response_id,
-       expected_previous_response_id: previous_response_id,
-       compaction: nil,
-       run_metadata: %{
-         "truncation" => "auto",
-         "auto_truncation" => auto_truncation
-       }
-     }}
+      {:ok,
+       %{
+         history: truncated_history,
+         previous_response_id: previous_response_id,
+         expected_previous_response_id: previous_response_id,
+         compaction: nil,
+         run_metadata: %{
+           "truncation" => "auto",
+           "auto_truncation" => auto_truncation
+         }
+       }}
+    else
+      {:error, :no_safe_truncation_boundary} ->
+        {:error, context_overflow(total_tokens, :no_safe_truncation_boundary, "auto", threshold)}
+    end
   end
 
   defp auto_truncation_metadata(
          history,
          truncated_history,
          total_tokens,
-         truncated_tokens,
          reason,
          threshold
        ) do
@@ -657,12 +662,12 @@ defmodule Ankole.AIGateway.Compaction do
     %{
       "reason" => overflow_reason(reason),
       "history_usage_tokens_before" => total_tokens,
-      "history_usage_tokens_after" => truncated_tokens,
       "token_threshold" => threshold.tokens,
       "context_length" => threshold.context_length,
       "threshold" => threshold.threshold,
       "max_threshold_tokens" => threshold.max_threshold_tokens,
-      "dropped_message_count" => length(history) - length(truncated_history)
+      "dropped_message_count" => length(history) - length(truncated_history),
+      "retained_message_count" => length(truncated_history)
     }
     |> put_nonempty("dropped_opaque_messages", dropped_opaque_messages)
     |> maybe_put_count("dropped_opaque_message_count", dropped_opaque_messages)
@@ -781,51 +786,19 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp maybe_mark_missing_ref(map, _refs), do: map
 
-  defp truncate_history_to_budget(history, threshold) do
-    history
-    |> truncation_candidates()
-    |> Enum.find([], fn candidate ->
-      tool_call_prefix_valid?(messages_to_items(candidate)) and
-        history_usage_tokens(candidate) <= threshold
-    end)
-  end
+  defp truncate_history_to_stable_tail(history, current_input) do
+    {checkpoint, tail} = split_last_compaction(history)
+    minimum_count = min(tail_rows(), length(tail))
 
-  defp truncation_candidates(history) do
-    compaction_index = last_compaction_index(history)
+    case Enum.find_value(Range.new(minimum_count, length(tail)), fn count ->
+           candidate = checkpoint ++ Enum.take(tail, -count)
+           items = messages_to_items(candidate) ++ input_items(current_input)
 
-    candidates =
-      if is_integer(compaction_index) do
-        compaction = Enum.at(history, compaction_index)
-        tail = Enum.drop(history, compaction_index + 1)
-
-        keep_compaction =
-          for count <- Range.new(length(tail), 0, -1) do
-            [compaction | Enum.take(tail, -count)]
-          end
-
-        drop_compaction =
-          for count <- Range.new(length(tail), 0, -1) do
-            Enum.take(tail, -count)
-          end
-
-        keep_compaction ++ drop_compaction
-      else
-        for count <- Range.new(length(history), 0, -1) do
-          Enum.take(history, -count)
-        end
-      end
-
-    candidates
-    |> Enum.uniq_by(&Enum.map(&1, fn %Message{id: id} -> id end))
-  end
-
-  defp last_compaction_index(history) do
-    history
-    |> Enum.with_index()
-    |> Enum.reduce(nil, fn
-      {%Message{type: "checkpoint"}, index}, _last -> index
-      _other, last -> last
-    end)
+           if tool_call_prefix_valid?(items), do: candidate
+         end) do
+      nil -> {:error, :no_safe_truncation_boundary}
+      candidate -> {:ok, candidate}
+    end
   end
 
   defp previous_response_id_for(history, request) do
@@ -943,15 +916,22 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp rows_after_last_compaction(history) do
+    {_checkpoint, rest} = split_last_compaction(history)
+    rest
+  end
+
+  # The checkpoint side is a list so that a caller can prepend it without a
+  # separate empty-history branch.
+  defp split_last_compaction(history) do
     case history
          |> Enum.with_index()
          |> Enum.filter(fn {row, _index} -> row.type == "checkpoint" end) do
       [] ->
-        history
+        {[], history}
 
       indexed ->
-        {_row, index} = List.last(indexed)
-        Enum.drop(history, index + 1)
+        {row, index} = List.last(indexed)
+        {[row], Enum.drop(history, index + 1)}
     end
   end
 
@@ -1299,9 +1279,17 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp history_usage_tokens(messages) do
-    Enum.reduce(messages, 0, fn
-      %Message{} = message, total -> total + message_usage_tokens(message)
-      _message, total -> total
+    messages
+    |> Enum.reverse()
+    |> Enum.find_value(0, fn
+      %Message{} = message ->
+        case message_usage_tokens(message) do
+          tokens when tokens > 0 -> tokens
+          _missing -> nil
+        end
+
+      _message ->
+        nil
     end)
   end
 

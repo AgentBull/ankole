@@ -27,6 +27,12 @@ defmodule AnkoleWeb.Endpoint do
     secure: Application.compile_env(:ankole, :secure_cookies, false)
   ]
 
+  # An OIDC callback URL must carry the scheme the browser used. This trusts
+  # `x-forwarded-proto` from every caller, so the Installation must terminate TLS
+  # at an ingress that sets this header. A direct-to-BEAM deployment must not
+  # accept requests from outside that ingress.
+  plug Plug.RewriteOn, [:x_forwarded_proto]
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

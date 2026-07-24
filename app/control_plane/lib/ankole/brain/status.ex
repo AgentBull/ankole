@@ -197,6 +197,7 @@ defmodule Ankole.Brain.Status do
 
   defp agent_stage_b_status(owner_uid) do
     cursor = Repo.get_by(Cursor, scope_kind: :principal, scope_key: owner_uid)
+    retryable_jobs = retryable_jobs(owner_uid)
 
     model =
       case ModelProfiles.resolve_runtime_profile(owner_uid, "light") do
@@ -210,6 +211,7 @@ defmodule Ankole.Brain.Status do
     %{
       "model" => model,
       "last_success_at" => cursor && get_in(cursor.metadata || %{}, ["last_run_at"]),
+      "retryable_jobs" => retryable_jobs,
       "unavailable_reason" => (cursor && cursor.unavailable_reason) || model["reason"]
     }
   end
@@ -218,6 +220,7 @@ defmodule Ankole.Brain.Status do
     %{
       "model" => %{"status" => "not_applicable", "agent_uid" => nil, "reason" => nil},
       "last_success_at" => nil,
+      "retryable_jobs" => [],
       "unavailable_reason" => nil
     }
   end
@@ -301,6 +304,37 @@ defmodule Ankole.Brain.Status do
       }
     end)
   end
+
+  defp retryable_jobs(owner_uid) do
+    worker = "Ankole.Brain.Jobs.CuratePrincipal"
+
+    Oban.Job
+    |> where(
+      [job],
+      job.worker == ^worker and job.state == "retryable" and
+        fragment("?->>'principal_uid' = ?", job.args, ^owner_uid)
+    )
+    |> order_by([job], asc: job.scheduled_at, asc: job.id)
+    |> select(
+      [job],
+      map(job, [:id, :args, :attempt, :max_attempts, :attempted_at, :scheduled_at])
+    )
+    |> Repo.all()
+    |> Enum.map(fn job ->
+      %{
+        "job_id" => job.id,
+        "principal_uid" => job.args["principal_uid"],
+        "attempt" => job.attempt,
+        "max_attempts" => job.max_attempts,
+        "attempted_at" => datetime(job.attempted_at),
+        "scheduled_at" => datetime(job.scheduled_at)
+      }
+    end)
+  end
+
+  # Oban retries a transient provider failure on its own. An operator needs the
+  # alert only when the next run is the last one for this Principal.
+  defp last_curation_attempt?(job), do: job["attempt"] >= job["max_attempts"] - 1
 
   defp memo_status(entries, blocks, budget) do
     blocks_by_entry = Enum.group_by(blocks, & &1.entry_id)
@@ -396,6 +430,10 @@ defmodule Ankole.Brain.Status do
     |> maybe_alert(
       get_in(embedding, ["stale_vectors", "total"]) not in [nil, 0],
       "embedding_space_stale"
+    )
+    |> maybe_alert(
+      Enum.any?(stage_b["retryable_jobs"], &last_curation_attempt?/1),
+      "curation_jobs_failing"
     )
     |> maybe_alert(stuck_jobs != [], "stuck_curation_jobs")
     |> maybe_alert(Enum.any?(memo, & &1["over_budget"]), "memo_over_budget")

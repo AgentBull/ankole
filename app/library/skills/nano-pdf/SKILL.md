@@ -19,7 +19,7 @@ metadata:
 
 Edit PDFs using natural-language instructions. Point it at a page and describe what to change.
 
-> **Important:** If the use has already provided a brand palette or template, match that first. Otherwire, use `design-md` skills and use it as the design reference.
+> **Important:** If the human has already provided a brand palette or template, match that first. Otherwise, use `design-md` skills and use it as the design reference.
 
 ## Prerequisites
 
@@ -53,6 +53,5 @@ nano-pdf edit contract.pdf 2 "Change the client name from 'Acme Corp' to 'Acme I
 ## Notes
 
 - Page numbers may be 0-based or 1-based depending on version — if the edit hits the wrong page, retry with ±1
-- Always verify the output PDF after editing (use `read_file` to check file size, or open it)
 - The tool uses an LLM under the hood — requires an API key (check `nano-pdf --help` for config)
 - Works well for text changes; complex layout modifications may need a different approach

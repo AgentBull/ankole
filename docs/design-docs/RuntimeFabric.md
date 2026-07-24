@@ -300,9 +300,41 @@ The message contains these main values:
 - The selected model reference.
 - Current request context.
 - Hosted tool configuration.
+- Trusted runtime environment facts for this Turn.
 
 Request context contains current request details, not conversation history.
 AIGateway builds model history for each Response.
+
+Turn runtime environment names use the `ANKOLE_RUNTIME_` prefix. These values
+are not WorkerEnv configuration. The control plane derives them from the current
+ActorEvent, and Agent Computer can add values that require worker-only bootstrap
+material.
+
+A Turn with an active human requester carries:
+
+```text
+ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL=<principal_uid>
+```
+
+Turns without an active human requester, such as scheduled and system Turns, do
+not carry this value. Agent Computer derives the Lark profile name as:
+
+```text
+ANKOLE_RUNTIME_LARK_PROFILE=ankole-u-<base64url HMAC-SHA256>
+```
+
+The HMAC input is the sender Principal UID. The HMAC key is the RuntimeFabric
+worker authentication key that deployment bootstraps from
+`ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`. The key stays in the trusted worker
+process; only the derived profile enters the Agent shell. A worker authentication
+key rotation changes this profile name and requires Lark user authorization
+again. The bootstrap variable itself is not a Turn environment value. Agent
+Computer rejects it if it appears in the Turn map.
+
+Agent Computer validates the namespace before it injects these values. A
+per-command environment map cannot replace them. Shell code can still change
+its own process environment, so a consumer must also validate the value that it
+uses.
 
 ### Reject Writes from an Old Turn
 

@@ -336,6 +336,21 @@ aliases. Persisted provider call IDs do not enter its prompt.
 Internal history traversal supports 10,000 rows.
 The public chain API returns at most 500 rows.
 
+### Automatic Overflow
+
+Each stored provider usage value is a cumulative snapshot of the conversation at
+that Response, not an amount to add to earlier Responses. Automatic decisions
+read the newest snapshot in the visible history.
+
+When the context exceeds its threshold and compaction has no candidate, a
+request with `truncation=auto` keeps the last compaction checkpoint and the
+configured stable tail, then expands the tail backward until the function calls
+and outputs in both history and the current input form a valid boundary. The
+checkpoint stays because it is the only remaining record of the conversation
+before it. A suffix size cannot be derived from cumulative snapshots, so this
+path reports no post-truncation token estimate and leaves the measurement to the
+provider. When no valid boundary exists, the request returns `context_overflow`.
+
 ## Store Vision Files and Generated Images
 
 `ai_gateway_artifacts` stores uploaded vision files and generated images.

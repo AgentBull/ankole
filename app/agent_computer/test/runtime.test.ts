@@ -266,6 +266,31 @@ describe('@ankole/agent-computer runtime', () => {
     ).toThrow(/turn_start\.turn is required/)
   })
 
+  it('decodes turn runtime environment values from turn_start', () => {
+    const turnStart = turnStartFromEnvelope(
+      createEnvelope({
+        ...envelopeHeader('turn-start-runtime-env', Lane.TURN, DurabilityClass.CONTROL_REPLAYABLE),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            turn: actorTurnRefToProto(actorTurnRef()),
+            actorEvent: create(ActorEventEnvelopeSchema, {
+              actorEventId: '00000000-0000-0000-0000-000000000001',
+              queueSequence: 1n,
+              type: 'im.message.addressed',
+              sourceEventId: 'source-1'
+            }),
+            runtimeEnv: { ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL: 'human-alice' }
+          })
+        }
+      })
+    )
+
+    expect(turnStart.runtime_env).toEqual({
+      ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL: 'human-alice'
+    })
+  })
+
   it('accepts only the image generation hosted-tool declaration on turn_start', () => {
     const hostedToolsEnvelope = (hostedTools: unknown): Envelope =>
       createEnvelope({

@@ -7,6 +7,7 @@ defmodule Ankole.Brain.HealthCheckTest do
   alias Ankole.Brain
   alias Ankole.Brain.Config
   alias Ankole.Brain.HealthCheck
+  alias Ankole.Brain.Jobs.CuratePrincipal
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
@@ -277,6 +278,54 @@ defmodule Ankole.Brain.HealthCheckTest do
     assert status["stage_b"]["model"]["status"] == "not_applicable"
     assert status["stage_b"]["unavailable_reason"] == nil
     refute "stage_b_unavailable" in status["alerts"]
+  end
+
+  test "status lists retryable Stage B jobs and alerts only on the last attempt" do
+    %{principal: agent} = agent_fixture()
+    attempted_at = ~U[2026-07-24 01:00:00.000000Z]
+    scheduled_at = DateTime.add(attempted_at, 5, :minute)
+
+    assert {:ok, job} =
+             agent.uid
+             |> then(&%{"principal_uid" => &1})
+             |> CuratePrincipal.new()
+             |> Oban.insert()
+
+    set_retryable_attempt = fn attempt ->
+      assert {1, nil} =
+               Repo.update_all(
+                 from(row in Oban.Job, where: row.id == ^job.id),
+                 set: [
+                   state: "retryable",
+                   attempt: attempt,
+                   attempted_at: attempted_at,
+                   scheduled_at: scheduled_at
+                 ]
+               )
+    end
+
+    set_retryable_attempt.(2)
+    assert {:ok, status} = Brain.status(agent.uid)
+
+    assert [
+             %{
+               "job_id" => job_id,
+               "principal_uid" => principal_uid,
+               "attempt" => 2,
+               "max_attempts" => 5,
+               "attempted_at" => "2026-07-24T01:00:00.000000Z",
+               "scheduled_at" => "2026-07-24T01:05:00.000000Z"
+             }
+           ] = status["stage_b"]["retryable_jobs"]
+
+    assert job_id == job.id
+    assert principal_uid == agent.uid
+    refute "curation_jobs_failing" in status["alerts"]
+
+    set_retryable_attempt.(4)
+    assert {:ok, status} = Brain.status(agent.uid)
+    assert [%{"attempt" => 4}] = status["stage_b"]["retryable_jobs"]
+    assert "curation_jobs_failing" in status["alerts"]
   end
 
   test "status reports each visible channel cursor and episode embedding counts" do

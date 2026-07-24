@@ -1,6 +1,9 @@
 defmodule Ankole.SignalsGateway.AdaptersTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.PrincipalsFixtures
+
+  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -10,7 +13,11 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
   alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
   alias Ankole.SignalsGateway.OutboxAdapter
+  alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.ReplyPreviewAdapter
 
   defmodule StringKeyOutbox do
@@ -160,6 +167,106 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
              ReplyPreviewAdapter.open(adapter, request)
   end
 
+  test "filters only exact runtime secret values before outbox delivery" do
+    %{principal: agent} = agent_fixture()
+
+    {worker_auth_key, worker_env_secret, visible_env_value} =
+      configure_runtime_secrets!(agent.uid)
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZ2VudCJ9.signature123"
+    bearer = "Bearer example-token-for-documentation"
+    private_key = "-----BEGIN PRIVATE KEY-----\nexample material\n-----END PRIVATE KEY-----"
+    assignment = "api_key=plain-labeled-example"
+    short_secret = "prod"
+
+    assert {:ok, _item} =
+             WorkerEnv.console_put_for_agent(agent.uid, "EXAMPLE_SHORT", %{
+               "value" => short_secret,
+               "secret" => true
+             })
+
+    text =
+      "fabric #{worker_auth_key}; custom #{worker_env_secret}; " <>
+        "visible #{visible_env_value}; jwt #{jwt}; #{bearer}; #{assignment}\n#{private_key}\n" <>
+        "the #{short_secret} deployment"
+
+    parent = self()
+
+    adapter = %OutboxAdapter{
+      capabilities: MapSet.new([:post_entry]),
+      send_fun: fn outbox ->
+        send(parent, {:filtered_outbox, outbox})
+        {:ok, %{}}
+      end,
+      reconcile_fun: nil
+    }
+
+    outbox = %OutboxEntry{
+      agent_uid: agent.uid,
+      payload: %{"text" => text, "nested" => [text]},
+      fallback_visible_text: text
+    }
+
+    assert {:ok, %{}} = OutboxAdapter.deliver(adapter, outbox)
+    assert_receive {:filtered_outbox, %OutboxEntry{} = filtered}
+
+    rendered = inspect(filtered)
+    refute rendered =~ worker_auth_key
+    refute rendered =~ worker_env_secret
+    assert rendered =~ "[REDACTED]"
+
+    filtered_text = filtered.fallback_visible_text
+    assert filtered_text =~ visible_env_value
+    assert filtered_text =~ jwt
+    assert filtered_text =~ bearer
+    assert filtered_text =~ assignment
+    assert filtered_text =~ private_key
+    assert filtered_text =~ "the #{short_secret} deployment"
+  end
+
+  test "filters runtime secrets before a rich reply preview adapter runs" do
+    %{principal: agent} = agent_fixture()
+
+    {worker_auth_key, worker_env_secret, _visible_env_value} =
+      configure_runtime_secrets!(agent.uid)
+
+    parent = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn request ->
+        send(parent, {:filtered_preview, request})
+        {:ok, %{}}
+      end,
+      update_fun: fn _request -> {:ok, %{}} end,
+      finalize_fun: fn _request -> {:ok, %{}} end,
+      refresh_fun: nil
+    }
+
+    request = %ReplyPreviewAdapter.Request{
+      actor_event: %ActorEvent{
+        agent_uid: agent.uid,
+        reply_preview_checkpoint: %{"presentation" => %{"answer" => worker_auth_key}}
+      },
+      presentation: %{"answer" => "answer #{worker_auth_key} #{worker_env_secret}"},
+      previous_presentation: %{"answer" => worker_auth_key},
+      checkpoint: %{"presentation" => %{"answer" => worker_env_secret}},
+      outbox: %OutboxEntry{
+        agent_uid: agent.uid,
+        payload: %{"text" => worker_auth_key},
+        fallback_visible_text: worker_env_secret
+      },
+      mode: :working
+    }
+
+    assert {:ok, %{}} = ReplyPreviewAdapter.open(adapter, request)
+    assert_receive {:filtered_preview, filtered}
+
+    rendered = inspect(filtered)
+    refute rendered =~ worker_auth_key
+    refute rendered =~ worker_env_secret
+    assert rendered =~ "[REDACTED]"
+  end
+
   defp start_registry!(modules) do
     name = :"signal_adapter_registry_#{System.unique_integer([:positive])}"
 
@@ -171,5 +278,30 @@ defmodule Ankole.SignalsGateway.AdaptersTest do
     )
 
     name
+  end
+
+  defp configure_runtime_secrets!(agent_uid) do
+    worker_auth_key = "fabric-runtime-value-#{System.unique_integer([:positive])}"
+    worker_env_secret = "custom-runtime-value-#{System.unique_integer([:positive])}"
+    visible_env_value = "visible-runtime-value-#{System.unique_integer([:positive])}"
+
+    assert :ok = WorkerAuthKey.ensure_registered()
+
+    assert {:ok, ^worker_auth_key} =
+             AppConfigure.put_global(WorkerAuthKey.definition(), worker_auth_key)
+
+    assert {:ok, _item} =
+             WorkerEnv.console_put_for_agent(agent_uid, "EXAMPLE_CREDENTIAL", %{
+               "value" => worker_env_secret,
+               "secret" => true
+             })
+
+    assert {:ok, _item} =
+             WorkerEnv.console_put_for_agent(agent_uid, "EXAMPLE_VISIBLE", %{
+               "value" => visible_env_value,
+               "secret" => false
+             })
+
+    {worker_auth_key, worker_env_secret, visible_env_value}
   end
 end

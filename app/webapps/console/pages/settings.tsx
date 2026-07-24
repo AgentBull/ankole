@@ -44,6 +44,7 @@ import {
 import { ErrorBlock, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch, RowActions } from '../console-shell'
+import { brainEmbeddingValidationError } from '../state/setting-value-editor'
 import { SettingEditorModel } from '../state/setting-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
@@ -237,6 +238,13 @@ export function SettingEditorDrawer() {
     if (!parsed.ok) {
       model.validationError.value = parsed.error
       return
+    }
+    if (item.key === 'brain.embedding') {
+      const validationError = brainEmbeddingValidationError(parsed.value)
+      if (validationError) {
+        model.validationError.value = t(`console.settings.brain_embedding_error_${validationError}`)
+        return
+      }
     }
     update.mutate({ body: { value: parsed.value }, path: { key: item.key } })
   }

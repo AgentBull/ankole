@@ -1,35 +1,24 @@
-# Data Dashboard (scene-layer on xlsx)
+---
+name: data-dashboard
+description: "Use when a workbook must open on one dashboard sheet with KPI cards, cell-linked charts, sparklines, and conditional formatting over upstream data sheets."
+products: [xlsx]
+---
 
-A dashboard is not "a spreadsheet with charts". It is a composition: **one Dashboard sheet the user lands on** with formula-driven KPI cards, cell-range-linked charts, sparklines, and semantic conditional formatting. Everything else (raw data, aggregations) is upstream infrastructure the user should never need to open. This skill teaches the composition pattern. Everything about the xlsx engine — cells, formulas, batch JSON, shell quoting, validate, HTML preview — comes from `xlsx` and is not re-taught here.
+# Data Dashboard Playbook (scene-layer on xlsx)
 
-## Setup
-
-Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
-
-## ⚠️ Help-First Rule
-
-**When a prop name, enum value, or alias is uncertain, consult help before guessing.**
-
-```bash
-officecli help xlsx                          # element list
-officecli help xlsx chart                    # full schema for charts
-officecli help xlsx sparkline                # sparklines
-officecli help xlsx conditionalformatting    # all CF rule types
-```
-
-Help reflects the installed CLI version. When this skill and help disagree, **help wins**. DeferredAddKeys (`combosplit`, `holesize`) work on `add` only — see Reference.
+A dashboard is not "a spreadsheet with charts". It is a composition: **one Dashboard sheet the user lands on** with formula-driven KPI cards, cell-range-linked charts, sparklines, and semantic conditional formatting. Everything else (raw data, aggregations) is upstream infrastructure the user should never need to open. This Playbook teaches the composition pattern. Everything about the xlsx engine — cells, formulas, batch JSON, shell quoting, validate, HTML preview — comes from `xlsx` and is not re-taught here. Its Help-First Rule applies here too: when this Playbook and `officecli help` disagree, **help wins**.
 
 ## Mental Model & Inheritance
 
-This skill **inherits every xlsx hard rule** from `xlsx` — shell quoting, zero formula errors, visual delivery floor, batch JSON shape (`{"command":"set"|"add","path":...,"props":{...}}` — key is `command`, NOT `action`), batch JSON dotted-name rule, chart data-feed forms, batch+resident limits, `validate` discipline. Read xlsx first; honour those rules, do not re-teach them here.
+This Playbook **inherits every xlsx hard rule** from the `xlsx` Skill — shell quoting, zero formula errors, visual delivery floor, batch JSON shape (`{"command":"set"|"add","path":...,"props":{...}}` — key is `command`, NOT `action`), batch JSON dotted-name rule, chart data-feed forms, batch+resident limits, `validate` discipline. Read xlsx first; honour those rules, do not re-teach them here.
 
-**Reverse handoff — do NOT use this skill when:**
+**Reverse handoff — do NOT use this Playbook when:**
 
 - The ask is a **single-sheet CSV-with-formatting tracker** (no Dashboard sheet, no KPI cards, ≤ 1 chart) → go back to `xlsx`.
 - The ask is a **3-statement / DCF / LBO financial model** with blue-inputs / black-formulas / cross-sheet drivers → use `financial-model`.
 - The ask is a **weekly status report** with one SUMIF summary and one chart over < 10 rows → `xlsx`.
 
-This skill only accepts: "a Dashboard sheet the user opens first, multiple KPI cards, multiple charts, some CF / sparklines".
+This Playbook only accepts: "a Dashboard sheet the user opens first, multiple KPI cards, multiple charts, some CF / sparklines".
 
 ## Shell & Execution Discipline
 
@@ -50,7 +39,7 @@ Five non-negotiable principles. If any one is violated the output is not a dashb
 
 3. **Dashboard-first architecture.** KPI label cells, KPI value cells, charts, sparklines all live on the **Dashboard** sheet — the single sheet a user lands on. Raw imports and `SUMIFS` rollups live on Data / Summary sheets, upstream of the Dashboard. The user should never need to switch tabs to find the answer.
 
-4. **Visible cells only for chart sources.** LibreOffice does not evaluate formulas in hidden columns or hidden sheets at render time. A chart whose `series1.values` points at a hidden-column `SUMIFS` renders blank. Pattern: aggregate into a **visible** Summary sheet, point charts at Summary cells, hide only helper columns that are not chart sources.
+4. **Visible cells only for chart sources.** Formulas in hidden columns and hidden sheets are not evaluated at render time. A chart whose `series1.values` points at a hidden-column `SUMIFS` renders blank. Pattern: aggregate into a **visible** Summary sheet, point charts at Summary cells, hide only helper columns that are not chart sources.
 
 5. **Data-size-aware complexity.** A 10-row dataset does not get 5 KPIs and 4 charts. A 200-row dataset does not get 1 KPI and 1 chart. Scale up the composition with the input (table in §Design Ideas). Overbuilding is as wrong as underbuilding.
 
@@ -171,7 +160,7 @@ Options, not templates. The user's data and audience drive the choices.
 | Trend over time, one series | `line` | Add `trendline=linear` to show direction on noisy series |
 | Trend over time, multiple components | `line` (multi-series) or `columnStacked` | Stacked when components sum to a meaningful total |
 | Comparison across categories in time order | `column` | Not `bar` — horizontal bars break left-to-right time reading |
-| Part-of-whole breakdown | `doughnut` | Prefer over `pie`: `chartType=pie` has a known LibreOffice blank-render regression |
+| Part-of-whole breakdown | `doughnut` | Prefer over `pie`: `chartType=pie` has a known blank-render regression |
 | Budget vs actual | `combo` with `combosplit=1` | First series as bars, rest as lines |
 | Correlation | `scatter` | X-axis via `categories` / `series1.categories` — `series1.xValues` is UNSUPPORTED |
 
@@ -304,7 +293,7 @@ LEAKS=$(officecli view "$FILE" text 2>/dev/null | grep -niE '\{\{|\$fy\$|<TODO>|
 - No `###` in any Dashboard or Data cell (columns too narrow).
 - No truncated KPI labels, sheet tab names, or chart titles.
 - No placeholder tokens rendered as text (`$fy$24`, `{var}`, `<TODO>`, `xxxx`).
-- Pie / doughnut slices render with distinct fill colors (if collapsed in LibreOffice, verify in the user's target viewer before declaring broken — → see xlsx §Known Issues/Renderer caveats).
+- Pie / doughnut slices render with distinct fill colors (if the slices collapse in the HTML preview, verify in the user's target viewer before declaring broken — → see xlsx §Known Issues/Renderer caveats).
 - No empty chart anchors — every chart has a visible, plausible plot.
 - Dashboard sheet opens first (tab highlighted, active area scrolled to top).
 
@@ -345,7 +334,7 @@ if echo "$USER_REQ" | grep -qiE 'print|一页|投资人|董事会|board'; then
 fi
 ```
 
-The user opens the file in their target viewer (Office / WPS / Numbers) for the final print preview — the skill does not render export artefacts.
+The user opens the file in their target viewer (Office / WPS / Numbers) for the final print preview — officecli does not render export artefacts.
 
 **Gate 8 — Formula sanity (cachedValue real, not stale/error).** `fullCalcOnLoad=true` refreshes at runtime, NOT build-time cache — so every formula cell must carry a non-empty, non-zero, non-error `cachedValue` now.
 
@@ -367,12 +356,12 @@ If anything fails, fix at source, re-run the full cycle.
 
 ### Honest limits
 
-Scatter charts do not accept `series1.xValues` (UNSUPPORTED) — feed the x-axis via `categories` / `series1.categories`. LibreOffice chart color drift / pie-slice collapse / checkbox double-box are viewer artifacts — spot-check in Office / WPS / Numbers first.
+Scatter charts do not accept `series1.xValues` (UNSUPPORTED) — feed the x-axis via `categories` / `series1.categories`. Chart color drift / pie-slice collapse / checkbox double-box are viewer artifacts — spot-check in Office / WPS / Numbers first.
 
 ## Reference
 
 - **Shorthand `--type` at `add`:** `chart`, `sparkline`, `databar`, `colorscale`, `iconset`, `formulacf`. CF rules map to `help xlsx conditionalformatting`; path suffix `/Sheet/cf[N]`.
-- **Full schemas live in help:** `officecli help xlsx chart` / `sparkline` / `conditionalformatting`. This skill does not mirror them.
+- **Full schemas live in help:** `officecli help xlsx chart` / `sparkline` / `conditionalformatting`. This Playbook does not mirror them.
 - **DeferredAddKeys (add-only):** `combosplit`, `holesize`. See D-1. (`preset`, `trendline`, `referenceline`, `axisNumFmt` now work on `set` too — help shows `[add/set]`.)
 - **Build order:** charts + sparklines + CF + tabColors first → `calc.fullCalcOnLoad=true` via high-level `set` → `raw-set activeTab` **LAST** (after all sheets exist).
 
@@ -389,8 +378,8 @@ Scatter charts do not accept `series1.xValues` (UNSUPPORTED) — feed the x-axis
 | D-5 | Dashboard column widths default to 8.43 — KPI values at 24pt bold show `###` | Size by cachedValue bracket: 4–6 digits → 22–24; 7–9 digits (million) → 26–30; 10+ digits (亿 / billion) → 32–36; 百亿 / 10-digit + currency symbol + fit-to-page landscape → **40–44**. Formula `ceil((visible_chars+2)*1.3)` is a starting point; always verify via Gate 7 fallback b). Sparkline columns: 12. |
 | D-6 | `raw-set activeTab` must be the LAST mutation. Inserting before all sheets exist shifts indices. | Finish all sheets / charts / CF / sparklines / tabColors, then `raw-set`. |
 | D-7 | `calc.fullCalcOnLoad` via `raw-set` creates duplicate `<calcPr>` → validate fails | Use `officecli set "$FILE" / --prop calc.fullCalcOnLoad=true`. |
-| D-8 | LibreOffice does not evaluate hidden-column formulas at render → charts referencing hidden cells render blank | Aggregate into a visible Summary sheet, chart reads from Summary. Hide only columns that are not chart sources. |
-| D-9 | `chartType=pie` blank-renders in LibreOffice | Use `doughnut` as the safe substitute for part-of-whole breakdowns. |
+| D-8 | Hidden-column formulas are not evaluated at render → charts referencing hidden cells render blank | Aggregate into a visible Summary sheet, chart reads from Summary. Hide only columns that are not chart sources. |
+| D-9 | `chartType=pie` blank-renders in the preview | Use `doughnut` as the safe substitute for part-of-whole breakdowns. |
 | D-10 | `SUMIFS` / `AVERAGEIFS` with date criteria fails silently if the criterion is a string | Wrap with `DATE()` or `DATEVALUE()`: `=SUMIFS(B2:B13,A2:A13,DATE(2025,1,5))`. |
 | D-11 | Summary sheet percentage formulas display as raw decimals (0.098) without `numFmt` | Set `numFmt="0.0%"` at the same `set` call as the formula. |
 | D-12 | `import --header` sets freeze + AutoFilter but does NOT set column widths. | Set widths on `col[]`. `numFmt` on a `col[]` path now applies a column-level style (`<col s=...>`, schema-valid, reads back as `numberformat`); it formats blank cells in the column. Cells with their own style still need a per-cell-range `numFmt`. |

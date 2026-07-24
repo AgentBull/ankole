@@ -221,7 +221,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
   end
 
   defp global_plugin_default(agent_plugin, defaults) do
-    Map.get(defaults.agent_plugins, agent_plugin.id, agent_plugin.id != "lark")
+    Map.get(defaults.agent_plugins, agent_plugin.id, agent_plugin.id not in ~w(github lark))
   end
 
   defp catalog_entry(capability) do

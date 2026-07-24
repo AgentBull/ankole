@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
   """
 
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.OutboundSecretFilter
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.Sanitizer
   alias Ankole.SignalsGateway.Utils
@@ -81,22 +82,28 @@ defmodule Ankole.SignalsGateway.ReplyPreviewAdapter do
 
   @spec open(t(), Request.t()) :: adapter_result()
   def open(%__MODULE__{open_fun: fun}, %Request{} = request),
-    do: normalize_result(fun.(request))
+    do: call_adapter(fun, request)
 
   @spec update(t(), Request.t()) :: adapter_result()
   def update(%__MODULE__{update_fun: fun}, %Request{} = request),
-    do: normalize_result(fun.(request))
+    do: call_adapter(fun, request)
 
   @spec finalize(t(), Request.t()) :: adapter_result()
   def finalize(%__MODULE__{finalize_fun: fun}, %Request{} = request),
-    do: normalize_result(fun.(request))
+    do: call_adapter(fun, request)
 
   @spec refresh(t(), Request.t()) :: adapter_result()
   def refresh(%__MODULE__{refresh_fun: fun}, %Request{} = request) when is_function(fun, 1),
-    do: normalize_result(fun.(request))
+    do: call_adapter(fun, request)
 
   def refresh(%__MODULE__{refresh_fun: nil}, %Request{}),
     do: {:error, :reply_preview_refresh_unsupported}
+
+  defp call_adapter(fun, request) do
+    with {:ok, filtered_request} <- OutboundSecretFilter.filter_reply_preview(request) do
+      normalize_result(fun.(filtered_request))
+    end
+  end
 
   defp normalize_result({:ok, result}) when is_map(result) do
     case Enum.find(Map.keys(result), &(not is_atom(&1))) do

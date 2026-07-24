@@ -128,7 +128,8 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         agentHome: opts.agentHome,
         workspaceRoot: opts.workspaceRoot,
         userFilesRoot: opts.userFilesRoot,
-        workerEnv: toolWorkerEnv
+        workerEnv: toolWorkerEnv,
+        runtimeEnv: opts.runtimeEnv
       })
       const backgroundAgentJobTools = await turnActivity.runStep(
         resolveBackgroundAgentJobTools(turnStart, opts),

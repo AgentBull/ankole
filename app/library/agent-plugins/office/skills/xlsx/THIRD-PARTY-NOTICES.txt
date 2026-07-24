@@ -11,13 +11,11 @@ Notice URL: https://github.com/iOfficeAI/OfficeCLI/blob/1ab5978a5ff583a28f7544ca
 
 Imported source files:
 - SKILL.md <= skills/officecli-xlsx/SKILL.md (upstream sha256: 2b27f1d9e91b0eb28bbe0db9ca3967e9b2a241e16ffe7f724999fac2dbaac9c2)
-- references/data-dashboard.md <= skills/officecli-data-dashboard/SKILL.md (upstream sha256: 38cf745bb04cb7005cd089e6e87073509f190e46e035707528a5d0b01b2dafd0)
-- references/financial-model.md <= skills/officecli-financial-model/SKILL.md (upstream sha256: 65280bce9537ff3192bbc8fe1ad94980662929a71390b258d7f38f24772d8c9e)
 
 Modifications:
 - Copied upstream SKILL.md content first, then changed Ankole-local frontmatter names so the skill name matches its installed directory.
 - Replaced self-install setup instructions with Ankole Agent Computer preinstalled-runtime notes.
-- Converted scene-layer skills into local reference files where applicable.
+- Added Playbook routing; the upstream scene-layer skills live in ../../playbooks with their own notices.
 
 Upstream NOTICE:
 

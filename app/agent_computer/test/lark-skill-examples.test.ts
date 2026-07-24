@@ -4,12 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   discoverSkillNames,
+  extractLarkApprovalsWrapperExamples,
   extractLarkCommandExamples,
   findUnscopedExecutableLarkCommands,
   validateLarkCommandExample,
   type CommandRunner,
   type LarkCommandExample
 } from '../src/validation/lark-skill-examples'
+
+const approvalsWrapper = '/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals'
 
 describe('Lark skill example validation', () => {
   it('validates every Skill in the Lark Agent Plugin package', async () => {
@@ -44,6 +47,40 @@ describe('Lark skill example validation', () => {
       { kind: 'typed', service: 'calendar', resource: 'events' },
       { kind: 'shortcut', service: 'contact', resource: '+get-user' },
       { kind: 'raw-api', service: 'api', resource: 'GET' }
+    ])
+  })
+
+  it('extracts approval wrapper examples with their command-owned identities', () => {
+    const examples = extractLarkApprovalsWrapperExamples(
+      [
+        `/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}' --format json`,
+        '/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals auth status',
+        `/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals files upload --file content=./invoice.pdf --data '{"name":"invoice.pdf","type":"attachment"}'`
+      ].join('\n'),
+      'reference.md'
+    )
+
+    expect(examples).toEqual([
+      {
+        file: 'reference.md',
+        line: 1,
+        command: `/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals tasks query --params '{"topic":"1"}' --format json`,
+        service: 'approval',
+        resource: 'tasks',
+        method: 'query',
+        kind: 'typed',
+        identity: 'user'
+      },
+      {
+        file: 'reference.md',
+        line: 3,
+        command: `/repo/app/library/agent-plugins/lark/skills/lark-approvals/scripts/lark-approvals files upload --file content=./invoice.pdf --data '{"name":"invoice.pdf","type":"attachment"}'`,
+        service: 'api',
+        resource: 'POST',
+        method: '/open-apis/approval/v4/files/upload',
+        kind: 'raw-api',
+        identity: 'bot'
+      }
     ])
   })
 
@@ -100,6 +137,47 @@ describe('Lark skill example validation', () => {
       'raw API path is not in the audited bot allowlist: GET /open-apis/approval/v4/approvals/<code>'
     ])
   })
+
+  it('validates approval file upload with app identity', () => {
+    const example: LarkCommandExample = {
+      file: 'SKILL.md',
+      line: 1,
+      command: `${approvalsWrapper} files upload --file content=./invoice.pdf --data '{"name":"invoice.pdf","type":"attachment"}'`,
+      service: 'api',
+      resource: 'POST',
+      method: '/open-apis/approval/v4/files/upload',
+      kind: 'raw-api',
+      identity: 'bot'
+    }
+    let call: string[] = []
+    const run: CommandRunner = args => {
+      call = args
+      return {
+        exitCode: 0,
+        output: args.includes('/open-apis/approval/v4/files/upload') ? '{"as": "bot"}' : ''
+      }
+    }
+
+    expect(validateLarkCommandExample(example, run)).toEqual([])
+    expect(call).toEqual([
+      'api',
+      'POST',
+      '/open-apis/approval/v4/files/upload',
+      '--as',
+      'bot',
+      '--file',
+      'content=/dev/null',
+      '--data',
+      '{"name":"invoice.pdf","type":"attachment"}',
+      '--dry-run',
+      '--format',
+      'json'
+    ])
+
+    expect(
+      validateLarkCommandExample({ ...example, command: `${approvalsWrapper} files upload --file ./invoice.pdf` }, run)
+    ).toEqual(['approval file upload must use multipart field content'])
+  })
 })
 
 async function writeSkill(root: string, name: string): Promise<void> {
@@ -116,7 +194,8 @@ function typedExample(): LarkCommandExample {
     service: 'calendar',
     resource: 'events',
     method: 'search_event',
-    kind: 'typed'
+    kind: 'typed',
+    identity: 'bot'
   }
 }
 
@@ -127,7 +206,8 @@ function shortcutExample(resource: string): LarkCommandExample {
     command: `lark-cli contact ${resource} --as bot --format json`,
     service: 'contact',
     resource,
-    kind: 'shortcut'
+    kind: 'shortcut',
+    identity: 'bot'
   }
 }
 
@@ -146,6 +226,7 @@ function rawAPIExample(path: string): LarkCommandExample {
     service: 'api',
     resource: 'GET',
     method: `"${path}"`,
-    kind: 'raw-api'
+    kind: 'raw-api',
+    identity: 'bot'
   }
 }

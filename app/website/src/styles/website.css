@@ -11,6 +11,66 @@ html {
   scroll-margin-top: 5rem;
 }
 
+/*
+ * Carbon motion easing. Productive easing applies to hover and other immediate
+ * feedback; expressive easing applies to entrances that carry the page rhythm.
+ */
+:root {
+  --ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-expressive: cubic-bezier(0.4, 0.14, 0.3, 1);
+  --ease-expressive-entrance: cubic-bezier(0, 0, 0.3, 1);
+}
+
+/* The components layer keeps these below Tailwind utilities, so a usage site can
+   override --grid-line or the mask without a specificity fight. */
+@layer components {
+  /* The 2x Grid drawn as a background graphic. */
+  .grid-field {
+    --grid-line: color-mix(in oklab, var(--border) 55%, transparent);
+    background-image:
+      linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+    background-size: 4rem 4rem;
+  }
+
+  /* A diagonal colour plane, the IBM brand device instead of a soft glow. */
+  .brand-plane {
+    background-image: linear-gradient(
+      116deg,
+      color-mix(in oklab, var(--color-brand-50) 9%, transparent),
+      color-mix(in oklab, var(--color-purple-50) 4%, transparent) 26%,
+      transparent 46%
+    );
+  }
+
+  [data-theme='dark'] .brand-plane {
+    background-image: linear-gradient(
+      116deg,
+      color-mix(in oklab, var(--color-brand-60) 22%, transparent),
+      color-mix(in oklab, var(--color-purple-80) 12%, transparent) 28%,
+      transparent 50%
+    );
+  }
+}
+
+@keyframes signal-ping {
+  0% {
+    opacity: 0.8;
+    transform: scale(1);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.8);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 /* Docs article typography: bind prose colors to the site theme tokens. */
 .prose {
   --tw-prose-body: var(--foreground);

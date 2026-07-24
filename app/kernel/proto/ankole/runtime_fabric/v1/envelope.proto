@@ -128,6 +128,9 @@ message TurnStart {
   TurnModelRef model_ref = 3;
   bytes request_context_json = 4;
   bytes hosted_tools_json = 5;
+  // Trusted ephemeral facts for this execution. These variables never come
+  // from operator WorkerEnv rows and use the ANKOLE_RUNTIME_ namespace.
+  map<string, string> runtime_env = 6;
 }
 
 message TurnModelRef {

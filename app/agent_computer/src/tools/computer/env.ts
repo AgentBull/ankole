@@ -3,6 +3,8 @@ export type CommandEnvOptions = {
   ankoleAgentHome?: string
   /** Operator-managed variables resolved from the control plane for this turn's agent. */
   workerEnv?: Record<string, string>
+  /** Trusted ephemeral variables derived for this Actor turn. */
+  runtimeEnv?: Record<string, string>
 }
 
 const ENV_NAME_FORMAT = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -24,6 +26,7 @@ const RESERVED_WORKER_ENV_NAMES = new Set([
   'CODEX_UNSAFE_ALLOW_NO_SANDBOX'
 ])
 const RESERVED_WORKER_ENV_PREFIX = 'ANKOLE_'
+const RUNTIME_ENV_PREFIX = 'ANKOLE_RUNTIME_'
 
 /**
  * Filters an operator env map down to injectable entries.
@@ -44,9 +47,8 @@ export function injectableWorkerEnv(workerEnv: Record<string, string> | undefine
 /**
  * Builds the allowlisted command environment passed into sandboxed commands.
  *
- * Layering, low to high: fixed sandbox base, operator worker env, then the
- * caller's per-command env. The model's explicit `env` wins for one command
- * (plain shell semantics — it could `export` past any ordering anyway).
+ * Layering, low to high: fixed sandbox base, operator worker env, the caller's
+ * per-command env, then trusted turn runtime facts.
  */
 export function commandEnv(
   inputEnv: Record<string, string> | undefined,
@@ -71,6 +73,18 @@ export function commandEnv(
 
   for (const [key, value] of Object.entries(inputEnv ?? {})) {
     if (ENV_NAME_FORMAT.test(key)) env[key] = value
+  }
+
+  for (const [key, value] of Object.entries(options.runtimeEnv ?? {})) {
+    if (
+      !ENV_NAME_FORMAT.test(key) ||
+      !key.startsWith(RUNTIME_ENV_PREFIX) ||
+      typeof value !== 'string' ||
+      value.includes('\0')
+    ) {
+      throw new Error(`invalid turn runtime environment variable: ${key}`)
+    }
+    env[key] = value
   }
 
   if (options.home !== undefined) env.HOME = options.home

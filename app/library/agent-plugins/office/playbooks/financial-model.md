@@ -1,20 +1,18 @@
-# OfficeCLI Financial-Model Skill
+---
+name: financial-model
+description: "Use when a workbook must model financial outcomes: a 3-statement model, DCF, LBO, debt schedule, sensitivity grid, or scenario switch that needs auditable assumption zones."
+products: [xlsx]
+---
 
-**This skill is a scene layer on top of `xlsx`.** Every xlsx hard rule — shell quoting, incremental execution, Help-First Rule, visual delivery floor, CFO 4-color code (blue input / black formula / green cross-sheet / yellow-fill assumption), number-format standards (years as text, zero as `-`, `%` one decimal, negatives in parens), assumption-cell discipline, CSV batch import, chart data-feed forms (a/b/c), the 5-gate Delivery cycle, cache-drift guidance, Known Issues (the cross-sheet `!` trap, batch + resident for formulas, renderer caveats) — is **inherited, not re-taught**. This file adds only what a **financial model** requires on top: three-zone architecture, 3 model-type recipes (3-statement / DCF / LBO), sensitivity + scenario protocols, financial-function patterns, circular-reference discipline, and model-specific Delivery Gates 4–6.
+# Financial Model Playbook
 
-When the xlsx base rules cover it, the text here says `→ see xlsx v2 §X`. Read `skills/xlsx/SKILL.md` first if you have not.
+**This Playbook is a scene layer on top of the `xlsx` Skill.** Every xlsx hard rule — shell quoting, incremental execution, Help-First Rule, visual delivery floor, CFO 4-color code (blue input / black formula / green cross-sheet / yellow-fill assumption), number-format standards (years as text, zero as `-`, `%` one decimal, negatives in parens), assumption-cell discipline, CSV batch import, chart data-feed forms (a/b/c), the 5-gate Delivery cycle, cache-drift guidance, Known Issues (the cross-sheet `!` trap, batch + resident for formulas, renderer caveats) — is **inherited, not re-taught**. This file adds only what a **financial model** requires on top: three-zone architecture, 3 model-type recipes (3-statement / DCF / LBO), sensitivity + scenario protocols, financial-function patterns, circular-reference discipline, and model-specific Delivery Gates 4–6.
 
-## Setup
-
-Ankole Agent Computer images install `officecli` at build time. Verify the installation with `officecli --version`. If the command is missing, the worker image is stale and must be rebuilt.
-
-## Help-First Rule
-
-This skill teaches what a financial model requires, not every CLI flag. When a prop name / alias / enum is uncertain, consult help BEFORE guessing: `officecli help xlsx [element] [--json]`. Help is authoritative for the installed version — when this skill and help disagree, **help wins**. Every `--prop X=` below was verified against `officecli help xlsx <element>`.
+When the xlsx base rules cover it, the text here says `→ see xlsx v2 §X`. Read the `xlsx` Skill first if you have not. Its Help-First Rule applies here too: when this Playbook and `officecli help` disagree, **help wins**.
 
 ## Mental Model & Inheritance
 
-**Inherits xlsx v2.** Read `skills/xlsx/SKILL.md` first. This skill assumes you know `create` / `open` / `close`, `set` values/formulas, `batch` heredocs for cross-sheet formulas, `/SheetName/A1` paths, named ranges, the 5-gate Delivery cycle, the cross-sheet `!` trap, and that **cross-sheet formulas go non-resident (single batch OR individual `set`), never batch-while-resident**.
+**Inherits xlsx v2.** Read the `xlsx` Skill first. This Playbook assumes you know `create` / `open` / `close`, `set` values/formulas, `batch` heredocs for cross-sheet formulas, `/SheetName/A1` paths, named ranges, the 5-gate Delivery cycle, the cross-sheet `!` trap, and that **cross-sheet formulas go non-resident (single batch OR individual `set`), never batch-while-resident**.
 
 ## Shell & Execution Discipline
 
@@ -35,11 +33,11 @@ A financial model is an xlsx with a **decision-grade, formula-driven layer**: ev
 
 ### Reverse handoff — when to go BACK to xlsx base
 
-Stay in **xlsx base** for: budget trackers, CSV-to-report dumps, operational KPI sheets, simple templates, cap tables without forecast logic. Use **this skill** only when the ask mentions: 3-statement / DCF / WACC / NPV / TV / LBO / debt schedule / MOIC / IRR / unit economics / ARR roll-forward / sensitivity grid / scenario switch / pro forma.
+Stay in **xlsx base** for: budget trackers, CSV-to-report dumps, operational KPI sheets, simple templates, cap tables without forecast logic. Use **this Playbook** only when the ask mentions: 3-statement / DCF / WACC / NPV / TV / LBO / debt schedule / MOIC / IRR / unit economics / ARR roll-forward / sensitivity grid / scenario switch / pro forma.
 
 ## Three-zone architecture (hard rule)
 
-Every model in this skill builds on three zones. **Name them, tab-color them, and enforce them with executable audits.** Breaking the zone rule is the single most common cause of an unauditable model.
+Every model in this Playbook builds on three zones. **Name them, tab-color them, and enforce them with executable audits.** Breaking the zone rule is the single most common cause of an unauditable model.
 
 | Zone | Sheet names (convention) | Tab color | Content | Hardcodes | Formulas |
 |---|---|---|---|---|---|
@@ -94,7 +92,7 @@ Each recipe below is **runnable skeleton, not finance theory**. Substitute numbe
 
 **What this recipe produces.** 4 sheets: `Assumptions`, `P&L`, `Balance Sheet`, `Cash Flow`, plus `Summary`. Year columns 2024A · 2025E · 2026E · 2027E. Balance-check row on BS; cash-reconciliation row on CF. Every statement row = formula → Assumptions.
 
-**Build order (MANDATORY).** `Assumptions → P&L → Balance Sheet → Cash Flow → Summary`. Do NOT build BS before P&L — `RetainedEarnings` depends on `NI`. Do NOT build CF before BS — `CF.OpeningCash = prior period CF.EndingCash` self-chain requires BS cash anchored for Y1. The skill's Gate 4 balance check fails silently if order is wrong.
+**Build order (MANDATORY).** `Assumptions → P&L → Balance Sheet → Cash Flow → Summary`. Do NOT build BS before P&L — `RetainedEarnings` depends on `NI`. Do NOT build CF before BS — `CF.OpeningCash = prior period CF.EndingCash` self-chain requires BS cash anchored for Y1. The Gate 4 balance check below fails silently if order is wrong.
 
 **Step 1 — sheets + tab colors + freeze panes.**
 
@@ -402,7 +400,7 @@ Terse reference — not a finance textbook. If you don't know what these do, pau
 | `MIRR(values, financeRate, reinvestRate)` | `IRR` with sign flips | When cash-flow pattern has 2+ sign changes |
 | `SUMIFS(sumRange, criteriaRange1, criterion1, ...)` | `SUMPRODUCT((...))` array | Clearer intent for conditional sums; either evaluates correctly |
 
-**Evaluator coverage — verify, don't preemptively hardcode.** The CLI evaluator computes the finance functions this skill uses — `NPV` / `XNPV` / `IRR` / `XIRR`, array-literal formulas (`IRR({...})`), and `SUMPRODUCT(1/COUNTIF(range,range))` distinct-count — and caches the correct value with `evaluated:true`. There is no `NPV→0` rewrite obligation and no distinct-count `1/N` trap. The honest rule: build the formula you mean, then verify the cached value with a readback (`get ... --json | jq '.data.results[0].format.cachedValue'`). Only if a specific cell genuinely comes back with the `#OCLI_NOTEVAL!` sentinel (formula written before its inputs, or an unsupported function) should you fall back — first re-set non-resident after `close`; if it still won't evaluate, hardcode the computed value with a blue font and a classic comment via `officecli add "$FILE" /Sheet --type comment --prop ref=<cell> --prop text='cached valuation; refreshes on open in Excel — do not edit'`, and disclose in delivery notes.
+**Evaluator coverage — verify, don't preemptively hardcode.** The CLI evaluator computes the finance functions this Playbook uses — `NPV` / `XNPV` / `IRR` / `XIRR`, array-literal formulas (`IRR({...})`), and `SUMPRODUCT(1/COUNTIF(range,range))` distinct-count — and caches the correct value with `evaluated:true`. There is no `NPV→0` rewrite obligation and no distinct-count `1/N` trap. The honest rule: build the formula you mean, then verify the cached value with a readback (`get ... --json | jq '.data.results[0].format.cachedValue'`). Only if a specific cell genuinely comes back with the `#OCLI_NOTEVAL!` sentinel (formula written before its inputs, or an unsupported function) should you fall back — first re-set non-resident after `close`; if it still won't evaluate, hardcode the computed value with a blue font and a classic comment via `officecli add "$FILE" /Sheet --type comment --prop ref=<cell> --prop text='cached valuation; refreshes on open in Excel — do not edit'`, and disclose in delivery notes.
 
 ## Circular references & iterative calc
 
@@ -547,4 +545,4 @@ Financial-model-specific:
 
 ## Help pointer
 
-When in doubt: `officecli help xlsx [element] [--json]`. Help is the authoritative schema; this skill is the decision guide for financial-modeling deltas.
+When in doubt: `officecli help xlsx [element] [--json]`. Help is the authoritative schema; this Playbook is the decision guide for financial-modeling deltas.

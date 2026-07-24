@@ -1,0 +1,32 @@
+---
+import Reveal from '../Reveal'
+
+interface Props {
+	/** Two-digit section index, shown with the eyebrow label. */
+	index: string
+	eyebrow: string
+	title: string
+	subtitle?: string
+	/** Give the title a wider measure when it is a full statement. */
+	wide?: boolean
+}
+
+const { index, eyebrow, title, subtitle, wide = false } = Astro.props
+---
+
+<Reveal client:visible={{ rootMargin: '240px' }}>
+	<p class="flex items-center gap-3 font-mono text-xs tracking-[0.14em] text-brand-60 uppercase dark:text-brand-40">
+		<span class="w-6 border-t border-current" aria-hidden="true"></span>
+		{index}
+		<span class="text-muted-foreground">{eyebrow}</span>
+	</p>
+	<h2
+		class:list={[
+			'mt-5 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl',
+			wide ? 'max-w-4xl' : 'max-w-2xl'
+		]}
+	>
+		{title}
+	</h2>
+	{subtitle && <p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{subtitle}</p>}
+</Reveal>

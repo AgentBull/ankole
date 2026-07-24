@@ -473,7 +473,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert Enum.all?(turns, &(&1.trajectory["format"] == "ankole_chatml"))
 
     assert Enum.any?(turns, fn turn ->
-             Enum.any?(turn.trajectory["messages"], fn message ->
+             Enum.any?(job_turn_trajectory_messages(turn), fn message ->
                message["role"] == "assistant" and
                  is_binary(message["content"]) and
                  String.contains?(message["content"], "ANKOLE_CODEX_TODOLIST_JOB_DONE")
@@ -502,9 +502,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     pptx_path =
       Path.join(Ankole.AgentHomePaths.user_files(agent.uid), @pptx_user_files_relative_path)
 
+    # The heredoc keeps a trailing newline that no model can see inside the JSON
+    # string it must copy; the Job task contract does not carry it either.
     start_arguments = %{
       "title" => "Create the real PPTX skill artifact",
-      "task" => @pptx_task
+      "task" => String.trim(@pptx_task)
     }
 
     assert :ok =
@@ -618,14 +620,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert List.last(turns).status == "completed"
 
     assert Enum.any?(turns, fn turn ->
-             Enum.any?(turn.trajectory["messages"], fn message ->
+             Enum.any?(job_turn_trajectory_messages(turn), fn message ->
                message["role"] == "assistant" and
                  is_binary(message["content"]) and
                  String.contains?(message["content"], "ANKOLE_CODEX_PPTX_JOB_DONE")
              end)
            end)
 
-    trajectory_text = turns |> Enum.map(& &1.trajectory) |> Ankole.JSON.encode!()
+    trajectory_text =
+      turns |> Enum.flat_map(&job_turn_trajectory_messages/1) |> Ankole.JSON.encode!()
+
     # Codex 0.144 native skill injection leaves no literal SKILL.md read in the
     # trajectory; the OfficeCLI workflow below is the evidence the skill governed
     # the work, and the artifact checks prove the outcome.

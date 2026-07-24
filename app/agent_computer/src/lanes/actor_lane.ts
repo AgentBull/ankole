@@ -55,6 +55,7 @@ export type TurnStart = {
   model_ref?: TurnModelRef | null
   hosted_tools?: TurnHostedTool[]
   request_context?: JSONObject
+  runtime_env?: Record<string, string>
 }
 
 export type TurnHostedTool = { type: 'image_generation' }
@@ -107,6 +108,7 @@ export function turnStartFromEnvelope(envelope: Envelope): TurnStart {
     actor_event: actorEventFromProto(turnStart.actorEvent),
     model_ref: turnStart.modelRef ? turnModelRefFromProto(turnStart.modelRef) : undefined,
     request_context: jsonObjectFromBytes(turnStart.requestContextJson, 'turn_start.request_context_json'),
+    runtime_env: { ...turnStart.runtimeEnv },
     ...(hostedTools ? { hosted_tools: hostedTools } : {})
   }
 }

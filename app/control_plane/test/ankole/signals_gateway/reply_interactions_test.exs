@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Actors
+  alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
   alias Ankole.SignalsGateway.Ingress
   alias Ankole.SignalsGateway.ReplyInteractionState
   alias Ankole.SignalsGateway.ReplyPresentation
@@ -53,6 +54,11 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
              )
 
     assert action_event.type == "signal.action.invoked"
+    assert action_event.sender_key == human.uid
+
+    assert TurnRuntimeEnv.resolve(action_event) == %{
+             "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human.uid
+           }
 
     assert get_in(action_event.payload, ["data", "action", "value"]) == %{
              "interaction_id" => "clarify:call-1",

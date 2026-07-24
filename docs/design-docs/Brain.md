@@ -111,6 +111,8 @@ The model does not receive these document IDs. One model call uses turn-local
 to canonical markers before it writes a block. The resident snapshot removes
 canonical markers because it provides context, not exact evidence navigation.
 The pinned-memo compactor removes them for the same reason.
+The boundary rejects the complete plan if a turn-local `material_N` or `source_N`
+reference remains outside a supported block body citation.
 
 Brain indexes these markers. Withdrawal and health checks use the index. A
 wiki link such as `[[Supplier Policy]]` helps readers navigate, but it does not
@@ -304,6 +306,11 @@ by default. This microbatch gate avoids one model call for every new message.
 The run processes at most 240 material rows by default. Optional token and
 mutation budgets use `0` to mean no operator limit.
 
+Task outcomes admit only completed `im.message.addressed`,
+`signal.action.invoked`, `check_back_later.wakeup`, and `cron.fire` events that
+have a final Response. Lifecycle, command, ambient, source-learning, and unknown
+ActorEvent types do not enter the Stage B scan.
+
 Stage B separates each store before it calls a model. A locator selects material
 and related topics. A curator reads only selected material and current related
 knowledge. Private evidence cannot enter another private store, shared
@@ -353,7 +360,8 @@ Status includes:
   each visible channel.
 - Pending, synced, failed, and stale episode and block embeddings.
 - Global embedding configuration and model-space consistency.
-- The Stage B model, last successful run, and unavailable reason.
+- The Stage B model, last successful run, unavailable reason, and retryable
+  curation jobs.
 - Stage B jobs that have executed for more than 30 minutes.
 - Pinned memo size and truncation state.
 - Four entry lints: a date in the name, a near duplicate name, more than 200
@@ -361,9 +369,11 @@ Status includes:
 - Citation, source, and other read-only diagnostics.
 
 Any unavailable pipeline, failed or excessive backlog, stale embedding space,
-stuck job, oversized memo, or nonzero lint produces an alert. Oban Lifeline
-rescues executing jobs after 30 minutes so a stale unique lock cannot stop all
-future curation for that Principal.
+stuck job, oversized memo, or nonzero lint produces an alert. A retryable
+curation job appears in the status surface but alerts only on its last attempt,
+because Oban retries a transient provider failure without an operator. Oban
+Lifeline rescues executing jobs after 30 minutes so a stale unique lock cannot
+stop all future curation for that Principal.
 
 ## Configuration
 

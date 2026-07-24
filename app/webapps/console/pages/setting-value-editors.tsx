@@ -14,8 +14,12 @@ import { RiRestartLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
 import { availableLocaleIDs, nativeLocaleLabel } from '../../common/i18n'
-import { ankoleWebControlPlanePluginControllerIndexOptions } from '../api/generated/@tanstack/react-query.gen'
+import {
+  ankoleWebAgentControllerIndexOptions,
+  ankoleWebControlPlanePluginControllerIndexOptions
+} from '../api/generated/@tanstack/react-query.gen'
 import type { AppConfigurationItem, ControlPlanePluginItem } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput } from '../encrypted-value-input'
@@ -24,12 +28,16 @@ import { JSONField, LabeledField, ResourceSearch } from '../console-shell'
 import { localizedJSONText } from '../state/agent-library-capabilities'
 import { matchesResourceSearch } from '../state/resource-search'
 import {
+  brainEmbeddingAgentOptions,
+  brainEmbeddingDraft,
   pluginIDsFromDraft,
   pluginRestartRequired,
+  serializeBrainEmbeddingDraft,
   settingEditorKind,
   settingStringDraft,
   togglePluginID,
   unknownPluginIDs,
+  type BrainEmbeddingDraft,
   type SettingEditorKind
 } from '../state/setting-value-editor'
 import { timeZoneCurrentTime, timeZoneOptions } from '../state/timezone-editor'
@@ -47,6 +55,7 @@ export type SettingValueEditorProps = {
 }
 
 const SPECIFIC_SETTING_EDITORS: Partial<Record<SettingEditorKind, ComponentType<SettingValueEditorProps>>> = {
+  brainEmbedding: BrainEmbeddingEditor,
   plugins: PluginsEnabledIDsEditor,
   timezone: SystemTimeZoneEditor,
   locale: SystemLocaleEditor
@@ -134,6 +143,101 @@ function ObjectSettingEditor({ error, item, onChange, value }: SettingValueEdito
       value={value}
       onChange={onChange}
     />
+  )
+}
+
+function BrainEmbeddingEditor({ onChange, value }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const options = brainEmbeddingAgentOptions(agents.data?.agents ?? [])
+  const draft = brainEmbeddingDraft(value)
+  const selected = options.find(option => option.uid === draft.modelAgentUID)
+  const unavailableSelection = Boolean(agents.isSuccess && draft.modelAgentUID && !selected)
+  const editableDraft = unavailableSelection ? { ...draft, modelAgentUID: '' } : draft
+  const update = (patch: Partial<BrainEmbeddingDraft>) =>
+    onChange(serializeBrainEmbeddingDraft({ ...editableDraft, ...patch }))
+
+  return (
+    <div className="grid gap-5">
+      <LabeledField
+        label={t('console.settings.brain_embedding_enabled')}
+        description={t('console.settings.brain_embedding_enabled_hint')}>
+        <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
+          <span className="text-sm text-foreground">
+            {draft.enabled ? t('console.status.enabled') : t('console.status.disabled')}
+          </span>
+          <Switch checked={draft.enabled} onCheckedChange={enabled => update({ enabled })} />
+        </div>
+      </LabeledField>
+
+      <LabeledField
+        label={t('console.settings.brain_embedding_agent')}
+        description={t('console.settings.brain_embedding_agent_hint')}
+        required={draft.enabled}>
+        <Select
+          disabled={!draft.enabled || agents.isLoading || options.length === 0}
+          value={draft.modelAgentUID}
+          onValueChange={modelAgentUID => modelAgentUID && update({ modelAgentUID: String(modelAgentUID) })}>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={t('console.settings.brain_embedding_agent_placeholder')}>
+              {modelAgentUID => {
+                const option = options.find(item => item.uid === modelAgentUID)
+                return option?.displayName ? `${option.displayName} · ${option.uid}` : (option?.uid ?? modelAgentUID)
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {options.map(option => (
+              <SelectItem key={option.uid} value={option.uid}>
+                <span className="grid min-w-0 gap-0.5">
+                  <span>{option.displayName ? `${option.displayName} · ${option.uid}` : option.uid}</span>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {option.providerID} · {option.model}
+                  </span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <ErrorBlock error={agents.error} />
+        {agents.isSuccess && options.length === 0 ? (
+          <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
+            {t('console.settings.brain_embedding_no_agents')}{' '}
+            <Link className="text-foreground underline underline-offset-4" to="/agents">
+              {t('console.settings.brain_embedding_open_agents')}
+            </Link>
+          </p>
+        ) : null}
+        {unavailableSelection ? (
+          <p className="border border-warning/50 bg-warning/5 px-4 py-3 text-xs leading-5 text-muted-foreground">
+            {t('console.settings.brain_embedding_unavailable_agent', { uid: draft.modelAgentUID })}
+          </p>
+        ) : null}
+      </LabeledField>
+
+      <LabeledField
+        label={t('console.settings.brain_embedding_dimensions')}
+        description={t('console.settings.brain_embedding_dimensions_hint')}
+        required={draft.enabled}>
+        <Input
+          disabled={!draft.enabled}
+          max={4_096}
+          min={1}
+          required={draft.enabled}
+          step={1}
+          type="number"
+          value={draft.dimensions}
+          onChange={event => update({ dimensions: event.target.value })}
+        />
+      </LabeledField>
+
+      {selected ? (
+        <div className="flex flex-wrap gap-2 border border-border bg-muted/20 px-4 py-3">
+          <Badge variant="secondary">{selected.providerID}</Badge>
+          <Badge variant="outline">{selected.model}</Badge>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

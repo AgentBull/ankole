@@ -67,9 +67,16 @@ defmodule Ankole.Brain.Dreaming.StageB do
   @curator_min_output_tokens 8_192
   @curator_max_output_tokens 16_384
   @curator_attempts 3
+  @task_outcome_event_types ~w(
+    check_back_later.wakeup
+    cron.fire
+    im.message.addressed
+    signal.action.invoked
+  )
   @source_ref ~r/src:(signal-gateway-entry:[A-Za-z0-9_-]+)/u
   @any_source_ref ~r/src:((?:signal-gateway-entry|brain-source):[A-Za-z0-9_-]+)/u
   @model_source_ref ~r/src:((?:material|source)_[1-9][0-9]*)/u
+  @model_local_ref ~r/(?<![A-Za-z0-9_])(?:material|source)_[1-9][0-9]*(?![A-Za-z0-9_])/u
 
   @type result :: %{
           required(:status) => :completed | :no_new_material | :already_running | :disabled,
@@ -400,8 +407,19 @@ defmodule Ankole.Brain.Dreaming.StageB do
       store_key =>
         "The previous response was rejected at operations[#{index}] because its body used a " <>
           "source reference that was not present in this request. Use only material_N references " <>
-          "shown in materials or source_N references shown in current_knowledge, and return a " <>
-          "corrected complete plan."
+          "shown in materials or source_N references shown in current_knowledge. Use them only " <>
+          "as src:material_N or src:source_N citations in body fields; remove temporary references " <>
+          "from every other field, and return a corrected complete plan."
+    }
+  end
+
+  defp retry_guidance({:invalid_dreaming_skill_source_ref, %{store_key: store_key, index: index}})
+       when is_binary(store_key) and is_integer(index) do
+    %{
+      store_key =>
+        "The previous response was rejected at skill_updates[#{index}]. Skill content must not " <>
+          "contain temporary material_N or source_N references. Return a self-contained corrected " <>
+          "complete plan."
     }
   end
 
@@ -854,7 +872,8 @@ defmodule Ankole.Brain.Dreaming.StageB do
       ActorEvent
       |> where([event], event.agent_uid == ^owner_uid)
       |> where([event], not is_nil(event.completed_at))
-      |> where([event], event.type != "brain.source.learn")
+      |> where([event], not is_nil(event.final_response_id))
+      |> where([event], event.type in ^@task_outcome_event_types)
       |> after_task_cursor(after_time, after_id)
       |> order_by([event], asc: event.completed_at, asc: event.id)
       |> limit(^limit)
@@ -1477,7 +1496,7 @@ defmodule Ankole.Brain.Dreaming.StageB do
            translate_model_operations(store_key, operations, knowledge, model_refs),
          {:ok, operations} <- normalize_planned_operations(store_key, operations, knowledge),
          :ok <- validate_relation_links(store_key, operations, knowledge),
-         {:ok, skill_updates} <- validate_skill_updates(skill_updates),
+         {:ok, skill_updates} <- validate_skill_updates(store_key, skill_updates),
          batches =
            if(operations == [], do: [], else: [%{store_key: store_key, operations: operations}]),
          :ok <- enforce_mutation_budget(batches, skill_updates, config["mutation_limit"]) do
@@ -1522,7 +1541,8 @@ defmodule Ankole.Brain.Dreaming.StageB do
   defp translate_model_operation(%{"operation" => name} = operation, refs)
        when name in @allowed_operations do
     with true <- valid_model_operation?(name, operation),
-         {:ok, operation} <- translate_model_body(operation, refs.documents_by_source) do
+         {:ok, operation} <- translate_model_body(operation, refs.documents_by_source),
+         :ok <- reject_model_local_refs(operation) do
       translate_model_selectors(name, operation, refs)
     else
       false -> :error
@@ -1636,6 +1656,26 @@ defmodule Ankole.Brain.Dreaming.StageB do
   end
 
   defp translate_model_body(operation, _documents_by_source), do: {:ok, operation}
+
+  defp reject_model_local_refs(value) do
+    if contains_model_local_ref?(value),
+      do: {:error, :invalid_dreaming_source_ref},
+      else: :ok
+  end
+
+  defp contains_model_local_ref?(value) when is_binary(value),
+    do: Regex.match?(@model_local_ref, value)
+
+  defp contains_model_local_ref?(value) when is_list(value),
+    do: Enum.any?(value, &contains_model_local_ref?/1)
+
+  defp contains_model_local_ref?(value) when is_map(value),
+    do:
+      Enum.any?(value, fn {key, item} ->
+        contains_model_local_ref?(key) or contains_model_local_ref?(item)
+      end)
+
+  defp contains_model_local_ref?(_value), do: false
 
   defp model_operation_refs(knowledge, model_refs) do
     entry_ids =
@@ -2084,14 +2124,22 @@ defmodule Ankole.Brain.Dreaming.StageB do
         )
       )
 
-  defp validate_skill_updates(updates) do
-    Enum.reduce_while(updates, {:ok, []}, fn
-      %{"skill_name" => name, "mode" => mode, "content" => content} = update, {:ok, acc}
+  defp validate_skill_updates(store_key, updates) do
+    updates
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn
+      {%{"skill_name" => name, "mode" => mode, "content" => content} = update, index}, {:ok, acc}
       when is_binary(name) and mode in ["append", "replace"] and is_binary(content) ->
-        if String.trim(name) != "" and String.trim(content) != "" do
-          {:cont, {:ok, [Map.take(update, ~w(skill_name mode content)) | acc]}}
-        else
-          {:halt, {:error, :invalid_dreaming_skill_update}}
+        cond do
+          String.trim(name) == "" or String.trim(content) == "" ->
+            {:halt, {:error, :invalid_dreaming_skill_update}}
+
+          contains_model_local_ref?(content) ->
+            {:halt,
+             {:error, {:invalid_dreaming_skill_source_ref, %{store_key: store_key, index: index}}}}
+
+          true ->
+            {:cont, {:ok, [Map.take(update, ~w(skill_name mode content)) | acc]}}
         end
 
       _invalid, _acc ->

@@ -4,37 +4,95 @@ import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
 import { GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
+import HeroRuntime from './HeroRuntime'
+import Reveal from '../Reveal'
 
 interface Props {
 	lang: Locale
 }
 
 const { lang } = Astro.props
+
+/** Runtime names, kept literal in every locale. */
+const STACK = ['Elixir · OTP', 'Rust kernel', 'Bun · TypeScript', 'PostgreSQL', 'ZeroMQ', 'Apache-2.0']
+
+const runtimeLabels = {
+	live: t(lang, 'hero.live'),
+	signals: t(lang, 'hero.band.signals'),
+	actors: t(lang, 'hero.band.actors'),
+	ledger: t(lang, 'hero.band.ledger')
+}
 ---
 
-<section class="border-b border-border">
-	<div class="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-32">
-		<span
-			class="inline-flex items-center gap-2 border border-border px-3 py-1 text-xs font-medium tracking-wide text-muted-foreground"
+<section class="relative overflow-hidden border-b border-border">
+	<div
+		class="grid-field pointer-events-none absolute inset-0 [mask-image:radial-gradient(80%_60%_at_20%_0%,black,transparent)]"
+		aria-hidden="true"
+	>
+	</div>
+	<div class="brand-plane pointer-events-none absolute inset-0" aria-hidden="true"></div>
+
+	<div class="relative mx-auto max-w-7xl px-4 sm:px-6">
+		<div
+			class="grid items-center gap-12 border-x border-border/70 px-4 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.05fr_minmax(0,28rem)] lg:gap-16 lg:py-28"
 		>
-			<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
-			{t(lang, 'hero.badge')}
-		</span>
-		<h1 class="mt-6 max-w-3xl text-4xl font-semibold tracking-tight text-foreground sm:text-6xl">
-			{t(lang, 'hero.title')}
-		</h1>
-		<p class="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground">
-			{t(lang, 'hero.subtitle')}
-		</p>
-		<div class="mt-10 flex flex-wrap items-center gap-3">
-			<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
-				{t(lang, 'hero.cta.primary')}
-				<RiArrowRightLine />
-			</a>
-			<a href={GITHUB_URL} target="_blank" rel="noreferrer" class={buttonVariants({ variant: 'outline', size: 'lg' })}>
-				<RiGithubFill />
-				{t(lang, 'hero.cta.secondary')}
-			</a>
+			<div>
+				<Reveal client:load>
+					<span
+						class="inline-flex items-center gap-2.5 border border-border bg-background/60 px-3 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur-sm"
+					>
+						<span class="relative flex size-1.5">
+							<span
+								class="absolute inset-0 bg-brand-60 motion-safe:animate-[signal-ping_2.4s_var(--ease-expressive)_infinite] dark:bg-brand-40"
+								aria-hidden="true"></span>
+							<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
+						</span>
+						{t(lang, 'hero.badge')}
+					</span>
+				</Reveal>
+
+				<Reveal client:load variant="wipe" delay={0.06}>
+					<h1
+						class="mt-8 max-w-2xl text-balance text-4xl leading-[1.06] font-semibold tracking-tight text-foreground sm:text-6xl lg:text-[4.25rem]"
+					>
+						{t(lang, 'hero.title')}
+					</h1>
+				</Reveal>
+
+				<Reveal client:load delay={0.16}>
+					<p class="mt-7 max-w-xl text-lg leading-8 text-muted-foreground">
+						{t(lang, 'hero.subtitle')}
+					</p>
+					<div class="mt-10 flex flex-wrap items-center gap-3">
+						<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
+							{t(lang, 'hero.cta.primary')}
+							<RiArrowRightLine />
+						</a>
+						<a
+							href={GITHUB_URL}
+							target="_blank"
+							rel="noreferrer"
+							class={buttonVariants({ variant: 'outline', size: 'lg' })}
+						>
+							<RiGithubFill />
+							{t(lang, 'hero.cta.secondary')}
+						</a>
+					</div>
+				</Reveal>
+			</div>
+
+			<HeroRuntime client:load labels={runtimeLabels} />
+		</div>
+	</div>
+
+	<div class="relative border-t border-border bg-background/50 backdrop-blur-sm">
+		<div class="mx-auto max-w-7xl px-4 sm:px-6">
+			<ul
+				class="flex list-none flex-wrap items-center gap-x-8 gap-y-2 border-x border-border/70 px-4 py-4 font-mono text-xs text-fg-tertiary sm:px-8"
+			>
+				<li class="text-muted-foreground">{t(lang, 'hero.stack.label')}</li>
+				{STACK.map(item => <li>{item}</li>)}
+			</ul>
 		</div>
 	</div>
 </section>

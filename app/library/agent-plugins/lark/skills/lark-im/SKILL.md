@@ -28,6 +28,7 @@ Before the first command, read [references/bot-runtime.md](references/bot-runtim
 - Treat message sends, membership changes, event changes, meeting joins/leaves, and transcript mutations as writes. Inspect command help and use `--dry-run` when the target or payload is uncertain.
 - If the task needs cloud documents, spreadsheets, Base, Wiki, Drive, Slides, Whiteboard, or Lark Markdown, switch to `lark-office-suite`.
 - If the task needs tasks, OKRs, or attendance, switch to `lark-oa`.
+- If the task needs approval definitions, instances, or approval tasks, switch to `lark-approvals`.
 
 ## Completeness contract
 

@@ -1,0 +1,17 @@
+---
+interface Props {
+	/** `raised` puts the band on the secondary layer, so neighbours read apart. */
+	tone?: 'base' | 'raised'
+	class?: string
+}
+
+const { tone = 'base', class: className } = Astro.props
+---
+
+<section class:list={['relative border-b border-border', tone === 'raised' && 'bg-background-secondary']}>
+	<div class="mx-auto max-w-7xl px-4 sm:px-6">
+		<div class:list={['border-x border-border px-4 py-20 sm:px-8 sm:py-24', className]}>
+			<slot />
+		</div>
+	</div>
+</section>

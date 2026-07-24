@@ -1,6 +1,6 @@
 {
   "name": "lark",
   "version": "1.0.0",
-  "description": "Lark communication, collaboration, office, and work-management capabilities for application bots.",
+  "description": "Lark communication, collaboration, office, work-management, and per-human approval capabilities.",
   "skills": "./skills/"
 }

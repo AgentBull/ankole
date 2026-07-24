@@ -14,6 +14,8 @@ export interface ComputerToolsBinding {
   userFilesRoot: string
   /** Operator-managed shell variables resolved for this turn's agent. */
   workerEnv?: Record<string, string>
+  /** Trusted ephemeral shell variables for this Actor turn. */
+  runtimeEnv?: Record<string, string>
 }
 
 /**
@@ -39,7 +41,8 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
 function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
   const executionScopeID = binding.conversationID ?? binding.agentUID
   const computer = createContainerComputer(binding.agentHome, binding.workspaceRoot, {
-    workerEnv: binding.workerEnv
+    workerEnv: binding.workerEnv,
+    runtimeEnv: binding.runtimeEnv
   })
   return {
     agentHome: binding.agentHome,

@@ -157,6 +157,10 @@ The defaults are 30 minutes or 50 rows. A `token_limit` or `mutation_limit` of
 `0` means that no operator limit is set. A model, validation, budget, or commit
 failure leaves its cursor unchanged.
 
+Stage B task outcomes accept only completed `im.message.addressed`,
+`signal.action.invoked`, `check_back_later.wakeup`, and `cron.fire` events with
+a final Response. Other ActorEvent types are not curation material.
+
 ## Read the Status Surface
 
 Open the Console Brain status view for the Agent. The `memory_health_check` tool
@@ -174,8 +178,11 @@ first causal alert:
    profile. A failed selection appears in `unavailable_reason`.
 4. **Stage B availability.** Check the curated Principal's `light` profile and
    last successful run.
-5. **Stuck curation.** Oban Lifeline rescues an executing Stage B job after 30
-   minutes. Check retries and provider failures if the same Principal returns.
+5. **Failed or stuck curation.** A retryable Stage B job appears under
+   `stage_b.retryable_jobs`. It raises `curation_jobs_failing` only on its last
+   attempt, so an earlier retry needs no operator action. Oban Lifeline rescues
+   an executing job after 30 minutes. Check provider and validation failures if
+   the same Principal returns.
 6. **Backlog or failed embeddings.** Fix the provider or profile, then run the
    affected batch again.
 7. **Content discipline.** Resolve dated names, near duplicates, entries over

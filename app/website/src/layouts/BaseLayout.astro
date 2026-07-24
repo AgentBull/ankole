@@ -20,6 +20,16 @@ const { lang, title, description, path = '' } = Astro.props
 <html lang={BCP47[lang]}>
 	<head>
 		<BaseHead title={title} description={description} lang={lang} path={path} />
+		<noscript>
+			<style>
+				/* Entrances start hidden. Without scripts they never play, so show them. */
+				[data-reveal] {
+					opacity: 1 !important;
+					transform: none !important;
+					clip-path: none !important;
+				}
+			</style>
+		</noscript>
 	</head>
 	<body class="bg-background font-sans text-foreground antialiased">
 		<a

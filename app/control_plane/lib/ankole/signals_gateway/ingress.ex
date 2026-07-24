@@ -145,7 +145,12 @@ defmodule Ankole.SignalsGateway.Ingress do
               {:ok, %{status: :stale_action}}
 
             {:accepted, resolution} ->
-              fact = %{fact | action: accepted_reply_action(fact.action, resolution)}
+              fact = %{
+                fact
+                | action: accepted_reply_action(fact.action, resolution),
+                  sender_key: Map.get(fact.action, "operator_principal_uid")
+              }
+
               append_action_event(repo, binding, fact, channel, now)
 
             :unmanaged ->

@@ -23,7 +23,8 @@ app/library/agent-plugins/<agent-plugin-id>/
 
 An Installation trusts these first-party packages. Each manifest defines
 `name`, `version`, `description`, and `skills`. The package directory must have
-the same name as the manifest.
+the same name as the manifest. A package can carry more directories that its
+member Skills read, such as the `office` Playbook library below.
 
 The control plane reads each manifest and its member Skill metadata to build the
 catalog. Agent Computer resolves that catalog against the same-release package
@@ -58,6 +59,13 @@ Ankole includes these Agent Plugins:
 
 Member Skills exist only inside their Agent Plugin.
 Standalone Skills remain under `app/library/skills`.
+
+The three `office` member Skills share one Playbook library in their package
+root. A Playbook declares the products it applies to, and each Skill lists only
+its own product with `tools/list_playbooks.ts <product>`, then reads the
+Playbooks that match the request. A Playbook adds the rules for one kind of
+deliverable and does not repeat its Skill. The library needs no Job Workspace
+template, so every Job reads it from the package copy.
 
 The `deep-research` member Skill runs only in the main Agent. It clarifies the
 research contract, starts one BackgroundAgentJob, and accepts the result. Its

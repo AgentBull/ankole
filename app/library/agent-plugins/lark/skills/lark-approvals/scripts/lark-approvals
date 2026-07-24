@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly registration_script="${script_dir}/app-registration.ts"
+readonly principal="${ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL:-}"
+readonly profile="${ANKOLE_RUNTIME_LARK_PROFILE:-}"
+
+if [[ -z "${principal}" || -z "${profile}" ]]; then
+  echo "lark-approvals requires a Turn started by an active human Principal" >&2
+  exit 2
+fi
+
+if [[ ! "${profile}" =~ ^ankole-u-[A-Za-z0-9_-]{43}$ ]]; then
+  echo "ANKOLE_RUNTIME_LARK_PROFILE is invalid" >&2
+  exit 2
+fi
+
+readonly config_dir="${HOME:?HOME is required}/.lark-cli"
+export LARKSUITE_CLI_CONFIG_DIR="${config_dir}"
+
+readonly -a clean_env=(
+  env
+  -u LARKSUITE_CLI_APP_ID
+  -u LARKSUITE_CLI_APP_SECRET
+  -u LARKSUITE_CLI_BRAND
+  -u LARKSUITE_CLI_USER_ACCESS_TOKEN
+  -u LARKSUITE_CLI_TENANT_ACCESS_TOKEN
+  -u LARKSUITE_CLI_DEFAULT_AS
+  -u LARKSUITE_CLI_STRICT_MODE
+  -u LARKSUITE_CLI_AUTH_PROXY
+  -u LARKSUITE_CLI_PROXY_KEY
+  -u LARKSUITE_CLI_PROFILE
+  -u LARKSUITE_CLI_DATA_DIR
+)
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  lark-approvals profile status
+  lark-approvals profile begin [feishu|lark]
+  lark-approvals profile complete <device-code>
+  lark-approvals auth status [--verify]
+  lark-approvals auth begin
+  lark-approvals auth complete <device-code>
+  lark-approvals auth logout
+  lark-approvals schema approvals|instances|tasks <method>
+  lark-approvals approvals|instances|tasks <method> [lark-cli flags]
+  lark-approvals files upload [lark-cli api flags]
+EOF
+  exit 2
+}
+
+user_cli() {
+  "${clean_env[@]}" lark-cli --profile "${profile}" "$@"
+}
+
+registration_cli() {
+  "${clean_env[@]}" bun "${registration_script}" "$@"
+}
+
+profile_exists() {
+  user_cli config show >/dev/null 2>&1
+}
+
+require_profile() {
+  if ! profile_exists; then
+    echo '{"status":"not_configured","next":"run profile begin"}' >&2
+    exit 4
+  fi
+}
+
+ensure_profile_policy() {
+  if ! user_cli config strict-mode off >/dev/null; then
+    echo "lark-approvals could not set profile strict mode to off" >&2
+    return 5
+  fi
+}
+
+with_account_lock() {
+  mkdir -p -m 0700 "${config_dir}"
+  chmod 0700 "${config_dir}"
+  exec 9>"${config_dir}/.ankole-account.lock"
+  flock 9
+  "$@"
+}
+
+profile_status() {
+  if ! profile_exists; then
+    echo '{"status":"not_configured"}'
+    return 4
+  fi
+  ensure_profile_policy
+  user_cli config show
+  user_cli config strict-mode
+}
+
+profile_begin() {
+  local brand="${1:-feishu}"
+  if [[ "${brand}" != "feishu" && "${brand}" != "lark" ]]; then
+    echo "brand must be feishu or lark" >&2
+    return 2
+  fi
+  if profile_exists; then
+    ensure_profile_policy
+    echo '{"status":"configured"}'
+    return
+  fi
+  registration_cli begin "${brand}"
+}
+
+profile_complete() {
+  local device_code="${1:-}"
+  [[ -n "${device_code}" ]] || usage
+  if profile_exists; then
+    ensure_profile_policy
+    echo '{"status":"configured"}'
+    return
+  fi
+  registration_cli complete "${device_code}"
+  ensure_profile_policy
+}
+
+auth_status() {
+  require_profile
+  case "${1:-}" in
+    "") user_cli auth status --json ;;
+    --verify) user_cli auth status --verify --json ;;
+    *) usage ;;
+  esac
+}
+
+auth_begin() {
+  require_profile
+  ensure_profile_policy
+  user_cli auth login --domain approval --no-wait --json
+}
+
+auth_complete() {
+  local device_code="${1:-}"
+  [[ -n "${device_code}" ]] || usage
+  require_profile
+  ensure_profile_policy
+  user_cli auth login --device-code "${device_code}" --json
+}
+
+auth_logout() {
+  require_profile
+  ensure_profile_policy
+  user_cli auth logout --json
+}
+
+reject_identity_flags() {
+  local argument
+  for argument in "$@"; do
+    case "${argument}" in
+      --as | --as=* | --profile | --profile=*)
+        echo "identity and profile flags are owned by lark-approvals" >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
+run_approval() {
+  require_profile
+  reject_identity_flags "$@"
+  user_cli approval "$@" --as user
+}
+
+show_schema() {
+  local resource="${1:-}"
+  local method="${2:-}"
+  case "${resource}" in
+    approvals | instances | tasks) ;;
+    *) usage ;;
+  esac
+  [[ "${method}" =~ ^[a-z][a-z0-9_]*$ ]] || usage
+  require_profile
+  user_cli schema "approval.${resource}.${method}" --format json
+}
+
+upload_approval_file() {
+  require_profile
+  reject_identity_flags "$@"
+  user_cli api POST /open-apis/approval/v4/files/upload "$@" --as bot
+}
+
+case "${1:-}" in
+  profile)
+    case "${2:-}" in
+      status) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock profile_status ;;
+      begin) shift 2; [[ "$#" -le 1 ]] || usage; with_account_lock profile_begin "${1:-feishu}" ;;
+      complete) shift 2; [[ "$#" -eq 1 ]] || usage; with_account_lock profile_complete "$1" ;;
+      *) usage ;;
+    esac
+    ;;
+  auth)
+    case "${2:-}" in
+      status) shift 2; [[ "$#" -le 1 ]] || usage; auth_status "${1:-}" ;;
+      begin) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock auth_begin ;;
+      complete) shift 2; [[ "$#" -eq 1 ]] || usage; with_account_lock auth_complete "$1" ;;
+      logout) shift 2; [[ "$#" -eq 0 ]] || usage; with_account_lock auth_logout ;;
+      *) usage ;;
+    esac
+    ;;
+  schema)
+    shift
+    [[ "$#" -eq 2 ]] || usage
+    show_schema "$1" "$2"
+    ;;
+  approvals | instances | tasks)
+    resource="$1"
+    shift
+    [[ "$#" -gt 0 ]] || usage
+    run_approval "${resource}" "$@"
+    ;;
+  files)
+    [[ "${2:-}" == "upload" ]] || usage
+    shift 2
+    [[ "$#" -gt 0 ]] || usage
+    upload_approval_file "$@"
+    ;;
+  *)
+    usage
+    ;;
+esac

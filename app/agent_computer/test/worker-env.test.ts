@@ -64,6 +64,21 @@ describe('commandEnv worker env layering', () => {
     expect(env.ANKOLE_AGENTS_ROOT).not.toBe('/spoof')
     expect(env.SAFE_VAR).toBe('ok')
   })
+
+  it('accepts only trusted runtime names and keeps them above caller env', () => {
+    const env = commandEnv(
+      { ANKOLE_RUNTIME_TURN: 'from-command' },
+      { runtimeEnv: { ANKOLE_RUNTIME_TURN: 'from-control-plane' } }
+    )
+
+    expect(env.ANKOLE_RUNTIME_TURN).toBe('from-control-plane')
+    expect(() => commandEnv(undefined, { runtimeEnv: { NOT_RUNTIME: 'value' } })).toThrow(
+      /invalid turn runtime environment variable/
+    )
+    expect(() => commandEnv(undefined, { runtimeEnv: { ANKOLE_RUNTIME_BAD: 'bad\0value' } })).toThrow(
+      /invalid turn runtime environment variable/
+    )
+  })
 })
 
 describe('resolveWorkerEnv', () => {

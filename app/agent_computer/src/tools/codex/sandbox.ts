@@ -21,9 +21,10 @@ export function codexAppServerSandboxSpec(input: {
   materialized: MaterializedCodexConfig
   runtimeFiles?: MaterializedCodexJobRuntimeFiles
   workerEnv?: Record<string, string>
+  runtimeEnv?: Record<string, string>
   browserRuntime?: BrowserSandboxRuntime
 }): CodexAppServerSandboxSpec {
-  const env = codexSandboxEnv(input.materialized, input.workerEnv, input.browserRuntime?.env)
+  const env = codexSandboxEnv(input.materialized, input.workerEnv, input.runtimeEnv, input.browserRuntime?.env)
   return {
     cwd: input.project.root,
     env,
@@ -51,12 +52,14 @@ export function codexAppServerSandboxSpec(input: {
 function codexSandboxEnv(
   materialized: MaterializedCodexConfig,
   workerEnv?: Record<string, string>,
+  runtimeEnv?: Record<string, string>,
   browserEnv?: Record<string, string>
 ): Record<string, string> {
   const next = commandEnv(materialized.env, {
     home: materialized.agentHome,
     ankoleAgentHome: materialized.agentHome,
-    workerEnv
+    workerEnv,
+    runtimeEnv
   })
   next.ANKOLE_KERNEL_ROOT = SANDBOX_KERNEL_ROOT
   Object.assign(next, browserEnv)
