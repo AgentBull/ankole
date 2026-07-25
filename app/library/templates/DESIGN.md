@@ -114,7 +114,7 @@ typography:
     lineHeight: 1.33
     letterSpacing: 0.32px
   quotation-01:
-    fontFamily: Source Han Serif CN
+    fontFamily: ChillJinshuSong
     fontSize: 20px
     fontWeight: 400
     lineHeight: 1.5
@@ -289,17 +289,20 @@ Meet WCAG AA: 4.5:1 for normal text, 3:1 for large text (24px+) and essential gr
 
 ## Typography
 
-IBM Plex carries the entire system. The Agent Computer has these families preinstalled, so artifacts must use local fonts and never load webfonts:
+The Agent Computer preinstalls exactly three families, each one TrueType and each
+one covering Latin and Simplified Chinese. Artifacts use these local fonts and
+never load webfonts:
 
-- **IBM Plex Sans** — all UI and document text. Simplified Chinese renders through **IBM Plex Sans SC** (the worker maps generic sans and `IBM Plex Sans` requests to it automatically; the web console uses its variable CN build for `zh`).
-- **IBM Plex Mono** — code, identifiers, logs, and technical data. CJK inside code falls back to a mono CJK face automatically.
-- **Source Han Serif CN（思源宋体）** — the serif voice for pull quotes, covers, and long-form editorial or print work in Chinese; IBM Plex Serif may serve Latin-only serif contexts.
+- **IBM Plex Sans SC** — all UI and document text. The worker maps generic sans and `IBM Plex Sans` requests to it, so either name works; the web console uses its variable CN build for `zh`.
+- **IBMPlexMonoSCHalf** — code, identifiers, logs, and technical data. It merges IBM Plex Mono with Simplified Chinese at half-width metrics. The worker maps `IBM Plex Mono` to it, but a tool that matches family names directly, such as Typst, needs the exact name `IBMPlexMonoSCHalf`.
+- **ChillJinshuSong（寒蝉锦书宋）** — the serif voice for pull quotes, covers, and long-form editorial or print work. Its real family name is `寒蝉锦书宋`; the worker maps the ASCII name `ChillJinshuSong` to it for CSS, and Typst needs the Chinese name.
+- **Fluent Emoji Color** — emoji in every medium. It sits behind all three text families, so an emoji renders in color without naming the family.
 
-Fallback stacks: `'IBM Plex Sans', 'IBM Plex Sans SC', 'Helvetica Neue', Arial, sans-serif` · `'IBM Plex Mono', SFMono-Regular, Consolas, 'Liberation Mono', monospace` · `'Source Han Serif CN', Georgia, 'Times New Roman', serif`.
+Fallback stacks: `'IBM Plex Sans SC', 'IBM Plex Sans', 'Helvetica Neue', Arial, sans-serif` · `'IBM Plex Mono', 'IBMPlexMonoSCHalf', SFMono-Regular, Consolas, monospace` · `'ChillJinshuSong', '寒蝉锦书宋', Georgia, 'Times New Roman', serif`.
 
 ### Weight discipline
 
-Weight 300 is reserved for display sizes (42px and up) — the light large headline is the brand's typographic signature. Weight 400 is the default for everything; 600 marks headings and emphasis. Avoid 700: bold display type reads as a different, louder brand. IBM Plex Sans SC has no italics, so in Chinese text express emphasis with weight or color, never synthetic italics; Latin italics are fine in prose and captions.
+Sans and mono carry 300 Light, 400 Regular, 500 Medium, 600 SemiBold, and 700 Bold. Weight 300 is reserved for display sizes (42px and up) — the light large headline is the brand's typographic signature. Weight 400 is the default for everything; 600 marks headings and emphasis. Avoid 700: bold display type reads as a different, louder brand. The serif has no SemiBold, so a 600 request in serif text resolves to Bold; set serif pull quotes and covers at 400 or 500 and let sans carry the 600 headings. None of the three families ships italics, so express emphasis with weight or color rather than synthetic italics.
 
 ### Type scale
 

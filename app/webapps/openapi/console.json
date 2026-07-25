@@ -1364,6 +1364,13 @@
         "title": "AppConfigurationUpdateRequest",
         "type": "object"
       },
+      "AgentLibrarySkillOverlayWriteRequest": {
+        "additionalProperties": false,
+        "properties": { "expected_content_hash": { "type": "string" }, "text": { "type": "string" } },
+        "required": ["text", "expected_content_hash"],
+        "title": "AgentLibrarySkillOverlayWriteRequest",
+        "type": "object"
+      },
       "BrainDreamingRun": {
         "additionalProperties": false,
         "properties": {
@@ -1685,6 +1692,18 @@
         "title": "IdentityProviderAdapterItem",
         "type": "object"
       },
+      "AgentLibrarySkillOverlaysResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "skill_overlays": {
+            "items": { "$ref": "#/components/schemas/AgentLibrarySkillOverlayItem" },
+            "type": "array"
+          }
+        },
+        "required": ["skill_overlays"],
+        "title": "AgentLibrarySkillOverlaysResponse",
+        "type": "object"
+      },
       "BrainSourceEntryResponse": {
         "additionalProperties": false,
         "properties": { "source": { "$ref": "#/components/schemas/BrainSourceEntry" } },
@@ -1963,6 +1982,31 @@
         },
         "required": ["adapter_id", "config"],
         "title": "IdentityProviderWriteRequest",
+        "type": "object"
+      },
+      "AgentLibrarySkillOverlayItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_plugin_id": { "nullable": true, "type": "string" },
+          "content_hash": { "type": "string" },
+          "description": { "nullable": true, "type": "string" },
+          "effective_enabled": { "type": "boolean" },
+          "skill_id": { "nullable": true, "type": "string" },
+          "skill_name": { "type": "string" },
+          "text": { "type": "string" },
+          "updated_at": { "format": "date-time", "type": "string" }
+        },
+        "required": [
+          "skill_name",
+          "skill_id",
+          "agent_plugin_id",
+          "description",
+          "effective_enabled",
+          "text",
+          "content_hash",
+          "updated_at"
+        ],
+        "title": "AgentLibrarySkillOverlayItem",
         "type": "object"
       },
       "PrincipalGroupMemberItem": {
@@ -5242,6 +5286,42 @@
         "tags": ["AI Gateway Conversations"]
       }
     },
+    "/api/v1/agents/{agent_uid}/library-skill-overlays": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
+            },
+            "description": "Agent skill overlays"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill overlay"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read the skill overlays of one agent",
+        "tags": ["Agents"]
+      }
+    },
     "/api/v1/principals/{uid}": {
       "get": {
         "callbacks": {},
@@ -6070,6 +6150,89 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Preview filtered Brain audit records for supervision or batch recovery",
         "tags": ["Brain"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.delete",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "skill_name", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
+            },
+            "description": "Agent skill overlays"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill overlay"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Delete one agent skill overlay",
+        "tags": ["Agents"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AgentLibrarySkillOverlayController.update",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "skill_name", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlayWriteRequest" } }
+          },
+          "description": "Agent skill overlay",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AgentLibrarySkillOverlaysResponse" } }
+            },
+            "description": "Agent skill overlays"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "409": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Skill overlay changed"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid skill overlay"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Replace one agent skill overlay",
+        "tags": ["Agents"]
       }
     },
     "/api/v1/app-configurations/{key}": {

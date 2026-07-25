@@ -47,6 +47,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       assert identity.capabilities == [
                "oidc_authorization",
                "oidc_code_exchange",
+               "credential_check",
                "directory_full_sync",
                "directory_realtime_sync"
              ]
@@ -282,6 +283,9 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   defp ok_send_responder(conn) do
     Req.Test.json(conn, %{"processQueryKey" => "pqk-1"})
   end
+
+  # App tokens are cached per credential set, so a check test needs its own id.
+  defp unique_suffix, do: System.unique_integer([:positive])
 
   test "post maps markdown to sampleMarkdown chunks and records the processQueryKey" do
     binding = setup_chat_binding()
@@ -565,6 +569,36 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                redirect_uri: "https://ankole.example/auth/callback",
                state: "state-1"
              )
+  end
+
+  test "credential check separates a rejected Client ID from an accepted one" do
+    accepted = %{@identity_config | "clientId" => "cli_idp_accepted_#{unique_suffix()}"}
+    rejected = %{@identity_config | "clientId" => "cli_idp_rejected_#{unique_suffix()}"}
+    accepted_client_id = accepted["clientId"]
+
+    Req.default_options(
+      plug: fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+        case decode_body(body)["appKey"] == accepted_client_id do
+          true ->
+            Req.Test.json(conn, %{"accessToken" => "app-tok", "expireIn" => 7200})
+
+          false ->
+            conn
+            |> Plug.Conn.put_status(400)
+            |> Req.Test.json(%{
+              "code" => "invalidClientIdOrSecret",
+              "message" => "无效的clientId或者clientSecret"
+            })
+        end
+      end
+    )
+
+    assert :ok = IdentityProvider.check_credentials(accepted)
+
+    assert {:error, %DingTalkOpenAPI.Error{code: "invalidClientIdOrSecret"}} =
+             IdentityProvider.check_credentials(rejected)
   end
 
   test "full directory sync builds the department tree and upserts users preferring org_email" do

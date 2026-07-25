@@ -61,6 +61,15 @@ import type {
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateErrors,
   AnkoleWebAgentLibraryControllerUpdateResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteData,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexData,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateData,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses,
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexErrors,
   AnkoleWebAgentSessionControllerIndexResponses,
@@ -2726,6 +2735,32 @@ export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError exten
   })
 
 /**
+ * Read the skill overlays of one agent
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses,
+    AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-skill-overlays',
+    ...options
+  })
+
+/**
  * Read one principal
  */
 export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = false>(
@@ -3336,6 +3371,62 @@ export const ankoleWebBrainControllerAuditIndex = <ThrowOnError extends boolean 
     ],
     url: '/api/v1/brain/audit-log',
     ...options
+  })
+
+/**
+ * Delete one agent skill overlay
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses,
+    AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}',
+    ...options
+  })
+
+/**
+ * Replace one agent skill overlay
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerUpdate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses,
+    AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

@@ -241,7 +241,7 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. The runtime context gives its file paths. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
-Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, OfficeCLI/Pandoc/nano-pdf/QPDF for document work, and common shell/dev utilities such as jq, bash, git, and rg. Verify exact versions with a quick command when the task depends on them.
+Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, OfficeCLI/Pandoc with the WeasyPrint and Typst PDF engines/nano-pdf/QPDF for document work, and common shell/dev utilities such as jq, bash, git, and rg. Verify exact versions with a quick command when the task depends on them.
 
 Persistence model: Cross-session user files preserve uploads and deliverables. Agent-installed Skills persist in the installed-skills directory under Agent Home. The listed Agent documents are read-only projections of PostgreSQL state. Use the current workspace's temp directory for scratch data.
 

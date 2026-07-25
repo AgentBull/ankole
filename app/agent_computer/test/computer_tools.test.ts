@@ -407,10 +407,10 @@ describe('computer tools', () => {
 
       expect(readFileSync(sharePath, 'utf8')).toBe('after\n')
       const builtinSkill = await readTool.execute('call-2', {
-        path: join(BUILTIN_SKILLS_ROOT, 'skills', 'nano-pdf', 'SKILL.md'),
+        path: join(BUILTIN_SKILLS_ROOT, 'skills', 'pdf', 'SKILL.md'),
         limit: 20
       })
-      expect(textOf(builtinSkill)).toContain('name: nano-pdf')
+      expect(textOf(builtinSkill)).toContain('name: pdf')
       await expect(
         computer.fs.writeFiles([{ path: '/usr/ankole-file-tool-write-probe', content: 'blocked' }])
       ).rejects.toThrow('write file failed')

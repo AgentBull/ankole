@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 26.07.43 (2026-07-25)
+
+- Add a Console surface for the per-Agent Skill overlays that hold skill experience. Dreaming and the Agent's own `skill_append` already wrote these rows, but no Console surface could read them, correct a wrong note, or remove one. The Agent Library Skill cards now read, replace, and delete the overlay of one Agent for both standalone and Agent Plugin Skills, a new read-only Brain surface lists every overlay of one Agent and links back to that editor, and the Brain dreaming result shows the Skill update count that the run already reported. The Console REST API adds the matching read, replace, and delete operations under `library-skill-overlays`.
+
+- Make the new write path compare-and-set on the overlay content hash, so a stale Console editor is rejected instead of dropping guidance that a curation run added at the same time. Reject blank overlay text, because the Worker reads a blank overlay as no overlay and such a row would stay invisible to the model. Do not require the Skill to stay enabled for deletion: a disabled Skill is the one case where an operator can no longer reach its overlay through a write path, and an unreachable overlay comes back silently when the Skill is enabled again. Delete marks the row deleted instead of removing it, so a wrong deletion stays recoverable in PostgreSQL.
+
+- Close two gaps in the `ach` playbook that let a comparison decide itself. The evidence inventory now names the channel in which each live hypothesis would show itself and collects from it or records a coverage gap, because a hypothesis whose observations live in an unsearched channel loses the comparison to search coverage instead of to evidence. The provisional judgment now treats insufficient evidence as a finding and not an exit: it is the cheapest judgment to defend, so it must state what follows for the reader, what it costs if a rejected hypothesis is true, and which observation would separate the hypotheses.
+
+- Correct the changelog rule in `AGENTS.md`. A version and a commit stay one to one, but the entry belongs to the work and not to the commit step. `CHANGELOG.md` now selects the version: a file with uncommitted changes receives the new text in its newest version, and a file that matches `HEAD` receives a new version.
+
+- Show the login callback URL in the setup identity step. The identity provider only accepts a redirect URI that its developer console has registered, but setup kept that URL invisible until the browser had already jumped to the provider, so the first sign-in could only fail. Setup state now reports the request origin the control plane builds the redirect URI from, and the step shows the resulting callback URL for the current Provider ID.
+
+- Name the DingTalk credentials the way the DingTalk developer console names them today, `Client ID` and `Client Secret`, and say which page holds them. State the two conditions that DingTalk applies to browser login in the login field itself: the app must have a released version, and the callback URL must be registered under Security settings.
+
+- Document the login callback URL in the installation guide and answer the two DingTalk login failures in the FAQ: an authorization page that reports an unknown application, and a callback URL that DingTalk rejects only after the user accepts, because it does not read `redirect_uri` when it opens the page. Name the DingTalk permissions that the login chain and the directory sync call, and the version release that a permission change needs.
+
+- Let an identity-provider adapter declare a `credential_check` capability, and run it in the setup login step before the browser leaves the Installation. DingTalk resolves the app before anything else in a login request and then reports an unknown app without naming a field, so a wrong `Client ID` or `Client Secret` ended the setup flow on a provider error page. The DingTalk adapter answers the check with an app-token request, which separates a rejected credential, reported next to the fields, from an app that DingTalk knows but does not accept for browser login. Adapters that declare no check keep the previous behaviour.
+
 ## Version 26.07.42 (2026-07-24)
 
 - Fix AIGateway automatic compaction usage accounting. Treat each provider usage value as a cumulative snapshot and use the newest snapshot in the visible Response history instead of adding snapshots from earlier Responses. Cover the 15-row production shape where the snapshot sum is `158,977` tokens but the newest snapshot is `23,763` tokens.

@@ -10,6 +10,7 @@ defmodule Ankole.IdentityProviders do
   alias Ankole.Plugins
 
   @adapter_contract_id "principals.identity_provider"
+  @credential_check_capability "credential_check"
   @directory_full_sync_capability "directory_full_sync"
   @directory_realtime_sync_capability "directory_realtime_sync"
   @secret_mask "********"
@@ -220,6 +221,27 @@ defmodule Ankole.IdentityProviders do
          provider_id: provider_id,
          directory: directory_result
        }}
+    end
+  end
+
+  @doc """
+  Asks the provider whether it accepts the stored credentials.
+
+  Only the interactive setup flow uses this. It turns a provider-side rejection
+  into a message next to the credential fields, instead of an error page the
+  operator reaches after the browser has already left the Installation. An
+  adapter that declares no credential check reports `:unsupported`.
+  """
+  @spec check_credentials(String.t()) :: {:ok, :checked | :unsupported} | {:error, term()}
+  def check_credentials(provider_id) when is_binary(provider_id) do
+    with {:ok, provider} <- fetch_active_provider(provider_id),
+         {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
+         {:ok, config} <- AppConfigure.get_by_key(provider["config_key"]),
+         {:ok, module} <- adapter_module(adapter) do
+      case @credential_check_capability in adapter_capabilities(adapter) do
+        true -> with :ok <- module.check_credentials(config), do: {:ok, :checked}
+        false -> {:ok, :unsupported}
+      end
     end
   end
 
@@ -791,6 +813,9 @@ defmodule Ankole.IdentityProviders do
 
   defp validate_identity_capability(module, "directory_realtime_sync"),
     do: ensure_exported(module, :handle_contact_event, 3)
+
+  defp validate_identity_capability(module, @credential_check_capability),
+    do: ensure_exported(module, :check_credentials, 1)
 
   defp validate_identity_capability(_module, capability),
     do: {:error, {:unknown_identity_capability, capability}}

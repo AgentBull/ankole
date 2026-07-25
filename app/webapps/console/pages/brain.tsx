@@ -570,9 +570,13 @@ export function BrainDreamingPage() {
               </StatusIndicator>
             </div>
           </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
+          <CardContent className="grid gap-3 sm:grid-cols-3">
             <FitnessStat label={t('console.brain.dreaming_materials')} value={String(run.material_count ?? 0)} />
             <FitnessStat label={t('console.brain.dreaming_operations')} value={String(run.operation_count ?? 0)} />
+            <FitnessStat
+              label={t('console.brain.dreaming_skill_updates')}
+              value={String(run.skill_update_count ?? 0)}
+            />
           </CardContent>
         </Card>
       ) : null}

@@ -22,7 +22,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
 
     assert Enum.map(skills, & &1["skill_name"]) ==
-             ~w(brain-review browser create-deep-research design-md docx jupyter-live-kernel nano-pdf pptx xlsx)
+             ~w(brain-review browser create-deep-research design-md docx jupyter-live-kernel pdf pptx xlsx)
 
     assert Enum.all?(skills, & &1["default_enabled"])
 
@@ -95,20 +95,20 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "skill_view merges canonical skill body with agent DB overlay" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
-    assert skill["skill_uri"] == "skill://enabled/nano-pdf/SKILL.md"
-    assert skill["content"] =~ "# nano-pdf"
-    refute skill["content"] =~ "name: nano-pdf"
+    assert {:ok, skill} = Library.skill_view(agent.uid, "pdf")
+    assert skill["skill_uri"] == "skill://enabled/pdf/SKILL.md"
+    assert skill["content"] =~ "# PDF"
+    refute skill["content"] =~ "name: pdf"
     refute skill["has_agent_overlay"]
 
     assert {:ok, overlay} =
-             Library.skill_append(agent.uid, "nano-pdf", "Prefer page-by-page verification.")
+             Library.skill_append(agent.uid, "pdf", "Prefer page-by-page verification.")
 
     assert %AgentSkillOverlay{overlay_json: %{"text" => "Prefer page-by-page verification."}} =
              Repo.get!(AgentSkillOverlay, overlay.id)
 
     assert {:ok, overlay} =
-             Library.skill_append(agent.uid, "nano-pdf", "Use render output as final evidence.")
+             Library.skill_append(agent.uid, "pdf", "Use render output as final evidence.")
 
     assert %AgentSkillOverlay{
              overlay_json: %{
@@ -117,7 +117,7 @@ defmodule Ankole.AIAgent.LibraryTest do
              }
            } = Repo.get!(AgentSkillOverlay, overlay.id)
 
-    assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
+    assert {:ok, skill} = Library.skill_view(agent.uid, "pdf")
     assert skill["has_agent_overlay"]
     assert skill["content"] =~ "Agent-specific additions"
     assert skill["content"] =~ "Prefer page-by-page verification."
@@ -128,7 +128,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:error, :skill_overlay_conflict} =
              Library.replace_skill_overlay_cas(
                agent.uid,
-               "nano-pdf",
+               "pdf",
                "stale-hash",
                %{"text" => "stale replacement"}
              )
@@ -136,7 +136,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, replaced} =
              Library.replace_skill_overlay_cas(
                agent.uid,
-               "nano-pdf",
+               "pdf",
                current.content_hash,
                %{"text" => "Consolidated verification guidance."}
              )
@@ -144,7 +144,63 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert replaced.overlay_json == %{"text" => "Consolidated verification guidance."}
 
     assert {:error, :skill_file_not_found} =
-             Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
+             Library.skill_view(agent.uid, "pdf", "AGENT_APPEND.md")
+  end
+
+  test "lists skill overlays for the console and deletes them independently of enablement" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, []} = Library.list_skill_overlays(agent.uid)
+
+    assert {:ok, _overlay} =
+             Library.skill_append(agent.uid, "pdf", "Prefer page-by-page verification.")
+
+    assert {:ok, _overlay} =
+             Library.skill_append(
+               agent.uid,
+               "create-deep-research",
+               "Name the disconfirming evidence first."
+             )
+
+    assert {:ok, overlays} = Library.list_skill_overlays(agent.uid)
+    assert Enum.map(overlays, & &1["skill_name"]) |> Enum.sort() == ~w(create-deep-research pdf)
+
+    pdf = Enum.find(overlays, &(&1["skill_name"] == "pdf"))
+    assert pdf["skill_id"] == "pdf"
+    assert pdf["agent_plugin_id"] == nil
+    assert pdf["text"] == "Prefer page-by-page verification."
+    assert pdf["effective_enabled"]
+    assert is_binary(pdf["content_hash"])
+
+    research = Enum.find(overlays, &(&1["skill_name"] == "create-deep-research"))
+    assert research["skill_id"] == "deep-research:create-deep-research"
+    assert research["agent_plugin_id"] == "deep-research"
+
+    assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", false)
+    assert {:ok, overlays} = Library.list_skill_overlays(agent.uid)
+    disabled = Enum.find(overlays, &(&1["skill_name"] == "pdf"))
+    refute disabled["effective_enabled"]
+
+    assert {:error, :skill_not_enabled} =
+             Library.replace_skill_overlay_cas(
+               agent.uid,
+               "pdf",
+               disabled["content_hash"],
+               %{"text" => "unreachable"}
+             )
+
+    assert {:ok, %AgentSkillOverlay{deleted_at: %DateTime{}}} =
+             Library.delete_skill_overlay(agent.uid, "pdf")
+
+    assert {:ok, overlays} = Library.list_skill_overlays(agent.uid)
+    assert Enum.map(overlays, & &1["skill_name"]) == ["create-deep-research"]
+
+    assert {:error, :skill_overlay_not_found} = Library.delete_skill_overlay(agent.uid, "pdf")
+
+    assert {:ok, _skill} = Library.set_agent_skill_override(agent.uid, "pdf", true)
+    assert {:ok, _overlay} = Library.skill_append(agent.uid, "pdf", "Written after deletion.")
+    assert {:ok, overlays} = Library.list_skill_overlays(agent.uid)
+    assert Enum.find(overlays, &(&1["skill_name"] == "pdf"))["text"] == "Written after deletion."
   end
 
   test "skill overlay writes resolve cold AppConfigure defaults before opening a transaction" do
@@ -154,7 +210,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     Cache.clear_for_test()
 
     assert {:ok, %AgentSkillOverlay{overlay_json: %{"text" => "Cold-cache guidance."}}} =
-             Library.skill_append(agent.uid, "nano-pdf", "Cold-cache guidance.")
+             Library.skill_append(agent.uid, "pdf", "Cold-cache guidance.")
   end
 
   test "agent-installed skills are recorded from worker file observations" do
@@ -224,10 +280,10 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "rejects Skill name collisions across first-party and installed sources" do
     %{principal: agent} = agent_fixture()
 
-    assert {:error, {:skill_source_name_conflicts, ["nano-pdf"]}} =
+    assert {:error, {:skill_source_name_conflicts, ["pdf"]}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
-                 skill_name: "nano-pdf",
+                 skill_name: "pdf",
                  description: "Conflicting installed Skill.",
                  default_enabled: true,
                  tags: [],
@@ -236,7 +292,7 @@ defmodule Ankole.AIAgent.LibraryTest do
              ])
 
     assert %AgentSkill{source_kind: "builtin", agent_plugin_id: nil} =
-             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "nano-pdf")
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "pdf")
 
     root = tmp_library_root!("plugin-collision")
     library_root = Path.join(root, "library")
@@ -262,19 +318,19 @@ defmodule Ankole.AIAgent.LibraryTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, %AgentSkill{enabled_override: false}} =
-             Library.set_agent_skill_override(agent.uid, "nano-pdf", false)
+             Library.set_agent_skill_override(agent.uid, "pdf", false)
 
-    assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "nano-pdf")
+    assert {:error, :skill_not_enabled} = Library.skill_view(agent.uid, "pdf")
 
     assert {:ok, %AgentSkill{enabled_override: true}} =
-             Library.set_agent_skill_override(agent.uid, "nano-pdf", true)
+             Library.set_agent_skill_override(agent.uid, "pdf", true)
 
-    assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
+    assert {:ok, _skill} = Library.skill_view(agent.uid, "pdf")
 
     assert {:ok, %AgentSkill{enabled_override: nil}} =
-             Library.set_agent_skill_override(agent.uid, "nano-pdf", nil)
+             Library.set_agent_skill_override(agent.uid, "pdf", nil)
 
-    assert {:ok, _skill} = Library.skill_view(agent.uid, "nano-pdf")
+    assert {:ok, _skill} = Library.skill_view(agent.uid, "pdf")
   end
 
   test "effective Agent Plugin lookup does not resynchronize Skill registry rows" do

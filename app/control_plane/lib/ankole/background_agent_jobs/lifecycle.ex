@@ -25,6 +25,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   @max_running_per_agent 3
   @max_execution_attempts 5
+  @max_consecutive_turn_failures 5
   @max_event_payload_bytes 16_384
   @artifact_path_limit 32
   @artifact_path_bytes 8_192
@@ -506,8 +507,19 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
        when attempts + 1 != expected_attempt,
        do: {:error, :background_agent_job_attempt_changed}
 
+  # A continuation is deliberately not capped by @max_execution_attempts,
+  # because every steer of a live Job starts one. The cap that matters here is
+  # progress: when the lead thread only produces failures, each redelivered
+  # steer event starts another attempt against the same broken dependency, so
+  # the Job burns tokens for hours and the real cause never reaches the user.
   defp claim_continuation(repo, %Job{} = job, expected_attempt) do
-    start_attempt(repo, job, expected_attempt)
+    case Turns.consecutive_lead_failures_in_tx(repo, job, @max_consecutive_turn_failures) do
+      {count, error} when count >= @max_consecutive_turn_failures ->
+        {:error, {:background_agent_job_turn_failures_exhausted, error}}
+
+      _below_limit ->
+        start_attempt(repo, job, expected_attempt)
+    end
   end
 
   defp start_attempt(repo, %Job{} = job, expected_attempt) do

@@ -434,7 +434,7 @@ defmodule Ankole.Brain.StageBTest do
         "operations" => [],
         "skill_updates" => [
           %{
-            "skill_name" => "nano-pdf",
+            "skill_name" => "pdf",
             "mode" => "append",
             "content" => "Use source_1 when validating pages."
           }
@@ -1591,12 +1591,12 @@ defmodule Ankole.Brain.StageBTest do
     message = task_outcome_material!(agent.uid, "stage-b-overlap", "repeated PDF lesson")
     existing = "Large PDF review -> verify each rendered page before delivery."
 
-    assert {:ok, overlay} = Library.skill_append(agent.uid, "nano-pdf", existing)
+    assert {:ok, overlay} = Library.skill_append(agent.uid, "pdf", existing)
 
     plan = %{
       "operations" => [],
       "skill_updates" => [
-        %{"skill_name" => "nano-pdf", "mode" => "append", "content" => existing}
+        %{"skill_name" => "pdf", "mode" => "append", "content" => existing}
       ]
     }
 
@@ -1605,7 +1605,7 @@ defmodule Ankole.Brain.StageBTest do
         request
         |> request_payload()
         |> Map.fetch!("enabled_skills")
-        |> Enum.find(&(&1["skill_name"] == "nano-pdf"))
+        |> Enum.find(&(&1["skill_name"] == "pdf"))
 
       assert Map.keys(skill) |> Enum.sort() ==
                ["current_overlay", "description", "skill_name"]
@@ -1621,7 +1621,7 @@ defmodule Ankole.Brain.StageBTest do
     assert {:error, :dreaming_skill_append_requires_replace} = StageB.run(agent.uid)
     refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
 
-    assert {:ok, current} = Library.skill_overlay(agent.uid, "nano-pdf")
+    assert {:ok, current} = Library.skill_overlay(agent.uid, "pdf")
     assert current.id == overlay.id
     assert current.overlay_json == %{"text" => existing}
   end
@@ -1629,14 +1629,14 @@ defmodule Ankole.Brain.StageBTest do
   test "skill append conflicts with a concurrent overlay change and does not consume material" do
     %{principal: agent} = agent_fixture()
     message = task_outcome_material!(agent.uid, "stage-b-skill-cas", "new PDF lesson")
-    assert {:ok, _overlay} = Library.skill_append(agent.uid, "nano-pdf", "Existing guidance.")
+    assert {:ok, _overlay} = Library.skill_append(agent.uid, "pdf", "Existing guidance.")
     test_pid = self()
 
     plan = %{
       "operations" => [],
       "skill_updates" => [
         %{
-          "skill_name" => "nano-pdf",
+          "skill_name" => "pdf",
           "mode" => "append",
           "content" => "Scanned PDF -> inspect OCR output before delivery."
         }
@@ -1656,13 +1656,13 @@ defmodule Ankole.Brain.StageBTest do
     assert_receive {:skill_curator_waiting, upstream_pid}, 5_000
 
     assert {:ok, _overlay} =
-             Library.skill_append(agent.uid, "nano-pdf", "Concurrent operator guidance.")
+             Library.skill_append(agent.uid, "pdf", "Concurrent operator guidance.")
 
     send(upstream_pid, :release_skill_curator)
     assert {:error, :skill_overlay_conflict} = Task.await(task, 10_000)
     refute principal_cursor!(agent.uid).metadata["task_actor_event_id"] == message.id
 
-    assert {:ok, current} = Library.skill_overlay(agent.uid, "nano-pdf")
+    assert {:ok, current} = Library.skill_overlay(agent.uid, "pdf")
     assert current.overlay_json["text"] =~ "Concurrent operator guidance."
     refute current.overlay_json["text"] =~ "Scanned PDF"
   end

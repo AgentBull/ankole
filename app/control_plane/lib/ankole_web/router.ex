@@ -186,6 +186,18 @@ defmodule AnkoleWeb.Router do
         AgentLibraryController,
         :update
 
+    get "/agents/:agent_uid/library-skill-overlays",
+        AgentLibrarySkillOverlayController,
+        :index
+
+    put "/agents/:agent_uid/library-skill-overlays/:skill_name",
+        AgentLibrarySkillOverlayController,
+        :update
+
+    delete "/agents/:agent_uid/library-skill-overlays/:skill_name",
+        AgentLibrarySkillOverlayController,
+        :delete
+
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 
     get "/background-agent-jobs", BackgroundAgentJobController, :index

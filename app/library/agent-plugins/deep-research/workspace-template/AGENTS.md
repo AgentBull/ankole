@@ -17,6 +17,8 @@ Follow these steps in order:
 ### Stage 1: Collect and Organize Information
 
 - Use multiple subagents in parallel to execute the information collection plan. In general, you can prioritize broad searches, collect as many leads as possible, and then conduct in-depth analysis in sequence. You can also arrange or alternate these activities as needed. All information that clearly has reference value should be organized as Markdown files under `./sources`. At the start of each Markdown file, use YAML front matter to record metadata such as the source, publication time, author, confidence, and URL.
+- Give each data source and each primary document one owner. The owner collects it once and writes the result under `./sources`; the other subagents read that file and do not repeat the request. Download one announcement, filing, or dataset one time only, and name the file with its identifier so that a later subagent can find it. When a tool accepts a list, ask for the whole batch in one call instead of one call per item.
+- Use the data that an enabled Skill supplies before you search the internet. Read the Skill documentation first, and use `web_search` or `web_fetch` only for what no Skill supplies, or after a Skill call shows that the data is absent. Do not read a public data website to replace Skill data. Record what a Skill cannot supply as an evidence gap in `./sources`.
 - Perform an initial organization of all collected information, but do not make judgments or conduct conclusive analysis. Consider whether information is still missing, whether some information conflicts or is inconsistent, and whether the collected information contains all the context required for the later analysis and research. Collect supplementary information as needed.
 
 > Note: In addition to direct retrieval, information can also be obtained, when appropriate, by processing or deriving it from upstream raw data. For example, you can write or run a Python script when needed to analyze and reason about structured data.
@@ -39,11 +41,16 @@ Follow these steps in order:
 
 ### Stage 3: Write the Deliverables
 
-- Finalize `report/report.md` as the authoritative report according to the user's requirements. If the user specifies the report structure or other requirements, follow them.
-- If the user does not specify a file format, deliver `report/report.md`. Use the same language that the user used to create the request.
-- If the user requests another file format, create it from the authoritative Markdown report.
-- If the user explicitly requests a PDF, PPT, or HTML file but does not specify a visual design,  use `design-md` skills as the design reference.
-- Before completion, use a subagent to perform one more quick formal check of the deliverables. For a PDF, check only that its text matches the authoritative report and that its structure is correct, for example the page count and no empty or truncated pages. For the other formats, make sure that there are no typographical, layout, or formatting problems.
+Follow this sequential workflow to generate and deliver the report:
+
+1. **Content Preparation**: Draft the report content in the user's language, adhering strictly to any specified structure or requirements.
+2. **Deliverable Generation & Format Selection**:
+   - **Default Format**: If no file format is specified, deliver `report/report.md`.
+   - **Requested Format (PDF, PPT, HTML, etc.)**: 
+     - Use the corresponding generation skill (`pdf`, `pptx`, etc.) to produce the file.
+     - If the user did not specify a visual design, apply `design-md` as the design reference.
+     - Deliver **only** the requested format file unless the user explicitly requests the Markdown source as well.
+3. **Quick Check**: Before completion, delegate a brief, lightweight sanity check of the final deliverable to a single subagent. Keep this check quick, and do not repeat the check yourself.
 
 #### Deliverable Writing Style
 

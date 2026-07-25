@@ -14,9 +14,9 @@ Other agents may work on the same branch. Preserve unrelated diffs and re-read e
 
 ## Changelog
 
-The Git commit is the sole changelog and version unit. Every commit must add exactly one root `CHANGELOG.md` version, and that version must describe every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change in that commit. One version must not span multiple commits, and one commit must not contain multiple versions. Uncommitted tasks, chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions.
+The Git commit is the sole changelog and version unit. Every commit must add exactly one root `CHANGELOG.md` version, and that version must describe every retained source, test, documentation, configuration, schema, migration, manifest, lockfile, and required generated-file change in that commit. One version must not span multiple commits, and one commit must not contain multiple versions. Chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions.
 
-Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`. Prepare the changelog entry from the exact staged diff immediately before committing and include it in that commit; if the staged contents change, update the same entry before committing. Changes split across commits receive separate consecutive versions. Do not infer a commit boundary from a dirty changelog: reuse its pending version only when it belongs to the exact commit being prepared, and otherwise coordinate before editing it or allocating another version.
+Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`. Write the entry when you complete the work, not when you commit. `CHANGELOG.md` itself tells you which version to write into: when the file has uncommitted changes, add to the newest version in the file, because that version and your change go into the same next commit; when the file matches `HEAD`, add a new version above the newest one. Keep the entry correct while the retained diff changes, and give changes that go into separate commits separate consecutive versions.
 
 ## Core discipline
 

@@ -273,6 +273,10 @@ function readOnlySystemBinds(): string[] {
     .flatMap(path => ['--ro-bind', path, path])
 
   const fileBinds = [
+    // Debian resolves awk, montage, convert, and other commands through
+    // /usr/bin symlinks into this directory. Without it they dangle and the
+    // shell reports "command not found" for tools the image installed.
+    '/etc/alternatives',
     '/etc/hosts',
     '/etc/resolv.conf',
     '/etc/nsswitch.conf',

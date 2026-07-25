@@ -27,6 +27,9 @@ import {
   ankoleWebAgentLibraryCapabilityControllerPutGlobalSkill,
   ankoleWebAgentLibraryControllerIndex,
   ankoleWebAgentLibraryControllerUpdate,
+  ankoleWebAgentLibrarySkillOverlayControllerDelete,
+  ankoleWebAgentLibrarySkillOverlayControllerIndex,
+  ankoleWebAgentLibrarySkillOverlayControllerUpdate,
   ankoleWebAgentSessionControllerIndex,
   ankoleWebAiGatewayControllerCompactResponse,
   ankoleWebAiGatewayControllerEmbeddings,
@@ -186,6 +189,15 @@ import type {
   AnkoleWebAgentLibraryControllerUpdateData,
   AnkoleWebAgentLibraryControllerUpdateError,
   AnkoleWebAgentLibraryControllerUpdateResponse,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteData,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexData,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexError,
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateData,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
   AnkoleWebAgentSessionControllerIndexData,
   AnkoleWebAgentSessionControllerIndexError,
   AnkoleWebAgentSessionControllerIndexResponse,
@@ -3140,6 +3152,34 @@ export const ankoleWebAiGatewayConversationControllerIndexInfiniteOptions = (
   return opts as Omit<typeof opts, 'initialData'>
 }
 
+export const ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey = (
+  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerIndexData>
+) => createQueryKey('ankoleWebAgentLibrarySkillOverlayControllerIndex', options)
+
+/**
+ * Read the skill overlays of one agent
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerIndexOptions = (
+  options: Options<AnkoleWebAgentLibrarySkillOverlayControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
+    AnkoleWebAgentLibrarySkillOverlayControllerIndexError,
+    AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse,
+    ReturnType<typeof ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAgentLibrarySkillOverlayControllerIndexQueryKey(options)
+  })
+
 export const ankoleWebPrincipalControllerShowQueryKey = (options: Options<AnkoleWebPrincipalControllerShowData>) =>
   createQueryKey('ankoleWebPrincipalControllerShow', options)
 
@@ -3930,6 +3970,60 @@ export const ankoleWebBrainControllerAuditIndexInfiniteOptions = (
     }
   )
   return opts as Omit<typeof opts, 'initialData'>
+}
+
+/**
+ * Delete one agent skill overlay
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
+  Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse,
+    AnkoleWebAgentLibrarySkillOverlayControllerDeleteError,
+    Options<AnkoleWebAgentLibrarySkillOverlayControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Replace one agent skill overlay
+ */
+export const ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation = (
+  options?: Partial<Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>>
+): UseMutationOptions<
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
+  Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse,
+    AnkoleWebAgentLibrarySkillOverlayControllerUpdateError,
+    Options<AnkoleWebAgentLibrarySkillOverlayControllerUpdateData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAgentLibrarySkillOverlayControllerUpdate({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
 }
 
 /**

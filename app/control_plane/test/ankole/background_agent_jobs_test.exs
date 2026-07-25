@@ -1094,6 +1094,53 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert resumed.metadata == %{"worker_route" => "worker-a"}
   end
 
+  test "claiming a continuation stops when the lead thread only fails" do
+    %{principal: agent} = agent_fixture()
+
+    running =
+      agent.uid
+      |> create_job!("repeated-turn-failures")
+      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-lead"})
+      |> Repo.update!()
+
+    for index <- 1..5 do
+      insert_turn!(
+        running,
+        1,
+        "thread-lead",
+        "turn-failed-#{index}",
+        "failed",
+        "upstream returned HTTP status 502"
+      )
+    end
+
+    assert {:error, {:background_agent_job_turn_failures_exhausted, error}} =
+             BackgroundAgentJobs.claim_continuation_in_tx(Repo, running.id, agent.uid, 1)
+
+    assert error["summary"] == "upstream returned HTTP status 502"
+  end
+
+  test "a completed lead turn clears earlier continuation failures" do
+    %{principal: agent} = agent_fixture()
+
+    running =
+      agent.uid
+      |> create_job!("recovered-turn-failures")
+      |> Job.changeset(%{status: "running", runtime_thread_id: "thread-lead"})
+      |> Repo.update!()
+
+    for index <- 1..5 do
+      insert_turn!(running, 1, "thread-lead", "turn-failed-#{index}", "failed", "upstream failed")
+    end
+
+    insert_turn!(running, 1, "thread-lead", "turn-recovered", "completed")
+
+    assert {:ok, resumed} =
+             BackgroundAgentJobs.claim_continuation_in_tx(Repo, running.id, agent.uid, 1)
+
+    assert resumed.status == "running"
+  end
+
   test "status commits reject missing status and lifecycle regression" do
     %{principal: agent} = agent_fixture()
     job = create_job!(agent.uid, "status-transition")

@@ -10,6 +10,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
 
   @retry_delay_seconds 30
   @max_execution_attempts 5
+  @max_consecutive_turn_failures 5
 
   def process(actor_key, %ActorEvent{} = event, opts) do
     with {:ok, job_id} <- job_id(event),
@@ -208,6 +209,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
        ),
        do: fail_exhausted(event, job.id, job.agent_uid)
 
+  defp handle_start_result(
+         {:error, {:background_agent_job_turn_failures_exhausted, error}},
+         event,
+         job,
+         _opts
+       ),
+       do: fail_repeated_turn_failures(event, job.id, job.agent_uid, error)
+
   defp handle_start_result(result, _event, _job, _opts), do: result
 
   defp defer(event, reason, opts) do
@@ -241,6 +250,48 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
       {:ok, %{status: :attempts_exhausted, job: job, actor_event: event}}
     end
   end
+
+  # The Job stops instead of starting attempt after attempt against the same
+  # broken dependency. The summary carries the last runtime failure, because
+  # the cause is otherwise only visible in the Turn records.
+  defp fail_repeated_turn_failures(event, job_id, agent_uid, error) do
+    summary =
+      "Job stopped after #{@max_consecutive_turn_failures} consecutive runtime Turn failures. Last failure: #{failure_cause(error)}"
+
+    with {:ok, %{job: job}} <-
+           BackgroundAgentJobs.commit_status_with_wakeup(
+             job_id,
+             agent_uid,
+             %{
+               "status" => "failed",
+               "error" => %{"code" => "turn_failures_exhausted", "summary" => summary}
+             },
+             turn_interruption: %{
+               "code" => "turn_failures_exhausted",
+               "summary" =>
+                 "The control plane interrupted this runtime Turn after repeated Turn failures."
+             }
+           ),
+         {:ok, event} <- BackgroundAgentJobs.complete_actor_event(event) do
+      {:ok, %{status: :turn_failures_exhausted, job: job, actor_event: event}}
+    end
+  end
+
+  defp failure_cause(%{} = error) do
+    ["message", "summary", "code"]
+    |> Enum.find_value(fn key ->
+      case Map.get(error, key) do
+        value when is_binary(value) and value != "" -> value
+        _other -> nil
+      end
+    end)
+    |> case do
+      nil -> "unknown"
+      cause -> cause
+    end
+  end
+
+  defp failure_cause(_error), do: "unknown"
 
   defp complete_without_turn(event, job) do
     with {:ok, event} <- BackgroundAgentJobs.complete_actor_event(event) do

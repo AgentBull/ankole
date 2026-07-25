@@ -97,9 +97,16 @@ Important background can remain in the source notes. If it has audit value but
 does not distinguish the hypotheses, move it out of the active matrix and
 briefly record the reason in the same YAML file.
 
+Different hypotheses often show themselves in different channels. If one
+hypothesis proposes a mechanism whose observations live in a channel you did not
+search, the comparison measures your search coverage and not the world. Name the
+channel in which each live hypothesis would appear, then collect from it or
+record it as a coverage gap in the same YAML file.
+
 The inventory is ready when every active row states one assessable proposition,
-preserves its source or analytical status, and exposes every known dependency
-or cutoff issue that could change its weight.
+preserves its source or analytical status, exposes every known dependency or
+cutoff issue that could change its weight, and covers the channel in which each
+live hypothesis would show itself.
 
 Before a verifier reads the matrix, run:
 
@@ -172,6 +179,12 @@ The provisional judgment must state:
 - any material unresolved disagreement or missing information; and
 - future indicators that would cause an update.
 
+Insufficient evidence is a finding, not an exit. It is the cheapest judgment to
+defend, so it can absorb an analysis that the available evidence could have
+decided. When the comparison cannot separate the hypotheses, state what follows
+for the reader, what it costs if a rejected hypothesis is true, and which
+observation would separate them.
+
 Choose further research for its ability to distinguish the remaining
 hypotheses, not for the amount of information it can add.
 
@@ -182,6 +195,15 @@ Before you rely on the matrix in the report, create one verifier subagent with
 no inherited conversation turns. Keep the same verifier for all three passes so
 it can compare its independent reconstruction with the later material.
 
+Pass A and Pass B can run in one verifier session. What protects the
+reconstruction from anchoring is the order, not a separate session: disclose the
+matrix only after the verifier has recorded its own reconstruction.
+
+Report a defect when it can change the relative ordering, a linchpin, or a
+stated confidence limit. Keep wording, unit-label, and presentation problems in
+one list at the end of the pass. They must still be corrected, but they do not
+block the comparison and do not need another pass of their own.
+
 ### Pass A: Reconstruct from sources
 
 Give the verifier only:
@@ -191,7 +213,9 @@ Give the verifier only:
 - access to `./sources`, with instructions to determine which notes are
   relevant to the ACH question.
 
-During this pass, instruct the verifier to read only files under `./sources`.
+During this pass, instruct the verifier to read only files under `./sources`,
+to start from the organized notes, and to open raw material under
+`./sources/raw` only to check a linchpin that it intends to dispute.
 Do not expose `competing-hypotheses.yaml`, the report, your preferred
 hypothesis, or your reasoning. Ask the verifier to reconstruct the comparison
 independently. It must identify the plausible hypotheses, the most diagnostic

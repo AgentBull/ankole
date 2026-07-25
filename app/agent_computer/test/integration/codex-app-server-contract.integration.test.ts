@@ -377,7 +377,7 @@ set -eu
 grep -q 'TASK_AGENTS_MARKER' ${jobProjectRoot}/AGENTS.md
 grep -q '# PPTX' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
 grep -q 'PG_OVERLAY_MARKER' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
-grep -q '^name: nano-pdf$' /repo/app/library/skills/nano-pdf/SKILL.md
+grep -q '^name: pdf$' /repo/app/library/skills/pdf/SKILL.md
 printf 'command path works\n' > ${jobProjectRoot}/command-probe.txt
 test "$(bun -e "const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md

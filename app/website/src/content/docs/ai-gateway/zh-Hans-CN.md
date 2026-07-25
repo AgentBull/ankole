@@ -1,0 +1,119 @@
+---
+title: AIGateway API
+description: OpenResponses 兼容的 AI 边界——HTTP、SSE、WebSocket 端点，无状态与有状态调用，以及 provider 路由。
+section: Concepts
+order: 6
+---
+
+AIGateway 是一套 Ankole 部署的统一 AI 边界。外部应用、企业系统和 SDK 直接通过 OpenResponses 兼容的 API 调用它；内部 agent 也通过同一个入口发起模型回合。每一次调用都会把模型选择符解析到运维者配置的 provider 绑定上，而上游凭证永远不会离开控制面。
+
+本页记录的是真实的路由、请求形态，以及无状态与有状态调用之间的边界。事实来源是控制面的路由器和 `Ankole.AIGateway` 模块；本页是地图，不是契约。
+
+## 它在哪里
+
+AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循环、控制台运维者，或一个外部集成——带上 bearer token，发出一个 OpenResponses 形态的请求。AIGateway 解析选择符，准备好请求，把它分发到绑定的 provider，再返回单个 JSON 响应或一个流。LLM、embedding、rerank、web 搜索、web 抓取，全都走同一个边界。
+
+最关键的一点：调用方永远看不到 provider 凭证。控制面掌握凭证和路由策略，调用方只掌握自己的 token 和选择符。
+
+## 鉴权
+
+`/api/v1/ai-gateway` 下的每个端点都经过 `:ai_gateway_api` 管线和 `RequireAIGatewayAccessToken` 插件。请求必须在 `Authorization` 头里带上 bearer token，插件只接受两类：
+
+- **agent token**——以某个活跃 agent Principal 为主体的 AIGateway API key；调用范围限定在该 agent 的模型绑定和选择符内，`subject_type = "agent"`。
+- **admin token**——某个活跃人类管理员的控制台 token；调用范围限定在运维者能看到的 provider 视图内，`subject_type = "admin_human"`。
+
+缺失或无法验证的 token 返回 `401`，`code: "invalid_token"`。没有匿名路径。
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/responses \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"main","input":"总结当前未关闭的告警。"}'
+```
+
+## 端点
+
+所有路由都在 `/api/v1/ai-gateway` 下。一个端点用哪种传输方式，是契约的一部分，不是偏好。
+
+| 方法 | 路径 | 传输 | 用途 |
+|---|---|---|---|
+| `GET` | `/models` | HTTP | 列出该主体可见的模型选择符 |
+| `GET` | `/web_tools` | HTTP | 列出该主体可用的 provider 支持的 web 工具 |
+| `POST` | `/responses` | HTTP 或 SSE | 创建响应；`"stream": true` 时走流式 |
+| `GET` | `/responses` | WebSocket | 有状态的流式响应 |
+| `GET` | `/responses/:response_id` | HTTP | 取回一个已存储的有状态响应（`resp_{uuid}`） |
+| `POST` | `/responses/compact` | HTTP | 为一段已存储会话产出压缩产物 |
+| `POST` | `/embeddings` | HTTP | 生成 embedding |
+| `POST` | `/rerank` | HTTP | 对文档重排 |
+| `POST` | `/web_search` | HTTP | 搜索网页 |
+| `POST` | `/web_fetch` | HTTP | 抓取网页 |
+| `GET/POST/DELETE` | `/files`、`/files/:id`、`/files/:id/content` | HTTP | 上传、读取、删除文件 |
+
+`POST /responses` 是整个入口的中心。它承载模型回合，也是唯一会按传输方式和状态分叉的端点。
+
+## HTTP 与 SSE 上的无状态响应
+
+无状态调用就是一次请求、一次响应。调用方发送完整输入，AIGateway 解析选择符，调用 provider，返回完整响应体。设 `"stream": true`，同一个端点就切到 Server-Sent Events：AIGateway 开一条 SSE 流，按 `event: <type>\ndata: <json>\n\n` 写出带类型的事件，最后以 `data: [DONE]` 结束。
+
+```bash
+curl -N https://ankole.example.com/api/v1/ai-gateway/responses \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"main","input":"起草一份发布说明。","stream":true}'
+```
+
+无状态的 HTTP 和 SSE 共享一条硬规则：它们拒绝有状态字段 `previous_response_id`、`conversation` 和 `store`。一个请求要跨回合续接，就必须走 WebSocket。在 HTTP 或 SSE 上发送有状态字段，会得到 `400`，`code: "stateful_responses_require_websocket"`，消息里会指出哪个字段不合法。
+
+## WebSocket 上的有状态响应
+
+有状态响应走的是升级为 WebSocket 的 `GET /responses`。升级时把连接交给 `AIGatewayResponsesSocket`，带上主体身份、300 秒空闲超时、压缩，以及 128 MiB 的帧上限。在这条传输上，调用才可以设 `store: true`，并用 `previous_response_id` 或 `conversation` 续接一段已有的会话。
+
+持久的生命周期就在这里。一个被存储的响应会得到形如 `resp_{uuid}` 的 id。后续回合用 `previous_response_id` 引用它；一段被存储的会话用 `conversation` 引用。续接规则、持久历史、压缩、响应投影和恢复都归控制面管，没有一件是调用方要操心的。
+
+之后用无状态、纯 HTTP 取回一个已存储的响应：
+
+```bash
+curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
+  -H "Authorization: Bearer $AIGATEWAY_TOKEN"
+```
+
+压缩是把一段很长的已存储历史换成较短的一段、又不丢线索的唯一工具。`POST /responses/compact` 接收的请求，输入恰好是一项压缩条目，锚定在某个 `previous_response_id` 或 `conversation` 上，返回一个压缩产物。它要求 `store: true`；省略它的请求会得到 `400`，`code: "compact_store_required"`。
+
+## provider 路由
+
+AIGateway 在任何上游调用之前，先把模型选择符解析到一个真实的 provider 绑定。选择符是调用方看到的东西——比如 `main`，或一个显式的 provider 自有名称——解析结果取决于主体：agent 的选择符来自它配置的模型绑定，管理员看到的是显式的 provider 条目。`GET /models` 列出当前主体能解析到的东西，支持可选的 OpenRouter 风格过滤（`q`、`context`、`min_price`、`max_price`、`sort`、模态过滤）。
+
+解析可能以两种方式失败，调用方应当处理：
+
+- `422 unknown_model_selector`——该选择符没有为这个主体绑定。
+- `422 model_binding_not_configured`——能力和名称已绑定，但 provider 绑定不完整。
+
+绑定的 provider 不提供的能力，会以 `422 unsupported_capability` 出现。被运维者禁用的 provider，会以 `422 provider_disabled` 出现。这些都是配置问题，不是临时故障；不改配置直接重试没有用。
+
+## 错误形态
+
+错误使用 OpenAI 兼容的信封。响应体是 `{"error": {"code", "message"}}`，HTTP 状态码与失败类别对应。值得预先规划的几类：
+
+- `400`——请求体验证失败：缺 `model`、缺 `input`、`limit` 或 `top_n` 不合法、HTTP 上出现有状态字段、压缩输入格式不对。`code` 会指出字段。
+- `401`——bearer token 缺失或无法验证。
+- `404`——对该主体而言找不到某个已存储的响应、会话、agent 或文件。
+- `422`——请求格式正确，但控制面无法服务它：未知选择符、未配置的绑定、不支持的能力、被禁用的 provider。
+- `502` / `504`——上游 provider 失败。`502` 涵盖传输和无效响应失败（`upstream_transport_failed`、`invalid_upstream_response`、`ai_gateway_request_failed`）；`504` 是 `upstream_timeout`。provider 返回的客户端 `4xx` 会按它自己的状态码透传。
+
+当上游返回了 `error.message` 时，AIGateway 会转发这条消息；否则就如实报告上游的 HTTP 状态码。
+
+## web 工具、文件，以及 LLM 之外的能力
+
+同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个（有长度上限的）`query`，返回 provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。`POST /embeddings` 接受文本、token 数组或输入块；`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。`GET /web_tools` 告诉调用方，当前主体实际能用其中哪几样。
+
+文件是一等公民：`POST /files` 上传，`GET /files` 列出，`GET /files/:id` 和 `GET /files/:id/content` 读取元数据和字节，`DELETE /files/:id` 删除。它们都按主体限定范围。
+
+## AIGateway 不是什么
+
+它不是一个公开、免鉴权的代理。它不是用来发送 provider 凭证的地方——凭证在控制面里。它也不是队列或作业运行器；长时运行的 agent 工作归 Actor Runtime 和后台 Agent 任务。AIGateway 是请求/响应边界：一次调用进来，一个响应或一条流出去，选择符被解析，凭证留在里面。
+
+## 下一步
+
+- 要看 AIGateway 在整个系统里的位置，读[架构概览](../architecture/)。
+- 要运行承载这些路由的服务，读[安装部署指南](../installation/)。
+- 运维者配置的行为，见 [CONTRIBUTING.md](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。

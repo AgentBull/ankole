@@ -1,25 +1,25 @@
 ---
 title: 架构
-description: Actor runtime 模型、五个技术判断，以及各组件如何组合在一起。
+description: Actor 运行时模型、五个技术判断，以及各组件如何组合在一起。
 section: Concepts
 order: 4
 ---
 
-Ankole 是一个面向长时 AI 工作的 actor-oriented runtime。每个 active session 都是一个可寻址的 virtual actor：它可以 wake、接收消息、checkpoint、stream progress、hibernate、recover、continue，而不是被简化成一个 HTTP request 或 queue job。
+Ankole 是一个面向长时 AI 工作的 actor 运行时。每个活跃 session 都是一个可寻址的虚拟 actor：它能被唤醒、接收消息、做检查点、流出进度、休眠、恢复并继续——而不必假装一个 agent 只是一个 HTTP 请求或一个队列任务。
 
-长期执行单元是 `actor_id = {agent_id, session_id}`。Session 是上下文、workspace state、steering、cancel 和恢复交汇的地方。
+长时执行单元是 `actor_id = {agent_id, session_id}`。上下文、工作空间状态、引导、取消和恢复都在 session 这里交汇。
 
 ## 五个技术判断
 
-Runtime 建立在五个技术判断上：
+运行时建立在五个判断上，每一个都有它存在的理由：
 
-- **Virtual Actors for AI work。** 一个 session 是有地址、有状态、有 mailbox、有生命周期和恢复路径的工作身份，不是散落在后台的一段任务。
-- **OTP Supervision Trees as failure domains。** 一个 agent 卡住、超时或崩溃时，Ankole 可以隔离或重启那一支，而不是让它拖垮整套部署。
-- **ZeroMQ Activation Fabric for live control。** Wakeup、steering、checkpoint、streaming 和 backpressure 通过低延迟 routing layer 流动，让 agent 正在工作时也能被引导和接管。
-- **Agent Computer as execution substrate。** LLM loop、tools、MCP server、文件、terminal state 和 streaming output 跑在靠近 workspace 的 Bun + TypeScript 计算环境里。
-- **Durable Ledger for recovery and audit。** Mailbox、turn、reminder、decision 和已提交 side effect 比进程活得更久。Streaming 是进度；已提交的工作才是事实。
+- **用虚拟 actor 承载 AI 工作。** 一个 session 是一个有状态的工作身份，有地址、邮箱、生命周期和恢复路径，而不是散落在后台的一段任务。
+- **用 OTP 监督树划分故障域。** 某个 agent 卡住、超时或崩溃时，Ankole 会隔离或重启那一条分支，而不是让一次失败变成全部署的灾难。
+- **用 ZeroMQ Activation Fabric 做实时控制。** 唤醒、引导、检查点、流式输出和背压，都通过一层低延迟的路由层流动，而且是在 agent 还在工作的时候。
+- **用 Agent Computer 做执行底座。** LLM 循环、工具、文件、终端状态和流式输出，都跑在贴近工作空间的 Bun + TypeScript 计算环境里。
+- **用持久账本支撑恢复与审计。** 邮箱、回合、提醒、决策和已提交的副作用，都比进程活得更久。流式输出是进度，已提交的工作才是事实。
 
-对用户和运维者来说，承诺很直接：agent 可以工作几小时甚至几天，可以在运行中接收新输入，可以独立失败，可以带着上下文恢复，并且 side effect 有明确账本。
+对用户和运维者来说，承诺可以收成一句话：agent 可以工作几小时甚至几天，可以在运行中接收新输入，可以独立失败，可以带着上下文恢复，并且它的副作用有据可查。
 
 ## 组件总览
 
@@ -27,7 +27,7 @@ Runtime 建立在五个技术判断上：
 flowchart TB
   subgraph Entry["一等入口"]
     direction LR
-    Work["共享工作<br/>chat · webhook · 定时任务"]
+    Work["共享工作<br/>聊天 · webhook · 定时任务"]
     Clients["AI API 客户端<br/>应用 · 企业系统 · SDK"]
     Ops["运维者<br/>Console · API"]
   end
@@ -35,23 +35,23 @@ flowchart TB
   SG["SignalsGateway<br/>共享工作入口 / 交付<br/>Control Plane"]
   Platform["Principal / AuthZ<br/>配置 / Control Plane Plugins<br/>Control Plane"]
   Runtime["Actor Runtime<br/>长时 session / 恢复<br/>Control Plane"]
-  Main["主 agents<br/>model loop · tools · skills<br/>Agent Computer"]
+  Main["主 agent<br/>model loop · tools · skills<br/>Agent Computer"]
   Brain["Brain<br/>长期记忆<br/>策展知识 · 召回<br/>dreaming · 人工监督"]
-  Delegate["Background Agent Job<br/>持久 · 可恢复工作<br/>Control Plane"]
-  AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态 conversation"]
+  Delegate["Background Agent Job<br/>持久 · 可恢复的工作<br/>Control Plane"]
+  AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态会话"]
   Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · 独立 Skills<br/>Agent Computer"]
   Providers["AI providers<br/>LLM · embedding · rerank · web"]
 
   subgraph Storage["持久性边界"]
     direction LR
     PG[("PostgreSQL<br/>全部持久语义事实")]
-    Workspace[("共享 workspace<br/>产物 · 可恢复文件")]
+    Workspace[("共享工作空间<br/>产物 · 可恢复文件")]
   end
 
   Work --> SG --> Runtime
   Ops --> Platform --> Runtime
   Runtime -->|"RuntimeFabric · 实时执行"| Main
-  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
+  Clients -->|"OpenResponses 兼容<br/>HTTP · SSE · WebSocket"| AI
   Main -->|"agent AI 调用"| AI
   Main -->|"长期上下文"| Brain
   Brain -->|"模型能力"| AI
@@ -67,19 +67,19 @@ flowchart TB
   Task -.-> Workspace
 ```
 
-整体上：
+从上往下读，几件事会很显眼：
 
-- **三个一等入口。** 共享工作从 SignalsGateway 进入，应用和企业系统直接调用 AIGateway，运维者通过 Console 和 API 管理系统。AIGateway 不是只给 worker 使用的内部代理。
-- **AIGateway 是统一 AI 边界。** 它提供 OpenResponses-compatible HTTP、SSE 和 WebSocket API，同时支持无状态请求与 Principal-scoped 有状态 conversation；LLM、embedding、rerank、web search、web fetch 都通过同一个 provider 路由面解析，上游凭证始终留在 control plane。
-- **Actor 把持久工作与执行资源分开。** Actor Runtime 拥有长时 session 与恢复语义；可替换的 Agent Computer worker 负责 model loop、tools、skills 和 sandbox。
-- **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
-- **后台 Agent 任务是持久工作，不是一个子进程。** Job 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒 owner 会话。
-- **Principal/AuthZ 是权限边界。** 人类和 agent 都是 Principal，有权限授权和审计轨迹，因此 authorization 是 runtime 关注点，而不是 prompt 约定。
+- **三个一等入口。** 共享工作从 SignalsGateway 进入，应用和企业系统直接调用 AIGateway，运维者通过 Console 和 API 介入。AIGateway 不只是一个给 worker 用的内部代理。
+- **AIGateway 是统一的 AI 边界。** 它提供 OpenResponses 兼容的 HTTP、SSE 和 WebSocket API，既支持无状态请求，也支持 Principal 范围内的有状态会话。LLM、embedding、rerank、web search、web fetch 都通过同一个 provider 路由面解析，上游凭证始终留在控制面。
+- **Actor 把持久工作和执行资源分开。** Actor Runtime 拥有长时 session 和恢复语义；可替换的 Agent Computer worker 负责跑模型循环、工具、技能和沙箱。
+- **Brain 是长期记忆。** 它把当前知识、原始聊天召回、dreaming 和人工监督合在一起。PostgreSQL 里的行才是事实，Markdown 和注入的上下文都只是投影。
+- **后台 Agent 任务是持久工作，不是子进程。** 一个 Job 能在 worker 丢失后存活，可以继续、可以等待输入，并在状态变化时唤醒它的 owner 会话。
+- **Principal/AuthZ 是权限边界。** 人和 agent 都是 Principal，带着权限授权和审计轨迹，所以授权是运行时的事，而不是写在 prompt 里的约定。
 
 ## 持久性边界
 
-持久性分成两类。PostgreSQL 拥有语义事实：durable replay、fence、reconciliation 和 final commit。共享 workspace 保存被这些状态引用的产物和可恢复文件。RuntimeFabric——基于 ZeroMQ 的 control-plane 到 worker 的 live fabric，共享 Rust kernel 在进程内提供 transport 和 AI data-plane primitives——只负责实时传输。
+持久性有两种形态。PostgreSQL 拥有语义事实——可持久回放、隔离、对账和最终提交。共享工作空间保存被这些状态引用的产物和可恢复文件。RuntimeFabric——建立在 ZeroMQ 之上的、控制面到 worker 的实时 fabric，共享的 Rust kernel 在进程内提供传输和 AI 数据面原语——只负责实时传输，仅此而已。
 
-SignalsGateway 是 provider ingress layer：外部 chat、webhook 和 provider event 会变成 actor event，但不会把外部来源事实误写成 execution state。
+SignalsGateway 是 provider 入口层：外部的聊天、webhook 和 provider 事件会变成 actor 事件，但不会把来源事实错写成执行状态。
 
-这就是 Ankole 的技术判断：actor model 负责长时工作的身份和生命周期，OTP 负责故障语义，ZeroMQ 负责 live activation，Agent Computer 负责本地执行。Ankole 更接近一个面向 AI 工作的分布式操作系统，而不是聊天机器人后端。更完整的 runtime 论证见：[为什么 OTP 是更好的多智能体编排运行时](https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)。
+把判断说清楚：actor 模型负责长时工作的身份和生命周期，OTP 负责故障语义，ZeroMQ 负责实时激活，Agent Computer 负责本地执行。Ankole 更接近一个面向 AI 工作的分布式操作系统，而不是聊天机器人后端。更完整的运行时论证见[为什么 OTP 是更好的多智能体编排运行时](https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)。

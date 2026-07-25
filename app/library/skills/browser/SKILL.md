@@ -69,6 +69,10 @@ The runner owns connection teardown. User code must not launch a browser or clos
 4. Keep the injected default session for the whole Job. A Job already has its own opaque route and persistent profile; do not invent named sessions as an isolation mechanism. `close` releases live browser resources but retains route data.
 5. Save evidence under `browser/` in the current Session or Job Workspace. Browser commands return the same real absolute paths that the Worker uses. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.
 
+## Local files
+
+The browser is not guaranteed to run on the Worker, so it does not always see the Worker filesystem, and a `file://` URL can fail with `net::ERR_BLOCKED_BY_CLIENT`. 
+
 ## Native dialogs
 
 `alert` and `beforeunload` are handled automatically. A CLI action that opens `confirm` or `prompt` returns `dialog_blocked` immediately; inspect it with `ankole-browser dialog status`, then call `dialog accept [text]` or `dialog dismiss`. Renderer operations and screenshots also return `dialog_blocked` while a native dialog is pending.

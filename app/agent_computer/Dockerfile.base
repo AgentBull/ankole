@@ -10,6 +10,7 @@ ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.96.1
 ARG CODEX_VERSION=0.145.0
 ARG OFFICECLI_VERSION=v1.0.141
+ARG TYPST_VERSION=v0.15.1
 ARG TARGETARCH
 
 ENV PATH="/root/.cargo/bin:${PATH}"
@@ -34,14 +35,12 @@ RUN sed -i \
     ffmpeg \
     file \
     fontconfig \
-    fonts-liberation \
-    fonts-noto-cjk \
-    fonts-noto-color-emoji \
     ghostscript \
     gh \
     git \
     gnupg \
     grep \
+    imagemagick \
     jq \
     less \
     libzmq3-dev \
@@ -65,6 +64,7 @@ RUN sed -i \
     unrar-free \
     unzip \
     util-linux \
+    weasyprint \
     xz-utils \
     zip \
     zstd \
@@ -110,6 +110,27 @@ RUN set -eux; \
   test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
   rm -f /tmp/officecli-SHA256SUMS
 
+# Typst is not packaged for Debian trixie, so the pinned release binary is
+# installed here. Its releases publish no checksum file, so the digests below
+# are recorded from the pinned assets and must be updated with the version.
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) \
+      typst_asset="typst-x86_64-unknown-linux-musl"; \
+      typst_sha256="a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c" ;; \
+    arm64|aarch64) \
+      typst_asset="typst-aarch64-unknown-linux-musl"; \
+      typst_sha256="5aa8d74a3d906e60ea12a66ac2f37f8eef1b14cbad7182a745e393a10c23dcee" ;; \
+    *) echo "Unsupported Typst architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/typst/typst/releases/download/${TYPST_VERSION}/${typst_asset}.tar.xz" \
+    -o /tmp/typst.tar.xz; \
+  printf '%s  %s\n' "${typst_sha256}" /tmp/typst.tar.xz | sha256sum -c -; \
+  tar -xJf /tmp/typst.tar.xz -C /tmp; \
+  install -m 0755 "/tmp/${typst_asset}/typst" /usr/local/bin/typst; \
+  rm -rf /tmp/typst.tar.xz "/tmp/${typst_asset}"; \
+  typst --version | grep -qF "typst ${TYPST_VERSION#v}"
+
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh \
   && python3 -m venv /opt/ankole-python \
   && for attempt in 1 2 3; do \
@@ -152,56 +173,108 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && chmod +x /usr/local/bin/python /usr/local/bin/python3
 
 ARG PLEX_SANS_SC_REF=%40ibm%2Fplex-sans-sc%401.1.0
-ARG PLEX_MONO_TAG=%40ibm%2Fplex-mono%402.5.0
-ARG SOURCE_HAN_SERIF_VERSION=2.003R
+ARG PLEX_MONO_SC_COMMIT=2e832144509b0bd3d933a045b411ff5f2bc9616f
+ARG CHILL_JINSHU_SONG_VERSION=GBv2.0
+ARG FLUENT_EMOJI_COMMIT=b7fc5ad4ceb3c7d665087040073d4b64490af96f
+ARG OTF2TTF_VERSION=0.2
+ARG FONTTOOLS_VERSION=4.63.0
 
-# Standard artifact fonts: IBM Plex Sans SC (sans, Latin + Simplified Chinese),
-# IBM Plex Mono (mono), and Source Han Serif CN (serif). Debian packages none of
-# them, so install pinned upstream releases and register fontconfig defaults.
+# The three text families are IBM Plex Sans SC (sans), IBMPlexMonoSCHalf (mono),
+# and ChillJinshuSong (serif); Fluent Emoji Color carries emoji. Sans and mono
+# install Light 300, Regular 400, Medium 500, SemiBold 600, and Bold 700, because
+# 600 is the visual identity's heading and emphasis weight. The serif release has
+# no SemiBold, so it installs the other four, and a 600 request in serif text
+# resolves to Bold rather than a synthetic face. Every installed face is
+# TrueType, because an OpenType/CFF face has caused reader compatibility
+# problems, so the serif OTF release is converted during the build. Debian
+# packages none of these, so pin upstream files.
 RUN set -eux; \
   plex_sc_dir=/usr/share/fonts/truetype/ibm-plex-sans-sc; \
   plex_sc_base="https://raw.githubusercontent.com/IBM/plex/${PLEX_SANS_SC_REF}/packages/plex-sans-sc/fonts/complete/ttf/hinted"; \
   mkdir -p "${plex_sc_dir}"; \
   printf '%s\n' \
-    '3e94ef1df394eae336cc1bc98f2160b58e2cab186f47d820e4c808aef1f4e28f  IBMPlexSansSC-Bold.ttf' \
-    '471d965dceac8a658f448d8e121346b1700e5c0cab99fc4a3279d6534894f06b  IBMPlexSansSC-ExtraLight.ttf' \
     'd626327fe664ee2b360055d007c98954a73fa1f642b477e041d9158c4fec5b52  IBMPlexSansSC-Light.ttf' \
-    '6e6a084fd3f43c2c6f6d662cbc4c7b09987bafd928c43e91c8e8f68c6ae01e31  IBMPlexSansSC-Medium.ttf' \
     '012e587c5a78d25f456057614b880fc7450b748c352573d8052245df2a71158a  IBMPlexSansSC-Regular.ttf' \
+    '6e6a084fd3f43c2c6f6d662cbc4c7b09987bafd928c43e91c8e8f68c6ae01e31  IBMPlexSansSC-Medium.ttf' \
     '76706e94340ac068ec2d398dc2f387946c815a3610f35c41cc93a8f8097d6c6b  IBMPlexSansSC-SemiBold.ttf' \
-    '6121432188f2271e2057c44f1c00f5f93ae16256dabf8f39b0314e02f7b406e2  IBMPlexSansSC-Text.ttf' \
-    '16d1cfd884aa107d2d768ca6b710079644ff98dc1c0ecca4a1bce27e853d57f2  IBMPlexSansSC-Thin.ttf' \
+    '3e94ef1df394eae336cc1bc98f2160b58e2cab186f47d820e4c808aef1f4e28f  IBMPlexSansSC-Bold.ttf' \
     '91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360  license.txt' \
     > /tmp/plex-sans-sc.sha256; \
   while read -r _checksum file; do \
     curl -fsSL --retry 5 --retry-all-errors "${plex_sc_base}/${file}" -o "${plex_sc_dir}/${file}"; \
   done < /tmp/plex-sans-sc.sha256; \
   (cd "${plex_sc_dir}" && sha256sum -c /tmp/plex-sans-sc.sha256); \
-  curl -fsSL --retry 5 --retry-all-errors "https://github.com/IBM/plex/releases/download/${PLEX_MONO_TAG}/ibm-plex-mono.zip" -o /tmp/ibm-plex-mono.zip; \
-  echo '6d23f01257663d8cc49a0d64c22ced630b79e0e2a0ac08a0da86e9a38bbc481c  /tmp/ibm-plex-mono.zip' | sha256sum -c -; \
-  mkdir -p /usr/share/fonts/truetype/ibm-plex-mono; \
-  unzip -j -q /tmp/ibm-plex-mono.zip 'ibm-plex-mono/fonts/complete/ttf/*' -d /usr/share/fonts/truetype/ibm-plex-mono; \
-  curl -fsSL --retry 5 --retry-all-errors "https://github.com/adobe-fonts/source-han-serif/releases/download/${SOURCE_HAN_SERIF_VERSION}/14_SourceHanSerifCN.zip" -o /tmp/source-han-serif-cn.zip; \
-  echo 'aa3f9134809de83bb2add0bd965e61421772ce2fd8628fe98516b77c93e1d819  /tmp/source-han-serif-cn.zip' | sha256sum -c -; \
-  mkdir -p /usr/share/fonts/opentype/source-han-serif-cn; \
-  unzip -j -q /tmp/source-han-serif-cn.zip 'SubsetOTF/CN/*.otf' 'LICENSE.txt' -d /usr/share/fonts/opentype/source-han-serif-cn; \
+  plex_mono_dir=/usr/share/fonts/truetype/ibm-plex-mono-sc; \
+  plex_mono_base="https://raw.githubusercontent.com/WuLaNaLashi/IBM-Plex-Mono-SC/${PLEX_MONO_SC_COMMIT}"; \
+  mkdir -p "${plex_mono_dir}"; \
+  printf '%s\n' \
+    'b5a65141cfddcb8588fb529fdcb2bb745c965eb681a4c10454a7d2420ba153e6  half_merged/IBMPlexMonoSCHalf-Light.ttf' \
+    '5787a22435e2df2df2750cba1ccfabd13f8928fe8508bd160a52cd766cb98178  half_merged/IBMPlexMonoSCHalf-Regular.ttf' \
+    'e9841b143dc35f2236568a24406c715d541fb70dccb52147e27c2ad00e6a98d4  half_merged/IBMPlexMonoSCHalf-Medium.ttf' \
+    '3ac880c94746a35c73b687200c398ed152d10e46af49610b63809b55f4c230f3  half_merged/IBMPlexMonoSCHalf-SemiBold.ttf' \
+    '687a51a66e6541604df2b3637801f9bb24d740aca8fd52fe0f2fca4ac1a9f14a  half_merged/IBMPlexMonoSCHalf-Bold.ttf' \
+    '91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360  license.txt' \
+    > /tmp/plex-mono-sc.sha256; \
+  while read -r _checksum file; do \
+    curl -fsSL --retry 5 --retry-all-errors "${plex_mono_base}/${file}" -o "${plex_mono_dir}/$(basename "${file}")"; \
+  done < /tmp/plex-mono-sc.sha256; \
+  (cd "${plex_mono_dir}" && sed 's#half_merged/##' /tmp/plex-mono-sc.sha256 | sha256sum -c -); \
+  chill_dir=/usr/share/fonts/truetype/chill-jinshu-song; \
+  mkdir -p "${chill_dir}" /tmp/chill-otf; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "https://github.com/Warren2060/ChillJinshuSong/releases/download/${CHILL_JINSHU_SONG_VERSION}/ChillJinshuSong_v2.0.zip" \
+    -o /tmp/chill.zip; \
+  echo 'a5a066c1fdf47b275f17b17473f63800564f55da510206f775fdfd94ddb9fe5f  /tmp/chill.zip' | sha256sum -c -; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "https://raw.githubusercontent.com/Warren2060/ChillJinshuSong/master/LICENSE" -o "${chill_dir}/LICENSE"; \
+  echo "027f6f68aa3c651a771d3368e7d1620acaeadfd5d00d23da44332565bc151869  ${chill_dir}/LICENSE" | sha256sum -c -; \
+  unzip -j -q /tmp/chill.zip \
+    '*/otf/ChillJinshuSongLight.otf' \
+    '*/otf/ChillJinshuSongRegular.otf' \
+    '*/otf/ChillJinshuSongMedium.otf' \
+    '*/otf/ChillJinshuSongBold.otf' \
+    -d /tmp/chill-otf; \
+  python3 -m venv /tmp/otf2ttf-venv; \
+  /tmp/otf2ttf-venv/bin/pip install --quiet --no-cache-dir \
+    "otf2ttf==${OTF2TTF_VERSION}" "fonttools==${FONTTOOLS_VERSION}"; \
+  for otf in /tmp/chill-otf/*.otf; do \
+    /tmp/otf2ttf-venv/bin/otf2ttf -o "${chill_dir}/$(basename "${otf%.otf}").ttf" "${otf}"; \
+  done; \
+  test "$(ls -1 "${chill_dir}"/*.ttf | wc -l)" = 4; \
+  emoji_dir=/usr/share/fonts/truetype/fluent-emoji-color; \
+  emoji_base="https://raw.githubusercontent.com/tetunori/fluent-emoji-webfont/${FLUENT_EMOJI_COMMIT}"; \
+  mkdir -p "${emoji_dir}"; \
+  curl -fsSL --retry 5 --retry-all-errors "${emoji_base}/dist/FluentEmojiColor.ttf" \
+    -o "${emoji_dir}/FluentEmojiColor.ttf"; \
+  curl -fsSL --retry 5 --retry-all-errors "${emoji_base}/LICENSE" -o "${emoji_dir}/LICENSE"; \
+  printf '%s\n' \
+    '6292f3ff969d800d55486e01b293248ccd9ee71a17e4f9770b4abea13d9cad25  FluentEmojiColor.ttf' \
+    'fb1246b39d87fbea480a9bca5ed27483fd13b95ee400de3b4277414132f847ee  LICENSE' \
+    > /tmp/fluent-emoji.sha256; \
+  (cd "${emoji_dir}" && sha256sum -c /tmp/fluent-emoji.sha256); \
   printf '%s\n' \
     '<?xml version="1.0"?>' \
     '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
     '<fontconfig>' \
     '  <alias binding="strong"><family>IBM Plex Sans</family><prefer><family>IBM Plex Sans SC</family></prefer></alias>' \
-    '  <alias binding="strong"><family>Source Han Serif</family><prefer><family>Source Han Serif CN</family></prefer></alias>' \
-    '  <alias binding="strong"><family>sans-serif</family><prefer><family>IBM Plex Sans SC</family><family>Noto Sans CJK SC</family></prefer></alias>' \
-    '  <alias binding="strong"><family>serif</family><prefer><family>Source Han Serif CN</family><family>Noto Serif CJK SC</family></prefer></alias>' \
-    '  <alias binding="strong"><family>monospace</family><prefer><family>IBM Plex Mono</family><family>Noto Sans Mono CJK SC</family></prefer></alias>' \
+    '  <alias binding="strong"><family>IBM Plex Mono</family><prefer><family>IBMPlexMonoSCHalf</family></prefer></alias>' \
+    '  <alias binding="strong"><family>ChillJinshuSong</family><prefer><family>寒蝉锦书宋</family></prefer></alias>' \
+    '  <alias binding="strong"><family>emoji</family><prefer><family>Fluent Emoji Color</family></prefer></alias>' \
+    '  <alias binding="strong"><family>sans-serif</family><prefer><family>IBM Plex Sans SC</family><family>Fluent Emoji Color</family></prefer></alias>' \
+    '  <alias binding="strong"><family>serif</family><prefer><family>寒蝉锦书宋</family><family>Fluent Emoji Color</family></prefer></alias>' \
+    '  <alias binding="strong"><family>monospace</family><prefer><family>IBMPlexMonoSCHalf</family><family>Fluent Emoji Color</family></prefer></alias>' \
     '</fontconfig>' \
     > /etc/fonts/conf.d/52-ankole-brand-fonts.conf; \
   fc-cache -f >/dev/null; \
   fc-match sans-serif | grep -F 'IBM Plex Sans SC'; \
-  fc-match serif | grep -F 'Source Han Serif CN'; \
-  fc-match monospace | grep -F 'IBM Plex Mono'; \
+  fc-match serif | grep -F 'ChillJinshuSong'; \
+  fc-match monospace | grep -F 'IBMPlexMonoSCHalf'; \
+  fc-match emoji | grep -F 'FluentEmojiColor'; \
   fc-match 'IBM Plex Sans' | grep -F 'IBM Plex Sans SC'; \
-  rm -f /tmp/plex-sans-sc.sha256 /tmp/ibm-plex-mono.zip /tmp/source-han-serif-cn.zip
+  fc-match 'IBM Plex Mono' | grep -F 'IBMPlexMonoSCHalf'; \
+  fc-match 'ChillJinshuSong' | grep -F 'ChillJinshuSong'; \
+  rm -rf /tmp/plex-sans-sc.sha256 /tmp/plex-mono-sc.sha256 /tmp/fluent-emoji.sha256 \
+    /tmp/chill.zip /tmp/chill-otf /tmp/otf2ttf-venv
 
 RUN rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node \
   && ! command -v node \

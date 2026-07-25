@@ -69,7 +69,7 @@ Deliverable standards every document MUST meet — know these before reaching fo
 
 **Explicit heading sizes** (Word default style sizes drift between templates): **H1 ≥ 18pt** (20pt for long reports), H2 = 14pt bold, H3 = 12pt bold, body = 11–12pt, line spacing 1.15–1.5x. Prefer `style=Heading1` over inline sizes so a retheme touches the definition once — but set explicit sizes when you can't trust the template's styles.
 
-**One body font, one accent.** One readable body font (Calibri, Cambria, Georgia, Times New Roman); accent color for heading emphasis or table headers, not rainbow formatting.
+**One body font, one accent.** One readable body font (Calibri, Cambria, Georgia, Times New Roman); accent color for heading emphasis or table headers, not rainbow formatting. Those names resolve on the reader's machine. The worker installs only IBM Plex Sans SC, IBMPlexMonoSCHalf, and 寒蝉锦书宋 (ChillJinshuSong), so any other family falls back whenever the worker renders the file itself, and Chinese text needs one of the three. For the internal VIS, take the families from `design-md`.
 
 **Spacing through properties.** Use `spaceBefore` / `spaceAfter` on paragraphs. Rows of empty paragraphs break pagination and are flagged by `view issues`.
 

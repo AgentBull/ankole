@@ -21,6 +21,7 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Textarea,
   toast
 } from '@ankole/uikit'
 import { RiArrowLeftLine, RiInformationLine, RiRestartLine, RiSearchLine } from '@remixicon/react'
@@ -37,16 +38,21 @@ import {
   ankoleWebAgentLibraryCapabilityControllerPutAgentSkillOverrideMutation,
   ankoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginMutation,
   ankoleWebAgentLibraryCapabilityControllerPutGlobalSkillMutation,
+  ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation,
+  ankoleWebAgentLibrarySkillOverlayControllerIndexOptions,
+  ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation,
   ankoleWebControlPlanePluginControllerIndexOptions,
   ankoleWebControlPlanePluginControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   AgentLibraryCapabilitiesResponse,
   AgentLibrarySkillCapabilityItem,
+  AgentLibrarySkillOverlayItem,
   AgentPluginCapabilityItem,
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
-import { ErrorBlock } from '../console-primitives'
+import { ErrorBlock, formatConsoleDate } from '../console-primitives'
+import { ConfirmDeleteButton } from '../console-shell'
 import {
   GLOBAL_LIBRARY_SCOPE,
   type AgentLibraryTab,
@@ -71,6 +77,7 @@ export function AgentLibraryPage() {
   const [controlPlaneQuery, setControlPlaneQuery] = useState('')
   const data = useLibraryCapabilities(scope)
   const capabilityMutations = useCapabilityMutations(scope)
+  const experience = useSkillExperience(scope)
   const controlPlaneMutation = useControlPlanePluginMutation()
 
   useEffect(() => {
@@ -101,7 +108,7 @@ export function AgentLibraryPage() {
         <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
       </header>
 
-      <ErrorBlock error={data.error} />
+      <ErrorBlock error={data.error ?? experience?.error} />
 
       <Tabs value={tab} onValueChange={value => setTab(value as AgentLibraryTab)} className="gap-5">
         <TabsList className="max-w-full overflow-x-auto">
@@ -148,6 +155,7 @@ export function AgentLibraryPage() {
                 skill={skill}
                 scope={scope}
                 pending={capabilityMutations.pending}
+                experience={experience}
                 onChange={enabled => capabilityMutations.setSkill(skill.id, enabled)}
               />
             ))}
@@ -184,6 +192,7 @@ export function AgentPluginDetailPage() {
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const data = useLibraryCapabilities(scope)
   const mutations = useCapabilityMutations(scope)
+  const experience = useSkillExperience(scope)
   const plugin = data.capabilities?.agent_plugins.find(item => item.id === pluginID)
   const setScope = (value: string) => {
     if (value === GLOBAL_LIBRARY_SCOPE) setSearchParams({})
@@ -212,7 +221,7 @@ export function AgentPluginDetailPage() {
         <ScopeSelect scope={scope} agents={data.agents} onChange={setScope} />
       </header>
 
-      <ErrorBlock error={data.error} />
+      <ErrorBlock error={data.error ?? experience?.error} />
       {data.loading ? <LoadingCards /> : null}
       {!data.loading && !plugin ? (
         <Alert variant="destructive">
@@ -260,6 +269,7 @@ export function AgentPluginDetailPage() {
                   scope={scope}
                   pending={mutations.pending}
                   parentEnabled={plugin.effective_enabled}
+                  experience={experience}
                   onChange={enabled => mutations.setSkill(skill.id, enabled)}
                 />
               ))}
@@ -377,12 +387,14 @@ function AgentPluginCard({
 }
 
 function SkillCard({
+  experience,
   onChange,
   parentEnabled = true,
   pending,
   scope,
   skill
 }: {
+  experience?: SkillExperienceController
   onChange: (enabled: boolean | null) => void
   parentEnabled?: boolean
   pending: boolean
@@ -411,16 +423,106 @@ function SkillCard({
           />
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2 border-t border-border pt-4">
-        {skill.source_kind === 'installed' ? (
-          <Badge variant="secondary">{t('console.agent_library_capabilities.agent_private')}</Badge>
+      <CardContent className="grid gap-4 border-t border-border pt-4">
+        <div className="flex flex-wrap gap-2">
+          {skill.source_kind === 'installed' ? (
+            <Badge variant="secondary">{t('console.agent_library_capabilities.agent_private')}</Badge>
+          ) : null}
+          {!parentEnabled ? (
+            <Badge variant="outline">{t('console.agent_library_capabilities.parent_disabled')}</Badge>
+          ) : null}
+          <EffectiveBadge enabled={skill.effective_enabled} />
+        </div>
+        {experience ? (
+          <SkillExperience
+            controller={experience}
+            skillName={skill.name}
+            writable={skill.effective_enabled && parentEnabled}
+          />
         ) : null}
-        {!parentEnabled ? (
-          <Badge variant="outline">{t('console.agent_library_capabilities.parent_disabled')}</Badge>
-        ) : null}
-        <EffectiveBadge enabled={skill.effective_enabled} />
       </CardContent>
     </Card>
+  )
+}
+
+function SkillExperience({
+  controller,
+  skillName,
+  writable
+}: {
+  controller: SkillExperienceController
+  skillName: string
+  writable: boolean
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState<string>()
+  const item = controller.byName.get(skillName)
+  const editing = draft !== undefined
+
+  return (
+    <section className="grid gap-2 border-t border-border pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-medium">{t('console.agent_library_capabilities.experience')}</h4>
+        <div className="flex items-center gap-1">
+          {writable && !editing ? (
+            <Button type="button" size="xs" variant="outline" onClick={() => setDraft(item?.text ?? '')}>
+              {item ? t('common.edit') : t('console.agent_library_capabilities.experience_add')}
+            </Button>
+          ) : null}
+          {item && !editing ? (
+            <ConfirmDeleteButton
+              pending={controller.pending}
+              confirm={{
+                title: t('console.agent_library_capabilities.experience_delete_title'),
+                description: t('console.agent_library_capabilities.experience_delete_description', {
+                  skill: skillName
+                }),
+                confirmLabel: t('common.delete')
+              }}
+              onConfirm={() => controller.remove(skillName)}
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="grid gap-2">
+          <Textarea
+            className="min-h-32"
+            value={draft}
+            placeholder={t('console.agent_library_capabilities.experience_placeholder')}
+            onChange={event => setDraft(event.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(undefined)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={controller.pending || !draft.trim()}
+              onClick={() => controller.save(skillName, draft, item?.content_hash ?? '', () => setDraft(undefined))}>
+              {t('common.save')}
+            </Button>
+          </div>
+        </div>
+      ) : item ? (
+        <>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border border-border bg-muted p-3 text-xs leading-5">
+            {item.text}
+          </pre>
+          <span className="text-xs text-muted-foreground">{formatConsoleDate(item.updated_at)}</span>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t('console.agent_library_capabilities.experience_empty')}</p>
+      )}
+
+      {item && !writable ? (
+        <p className="text-xs text-muted-foreground">
+          {t('console.agent_library_capabilities.experience_disabled_hint')}
+        </p>
+      ) : null}
+    </section>
   )
 }
 
@@ -633,6 +735,65 @@ function useCapabilityMutations(scope: string) {
     setSkill(id: string, enabled: boolean | null) {
       if (scope === GLOBAL_LIBRARY_SCOPE) globalSkill.mutate({ path: { id }, body: { enabled: enabled === true } })
       else agentSkill.mutate({ path: { agent_uid: scope, id }, body: { enabled } })
+    }
+  }
+}
+
+type SkillExperienceController = {
+  byName: Map<string, AgentLibrarySkillOverlayItem>
+  error: unknown
+  pending: boolean
+  remove: (skillName: string) => void
+  save: (skillName: string, text: string, expectedContentHash: string, onSuccess: () => void) => void
+}
+
+// Dreaming and the Agent's own `skill_append` write the same rows, so a save
+// carries the hash the editor loaded and a stale editor is rejected instead of
+// dropping guidance that a curation run added meanwhile.
+function useSkillExperience(scope: string): SkillExperienceController | undefined {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const agentScope = scope !== GLOBAL_LIBRARY_SCOPE
+  const overlays = useQuery({
+    ...ankoleWebAgentLibrarySkillOverlayControllerIndexOptions({ path: { agent_uid: scope } }),
+    enabled: agentScope
+  })
+  const onError = (mutationError: unknown) => toast.error(requestErrorMessage(mutationError))
+  const refresh = () => void queryClient.invalidateQueries()
+  const save = useMutation({
+    ...ankoleWebAgentLibrarySkillOverlayControllerUpdateMutation(),
+    onSuccess: () => {
+      toast.success(t('console.agent_library_capabilities.experience_saved'))
+      refresh()
+    },
+    onError
+  })
+  const remove = useMutation({
+    ...ankoleWebAgentLibrarySkillOverlayControllerDeleteMutation(),
+    onSuccess: () => {
+      toast.success(t('console.agent_library_capabilities.experience_deleted'))
+      refresh()
+    },
+    onError
+  })
+
+  if (!agentScope) return undefined
+
+  return {
+    byName: new Map((overlays.data?.skill_overlays ?? []).map(item => [item.skill_name, item])),
+    error: overlays.error,
+    pending: save.isPending || remove.isPending,
+    remove(skillName) {
+      remove.mutate({ path: { agent_uid: scope, skill_name: skillName } })
+    },
+    save(skillName, text, expectedContentHash, onSuccess) {
+      save.mutate(
+        {
+          path: { agent_uid: scope, skill_name: skillName },
+          body: { text, expected_content_hash: expectedContentHash }
+        },
+        { onSuccess }
+      )
     }
   }
 }

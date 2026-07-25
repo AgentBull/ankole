@@ -41,6 +41,7 @@ type SetupState = {
   availableLocales: string[]
   completed: boolean
   currentLocale: string
+  publicBaseURL: string
 }
 
 type Plugin = {
@@ -177,7 +178,7 @@ export function SetupApp() {
               }}
             />
           ) : (
-            <IdentityStep />
+            <IdentityStep publicBaseURL={state.data?.publicBaseURL ?? window.location.origin} />
           )}
         </div>
       </section>
@@ -337,7 +338,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   )
 }
 
-function IdentityStep() {
+function IdentityStep({ publicBaseURL }: { publicBaseURL: string }) {
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
     queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
@@ -346,11 +347,11 @@ function IdentityStep() {
   if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
   if ((query.data?.adapters ?? []).length === 0) return <NoAdapters error={query.error} />
 
-  return <IdentityForm adapters={query.data?.adapters ?? []} />
+  return <IdentityForm adapters={query.data?.adapters ?? []} publicBaseURL={publicBaseURL} />
 }
 
 /** Renders the selected identity adapter fields and starts setup-time OIDC. */
-function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
+function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]; publicBaseURL: string }) {
   useSignals()
   const { i18n: i18next, t } = useTranslation()
   const model = useModel(IdentitySetupModel)
@@ -447,6 +448,16 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
           </Field>
         </FieldGroup>
 
+        <Field>
+          <FieldLabel>{t('setup.oidc_callback_url')}</FieldLabel>
+          <Input
+            onFocus={event => event.target.select()}
+            readOnly
+            value={oidcCallbackURL(publicBaseURL, model.providerID.value)}
+          />
+          <FieldDescription>{t('setup.oidc_callback_url_hint')}</FieldDescription>
+        </Field>
+
         <section className="grid gap-5">
           <h2 className="text-sm font-semibold uppercase tracking-normal text-muted-foreground">
             {t('setup.adapter_config')}
@@ -480,6 +491,11 @@ function NoAdapters({ error }: { error: unknown }) {
       <ErrorAlert error={error} />
     </Panel>
   )
+}
+
+/** Mirrors the host OIDC callback route, which the provider must have registered. */
+function oidcCallbackURL(publicBaseURL: string, providerID: string): string {
+  return `${publicBaseURL.replace(/\/$/, '')}/sessions/oidc/${encodeURIComponent(providerID)}/callback`
 }
 
 function adapterByID(adapters: IdentityAdapter[], adapterID: string): IdentityAdapter {

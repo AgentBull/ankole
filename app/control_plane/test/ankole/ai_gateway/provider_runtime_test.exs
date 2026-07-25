@@ -785,7 +785,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert context_payload.soul_content_hash == current_documents["soul"]["content_hash"]
     assert context_payload.design_content_hash == current_documents["design"]["content_hash"]
-    assert Enum.any?(context_payload.skills, &(&1.skill_name == "nano-pdf"))
+    assert Enum.any?(context_payload.skills, &(&1.skill_name == "pdf"))
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(
@@ -793,7 +793,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "skill-overlay-replace-1",
                  "skills.overlay.replace",
                  %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "nano-pdf",
+                   skill_name: "pdf",
                    content: "Prefer page-by-page verification.",
                    expected_content_hash: ""
                  },
@@ -813,7 +813,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                rpc_request(
                  "skill-overlay-resolve-1",
                  "skills.overlay.resolve",
-                 %FabricProto.SkillOverlayResolveRequest{skill_name: "nano-pdf"},
+                 %FabricProto.SkillOverlayResolveRequest{skill_name: "pdf"},
                  turn: mixed_case_turn
                ),
                route
@@ -866,7 +866,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                  "skill-overlay-after-steer",
                  "skills.overlay.replace",
                  %FabricProto.SkillOverlayReplaceRequest{
-                   skill_name: "nano-pdf",
+                   skill_name: "pdf",
                    content: "Prefer page-by-page verification after steer.",
                    expected_content_hash: ""
                  },

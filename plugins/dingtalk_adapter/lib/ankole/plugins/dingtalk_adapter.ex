@@ -73,6 +73,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         capabilities: [
           "oidc_authorization",
           "oidc_code_exchange",
+          "credential_check",
           "directory_full_sync",
           "directory_realtime_sync"
         ]
@@ -98,18 +99,25 @@ defmodule Ankole.Plugins.DingTalkAdapter do
     [
       field(
         "clientId",
-        %{"default" => "App Key", "zh-Hans-CN" => "应用 AppKey"},
+        %{"default" => "Client ID (AppKey)", "zh-Hans-CN" => "应用 Client ID（AppKey）"},
         %{
-          "default" => "Enterprise-internal app AppKey (also the Stream clientId).",
-          "zh-Hans-CN" => "企业内部应用 AppKey（同时作为 Stream clientId）。"
+          "default" =>
+            "Enterprise-internal app Client ID from Basic information > Credentials (also the Stream clientId).",
+          "zh-Hans-CN" => "企业内部应用的 Client ID，在开发者后台「基础信息 → 凭证与基础信息」查看（同时作为 Stream clientId）。"
         },
         :string,
         required: true
       ),
       field(
         "clientSecret",
-        %{"default" => "App Secret", "zh-Hans-CN" => "应用 AppSecret"},
-        %{"default" => "Enterprise-internal app AppSecret.", "zh-Hans-CN" => "企业内部应用 AppSecret。"},
+        %{
+          "default" => "Client Secret (AppSecret)",
+          "zh-Hans-CN" => "应用 Client Secret（AppSecret）"
+        },
+        %{
+          "default" => "Enterprise-internal app Client Secret from the same page.",
+          "zh-Hans-CN" => "企业内部应用的 Client Secret，与 Client ID 在同一页面。"
+        },
         :secret,
         required: true,
         encrypted: true
@@ -178,15 +186,24 @@ defmodule Ankole.Plugins.DingTalkAdapter do
     [
       field(
         "clientId",
-        %{"default" => "App Key", "zh-Hans-CN" => "应用 AppKey"},
-        %{"default" => "Enterprise-internal app AppKey.", "zh-Hans-CN" => "企业内部应用 AppKey。"},
+        %{"default" => "Client ID (AppKey)", "zh-Hans-CN" => "应用 Client ID（AppKey）"},
+        %{
+          "default" => "Enterprise-internal app Client ID from Basic information > Credentials.",
+          "zh-Hans-CN" => "企业内部应用的 Client ID，在开发者后台「基础信息 → 凭证与基础信息」查看。"
+        },
         :string,
         required: true
       ),
       field(
         "clientSecret",
-        %{"default" => "App Secret", "zh-Hans-CN" => "应用 AppSecret"},
-        %{"default" => "Enterprise-internal app AppSecret.", "zh-Hans-CN" => "企业内部应用 AppSecret。"},
+        %{
+          "default" => "Client Secret (AppSecret)",
+          "zh-Hans-CN" => "应用 Client Secret（AppSecret）"
+        },
+        %{
+          "default" => "Enterprise-internal app Client Secret from the same page.",
+          "zh-Hans-CN" => "企业内部应用的 Client Secret，与 Client ID 在同一页面。"
+        },
         :secret,
         required: true,
         encrypted: true
@@ -195,8 +212,10 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         "oidc.enabled",
         %{"default" => "Enable login", "zh-Hans-CN" => "启用登录"},
         %{
-          "default" => "Allows operators to sign in through DingTalk.",
-          "zh-Hans-CN" => "允许管理员通过钉钉登录。"
+          "default" =>
+            "Allows operators to sign in through DingTalk. The app must have a released version, and the login callback URL must be registered in Development configuration > Security settings > Redirect URL. DingTalk refuses browser login for an app it cannot find.",
+          "zh-Hans-CN" =>
+            "允许管理员通过钉钉登录。应用必须已发布版本，并在「开发配置 → 安全设置 → 重定向URL（回调域名）」登记本页显示的登录回调地址；钉钉找不到应用时会直接拒绝浏览器登录。"
         },
         :boolean,
         default: true

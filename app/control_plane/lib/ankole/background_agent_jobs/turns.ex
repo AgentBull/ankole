@@ -349,6 +349,33 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   @doc false
+  @spec consecutive_lead_failures_in_tx(module(), Job.t(), pos_integer()) ::
+          {non_neg_integer(), map() | nil}
+  def consecutive_lead_failures_in_tx(
+        repo,
+        %Job{runtime_thread_id: lead_thread_id} = job,
+        limit
+      )
+      when is_binary(lead_thread_id) and is_integer(limit) and limit > 0 do
+    failures =
+      Turn
+      |> where([turn], turn.job_id == ^job.id)
+      |> where([turn], turn.kind == "agent")
+      |> where([turn], turn.runtime_thread_id == ^lead_thread_id)
+      |> order_by([turn], desc: turn.started_at, desc: turn.id)
+      |> limit(^limit)
+      |> repo.all()
+      |> Enum.take_while(&(&1.status == "failed"))
+
+    case failures do
+      [] -> {0, nil}
+      [latest | _rest] -> {length(failures), latest.error}
+    end
+  end
+
+  def consecutive_lead_failures_in_tx(_repo, %Job{}, _limit), do: {0, nil}
+
+  @doc false
   @spec interrupt_before_attempt_in_tx(module(), Job.t(), pos_integer(), DateTime.t()) ::
           :ok
   def interrupt_before_attempt_in_tx(

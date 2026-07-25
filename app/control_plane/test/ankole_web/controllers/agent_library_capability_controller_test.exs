@@ -41,7 +41,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert Enum.find(global["agent_plugins"], &(&1["id"] == "lark"))["effective_enabled"] == false
 
     standalone_names = Enum.map(global["skills"], & &1["name"])
-    assert "nano-pdf" in standalone_names
+    assert "pdf" in standalone_names
     refute "lark-im" in standalone_names
     refute "docx" in standalone_names
 

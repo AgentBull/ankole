@@ -465,6 +465,64 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
+  Lists the active skill overlays of one agent, most recently changed first.
+
+  An overlay outlives its skill enablement, so a row is listed even when the
+  skill is disabled or no longer installed. An unlisted overlay would come back
+  silently the next time the skill is enabled.
+  """
+  @spec list_skill_overlays(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_skill_overlays(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         :ok <- ensure_agent(repo, agent_uid),
+         {:ok, defaults} <- library_defaults(opts),
+         {:ok, parent_enabled} <- parent_enablement(agent_uid, opts) do
+      skills =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> repo.all()
+        |> Map.new(&{&1.skill_name, &1})
+
+      overlays =
+        AgentSkillOverlay
+        |> where([overlay], overlay.agent_uid == ^agent_uid)
+        |> where([overlay], is_nil(overlay.deleted_at))
+        |> order_by([overlay], desc: overlay.updated_at, asc: overlay.skill_name)
+        |> repo.all()
+        |> Enum.map(
+          &skill_overlay_summary(&1, Map.get(skills, &1.skill_name), defaults, parent_enabled)
+        )
+
+      {:ok, overlays}
+    end
+  end
+
+  @doc """
+  Soft-deletes the active skill overlay of one agent skill.
+
+  Deletion does not require the skill to stay enabled, because a disabled skill
+  is exactly the case where an operator can no longer reach the overlay through
+  a write path.
+  """
+  @spec delete_skill_overlay(String.t(), String.t(), keyword()) ::
+          {:ok, AgentSkillOverlay.t()} | {:error, term()}
+  def delete_skill_overlay(agent_uid, skill_name, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         :ok <- ensure_agent(repo, agent_uid),
+         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name) do
+      repo.transact(fn repo ->
+        with :ok <- lock_skill_overlay(repo, agent_uid, skill_name) do
+          delete_skill_overlay_in_tx(repo, active_skill_overlay(repo, agent_uid, skill_name))
+        end
+      end)
+    end
+  end
+
+  @doc """
   Returns the current agent soul text, falling back to the bundled template.
   """
   @spec get_soul(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
@@ -1213,6 +1271,28 @@ defmodule Ankole.AIAgent.Library do
       conflict_target: {:unsafe_fragment, "(agent_uid, skill_name) WHERE deleted_at IS NULL"},
       returning: true
     )
+  end
+
+  defp delete_skill_overlay_in_tx(_repo, nil), do: {:error, :skill_overlay_not_found}
+
+  defp delete_skill_overlay_in_tx(repo, %AgentSkillOverlay{} = overlay) do
+    overlay
+    |> AgentSkillOverlay.changeset(%{deleted_at: DateTime.utc_now(:microsecond)})
+    |> repo.update()
+  end
+
+  defp skill_overlay_summary(%AgentSkillOverlay{} = overlay, skill, defaults, parent_enabled) do
+    %{
+      "skill_name" => overlay.skill_name,
+      "skill_id" => skill && skill_stable_id(skill),
+      "agent_plugin_id" => skill && skill.agent_plugin_id,
+      "description" => skill && skill.description,
+      "effective_enabled" =>
+        not is_nil(skill) and effective_skill_enabled?(skill, defaults, parent_enabled),
+      "text" => skill_overlay_text(overlay) || "",
+      "content_hash" => overlay.content_hash,
+      "updated_at" => DateTime.to_iso8601(overlay.updated_at)
+    }
   end
 
   defp skill_overlay_text(%AgentSkillOverlay{overlay_json: %{"text" => text}})

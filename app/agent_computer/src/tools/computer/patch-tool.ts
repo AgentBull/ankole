@@ -316,10 +316,14 @@ async function applyV4A(
   // Phase 1: validate every operation and compute the new file contents up-front.
   const writes: PlannedWrite[] = []
   for (const operation of operations) {
-    // Delete/Move are parsed but not executable here: the worker has no file-delete
-    // API in v1, so refuse them explicitly rather than silently dropping the operation.
-    if (operation.kind === 'delete' || operation.kind === 'move') {
-      throw new Error(`V4A ${operation.kind} is not supported in this computer version (no file delete API)`)
+    // Delete and rename are parsed but not executable here: the worker has no
+    // file-delete or file-move API in v1, so refuse them explicitly rather than
+    // silently dropping the operation.
+    if (operation.kind === 'delete') {
+      throw new Error('V4A delete is not supported in this computer version (no file delete API)')
+    }
+    if (operation.kind === 'update' && operation.moveTo !== undefined) {
+      throw new Error('V4A "*** Move to:" is not supported in this computer version (no file move API)')
     }
     const target = splitWritePath(operation.path, cwd)
     if (operation.kind === 'add') {

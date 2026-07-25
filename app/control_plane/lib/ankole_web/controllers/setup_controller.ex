@@ -25,11 +25,16 @@ defmodule AnkoleWeb.SetupController do
       # `authenticated` is meaningful only while setup is incomplete: once setup is
       # done there is no setup session to hold, so it collapses to false and the
       # SPA stops offering setup steps.
+      #
+      # `publicBaseURL` is the origin this request arrived on, the same value the
+      # OIDC redirect URI is built from. The SPA shows the resulting callback URL
+      # so an operator registers it at the provider before the first login jump.
       json(conn, %{
         completed: completed?,
         authenticated: not completed? and WebSession.setup_session_active?(conn),
         currentLocale: current_locale,
-        availableLocales: I18n.available_locales()
+        availableLocales: I18n.available_locales(),
+        publicBaseURL: public_base_url(conn)
       })
     else
       {:error, reason} -> error(conn, 500, reason)
@@ -171,6 +176,7 @@ defmodule AnkoleWeb.SetupController do
   def oidc_authorization(conn, %{"provider_id" => provider_id}) do
     with :ok <- require_setup_session(conn),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
+         {:ok, _checked} <- IdentityProviders.check_credentials(provider_id),
          state <- WebSession.opaque_token(),
          redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-

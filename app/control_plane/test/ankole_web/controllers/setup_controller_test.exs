@@ -13,6 +13,7 @@ defmodule AnkoleWeb.SetupControllerTest do
   alias Ankole.IdentityProviders
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.Plugins.Config, as: PluginsConfig
+  alias Ankole.Plugins.DingTalkAdapter
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Repo
   alias Ankole.Setup.Bootstrap
@@ -76,6 +77,17 @@ defmodule AnkoleWeb.SetupControllerTest do
     assert get_session(conn, :setup_oidc_state) == nil
   end
 
+  test "setup state reports the forwarded origin the callback URL is built from", %{conn: conn} do
+    conn =
+      conn
+      |> Map.merge(%{host: "ankole.example.com", port: 80})
+      |> init_test_session(%{})
+      |> put_req_header("x-forwarded-proto", "https")
+      |> get(~p"/.internal-apis/setup/state")
+
+    assert json_response(conn, 200)["publicBaseURL"] == "https://ankole.example.com"
+  end
+
   test "OIDC authorization uses the forwarded HTTPS origin for its callback", %{conn: conn} do
     :ok = IdentityProviderConfig.ensure_registered()
     :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
@@ -109,6 +121,46 @@ defmodule AnkoleWeb.SetupControllerTest do
              "https://ankole.example.com/sessions/oidc/lark-main/callback"
 
     assert WebSession.setup_oidc_state(conn)["redirect_uri"] == redirect_uri
+  end
+
+  test "OIDC authorization stops at the provider's own credential rejection", %{conn: conn} do
+    :ok = IdentityProviderConfig.ensure_registered()
+    :ok = AppConfigure.register_patterns(DingTalkAdapter.app_config_patterns())
+
+    assert {:ok, _provider} =
+             IdentityProviders.save_provider(
+               "dingtalk-main",
+               "dingtalk",
+               %{
+                 "clientId" => "ding_setup_check",
+                 "clientSecret" => "wrong-secret",
+                 "sync" => %{"contacts" => false}
+               },
+               true
+             )
+
+    previous_options = Req.default_options()
+    on_exit(fn -> Req.default_options(previous_options) end)
+
+    Req.default_options(
+      plug: fn conn ->
+        conn
+        |> Plug.Conn.put_status(400)
+        |> Req.Test.json(%{
+          "code" => "invalidClientIdOrSecret",
+          "message" => "无效的clientId或者clientSecret"
+        })
+      end
+    )
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> post(~p"/.internal-apis/setup/identity-providers/dingtalk-main/oidc/authorizations")
+
+    assert json_response(conn, 400)["error"] =~ "invalidClientIdOrSecret"
+    assert WebSession.setup_oidc_state(conn) == nil
   end
 
   test "bootstrap repairs console admin grants once when setup is complete" do

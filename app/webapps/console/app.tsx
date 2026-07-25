@@ -19,6 +19,7 @@ import {
   BrainEntryCreatePage,
   BrainEntryEditorPage
 } from './pages/brain'
+import { BrainSkillExperiencePage } from './pages/brain-skill-experience'
 import { BrainStatusPage } from './pages/brain-status'
 import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
 import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
@@ -88,6 +89,7 @@ const router = createBrowserRouter(
         { path: 'brain/sources', element: <BrainSourcesPage /> },
         { path: 'brain/learn', element: <BrainSourceLearnPage /> },
         { path: 'brain/sources/:documentID', element: <BrainSourcePage /> },
+        { path: 'brain/skill-experience', element: <BrainSkillExperiencePage /> },
         { path: 'brain/status', element: <BrainStatusPage /> },
         { path: 'brain/audit', element: <BrainAuditPage /> },
         { path: 'brain/dreaming', element: <BrainDreamingPage /> },

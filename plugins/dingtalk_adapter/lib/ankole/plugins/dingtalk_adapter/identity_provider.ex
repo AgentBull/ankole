@@ -24,6 +24,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   alias DingTalkOpenAPI.Contact
   alias DingTalkOpenAPI.Event
   alias DingTalkOpenAPI.OAuth
+  alias DingTalkOpenAPI.TokenManager
 
   import MapHelpers, only: [collect_results: 1, compact_map: 1, fetch_list: 2, optional_text: 2]
 
@@ -32,6 +33,22 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   def identity_consumer(provider_id, config)
       when is_binary(provider_id) and is_map(config) do
     %{kind: :identity_provider, provider_id: provider_id, config: config}
+  end
+
+  @doc """
+  Checks the configured credentials against the DingTalk app-token endpoint.
+
+  DingTalk resolves the app before it looks at anything else in a login request,
+  and its authorization page reports an unknown app without naming the field. A
+  token fetch separates a wrong Client ID or Client Secret, which fails here,
+  from an app that DingTalk knows but refuses to log in through a browser.
+  """
+  @spec check_credentials(map()) :: :ok | {:error, term()}
+  def check_credentials(config) when is_map(config) do
+    case TokenManager.get_app_token(Config.client(config)) do
+      {:ok, _token} -> :ok
+      {:error, error} -> {:error, error}
+    end
   end
 
   @doc "Builds the DingTalk authorization page URL for login."

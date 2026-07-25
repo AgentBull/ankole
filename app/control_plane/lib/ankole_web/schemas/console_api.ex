@@ -797,6 +797,80 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule AgentLibrarySkillOverlayItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibrarySkillOverlayItem",
+        type: :object,
+        properties: %{
+          skill_name: %Schema{type: :string},
+          skill_id: %Schema{type: :string, nullable: true},
+          agent_plugin_id: %Schema{type: :string, nullable: true},
+          description: %Schema{type: :string, nullable: true},
+          effective_enabled: %Schema{type: :boolean},
+          text: %Schema{type: :string},
+          content_hash: %Schema{type: :string},
+          updated_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [
+          :skill_name,
+          :skill_id,
+          :agent_plugin_id,
+          :description,
+          :effective_enabled,
+          :text,
+          :content_hash,
+          :updated_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibrarySkillOverlaysResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibrarySkillOverlaysResponse",
+        type: :object,
+        properties: %{
+          skill_overlays: %Schema{type: :array, items: AgentLibrarySkillOverlayItem}
+        },
+        required: [:skill_overlays],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AgentLibrarySkillOverlayWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AgentLibrarySkillOverlayWriteRequest",
+        type: :object,
+        properties: %{
+          text: %Schema{type: :string},
+          expected_content_hash: %Schema{type: :string}
+        },
+        required: [:text, :expected_content_hash],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AgentLibrarySkillCapabilityItem do
     @moduledoc false
 

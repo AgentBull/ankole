@@ -36,7 +36,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_VIEW. Use skill_view for nano-pdf once, then reply exactly CHAOS_SKILL_VIEW_OK.",
+                 "@_user_1 Run CHAOS_SKILL_VIEW. Use skill_view for pdf once, then reply exactly CHAOS_SKILL_VIEW_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_050, :millisecond), :millisecond)
@@ -55,10 +55,10 @@ defmodule Ankole.E2E.Scenarios.Skill do
     messages = ai_messages_for_actor_event(input.id)
     assert [skill_result] = successful_tool_results(messages, "skill_view")
     rendered = inspect(skill_result)
-    assert rendered =~ "skill://enabled/nano-pdf/SKILL.md"
-    assert rendered =~ "nano-pdf Skill is a background-task capability"
+    assert rendered =~ "skill://enabled/pdf/SKILL.md"
+    assert rendered =~ "pdf Skill is a background-task capability"
     assert rendered =~ "create_background_job"
-    refute rendered =~ "# nano-pdf"
+    refute rendered =~ "# PDF"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
@@ -77,7 +77,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for jupyter-live-kernel and nano-pdf, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
+                 "@_user_1 Run CHAOS_SKILL_VIEW_ALL. Use skill_view for jupyter-live-kernel and pdf, then reply exactly CHAOS_SKILL_VIEW_ALL_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_060, :millisecond), :millisecond)
@@ -98,14 +98,14 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert length(skill_results) == 2
     rendered = inspect(skill_results)
 
-    for skill_name <- ~w(jupyter-live-kernel nano-pdf) do
+    for skill_name <- ~w(jupyter-live-kernel pdf) do
       assert rendered =~ "skill://enabled/#{skill_name}/SKILL.md"
       assert rendered =~ "#{skill_name} Skill is a background-task capability"
     end
 
     assert rendered =~ "create_background_job"
     refute rendered =~ "# Jupyter Live Kernel"
-    refute rendered =~ "# nano-pdf"
+    refute rendered =~ "# PDF"
 
     assert_actor_event_completed!(input.id)
     %{input: input, reply: reply}
@@ -172,10 +172,10 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, _result} = Library.sync_agent_skills(agent.uid)
 
     assert {:ok, %AgentSkill{enabled_override: false}} =
-             Library.set_agent_skill_override(agent.uid, "nano-pdf", false)
+             Library.set_agent_skill_override(agent.uid, "pdf", false)
 
     assert {:ok, enabled_skills} = Library.enabled_skills_for_agent(agent.uid)
-    refute Enum.any?(enabled_skills, &(&1["skill_name"] == "nano-pdf"))
+    refute Enum.any?(enabled_skills, &(&1["skill_name"] == "pdf"))
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -184,7 +184,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                chat_id: "oc_chaos_skill",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_SKILL_DISABLED. Try skill_view for nano-pdf once, then reply exactly CHAOS_SKILL_DISABLED_OK.",
+                 "@_user_1 Run CHAOS_SKILL_DISABLED. Try skill_view for pdf once, then reply exactly CHAOS_SKILL_DISABLED_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 5_090, :millisecond), :millisecond)

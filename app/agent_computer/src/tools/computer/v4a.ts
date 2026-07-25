@@ -2,9 +2,21 @@ import { match, P } from '@pleisto/active-support'
 
 /**
  * V4A ("apply_patch") envelope parser — the multi-file patch format accepted
- * by the strict `patch` tool. We parse Update/Add/Delete/Move; the patch tool
- * applies Update/Add (Delete/Move need a file-delete API the worker doesn't expose
- * in v1).
+ * by the strict `patch` tool and by the `apply_patch` command in the Job runtime.
+ * The grammar follows Codex upstream:
+ *
+ *   start:         begin_patch hunk+ end_patch
+ *   hunk:          add_hunk | delete_hunk | update_hunk
+ *   add_hunk:      "*** Add File: " filename LF add_line+
+ *   delete_hunk:   "*** Delete File: " filename LF
+ *   update_hunk:   "*** Update File: " filename LF change_move? change?
+ *   change_move:   "*** Move to: " filename LF
+ *   change:        (change_context | change_line)+ eof_line?
+ *
+ * We parse Add/Update/Delete and the Update rename; the patch tool applies Add and
+ * Update only (delete and rename need file APIs the worker doesn't expose in v1).
+ * Where this parser differs, it is more permissive than upstream: the envelope
+ * markers are optional and an unmarked body line counts as context.
  *
  * V4A is the context-diff dialect Codex/OpenAI `apply_patch` uses. The key design
  * choice is that a hunk is located by the lines that surround it (context lines),
@@ -23,17 +35,17 @@ export interface V4AHunk {
 }
 
 export type V4AOperation =
-  | { kind: 'update'; path: string; hunks: V4AHunk[] }
+  | { kind: 'update'; path: string; moveTo?: string; hunks: V4AHunk[] }
   | { kind: 'add'; path: string; content: string }
   | { kind: 'delete'; path: string }
-  | { kind: 'move'; from: string; to: string }
 
 // File-operation header lines. Each operation is introduced by a `*** <Verb> File:`
 // line; the surrounding `\s*` tolerates the spacing variations models emit.
 const UPDATE = /^\*\*\*\s*Update\s+File:\s*(.+)$/
 const ADD = /^\*\*\*\s*Add\s+File:\s*(.+)$/
 const DELETE = /^\*\*\*\s*Delete\s+File:\s*(.+)$/
-const MOVE = /^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+)$/
+// A rename belongs to the Update operation above it and carries the destination only.
+const MOVE_TO = /^\*\*\*\s*Move\s+to:\s*(.+)$/i
 
 /**
  * Parses a V4A patch envelope into a flat list of file operations. Pure: it only
@@ -115,7 +127,7 @@ export function parseV4APatch(patch: string): V4AOperation[] {
     const update_ = trimmed.match(UPDATE)
     const add_ = trimmed.match(ADD)
     const delete_ = trimmed.match(DELETE)
-    const move_ = trimmed.match(MOVE)
+    const moveTo_ = trimmed.match(MOVE_TO)
     if (update_) {
       flush()
       update = { kind: 'update', path: update_[1]!.trim(), hunks: [] }
@@ -131,9 +143,10 @@ export function parseV4APatch(patch: string): V4AOperation[] {
       ops.push({ kind: 'delete', path: delete_[1]!.trim() })
       continue
     }
-    if (move_) {
-      flush()
-      ops.push({ kind: 'move', from: move_[1]!.trim(), to: move_[2]!.trim() })
+    // A rename line renames the file the current Update operation targets, so it
+    // annotates that operation instead of starting a new one.
+    if (moveTo_ && update) {
+      update.moveTo = moveTo_[1]!.trim()
       continue
     }
     if (update && trimmed === '*** End of File') {

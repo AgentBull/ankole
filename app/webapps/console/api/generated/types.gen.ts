@@ -1099,6 +1099,14 @@ export type AppConfigurationUpdateRequest = {
 }
 
 /**
+ * AgentLibrarySkillOverlayWriteRequest
+ */
+export type AgentLibrarySkillOverlayWriteRequest = {
+  expected_content_hash: string
+  text: string
+}
+
+/**
  * BrainDreamingRun
  */
 export type BrainDreamingRun = {
@@ -1366,6 +1374,13 @@ export type IdentityProviderAdapterItem = {
 }
 
 /**
+ * AgentLibrarySkillOverlaysResponse
+ */
+export type AgentLibrarySkillOverlaysResponse = {
+  skill_overlays: Array<AgentLibrarySkillOverlayItem>
+}
+
+/**
  * BrainSourceEntryResponse
  */
 export type BrainSourceEntryResponse = {
@@ -1600,6 +1615,20 @@ export type IdentityProviderWriteRequest = {
   adapter_id: string
   config: JsonValue
   enabled?: boolean
+}
+
+/**
+ * AgentLibrarySkillOverlayItem
+ */
+export type AgentLibrarySkillOverlayItem = {
+  agent_plugin_id: string | null
+  content_hash: string
+  description: string | null
+  effective_enabled: boolean
+  skill_id: string | null
+  skill_name: string
+  text: string
+  updated_at: string
 }
 
 /**
@@ -5111,6 +5140,47 @@ export type AnkoleWebAiGatewayConversationControllerIndexResponses = {
 export type AnkoleWebAiGatewayConversationControllerIndexResponse =
   AnkoleWebAiGatewayConversationControllerIndexResponses[keyof AnkoleWebAiGatewayConversationControllerIndexResponses]
 
+export type AnkoleWebAgentLibrarySkillOverlayControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/library-skill-overlays'
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid skill overlay
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerIndexError =
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors[keyof AnkoleWebAgentLibrarySkillOverlayControllerIndexErrors]
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses = {
+  /**
+   * Agent skill overlays
+   */
+  200: AgentLibrarySkillOverlaysResponse
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerIndexResponse =
+  AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses[keyof AnkoleWebAgentLibrarySkillOverlayControllerIndexResponses]
+
 export type AnkoleWebPrincipalControllerShowData = {
   body?: never
   path: {
@@ -6022,6 +6092,97 @@ export type AnkoleWebBrainControllerAuditIndexResponses = {
 
 export type AnkoleWebBrainControllerAuditIndexResponse =
   AnkoleWebBrainControllerAuditIndexResponses[keyof AnkoleWebBrainControllerAuditIndexResponses]
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerDeleteData = {
+  body?: never
+  path: {
+    agent_uid: string
+    skill_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}'
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid skill overlay
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerDeleteError =
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors[keyof AnkoleWebAgentLibrarySkillOverlayControllerDeleteErrors]
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses = {
+  /**
+   * Agent skill overlays
+   */
+  200: AgentLibrarySkillOverlaysResponse
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponse =
+  AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses[keyof AnkoleWebAgentLibrarySkillOverlayControllerDeleteResponses]
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerUpdateData = {
+  /**
+   * Agent skill overlay
+   */
+  body: AgentLibrarySkillOverlayWriteRequest
+  path: {
+    agent_uid: string
+    skill_name: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/library-skill-overlays/{skill_name}'
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Skill overlay changed
+   */
+  409: ConsoleApiErrorEnvelope
+  /**
+   * Invalid skill overlay
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerUpdateError =
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors[keyof AnkoleWebAgentLibrarySkillOverlayControllerUpdateErrors]
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses = {
+  /**
+   * Agent skill overlays
+   */
+  200: AgentLibrarySkillOverlaysResponse
+}
+
+export type AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponse =
+  AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses[keyof AnkoleWebAgentLibrarySkillOverlayControllerUpdateResponses]
 
 export type AnkoleWebAppConfigurationControllerDeleteData = {
   body?: never
