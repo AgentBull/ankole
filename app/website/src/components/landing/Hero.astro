@@ -12,8 +12,12 @@ interface Props {
 
 const { lang } = Astro.props
 
-/** Runtime names, kept literal in every locale. */
-const STACK = ['Elixir · OTP', 'Rust kernel', 'Bun · TypeScript', 'PostgreSQL', 'ZeroMQ', 'Apache-2.0']
+/*
+ * The strip named runtimes, which tells a reader what the thing is made of rather than
+ * what it gives them. It now carries the four claims worth reading under the fold, so it
+ * is prose and needs translating, and it drops the "runs on" label that no longer fits.
+ */
+const CLAIMS = ['ha', 'memory', 'research', 'license'].map(key => t(lang, `hero.stack.${key}`))
 ---
 
 <section class="relative overflow-hidden border-b border-border">
@@ -80,11 +84,20 @@ const STACK = ['Elixir · OTP', 'Rust kernel', 'Bun · TypeScript', 'PostgreSQL'
 
 	<div class="relative border-t border-border bg-background/50 backdrop-blur-sm">
 		<div class="mx-auto max-w-7xl px-4 sm:px-6">
+			{/* Prose, so it leaves the mono face; a brand tick separates the claims. */}
 			<ul
-				class="flex list-none flex-wrap items-center gap-x-8 gap-y-2 border-x border-border/70 px-4 py-4 font-mono text-xs text-fg-tertiary sm:px-8"
+				class="flex list-none flex-wrap items-center gap-x-6 gap-y-2 border-x border-border/70 px-4 py-4 text-xs text-fg-tertiary sm:px-8"
 			>
-				<li class="text-muted-foreground">{t(lang, 'hero.stack.label')}</li>
-				{STACK.map(item => <li>{item}</li>)}
+				{
+					CLAIMS.map((claim, index) => (
+						<li class="flex items-center gap-6">
+							{index > 0 && (
+								<span class="size-1 bg-brand-60 dark:bg-brand-40" aria-hidden="true" />
+							)}
+							{claim}
+						</li>
+					))
+				}
 			</ul>
 		</div>
 	</div>

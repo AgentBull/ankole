@@ -134,9 +134,9 @@ html {
 }
 
 /*
- * Entrance motion is an enhancement, never a gate. A CSS animation lives in the
- * stylesheet rather than in the markup, so the served HTML always carries the
- * finished page and a crawler or a reader without CSS still gets every line.
+ * Entrance motion is an enhancement, never a gate. The served HTML always carries the
+ * finished page; the hero replay below is pure CSS, and the below-fold entrance hides
+ * nothing until a script has confirmed both JavaScript and a motion-tolerant reader.
  */
 @media (prefers-reduced-motion: no-preference) {
   /*
@@ -153,24 +153,6 @@ html {
   [data-replay='beat'] {
     animation-name: replay-beat;
     animation-duration: 0.78s;
-  }
-
-  @supports (animation-timeline: view()) {
-    [data-reveal] {
-      animation: reveal-rise linear both;
-      animation-timeline: view();
-      /* Finish well before the block is centred, or the travel is never seen. */
-      animation-range: entry 10% entry 78%;
-    }
-
-    [data-reveal='wipe'] {
-      animation-name: reveal-wipe;
-    }
-
-    /* Members of one row enter in sequence instead of snapping in together. */
-    [data-reveal-step] {
-      animation-range: calc(entry 10% + var(--reveal-step, 0) * 4%) calc(entry 78% + var(--reveal-step, 0) * 4%);
-    }
   }
 }
 
@@ -200,26 +182,34 @@ html {
   }
 }
 
-@keyframes reveal-rise {
-  from {
-    opacity: 0;
-    transform: translateY(2.25rem);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+/*
+ * Below-the-fold entrances are class-driven, not scroll-timeline-driven: Firefox and
+ * older Safari drop `animation-timeline: view()` whole, which left this page motionless
+ * below the hero in the browsers that do not speak it. `js-reveal` appears on <html>
+ * only when the observer script ran and `prefers-reduced-motion` allows motion, so with
+ * no JavaScript nothing is ever hidden. An element enters once and stays.
+ */
+/*
+ * The transition lives on the entered state only. On the base state it would also
+ * animate the hide that happens when the gate class lands, and an element straddling
+ * the fold would visibly fade out before its entrance. Hiding is instant; arriving moves.
+ */
+html.js-reveal [data-reveal].is-in {
+  transition:
+    opacity 0.56s var(--ease-expressive-entrance),
+    transform 0.56s var(--ease-expressive-entrance),
+    clip-path 0.64s var(--ease-expressive-entrance);
+  transition-delay: calc(var(--reveal-step, 0) * 70ms);
 }
 
-@keyframes reveal-wipe {
-  from {
-    opacity: 0;
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    opacity: 1;
-    clip-path: inset(0 0 0 0);
-  }
+html.js-reveal [data-reveal]:not(.is-in) {
+  opacity: 0;
+  transform: translateY(1.25rem);
+}
+
+html.js-reveal [data-reveal='wipe']:not(.is-in) {
+  clip-path: inset(0 100% 0 0);
+  transform: none;
 }
 
 /* An indeterminate run: the job is working, and nobody knows the remaining time. */

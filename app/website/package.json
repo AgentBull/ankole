@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && bun run scripts/check-motion-css.mjs",
     "preview": "astro preview",
     "type-check": "astro check",
     "lint": "oxlint . --ignore-pattern '.astro/**' --ignore-pattern 'dist/**'",

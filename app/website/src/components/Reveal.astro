@@ -1,14 +1,17 @@
 ---
 /**
- * Carbon expressive entrance, driven by scroll position in CSS.
+ * Below-the-fold entrance. Driven by an IntersectionObserver and a class, not by a CSS
+ * scroll timeline: Firefox and older Safari drop `animation-timeline: view()` as a
+ * whole, which left the page motionless below the hero for a large share of visitors.
  *
- * The content is visible without JavaScript and without scroll-timeline support.
- * The entrance is an enhancement, so a crawler, a slow connection, or a browser
- * without `animation-timeline` still shows a complete page.
+ * The served HTML is always the finished page. The `js-reveal` gate class appears on
+ * <html> only after this script runs and `prefers-reduced-motion` allows motion, so a
+ * crawler, a reader without JavaScript, or a reader who asked for less motion never
+ * has content hidden. Each element enters once; scrolling back up does not replay it.
  *
- * `rise` moves content a short distance along the vertical grid axis.
- * `wipe` uncovers content along the horizontal grid axis.
- * `step` offsets the scroll range, so members of one row arrive in sequence.
+ * `rise` moves content a short distance up onto its place.
+ * `wipe` uncovers content along the horizontal axis.
+ * `step` staggers the members of one row through `transition-delay`.
  */
 interface Props {
 	variant?: 'rise' | 'wipe'
@@ -17,14 +20,41 @@ interface Props {
 }
 
 const { variant = 'rise', step, class: className } = Astro.props
-const staggered = step !== undefined && step > 0
 ---
 
-<div
-	class={className}
-	data-reveal={variant}
-	data-reveal-step={staggered ? '' : undefined}
-	style={staggered ? `--reveal-step:${step}` : undefined}
->
+<div class={className} data-reveal={variant} style={step ? `--reveal-step:${step}` : undefined}>
 	<slot />
 </div>
+
+<script>
+	// Astro dedupes component scripts, so this runs once per page.
+	if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+		const targets = Array.from(document.querySelectorAll('[data-reveal]'))
+		const line = window.innerHeight * 0.92
+
+		/*
+		 * Gate and initial marks land in the same task, before the next paint. Elements
+		 * already on screen end where they started — visible — so the computed values
+		 * never change and no transition fires for them.
+		 */
+		document.documentElement.classList.add('js-reveal')
+		const below: Element[] = []
+		for (const el of targets) {
+			if (el.getBoundingClientRect().top < line) el.classList.add('is-in')
+			else below.push(el)
+		}
+
+		const observer = new IntersectionObserver(
+			entries => {
+				for (const entry of entries) {
+					if (!entry.isIntersecting) continue
+					entry.target.classList.add('is-in')
+					observer.unobserve(entry.target)
+				}
+			},
+			/* Fire once the element is a step inside the viewport, so the travel is seen. */
+			{ rootMargin: '0px 0px -8% 0px' }
+		)
+		for (const el of below) observer.observe(el)
+	}
+</script>

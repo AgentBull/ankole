@@ -3,6 +3,19 @@ name: Publish RuntimeFabric image pair
 on:
   push:
     branches: [main]
+    # Rebuild the release images only when something that reaches them changes.
+    # `paths-ignore` skips the run only when every changed file matches, so a commit
+    # touching both the website and the runtime still builds — the safe direction for
+    # images tagged by commit. `CHANGELOG.md` has to be here: the repository requires a
+    # version entry in every commit, so leaving it out would match every push and make
+    # the filter useless. None of these paths is copied by app/control_plane/Dockerfile
+    # or app/agent_computer/Dockerfile; app/library, libs, and plugins are, and are not
+    # listed.
+    paths-ignore:
+      - 'app/website/**'
+      - 'docs/**'
+      - 'CHANGELOG.md'
+      - '.github/workflows/website-pages.yml'
   workflow_dispatch:
 
 permissions:

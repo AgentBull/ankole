@@ -11,7 +11,7 @@ Actor Runtime 让一个 session 成为长时存活的东西，而不是一次请
 
 ## actor key
 
-长时工作的单位是一个 actor key：`{agent_uid, session_id}`。一个 agent 可以持有多个 session；一个 session 恰好属于一个 agent。后面的一切——串行控制器、activation、delivery 行、worker 指派——都以这一对为键。
+长时工作的单位是一个 actor key：`{agent_uid, session_id}`。一个 agent 可以持有多个 session；一个 session 恰好属于一个 Agent。后面的一切——串行控制器、activation、delivery 行、Worker 指派——都以这一对为键。
 
 session 是上下文、工作空间状态、引导、取消和恢复交汇的地方。它既不是一次请求，也不是一个队列任务，而是一个有状态的工作身份，能够跨几小时甚至几天地唤醒、等待、续接。
 
@@ -22,7 +22,7 @@ session 是上下文、工作空间状态、引导、取消和恢复交汇的地
 - **AI-agent 状态**——对话、回合、消息——是*持久事实*。它住在 AIGateway 拥有的表里，扛得过任何崩溃。
 - **Actor-runtime 投影**——activation、delivery、指派——是更廉价的*运行时线索*。它们为进行中的工作设隔离栏，并且可以从持久层重建。
 
-这种分开正是 worker 可替换的原因。worker 跑一个回合；决定这个回合的回复还算不算数的，是那些隔离栏行。一个崩溃或被取代的 worker 发出的迟到回复，会被隔离栏挡掉并无害丢弃。
+这种分开正是 Worker 可替换的原因。Worker 跑一个回合；决定这个回合的回复还算不算数的，是那些隔离栏行。一个崩溃或被取代的 Worker 发出的迟到回复，会被隔离栏挡掉并无害丢弃。
 
 ## 串行控制器，每个 actor 一个
 
@@ -37,7 +37,7 @@ session 是上下文、工作空间状态、引导、取消和恢复交汇的地
 - **运行时监督器**跑 `:one_for_one`。它的子进程——传输、命名、每个 actor 的控制器——是各自独立的关注点。一个子进程崩溃不会让其余子进程的状态失效，因为持久的正确性在 PostgreSQL 里，不在这些进程里。
 - **session 监督器**是一个 `DynamicSupervisor`，同样是 `:one_for_one`。每个 `SessionController` 是自己的故障单元：一个崩溃的控制器，或一个行为异常的 actor，会被隔离和重启，而不触碰任何别的 actor 的控制器。
 
-实际效果是，某个 agent 卡住、超时或崩溃，会被单独隔离或在自己的分支上重启，而不是演变成全部署的灾难。actor 在运行时来去，不需要一份静态的子进程清单。
+实际效果是，某个 Agent 卡住、超时或崩溃，会被单独隔离或在自己的分支上重启，而不是演变成全部署的灾难。actor 在运行时来去，不需要一份静态的子进程清单。
 
 ## activation 隔离栏
 

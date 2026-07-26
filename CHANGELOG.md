@@ -64,6 +64,39 @@
 
 - Put every element on one left edge. The page had no single axis: section headings sat at 137 pixels, the difference rows were indented 20 past them by a decorative hover bar, the rule ledger's contents sat 21 inside its own border, the closing statement sat 64 inboard of every other title because it lived in a padded panel, and the hero's system line missed the message column it was supposed to align to by 50, because its indent was computed by hand instead of taken from the grid. Each widget had been setting its own axis out of whatever padding it happened to carry, which is what makes a page read as assembled rather than composed. Headings, eyebrows, row numbers, ledger dates and the closing statement now share one edge; the system line rides the message grid with an empty avatar cell; and the rule before each section index is gone, because it pushed the eyebrow text off the very axis the ornament was decorating.
 
+- Reorder the sections to capabilities, install, seats, difference, compounding, runtime. The page previously argued philosophy first and showed the product later; it now shows what the thing does, how to run it, and where it sits before asking the reader to weigh a position. The raised-band alternation and the section numbers moved with the order, and the hero line survived a reorder that had briefly dropped it.
+
+- Turn the stack strip from a bill of materials into four claims. "Elixir · OTP, Rust kernel, Bun · TypeScript, PostgreSQL, ZeroMQ, Apache-2.0" tells a reader what the site is made of, which only a builder can price. The strip now says what those choices buy: enterprise-grade distributed HA on Elixir/OTP, long-horizon memory that induces and deduces, evidence-first deep research, and the Apache-2.0 licence. It is prose now, so it left the mono face, gained a brand tick between claims, and is translated per locale instead of kept literal.
+
+- Say what the memory actually is. The Brain copy described housekeeping — distill, tidy, retire — which reads as a cache with a broom. The point is the model behind the housekeeping: memory is a world model that predicts from experience and is corrected by reality, and compression, conflict resolution, and forgetting are one behaviour, shrinking the gap between prediction and observation — free-energy minimisation, the principle a brain follows when it consolidates. The capability card now leads with "not just remembering — building a world model", and the compounding step says memory improves itself rather than gets tended.
+
+- Make the below-fold entrance actually run, in every browser. It never had: first the CSS
+minifier folded the `animation` shorthand together with `animation-timeline: view()` into one
+declaration every browser rejects, and once that was unpicked the approach itself turned out
+to be the defect — Firefox and older Safari do not implement scroll timelines and drop the
+declaration whole, so the page stayed motionless below the hero for a large share of real
+visitors while the hero, animated by plain time-based CSS, played fine. The entrance now
+rides an IntersectionObserver and a class: the script marks what is already on screen, the
+observer marks the rest as they arrive, each element enters once with a 70ms stagger per
+row, and the `js-reveal` gate appears on `<html>` only after the script has run under a
+motion-tolerant `prefers-reduced-motion`, so a crawler or a reader without JavaScript never
+has content hidden. The entrance transition sits on the entered state alone; on the base
+state it would also animate the hide when the gate lands, and an element straddling the fold
+would visibly fade out before its entrance.
+
+- Assert the emitted CSS at build time, for the failure class that is invisible in
+development and silent in production. `check-motion-css.mjs` runs after `astro build` and
+fails on an `animation` shorthand carrying `view()`, on any reappearance of
+`animation-timeline`, on the loss of the `js-reveal` gate, and on any rule that hides a
+reveal target without that gate in its selector. The check was proven by reinstating the
+original defect and watching the build exit non-zero.
+
+- Keep the hero's window frame still. The channel header replayed as step zero of the
+conversation, which reads as the room materialising before the talk; the room was always
+there, so the frame no longer animates and the replay begins with the first message.
+
+- Stop a website change from rebuilding the runtime images. `runtime-images.yml` ran on every push to main, so editing a paragraph of landing-page copy rebuilt the base, control-plane, and worker images. It now ignores `app/website/**`, `docs/**`, and `CHANGELOG.md`; `paths-ignore` skips a run only when every changed file matches, so a commit touching both the site and the runtime still builds. `CHANGELOG.md` has to be in the list because this repository requires a version entry in every commit, and without it the filter would match nothing. Nothing ignored is copied by either Dockerfile, while `app/library`, `libs`, and `plugins` are, and still trigger a build.
+
 - Rewrite the Chinese again, out of the opposite failure. The first pass replaced stiff translationese with colloquial Chinese, which only traded one non-native register for another: the page ended up holding literal renderings of English idiom, verb-object pairs that do not hold in Chinese, and street slang where it needed engineering prose. "策展知识" was `curated knowledge` read out of a dictionary, and 策展 in Chinese belongs to galleries. "诚实的验收方式" applied a word for human character to a test. "比进程活得久" and "在途控制" were `outlive the process` and `in-flight` transliterated, and "手上的上下文" gave context a pair of hands. "纠得了" was a word invented to complete a three-beat parallel; "这套东西" and "攒起来" belong in conversation, not on a product page; "压着" translated `override` as suppression; "才配叫一个岗位" picked a fight with the reader; and "长活跑在后台" used 活 as a noun the way only speech does. Sessions and actors had also been handed biological verbs — a session that 醒来, an actor managing 生死 — which is right for the agent, since a colleague is the product's whole claim, and wrong for a data structure. Fifty-six strings now use standard Chinese software-engineering terms: 唤醒, 生命周期, 覆盖, 实时, 精选知识. `Principal` and the three research modes carry a Chinese name with the original in parentheses instead of sitting untranslated inside a Chinese sentence.
 
 - Make dark the product default instead of a mirror of the operating system. The theme resolved from `prefers-color-scheme`, so a visitor whose machine is set to light met a light Ankole and never saw the surface the brand is built on. Dark now loads regardless of the system setting, light is reachable only by pressing the toggle, and that choice persists in local storage and is applied by the inline head script before first paint, so a returning visitor gets their own theme with no flash. Following the system afterwards would fight the stored choice, so that listener is gone along with the state it needed.

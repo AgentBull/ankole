@@ -32,11 +32,8 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 ---
 
 <figure class="relative m-0 border border-border bg-background" aria-label={t(lang, 'thread.aria')}>
-	<figcaption
-		class="flex items-center gap-2 border-b border-border bg-background-secondary px-4 py-2.5"
-		data-replay
-		style="--step:0"
-	>
+	{/* The window frame does not replay. The room was always there; the talk arrives into it. */}
+	<figcaption class="flex items-center gap-2 border-b border-border bg-background-secondary px-4 py-2.5">
 		<span class="font-medium text-fg-quaternary" aria-hidden="true">#</span>
 		<span class="text-xs font-medium text-foreground">{t(lang, 'thread.channel')}</span>
 		<span class="ml-auto font-mono text-[11px] text-fg-quaternary">{t(lang, 'thread.members')}</span>
@@ -45,7 +42,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 	<ol class="list-none p-0">
 		{
 			messages.map((message, index) => (
-				<li class={ROW} data-replay style={`--step:${index + 1}`}>
+				<li class={ROW} data-replay style={`--step:${index}`}>
 					<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
 						{message.author.slice(0, 1)}
 					</span>
@@ -64,7 +61,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 	 * It rides the message grid with an empty avatar cell rather than a hand-measured
 	 * indent, so it lands on the text column exactly instead of fifty pixels short of it.
 	 */}
-	<p class={`${ROW} py-1.5 text-[11px] leading-5 text-fg-quaternary`} data-replay="beat" style="--step:3">
+	<p class={`${ROW} py-1.5 text-[11px] leading-5 text-fg-quaternary`} data-replay="beat" style="--step:2">
 		<span aria-hidden="true"></span>
 		{/*
 		 * The mark is set inline and aligned to the middle, so the browser centres it on
@@ -80,7 +77,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 	<p
 		class="m-0 flex items-center gap-3 px-4 py-2 font-mono text-[10px] tracking-[0.12em] text-fg-quaternary uppercase"
 		data-replay
-		style="--step:4"
+		style="--step:3"
 	>
 		<span class="h-px flex-1 bg-border" aria-hidden="true"></span>
 		{t(lang, 'thread.gap')}
@@ -88,7 +85,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 	</p>
 
 	<ol class="list-none p-0">
-		<li class={ROW} data-replay style="--step:5;--hold:0.55s">
+		<li class={ROW} data-replay style="--step:4;--hold:0.55s">
 			<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
 				{t(lang, 'thread.h3.author').slice(0, 1)}
 			</span>
@@ -102,7 +99,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 			</p>
 		</li>
 
-		<li class={`${ROW} pb-3`} data-replay style="--step:6;--hold:0.55s">
+		<li class={`${ROW} pb-3`} data-replay style="--step:5;--hold:0.55s">
 			<span class={`${AVATAR} bg-brand-60 text-white dark:bg-brand-50`} aria-hidden="true">A</span>
 			<span class="flex items-baseline gap-2">
 				<span class="text-[13px] font-semibold text-foreground">{t(lang, 'thread.agent')}</span>
@@ -115,7 +112,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 			</span>
 			<div class="col-start-2 text-[13px] leading-[1.55] text-foreground">
 				<p class="m-0">{t(lang, 'thread.reply')}</p>
-				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:7;--hold:0.55s">
+				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:6;--hold:0.55s">
 					<RiFileTextLine className="size-5 shrink-0 text-brand-60 dark:text-brand-40" aria-hidden="true" />
 					<span class="min-w-0">
 						<span class="block truncate text-xs text-foreground">{t(lang, 'thread.file.name')}</span>
