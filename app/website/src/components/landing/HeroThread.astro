@@ -88,7 +88,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 	</p>
 
 	<ol class="list-none p-0">
-		<li class={ROW} data-replay style="--step:5">
+		<li class={ROW} data-replay style="--step:5;--hold:0.55s">
 			<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
 				{t(lang, 'thread.h3.author').slice(0, 1)}
 			</span>
@@ -102,7 +102,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 			</p>
 		</li>
 
-		<li class={`${ROW} pb-3`} data-replay style="--step:6">
+		<li class={`${ROW} pb-3`} data-replay style="--step:6;--hold:0.55s">
 			<span class={`${AVATAR} bg-brand-60 text-white dark:bg-brand-50`} aria-hidden="true">A</span>
 			<span class="flex items-baseline gap-2">
 				<span class="text-[13px] font-semibold text-foreground">{t(lang, 'thread.agent')}</span>
@@ -115,7 +115,7 @@ const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
 			</span>
 			<div class="col-start-2 text-[13px] leading-[1.55] text-foreground">
 				<p class="m-0">{t(lang, 'thread.reply')}</p>
-				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:7">
+				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:7;--hold:0.55s">
 					<RiFileTextLine className="size-5 shrink-0 text-brand-60 dark:text-brand-40" aria-hidden="true" />
 					<span class="min-w-0">
 						<span class="block truncate text-xs text-foreground">{t(lang, 'thread.file.name')}</span>

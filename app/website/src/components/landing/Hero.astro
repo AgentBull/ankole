@@ -34,15 +34,12 @@ const STACK = ['Elixir · OTP', 'Rust kernel', 'Bun · TypeScript', 'PostgreSQL'
 			class="grid gap-12 border-x border-border/70 px-4 pt-16 pb-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.15fr_minmax(0,23.5rem)] lg:gap-16 lg:pt-24 lg:pb-20"
 		>
 			<div class="lg:pr-6">
+				{/* No pulse. A dot beating forever next to a licence label says nothing, and
+				    spending motion there costs the beats that do carry meaning. */}
 				<span
 					class="inline-flex items-center gap-2.5 border border-border bg-background/60 px-3 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur-sm"
 				>
-					<span class="relative flex size-1.5">
-						<span
-							class="absolute inset-0 bg-brand-60 motion-safe:animate-[signal-ping_2.4s_var(--ease-expressive)_infinite] dark:bg-brand-40"
-							aria-hidden="true"></span>
-						<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
-					</span>
+					<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
 					{t(lang, 'hero.badge')}
 				</span>
 

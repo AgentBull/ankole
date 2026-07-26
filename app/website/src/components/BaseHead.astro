@@ -21,17 +21,18 @@ const canonicalURL = new URL(`${base}/${lang}${cleanPath}`, Astro.site)
 const ogImageURL = new URL(`${base}/favicon.svg`, Astro.site)
 ---
 
-<!-- Theme init: set data-theme before first paint to prevent a flash. -->
+<!--
+	Theme init: set data-theme before first paint to prevent a flash.
+	Dark is the product default and does not follow the operating system. Light is opt-in,
+	and only an explicit choice, stored under `ankole-theme`, ever selects it.
+-->
 <script is:inline>
 	;(function () {
 		var stored = null
 		try {
 			stored = window.localStorage.getItem('ankole-theme')
 		} catch (e) {}
-		var dark =
-			stored === 'dark' ||
-			(stored !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-		document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+		document.documentElement.dataset.theme = stored === 'light' ? 'light' : 'dark'
 	})()
 </script>
 

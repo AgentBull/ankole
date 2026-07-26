@@ -36,7 +36,7 @@ const items = ['mission', 'shared', 'longrun', 'judged', 'owned'].map(key => ({
 	<ol class="mt-20 list-none p-0">
 		{
 			items.map((item, index) => (
-				<li class="border-t border-border pt-8 pb-14 last:pb-0">
+				<li class="record border-t border-border pt-8 pb-14 last:pb-0">
 					<Reveal
 						step={index}
 						class="grid gap-x-16 gap-y-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
@@ -49,7 +49,7 @@ const items = ['mission', 'shared', 'longrun', 'judged', 'owned'].map(key => ({
 								{item.title}
 							</h3>
 						</div>
-						<p class="max-w-xl text-sm leading-7 text-muted-foreground lg:pt-9">{item.body}</p>
+						<p class="record-quiet max-w-xl text-sm leading-7 text-muted-foreground lg:pt-9">{item.body}</p>
 					</Reveal>
 				</li>
 			))

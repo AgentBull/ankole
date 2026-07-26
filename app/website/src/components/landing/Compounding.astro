@@ -50,17 +50,29 @@ const mechanisms = ['aim', 'playbook', 'review', 'rule', 'memory'].map(key => ({
 				{t(lang, 'compounding.ledger.count')}
 			</span>
 		</p>
+		{/*
+		 * The rules arrive one at a time as the ledger comes into view. The section claims
+		 * corrections pile up, so the entrance piles them up rather than dropping four rows
+		 * in at once — the motion states the argument the copy makes.
+		 */}
 		<ol class="list-none p-0">
 			{
-				rules.map(entry => (
-					<li class="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-6 border-b border-border/60 py-5 sm:grid-cols-[5rem_minmax(0,1fr)]">
-						<span class="font-mono text-[11px] leading-7 text-fg-quaternary tabular-nums">
-							{entry.date}
-						</span>
-						<span>
-							<span class="block leading-7 text-foreground">{entry.rule}</span>
-							<span class="mt-1 block text-xs leading-5 text-fg-quaternary">{entry.from}</span>
-						</span>
+				rules.map((entry, index) => (
+					<li class="record border-b border-border/60">
+						<Reveal
+							step={index}
+							class="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-6 py-5 sm:grid-cols-[5rem_minmax(0,1fr)]"
+						>
+							<span class="font-mono text-[11px] leading-7 text-fg-quaternary tabular-nums">
+								{entry.date}
+							</span>
+							<span>
+								<span class="block leading-7 text-foreground">{entry.rule}</span>
+								<span class="record-quiet mt-1 block text-xs leading-5 text-fg-quaternary">
+									{entry.from}
+								</span>
+							</span>
+						</Reveal>
 					</li>
 				))
 			}

@@ -34,7 +34,7 @@ const bets = ['actors', 'otp', 'fabric', 'computer', 'ledger'].map(key => ({
 	<ol class="mt-16 list-none p-0">
 		{
 			bets.map((bet, index) => (
-				<li class="border-t border-border py-6">
+				<li class="record border-t border-border py-6">
 					<Reveal
 						step={index}
 						class="grid gap-x-12 gap-y-2 lg:grid-cols-[3rem_minmax(0,20rem)_minmax(0,1fr)]"
@@ -43,7 +43,7 @@ const bets = ['actors', 'otp', 'fabric', 'computer', 'ledger'].map(key => ({
 							{String(index + 1).padStart(2, '0')}
 						</span>
 						<h3 class="text-base leading-7 font-semibold text-balance text-foreground">{bet.title}</h3>
-						<p class="max-w-xl text-sm leading-7 text-muted-foreground">{bet.body}</p>
+						<p class="record-quiet max-w-xl text-sm leading-7 text-muted-foreground">{bet.body}</p>
 					</Reveal>
 				</li>
 			))

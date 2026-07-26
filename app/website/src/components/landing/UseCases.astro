@@ -55,10 +55,10 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 		<ol class="list-none border-t border-border p-0 sm:border-t-0">
 			{
 				seats.map((seat, index) => (
-					<li class="border-b border-border">
+					<li class="record border-b border-border">
 						<Reveal step={index} class={`${ROW} py-6`}>
 							<h3 class="text-base font-semibold text-foreground">{seat.title}</h3>
-							<p class="mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">{seat.deliverable}</p>
+							<p class="record-quiet mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">{seat.deliverable}</p>
 							{/* The metric is the payload, so it is the only coloured thing in the row. */}
 							<p class="mt-1 text-sm leading-6 text-brand-60 sm:mt-0 dark:text-brand-40">
 								{seat.metric}

@@ -12,13 +12,36 @@ html {
 }
 
 /*
- * Carbon motion easing. Productive easing applies to hover and other immediate
- * feedback; expressive easing applies to entrances that carry the page rhythm.
+ * Motion on this page follows three rules.
+ *
+ * 1. Every movement has one of two jobs. Productive motion answers the pointer or the
+ *    keyboard and must be over before it is noticed. Expressive motion carries meaning
+ *    the copy would otherwise have to assert — a conversation arriving in order, rules
+ *    piling up one at a time — and is spent sparingly so it still reads as meaning.
+ * 2. Nothing loops. A perpetual animation is noise competing with the reader; each
+ *    movement here is either a reply to an input or a single narrative beat that ends.
+ * 3. Nothing moves the text. Feedback changes colour and draws rules, never geometry
+ *    that reflows, so hovering never shifts the line somebody is reading.
+ *
+ * Under `prefers-reduced-motion` the state changes still happen, instantly. Feedback is
+ * information, so it survives; only the travel is removed.
  */
 :root {
   --ease-productive: cubic-bezier(0.2, 0, 0.38, 0.9);
   --ease-expressive: cubic-bezier(0.4, 0.14, 0.3, 1);
   --ease-expressive-entrance: cubic-bezier(0, 0, 0.3, 1);
+  --duration-feedback: 140ms;
+}
+
+@keyframes theme-mark {
+  from {
+    opacity: 0;
+    transform: rotate(-35deg) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* The components layer keeps these below Tailwind utilities, so a usage site can
@@ -31,6 +54,43 @@ html {
       linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
       linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
     background-size: 4rem 4rem;
+  }
+
+  /*
+   * A record answering the pointer: a brand rule draws along the edge it already has,
+   * and the row's own quiet text comes up a step. No geometry moves, so a row can be
+   * read and hovered at the same time. Keyboard focus gets the same answer.
+   */
+  .record {
+    position: relative;
+  }
+
+  .record::after {
+    content: '';
+    position: absolute;
+    inset-block-start: -1px;
+    inset-inline-start: 0;
+    inline-size: 100%;
+    block-size: 1px;
+    background: var(--color-brand-60);
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform var(--duration-feedback) var(--ease-productive);
+  }
+
+  [data-theme='dark'] .record::after {
+    background: var(--color-brand-40);
+  }
+
+  .record:hover::after,
+  .record:focus-within::after {
+    transform: scaleX(1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .record::after {
+      transition-duration: 1ms;
+    }
   }
 
   /* A diagonal colour plane, the IBM brand device instead of a soft glow. */
@@ -54,15 +114,39 @@ html {
 }
 
 /*
+ * Unlayered on purpose. `.record-quiet` overrides `text-muted-foreground`, and a Tailwind
+ * utility lives in the utilities layer, which wins against any selector inside an earlier
+ * layer however specific it is. Cascade layers beat specificity, so this rule leaves them.
+ */
+.record .record-quiet {
+  transition: color var(--duration-feedback) var(--ease-productive);
+}
+
+.record:hover .record-quiet,
+.record:focus-within .record-quiet {
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record .record-quiet {
+    transition-duration: 1ms;
+  }
+}
+
+/*
  * Entrance motion is an enhancement, never a gate. A CSS animation lives in the
  * stylesheet rather than in the markup, so the served HTML always carries the
  * finished page and a crawler or a reader without CSS still gets every line.
  */
 @media (prefers-reduced-motion: no-preference) {
-  /* The hero conversation replays once on load, one line at a time. */
+  /*
+   * The hero conversation replays once on load, one line at a time. `--hold` buys an
+   * extra pause, which is how the three-day gap in that thread is played: the wait is
+   * the point of the scene, so the motion waits too instead of only labelling it.
+   */
   [data-replay] {
     animation: replay-in 0.52s var(--ease-expressive-entrance) both;
-    animation-delay: calc(var(--step, 0) * 0.34s + 0.2s);
+    animation-delay: calc(var(--step, 0) * 0.34s + var(--hold, 0s) + 0.2s);
   }
 
   /* The beat the page turns on: it lands harder and holds a moment longer. */
@@ -145,18 +229,6 @@ html {
   }
   100% {
     transform: translateX(300%);
-  }
-}
-
-@keyframes signal-ping {
-  0% {
-    opacity: 0.8;
-    transform: scale(1);
-  }
-  70%,
-  100% {
-    opacity: 0;
-    transform: scale(2.8);
   }
 }
 
