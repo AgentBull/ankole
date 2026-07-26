@@ -1,8 +1,8 @@
 ---
 title: Agent Library
 description: 一个 agent 能做什么——skill 作为文件系统 bundle，Agent Plugin 作为 Codex 包，以及按 agent 解析的“默认再覆盖”启用模型。
-section: Concepts
-order: 13
+section: Developer guide
+order: 107
 ---
 
 Agent Library 回答的是一个问题：这个 agent 实际上被允许做什么？它是一套部署自带的 skill 与 Agent Plugin 目录，加上决定其中哪些对某个 agent 开启的按 agent 状态。本页对照 `Ankole.AIAgent.Library` 里的真实代码，画出这套模型。
@@ -27,7 +27,7 @@ Agent Library 回答的是一个问题：这个 agent 实际上被允许做什�
 
 解析结果就是能力端点返回的 `effective_enabled` 字段：取默认值，若存在覆盖则应用覆盖。没有覆盖的能力继承默认值；有覆盖的能力遵从覆盖。目录上限 256 个 plugin，所以解析保持廉价，界面保持清晰可读。
 
-这就是 [Console](../console/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
+这就是 [Console](../console-api/) 的 Agent Library 能力路由所暴露的模型：先设全局默认值，再按 agent 收窄或放宽。
 
 ## 人设文档与 skill overlay
 
@@ -49,7 +49,7 @@ Agent Library 回答的是一个问题：这个 agent 实际上被允许做什�
 
 ## 运维界面
 
-[Console](../console/) 页里已经覆盖的路由驱动这套模型。尤其是能力路由：
+[Console](../console-api/) 页里已经覆盖的路由驱动这套模型。尤其是能力路由：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -73,6 +73,6 @@ Agent Library 回答的是一个问题：这个 agent 实际上被允许做什�
 
 ## 下一步
 
-- 配置库的路由，读 [Console](../console/)。
+- 配置库的路由，读 [Console](../console-api/)。
 - 在一个回合中跑起一个已启用 skill 的 worker，读 [Actor Runtime](../actor-runtime/)。
 - 库所绑定的 agent Principal，读 [Principal 与 AuthZ](../principal-authz/)。

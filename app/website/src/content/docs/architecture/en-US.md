@@ -1,8 +1,8 @@
 ---
 title: Architecture
 description: The actor runtime model, the five technical bets, and how the components fit together.
-section: Concepts
-order: 4
+section: Developer guide
+order: 100
 ---
 
 Ankole is an actor-oriented runtime for long-running AI work. Each active session is an addressable virtual actor: it can wake, receive messages, checkpoint, stream progress, hibernate, recover, and continue — without pretending an agent is just an HTTP request or a queue job.

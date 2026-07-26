@@ -24,19 +24,26 @@ import type { AppConfigurationItem, ControlPlanePluginItem } from '../api/genera
 import { ErrorBlock } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput } from '../encrypted-value-input'
 import { JSONObjectField } from '../json-object-field'
-import { JSONField, LabeledField, ResourceSearch } from '../console-shell'
+import { JSONField, LabeledField } from '../console-form'
+import { ResourceSearch } from '../console-list-page'
 import { localizedJSONText } from '../state/agent-library-capabilities'
 import { matchesResourceSearch } from '../state/resource-search'
 import {
+  BRAIN_DREAMING_FIELDS,
+  brainDreamingDraft,
   brainEmbeddingAgentOptions,
   brainEmbeddingDraft,
   pluginIDsFromDraft,
   pluginRestartRequired,
+  serializeBrainDreamingDraft,
   serializeBrainEmbeddingDraft,
   settingEditorKind,
   settingStringDraft,
   togglePluginID,
   unknownPluginIDs,
+  type BrainDreamingDraft,
+  type BrainDreamingEnabled,
+  type BrainDreamingField,
   type BrainEmbeddingDraft,
   type SettingEditorKind
 } from '../state/setting-value-editor'
@@ -55,6 +62,7 @@ export type SettingValueEditorProps = {
 }
 
 const SPECIFIC_SETTING_EDITORS: Partial<Record<SettingEditorKind, ComponentType<SettingValueEditorProps>>> = {
+  brainDreaming: BrainDreamingEditor,
   brainEmbedding: BrainEmbeddingEditor,
   plugins: PluginsEnabledIDsEditor,
   timezone: SystemTimeZoneEditor,
@@ -143,6 +151,97 @@ function ObjectSettingEditor({ error, item, onChange, value }: SettingValueEdito
       value={value}
       onChange={onChange}
     />
+  )
+}
+
+function BrainDreamingEditor({ onChange, value }: SettingValueEditorProps) {
+  const { t } = useTranslation()
+  const draft = brainDreamingDraft(value)
+  const update = (patch: Partial<BrainDreamingDraft>) => onChange(serializeBrainDreamingDraft({ ...draft, ...patch }))
+
+  return (
+    <div className="grid gap-6">
+      <LabeledField
+        label={t('console.settings.brain_dreaming_enabled')}
+        description={t('console.settings.brain_dreaming_enabled_hint')}>
+        <Select value={draft.enabled} onValueChange={next => next && update({ enabled: next as BrainDreamingEnabled })}>
+          <SelectTrigger className="w-full">
+            <SelectValue>{current => t(`console.settings.brain_dreaming_enabled_${String(current)}`)}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {(['default', 'on', 'off'] as const).map(option => (
+              <SelectItem key={option} value={option}>
+                {t(`console.settings.brain_dreaming_enabled_${option}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </LabeledField>
+
+      {(['stage_a', 'stage_b'] as const).map(section => (
+        <section key={section} className="grid gap-5">
+          <div className="grid gap-1 border-b border-border pb-2">
+            <h3 className="text-sm font-medium text-foreground">{t(`console.settings.brain_dreaming_${section}`)}</h3>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t(`console.settings.brain_dreaming_${section}_hint`)}
+            </p>
+          </div>
+
+          {BRAIN_DREAMING_FIELDS.filter(field => field.section === section).map(field => (
+            <BrainDreamingNumberField
+              key={field.key}
+              field={field}
+              value={draft.numbers[field.key] ?? ''}
+              onChange={next => update({ numbers: { ...draft.numbers, [field.key]: next } })}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function BrainDreamingNumberField({
+  field,
+  onChange,
+  value
+}: {
+  field: BrainDreamingField
+  onChange: (value: string) => void
+  value: string
+}) {
+  const { t } = useTranslation()
+  const unlimited = field.unlimited === 'zero' ? value === '0' : field.unlimited === 'null' && value === ''
+  const clearUnlimited = field.unlimited === 'zero' ? '' : String(field.fallback ?? field.min)
+
+  return (
+    <LabeledField
+      label={t(`console.settings.brain_dreaming_field_${field.key}`)}
+      description={t(`console.settings.brain_dreaming_field_${field.key}_hint`, {
+        max: field.max.toLocaleString(),
+        min: field.min.toLocaleString()
+      })}>
+      <div className="grid gap-2">
+        <Input
+          disabled={unlimited}
+          max={field.max}
+          min={field.min}
+          step={1}
+          type="number"
+          value={unlimited ? '' : value}
+          onChange={event => onChange(event.target.value)}
+        />
+        {field.unlimited ? (
+          <label className="flex w-fit items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox
+              checked={unlimited}
+              onCheckedChange={checked => onChange(checked ? (field.unlimited === 'zero' ? '0' : '') : clearUnlimited)}
+            />
+            {t(`console.settings.brain_dreaming_unlimited_${String(field.unlimited)}`)}
+          </label>
+        ) : null}
+      </div>
+    </LabeledField>
   )
 }
 
@@ -332,7 +431,7 @@ function PluginsEnabledIDsEditor({ onChange, value }: SettingValueEditorProps) {
         onChange={setQuery}
       />
       <ErrorBlock error={catalog.error} />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {filteredPlugins.map(plugin => (
           <PluginChoiceCard
             key={plugin.id}

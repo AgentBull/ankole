@@ -2,7 +2,7 @@
 title: 常见问题与故障排查
 description: 常见问题的简短回答，以及本地 Ankole 环境启动不了时该先看哪里。
 section: Getting started
-order: 5
+order: 4
 ---
 
 最常见问题的简短回答，加上一条本地环境起不来时的排查顺序。仓库的 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 仍然是更深一层的事实来源——本页在要紧的地方指向它。

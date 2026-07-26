@@ -170,7 +170,8 @@ defmodule AnkoleWeb.AgentLibrarySkillOverlayController do
     error(conn, 422, "validation_failed", "delete the overlay instead of storing blank text")
   end
 
-  defp error(conn, {:missing, key}), do: error(conn, 422, "validation_failed", "#{key} is required")
+  defp error(conn, {:missing, key}),
+    do: error(conn, 422, "validation_failed", "#{key} is required")
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
     error(

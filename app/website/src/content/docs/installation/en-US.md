@@ -1,7 +1,7 @@
 ---
 title: Installation
 description: Deploy Ankole with Docker Compose on one host, or with the public Helm chart on Kubernetes.
-section: Operations
+section: Getting started
 order: 3
 ---
 

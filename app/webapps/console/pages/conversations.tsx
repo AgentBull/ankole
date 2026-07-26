@@ -15,7 +15,7 @@ import {
   TableRow,
   cn
 } from '@ankole/uikit'
-import { RiArrowLeftLine, RiArrowRightLine, RiFunctionLine, RiInboxLine } from '@remixicon/react'
+import { RiArrowLeftLine, RiFunctionLine, RiInboxLine } from '@remixicon/react'
 import { match } from '@pleisto/active-support'
 import { useQuery } from '@tanstack/react-query'
 import { type ReactNode } from 'react'
@@ -23,7 +23,15 @@ import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
-import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { StatusIndicator } from '../console-form'
+import { CursorPagination, ResourceListPage, ResourceSearch } from '../console-list-page'
+import {
+  cursorPageNumber,
+  hasPreviousCursor,
+  nextCursorParams,
+  previousCursorParams,
+  resetCursorParams
+} from '../state/cursor-pagination'
 import {
   ankoleWebAiGatewayConversationControllerIndexOptions as ankoleWebAIGatewayConversationControllerIndexOptions,
   ankoleWebAiGatewayConversationControllerMessagesOptions as ankoleWebAIGatewayConversationControllerMessagesOptions,
@@ -70,8 +78,7 @@ export function ConversationsListPage() {
     const next = new URLSearchParams(searchParams)
     if (value) next.set('subject', value)
     else next.delete('subject')
-    next.delete('cursor')
-    setSearchParams(next, { replace: true })
+    setSearchParams(resetCursorParams(next), { replace: true })
   }
 
   const toggleActive = () => {
@@ -80,23 +87,14 @@ export function ConversationsListPage() {
     const value = current === 'true' ? 'false' : current === 'false' ? null : 'true'
     if (value === null) next.delete('active')
     else next.set('active', value)
-    next.delete('cursor')
-    setSearchParams(next, { replace: true })
+    setSearchParams(resetCursorParams(next), { replace: true })
   }
 
   const setMessageFilter = (value: string) => {
     const next = new URLSearchParams(searchParams)
     if (value === 'all') next.set('min_messages', '0')
     else next.delete('min_messages')
-    next.delete('cursor')
-    setSearchParams(next, { replace: true })
-  }
-
-  const goCursor = (value: string | undefined) => {
-    const next = new URLSearchParams(searchParams)
-    if (value) next.set('cursor', value)
-    else next.delete('cursor')
-    setSearchParams(next)
+    setSearchParams(resetCursorParams(next), { replace: true })
   }
 
   const isFiltered = Boolean(subjectFilter.trim()) || activeFilter !== null
@@ -122,43 +120,46 @@ export function ConversationsListPage() {
           : t('console.conversations.empty_min_messages_description')
       }
       error={list.error}
+      count={conversations.length}
       toolbar={
-        <div className="flex flex-wrap items-center gap-2">
-          <ResourceSearch
-            label={t('console.conversations.subject_filter')}
-            placeholder={t('console.conversations.subject_filter')}
-            value={subjectFilter}
-            onChange={setSubjectFilter}
-          />
-          <Button type="button" size="sm" variant={activeFilter ? 'default' : 'outline'} onClick={toggleActive}>
-            {activeFilter === 'true'
-              ? t('console.conversations.filter_active_only')
-              : activeFilter === 'false'
-                ? t('console.conversations.filter_ended_only')
-                : t('console.conversations.filter_all')}
-          </Button>
-          <Select
-            value={showAll ? 'all' : 'with_messages'}
-            onValueChange={value => setMessageFilter(value ?? 'with_messages')}>
-            <SelectTrigger size="sm" aria-label={t('console.conversations.filter_with_messages')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="with_messages">{t('console.conversations.filter_with_messages')}</SelectItem>
-              <SelectItem value="all">{t('console.conversations.filter_all_conversations')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <ResourceSearch
+          label={t('console.conversations.subject_filter')}
+          placeholder={t('console.conversations.subject_filter')}
+          value={subjectFilter}
+          onChange={setSubjectFilter}
+          filters={
+            <>
+              <Button type="button" size="sm" variant={activeFilter ? 'default' : 'outline'} onClick={toggleActive}>
+                {activeFilter === 'true'
+                  ? t('console.conversations.filter_active_only')
+                  : activeFilter === 'false'
+                    ? t('console.conversations.filter_ended_only')
+                    : t('console.conversations.filter_all')}
+              </Button>
+              <Select
+                value={showAll ? 'all' : 'with_messages'}
+                onValueChange={value => setMessageFilter(value ?? 'with_messages')}>
+                <SelectTrigger size="sm" aria-label={t('console.conversations.filter_with_messages')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="with_messages">{t('console.conversations.filter_with_messages')}</SelectItem>
+                  <SelectItem value="all">{t('console.conversations.filter_all_conversations')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          }
+        />
       }
       footer={
-        nextCursor ? (
-          <div className="flex justify-end py-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => goCursor(nextCursor)}>
-              {t('console.conversations.next_page')}
-              <RiArrowRightLine />
-            </Button>
-          </div>
-        ) : null
+        <CursorPagination
+          page={cursorPageNumber(searchParams)}
+          hasPrevious={hasPreviousCursor(searchParams)}
+          nextCursor={nextCursor}
+          resultCount={conversations.length}
+          onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
+          onNext={cursor => setSearchParams(nextCursorParams(searchParams, cursor))}
+        />
       }>
       {conversations.map(conversation => (
         <ConversationRow key={conversation.id} conversation={conversation} />
@@ -178,7 +179,7 @@ function ConversationRow({ conversation }: { conversation: AIGatewayConversation
           <div className="flex min-w-0 items-center gap-1.5">
             <Link
               className={cn(
-                'truncate text-foreground hover:text-primary hover:underline',
+                'truncate text-foreground hover:text-link hover:underline',
                 conversation.display_name ? 'font-medium' : 'font-mono text-xs'
               )}
               to={encodeURIComponent(conversation.id)}>
@@ -278,13 +279,6 @@ export function ConversationDetailPage() {
   const thread = messages.data?.messages ?? []
   const nextCursor = messages.data?.next_cursor ?? undefined
 
-  const goCursor = (value: string | undefined) => {
-    const next = new URLSearchParams(searchParams)
-    if (value) next.set('cursor', value)
-    else next.delete('cursor')
-    setSearchParams(next)
-  }
-
   if (conversation.error || (!conversation.isLoading && !detail)) {
     return (
       <div className="grid gap-4">
@@ -377,14 +371,14 @@ export function ConversationDetailPage() {
           <MessageThread messages={thread} />
         )}
 
-        {nextCursor ? (
-          <div className="flex justify-end">
-            <Button type="button" size="sm" variant="outline" onClick={() => goCursor(nextCursor)}>
-              {t('console.conversations.next_page')}
-              <RiArrowRightLine />
-            </Button>
-          </div>
-        ) : null}
+        <CursorPagination
+          page={cursorPageNumber(searchParams)}
+          hasPrevious={hasPreviousCursor(searchParams)}
+          nextCursor={nextCursor}
+          resultCount={thread.length}
+          onPrevious={() => setSearchParams(previousCursorParams(searchParams))}
+          onNext={cursor => setSearchParams(nextCursorParams(searchParams, cursor))}
+        />
       </section>
     </div>
   )

@@ -1,24 +1,18 @@
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 import { configureConsoleAPIClient } from './api/tokens'
-import { ConsoleLayout } from './console-shell'
+import { ConsoleLayout } from './console-shell-chrome'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'
 import { IdentityProviderEditorPage, IdentityProvidersListPage } from './pages/identity'
 import { CodexAccountEditorPage, ProviderEditorPage, ProvidersListPage } from './pages/providers'
-import { SettingEditorDrawer, SettingsPage } from './pages/settings'
+import { SettingEditorDrawer, SettingGroupDrawer, SettingsPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
 import { ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
 import { ConversationDetailPage, ConversationsListPage } from './pages/conversations'
-import {
-  BrainAuditPage,
-  BrainDreamingPage,
-  BrainEntriesPage,
-  BrainEntryAuditPage,
-  BrainEntryCreatePage,
-  BrainEntryEditorPage
-} from './pages/brain'
+import { BrainEntriesPage, BrainEntryCreatePage, BrainEntryEditorPage } from './pages/brain'
+import { BrainAuditPage, BrainDreamingPage, BrainEntryAuditPage } from './pages/brain-audit'
 import { BrainSkillExperiencePage } from './pages/brain-skill-experience'
 import { BrainStatusPage } from './pages/brain-status'
 import { BrainSourceLearnPage, BrainSourcePage, BrainSourcesPage } from './pages/brain-sources'
@@ -26,6 +20,7 @@ import { AgentLibraryPage, AgentPluginDetailPage } from './pages/agent-library'
 import { PrincipalGroupEditorPage, PrincipalGroupsListPage } from './pages/principal-groups'
 import { PrincipalDetailPage, PrincipalsListPage } from './pages/principals'
 import { PermissionGrantEditorPage } from './pages/permission-grant-editor'
+import { HomePage, NotFoundPage, RouteErrorPage } from './pages/home'
 
 // Configure the bearer-token API client at module load, before any route
 // component can render or fire a query. This must run eagerly and NOT inside a
@@ -43,8 +38,11 @@ const router = createBrowserRouter(
     {
       path: '/',
       element: <ConsoleLayout />,
+      // Without this the router shows its own built-in screen when a page throws:
+      // a stack trace with no navigation and no way back into the console.
+      errorElement: <RouteErrorPage />,
       children: [
-        { index: true, element: <Navigate to="/agents" replace /> },
+        { index: true, element: <HomePage /> },
         { path: 'agents', element: <AgentsListPage /> },
         { path: 'agents/new', element: <AgentEditorPage /> },
         { path: 'agents/:uid', element: <AgentEditorPage /> },
@@ -74,7 +72,10 @@ const router = createBrowserRouter(
         {
           path: 'settings',
           element: <SettingsPage />,
-          children: [{ path: ':key', element: <SettingEditorDrawer /> }]
+          children: [
+            { path: 'group/:group', element: <SettingGroupDrawer /> },
+            { path: ':key', element: <SettingEditorDrawer /> }
+          ]
         },
         { path: 'worker-envs', element: <WorkerEnvsListPage /> },
         { path: 'worker-envs/new', element: <WorkerEnvEditorPage /> },
@@ -95,7 +96,7 @@ const router = createBrowserRouter(
         { path: 'brain/dreaming', element: <BrainDreamingPage /> },
         { path: 'brain/audit/:id', element: <BrainEntryAuditPage /> },
         { path: 'brain/:id', element: <BrainEntryEditorPage /> },
-        { path: '*', element: <Navigate to="/agents" replace /> }
+        { path: '*', element: <NotFoundPage /> }
       ]
     }
   ],

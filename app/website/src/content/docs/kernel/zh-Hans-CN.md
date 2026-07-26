@@ -1,8 +1,8 @@
 ---
 title: Rust Kernel
 description: 共享的原生层——对授权、RuntimeFabric 传输和 AI 数据面原语的一份 Rust 实现，同时被 Elixir 控制面和 Bun worker 加载。
-section: Concepts
-order: 15
+section: Developer guide
+order: 109
 ---
 
 Ankole 跑在两个宿主运行时上——一个 Elixir 控制面和一个 Bun worker——有几样行为必须在两边意味着同一件事。Rust Kernel 就是这些共享原生语义的所在。本页对照 `app/kernel` 里的真实代码，画出这个 kernel。

@@ -1,8 +1,8 @@
 ---
 title: SignalsGateway
 description: 共享工作入口层——聊天、webhook 和 provider 事件如何变成 actor 事件，而又不把来源事实错写成执行状态。
-section: Concepts
-order: 7
+section: Developer guide
+order: 102
 ---
 
 SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、一个 provider 事件，或一个定时提醒，从一边进来；一个归一化、持久的 actor 事件从另一边出去，准备好唤醒某个 session。这个网关的职责，是把各个 provider 各不相同的形态收成一种，并且让原始的 provider 事实与随后发生的执行保持分离。

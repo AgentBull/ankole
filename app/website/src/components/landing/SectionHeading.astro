@@ -1,5 +1,5 @@
 ---
-import Reveal from '../Reveal'
+import Reveal from '../Reveal.astro'
 
 interface Props {
 	/** Two-digit section index, shown with the eyebrow label. */
@@ -14,19 +14,24 @@ interface Props {
 const { index, eyebrow, title, subtitle, wide = false } = Astro.props
 ---
 
-<Reveal client:visible={{ rootMargin: '240px' }}>
-	<p class="flex items-center gap-3 font-mono text-xs tracking-[0.14em] text-brand-60 uppercase dark:text-brand-40">
-		<span class="w-6 border-t border-current" aria-hidden="true"></span>
-		{index}
+<Reveal>
+	{/*
+	 * No decorative rule before the index. It pushed the eyebrow text off the axis that
+	 * the title, the subtitle, and every row below stand on, and one shared left edge is
+	 * worth more than the ornament.
+	 */}
+	<p class="flex items-baseline gap-3 font-mono text-xs tracking-[0.14em] uppercase">
+		<span class="text-brand-60 tabular-nums dark:text-brand-40">{index}</span>
 		<span class="text-muted-foreground">{eyebrow}</span>
 	</p>
 	<h2
 		class:list={[
-			'mt-5 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl',
+			'mt-6 text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-4xl',
 			wide ? 'max-w-4xl' : 'max-w-2xl'
 		]}
 	>
 		{title}
 	</h2>
-	{subtitle && <p class="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">{subtitle}</p>}
+	{/* Prose runs to about 36 CJK characters: long enough to read, short enough to return. */}
+	{subtitle && <p class="mt-5 max-w-xl leading-8 text-muted-foreground">{subtitle}</p>}
 </Reveal>

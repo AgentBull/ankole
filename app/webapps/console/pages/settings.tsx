@@ -25,7 +25,14 @@ import {
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiCloseLine, RiLoaderLine, RiMore2Fill, RiResetLeftLine } from '@remixicon/react'
+import {
+  RiArrowDownSLine,
+  RiArrowRightSLine,
+  RiCloseLine,
+  RiLoaderLine,
+  RiMore2Fill,
+  RiResetLeftLine
+} from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -41,10 +48,18 @@ import {
   ankoleWebAppConfigurationControllerUpdateMutation,
   ankoleWebControlPlanePluginControllerIndexQueryKey
 } from '../api/generated/@tanstack/react-query.gen'
+import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
-import { ResourceListPage, ResourceSearch, RowActions } from '../console-shell'
-import { brainEmbeddingValidationError } from '../state/setting-value-editor'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
+import { brainDreamingValidationError, brainEmbeddingValidationError } from '../state/setting-value-editor'
+import {
+  groupOverridden,
+  settingGroupPrefix,
+  settingOwnerRoute,
+  settingRows,
+  type SettingGroup
+} from '../state/setting-groups'
 import { SettingEditorModel } from '../state/setting-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 import { settingDescription } from '../state/setting-description'
@@ -76,6 +91,8 @@ function SettingsList() {
       item.overridden ? 'overridden' : ''
     )
   )
+  const rows = settingRows(items)
+  const [managedOpen, setManagedOpen] = useState(false)
 
   return (
     <ResourceListPage
@@ -89,6 +106,7 @@ function SettingsList() {
       ]}
       isLoading={list.isLoading}
       isEmpty={items.length === 0}
+      count={items.length}
       emptyTitle={t('console.settings.empty_title')}
       emptyDescription={t('console.no_settings')}
       error={list.error}
@@ -101,48 +119,137 @@ function SettingsList() {
           onChange={setQuery}
         />
       }>
-      {items.map(item => {
-        const description = settingDescription(t, item)
-
-        return (
-          <TableRow key={`${item.kind}:${item.key}`}>
-            <TableCell className="max-w-[440px] whitespace-normal">
-              <div className="grid gap-1.5">
-                {item.editable ? (
-                  <Link
-                    className="break-all font-mono text-xs text-foreground hover:text-primary hover:underline"
-                    to={encodeURIComponent(item.key)}>
-                    {item.key}
-                  </Link>
-                ) : (
-                  <span className="break-all font-mono text-xs">{item.key}</span>
-                )}
-                {description ? (
-                  <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</span>
-                ) : null}
-              </div>
-            </TableCell>
-            <TableCell>
-              <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge>
-            </TableCell>
-            <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
-            <TableCell>
-              <div className="flex flex-wrap gap-1.5">
-                {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
-                {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
-              </div>
-            </TableCell>
-            {item.editable ? (
-              <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
-            ) : (
-              <TableCell className="text-right">
-                <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
-              </TableCell>
-            )}
-          </TableRow>
-        )
-      })}
+      {rows.groups.map(group => (
+        <SettingGroupRow key={group.id} group={group} />
+      ))}
+      {rows.singles.map(item => (
+        <SettingRow key={`${item.kind}:${item.key}`} item={item} />
+      ))}
+      {rows.managed.length > 0 ? (
+        <TableRow>
+          <TableCell colSpan={5} className="whitespace-normal">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setManagedOpen(open => !open)}>
+              {managedOpen ? <RiArrowDownSLine /> : <RiArrowRightSLine />}
+              {t('console.settings.managed_group', { count: rows.managed.length })}
+            </button>
+          </TableCell>
+        </TableRow>
+      ) : null}
+      {managedOpen ? rows.managed.map(item => <SettingRow key={`${item.kind}:${item.key}`} item={item} />) : null}
     </ResourceListPage>
+  )
+}
+
+type Translate = (key: string, options?: Record<string, unknown>) => string
+
+/** Reports what a key-specific editor knows before the server sees the value. */
+function settingValidationMessage(t: Translate, key: string, value: JSONValue): string | undefined {
+  if (key === 'brain.embedding') {
+    const error = brainEmbeddingValidationError(value)
+    return error ? t(`console.settings.brain_embedding_error_${error}`) : undefined
+  }
+
+  if (key === 'brain.dreaming') {
+    const error = brainDreamingValidationError(value)
+    if (!error) return undefined
+    if (error === 'invalid') return t('console.settings.brain_dreaming_error_invalid')
+    return t('console.settings.brain_dreaming_error_field', {
+      field: t(`console.settings.brain_dreaming_field_${error}`)
+    })
+  }
+
+  return undefined
+}
+
+function SettingRow({ item }: { item: AppConfigurationItem }) {
+  const { t } = useTranslation()
+  const description = settingDescription(t, item)
+  const ownerRoute = settingOwnerRoute(item.key)
+
+  return (
+    <TableRow>
+      <TableCell className="max-w-[440px] whitespace-normal">
+        <div className="grid gap-1.5">
+          {item.editable ? (
+            <Link
+              className="break-all font-mono text-xs text-foreground hover:text-link hover:underline"
+              to={encodeURIComponent(item.key)}>
+              {item.key}
+            </Link>
+          ) : (
+            <span className="break-all font-mono text-xs">{item.key}</span>
+          )}
+          {description ? (
+            <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">{description}</span>
+          ) : null}
+          {!item.editable && !item.encrypted ? (
+            <code className="line-clamp-2 break-all text-xs text-muted-foreground">
+              {formatJSON(item.value ?? null)}
+            </code>
+          ) : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>
+          {t(`console.settings.kind_${item.kind}`)}
+        </Badge>
+      </TableCell>
+      <TableCell>{t(`console.settings.source_${item.source}`)}</TableCell>
+      <TableCell>
+        <div className="flex flex-wrap gap-1.5">
+          {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
+          {item.overridden ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
+        </div>
+      </TableCell>
+      {item.editable ? (
+        <RowActions editTo={encodeURIComponent(item.key)} editLabel={t('common.edit')} />
+      ) : (
+        <TableCell className="text-right">
+          {ownerRoute ? (
+            <Link className="pr-2 text-xs text-foreground underline underline-offset-4" to={ownerRoute}>
+              {t('console.settings.managed_elsewhere')}
+            </Link>
+          ) : (
+            <span className="pr-2 text-xs text-muted-foreground">{t('console.settings.read_only')}</span>
+          )}
+        </TableCell>
+      )}
+    </TableRow>
+  )
+}
+
+function SettingGroupRow({ group }: { group: SettingGroup }) {
+  const { t } = useTranslation()
+
+  return (
+    <TableRow>
+      <TableCell className="max-w-[440px] whitespace-normal">
+        <div className="grid gap-1.5">
+          <Link
+            className="text-sm font-medium text-foreground hover:text-link hover:underline"
+            to={`group/${group.id}`}>
+            {t(`console.settings.group_${group.id}`)}
+          </Link>
+          <span className="text-xs leading-5 text-muted-foreground">
+            {t(`console.settings.group_${group.id}_description`)}
+          </span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {group.items.map(item => item.key).join(' · ')}
+          </span>
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant="secondary">{t('console.settings.group_kind', { count: group.items.length })}</Badge>
+      </TableCell>
+      <TableCell className="text-muted-foreground">—</TableCell>
+      <TableCell>
+        {groupOverridden(group) ? <Badge variant="success">{t('console.status.global')}</Badge> : null}
+      </TableCell>
+      <RowActions editTo={`group/${group.id}`} editLabel={t('common.edit')} />
+    </TableRow>
   )
 }
 
@@ -182,7 +289,7 @@ export function SettingEditorDrawer() {
     ...ankoleWebAppConfigurationControllerDecryptMutation(),
     gcTime: 0,
     onSuccess: response => model.reveal(JSON.stringify(response.decrypted_value.value) ?? ''),
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+    onError: error => toast.error(requestErrorMessage(error))
   })
   const finish = (message: string) => {
     toast.success(message)
@@ -195,7 +302,7 @@ export function SettingEditorDrawer() {
   const update = useMutation({
     ...ankoleWebAppConfigurationControllerUpdateMutation(),
     onSuccess: response => finish(t('console.settings.saved', { key: response.app_configuration.key })),
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+    onError: error => toast.error(requestErrorMessage(error))
   })
   const restoreDefault = useMutation({
     ...ankoleWebAppConfigurationControllerDeleteMutation(),
@@ -203,7 +310,7 @@ export function SettingEditorDrawer() {
       setRestoreDefaultOpen(false)
       finish(t('console.settings.reset_done', { key }))
     },
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+    onError: error => toast.error(requestErrorMessage(error))
   })
 
   useEffect(() => {
@@ -239,12 +346,10 @@ export function SettingEditorDrawer() {
       model.validationError.value = parsed.error
       return
     }
-    if (item.key === 'brain.embedding') {
-      const validationError = brainEmbeddingValidationError(parsed.value)
-      if (validationError) {
-        model.validationError.value = t(`console.settings.brain_embedding_error_${validationError}`)
-        return
-      }
+    const validationError = settingValidationMessage(t, item.key, parsed.value)
+    if (validationError) {
+      model.validationError.value = validationError
+      return
     }
     update.mutate({ body: { value: parsed.value }, path: { key: item.key } })
   }
@@ -289,7 +394,11 @@ export function SettingEditorDrawer() {
                 </Button>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {item ? <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>{item.kind}</Badge> : null}
+                {item ? (
+                  <Badge variant={item.kind === 'pattern' ? 'outline' : 'secondary'}>
+                    {t(`console.settings.kind_${item.kind}`)}
+                  </Badge>
+                ) : null}
                 {item ? <Badge variant="outline">{t(`console.settings.source_${item.source}`)}</Badge> : null}
                 {item?.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
               </div>
@@ -363,6 +472,237 @@ export function SettingEditorDrawer() {
               disabled={restoreDefault.isPending || !item?.overridden}
               variant="destructive"
               onClick={() => item?.overridden && restoreDefault.mutate({ path: { key: item.key } })}>
+              {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+              {t('console.settings.restore_default_confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={blocker.state === 'blocked'}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('console.settings.discard_title')}</DialogTitle>
+            <DialogDescription>{t('console.settings.discard_description')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter showCloseButton={false}>
+            <DialogClose render={<Button variant="outline" />} onClick={() => blocker.reset?.()}>
+              {t('console.settings.keep_editing')}
+            </DialogClose>
+            <Button variant="destructive" onClick={() => blocker.proceed?.()}>
+              {t('console.settings.discard')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+/**
+ * Edits every key of one declared prefix group on one page.
+ *
+ * The key stays the save unit. Every dirty section is parsed and checked before the first write, so
+ * a value the console can reject never leaves part of the group written, and one failing key
+ * reports itself by name instead of hiding behind a whole-group error.
+ */
+export function SettingGroupDrawer() {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const params = useParams()
+  const groupID = params.group ?? ''
+  const prefix = settingGroupPrefix(groupID)
+  const allowNavigation = useRef(false)
+  const initializedFor = useRef<string | undefined>(undefined)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [initial, setInitial] = useState<Record<string, string>>({})
+  const [editorError, setEditorError] = useState<string>()
+  const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
+  const [saving, setSaving] = useState(false)
+
+  const list = useQuery(ankoleWebAppConfigurationControllerIndexOptions())
+  const items = (list.data?.app_configurations ?? []).filter(
+    item => item.editable && prefix !== undefined && item.key.startsWith(prefix)
+  )
+  const signature = items.map(item => item.key).join(',')
+  const dirty = items.some(item => drafts[item.key] !== initial[item.key])
+  const blocker = useBlocker(useCallback(() => !allowNavigation.current && dirty, [dirty]))
+
+  useEffect(() => {
+    if (!signature || initializedFor.current === signature) return
+    initializedFor.current = signature
+    const next = Object.fromEntries(items.map(item => [item.key, formatJSON(item.value ?? null)]))
+    setDrafts(next)
+    setInitial(next)
+  }, [items, signature])
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ankoleWebAppConfigurationControllerIndexQueryKey() })
+  }
+  const update = useMutation(ankoleWebAppConfigurationControllerUpdateMutation())
+  const restoreDefault = useMutation({
+    ...ankoleWebAppConfigurationControllerDeleteMutation(),
+    onSuccess: (_response, variables) => {
+      setRestoreItem(undefined)
+      initializedFor.current = undefined
+      toast.success(t('console.settings.reset_done', { key: variables.path?.key ?? '' }))
+      refresh()
+    },
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+
+  const requestClose = () => navigate('/settings')
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setEditorError(undefined)
+
+    const pending: Array<{ key: string; value: JSONValue }> = []
+
+    for (const item of items) {
+      if (drafts[item.key] === initial[item.key]) continue
+
+      const parsed = parseJSON(drafts[item.key] ?? '', item.key)
+      if (!parsed.ok) {
+        setEditorError(parsed.error)
+        return
+      }
+
+      const invalid = settingValidationMessage(t, item.key, parsed.value)
+      if (invalid) {
+        setEditorError(`${item.key}: ${invalid}`)
+        return
+      }
+
+      pending.push({ key: item.key, value: parsed.value })
+    }
+
+    if (pending.length === 0) return
+
+    setSaving(true)
+
+    for (const entry of pending) {
+      try {
+        await update.mutateAsync({ body: { value: entry.value }, path: { key: entry.key } })
+        setInitial(current => ({ ...current, [entry.key]: drafts[entry.key] ?? '' }))
+      } catch (error) {
+        setSaving(false)
+        setEditorError(t('console.settings.group_save_failed', { key: entry.key, reason: requestErrorMessage(error) }))
+        refresh()
+        return
+      }
+    }
+
+    setSaving(false)
+    toast.success(t('console.settings.group_saved', { count: pending.length }))
+    allowNavigation.current = true
+    refresh()
+    navigate('/settings')
+  }
+
+  return (
+    <>
+      <Drawer open onOpenChange={open => !open && requestClose()} swipeDirection="right">
+        <DrawerContent className="data-[swipe-axis=x]:[--drawer-content-width:100%] data-[swipe-axis=x]:sm:[--drawer-content-width:48rem]">
+          <form className="flex min-h-0 flex-1 flex-col" onSubmit={submit}>
+            <DrawerHeader className="relative gap-3 border-b border-border p-5 pr-16">
+              <div className="absolute top-3 right-3">
+                <Button
+                  aria-label={t('common.close')}
+                  size="icon-sm"
+                  type="button"
+                  variant="ghost"
+                  onClick={requestClose}>
+                  <RiCloseLine />
+                </Button>
+              </div>
+              <DrawerTitle className="text-lg">{t(`console.settings.group_${groupID}`)}</DrawerTitle>
+              <DrawerDescription className="text-left text-pretty">
+                {t(`console.settings.group_${groupID}_description`)}
+              </DrawerDescription>
+            </DrawerHeader>
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
+              {list.isLoading ? (
+                <div className="grid gap-4">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-64 w-full" />
+                </div>
+              ) : (
+                <div className="grid gap-8">
+                  <ErrorBlock
+                    error={editorError ?? list.error ?? (prefix ? undefined : t('console.settings.not_found'))}
+                  />
+
+                  {items.map(item => (
+                    <section key={item.key} className="grid gap-4">
+                      <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
+                        <div className="grid gap-1">
+                          <h2 className="font-mono text-sm text-foreground">{item.key}</h2>
+                          <p className="text-xs leading-5 text-muted-foreground">{settingDescription(t, item)}</p>
+                        </div>
+                        {item.overridden ? (
+                          <Button
+                            disabled={saving || restoreDefault.isPending}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                            onClick={() => setRestoreItem(item)}>
+                            <RiResetLeftLine />
+                            {t('console.settings.restore_default')}
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      <SettingValueEditor
+                        item={item}
+                        value={drafts[item.key] ?? ''}
+                        onChange={value => {
+                          setDrafts(current => ({ ...current, [item.key]: value }))
+                          setEditorError(undefined)
+                        }}
+                      />
+                    </section>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
+              {dirty ? (
+                <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
+              ) : null}
+              <Button disabled={saving} type="button" variant="ghost" onClick={requestClose}>
+                {t('common.cancel')}
+              </Button>
+              <Button disabled={!dirty || saving} type="submit">
+                {saving ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
+                {t('common.save')}
+              </Button>
+            </DrawerFooter>
+          </form>
+        </DrawerContent>
+      </Drawer>
+
+      <Dialog open={Boolean(restoreItem)} onOpenChange={open => !open && setRestoreItem(undefined)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('console.settings.restore_default_title')}</DialogTitle>
+            <DialogDescription>
+              {restoreItem?.default_present
+                ? t('console.settings.restore_default_description', { key: restoreItem.key })
+                : t('console.settings.restore_unset_description', { key: restoreItem?.key })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />} disabled={restoreDefault.isPending}>
+              {t('common.cancel')}
+            </DialogClose>
+            <Button
+              disabled={restoreDefault.isPending}
+              variant="destructive"
+              onClick={() => restoreItem && restoreDefault.mutate({ path: { key: restoreItem.key } })}>
               {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.settings.restore_default_confirm')}
             </Button>

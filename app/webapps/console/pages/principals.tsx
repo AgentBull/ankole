@@ -35,9 +35,29 @@ import {
 import type { PrincipalGroupItem, PrincipalItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../console-primitives'
-import { ConfirmDeleteButton, ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch, SubNav } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 import { PermissionGrantsSection } from './permission-grant-editor'
+
+/**
+ * Sibling views of the "Access" nav area.
+ *
+ * The side nav has one entry for access control and it lands on the group list,
+ * so the principal list below was reachable only by typing its URL. Both lists
+ * now carry this strip.
+ */
+export function AccessSubNav() {
+  const { t } = useTranslation()
+  return (
+    <SubNav
+      items={[
+        { to: '/access/groups', label: t('console.principal_groups.title') },
+        { to: '/access/principals', label: t('console.principals.title') }
+      ]}
+    />
+  )
+}
 
 export function PrincipalsListPage() {
   const { t } = useTranslation()
@@ -64,6 +84,8 @@ export function PrincipalsListPage() {
       emptyDescription={t('console.principals.empty_description')}
       error={principals.error}
       isFiltered={Boolean(query.trim())}
+      count={rows.length}
+      subNav={<AccessSubNav />}
       toolbar={
         <ResourceSearch
           label={t('console.principals.search')}
@@ -76,7 +98,7 @@ export function PrincipalsListPage() {
         <TableRow key={principal.uid}>
           <TableCell>
             <Link
-              className="flex items-center gap-2 text-foreground hover:text-primary hover:underline"
+              className="flex items-center gap-2 text-foreground hover:text-link hover:underline"
               to={encodeURIComponent(principal.uid)}>
               <PrincipalAvatar principal={principal} />
               <span className="truncate">{principal.display_name ?? principal.uid}</span>
@@ -221,7 +243,7 @@ function PrincipalGroupsSection({ principal }: { principal: PrincipalItem }) {
                     <TableRow key={group.id}>
                       <TableCell>
                         <Link
-                          className="font-mono text-xs text-foreground hover:text-primary hover:underline"
+                          className="font-mono text-xs text-foreground hover:text-link hover:underline"
                           to={`/access/groups/${encodeURIComponent(group.name)}`}>
                           {group.name}
                         </Link>

@@ -53,6 +53,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
     with {:ok, %{"enabled" => enabled}} when enabled in [nil, true] <- Config.dreaming(),
          {:ok, model_agent_uid} <- processor_for_channel(signal_channel_id),
          {:ok, dreaming_config} <- Config.dreaming(),
+         :ok <- seed_cold_start_cursor(signal_channel_id, dreaming_config),
          {:ok, entries} <- summary_window(signal_channel_id, dreaming_config),
          :ok <- require_non_empty_window(entries),
          {:ok, output} <- call_episode_summarizer(model_agent_uid, entries),
@@ -159,6 +160,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
   @spec skip_failed_summary_window(String.t(), term()) :: :ok | {:error, term()}
   def skip_failed_summary_window(signal_channel_id, reason) when is_binary(signal_channel_id) do
     with {:ok, dreaming_config} <- Config.dreaming(),
+         :ok <- seed_cold_start_cursor(signal_channel_id, dreaming_config),
          {:ok, entries} <- summary_window(signal_channel_id, dreaming_config),
          [first_entry | _entries] <- entries,
          %Entry{} = last_entry <- List.last(entries) do
@@ -272,6 +274,85 @@ defmodule Ankole.Brain.Dreaming.StageA do
     case Repo.query(sql, [silence_cutoff, tail_cutoff, limit, backlog_rows]) do
       {:ok, %{rows: rows}} -> Enum.map(rows, fn [channel_id] -> channel_id end)
       {:error, _reason} -> []
+    end
+  end
+
+  # A channel that has no cursor yet would otherwise summarize its whole retained history, which
+  # grows with the delay between the first ingested entry and the first dreaming run. The
+  # configured lookback bounds that first window by seeding the cursor at the newest entry the
+  # window excludes, so the existing advance path continues from a normal cursor row.
+  #
+  # The boundary is written once instead of filtering every read. A recomputed `now - lookback`
+  # floor would move forward while Stage A cannot produce an episode, and the span it passed over
+  # would never be summarized and would leave no record that it was dropped.
+  defp seed_cold_start_cursor(signal_channel_id, dreaming_config) do
+    lookback_days = Map.fetch!(dreaming_config, "episode_cold_start_lookback_days")
+    cursor = Repo.get_by(Cursor, scope_kind: :channel, scope_key: signal_channel_id)
+
+    if is_integer(lookback_days) and is_nil(cursor) do
+      seed_channel_cursor(signal_channel_id, lookback_days)
+    else
+      :ok
+    end
+  end
+
+  defp seed_channel_cursor(signal_channel_id, lookback_days) do
+    boundary =
+      DateTime.utc_now(:microsecond)
+      |> DateTime.add(-lookback_days * 24 * 60 * 60, :second)
+
+    Entry
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where(
+      [entry],
+      fragment(
+        "COALESCE(?, ?, ?)",
+        entry.provider_time,
+        entry.last_seen_at,
+        entry.inserted_at
+      ) <= ^boundary
+    )
+    |> order_by([entry],
+      desc:
+        fragment(
+          "COALESCE(?, ?, ?)",
+          entry.provider_time,
+          entry.last_seen_at,
+          entry.inserted_at
+        ),
+      desc: entry.source_entry_id
+    )
+    |> limit(1)
+    |> Repo.one()
+    |> case do
+      nil -> :ok
+      %Entry{} = entry -> insert_cold_start_cursor(signal_channel_id, entry, lookback_days)
+    end
+  end
+
+  defp insert_cold_start_cursor(signal_channel_id, %Entry{} = entry, lookback_days) do
+    now = DateTime.utc_now(:microsecond)
+
+    changeset =
+      Cursor.changeset(%Cursor{}, %{
+        scope_kind: :channel,
+        scope_key: signal_channel_id,
+        cursor_provider_time: entry.provider_time,
+        cursor_source_entry_id: entry.source_entry_id,
+        cursor_entry_observed_at: observed_at(entry),
+        metadata: %{"cold_start_lookback_days" => lookback_days},
+        inserted_at: now,
+        updated_at: now
+      })
+
+    # A concurrent run that already created or advanced this cursor owns the position. Seeding must
+    # never move it, in either direction.
+    case Repo.insert(changeset,
+           on_conflict: :nothing,
+           conflict_target: [:scope_kind, :scope_key]
+         ) do
+      {:ok, _cursor} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

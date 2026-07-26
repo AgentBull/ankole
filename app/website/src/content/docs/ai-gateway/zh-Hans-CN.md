@@ -1,8 +1,8 @@
 ---
 title: AIGateway API
 description: OpenResponses 兼容的 AI 边界——HTTP、SSE、WebSocket 端点，无状态与有状态调用，以及 provider 路由。
-section: Concepts
-order: 6
+section: Developer guide
+order: 101
 ---
 
 AIGateway 是一套 Ankole 部署的统一 AI 边界。外部应用、企业系统和 SDK 直接通过 OpenResponses 兼容的 API 调用它；内部 agent 也通过同一个入口发起模型回合。每一次调用都会把模型选择符解析到运维者配置的 provider 绑定上，而上游凭证永远不会离开控制面。

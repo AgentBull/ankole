@@ -1,14 +1,68 @@
 import type { AgentItem, JsonValue as JSONValue } from '../api/generated/types.gen'
 
 export type SettingValueKind = 'boolean' | 'number' | 'string' | 'object' | 'structured'
-export type SettingEditorKind = 'brainEmbedding' | 'plugins' | 'timezone' | 'locale' | 'encrypted' | SettingValueKind
+export type SettingEditorKind =
+  | 'brainDreaming'
+  | 'brainEmbedding'
+  | 'plugins'
+  | 'timezone'
+  | 'locale'
+  | 'encrypted'
+  | SettingValueKind
 
 const SPECIFIC_SETTING_EDITORS = new Map<string, SettingEditorKind>([
+  ['brain.dreaming', 'brainDreaming'],
   ['brain.embedding', 'brainEmbedding'],
   ['plugins.enabled_ids', 'plugins'],
   ['system.timezone', 'timezone'],
   ['i18n.default_locale', 'locale']
 ])
+
+/**
+ * Mirrors the bounds that `Ankole.Brain.Config` enforces, so a value out of range is reported in
+ * the field instead of returning from the server as one opaque rejection. `unlimited` records how
+ * each field spells "no limit": Stage B reads `0` that way, and the Stage A cold start boundary
+ * reads `null` as the full retained history, which `0` does not mean.
+ */
+export type BrainDreamingField = {
+  /** Value the field returns to when the operator clears "no limit". */
+  fallback?: number
+  key: string
+  max: number
+  min: number
+  section: 'stage_a' | 'stage_b'
+  unlimited?: 'null' | 'zero'
+}
+
+export const BRAIN_DREAMING_FIELDS: BrainDreamingField[] = [
+  { key: 'material_limit', min: 1, max: 10_000, section: 'stage_b' },
+  { key: 'token_limit', min: 0, max: 10_000_000, section: 'stage_b', unlimited: 'zero' },
+  { key: 'mutation_limit', min: 0, max: 100_000, section: 'stage_b', unlimited: 'zero' },
+  { key: 'curation_silence_minutes', min: 0, max: 1_440, section: 'stage_b' },
+  { key: 'curation_backlog_rows', min: 1, max: 10_000, section: 'stage_b' },
+  { key: 'episode_silence_minutes', min: 0, max: 1_440, section: 'stage_a' },
+  { key: 'episode_backlog_rows', min: 1, max: 10_000, section: 'stage_a' },
+  { key: 'episode_window_max_rows', min: 1, max: 500, section: 'stage_a' },
+  { key: 'episode_window_max_tokens', min: 500, max: 200_000, section: 'stage_a' },
+  { key: 'episode_tail_guard_rows', min: 0, max: 200, section: 'stage_a' },
+  { key: 'episode_tail_guard_minutes', min: 0, max: 1_440, section: 'stage_a' },
+  {
+    key: 'episode_cold_start_lookback_days',
+    min: 0,
+    max: 36_500,
+    section: 'stage_a',
+    unlimited: 'null',
+    fallback: 5
+  }
+]
+
+/** `default` keeps `enabled` absent, which every Agent reads as enabled. */
+export type BrainDreamingEnabled = 'default' | 'off' | 'on'
+
+export type BrainDreamingDraft = {
+  enabled: BrainDreamingEnabled
+  numbers: Record<string, string>
+}
 
 export type BrainEmbeddingDraft = {
   dimensions: string
@@ -98,6 +152,57 @@ export function brainEmbeddingValidationError(value: JSONValue): BrainEmbeddingV
   if (typeof object.model_agent_uid !== 'string' || !object.model_agent_uid.trim()) return 'model_agent'
   if (typeof object.dimensions !== 'number') return 'dimensions'
   return undefined
+}
+
+export function brainDreamingDraft(text: string): BrainDreamingDraft {
+  const object = (() => {
+    try {
+      return record(JSON.parse(text))
+    } catch {
+      return undefined
+    }
+  })()
+
+  const numbers: Record<string, string> = {}
+
+  for (const field of BRAIN_DREAMING_FIELDS) {
+    const value = object?.[field.key]
+    numbers[field.key] = typeof value === 'number' && Number.isInteger(value) ? String(value) : ''
+  }
+
+  return { enabled: brainDreamingEnabled(object?.enabled), numbers }
+}
+
+export function serializeBrainDreamingDraft(draft: BrainDreamingDraft): string {
+  const value: Record<string, unknown> = {
+    enabled: draft.enabled === 'default' ? null : draft.enabled === 'on'
+  }
+
+  for (const field of BRAIN_DREAMING_FIELDS) {
+    const text = (draft.numbers[field.key] ?? '').trim()
+    value[field.key] = text === '' ? null : Number(text)
+  }
+
+  return JSON.stringify(value, null, 2)
+}
+
+/** Reports the offending field key, or `invalid` when the value is not a dreaming object at all. */
+export function brainDreamingValidationError(value: JSONValue): string | undefined {
+  const object = record(value)
+  if (!object) return 'invalid'
+  if (object.enabled !== null && typeof object.enabled !== 'boolean') return 'invalid'
+
+  return BRAIN_DREAMING_FIELDS.find(field => {
+    const current = object[field.key]
+    if (current === null || current === undefined) return field.unlimited !== 'null'
+    return typeof current !== 'number' || !Number.isInteger(current) || current < field.min || current > field.max
+  })?.key
+}
+
+function brainDreamingEnabled(value: unknown): BrainDreamingEnabled {
+  if (value === true) return 'on'
+  if (value === false) return 'off'
+  return 'default'
 }
 
 export function brainEmbeddingAgentOptions(

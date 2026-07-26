@@ -1,4 +1,6 @@
 import { batch, createModel, signal } from '@preact/signals-react'
+import type { PrincipalItem } from '../api/generated/types.gen'
+import { resetCursorParams } from './cursor-pagination'
 
 export type BrainEntrySnapshot = {
   id: string
@@ -61,10 +63,7 @@ export type BrainMetadataEditorDraft = {
   propertyDrafts: PropertyDraft[]
 }
 
-export type BrainOwnerOption = { uid: string; type: 'human' | 'agent' }
-
-const ROOT_CURSOR = '~'
-const CURSOR_HISTORY_SEPARATOR = '.'
+export type BrainOwnerOption = Pick<PrincipalItem, 'uid' | 'type'>
 
 export const BrainMetadataEditorModel = createModel(() => {
   const sourceKey = signal<string>()
@@ -199,67 +198,7 @@ export function setBrainFilter(
   const next = new URLSearchParams(searchParams)
   if (value) next.set(key, value)
   else next.delete(key)
-  next.delete(cursorParam(cursorPrefix))
-  next.delete(cursorHistoryParam(cursorPrefix))
-  return next
-}
-
-/** Advances to a server-issued cursor while retaining the exact cursor needed to return. */
-export function nextBrainCursor(searchParams: URLSearchParams, nextCursor: string, cursorPrefix = ''): URLSearchParams {
-  const next = new URLSearchParams(searchParams)
-  const cursorKey = cursorParam(cursorPrefix)
-  const historyKey = cursorHistoryParam(cursorPrefix)
-  const history = readCursorHistory(searchParams, cursorPrefix)
-  history.push(searchParams.get(cursorKey) ?? '')
-  next.set(cursorKey, nextCursor)
-  next.set(historyKey, history.map(cursor => cursor || ROOT_CURSOR).join(CURSOR_HISTORY_SEPARATOR))
-  return next
-}
-
-/** Returns to the cursor that produced the previous page without guessing from mutable row data. */
-export function previousBrainCursor(searchParams: URLSearchParams, cursorPrefix = ''): URLSearchParams {
-  const next = new URLSearchParams(searchParams)
-  const cursorKey = cursorParam(cursorPrefix)
-  const historyKey = cursorHistoryParam(cursorPrefix)
-  const history = readCursorHistory(searchParams, cursorPrefix)
-  const previous = history.pop()
-
-  if (previous) next.set(cursorKey, previous)
-  else next.delete(cursorKey)
-
-  if (history.length > 0) {
-    next.set(historyKey, history.map(cursor => cursor || ROOT_CURSOR).join(CURSOR_HISTORY_SEPARATOR))
-  } else {
-    next.delete(historyKey)
-  }
-
-  return next
-}
-
-export function brainCursorPage(searchParams: URLSearchParams, cursorPrefix = ''): number {
-  return readCursorHistory(searchParams, cursorPrefix).length + 1
-}
-
-export function canReturnBrainCursor(searchParams: URLSearchParams, cursorPrefix = ''): boolean {
-  return readCursorHistory(searchParams, cursorPrefix).length > 0
-}
-
-function readCursorHistory(searchParams: URLSearchParams, cursorPrefix: string): string[] {
-  const encoded = searchParams.get(cursorHistoryParam(cursorPrefix))
-  if (!encoded) return []
-
-  return encoded
-    .split(CURSOR_HISTORY_SEPARATOR)
-    .filter(part => part === ROOT_CURSOR || /^[A-Za-z0-9_-]+$/.test(part))
-    .map(part => (part === ROOT_CURSOR ? '' : part))
-}
-
-function cursorParam(prefix: string): string {
-  return `${prefix}cursor`
-}
-
-function cursorHistoryParam(prefix: string): string {
-  return `${prefix}cursor_history`
+  return resetCursorParams(next, cursorPrefix)
 }
 
 function sameJSON(left: unknown, right: unknown): boolean {

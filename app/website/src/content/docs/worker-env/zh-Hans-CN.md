@@ -1,8 +1,8 @@
 ---
 title: WorkerEnv secret
 description: Agent Computer worker 的加密 shell 环境存储——三条轨道、每个 agent 一份合并后的环境，仅在一次回合的临时 RPC 路径上解密。
-section: Operations
-order: 17
+section: User guide
+order: 10
 ---
 
 WorkerEnv 是 Agent Computer shell 在跑一个回合时所看到的环境变量存储。运维者在这里把一个 API key 或 token 放一次，挂到合适的范围，worker 在回合开始时收到它——已解密。本页对照 `Ankole.SignalsGateway.ActorRuntime.WorkerEnv` 里的真实代码，画出这套模型。
@@ -78,5 +78,5 @@ Ankole 有三套触及进程或 shell 行为的配置界面，WorkerEnv 是其�
 ## 下一步
 
 - 收到这份环境的 worker，读 [Agent Computer](../agent-computer/)。
-- 已声明变量所来自的 AppConfigure 定义，读 [Console](../console/)。
+- 已声明变量所来自的 AppConfigure 定义，读 [Console](../console-api/)。
 - 与 secret 改动共享的“下一个回合，不是这一个回合”性质，读 [Background Agent Jobs](../background-agent-jobs/)。

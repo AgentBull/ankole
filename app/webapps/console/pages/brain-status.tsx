@@ -9,7 +9,8 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON } from '../console-primitives'
-import { PageHeader, StatusIndicator } from '../console-shell'
+import { StatusIndicator } from '../console-form'
+import { PageHeader, RefreshButton } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import { BrainOwnerField, BrainTaskNavigation } from './brain-shared'
 
@@ -40,10 +41,14 @@ export function BrainStatusPage() {
   const stuckJobs = jsonArray(status?.stuck_curation_jobs)
 
   return (
-    <div className="grid gap-5">
-      <PageHeader title={t('console.brain.status_title')} description={t('console.brain.status_description')} />
+    <div className="grid min-w-0 gap-5">
+      <PageHeader
+        title={t('console.brain.status_title')}
+        description={t('console.brain.status_description')}
+        actions={<RefreshButton />}
+      />
       <BrainTaskNavigation active="status" ownerUID={ownerUID} />
-      <div className="grid gap-4 border border-border bg-card p-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
           ownerUID={ownerUID}
           principals={principals.data?.principals ?? []}
@@ -59,7 +64,7 @@ export function BrainStatusPage() {
 
       <ErrorBlock error={query.error ?? principals.error} />
       {query.isLoading || principals.isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Skeleton className="h-48" />
           <Skeleton className="h-48" />
         </div>
@@ -85,7 +90,7 @@ export function BrainStatusPage() {
             </CardContent>
           </Card>
 
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
             <PipelineCard title={t('console.brain.status_episode_embeddings')} value={jsonObject(stageA?.episodes)} />
             <PipelineCard
               title={t('console.brain.status_block_embeddings')}
@@ -107,7 +112,7 @@ export function BrainStatusPage() {
             </CardContent>
           </Card>
 
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
             <CollectionCard title={t('console.brain.status_memo')} values={memo} />
             <CollectionCard title={t('console.brain.status_stuck_jobs')} values={stuckJobs} />
           </div>
@@ -117,7 +122,7 @@ export function BrainStatusPage() {
               <CardTitle>{t('console.brain.status_lints')}</CardTitle>
               <CardDescription>{t('console.brain.status_lints_description')}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
+            <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {Object.entries(lints ?? {}).map(([name, value]) => {
                 const lint = jsonObject(value)
                 const count = numberValue(lint?.count)

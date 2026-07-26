@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { BrainEntry, BrainEntryBlock, BrainEntryOperation, BrainEntryRelation } from '../api/generated/types.gen'
 import { formatConsoleDate } from '../console-primitives'
-import { LabeledField } from '../console-shell'
+import { LabeledField } from '../console-form'
 import type { PropertyDraft } from '../state/brain-editor-model'
 
 export function MetadataEditor({
@@ -56,7 +56,7 @@ export function MetadataEditor({
         <CardDescription>{t('console.brain.metadata_description')}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-5">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <LabeledField label={t('console.brain.name')}>
             <Input value={name} onChange={event => onNameChange(event.target.value)} />
           </LabeledField>
@@ -136,7 +136,7 @@ function StructuredProperties({
       {drafts.map((draft, index) => (
         <div
           key={index}
-          className="grid gap-2 border border-border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
+          className="grid grid-cols-1 gap-2 border border-border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
           <Input
             aria-label={t('console.brain.property_key')}
             placeholder={t('console.brain.property_key')}
@@ -381,7 +381,7 @@ export function RelationsEditor({
             />
           ))}
         </div>
-        <div className="grid gap-3 border border-dashed border-border p-4 md:grid-cols-[1fr_1.5fr_auto]">
+        <div className="grid grid-cols-1 gap-3 border border-dashed border-border p-4 md:grid-cols-[1fr_1.5fr_auto]">
           <Input
             placeholder={t('console.brain.predicate')}
             value={predicate}

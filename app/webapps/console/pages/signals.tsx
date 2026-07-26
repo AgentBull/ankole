@@ -35,15 +35,8 @@ import {
   ankoleWebSignalBindingControllerUpdateBindingMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { SignalAdapterItem } from '../api/generated/types.gen'
-import {
-  LabeledField,
-  ReadOnlyValue,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions,
-  StatusIndicator
-} from '../console-shell'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   defaultSignalBindingAgentUID,
   SignalBindingEditorModel,
@@ -101,47 +94,45 @@ export function SignalsListPage() {
       ]}
       isLoading={bindings.isLoading || agents.isLoading}
       isEmpty={rows.length === 0}
+      count={rows.length}
       emptyTitle={t('console.signals.empty_title')}
       emptyDescription={t('console.signals.empty_description')}
       error={agents.error ?? bindings.error}
       isFiltered={Boolean(query.trim())}
       toolbar={
-        <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
-          <div className="border border-border bg-card p-3">
-            <LabeledField label={t('console.agents.agent')}>
-              <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('console.signals.select_agent')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {agentList.map(agent => (
-                    <SelectItem key={agent.uid} value={agent.uid}>
-                      {agent.uid}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </LabeledField>
-          </div>
-          <ResourceSearch
-            label={t('console.signals.search')}
-            placeholder={t('console.signals.search_placeholder')}
-            value={query}
-            onChange={setQuery}
-          />
-        </div>
+        <ResourceSearch
+          label={t('console.signals.search')}
+          placeholder={t('console.signals.search_placeholder')}
+          value={query}
+          onChange={setQuery}
+          filters={
+            <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
+              <SelectTrigger aria-label={t('console.agents.agent')} className="w-56">
+                <SelectValue placeholder={t('console.signals.select_agent')} />
+              </SelectTrigger>
+              <SelectContent>
+                {agentList.map(agent => (
+                  <SelectItem key={agent.uid} value={agent.uid}>
+                    {agent.uid}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        />
       }>
       {rows.map(binding => (
         <TableRow key={`${binding.adapter}:${binding.name}`}>
           <TableCell className="font-mono text-xs">
             <Link
-              className="text-foreground hover:text-primary hover:underline"
+              className="text-foreground hover:text-link hover:underline"
               to={reconfigureTo(agentUID, binding.adapter, binding.name)}>
               {binding.name}
             </Link>
           </TableCell>
           <TableCell>{binding.adapter}</TableCell>
-          <TableCell>{binding.unaddressed_group_message_policy}</TableCell>
+          {/* The stored value is a policy identifier, not a phrase an operator reads. */}
+          <TableCell>{t(`console.signals.policy_${binding.unaddressed_group_message_policy}`)}</TableCell>
           <TableCell>
             {binding.confidential_memory
               ? t('console.signals.memory_confidential')
@@ -289,7 +280,7 @@ export function SignalBindingEditorPage() {
       }
       submitting={createBinding.isPending || updateBinding.isPending}
       onSubmit={submit}>
-      <div className="grid gap-5 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
         <LabeledField label={t('console.signals.target_agent')} required>
           <Select value={targetAgentUID} onValueChange={value => model.selectAgent(String(value))}>
             <SelectTrigger className="w-full">

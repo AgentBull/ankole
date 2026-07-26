@@ -1,8 +1,8 @@
 ---
 title: AIGateway API
 description: The OpenResponses-compatible AI boundary — HTTP, SSE, and WebSocket endpoints, stateless and stateful calls, and provider routing.
-section: Concepts
-order: 6
+section: Developer guide
+order: 101
 ---
 
 AIGateway is the unified AI boundary of an Ankole installation. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.

@@ -1,0 +1,30 @@
+---
+/**
+ * Carbon expressive entrance, driven by scroll position in CSS.
+ *
+ * The content is visible without JavaScript and without scroll-timeline support.
+ * The entrance is an enhancement, so a crawler, a slow connection, or a browser
+ * without `animation-timeline` still shows a complete page.
+ *
+ * `rise` moves content a short distance along the vertical grid axis.
+ * `wipe` uncovers content along the horizontal grid axis.
+ * `step` offsets the scroll range, so members of one row arrive in sequence.
+ */
+interface Props {
+	variant?: 'rise' | 'wipe'
+	step?: number
+	class?: string
+}
+
+const { variant = 'rise', step, class: className } = Astro.props
+const staggered = step !== undefined && step > 0
+---
+
+<div
+	class={className}
+	data-reveal={variant}
+	data-reveal-step={staggered ? '' : undefined}
+	style={staggered ? `--reveal-step:${step}` : undefined}
+>
+	<slot />
+</div>

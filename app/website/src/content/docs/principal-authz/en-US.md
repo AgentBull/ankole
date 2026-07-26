@@ -1,8 +1,8 @@
 ---
 title: Principal and AuthZ
 description: The permission boundary of an Ankole installation — Principals as accountable subjects, permission grants, group membership, and runtime enforcement rather than prompt convention.
-section: Concepts
-order: 11
+section: Developer guide
+order: 106
 ---
 
 Every action in Ankole — a human signing in, an agent running a turn, a job waking its owner, a Brain write — is done by a Principal, and what that Principal may do is decided by AuthZ at the moment of the action. This page maps that boundary against the real code in `Ankole.Principals` and `Ankole.AuthZ`.

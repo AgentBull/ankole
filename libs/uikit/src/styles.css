@@ -213,6 +213,7 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-link: var(--link);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -272,6 +273,7 @@
   --popover-foreground: var(--text-primary);
   --primary: var(--interactive);
   --primary-foreground: var(--text-on-color);
+  --link: var(--interactive);
   --secondary: var(--color-gray-80);
   --secondary-foreground: var(--text-on-color);
   --muted: var(--layer-03);
@@ -333,6 +335,13 @@
   --interactive-hover: var(--color-brand-50);
   --interactive-active: var(--color-brand-40);
   --interactive-disabled: var(--color-gray-70);
+
+  /* Link text needs its own step in the dark theme. The brand fill reads at
+     2.8:1 as text on the dark background, where body text must reach 4.5:1;
+     brand-40 clears it against both the page background and the card layer.
+     The fill itself keeps the brand step, because it is measured against its
+     own white foreground. */
+  --link: var(--color-brand-40);
 
   --text-primary: var(--color-gray-10);
   --text-secondary: var(--color-gray-30);
@@ -514,5 +523,30 @@
   .ankole-json-editor .jer-collection-error-row-edit,
   .ankole-json-editor .jer-value-error-row {
     position: static;
+  }
+}
+
+/*
+ * Reduced motion.
+ *
+ * Carbon's motion guidance requires a reduced alternative for interface state
+ * transitions. Nothing here removes a state change — only the travel between
+ * states — so a panel still opens and a menu still closes. `animate-spin` is
+ * exempt because a busy indicator that stops moving reads as a hung request,
+ * which is the opposite of the state it must report.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation-duration: 1.5s !important;
   }
 }

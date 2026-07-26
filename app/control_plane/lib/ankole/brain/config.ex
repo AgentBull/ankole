@@ -31,7 +31,8 @@ defmodule Ankole.Brain.Config do
     "episode_window_max_rows" => 200,
     "episode_window_max_tokens" => 8_000,
     "episode_tail_guard_rows" => 20,
-    "episode_tail_guard_minutes" => 360
+    "episode_tail_guard_minutes" => 360,
+    "episode_cold_start_lookback_days" => 5
   }
 
   @default_embedding %{
@@ -211,7 +212,13 @@ defmodule Ankole.Brain.Config do
              {:ok, window_tokens} <-
                integer(value, "episode_window_max_tokens", 500, 200_000),
              {:ok, tail_rows} <- integer(value, "episode_tail_guard_rows", 0, 200),
-             {:ok, tail_minutes} <- integer(value, "episode_tail_guard_minutes", 0, 1_440) do
+             {:ok, tail_minutes} <- integer(value, "episode_tail_guard_minutes", 0, 1_440),
+             # `nil` means no cold-start boundary: Stage A summarizes the full retained history of
+             # a channel that has no cursor. A stored value that predates this setting reads as
+             # `nil` and keeps that behaviour, because AppConfigure replaces the default with the
+             # stored map instead of merging the two.
+             {:ok, cold_start_lookback_days} <-
+               optional_integer(value, "episode_cold_start_lookback_days", 0, 36_500) do
           {:ok,
            %{
              "enabled" => enabled,
@@ -225,7 +232,8 @@ defmodule Ankole.Brain.Config do
              "episode_window_max_rows" => window_rows,
              "episode_window_max_tokens" => window_tokens,
              "episode_tail_guard_rows" => tail_rows,
-             "episode_tail_guard_minutes" => tail_minutes
+             "episode_tail_guard_minutes" => tail_minutes,
+             "episode_cold_start_lookback_days" => cold_start_lookback_days
            }}
         end
 

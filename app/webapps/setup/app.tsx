@@ -216,7 +216,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
       <ErrorAlert error={mutation.error ?? printActivationCode.error} />
       <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
-        <FieldGroup className="grid gap-5 md:grid-cols-2">
+        <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <FormField of={form} path={['locale']}>
             {field => (
               <Field>
@@ -249,7 +249,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                 <div className="flex flex-wrap items-center gap-2">
                   <FieldLabel>{t('setup.activation_code')}</FieldLabel>
                   <button
-                    className="text-sm leading-5 text-primary underline underline-offset-4 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="text-sm leading-5 text-link underline underline-offset-4 hover:text-link/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={printActivationCode.isPending}
                     onClick={() => printActivationCode.mutate()}
                     type="button">
@@ -304,7 +304,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
     <Panel title={t('setup.choose_plugins')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.plugin_restart_note')}</p>
       <ErrorAlert error={query.error ?? mutation.error} />
-      <div className="grid gap-3 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         {(query.data?.plugins ?? []).map(plugin => {
           const checked = selectedIDs.has(plugin.id)
 
@@ -408,7 +408,7 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
     <Panel title={t('setup.identity_provider')}>
       <ErrorAlert error={mutation.error} />
       <form className="grid gap-6" onSubmit={submitIdentity}>
-        <FieldGroup className="grid gap-5 md:grid-cols-2">
+        <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <Field>
             <FieldLabel>{t('setup.adapter')}</FieldLabel>
             <Select

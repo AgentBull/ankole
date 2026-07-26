@@ -1,8 +1,8 @@
 ---
 title: Actor Runtime
 description: How a long-running session lives, wakes, fails, and recovers — the actor key, the OTP failure domains, the activation fence, and the RuntimeFabric live path.
-section: Concepts
-order: 8
+section: Developer guide
+order: 103
 ---
 
 The Actor Runtime is what makes a session a long-lived thing rather than a request. A signal arrives, a session wakes, a worker runs one turn, the turn commits or fails, and the session goes back to waiting — all while the durable transcript in PostgreSQL stays correct even if processes crash. This page maps that lifecycle against the real code in `Ankole.SignalsGateway.ActorRuntime`.

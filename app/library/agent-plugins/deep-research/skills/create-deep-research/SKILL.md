@@ -34,14 +34,14 @@ and briefly state your assumptions and the choices left to the Job.
 When no unresolved aspect remains, summarize the shared understanding. Do not
 create the Job until the human confirms it.
 
-P.s. Remember to remind the human that deep research may take 30-90 minutes, because it may involve multiple rounds of research, analysis, and deduction to produce a high-quality report. If the human is not willing to wait, suggest that they ask for a quick answer instead.
+P.s. Remember to remind the human that deep research may take 30-90 minutes, because it may involve multiple rounds of research, analysis, and deduction to produce a high-quality report. If the human is not willing to wait, suggest that they ask for a quick answer instead. 
 
 ## Start the Job
 
 Call `create_background_job` once with these arguments:
 
 - `title`: a concise label for managing and displaying the Job. 
-- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references.
+- `task`: the complete confirmed research request, including your stated assumptions and the research choices left to the Job. Background Agent (Codex) receives this text verbatim as its first user prompt. The `task` must include this exact sentence: "Conduct this Deep Research according to the requirements in the provided AGENTS.md." Include any relevant context, such as the human's goals, constraints, success criteria, and any relevant references. Write a stated length, such as a page count or a word count, as an approximate target unless the human asks for an exact value. "A 3-page PDF" means a report of approximately 3 pages, not exactly 3 pages.
 - `workspace_template_id`: must be 'deep-research' to ensure the Job has the right environment and tools.
 
 The Job automatically receives every current enabled Skill that permits

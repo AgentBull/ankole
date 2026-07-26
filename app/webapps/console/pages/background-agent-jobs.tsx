@@ -58,7 +58,8 @@ import type {
 } from '../api/generated/types.gen'
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
 import { MarkdownBody } from '../markdown-body'
-import { PageHeader, ResourceSearch, StatusIndicator } from '../console-shell'
+import { StatusIndicator } from '../console-form'
+import { PageHeader, RefreshButton, ResourceSearch } from '../console-list-page'
 
 type Column = {
   key: 'todo' | 'active' | 'finished'
@@ -138,10 +139,11 @@ export function BackgroundAgentJobsPage() {
   )
 
   return (
-    <div className="grid gap-6">
+    <div className="grid min-w-0 gap-6">
       <PageHeader
         title={t('console.background_agent_jobs.title')}
         description={t('console.background_agent_jobs.description')}
+        actions={<RefreshButton />}
       />
       <ResourceSearch
         label={t('console.background_agent_jobs.agent_filter')}
@@ -176,7 +178,7 @@ export function BackgroundAgentJobsPage() {
           ) : null}
         </Empty>
       ) : (
-        <div className="grid min-w-0 gap-4 xl:grid-cols-3">
+        <div className="grid grid-cols-1 min-w-0 gap-4 xl:grid-cols-3">
           {columns.map(column => (
             <section key={column.key} className="min-h-72 border border-border bg-muted/25">
               <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
@@ -209,6 +211,15 @@ export function BackgroundAgentJobsPage() {
           ))}
         </div>
       )}
+
+      {/* The board reads one page and the finished column grows without bound, so
+          a busy Installation silently loses its older jobs off the end. Say that
+          the view is capped rather than let it look complete. */}
+      {list.data?.next_cursor ? (
+        <p className="text-sm text-muted-foreground">
+          {t('console.background_agent_jobs.capped', { count: jobs.length })}
+        </p>
+      ) : null}
 
       {/*
         The width override must repeat the `data-[side=right]:sm:` variant of the
@@ -243,7 +254,7 @@ export function BackgroundAgentJobsPage() {
             ) : detail.isLoading || !selected ? (
               <Skeleton className="h-64 w-full" />
             ) : (
-              <div className="grid min-w-0 gap-8 xl:grid-cols-[18rem_minmax(0,1fr)] xl:gap-10">
+              <div className="grid grid-cols-1 min-w-0 gap-8 xl:grid-cols-[18rem_minmax(0,1fr)] xl:gap-10">
                 <JobFacts job={selected} />
                 <div className="grid min-w-0 gap-8">
                   <JobPrompt job={selected} />
@@ -311,8 +322,14 @@ function BackgroundAgentJobCard({
         aria-label={t('console.background_agent_jobs.open_detail', { title: task.title ?? task.id })}
         onClick={onOpen}>
         <div className="flex items-start justify-between gap-3">
-          <h4 className="line-clamp-2 font-medium leading-5">{task.title ?? task.id}</h4>
-          <StatusBadge status={task.status} />
+          {/* Two lines then an ellipsis often cuts the identifier the title ends
+              with, and the card is the only place that identifier appears. */}
+          <h4 className="line-clamp-2 font-medium leading-5" title={task.title ?? String(task.id)}>
+            {task.title ?? task.id}
+          </h4>
+          {/* A column that holds one status has already said it. The badge earns
+              its place only where the column mixes several. */}
+          {distinguishesStatus(task.status) ? <StatusBadge status={task.status} /> : null}
         </div>
         <div className="grid gap-1 text-xs text-muted-foreground">
           <span className="truncate font-mono">{task.agent_uid}</span>
@@ -321,7 +338,7 @@ function BackgroundAgentJobCard({
             {formatDuration(task.duration_seconds)} ·{' '}
             {t('console.background_agent_jobs.attempt_count', { count: task.attempts })}
           </span>
-          <span>{task.workspace_template_id ?? t('console.background_agent_jobs.no_workspace_template')}</span>
+          {task.workspace_template_id ? <span className="truncate">{task.workspace_template_id}</span> : null}
         </div>
       </button>
       {cancellable(task.status) ? (
@@ -359,7 +376,7 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
   return (
     <dl
       aria-label={t('console.background_agent_jobs.overview')}
-      className="grid min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
+      className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
       <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
       <Fact label={t('console.background_agent_jobs.agent')} value={job.agent_uid} mono />
       <Fact label={t('console.background_agent_jobs.codex_account')} value={job.codex_account_id} mono />
@@ -550,7 +567,7 @@ function TurnProgress({ turn }: { turn: BackgroundAgentJobTurn }) {
 
   return (
     <div className="grid min-w-0 gap-3">
-      <dl className="grid gap-px border border-border bg-border sm:grid-cols-4">
+      <dl className="grid grid-cols-1 gap-px border border-border bg-border sm:grid-cols-4">
         <Metric label={t('console.background_agent_jobs.tool_calls')} value={turn.progress.tool_calls} />
         <Metric label={t('console.background_agent_jobs.completed_items')} value={turn.progress.completed_items} />
         <div className="grid content-start gap-1 bg-card px-3 py-2 sm:col-span-2">
@@ -827,6 +844,12 @@ function groupTurnsByAttempt(
 
 function cancellable(status: BackgroundAgentJobItem['status']): boolean {
   return status === 'queued' || status === 'running' || status === 'waiting_on_user'
+}
+
+/** Whether a card's status says more than the column it sits in already did. */
+function distinguishesStatus(status: BackgroundAgentJobItem['status']): boolean {
+  const column = columns.find(candidate => candidate.statuses.includes(status))
+  return (column?.statuses.length ?? 0) > 1
 }
 
 function backgroundAgentJobID(value: string | null): number | undefined {

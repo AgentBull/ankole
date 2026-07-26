@@ -1,8 +1,8 @@
 ---
 title: Control Plane Plugins
 description: 第一方 Elixir 扩展模型——已发现与已激活的 plugin、子系统契约、AppConfigure 键、受监督子进程，以及下一次启动才生效的启用边界。
-section: Concepts
-order: 16
+section: Developer guide
+order: 110
 ---
 
 Control Plane Plugins 是一套 Ankole 部署扩展自身控制面的方式——加一个 signal adapter、一个 identity provider、一个 AppConfigure 键，或一个受监督进程——而不让控制面把这些东西长成一段段一次性的代码路径。本页对照 `Ankole.Plugins` 里的真实代码，画出这套模型。
@@ -75,5 +75,5 @@ plugin 是部署范围全局的，并且失败即关闭，所以运维者通过�
 ## 下一步
 
 - 一个 plugin 可以声明的 signal adapter，读 [SignalsGateway](../signals-gateway/)。
-- 一个 plugin 贡献的 AppConfigure 键，读 [Console](../console/)。
+- 一个 plugin 贡献的 AppConfigure 键，读 [Console](../console-api/)。
 - 这套扩展界面所坐落的信任模型，读 [Principal 与 AuthZ](../principal-authz/)。

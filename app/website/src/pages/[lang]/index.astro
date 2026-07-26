@@ -1,7 +1,8 @@
 ---
+import Capabilities from '../../components/landing/Capabilities.astro'
+import Compounding from '../../components/landing/Compounding.astro'
 import CtaSection from '../../components/landing/CtaSection.astro'
-import Differentiators from '../../components/landing/Differentiators.astro'
-import Features from '../../components/landing/Features.astro'
+import Difference from '../../components/landing/Difference.astro'
 import Hero from '../../components/landing/Hero.astro'
 import QuickStart from '../../components/landing/QuickStart.astro'
 import RuntimeBets from '../../components/landing/RuntimeBets.astro'
@@ -21,10 +22,11 @@ const locale = lang as Locale
 
 <BaseLayout lang={locale} title={getSiteTitle(locale)} description={getSiteDescription(locale)} path="">
 	<Hero lang={locale} />
-	<QuickStart lang={locale} />
-	<Differentiators lang={locale} />
-	<Features lang={locale} />
+	<Difference lang={locale} />
+	<Compounding lang={locale} />
+	<Capabilities lang={locale} />
 	<UseCases lang={locale} />
 	<RuntimeBets lang={locale} />
+	<QuickStart lang={locale} />
 	<CtaSection lang={locale} />
 </BaseLayout>

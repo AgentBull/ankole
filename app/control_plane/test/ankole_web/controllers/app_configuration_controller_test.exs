@@ -8,8 +8,10 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
   alias Ankole.AuthZ
+  alias Ankole.IdentityProviders.Config, as: IdentityProvidersConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
+  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -314,6 +316,36 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
     assert {:ok, true} = SetupConfig.completed?()
     assert {:ok, "ABCDEFGH"} = SetupConfig.bootstrap_activation_code()
+  end
+
+  test "Installation-owned AppConfigure keys stay readable while their owner keeps writing them",
+       %{conn: conn} do
+    :ok = WorkerAuthKey.ensure_registered()
+    :ok = IdentityProvidersConfig.ensure_registered()
+
+    conn = bearer_conn(conn)
+
+    conn = get(conn, ~p"/api/v1/app-configurations")
+    assert %{"app_configurations" => entries} = json_response(conn, 200)
+    assert %{"editable" => false} = entry(entries, "runtime_fabric.worker_auth_key")
+    assert %{"editable" => false} = entry(entries, "principals.identity_providers.active")
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/principals.identity_providers.active", %{"value" => []})
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/app-configurations/runtime_fabric.worker_auth_key", %{"value" => "leaked"})
+
+    assert %{"error" => %{"code" => "not_editable"}} = json_response(conn, 422)
+
+    # Closing the Console path must not close the path the owning API uses.
+    assert {:ok, []} = IdentityProvidersConfig.put_active_providers([])
   end
 
   defp key(prefix, name), do: prefix <> "." <> name

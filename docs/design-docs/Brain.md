@@ -282,6 +282,17 @@ threshold. It protects a recent tail, and one window has row and token limits.
 The defaults are 30 minutes of silence, 200 queued rows, 200 window rows, 8,000
 window tokens, 20 protected tail rows, and 360 protected tail minutes.
 
+A channel that has no cursor starts at a bounded position. Stage A reads back at
+most the configured number of days and writes the cursor at the newest entry
+before that boundary. The first window therefore does not summarize the full
+retained history, which grows with the delay between the first ingested entry
+and the first dreaming run. The default boundary is 5 days, and the value `null`
+removes it. Stage A writes the boundary one time instead of filtering each read:
+a boundary that moves with the current time would pass over the messages that
+arrive while Stage A cannot write an episode, and would keep no record of them.
+An existing cursor always wins, so this boundary applies one time for each
+channel.
+
 For each episode, the model supplies a topic, summary, likely future question,
 resolution, systems, and an optional resolution source message. The control
 plane stores that message ID in the episode metadata. A reader derives the
@@ -416,6 +427,10 @@ be from 1 through 4,096.
 
 ### `brain.dreaming` (scoped)
 
+Stage B reads the value of the Agent that it curates. Stage A reads the global
+value, because it works on a channel and selects a processor Agent for each run.
+The `episode_` settings therefore have no per-Agent effect.
+
 | Setting | Default |
 | --- | ---: |
 | `enabled` | `true` for an Agent; non-Agent owners are unsupported |
@@ -430,6 +445,7 @@ be from 1 through 4,096.
 | `episode_window_max_tokens` | 8,000 |
 | `episode_tail_guard_rows` | 20 |
 | `episode_tail_guard_minutes` | 360 |
+| `episode_cold_start_lookback_days` | 5; `null` reads the full history |
 
 ## Scheduled Maintenance
 

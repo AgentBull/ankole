@@ -29,7 +29,8 @@ import {
 import type { PermissionGrantItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock } from '../console-primitives'
-import { LabeledField, ReadOnlyValue, ResourceEditorPage, RowActions } from '../console-shell'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
+import { RowActions } from '../console-list-page'
 import {
   PermissionGrantEditorModel,
   type PermissionGrantEditorDraft,
@@ -67,7 +68,7 @@ export function PermissionGrantsSection({
       toast.success(t('console.permission_grants.deleted'))
       void queryClient.invalidateQueries()
     },
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+    onError: error => toast.error(requestErrorMessage(error))
   })
 
   return (

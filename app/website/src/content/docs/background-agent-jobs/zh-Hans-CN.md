@@ -1,8 +1,8 @@
 ---
 title: Background Agent Jobs
 description: 跨越 worker 故障的持久、可恢复工作——job 状态机、等待输入、唤醒 owner，以及与 Actor Runtime 的边界。
-section: Concepts
-order: 10
+section: Developer guide
+order: 105
 ---
 
 一个后台 Agent 任务是一单位注定要比单个 worker 活得更久的工作。agent 派出一个任务去做那些太长、步骤太多，或者隔离要求太高、没法在自己回合里就地跑的事——然后这个任务按自己的节奏运行、暂停等输入、失败或完成，而发起它的 agent 仍然有空跟它的 owner 说话。本页对照 `Ankole.BackgroundAgentJobs` 里的真实代码，画出这条生命周期。

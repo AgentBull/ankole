@@ -1,7 +1,7 @@
 ---
 title: 安装部署
 description: 使用 Docker Compose 在单机部署 Ankole，或使用公开 Helm Chart 部署到 Kubernetes。
-section: Operations
+section: Getting started
 order: 3
 ---
 

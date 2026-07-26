@@ -1,8 +1,8 @@
 ---
 title: Agent Computer
 description: The Bun + TypeScript execution substrate — the model loop, tools, files, terminal state, and streaming that run inside a worker close to the workspace, and the fence that binds a worker to one activation.
-section: Concepts
-order: 14
+section: Developer guide
+order: 108
 ---
 
 Agent Computer is the execution substrate. When a session wakes, the Actor Runtime hands one fenced turn to a worker; the Agent Computer worker runs that turn — the model loop, the tools, the file and terminal work, the streaming output — and hands the result back. This page maps that worker against the real code in `app/agent_computer`.

@@ -2,7 +2,7 @@
 title: FAQ & troubleshooting
 description: Common questions and the first places to look when a local Ankole setup does not behave.
 section: Getting started
-order: 5
+order: 4
 ---
 
 Short answers to the questions that come up most often, and a troubleshooting order for when the local environment will not start. The repository [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) stays the deeper source of truth — this page points at it where it matters.

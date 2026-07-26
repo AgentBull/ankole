@@ -1,6 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ankole/uikit/components/tabs'
 import { RiArrowRightLine, RiCheckLine, RiFileCopyLine } from '@remixicon/react'
-import { motion, useReducedMotion } from 'motion/react'
 import { useState } from 'react'
 
 const SOURCE_COMMANDS = `git clone https://github.com/AgentBull/ankole.git
@@ -113,15 +112,8 @@ interface QuickStartTabsProps {
 }
 
 export default function QuickStartTabs({ labels, installHref }: QuickStartTabsProps) {
-  const reduced = useReducedMotion()
-
   return (
-    <motion.div
-      data-reveal
-      initial={reduced ? false : { opacity: 0, y: 16 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.2 }}
-      transition={{ duration: 0.5, ease: [0, 0, 0.3, 1], delay: 0.1 }}>
+    <div data-reveal="rise">
       <Tabs defaultValue="source">
         {/* The three labels exceed a phone width, so let the list scroll instead of the page. */}
         <TabsList className="max-w-full overflow-x-auto">
@@ -147,6 +139,6 @@ export default function QuickStartTabs({ labels, installHref }: QuickStartTabsPr
           </a>
         </TabsContent>
       </Tabs>
-    </motion.div>
+    </div>
   )
 }

@@ -14,7 +14,7 @@ import {
   Textarea,
   toast
 } from '@ankole/uikit'
-import { RiArrowDownSLine } from '@remixicon/react'
+import { RiArrowDownSLine, RiCheckLine, RiSubtractLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -38,15 +38,8 @@ import type {
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorMessage } from '../../common/request-errors'
-import {
-  LabeledField,
-  ReadOnlyValue,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions,
-  StatusIndicator
-} from '../console-shell'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import {
   buildConnectionOptions,
   connectionSettings,
@@ -107,56 +100,6 @@ export function ProvidersListPage() {
   return (
     <div className="grid gap-10">
       <ResourceListPage
-        title={t('console.codex_accounts.title')}
-        description={t('console.codex_accounts.description')}
-        createTo="codex/new"
-        createLabel={t('console.codex_accounts.new')}
-        columns={[
-          t('console.codex_accounts.name'),
-          t('console.codex_accounts.account_id'),
-          t('console.codex_accounts.auth_hash')
-        ]}
-        isLoading={codexAccounts.isLoading}
-        isEmpty={accounts.length === 0}
-        emptyTitle={t('console.codex_accounts.empty_title')}
-        emptyDescription={t('console.codex_accounts.empty_description')}
-        error={codexAccounts.error}
-        isFiltered={Boolean(accountQuery.trim())}
-        toolbar={
-          <ResourceSearch
-            label={t('console.codex_accounts.search')}
-            placeholder={t('console.codex_accounts.search_placeholder')}
-            value={accountQuery}
-            onChange={setAccountQuery}
-          />
-        }>
-        {accounts.map(account => (
-          <TableRow key={account.account_id}>
-            <TableCell>
-              <Link
-                className="font-medium text-foreground hover:text-primary hover:underline"
-                to={`codex/${encodeURIComponent(account.account_id)}`}>
-                {account.name}
-              </Link>
-            </TableCell>
-            <TableCell className="font-mono text-xs">{account.account_id}</TableCell>
-            <TableCell className="max-w-48 truncate font-mono text-xs">{account.auth_hash}</TableCell>
-            <RowActions
-              editTo={`codex/${encodeURIComponent(account.account_id)}`}
-              editLabel={t('common.edit')}
-              deletePending={deleteCodexAccount.isPending}
-              deleteConfirm={{
-                title: t('console.codex_accounts.delete_title'),
-                description: t('console.codex_accounts.delete_description', { name: account.name }),
-                confirmLabel: t('common.delete')
-              }}
-              onDelete={() => deleteCodexAccount.mutate({ path: { account_id: account.account_id } })}
-            />
-          </TableRow>
-        ))}
-      </ResourceListPage>
-
-      <ResourceListPage
         title={t('console.providers.title')}
         description={t('console.providers.description')}
         createTo="new"
@@ -169,6 +112,7 @@ export function ProvidersListPage() {
         ]}
         isLoading={providers.isLoading}
         isEmpty={rows.length === 0}
+        count={rows.length}
         emptyTitle={t('console.providers.empty_title')}
         emptyDescription={t('console.providers.empty_description')}
         error={providers.error}
@@ -185,20 +129,36 @@ export function ProvidersListPage() {
           <TableRow key={provider.provider_id}>
             <TableCell className="font-mono text-xs">
               <Link
-                className="text-foreground hover:text-primary hover:underline"
+                className="text-foreground hover:text-link hover:underline"
                 to={encodeURIComponent(provider.provider_id)}>
                 {provider.provider_id}
               </Link>
             </TableCell>
             <TableCell>{provider.provider_kind}</TableCell>
             <TableCell>
-              <div className="flex flex-wrap gap-1.5">
-                {Object.entries(provider.encrypted_options).map(([key, option]) => (
-                  <Badge key={key} variant={option.present ? 'success' : 'outline'}>
-                    {key}
-                  </Badge>
-                ))}
-              </div>
+              {/* Present and missing used to differ by badge colour alone, which
+                  says nothing to a reader who cannot separate the two hues, and an
+                  empty cell said nothing to anyone. */}
+              {Object.keys(provider.encrypted_options).length === 0 ? (
+                <span className="text-muted-foreground">—</span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(provider.encrypted_options).map(([key, option]) => (
+                    <Badge
+                      key={key}
+                      variant={option.present ? 'success' : 'outline'}
+                      title={t(
+                        option.present ? 'console.providers.credential_set' : 'console.providers.credential_unset'
+                      )}>
+                      {option.present ? <RiCheckLine aria-hidden /> : <RiSubtractLine aria-hidden />}
+                      {key}
+                      <span className="sr-only">
+                        {t(option.present ? 'console.providers.credential_set' : 'console.providers.credential_unset')}
+                      </span>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </TableCell>
             <TableCell>
               <StatusIndicator tone={provider.disabled_at ? 'neutral' : 'positive'}>
@@ -220,6 +180,58 @@ export function ProvidersListPage() {
                 confirmLabel: t(provider.disabled_at ? 'common.delete' : 'common.disable')
               }}
               onDelete={() => deleteProvider.mutate({ path: { provider_id: provider.provider_id } })}
+            />
+          </TableRow>
+        ))}
+      </ResourceListPage>
+
+      <ResourceListPage
+        title={t('console.codex_accounts.title')}
+        description={t('console.codex_accounts.description')}
+        refreshable={false}
+        createTo="codex/new"
+        createLabel={t('console.codex_accounts.new')}
+        columns={[
+          t('console.codex_accounts.name'),
+          t('console.codex_accounts.account_id'),
+          t('console.codex_accounts.auth_hash')
+        ]}
+        isLoading={codexAccounts.isLoading}
+        isEmpty={accounts.length === 0}
+        count={accounts.length}
+        emptyTitle={t('console.codex_accounts.empty_title')}
+        emptyDescription={t('console.codex_accounts.empty_description')}
+        error={codexAccounts.error}
+        isFiltered={Boolean(accountQuery.trim())}
+        toolbar={
+          <ResourceSearch
+            label={t('console.codex_accounts.search')}
+            placeholder={t('console.codex_accounts.search_placeholder')}
+            value={accountQuery}
+            onChange={setAccountQuery}
+          />
+        }>
+        {accounts.map(account => (
+          <TableRow key={account.account_id}>
+            <TableCell>
+              <Link
+                className="font-medium text-foreground hover:text-link hover:underline"
+                to={`codex/${encodeURIComponent(account.account_id)}`}>
+                {account.name}
+              </Link>
+            </TableCell>
+            <TableCell className="font-mono text-xs">{account.account_id}</TableCell>
+            <TableCell className="max-w-48 truncate font-mono text-xs">{account.auth_hash}</TableCell>
+            <RowActions
+              editTo={`codex/${encodeURIComponent(account.account_id)}`}
+              editLabel={t('common.edit')}
+              deletePending={deleteCodexAccount.isPending}
+              deleteConfirm={{
+                title: t('console.codex_accounts.delete_title'),
+                description: t('console.codex_accounts.delete_description', { name: account.name }),
+                confirmLabel: t('common.delete')
+              }}
+              onDelete={() => deleteCodexAccount.mutate({ path: { account_id: account.account_id } })}
             />
           </TableRow>
         ))}
@@ -434,7 +446,7 @@ export function ProviderEditorPage() {
       error={model.validationError.value ?? saveProvider.error}
       submitting={saveProvider.isPending}
       onSubmit={submit}>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <LabeledField label={t('console.providers.provider_id')} description={t('console.providers.provider_id_hint')}>
           {mode === 'edit' ? (
             <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
@@ -505,7 +517,7 @@ export function ProviderEditorPage() {
       {mode === 'edit' ? (
         <p className="text-xs text-muted-foreground">
           {t('console.providers.model_profiles_hint')}{' '}
-          <Link to="/agents" className="text-primary underline underline-offset-4">
+          <Link to="/agents" className="text-link underline underline-offset-4">
             {t('console.nav.agents')}
           </Link>
         </p>

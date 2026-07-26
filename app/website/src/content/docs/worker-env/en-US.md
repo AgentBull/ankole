@@ -1,8 +1,8 @@
 ---
 title: WorkerEnv secrets
 description: The encrypted shell-environment store for Agent Computer workers — three tracks, one merged environment per agent, decrypted only on the ephemeral RPC path to a turn.
-section: Operations
-order: 17
+section: User guide
+order: 10
 ---
 
 WorkerEnv is the store for the environment variables an Agent Computer shell sees when it runs a turn. An operator puts an API key or token here once, attaches it at the right scope, and the worker receives it — decrypted — only when a turn starts. This page maps the model against the real code in `Ankole.SignalsGateway.ActorRuntime.WorkerEnv`.
@@ -78,5 +78,5 @@ It is not a general secret store. It holds shell variables for worker turns, enc
 ## Next steps
 
 - For the worker that receives this environment, read the [Agent Computer](../agent-computer/) page.
-- For the AppConfigure definitions a declared variable comes from, read the [Console](../console/) page.
+- For the AppConfigure definitions a declared variable comes from, read the [Console](../console-api/) page.
 - For the "next turn, not this turn" property shared with secret changes, read [Background Agent Jobs](../background-agent-jobs/).

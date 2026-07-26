@@ -4,6 +4,13 @@ import { Switch as SwitchPrimitive } from '@base-ui/react/switch'
 
 import { cn } from '../lib/utils'
 
+/**
+ * On/off control.
+ *
+ * The checked track carries the interactive color, not the success color. A
+ * switch reports a setting the operator chose; green reports a state the system
+ * found healthy. A green track made "enabled" and "working" read as one claim.
+ */
 function Switch({
   className,
   size = 'default',
@@ -16,7 +23,7 @@ function Switch({
       data-slot="switch"
       data-size={size}
       className={cn(
-        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:ring-2 focus-visible:ring-ring/30 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 data-[size=default]:h-6 data-[size=default]:w-12 data-[size=default]:[--switch-thumb:1.125rem] data-[size=default]:[--switch-x:1.6875rem] data-[size=sm]:h-4 data-[size=sm]:w-8 data-[size=sm]:[--switch-thumb:0.625rem] data-[size=sm]:[--switch-x:1.1875rem] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:bg-success data-unchecked:bg-gray-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 dark:data-unchecked:bg-gray-60',
+        'peer group/switch relative inline-flex shrink-0 cursor-pointer items-center rounded-full border border-transparent transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:ring-2 focus-visible:ring-ring/30 aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20 data-[size=default]:h-6 data-[size=default]:w-12 data-[size=default]:[--switch-thumb:1.125rem] data-[size=default]:[--switch-x:1.6875rem] data-[size=sm]:h-4 data-[size=sm]:w-8 data-[size=sm]:[--switch-thumb:0.625rem] data-[size=sm]:[--switch-x:1.1875rem] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:bg-primary data-unchecked:bg-gray-50 data-disabled:cursor-not-allowed data-disabled:opacity-50 dark:data-unchecked:bg-gray-60',
         className
       )}
       {...props}>

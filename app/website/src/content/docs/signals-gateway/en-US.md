@@ -1,8 +1,8 @@
 ---
 title: SignalsGateway
 description: The shared-work ingress layer — how chats, webhooks, and provider events become actor events without turning source facts into execution state.
-section: Concepts
-order: 7
+section: Developer guide
+order: 102
 ---
 
 SignalsGateway is the entry surface for shared work. A chat message, a webhook, a provider event, or a scheduled reminder comes in on one side; a normalized, durable actor event comes out the other side, ready to wake a session. The gateway's job is to turn the messy variety of providers into one shape, and to keep the original provider facts separate from the execution that follows.

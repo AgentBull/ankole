@@ -4,8 +4,7 @@ import { RiArrowRightLine, RiGithubFill } from '@remixicon/react'
 import { GITHUB_URL } from '../../consts'
 import type { Locale } from '../../i18n/config'
 import { localePath, t } from '../../i18n/utils'
-import HeroRuntime from './HeroRuntime'
-import Reveal from '../Reveal'
+import HeroThread from './HeroThread.astro'
 
 interface Props {
 	lang: Locale
@@ -15,13 +14,6 @@ const { lang } = Astro.props
 
 /** Runtime names, kept literal in every locale. */
 const STACK = ['Elixir · OTP', 'Rust kernel', 'Bun · TypeScript', 'PostgreSQL', 'ZeroMQ', 'Apache-2.0']
-
-const runtimeLabels = {
-	live: t(lang, 'hero.live'),
-	signals: t(lang, 'hero.band.signals'),
-	actors: t(lang, 'hero.band.actors'),
-	ledger: t(lang, 'hero.band.ledger')
-}
 ---
 
 <section class="relative overflow-hidden border-b border-border">
@@ -33,55 +25,59 @@ const runtimeLabels = {
 	<div class="brand-plane pointer-events-none absolute inset-0" aria-hidden="true"></div>
 
 	<div class="relative mx-auto max-w-7xl px-4 sm:px-6">
+		{/*
+		 * The two columns sit on different baselines on purpose. A centred pair reads
+		 * as a diagram; an offset pair gives the eye a diagonal to travel and leaves
+		 * the white space an uneven shape, which is the point of it.
+		 */}
 		<div
-			class="grid items-center gap-12 border-x border-border/70 px-4 py-16 sm:px-8 sm:py-24 lg:grid-cols-[1.05fr_minmax(0,28rem)] lg:gap-16 lg:py-28"
+			class="grid gap-12 border-x border-border/70 px-4 pt-16 pb-14 sm:px-8 sm:pt-20 lg:grid-cols-[1.15fr_minmax(0,23.5rem)] lg:gap-16 lg:pt-24 lg:pb-20"
 		>
-			<div>
-				<Reveal client:load>
-					<span
-						class="inline-flex items-center gap-2.5 border border-border bg-background/60 px-3 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur-sm"
-					>
-						<span class="relative flex size-1.5">
-							<span
-								class="absolute inset-0 bg-brand-60 motion-safe:animate-[signal-ping_2.4s_var(--ease-expressive)_infinite] dark:bg-brand-40"
-								aria-hidden="true"></span>
-							<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
-						</span>
-						{t(lang, 'hero.badge')}
+			<div class="lg:pr-6">
+				<span
+					class="inline-flex items-center gap-2.5 border border-border bg-background/60 px-3 py-1.5 font-mono text-xs text-muted-foreground backdrop-blur-sm"
+				>
+					<span class="relative flex size-1.5">
+						<span
+							class="absolute inset-0 bg-brand-60 motion-safe:animate-[signal-ping_2.4s_var(--ease-expressive)_infinite] dark:bg-brand-40"
+							aria-hidden="true"></span>
+						<span class="size-1.5 bg-brand-60 dark:bg-brand-40" aria-hidden="true"></span>
 					</span>
-				</Reveal>
+					{t(lang, 'hero.badge')}
+				</span>
 
-				<Reveal client:load variant="wipe" delay={0.06}>
-					<h1
-						class="mt-8 max-w-2xl text-balance text-4xl leading-[1.06] font-semibold tracking-tight text-foreground sm:text-6xl lg:text-[4.25rem]"
+				{/* Each line is a separate string, so every locale controls its own break. */}
+				<h1
+					class="mt-8 text-[2.125rem] leading-[1.06] font-semibold tracking-tight text-foreground sm:text-6xl sm:leading-[1.02] lg:text-[4.75rem]"
+				>
+					<span class="block">{t(lang, 'hero.title.line1')}</span>
+					<span class="block">{t(lang, 'hero.title.line2')}</span>
+				</h1>
+
+				<p class="mt-8 max-w-lg text-base leading-8 text-muted-foreground sm:text-lg">
+					{t(lang, 'hero.subtitle')}
+				</p>
+
+				<div class="mt-10 flex flex-wrap items-center gap-3">
+					<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
+						{t(lang, 'hero.cta.primary')}
+						<RiArrowRightLine />
+					</a>
+					<a
+						href={GITHUB_URL}
+						target="_blank"
+						rel="noreferrer"
+						class={buttonVariants({ variant: 'outline', size: 'lg' })}
 					>
-						{t(lang, 'hero.title')}
-					</h1>
-				</Reveal>
-
-				<Reveal client:load delay={0.16}>
-					<p class="mt-7 max-w-xl text-lg leading-8 text-muted-foreground">
-						{t(lang, 'hero.subtitle')}
-					</p>
-					<div class="mt-10 flex flex-wrap items-center gap-3">
-						<a href={localePath(lang, 'docs/quickstart')} class={buttonVariants({ size: 'lg' })}>
-							{t(lang, 'hero.cta.primary')}
-							<RiArrowRightLine />
-						</a>
-						<a
-							href={GITHUB_URL}
-							target="_blank"
-							rel="noreferrer"
-							class={buttonVariants({ variant: 'outline', size: 'lg' })}
-						>
-							<RiGithubFill />
-							{t(lang, 'hero.cta.secondary')}
-						</a>
-					</div>
-				</Reveal>
+						<RiGithubFill />
+						{t(lang, 'hero.cta.secondary')}
+					</a>
+				</div>
 			</div>
 
-			<HeroRuntime client:load labels={runtimeLabels} />
+			<div class="lg:mt-20">
+				<HeroThread lang={lang} />
+			</div>
 		</div>
 	</div>
 

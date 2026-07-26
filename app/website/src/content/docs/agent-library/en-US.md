@@ -1,8 +1,8 @@
 ---
 title: Agent Library
 description: What an agent can do — skills as filesystem bundles, Agent Plugins as Codex packages, and a default-then-override enablement model resolved per agent.
-section: Concepts
-order: 13
+section: Developer guide
+order: 107
 ---
 
 The Agent Library is the answer to one question: what is this agent actually allowed to do? It is the catalog of skills and Agent Plugins an installation ships, plus the per-agent state that decides which of them are on for a given agent. This page maps that model against the real code in `Ankole.AIAgent.Library`.
@@ -27,7 +27,7 @@ An agent's effective capabilities are resolved by walking the catalog with two l
 
 The resolution is the `effective_enabled` field the capability endpoints return: take the default, apply the override if one exists. A capability with no override inherits the default; a capability with an override honors the override. The catalog is bounded at 256 plugins, so the resolution stays cheap and the surface stays legible.
 
-This is the model the Console's [Agent Library capabilities](../console/) routes expose: set the global default, then narrow or widen it per agent.
+This is the model the Console's [Agent Library capabilities](../console-api/) routes expose: set the global default, then narrow or widen it per agent.
 
 ## Persona documents and skill overlays
 
@@ -49,7 +49,7 @@ Sync is read-and-reconcile, not push-and-pray. The `content_hash` is what makes 
 
 ## The operator surface
 
-The Console routes already covered in the [Console](../console/) page drive this model. The capability routes, in particular:
+The Console routes already covered in the [Console](../console-api/) page drive this model. The capability routes, in particular:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -73,6 +73,6 @@ It is not a marketplace and not a hot-load system. The skills and plugins are tr
 
 ## Next steps
 
-- For the routes that configure the library, read the [Console](../console/) page.
+- For the routes that configure the library, read the [Console](../console-api/) page.
 - For the worker that runs an enabled skill during a turn, read the [Actor Runtime](../actor-runtime/) page.
 - For the agent Principal a library is scoped to, read [Principal and AuthZ](../principal-authz/).

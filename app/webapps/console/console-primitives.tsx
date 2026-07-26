@@ -63,10 +63,19 @@ export function formatJSON(value: unknown): string {
 // `dateStyle: 'medium', timeStyle: 'short'` was previously re-implemented inline
 // in four pages via `Intl.DateTimeFormat`; date-fns lets the locale follow the
 // active i18n language (zh-CN browsers no longer silently fall back to English).
-const CONSOLE_DATE_FORMAT = 'MMM d, yyyy h:mm a'
+//
+// The pattern follows the language too. One English pattern rendered under the
+// zh-CN locale produced "7月 26, 2026 1:09 上午" — Chinese month and meridiem
+// glued to an English date order — and a 12-hour clock is not how an operator
+// reads a timestamp in Chinese.
+const CONSOLE_DATE_FORMATS = { en: 'MMM d, yyyy h:mm a', zh: 'yyyy年M月d日 HH:mm' }
+
+function usesChinese(): boolean {
+  return Boolean(i18n.language?.startsWith('zh'))
+}
 
 function consoleDateLocale(): Locale {
-  return i18n.language?.startsWith('zh') ? zhCN : enUS
+  return usesChinese() ? zhCN : enUS
 }
 
 /**
@@ -78,5 +87,7 @@ export function formatConsoleDate(value?: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return format(date, CONSOLE_DATE_FORMAT, { locale: consoleDateLocale() })
+  return format(date, usesChinese() ? CONSOLE_DATE_FORMATS.zh : CONSOLE_DATE_FORMATS.en, {
+    locale: consoleDateLocale()
+  })
 }

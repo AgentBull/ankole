@@ -1,14 +1,7 @@
 ---
-import {
-	RiAlarmWarningLine,
-	RiCodeSSlashLine,
-	RiCustomerService2Line,
-	RiSearchEyeLine,
-	RiTestTubeLine
-} from '@remixicon/react'
 import type { Locale } from '../../i18n/config'
 import { t } from '../../i18n/utils'
-import Reveal from '../Reveal'
+import Reveal from '../Reveal.astro'
 import Section from './Section.astro'
 import SectionHeading from './SectionHeading.astro'
 
@@ -18,20 +11,27 @@ interface Props {
 
 const { lang } = Astro.props
 
-const cases = [
-	{ icon: RiCodeSSlashLine, key: 'coding' },
-	{ icon: RiCustomerService2Line, key: 'customerSuccess' },
-	{ icon: RiSearchEyeLine, key: 'research' },
-	{ icon: RiTestTubeLine, key: 'qa' },
-	{ icon: RiAlarmWarningLine, key: 'operations' }
-].map(({ icon, key }) => ({
-	icon,
+/*
+ * These are senior, remote, artifact-producing seats, and each carries the number that
+ * settles it. The third column is the argument: a seat nobody can grade is not a seat,
+ * it is a chat window. Six examples across six industries, not a catalogue.
+ */
+const seats = ['research', 'cloud', 'audit', 'regulatory', 'patent', 'marketplace'].map(key => ({
 	title: t(lang, `usecases.${key}.title`),
-	body: t(lang, `usecases.${key}.body`)
+	deliverable: t(lang, `usecases.${key}.deliverable`),
+	metric: t(lang, `usecases.${key}.metric`)
 }))
+
+const columns = {
+	seat: t(lang, 'usecases.col.seat'),
+	deliverable: t(lang, 'usecases.col.deliverable'),
+	metric: t(lang, 'usecases.col.metric')
+}
+
+const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_minmax(0,1fr)]'
 ---
 
-<Section>
+<Section tone="raised">
 	<SectionHeading
 		index="04"
 		eyebrow={t(lang, 'section.usecases')}
@@ -40,34 +40,50 @@ const cases = [
 		wide
 	/>
 
-	<div class="mt-14 grid gap-px border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
-		{
-			cases.map((item, index) => (
-				<Reveal client:visible={{ rootMargin: '200px' }} delay={(index % 3) * 0.06} className="bg-background">
-					<div class="group h-full p-8">
-						<div class="flex items-center gap-3">
-							<item.icon
-								className="size-5 shrink-0 text-brand-60 transition-transform duration-200 ease-[var(--ease-productive)] group-hover:translate-x-0.5 dark:text-brand-40"
-								aria-hidden="true"
-							/>
-							<h3 class="text-base font-semibold text-foreground">{item.title}</h3>
-						</div>
-						<p class="mt-4 text-sm leading-6 text-muted-foreground">{item.body}</p>
-					</div>
-				</Reveal>
-			))
-		}
-		<Reveal client:visible={{ rootMargin: '200px' }} delay={0.12} className="bg-brand-60 dark:bg-brand-70">
-			<figure class="relative m-0 flex h-full items-center overflow-hidden p-8">
-				<div
-					class="grid-field pointer-events-none absolute inset-0 opacity-25 [--grid-line:rgb(255_255_255/0.5)]"
-					aria-hidden="true"
-				>
-				</div>
-				<blockquote class="relative m-0 font-serif text-lg leading-8 text-white italic">
-					{t(lang, 'usecases.quote')}
-				</blockquote>
-			</figure>
+	<div class="mt-14">
+		<div
+			class:list={[
+				ROW,
+				'hidden border-b border-border pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
+			]}
+		>
+			<span>{columns.seat}</span>
+			<span>{columns.deliverable}</span>
+			<span>{columns.metric}</span>
+		</div>
+
+		<ol class="list-none border-t border-border p-0 sm:border-t-0">
+			{
+				seats.map((seat, index) => (
+					<li class="border-b border-border">
+						<Reveal step={index} class={`${ROW} py-6`}>
+							<h3 class="text-base font-semibold text-foreground">{seat.title}</h3>
+							<p class="mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">{seat.deliverable}</p>
+							{/* The metric is the payload, so it is the only coloured thing in the row. */}
+							<p class="mt-1 text-sm leading-6 text-brand-60 sm:mt-0 dark:text-brand-40">
+								{seat.metric}
+							</p>
+						</Reveal>
+					</li>
+				))
+			}
+		</ol>
+
+		<Reveal>
+			{/*
+			 * Optical margin alignment. 「 carries 11px of empty box before its ink at this
+			 * size, so a quote whose box aligns with the rows above reads as indented. It
+			 * hangs by that much and the first real character lands on the axis. The Latin
+			 * “ costs a single pixel, so it is left alone rather than nudged for symmetry.
+			 */}
+			<blockquote
+				class:list={[
+					'm-0 mt-10 border-l-2 border-brand-60 pl-6 text-lg leading-8 text-foreground dark:border-brand-40',
+					lang === 'zh-Hans-CN' && '[text-indent:-0.61em]'
+				]}
+			>
+				{t(lang, 'usecases.quote')}
+			</blockquote>
 		</Reveal>
 	</div>
 </Section>

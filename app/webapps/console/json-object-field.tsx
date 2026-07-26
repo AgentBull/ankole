@@ -11,11 +11,11 @@ import {
 import { JsonEditor, type IconReplacements, type LocalisedStrings, type Theme } from 'json-edit-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { JSONField, LabeledField } from './console-shell'
+import { JSONField, LabeledField } from './console-form'
 import { parseJSONObjectDraft, serializeJSONObjectDraft } from './state/json-editor'
 
 const ICON_CLASS =
-  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-primary'
+  'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-link'
 const DANGER_ICON_CLASS =
   'inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive'
 

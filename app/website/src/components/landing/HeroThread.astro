@@ -1,0 +1,128 @@
+---
+import { RiBookmarkLine, RiFileTextLine } from '@remixicon/react'
+import type { Locale } from '../../i18n/config'
+import { t } from '../../i18n/utils'
+
+interface Props {
+	lang: Locale
+}
+
+const { lang } = Astro.props
+
+/*
+ * The scene, not a feature list: two people settle a rule between themselves, the agent
+ * is never addressed, and three days later it delivers to that rule. An agent that lives
+ * in a private chat box cannot produce this, because it was never in the room.
+ *
+ * The layout follows Slack and Teams — avatar, name with a timestamp, text underneath —
+ * because that is the room being described. The agent recording the rule is not a post
+ * in the channel, it is the agent's own bookkeeping, so it renders as a system line and
+ * never as a message. Making it look like a message would claim something untrue.
+ *
+ * The replay is pure CSS, so the markup carries the finished conversation and a reader
+ * without JavaScript, or a crawler, still gets every line.
+ */
+const messages = [
+	{ author: t(lang, 'thread.h1.author'), time: t(lang, 'thread.h1.time'), text: t(lang, 'thread.h1.text') },
+	{ author: t(lang, 'thread.h2.author'), time: t(lang, 'thread.h2.time'), text: t(lang, 'thread.h2.text') }
+]
+
+const AVATAR = 'flex size-7 shrink-0 items-center justify-center font-mono text-[11px] select-none'
+const ROW = 'grid grid-cols-[1.75rem_minmax(0,1fr)] gap-x-3 px-4 py-2'
+---
+
+<figure class="relative m-0 border border-border bg-background" aria-label={t(lang, 'thread.aria')}>
+	<figcaption
+		class="flex items-center gap-2 border-b border-border bg-background-secondary px-4 py-2.5"
+		data-replay
+		style="--step:0"
+	>
+		<span class="font-medium text-fg-quaternary" aria-hidden="true">#</span>
+		<span class="text-xs font-medium text-foreground">{t(lang, 'thread.channel')}</span>
+		<span class="ml-auto font-mono text-[11px] text-fg-quaternary">{t(lang, 'thread.members')}</span>
+	</figcaption>
+
+	<ol class="list-none p-0">
+		{
+			messages.map((message, index) => (
+				<li class={ROW} data-replay style={`--step:${index + 1}`}>
+					<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
+						{message.author.slice(0, 1)}
+					</span>
+					<span class="flex items-baseline gap-2">
+						<span class="text-[13px] font-semibold text-foreground">{message.author}</span>
+						<span class="font-mono text-[10px] text-fg-quaternary">{message.time}</span>
+					</span>
+					<p class="col-start-2 m-0 text-[13px] leading-[1.55] text-foreground">{message.text}</p>
+				</li>
+			))
+		}
+	</ol>
+
+	{/*
+	 * Agent bookkeeping, not a channel post: system-message weight, no accent, no frame.
+	 * It rides the message grid with an empty avatar cell rather than a hand-measured
+	 * indent, so it lands on the text column exactly instead of fifty pixels short of it.
+	 */}
+	<p class={`${ROW} py-1.5 text-[11px] leading-5 text-fg-quaternary`} data-replay="beat" style="--step:3">
+		<span aria-hidden="true"></span>
+		{/*
+		 * The mark is set inline and aligned to the middle, so the browser centres it on
+		 * the baseline plus half the x-height from the real font metrics. A flex box
+		 * centres the icon's box against the line box instead, which sits it visibly high.
+		 */}
+		<span class="col-start-2">
+			<RiBookmarkLine className="mr-1.5 inline-block size-3 align-middle" aria-hidden="true" />
+			{t(lang, 'thread.note')}
+		</span>
+	</p>
+
+	<p
+		class="m-0 flex items-center gap-3 px-4 py-2 font-mono text-[10px] tracking-[0.12em] text-fg-quaternary uppercase"
+		data-replay
+		style="--step:4"
+	>
+		<span class="h-px flex-1 bg-border" aria-hidden="true"></span>
+		{t(lang, 'thread.gap')}
+		<span class="h-px flex-1 bg-border" aria-hidden="true"></span>
+	</p>
+
+	<ol class="list-none p-0">
+		<li class={ROW} data-replay style="--step:5">
+			<span class={`${AVATAR} bg-background-tertiary text-fg-tertiary`} aria-hidden="true">
+				{t(lang, 'thread.h3.author').slice(0, 1)}
+			</span>
+			<span class="flex items-baseline gap-2">
+				<span class="text-[13px] font-semibold text-foreground">{t(lang, 'thread.h3.author')}</span>
+				<span class="font-mono text-[10px] text-fg-quaternary">{t(lang, 'thread.h3.time')}</span>
+			</span>
+			<p class="col-start-2 m-0 text-[13px] leading-[1.55] text-foreground">
+				<span class="text-brand-60 dark:text-brand-40">@{t(lang, 'thread.agent')}</span>
+				{t(lang, 'thread.h3.text').replace(/^@\S+\s*/, ' ')}
+			</p>
+		</li>
+
+		<li class={`${ROW} pb-3`} data-replay style="--step:6">
+			<span class={`${AVATAR} bg-brand-60 text-white dark:bg-brand-50`} aria-hidden="true">A</span>
+			<span class="flex items-baseline gap-2">
+				<span class="text-[13px] font-semibold text-foreground">{t(lang, 'thread.agent')}</span>
+				<span
+					class="border border-border px-1 font-mono text-[9px] tracking-[0.08em] text-fg-quaternary uppercase"
+				>
+					agent
+				</span>
+				<span class="font-mono text-[10px] text-fg-quaternary">{t(lang, 'thread.reply.time')}</span>
+			</span>
+			<div class="col-start-2 text-[13px] leading-[1.55] text-foreground">
+				<p class="m-0">{t(lang, 'thread.reply')}</p>
+				<div class="mt-2.5 flex items-center gap-3 border border-border p-2.5" data-replay style="--step:7">
+					<RiFileTextLine className="size-5 shrink-0 text-brand-60 dark:text-brand-40" aria-hidden="true" />
+					<span class="min-w-0">
+						<span class="block truncate text-xs text-foreground">{t(lang, 'thread.file.name')}</span>
+						<span class="block font-mono text-[11px] text-fg-quaternary">{t(lang, 'thread.file.meta')}</span>
+					</span>
+				</div>
+			</div>
+		</li>
+	</ol>
+</figure>

@@ -1,8 +1,8 @@
 ---
 title: Principal 与 AuthZ
 description: 一套 Ankole 部署的权限边界——Principal 作为问责主体、permission grant、group 成员，以及运行时强制而非 prompt 约定。
-section: Concepts
-order: 11
+section: Developer guide
+order: 106
 ---
 
 Ankole 里的每一个动作——人类登录、agent 跑一个回合、一个任务唤醒它的 owner、一次 Brain 写入——都由一个 Principal 完成，而这个 Principal 能做什么，由 AuthZ 在动作发生的那一刻决定。本页对照 `Ankole.Principals` 和 `Ankole.AuthZ` 里的真实代码，画出这条边界。

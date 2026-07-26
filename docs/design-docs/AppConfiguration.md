@@ -31,7 +31,6 @@ flows, Ankole subsystems, and trusted Plugins can use them.
 Examples include:
 
 - the default locale
-- `runtime_fabric.worker_auth_key`
 - Agent runtime limits and Agent overrides
 - plugin setup values
 - chat and identity-provider settings that are not bootstrap requirements
@@ -75,7 +74,25 @@ when two patterns match it.
 A pattern uses the same schema, encryption, default, generator, scope, and Console policies. Patterns do not declare `worker_env_name` exports.
 
 `console_writable: false` lets only the responsible subsystem change a value.
-The Console can still read it.
+The Console can still read it. Use it when a Console edit would break the
+Installation, as it would for `runtime_fabric.worker_auth_key`, which the release
+bootstrap generates and every Worker authenticates with, and for
+`principals.identity_providers.active`, which the identity-provider pages write.
+A client-side rule is not sufficient, because the REST API accepts a write that
+only the Console refuses.
+
+## How the Console Presents Keys
+
+The Console settings list reads this policy and does not keep its own list of key
+names.
+
+- A key with `console_writable: false` moves into one collapsed group. An
+  operator can open the group and read the current value, and a key that another
+  page writes also links to that page.
+- A declared key prefix, such as `brain.`, replaces its member rows with one row
+  and edits every member on one page. The key stays the save unit: the page
+  writes each changed key separately, and it checks every changed value before
+  the first write, so one rejected value does not leave the group part written.
 
 ## Global Values and Agent Overrides
 

@@ -1,7 +1,7 @@
 import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
 import type { AiGatewayProviderItem as AIGatewayProviderItem } from '../api/generated/types.gen'
-import { JSONField, LabeledField, SecretInput } from '../console-shell'
+import { JSONField, LabeledField, SecretInput } from '../console-form'
 import { encryptedOptionState, humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
 
 const UNSET_BOOLEAN = '__unset__'

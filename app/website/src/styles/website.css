@@ -53,6 +53,101 @@ html {
   }
 }
 
+/*
+ * Entrance motion is an enhancement, never a gate. A CSS animation lives in the
+ * stylesheet rather than in the markup, so the served HTML always carries the
+ * finished page and a crawler or a reader without CSS still gets every line.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  /* The hero conversation replays once on load, one line at a time. */
+  [data-replay] {
+    animation: replay-in 0.52s var(--ease-expressive-entrance) both;
+    animation-delay: calc(var(--step, 0) * 0.34s + 0.2s);
+  }
+
+  /* The beat the page turns on: it lands harder and holds a moment longer. */
+  [data-replay='beat'] {
+    animation-name: replay-beat;
+    animation-duration: 0.78s;
+  }
+
+  @supports (animation-timeline: view()) {
+    [data-reveal] {
+      animation: reveal-rise linear both;
+      animation-timeline: view();
+      /* Finish well before the block is centred, or the travel is never seen. */
+      animation-range: entry 10% entry 78%;
+    }
+
+    [data-reveal='wipe'] {
+      animation-name: reveal-wipe;
+    }
+
+    /* Members of one row enter in sequence instead of snapping in together. */
+    [data-reveal-step] {
+      animation-range: calc(entry 10% + var(--reveal-step, 0) * 4%) calc(entry 78% + var(--reveal-step, 0) * 4%);
+    }
+  }
+}
+
+@keyframes replay-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes replay-beat {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  62% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes reveal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(2.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes reveal-wipe {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+/* An indeterminate run: the job is working, and nobody knows the remaining time. */
+@keyframes job-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
 @keyframes signal-ping {
   0% {
     opacity: 0.8;

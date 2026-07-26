@@ -48,7 +48,8 @@ import {
 import { ankoleWebWorkerFileControllerDownload } from '../api/generated/sdk.gen'
 import type { AgentComputerWorkerItem, WorkerFileEntry } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
-import { ResourceListPage, ResourceSearch, StatusIndicator } from '../console-shell'
+import { StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 import {
   agentUIDFromWorkerFilePath,
@@ -80,6 +81,7 @@ export function WorkersListPage() {
       ]}
       isLoading={workers.isLoading}
       isEmpty={rows.length === 0}
+      count={rows.length}
       emptyTitle={t('console.workers.empty_title')}
       emptyDescription={t('console.workers.empty_description')}
       error={workers.error}
@@ -97,7 +99,7 @@ export function WorkersListPage() {
           <TableCell className="font-mono text-xs">
             <Link
               to={`${encodeURIComponent(worker.worker_id)}/files`}
-              className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+              className="text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
               {worker.worker_id}
             </Link>
           </TableCell>
@@ -288,6 +290,7 @@ export function WorkerFilesPage() {
       ]}
       isLoading={agents.isLoading || files.isLoading}
       isEmpty={entries.length === 0}
+      count={entries.length}
       emptyTitle={t('console.worker_files.empty_title')}
       emptyDescription={t('console.worker_files.empty_description')}
       emptyAction={
@@ -511,7 +514,7 @@ function FileRow({
           {isDir ? (
             <button
               type="button"
-              className="text-left outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="text-left outline-none hover:text-link focus-visible:ring-2 focus-visible:ring-ring/40"
               aria-label={t('console.worker_files.open_directory', { name })}
               onClick={() => onNavigate(entry.relative_path)}>
               {name}

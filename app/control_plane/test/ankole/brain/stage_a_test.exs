@@ -59,18 +59,55 @@ defmodule Ankole.Brain.StageATest do
 
   test "old low-volume channels are not starved by the protected tail" do
     channel = channel_fixture("brain:low-volume")
+    now = DateTime.utc_now(:microsecond)
 
     for index <- 1..10 do
       entry_fixture(
         channel,
         "msg-#{index}",
         "weekly durable fact #{index}",
-        DateTime.add(@base_time, -8 * 3600 + index, :second)
+        DateTime.add(now, -8 * 3600 + index, :second)
       )
     end
 
     assert :ok = Brain.skip_failed_summary_window(channel.id, :final_retry)
     assert channel_cursor!(channel.id).cursor_source_entry_id == "msg-10"
+  end
+
+  test "a first run does not reach past the configured cold start lookback" do
+    enable_dreaming!(%{"episode_cold_start_lookback_days" => 5})
+    channel = channel_fixture("brain:cold-start")
+    skipped = attach_skipped_window!(channel.id)
+    backlog_fixture(channel)
+
+    assert :ok = Brain.skip_failed_summary_window(channel.id, :final_retry)
+
+    assert_receive {^skipped, %{entries: 2}, %{first_source_entry_id: "recent-1"}}
+    assert channel_cursor!(channel.id).cursor_source_entry_id == "recent-2"
+    assert all_episode_snapshots() == []
+  end
+
+  test "a nil cold start lookback summarizes the whole retained history" do
+    enable_dreaming!(%{"episode_cold_start_lookback_days" => nil})
+    channel = channel_fixture("brain:cold-start-unbounded")
+    skipped = attach_skipped_window!(channel.id)
+    backlog_fixture(channel)
+
+    assert :ok = Brain.skip_failed_summary_window(channel.id, :final_retry)
+
+    assert_receive {^skipped, %{entries: 4}, %{first_source_entry_id: "old-1"}}
+  end
+
+  test "cold start seeding never moves a cursor that already exists" do
+    enable_dreaming!(%{"episode_cold_start_lookback_days" => 5})
+    channel = channel_fixture("brain:cold-start-resumed")
+    skipped = attach_skipped_window!(channel.id)
+    [old_1 | _entries] = backlog_fixture(channel)
+
+    assert {:ok, _cursor} = StageA.advance_channel_cursor(channel.id, old_1)
+    assert :ok = Brain.skip_failed_summary_window(channel.id, :final_retry)
+
+    assert_receive {^skipped, %{entries: 3}, %{first_source_entry_id: "old-2"}}
   end
 
   test "enqueue skips all-young tails and makes an unusable model visible on eligible channels" do
@@ -382,6 +419,46 @@ defmodule Ankole.Brain.StageATest do
       last_seen_at: provider_time
     })
     |> Repo.insert!()
+  end
+
+  defp backlog_fixture(%Channel{} = channel) do
+    now = DateTime.utc_now(:microsecond)
+
+    [
+      entry_fixture(channel, "old-1", "fact before the lookback", DateTime.add(now, -30, :day)),
+      entry_fixture(channel, "old-2", "fact before the lookback", DateTime.add(now, -10, :day)),
+      entry_fixture(
+        channel,
+        "recent-1",
+        "fact inside the lookback",
+        DateTime.add(now, -8, :hour)
+      ),
+      entry_fixture(channel, "recent-2", "fact inside the lookback", DateTime.add(now, -7, :hour))
+    ]
+  end
+
+  # Reports the window Stage A consumed. The cursor alone cannot show the cold start boundary,
+  # because a bounded and an unbounded window both end at the newest entry.
+  defp attach_skipped_window!(signal_channel_id) do
+    handler_id = "brain-stage-a-skipped-#{System.unique_integer([:positive])}"
+    marker = make_ref()
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:ankole, :brain, :dreaming, :stage_a, :skipped],
+        fn _event, measurements, metadata, _config ->
+          if metadata.signal_channel_id == signal_channel_id do
+            send(test_pid, {marker, measurements, metadata})
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    marker
   end
 
   defp configure_brain_model!(agent, handler) do

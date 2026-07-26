@@ -1,8 +1,8 @@
 ---
 title: Brain
 description: 一套 Ankole 部署的长期记忆——策展知识、源聊天召回、dreaming 与人工监督，PostgreSQL 行是事实，Markdown 是投影。
-section: Concepts
-order: 9
+section: Developer guide
+order: 104
 ---
 
 Brain 是一个有归属主体的长期记忆。它同时持有三样东西：agent 据以工作的策展知识、回溯到源聊天里真正说过什么的召回路径，以及把原始历史转成已索引剧集与待定知识梦境过程。在待定知识成为事实之前，由人复核。本页对照 `Ankole.Brain` 里的真实代码，画出这套模型。

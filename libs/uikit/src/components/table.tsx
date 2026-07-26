@@ -45,10 +45,14 @@ function TableRow({ className, ...props }: React.ComponentProps<'tr'>) {
   )
 }
 
-function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
+// `scope` defaults to the column, which is what every header in a data table is.
+// Without it a screen reader has to guess the header a cell belongs to, and it
+// guesses from layout rather than from markup.
+function TableHead({ className, scope = 'col', ...props }: React.ComponentProps<'th'>) {
   return (
     <th
       data-slot="table-head"
+      scope={scope}
       className={cn(
         'h-12 px-4 text-left align-middle text-sm leading-5 font-semibold tracking-normal whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0',
         className

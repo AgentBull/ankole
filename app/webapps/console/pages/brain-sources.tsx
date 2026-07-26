@@ -33,7 +33,8 @@ import {
 import { ankoleWebBrainControllerSourceRaw } from '../api/generated/sdk.gen'
 import type { BrainSourceEntry } from '../api/generated/types.gen'
 import { ErrorBlock, formatJSON } from '../console-primitives'
-import { LabeledField, ResourceEditorPage, ResourceListPage, RowActions } from '../console-shell'
+import { LabeledField, ResourceEditorPage } from '../console-form'
+import { ResourceListPage, RowActions } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import {
   BrainOwnerField,
@@ -99,7 +100,7 @@ export function BrainSourcesPage() {
           <TableCell className="font-medium">
             <Link
               to={`/brain/sources/${encodeURIComponent(source.document_id)}?owner=${encodeURIComponent(ownerUID)}`}
-              className="text-primary hover:underline">
+              className="text-link hover:underline">
               {source.title}
             </Link>
           </TableCell>
@@ -411,7 +412,7 @@ function SourceIntegrationLinks({ item, ownerUID }: { item: BrainSourceEntry; ow
         <Link
           key={entry.id}
           to={`/brain/${entry.id}?${brainSearch(ownerUID, entry.store_key)}`}
-          className="border border-border px-3 py-2 text-sm text-primary hover:bg-muted">
+          className="border border-border px-3 py-2 text-sm text-link hover:bg-muted">
           {entry.name}
         </Link>
       ))}

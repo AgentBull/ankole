@@ -36,15 +36,8 @@ import type { WorkerEnvItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull, formatJSON, parseJSON } from '../console-primitives'
 import { ENCRYPTED_VALUE_MASK, EncryptedValueInput, isEncryptedValueMask } from '../encrypted-value-input'
-import {
-  ConfirmDeleteButton,
-  JSONField,
-  LabeledField,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions
-} from '../console-shell'
+import { ConfirmDeleteButton, JSONField, LabeledField, ResourceEditorPage } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { WorkerEnvEditorModel } from '../state/worker-env-editor-model'
 import { workerEnvValueText } from '../state/worker-env-visibility'
 import { matchesResourceSearch } from '../state/resource-search'
@@ -145,6 +138,7 @@ export function WorkerEnvsListPage() {
       ]}
       isLoading={list.isLoading}
       isEmpty={items.length === 0}
+      count={items.length}
       emptyTitle={t('console.worker_envs.empty_title')}
       emptyDescription={t('console.worker_envs.empty_description')}
       error={list.error}
@@ -160,7 +154,7 @@ export function WorkerEnvsListPage() {
       {items.map(item => (
         <TableRow key={item.name}>
           <TableCell className="max-w-[280px] font-mono text-xs break-all whitespace-normal">
-            <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(item.name)}>
+            <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(item.name)}>
               {item.name}
             </Link>
           </TableCell>

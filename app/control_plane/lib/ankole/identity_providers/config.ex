@@ -26,6 +26,10 @@ defmodule Ankole.IdentityProviders.Config do
       encrypted: false,
       schema: Schema.new(&validate_activations/1),
       default_value: [],
+      # The identity provider pages own this list and write it through `put_active_providers/1`.
+      # Hand-editing the raw activation list in the Console can strand an admin outside every
+      # working login path.
+      console_writable: false,
       description: "Identity provider instances available to admin authentication."
     )
   end

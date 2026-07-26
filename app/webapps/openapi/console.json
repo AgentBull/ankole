@@ -460,7 +460,7 @@
           "display_name": { "nullable": true, "type": "string" },
           "inserted_at": { "type": "string" },
           "status": { "enum": ["active", "disabled"], "type": "string" },
-          "type": { "enum": ["human", "agent"], "type": "string" },
+          "type": { "enum": ["human", "agent", "system"], "type": "string" },
           "uid": { "type": "string" },
           "updated_at": { "type": "string" }
         },
@@ -2020,7 +2020,7 @@
             "type": "string"
           },
           "status": { "enum": ["active", "disabled"], "type": "string" },
-          "type": { "enum": ["human", "agent"], "type": "string" },
+          "type": { "enum": ["human", "agent", "system"], "type": "string" },
           "uid": { "type": "string" }
         },
         "required": ["uid", "type", "status", "member_since"],

@@ -245,7 +245,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           uid: %Schema{type: :string},
-          type: %Schema{type: :string, enum: ["human", "agent"]},
+          type: %Schema{type: :string, enum: ["human", "agent", "system"]},
           status: %Schema{type: :string, enum: ["active", "disabled"]},
           display_name: %Schema{type: :string, nullable: true},
           avatar_url: %Schema{type: :string, nullable: true},
@@ -415,7 +415,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           uid: %Schema{type: :string},
-          type: %Schema{type: :string, enum: ["human", "agent"]},
+          type: %Schema{type: :string, enum: ["human", "agent", "system"]},
           status: %Schema{type: :string, enum: ["active", "disabled"]},
           display_name: %Schema{type: :string, nullable: true},
           avatar_url: %Schema{type: :string, nullable: true},

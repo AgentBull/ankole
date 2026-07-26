@@ -1,8 +1,8 @@
 ---
 title: Actor Runtime
 description: 一个长时 session 如何存活、唤醒、失败与恢复——actor key、OTP 故障域、activation 隔离栏，以及 RuntimeFabric 的实时路径。
-section: Concepts
-order: 8
+section: Developer guide
+order: 103
 ---
 
 Actor Runtime 让一个 session 成为长时存活的东西，而不是一次请求。一个信号到达，一个 session 被唤醒，一个 worker 跑完一个回合，回合提交或失败，session 回到等待——整个过程里，哪怕进程崩溃，PostgreSQL 里的持久转写仍然正确。本页对照 `Ankole.SignalsGateway.ActorRuntime` 里的真实代码，画出这条生命周期。

@@ -16,6 +16,7 @@ import {
   Textarea
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
+import { useId } from 'react'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import i18n from './i18n'
 
@@ -102,15 +103,18 @@ export function ConfigField({
 }) {
   const label = localizedText(field.label, locale) ?? field.path
   const description = localizedText(field.description, locale)
+  // Every branch below rendered a label bound to nothing, so an operator using a
+  // screen reader met an unnamed box for each provider credential.
+  const controlID = useId()
 
   if (field.type === 'boolean') {
     return (
       <Field orientation="horizontal" className="items-center justify-between border border-border/70 bg-card/60 p-4">
         <div className="grid gap-1">
-          <FieldLabel>{label}</FieldLabel>
+          <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
           {description ? <FieldDescription>{description}</FieldDescription> : null}
         </div>
-        <Checkbox checked={Boolean(value)} onCheckedChange={checked => onChange(checked === true)} />
+        <Checkbox id={controlID} checked={Boolean(value)} onCheckedChange={checked => onChange(checked === true)} />
       </Field>
     )
   }
@@ -120,9 +124,9 @@ export function ConfigField({
 
     return (
       <Field>
-        <FieldLabel>{label}</FieldLabel>
+        <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
         <Select value={typeof value === 'string' ? value : ''} onValueChange={next => onChange(next ?? '')}>
-          <SelectTrigger className="w-full">
+          <SelectTrigger id={controlID} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -141,8 +145,9 @@ export function ConfigField({
   if (field.type === 'string_array') {
     return (
       <Field>
-        <FieldLabel>{label}</FieldLabel>
+        <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
         <Textarea
+          id={controlID}
           value={Array.isArray(value) ? value.join('\n') : ''}
           onChange={event =>
             // Accept both newline and comma input because setup fields often copy
@@ -162,8 +167,9 @@ export function ConfigField({
 
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
       <Input
+        id={controlID}
         max={field.max}
         min={field.min}
         type={field.type === 'secret' ? 'password' : field.type === 'integer' ? 'number' : 'text'}

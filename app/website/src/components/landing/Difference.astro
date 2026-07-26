@@ -1,0 +1,58 @@
+---
+import type { Locale } from '../../i18n/config'
+import { t } from '../../i18n/utils'
+import Reveal from '../Reveal.astro'
+import Section from './Section.astro'
+import SectionHeading from './SectionHeading.astro'
+
+interface Props {
+	lang: Locale
+}
+
+const { lang } = Astro.props
+
+const items = ['mission', 'shared', 'longrun', 'judged', 'owned'].map(key => ({
+	title: t(lang, `difference.${key}.title`),
+	body: t(lang, `difference.${key}.body`)
+}))
+---
+
+<Section class="sm:py-32">
+	<SectionHeading
+		index="01"
+		eyebrow={t(lang, 'section.difference')}
+		title={t(lang, 'difference.title')}
+		subtitle={t(lang, 'difference.subtitle')}
+		wide
+	/>
+
+	{/*
+	 * The claim is set large and its explanation small, so the two carry different weight
+	 * instead of arriving as one undifferentiated row. Nothing is indented and no cell has
+	 * a border: every element starts on the same left edge as the heading above it, and the
+	 * gap between statements is more than twice the line spacing inside one, so the eye
+	 * groups them without a box drawn round each.
+	 */}
+	<ol class="mt-20 list-none p-0">
+		{
+			items.map((item, index) => (
+				<li class="border-t border-border pt-8 pb-14 last:pb-0">
+					<Reveal
+						step={index}
+						class="grid gap-x-16 gap-y-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
+					>
+						<div>
+							<span class="font-mono text-xs text-brand-60 tabular-nums dark:text-brand-40">
+								{String(index + 1).padStart(2, '0')}
+							</span>
+							<h3 class="mt-4 text-2xl leading-9 font-semibold text-balance text-foreground">
+								{item.title}
+							</h3>
+						</div>
+						<p class="max-w-xl text-sm leading-7 text-muted-foreground lg:pt-9">{item.body}</p>
+					</Reveal>
+				</li>
+			))
+		}
+	</ol>
+</Section>

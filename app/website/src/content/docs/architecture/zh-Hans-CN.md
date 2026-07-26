@@ -1,8 +1,8 @@
 ---
 title: 架构
 description: Actor 运行时模型、五个技术判断，以及各组件如何组合在一起。
-section: Concepts
-order: 4
+section: Developer guide
+order: 100
 ---
 
 Ankole 是一个面向长时 AI 工作的 actor 运行时。每个活跃 session 都是一个可寻址的虚拟 actor：它能被唤醒、接收消息、做检查点、流出进度、休眠、恢复并继续——而不必假装一个 agent 只是一个 HTTP 请求或一个队列任务。

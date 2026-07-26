@@ -365,7 +365,7 @@ export type PrincipalItem = {
   display_name?: string | null
   inserted_at: string
   status: 'active' | 'disabled'
-  type: 'human' | 'agent'
+  type: 'human' | 'agent' | 'system'
   uid: string
   updated_at: string
 }
@@ -1642,7 +1642,7 @@ export type PrincipalGroupMemberItem = {
    */
   member_since: string | null
   status: 'active' | 'disabled'
-  type: 'human' | 'agent'
+  type: 'human' | 'agent' | 'system'
   uid: string
 }
 

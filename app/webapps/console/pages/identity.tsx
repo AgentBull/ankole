@@ -37,15 +37,8 @@ import {
   ankoleWebIdentityProviderControllerRunSyncMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { IdentityProviderAdapterItem, IdentityProviderItem } from '../api/generated/types.gen'
-import {
-  LabeledField,
-  ReadOnlyValue,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions,
-  StatusIndicator
-} from '../console-shell'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { IdentityEditorModel, type IdentityEditorDraft } from '../state/identity-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 
@@ -72,6 +65,7 @@ export function IdentityProvidersListPage() {
       ]}
       isLoading={providers.isLoading}
       isEmpty={rows.length === 0}
+      count={rows.length}
       emptyTitle={t('console.identity.empty_title')}
       emptyDescription={t('console.identity.empty_description')}
       error={providers.error}
@@ -88,7 +82,7 @@ export function IdentityProvidersListPage() {
         <TableRow key={provider.provider_id}>
           <TableCell className="font-mono text-xs">
             <Link
-              className="text-foreground hover:text-primary hover:underline"
+              className="text-foreground hover:text-link hover:underline"
               to={encodeURIComponent(provider.provider_id)}>
               {provider.provider_id}
             </Link>
@@ -156,7 +150,7 @@ export function IdentityProviderEditorPage() {
       toast.success(t('console.identity.sync_started'))
       refresh()
     },
-    onError: mutationError => toast.error(requestErrorMessage(mutationError))
+    onError: error => toast.error(requestErrorMessage(error))
   })
 
   const changeAdapter = (adapterID: string) => {
@@ -208,7 +202,7 @@ export function IdentityProviderEditorPage() {
           </Button>
         ) : null
       }>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <LabeledField label={t('console.identity.adapter')}>
           {mode === 'edit' ? (
             <ReadOnlyValue>

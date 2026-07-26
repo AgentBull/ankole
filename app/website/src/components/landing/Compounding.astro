@@ -1,0 +1,97 @@
+---
+import type { Locale } from '../../i18n/config'
+import { t } from '../../i18n/utils'
+import Reveal from '../Reveal.astro'
+import Section from './Section.astro'
+import SectionHeading from './SectionHeading.astro'
+
+interface Props {
+	lang: Locale
+}
+
+const { lang } = Astro.props
+
+/*
+ * The ledger is the section, not an illustration of it. A reader asking "does a
+ * correction actually stick?" gets the answer by looking at four of them, each with
+ * the date it landed and where it came from. The first row is the rule the hero
+ * conversation creates, so the page shows a rule being born and then filed.
+ */
+const rules = ['r1', 'r2', 'r3', 'r4'].map(key => ({
+	date: t(lang, `compounding.${key}.date`),
+	rule: t(lang, `compounding.${key}.rule`),
+	from: t(lang, `compounding.${key}.from`)
+}))
+
+const mechanisms = ['aim', 'playbook', 'review', 'rule', 'memory'].map(key => ({
+	title: t(lang, `compounding.${key}.title`),
+	body: t(lang, `compounding.${key}.body`)
+}))
+---
+
+<Section tone="raised">
+	<SectionHeading
+		index="02"
+		eyebrow={t(lang, 'section.compounding')}
+		title={t(lang, 'compounding.title')}
+		subtitle={t(lang, 'compounding.body')}
+		wide
+	/>
+
+	{/*
+	 * The ledger has no frame. A border would have set its contents on an axis of their
+	 * own, twenty-one pixels inside the one the heading stands on; hairlines group the
+	 * rows just as well and cost the page nothing in alignment.
+	 */}
+	<Reveal class="mt-16">
+		<p class="flex items-baseline gap-3 border-b border-border pb-3">
+			<span class="text-xs font-medium text-foreground">{t(lang, 'compounding.ledger.title')}</span>
+			<span class="ml-auto font-mono text-[11px] text-fg-quaternary">
+				{t(lang, 'compounding.ledger.count')}
+			</span>
+		</p>
+		<ol class="list-none p-0">
+			{
+				rules.map(entry => (
+					<li class="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-6 border-b border-border/60 py-5 sm:grid-cols-[5rem_minmax(0,1fr)]">
+						<span class="font-mono text-[11px] leading-7 text-fg-quaternary tabular-nums">
+							{entry.date}
+						</span>
+						<span>
+							<span class="block leading-7 text-foreground">{entry.rule}</span>
+							<span class="mt-1 block text-xs leading-5 text-fg-quaternary">{entry.from}</span>
+						</span>
+					</li>
+				))
+			}
+		</ol>
+	</Reveal>
+
+	<p class="mt-16 font-mono text-xs tracking-[0.12em] text-fg-quaternary uppercase">
+		{t(lang, 'compounding.how')}
+	</p>
+
+	<ol class="mt-6 grid list-none gap-x-10 gap-y-8 p-0 sm:grid-cols-2 lg:grid-cols-5">
+		{
+			mechanisms.map((item, index) => (
+				<li>
+					<Reveal step={index}>
+						<div class="border-t border-border pt-4">
+							<h3 class="text-sm font-semibold text-foreground">{item.title}</h3>
+							<p class="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
+						</div>
+					</Reveal>
+				</li>
+			))
+		}
+	</ol>
+
+	<Reveal class="mt-16">
+		<div class="border-t border-border pt-8">
+			<h3 class="max-w-2xl text-xl font-semibold text-balance text-foreground">
+				{t(lang, 'compounding.proof.title')}
+			</h3>
+			<p class="mt-4 max-w-2xl leading-8 text-muted-foreground">{t(lang, 'compounding.proof.body')}</p>
+		</div>
+	</Reveal>
+</Section>

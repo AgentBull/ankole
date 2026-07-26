@@ -37,7 +37,7 @@ import type {
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
-import { LabeledField } from '../console-shell'
+import { LabeledField } from '../console-form'
 import {
   CODEX_MODEL_REASONING_EFFORTS,
   DEFAULT_CODEX_MODEL_REASONING_EFFORT,
@@ -313,7 +313,7 @@ export function ModelProfilesEditor({
                 </LabeledField>
               ) : null}
               {subscriptionCoding ? (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <LabeledField
                     htmlFor="coding-subscription-model"
                     label={t('console.models.model')}
@@ -436,7 +436,7 @@ export function ModelProfilesEditor({
                     ) : (
                       <>
                         {basicOptionSettings.length > 0 ? (
-                          <div className="grid gap-4 md:grid-cols-2">
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                             {basicOptionSettings.map(renderOptionSetting)}
                           </div>
                         ) : null}
@@ -449,7 +449,7 @@ export function ModelProfilesEditor({
                                 <RiArrowDownSLine className="size-4" aria-hidden />
                               </span>
                             </CollapsibleTrigger>
-                            <CollapsibleContent className="grid gap-4 md:grid-cols-2">
+                            <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
                               {advancedOptionSettings.map(renderOptionSetting)}
                             </CollapsibleContent>
                           </Collapsible>

@@ -25,6 +25,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
       scope: :global,
       schema: Schema.non_empty_string(),
       generator: GeneratedSecret.generator(),
+      # The release bootstrap generates and stores this key, and every Worker authenticates with
+      # it. A Console edit would reject every running Worker, so the value stays readable but not
+      # writable there.
+      console_writable: false,
       description: "Global RuntimeFabric worker authentication key."
     )
   end

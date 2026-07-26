@@ -47,15 +47,8 @@ import {
 import type { PrincipalGroupItem, PrincipalGroupMemberItem, PrincipalItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
-import {
-  ConfirmDeleteButton,
-  LabeledField,
-  ReadOnlyValue,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions
-} from '../console-shell'
+import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 import {
   PrincipalGroupEditorModel,
@@ -63,6 +56,7 @@ import {
   type PrincipalGroupKind
 } from '../state/principal-group-editor-model'
 import { PermissionGrantsSection } from './permission-grant-editor'
+import { AccessSubNav } from './principals'
 
 export function PrincipalGroupsListPage() {
   const { t } = useTranslation()
@@ -102,6 +96,8 @@ export function PrincipalGroupsListPage() {
       emptyDescription={t('console.principal_groups.empty_description')}
       error={groups.error}
       isFiltered={Boolean(query.trim())}
+      count={rows.length}
+      subNav={<AccessSubNav />}
       toolbar={
         <ResourceSearch
           label={t('console.principal_groups.search')}
@@ -117,13 +113,16 @@ export function PrincipalGroupsListPage() {
         return (
           <TableRow key={group.id}>
             <TableCell className="font-mono text-xs">
-              <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(group.name)}>
+              <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(group.name)}>
                 {group.name}
               </Link>
             </TableCell>
             <TableCell>{group.display_name}</TableCell>
-            <TableCell>
-              <div className="flex flex-wrap items-center gap-1">
+            {/* The badges used to wrap inside a narrow column, so a row with two of
+                them stood twice as tall as its neighbours and the list read as
+                broken. The column widens instead; the table already scrolls. */}
+            <TableCell className="whitespace-nowrap">
+              <div className="flex items-center gap-1">
                 <Badge variant="secondary">{t(`console.principal_groups.kind_${group.kind}`)}</Badge>
                 {group.built_in ? <Badge variant="info">{t('console.principal_groups.built_in')}</Badge> : null}
                 {group.domain !== 'operator' ? (
@@ -131,8 +130,8 @@ export function PrincipalGroupsListPage() {
                 ) : null}
               </div>
             </TableCell>
-            <TableCell>{group.member_count}</TableCell>
-            <TableCell>{group.grant_count}</TableCell>
+            <TableCell className="tabular-nums">{group.member_count}</TableCell>
+            <TableCell className="tabular-nums">{group.grant_count}</TableCell>
             <TableCell>
               <span className="block max-w-64 truncate" title={group.description ?? undefined}>
                 {group.description ?? '—'}
@@ -235,7 +234,7 @@ export function PrincipalGroupEditorPage() {
         ) : null
       }
       onSubmit={submit}>
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <LabeledField
           label={t('console.principal_groups.name')}
           description={mode === 'new' ? t('console.principal_groups.name_hint') : undefined}

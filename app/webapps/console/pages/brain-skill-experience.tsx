@@ -1,4 +1,15 @@
-import { Badge, Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Skeleton } from '@ankole/uikit'
+import {
+  Badge,
+  Button,
+  buttonVariants,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  cn,
+  Skeleton
+} from '@ankole/uikit'
 import { RiExternalLinkLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
@@ -10,7 +21,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentLibrarySkillOverlayItem } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
-import { PageHeader } from '../console-shell'
+import { PageHeader, RefreshButton } from '../console-list-page'
 import { defaultBrainOwnerUID, setBrainFilter } from '../state/brain-editor-model'
 import { BrainOwnerField, BrainTaskNavigation, formatBrainDate } from './brain-shared'
 
@@ -40,11 +51,15 @@ export function BrainSkillExperiencePage() {
   }, [ownerUID, searchParams, setSearchParams])
 
   return (
-    <div className="grid gap-6">
-      <PageHeader title={t('console.brain.experience_title')} description={t('console.brain.experience_description')} />
+    <div className="grid min-w-0 gap-6">
+      <PageHeader
+        title={t('console.brain.experience_title')}
+        description={t('console.brain.experience_description')}
+        actions={<RefreshButton />}
+      />
       <BrainTaskNavigation active="experience" ownerUID={ownerUID} />
 
-      <div className="grid gap-4 border border-border bg-card p-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 border border-border bg-card p-4 md:grid-cols-2">
         <BrainOwnerField
           ownerUID={ownerUID}
           principals={agents}
@@ -91,10 +106,10 @@ function SkillExperienceCard({ item, ownerUID }: { item: AgentLibrarySkillOverla
             </CardTitle>
             <CardDescription>{item.description ?? '—'}</CardDescription>
           </div>
-          <Button size="sm" variant="outline" render={<Link to={editHref} />}>
+          <Link className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))} to={editHref}>
             <RiExternalLinkLine />
             {t('console.brain.experience_manage')}
-          </Button>
+          </Link>
         </div>
       </CardHeader>
       <CardContent className="grid gap-2">

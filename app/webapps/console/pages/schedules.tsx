@@ -44,14 +44,8 @@ import {
   ankoleWebSignalBindingControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import { formatConsoleDate } from '../console-primitives'
-import {
-  ConfirmDeleteButton,
-  LabeledField,
-  PageHeader,
-  ReadOnlyValue,
-  RowActions,
-  StatusIndicator
-} from '../console-shell'
+import { ConfirmDeleteButton, LabeledField, ReadOnlyValue, StatusIndicator } from '../console-form'
+import { PageHeader, RefreshButton, RowActions } from '../console-list-page'
 import {
   ScheduleEditorModel,
   type CronStatus,
@@ -184,8 +178,12 @@ export function SchedulesListPage() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title={t('console.schedules.title')} description={t('console.schedules.description')} />
-      <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(0,1fr)]">
+      <PageHeader
+        title={t('console.schedules.title')}
+        description={t('console.schedules.description')}
+        actions={<RefreshButton />}
+      />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_minmax(220px,1fr)_minmax(0,1fr)]">
         <div className="border border-border bg-card p-3">
           <LabeledField label={t('console.schedules.agent')}>
             <Select value={agentUID} onValueChange={value => selectAgent(String(value))}>
@@ -329,9 +327,13 @@ function CronScheduleTable(props: {
   return (
     <div className="border border-border bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border p-3">
-        <input
-          className="h-9 w-full max-w-sm rounded-sm border border-border bg-background px-3 text-sm"
+        {/* Was a hand-rolled input: no accessible name, and a border radius and
+            height that matched no other search box in the console. */}
+        <Input
+          aria-label={t('console.schedules.search_placeholder')}
+          className="max-w-sm"
           placeholder={t('console.schedules.search_placeholder')}
+          type="search"
           value={props.searchValue}
           onChange={event => props.onSearch(event.target.value)}
         />
@@ -367,7 +369,7 @@ function CronScheduleTable(props: {
               return (
                 <TableRow key={row.id}>
                   <TableCell className="font-mono text-xs">
-                    <Link className="text-foreground hover:text-primary hover:underline" to={editTo}>
+                    <Link className="text-foreground hover:text-link hover:underline" to={editTo}>
                       {row.name || row.binding_name}
                     </Link>
                     <div className="text-muted-foreground">{row.binding_name}</div>
@@ -442,9 +444,13 @@ function CheckbackTable(props: {
   return (
     <div className="border border-border bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border p-3">
-        <input
-          className="h-9 w-full max-w-sm rounded-sm border border-border bg-background px-3 text-sm"
+        {/* Was a hand-rolled input: no accessible name, and a border radius and
+            height that matched no other search box in the console. */}
+        <Input
+          aria-label={t('console.schedules.search_placeholder')}
+          className="max-w-sm"
           placeholder={t('console.schedules.search_placeholder')}
+          type="search"
           value={props.searchValue}
           onChange={event => props.onSearch(event.target.value)}
         />
@@ -624,7 +630,7 @@ export function ScheduleCronEditorPage() {
           event.preventDefault()
           submit()
         }}>
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <LabeledField label={t('console.schedules.agent')}>
             <ReadOnlyValue mono>{agentUID || '—'}</ReadOnlyValue>
           </LabeledField>
@@ -633,7 +639,7 @@ export function ScheduleCronEditorPage() {
           </LabeledField>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <LabeledField label={t('console.schedules.binding')} required>
             <Select value={model.bindingName.value} onValueChange={value => (model.bindingName.value = String(value))}>
               <SelectTrigger className="w-full">
@@ -669,7 +675,7 @@ export function ScheduleCronEditorPage() {
         </LabeledField>
 
         {model.scheduleKind.value === 'every' ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <LabeledField label={t('console.schedules.every_ms')} required>
               <Input
                 type="number"
@@ -687,7 +693,7 @@ export function ScheduleCronEditorPage() {
             </LabeledField>
           </div>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <LabeledField
               label={t('console.schedules.expression')}
               required
@@ -709,7 +715,7 @@ export function ScheduleCronEditorPage() {
           </div>
         )}
 
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <LabeledField label={t('console.schedules.delivery_channel')} required>
             <Input
               value={model.deliveryChannelId.value}

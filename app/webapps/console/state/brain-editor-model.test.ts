@@ -1,14 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import {
   BrainMetadataEditorModel,
-  brainCursorPage,
   buildMetadataOperations,
-  canReturnBrainCursor,
   defaultBrainOwnerUID,
-  nextBrainCursor,
   normalizeAliases,
   parsePropertyDrafts,
-  previousBrainCursor,
   propertiesToDrafts,
   setBrainFilter
 } from './brain-editor-model'
@@ -147,24 +143,6 @@ describe('Brain editor model', () => {
 
   test('normalizes aliases', () => {
     expect(normalizeAliases([' Alpha ', '', 'Alpha', 'Beta'])).toEqual(['Alpha', 'Beta'])
-  })
-
-  test('keeps a stable cursor history for next and previous page navigation', () => {
-    const first = new URLSearchParams('owner=agent-one')
-    const second = nextBrainCursor(first, 'cursor-two')
-    const third = nextBrainCursor(second, 'cursor-three')
-
-    expect(second.get('cursor')).toBe('cursor-two')
-    expect(brainCursorPage(second)).toBe(2)
-    expect(brainCursorPage(third)).toBe(3)
-    expect(canReturnBrainCursor(third)).toBe(true)
-
-    const returnedToSecond = previousBrainCursor(third)
-    const returnedToFirst = previousBrainCursor(returnedToSecond)
-    expect(returnedToSecond.get('cursor')).toBe('cursor-two')
-    expect(returnedToFirst.get('cursor')).toBeNull()
-    expect(returnedToFirst.get('cursor_history')).toBeNull()
-    expect(canReturnBrainCursor(returnedToFirst)).toBe(false)
   })
 
   test('changing a filter clears only the matching cursor surface', () => {

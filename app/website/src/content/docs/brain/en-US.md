@@ -1,8 +1,8 @@
 ---
 title: Brain
 description: The long-term memory of an Ankole installation — curated knowledge, source-chat recall, dreaming, and human oversight, with PostgreSQL rows as truth and Markdown as projection.
-section: Concepts
-order: 9
+section: Developer guide
+order: 104
 ---
 
 Brain is the long-term memory of one accountable principal. It holds three things at once: the curated knowledge an agent works from, the recall path back to what was actually said in source chats, and a dreaming process that turns raw history into indexed episodes and proposed knowledge. A human reviews the proposals before they become fact. This page maps that model against the real code in `Ankole.Brain`.

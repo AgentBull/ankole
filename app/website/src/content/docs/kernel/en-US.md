@@ -1,8 +1,8 @@
 ---
 title: Rust Kernel
 description: The shared native layer — one Rust implementation of authorization, RuntimeFabric transport, and AI data-plane primitives, loaded by both the Elixir control plane and the Bun worker.
-section: Concepts
-order: 15
+section: Developer guide
+order: 109
 ---
 
 Ankole runs on two host runtimes — an Elixir control plane and a Bun worker — and a few behaviors must mean the same thing on both sides. The Rust Kernel is where those shared native semantics live. This page maps the kernel against the real code in `app/kernel`.

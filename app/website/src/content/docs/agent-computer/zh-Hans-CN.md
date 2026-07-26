@@ -1,8 +1,8 @@
 ---
 title: Agent Computer
 description: Bun + TypeScript 执行底座——模型循环、工具、文件、终端状态与流式输出如何在贴近工作空间的 worker 内运行，以及把一个 worker 绑到一个 activation 上的隔离栏。
-section: Concepts
-order: 14
+section: Developer guide
+order: 108
 ---
 
 Agent Computer 是执行底座。一个 session 被唤醒时，Actor Runtime 把一个带隔离栏的回合交给一个 worker；Agent Computer worker 跑这个回合——模型循环、工具、文件与终端工作、流式输出——再把结果交回去。本页对照 `app/agent_computer` 里的真实代码，画出这个 worker。

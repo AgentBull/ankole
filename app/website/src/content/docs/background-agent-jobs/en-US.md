@@ -1,8 +1,8 @@
 ---
 title: Background Agent Jobs
 description: Durable, resumable work that survives worker loss — the job state machine, wait-for-input, owner wakeup, and the boundary with the Actor Runtime.
-section: Concepts
-order: 10
+section: Developer guide
+order: 105
 ---
 
 A Background Agent Job is a unit of work that is meant to outlive any single worker. An agent spawns one to do something that takes too long, too many steps, or too much isolation to run inline in its own turn — and then the job runs, pauses for input, fails, or finishes on its own schedule, while the agent that started it stays free to talk to its owner. This page maps that lifecycle against the real code in `Ankole.BackgroundAgentJobs`.

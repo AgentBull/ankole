@@ -4,12 +4,14 @@ import {
   AlertTitle,
   Badge,
   Button,
+  buttonVariants,
   Card,
   CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
+  cn,
   Input,
   Select,
   SelectContent,
@@ -52,7 +54,7 @@ import type {
   ControlPlanePluginItem
 } from '../api/generated/types.gen'
 import { ErrorBlock, formatConsoleDate } from '../console-primitives'
-import { ConfirmDeleteButton } from '../console-shell'
+import { ConfirmDeleteButton } from '../console-form'
 import {
   GLOBAL_LIBRARY_SCOPE,
   type AgentLibraryTab,
@@ -97,8 +99,8 @@ export function AgentLibraryPage() {
   }
 
   return (
-    <div className="grid gap-6">
-      <header className="grid gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
+    <div className="grid min-w-0 gap-6">
+      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
         <div className="grid gap-1">
           <h2 className="text-2xl font-semibold tracking-tight">{t('console.agent_library_capabilities.title')}</h2>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
@@ -110,22 +112,27 @@ export function AgentLibraryPage() {
 
       <ErrorBlock error={data.error ?? experience?.error} />
 
-      <Tabs value={tab} onValueChange={value => setTab(value as AgentLibraryTab)} className="gap-5">
+      <Tabs value={tab} onValueChange={value => setTab(value as AgentLibraryTab)} className="min-w-0 gap-5">
         <TabsList className="max-w-full overflow-x-auto">
+          {/* The count used to be a bare number after the label, so "Agent Plugins 3"
+              read as part of the name. A tag says it is a quantity. */}
           <TabsTrigger value="agent-plugins">
-            {t('console.agent_library_capabilities.agent_plugins')} {data.capabilities?.agent_plugins.length ?? 0}
+            {t('console.agent_library_capabilities.agent_plugins')}
+            <TabCount value={data.capabilities?.agent_plugins.length ?? 0} />
           </TabsTrigger>
           <TabsTrigger value="skills">
-            {t('console.agent_library_capabilities.skills')} {data.capabilities?.skills.length ?? 0}
+            {t('console.agent_library_capabilities.skills')}
+            <TabCount value={data.capabilities?.skills.length ?? 0} />
           </TabsTrigger>
           {scope === GLOBAL_LIBRARY_SCOPE ? (
             <TabsTrigger value="control-plane-plugins">
-              {t('console.agent_library_capabilities.control_plane_plugins')} {data.controlPlanePlugins.length}
+              {t('console.agent_library_capabilities.control_plane_plugins')}
+              <TabCount value={data.controlPlanePlugins.length} />
             </TabsTrigger>
           ) : null}
         </TabsList>
 
-        <TabsContent value="agent-plugins" className="grid gap-4">
+        <TabsContent value="agent-plugins" className="grid min-w-0 gap-4">
           <CapabilitySearch value={pluginQuery} onChange={setPluginQuery} kind="agent_plugins" />
           <CapabilityGrid
             loading={data.loading}
@@ -143,7 +150,7 @@ export function AgentLibraryPage() {
           </CapabilityGrid>
         </TabsContent>
 
-        <TabsContent value="skills" className="grid gap-4">
+        <TabsContent value="skills" className="grid min-w-0 gap-4">
           <CapabilitySearch value={skillQuery} onChange={setSkillQuery} kind="skills" />
           <CapabilityGrid
             loading={data.loading}
@@ -163,7 +170,7 @@ export function AgentLibraryPage() {
         </TabsContent>
 
         {scope === GLOBAL_LIBRARY_SCOPE ? (
-          <TabsContent value="control-plane-plugins" className="grid gap-4">
+          <TabsContent value="control-plane-plugins" className="grid min-w-0 gap-4">
             <CapabilitySearch value={controlPlaneQuery} onChange={setControlPlaneQuery} kind="control_plane_plugins" />
             <CapabilityGrid
               loading={data.controlPlaneLoading}
@@ -200,8 +207,8 @@ export function AgentPluginDetailPage() {
   }
 
   return (
-    <div className="grid gap-6">
-      <header className="grid gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
+    <div className="grid min-w-0 gap-6">
+      <header className="grid min-w-0 grid-cols-1 gap-4 border-b border-border pb-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)] lg:items-end">
         <div className="grid gap-3">
           <Link
             to={agentLibraryScopeQuery('/agent-library', scope)}
@@ -241,6 +248,7 @@ export function AgentPluginDetailPage() {
               <CardAction>
                 <CapabilityControl
                   scope={scope}
+                  capabilityName={humanizeAgentPluginID(plugin.id)}
                   globalDefault={plugin.global_default_enabled}
                   override={plugin.override_enabled}
                   effective={plugin.effective_enabled}
@@ -349,20 +357,25 @@ function AgentPluginCard({
   scope: string
 }) {
   const { t } = useTranslation()
+  const name = humanizeAgentPluginID(plugin.id)
   return (
-    <Card size="sm">
+    // `h-full` plus `mt-auto` below keeps the footers of two cards in one grid row
+    // on the same line. Without it a short description pulled its card's footer up
+    // and the row read as broken.
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="normal-case">
           <Link
-            className="hover:text-primary hover:underline"
+            className="hover:text-link hover:underline"
             to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
-            {humanizeAgentPluginID(plugin.id)}
+            {name}
           </Link>
         </CardTitle>
         <CardDescription>{plugin.description}</CardDescription>
         <CardAction>
           <CapabilityControl
             scope={scope}
+            capabilityName={name}
             globalDefault={plugin.global_default_enabled}
             override={plugin.override_enabled}
             effective={plugin.effective_enabled}
@@ -371,16 +384,19 @@ function AgentPluginCard({
           />
         </CardAction>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+      <CardContent className="mt-auto flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
         <span className="text-xs text-muted-foreground">
           {t('console.agent_library_capabilities.skill_count', { count: plugin.skills.length })}
         </span>
-        <Button
-          size="sm"
-          variant="outline"
-          render={<Link to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)} />}>
+        {/* A styled link, not a Button rendering a link: this control navigates,
+            and the button primitive gave the anchor button semantics instead.
+            The per-card label also stops every card announcing one same phrase. */}
+        <Link
+          aria-label={t('console.agent_library_capabilities.view_details_for', { name })}
+          className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
+          to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
           {t('console.agent_library_capabilities.view_details')}
-        </Button>
+        </Link>
       </CardContent>
     </Card>
   )
@@ -403,13 +419,14 @@ function SkillCard({
 }) {
   const { t } = useTranslation()
   return (
-    <Card size="sm">
+    <Card size="sm" className="h-full">
       <CardHeader>
         <CardTitle className="normal-case">{skill.name}</CardTitle>
         <CardDescription>{skill.description}</CardDescription>
         <CardAction>
           <CapabilityControl
             scope={scope}
+            capabilityName={skill.name}
             globalDefault={skill.global_default_enabled}
             override={skill.override_enabled}
             effective={skill.effective_enabled}
@@ -423,7 +440,7 @@ function SkillCard({
           />
         </CardAction>
       </CardHeader>
-      <CardContent className="grid gap-4 border-t border-border pt-4">
+      <CardContent className="mt-auto grid gap-4 border-t border-border pt-4">
         <div className="flex flex-wrap gap-2">
           {skill.source_kind === 'installed' ? (
             <Badge variant="secondary">{t('console.agent_library_capabilities.agent_private')}</Badge>
@@ -575,6 +592,7 @@ function ControlPlanePluginCard({
 }
 
 function CapabilityControl({
+  capabilityName,
   disabled,
   effective,
   globalDefault,
@@ -583,6 +601,8 @@ function CapabilityControl({
   override,
   scope
 }: {
+  /** Names the switch after the capability it toggles, not after what it does. */
+  capabilityName: string
   disabled: boolean
   effective: boolean
   globalDefault: boolean
@@ -595,7 +615,7 @@ function CapabilityControl({
   if (scope === GLOBAL_LIBRARY_SCOPE) {
     return (
       <Switch
-        aria-label={t('console.agent_library_capabilities.set_global_default')}
+        aria-label={t('console.agent_library_capabilities.set_global_default_for', { name: capabilityName })}
         checked={globalDefault}
         disabled={disabled}
         onCheckedChange={checked => onChange(checked)}
@@ -640,6 +660,14 @@ function EffectiveBadge({ enabled }: { enabled: boolean }) {
   )
 }
 
+function TabCount({ value }: { value: number }) {
+  return (
+    <Badge variant="secondary" className="ml-1.5 tabular-nums">
+      {value}
+    </Badge>
+  )
+}
+
 function CapabilityGrid({
   children,
   empty,
@@ -657,12 +685,12 @@ function CapabilityGrid({
       <p className="border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{emptyText}</p>
     )
   }
-  return <div className="grid gap-4 xl:grid-cols-2">{children}</div>
+  return <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{children}</div>
 }
 
 function LoadingCards() {
   return (
-    <div className="grid gap-4 xl:grid-cols-2" aria-busy="true">
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2" aria-busy="true">
       {[0, 1, 2].map(index => (
         <div key={index} className="h-36 animate-pulse bg-muted" />
       ))}

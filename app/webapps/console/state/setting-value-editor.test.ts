@@ -5,6 +5,9 @@ import {
   brainEmbeddingValidationError,
   pluginIDsFromDraft,
   pluginRestartRequired,
+  brainDreamingDraft,
+  brainDreamingValidationError,
+  serializeBrainDreamingDraft,
   serializeBrainEmbeddingDraft,
   settingEditorKind,
   settingStringDraft,
@@ -130,5 +133,55 @@ describe('setting value editor', () => {
     expect(pluginRestartRequired(false, false)).toBe(false)
     expect(pluginRestartRequired(true, false)).toBe(true)
     expect(pluginRestartRequired(false, true)).toBe(true)
+  })
+})
+
+describe('brain dreaming editor', () => {
+  test('routes brain.dreaming to its own editor', () => {
+    expect(settingEditorKind('brain.dreaming', false, {})).toBe('brainDreaming')
+  })
+
+  test('reads an absent enabled flag as the default rather than as off', () => {
+    expect(brainDreamingDraft('{"enabled":null}').enabled).toBe('default')
+    expect(brainDreamingDraft('{"enabled":false}').enabled).toBe('off')
+    expect(brainDreamingDraft('{"enabled":true}').enabled).toBe('on')
+  })
+
+  test('keeps a null cold start lookback apart from zero', () => {
+    expect(
+      brainDreamingDraft('{"episode_cold_start_lookback_days":null}').numbers.episode_cold_start_lookback_days
+    ).toBe('')
+    expect(brainDreamingDraft('{"episode_cold_start_lookback_days":0}').numbers.episode_cold_start_lookback_days).toBe(
+      '0'
+    )
+
+    const draft = brainDreamingDraft('{}')
+    const cleared = JSON.parse(serializeBrainDreamingDraft(draft)) as Record<string, unknown>
+    expect(cleared.episode_cold_start_lookback_days).toBeNull()
+    expect(cleared.enabled).toBeNull()
+  })
+
+  test('reports the field that is out of range', () => {
+    const value = {
+      enabled: null,
+      material_limit: 240,
+      token_limit: 0,
+      mutation_limit: 0,
+      curation_silence_minutes: 30,
+      curation_backlog_rows: 50,
+      episode_silence_minutes: 30,
+      episode_backlog_rows: 200,
+      episode_window_max_rows: 200,
+      episode_window_max_tokens: 8_000,
+      episode_tail_guard_rows: 20,
+      episode_tail_guard_minutes: 360,
+      episode_cold_start_lookback_days: 5
+    }
+
+    expect(brainDreamingValidationError(value)).toBeUndefined()
+    expect(brainDreamingValidationError({ ...value, episode_window_max_rows: 501 })).toBe('episode_window_max_rows')
+    expect(brainDreamingValidationError({ ...value, episode_cold_start_lookback_days: null })).toBeUndefined()
+    expect(brainDreamingValidationError({ ...value, material_limit: null })).toBe('material_limit')
+    expect(brainDreamingValidationError([])).toBe('invalid')
   })
 })

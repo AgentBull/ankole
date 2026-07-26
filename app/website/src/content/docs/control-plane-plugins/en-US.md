@@ -1,8 +1,8 @@
 ---
 title: Control Plane Plugins
 description: The first-party Elixir extension model — discovered and active plugins, subsystem contracts, AppConfigure keys, supervised children, and the next-start enable boundary.
-section: Concepts
-order: 16
+section: Developer guide
+order: 110
 ---
 
 Control Plane Plugins are how an Ankole installation extends its own control plane — adds a signal adapter, an identity provider, an AppConfigure key, or a supervised process — without the control plane growing those things as one-off code paths. This page maps the model against the real code in `Ankole.Plugins`.
@@ -75,5 +75,5 @@ They are not a runtime plugin store and not a way to ship code the operator has 
 ## Next steps
 
 - For the signal adapters a plugin can declare, read the [SignalsGateway](../signals-gateway/) page.
-- For the AppConfigure keys a plugin contributes, read the [Console](../console/) page.
+- For the AppConfigure keys a plugin contributes, read the [Console](../console-api/) page.
 - For the trust model this extension surface sits inside, read [Principal and AuthZ](../principal-authz/).

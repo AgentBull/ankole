@@ -195,8 +195,8 @@ defmodule AnkoleWeb.Router do
         :update
 
     delete "/agents/:agent_uid/library-skill-overlays/:skill_name",
-        AgentLibrarySkillOverlayController,
-        :delete
+           AgentLibrarySkillOverlayController,
+           :delete
 
     get "/agent-computer-workers", AgentComputerWorkerController, :index
 

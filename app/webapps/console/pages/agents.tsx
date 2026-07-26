@@ -20,15 +20,8 @@ import {
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
 import { blankToNull } from '../console-primitives'
-import {
-  LabeledField,
-  ReadOnlyValue,
-  ResourceEditorPage,
-  ResourceListPage,
-  ResourceSearch,
-  RowActions,
-  StatusIndicator
-} from '../console-shell'
+import { LabeledField, ReadOnlyValue, ResourceEditorPage, StatusIndicator } from '../console-form'
+import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-page'
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 import { AgentLibraryEditor } from './agent-library-editor'
@@ -62,6 +55,7 @@ export function AgentsListPage() {
       columns={[t('console.agents.uid'), t('console.agents.role'), t('console.agents.status')]}
       isLoading={agents.isLoading}
       isEmpty={rows.length === 0}
+      count={rows.length}
       emptyTitle={t('console.agents.empty_title')}
       emptyDescription={t('console.agents.empty_description')}
       error={agents.error}
@@ -77,7 +71,7 @@ export function AgentsListPage() {
       {rows.map(agent => (
         <TableRow key={agent.uid}>
           <TableCell className="font-mono text-xs">
-            <Link className="text-foreground hover:text-primary hover:underline" to={encodeURIComponent(agent.uid)}>
+            <Link className="text-foreground hover:text-link hover:underline" to={encodeURIComponent(agent.uid)}>
               {agent.uid}
             </Link>
           </TableCell>
@@ -211,14 +205,15 @@ export function AgentEditorPage() {
           />
         )}
       </LabeledField>
-      <div className="grid gap-5 md:grid-cols-2">
-        <LabeledField label={t('console.agents.display_name')}>
-          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
-        </LabeledField>
-        <LabeledField label={t('console.agents.role')}>
-          <Input value={model.role.value} onChange={event => (model.role.value = event.target.value)} />
-        </LabeledField>
-      </div>
+      {/* Display name and role are not a natural pair like a city and a postcode,
+          and a two-column row of unrelated fields is the layout most often
+          misread. One column, in the order the fields are filled. */}
+      <LabeledField label={t('console.agents.display_name')}>
+        <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
+      </LabeledField>
+      <LabeledField label={t('console.agents.role')}>
+        <Input value={model.role.value} onChange={event => (model.role.value = event.target.value)} />
+      </LabeledField>
       <LabeledField label={t('console.agents.avatar_url')}>
         <Input value={model.avatarURL.value} onChange={event => (model.avatarURL.value = event.target.value)} />
       </LabeledField>
