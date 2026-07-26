@@ -245,7 +245,7 @@ budget and limit of ten, the default candidate cap is 400 tokens. Duplicate
 messages across winners appear once. `memory_browse` retrieves the complete
 thread or source when the compact search result is not enough.
 
-## Installation-wide Embedding Space
+## Instance-wide Embedding Space
 
 All block, episode, and query vectors use one global `brain.embedding` setting.
 It identifies an Agent whose `embedding` ModelProfile supplies the model and it
@@ -473,7 +473,7 @@ store-name shim, or downgrade path.
 - Brain keeps the current edited knowledge and external-source state.
 - The saved conversation decides all readable and writable stores.
 - Search globally ranks every enabled information route before expansion.
-- One installation has one configured embedding space.
+- One deployment instance has one configured embedding space.
 - Generated knowledge cites its evidence.
 - A synchronized mirror is read-only and represents one current source revision.
 - A failed Dreaming run does not advance its cursor.

@@ -165,9 +165,10 @@ It also stores status, attempts, timestamps, result, error, and selected runtime
 details.
 
 For an official subscription, the selected runtime details include a snapshot
-of the `coding` Model Profile. A new Job and a respawned Job each use the Model
-Profile that is active when the control plane creates that Job. A retry of the
-same Job uses its stored snapshot.
+of the Background Agent Jobs Model Profile. Its persisted key and API name
+remain `coding` until that stored contract is migrated. A new Job and a
+respawned Job each use the Model Profile that is active when the control plane
+creates that Job. A retry of the same Job uses its stored snapshot.
 
 Each execution and resume reads the Agent's current enabled Skills. Skills with
 an absent `ankole-runtime` value, `any`, or `background_job` are available.

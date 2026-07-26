@@ -118,7 +118,7 @@ provider 的差异住在这里——URL 构造、auth 头、体塑形、特定�
 
 第一方 provider 编译进发布、被注册表发现。对于 plugin 贡献的 provider，在一个 Control Plane Plugin 的 `adapter_declarations/0` 里通过 `ai_gateway.provider` 契约声明，注册表从 plugin 的声明里捡起它——与 signal adapter 同一模型，不同契约 id。
 
-plugin 注册路径见[创建 Control Plane Plugin](../creating-a-control-plane-plugin/)；provider 契约是 `ai_gateway.provider`，kind id 必须匹配 `~r/\A[a-z][a-z0-9_]{0,62}\z/`。
+Plugin 的注册方法见[开发 Skill 与 Control Plane Plugin](../writing-a-skill/)；Provider 契约是 `ai_gateway.provider`，kind ID 必须匹配 `~r/\A[a-z][a-z0-9_]{0,62}\z/`。
 
 ## 本指南不是什么
 
@@ -127,5 +127,5 @@ plugin 注册路径见[创建 Control Plane Plugin](../creating-a-control-plane-
 ## 下一步
 
 - AIGateway 概念（路由、解析、统一边界），读 [AIGateway](../ai-gateway/)。
-- plugin 注册路径，读[创建 Control Plane Plugin](../creating-a-control-plane-plugin/)。
-- 运维者侧的 provider 配置，读 [Provider 与模型](../providers-and-models/)。
+- Plugin 注册方法，读[开发 Skill 与 Control Plane Plugin](../writing-a-skill/)。
+- 首次配置 Provider，读[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。

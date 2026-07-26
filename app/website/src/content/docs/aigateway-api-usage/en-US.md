@@ -1,8 +1,8 @@
 ---
 title: AIGateway API usage
 description: How external callers use the AIGateway REST API — the OpenResponses-compatible endpoints, the agent vs admin token, stateless and stateful calls, and worked examples.
-section: User guide
-order: 59
+section: Developer guide
+order: 126
 ---
 
 AIGateway is not just an internal boundary that workers call; it is a REST API external applications, enterprise systems, and SDKs can call directly. This page is the caller's practical guide to using it — the endpoints, the authentication, the two call modes, and worked examples. It complements the [AIGateway](../ai-gateway/) concept page with hands-on usage.
@@ -53,7 +53,7 @@ Stateless HTTP and SSE reject the stateful fields (`previous_response_id`, `conv
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /models` | List available models (see [Model catalog](../model-catalog/)) |
+| `GET /models` | List the currently available models |
 | `POST /embeddings` | Create embeddings |
 | `POST /rerank` | Rerank documents |
 | `POST /web_search` | Search the web |
@@ -64,11 +64,10 @@ Each is documented in the [AIGateway](../ai-gateway/) concept page and the relev
 
 ## What this guide is not
 
-It is not the AIGateway concept page — for the full route table, the stateful lifecycle, and the error envelope, read [AIGateway](../ai-gateway/). It is not a provider-configuration guide — for binding models, read [Providers and models](../providers-and-models/). And it is not an SDK — Ankole does not ship a client SDK; callers use standard HTTP clients against the REST API.
+It is not the AIGateway concept page. Read [AIGateway](../ai-gateway/) for the full route table, stateful lifecycle, and error envelope. It is also not an SDK. Ankole does not ship a client SDK; callers use standard HTTP clients against the REST API.
 
 ## Next steps
 
 - For the full AIGateway surface, read [AIGateway](../ai-gateway/).
-- For the model catalog, read [Model catalog](../model-catalog/).
-- For provider routing, read [Provider routing](../provider-routing/).
+- For Provider resolution and request preparation, read [Provider Runtime](../provider-runtime/).
 - For the Console API reference, read [Console API reference](../console-api/).

@@ -7,9 +7,10 @@ lives. Follow the links when you need the detailed contract for one module.
 
 ## Product Boundary
 
-Ankole is a self-hosted system for Agents that do long-running digital work.
-One Ankole Installation contains its Agents, accounts, provider connections,
-configuration, and stored data. Ankole does not add a hidden SaaS tenant.
+Ankole is a private, self-hosted system for Agents that do long-running digital
+work. Each enterprise operates one private deployment instance. That instance
+contains its Agents, accounts, provider connections, configuration, and stored
+data.
 
 A Principal identifies the person or Agent responsible for an action. AuthZ
 decides what that Principal can do.
@@ -123,7 +124,7 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 
 - Principals, humans, Agents, groups, memberships, and permission grants
 - AppConfigure values and encrypted provider configuration
-- Signal bindings, channels, entries, tombstones, ActorEvent rows, and outbox rows
+- Signal routing rules (`SignalBinding` records), channels, entries, tombstones, ActorEvent rows, and outbox rows
 - Schedules and scheduled events
 - AIGateway conversations, messages, compaction artifacts, and provider rows
 - Brain entries, blocks, relations, sources, citations, episodes, cursors, and audit rows

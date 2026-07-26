@@ -108,23 +108,25 @@ interface QuickStartTabsProps {
     k8sBody: string
     k8sLink: string
   }
-  installHref: string
+  deploymentHref: string
 }
 
-export default function QuickStartTabs({ labels, installHref }: QuickStartTabsProps) {
+export default function QuickStartTabs({ labels, deploymentHref }: QuickStartTabsProps) {
   return (
     <div data-reveal="rise">
-      <Tabs defaultValue="source">
-        {/* The three labels exceed a phone width, so let the list scroll instead of the page. */}
-        <TabsList className="max-w-full overflow-x-auto">
-          <TabsTrigger value="source">{labels.source}</TabsTrigger>
+      <Tabs defaultValue="docker">
+        {/*
+         * The three labels exceed a phone width, so the list scrolls instead of the page.
+         * It must also start rather than centre: a flex container that centres content
+         * wider than itself spills past both edges, and the part that overflows to the
+         * left cannot be scrolled back to — on a phone that clipped the first character
+         * of the first tab for good.
+         */}
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="docker">{labels.docker}</TabsTrigger>
           <TabsTrigger value="kubernetes">{labels.kubernetes}</TabsTrigger>
+          <TabsTrigger value="source">{labels.source}</TabsTrigger>
         </TabsList>
-        <TabsContent value="source" className="pt-4">
-          <p className="mb-4 text-sm text-muted-foreground">{labels.sourceNote}</p>
-          <CodeBlock code={SOURCE_COMMANDS} copyLabel={labels.copy} copiedLabel={labels.copied} />
-        </TabsContent>
         <TabsContent value="docker" className="pt-4">
           <p className="mb-4 text-sm text-muted-foreground">{labels.dockerNote}</p>
           <CodeBlock code={DOCKER_COMMANDS} copyLabel={labels.copy} copiedLabel={labels.copied} />
@@ -132,11 +134,15 @@ export default function QuickStartTabs({ labels, installHref }: QuickStartTabsPr
         <TabsContent value="kubernetes" className="pt-4">
           <p className="text-sm text-muted-foreground">{labels.k8sBody}</p>
           <a
-            href={installHref}
+            href={deploymentHref}
             className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary no-underline hover:underline dark:text-brand-40">
             {labels.k8sLink}
             <RiArrowRightLine className="size-4" />
           </a>
+        </TabsContent>
+        <TabsContent value="source" className="pt-4">
+          <p className="mb-4 text-sm text-muted-foreground">{labels.sourceNote}</p>
+          <CodeBlock code={SOURCE_COMMANDS} copyLabel={labels.copy} copiedLabel={labels.copied} />
         </TabsContent>
       </Tabs>
     </div>

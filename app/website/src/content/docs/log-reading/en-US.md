@@ -1,17 +1,35 @@
 ---
-title: Log reading
-description: How to read Ankole's structured control-plane and worker logs — the event-name search pattern, the severity levels, and the local pretty-printer.
+title: Read logs
+description: Get Ankole logs from Docker Compose or Kubernetes, then use event names and context fields to locate a failure.
 section: User guide
 order: 57
 ---
 
-Ankole's logs are structured JSON — an event name, a human message, and structured fields, at a severity from `debug` through `error`. This page is the operator's practical guide to reading them: the search pattern, the knobs, and the local pretty-printer. It complements the [Observability](../observability/) page with the hands-on mechanics.
+When the Console only shows a failed request or an Agent does not reply, logs can show whether the failure is in the control plane, Worker, chat channel, or LLM Provider.
 
-The decisive property, stated up front: the **event name is the join key**. Every log line carries a stable event name like `signals_gateway.webhook.dispatch_failed` or `ai_gateway.response_failed`. Search by event name first, then narrow by the structured fields. Reading logs linearly is slow; reading by event name is fast.
+Ankole writes structured JSON logs by default. Each record has a severity, event name, message, and related context. Find the event first. Then use the Agent UID, Provider ID, or failure reason to narrow the records.
 
-## The log shape
+## Get logs
 
-Every log line has:
+Docker Compose:
+
+```bash
+docker compose logs --since 30m control-plane
+docker compose logs --since 30m agent-computer-worker
+```
+
+Kubernetes:
+
+```bash
+kubectl -n ankole logs deployment/ankole-control-plane --since=30m
+kubectl -n ankole logs deployment/ankole-agent-computer-worker --since=30m
+```
+
+Resource names can change with the release name. If the command cannot find an object, first run `kubectl -n ankole get deployments`.
+
+Before you reproduce a problem, record the approximate time, Agent, chat channel, and user action. You can then inspect a small time window instead of reading from process startup.
+
+## Read one record
 
 ```json
 {
@@ -19,51 +37,32 @@ Every log line has:
   "event": "signals_gateway.webhook.dispatch_failed",
   "message": "provider webhook dispatch failed",
   "handler_id": "lark",
-  "kind": "message",
   "reason": "..."
 }
 ```
 
-The `event` field is the stable identifier — it does not change between releases for the same operational fact. The `message` is human-readable but may change; search on `event`, read `message`. The remaining fields are structured context — the `handler_id`, the `reason`, the `agent_uid`, the `turn_ref` — and they are what you narrow by after you find the event.
+- `severity` shows how serious the record is.
+- `event` is the best field for search and aggregation.
+- `message` gives a readable explanation.
+- Other fields identify the Agent, channel, Job, or request.
 
-## The two knobs
+Warnings and information near an error often show the full sequence. Do not copy only the last line. Keep related records before and after the failure.
 
-| Variable | Default | Effect |
-|---|---|---|
-| `ANKOLE_LOG_LEVEL` | `info` | `debug`/`info`/`warning`/`error` — controls what is emitted. Invalid value rejected at boot. |
-| `ANKOLE_LOG_FORMAT` | `json` | `json` for ingestion, `pretty` for local reading (but set `pretty` only in development; production stays `json`). |
+## A useful search order
 
-Drop to `debug` for a specific reproduction, then raise it back. A deployment left at `debug` is noisy and slow.
+1. Limit the logs to the time of the problem.
+2. Search for `error`, `warning`, or the error code from the Console.
+3. After you find the related event, filter by Agent UID, Provider ID, Worker ID, or chat adapter.
+4. Compare the records with the state under **Console → Conversations** or **Background Agent Jobs**.
 
-## Read locally with the pretty-printer
+Logs do not contain decrypted model credentials, channel secrets, or the Worker authentication key. Before you share logs for support, still check for user messages, URLs, and other business data.
 
-```bash
-bun run kit logs pretty < /path/to/log-stream
-```
+## Temporarily increase log detail
 
-The pretty-printer reads JSON lines from stdin and formats them for a terminal — severity, event, message, and fields in a readable layout. In production, leave format at `json` and let your log ingester handle formatting.
+`ANKOLE_LOG_LEVEL` controls detail and uses `info` by default. To reproduce a difficult problem, you can temporarily set it to `debug` and restart the related service.
 
-## The search pattern
+Restore the previous value after the reproduction to avoid a large continuing log volume.
 
-When something is wrong, work from the event name:
+`ANKOLE_LOG_FORMAT` can be `json` or `pretty`. If you use a log collection system, keep the format that it expects. See the [deployment environment reference](../environment-variables/) for all variables.
 
-1. **Identify the event.** If a webhook failed, search for `webhook.dispatch_failed`. If a provider call failed, search for `ai_gateway.response_failed` or `ai_gateway.request_failed`. If a turn errored, search for the turn-error events.
-2. **Narrow by fields.** Once you have the event, filter by `agent_uid`, `handler_id`, `reason`, or `turn_ref` to find the specific instance.
-3. **Read the context.** The fields around the event tell you which subsystem, which agent, and which boundary produced it. See [Observability](../observability/) for the question-to-surface mapping.
-
-## What is NOT in the logs
-
-- **Secrets.** The logging module never logs decrypted secret values, worker auth keys, or provider credentials. Fields that carry sensitive data are redacted before logging.
-- **Full conversation transcripts.** Those are in AIGateway's PostgreSQL, not in logs. Read them through `/ai-gateway/conversations/:id/messages`.
-- **Every tool call's arguments.** The logs record that a tool ran and its outcome, not the full arguments payload. For tool-call detail, read the conversation messages.
-
-## What this guide is not
-
-It is not the observability concept page — for the question-to-surface mapping, read [Observability](../observability/). It is not a log-ingester setup guide — your ingester (Loki, Elasticsearch, Datadog, CloudWatch) is your choice. And it is not a troubleshooting runbook — for specific failure patterns, read the [FAQ](../faq/) or [Schedule troubleshooting](../cron-troubleshooting/).
-
-## Next steps
-
-- For the observability surfaces, read [Observability](../observability/).
-- For the log knobs as environment variables, read [Environment variables](../environment-variables/).
-- For the kit pretty-printer, read the [kit CLI reference](../kit-cli/).
-- For troubleshooting patterns, read the [FAQ](../faq/).
+See the [FAQ](../faq/) for checks organized by symptom.

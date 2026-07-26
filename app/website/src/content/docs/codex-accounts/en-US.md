@@ -1,57 +1,45 @@
 ---
 title: Codex accounts
-description: How to manage ChatGPT subscription accounts for CodexRunner background jobs — create, configure, and rotate the accounts that jobs run on.
+description: Add a ChatGPT subscription account and let selected Agents use it for Background Agent Jobs.
 section: User guide
 order: 41
 ---
 
-A Codex account is a durable ChatGPT subscription account that a Background Agent Job runs on. The default account is `aigateway`, which routes through AIGateway's provider bindings. When a job needs direct CodexRunner access — a different subscription tier, a specific model, rate-limit isolation — you create and configure additional accounts. This page is the operator view of that management surface.
+Background Agent Jobs use AI Gateway by default. Add a Codex account only when you want Jobs to use a ChatGPT subscription.
 
-The decisive property, stated up front: a Codex account is **durable configuration, not a credential you type into a job**. The account lives in PostgreSQL, encrypted at rest, and a job references it by its `codex_account_id`. The worker resolves the account's credentials at turn time through a fenced RPC — it never receives the raw credentials as environment variables.
+One Codex account can serve several Agents. The control plane stores its authentication data in encrypted form. Do not put this data in Agent environment variables or chat messages.
 
-## The default account
+## Before you add an account
 
-Every job carries a `codex_account_id`, and the default is `aigateway`. This account routes through AIGateway's provider bindings — the same providers the agent's model profiles resolve to. For most installations, the default is all you need: jobs run on the same provider chain as conversational turns.
+First, sign in to Codex on your computer. After the sign-in succeeds, find the `auth.json` file that Codex created:
 
-You do not need to create or configure the `aigateway` account; it is the built-in default. Create additional accounts only when a job needs something the default does not provide.
+- The default location is `~/.codex/auth.json`.
+- If you set `CODEX_HOME`, the file is in that directory.
 
-## When to create a separate account
+The file contains account credentials. Paste it only into the Ankole Console. Do not send it to a chat channel, ticket, or source repository.
 
-- **Rate-limit isolation** — a long-running research job should not compete with conversational turns for the same rate-limit pool. A separate account gives the job its own.
-- **A different subscription tier** — a job that needs a model or reasoning effort the default account's subscription does not cover.
-- **Billing separation** — track a specific workload's usage on its own account.
+## Add the account in the Console
 
-If none of these apply, the default account is correct.
+1. Open **Console → LLM Providers**.
+2. Find **Codex Accounts** near the end of the page and select **New Codex account**.
+3. Enter a clear name, such as “Research team ChatGPT.”
+4. Open `auth.json`, copy all of its content, and paste it into the field.
+5. Save the account. The Console derives the ChatGPT account ID from the file.
 
-## Create and manage accounts
+## Assign the account to an Agent
 
-Through the Console's `/codex-accounts` routes:
+1. Open **Console → Agents** and select the Agent.
+2. Find **Background Agent Jobs** under **Model profiles**.
+3. Change the runtime to a ChatGPT subscription account.
+4. Select the Codex account. Set the model, reasoning effort, and Fast Mode as necessary.
+5. Save the profile. New Background Agent Jobs use this configuration.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/codex-accounts` | List accounts |
-| `POST` | `/codex-accounts` | Create an account |
-| `PUT` | `/codex-accounts/:account_id` | Update an account |
-| `DELETE` | `/codex-accounts/:account_id` | Remove an account |
+This setting does not change normal chat turns. It applies only to Background Agent Jobs.
 
-Creating an account stores the subscription credentials encrypted at rest. The account's auth is resolved at job-run time through `CodexAccountBroker`, which is turn-fenced — the worker receives a time-limited resolved credential, not the stored secret.
+## Update or delete an account
 
-## Assign an account to a job
+When the Codex sign-in data changes, get a current complete `auth.json`, edit the account, and paste the new content. If you leave the field empty when you save, Ankole keeps the existing authentication data.
 
-A job's `codex_account_id` field selects the account. The default is `aigateway`; set a different id to route the job to a specific account. This field is on the job schema, so it is set when the job is created (by the agent) and is visible through the Console's `/background-agent-jobs/:id` route.
+Before you delete an account, change every Agent that uses it to AI Gateway or another Codex account. The Console does not delete an account that is still in use.
 
-The agent does not pick the account from a menu — the `codex_account_id` is either the default or set by configuration. The operator's job is to create the accounts; the job picks up the right one through its configuration.
-
-## Rotate credentials
-
-When a subscription credential changes (password rotation, token refresh), update the account through `PUT /codex-accounts/:account_id`. The old credential is overwritten; jobs running on the account pick up the new credential on their next turn. Do not decrypt the old credential to "check" — set the new one, and let the broker resolve it.
-
-## What this guide is not
-
-It is not a ChatGPT subscription tutorial — the subscription itself is OpenAI's product, and the account fields are their API's concern. It is not a job-creation guide — see [Background jobs](../background-jobs-ops/) for the operator view of jobs. And it is not a substitute for the Console API reference; the exact request shapes are there.
-
-## Next steps
-
-- For the job surface, read [Background jobs (operator view)](../background-jobs-ops/).
-- For CodexRunner (the engine that uses these accounts), read [Codex integration](../codex-integration/).
-- For the Console routes, read the [Console API reference](../console-api/).
+See [Background Agent Jobs](../background-jobs/) for Job creation, control, and troubleshooting.

@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-一个回合是跨两个运行时的工作单位：Elixir 控制面调度并隔离它，Bun worker 在其中跑 agent 循环。本页文档化两者之间的边界——控制面的 `TurnLifecycle` 拥有什么、worker 的 `runAgentLoop` 拥有什么、它们如何经 RuntimeFabric 通信。它建立在 [Actor Runtime](../actor-runtime/) 和 [Agent Computer](../agent-computer/) 页之上；本页是它们之间的回合级细节。
+一个回合是跨两个运行时的工作单位：Elixir 控制面调度并隔离它，Bun worker 在其中跑 agent 循环。本页文档化两者之间的边界——控制面的 `TurnLifecycle` 拥有什么、worker 的 `runAgentLoop` 拥有什么、它们如何经 RuntimeFabric 通信。它建立在 [Actor Runtime](../actor-runtime/) 和 [Agent Computer Worker](../agent-computer-worker/) 页之上；本页是它们之间的回合级细节。
 
 先把决定性的性质说清楚：控制面拥有回合的*身份与提交*；worker 拥有回合的*执行*。worker 决定循环何时结束；控制面决定回合结果是否持久。worker 报告完成的回合，在控制面提交前不持久。
 
@@ -77,6 +77,6 @@ worker 不自行重试。它报告错误，控制面拥有重试决定，因为�
 ## 下一步
 
 - activation 隔离栏与 actor 模型，读 [Actor Runtime](../actor-runtime/)。
-- 跑循环的 worker，读 [Agent Computer](../agent-computer/)。
+- 跑循环的 worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - 循环调用的有状态 Responses 传输，读 [AIGateway](../ai-gateway/)。
 - compaction（worker 不拥有），读[上下文压缩与 compaction](../context-compression-and-caching/)。

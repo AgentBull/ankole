@@ -1,82 +1,68 @@
 ---
 title: File management
-description: How the Agent Home filesystem works — the layout, what is durable, how files move between the control plane and the worker, and the Console's worker-file surface.
+description: Upload reference material, download Agent artifacts, and manage durable Agent files in the Console.
 section: User guide
-order: 45
+order: 31
 ---
 
-Agent Home is the shared filesystem an agent's worker reads from and writes to during a turn. It holds persona documents, workspace files, installed skills, session state, and job artifacts. This page is the operator-facing view of that filesystem — its layout, what is durable, how files move between the control plane and the worker, and the Console routes that manage them.
+**Most of the time, you do not need the file browser described on this page. Send a file to the Agent, or ask it in chat to create, read, change, organize, or send files. Use the Console when you must recover an artifact that was not delivered, inspect intermediate files, or organize files manually.**
 
-The decisive property, stated up front: Agent Home is a **real filesystem the model sees as paths**, not an abstraction. The model-visible absolute path is the container path — the worker does not translate paths. What is durable is the filesystem itself (on a persistent volume); what is ephemeral is the process that reads and writes it.
+Agents read source material and save work and artifacts in durable Worker storage. The Console lets you upload references, download reports, images, or data files, and rename or remove material that is no longer needed.
 
-## The layout
+## Find an Agent's files
 
-Agent Home is mounted at `/agents`, laid out per actor key:
+1. Open **Workers** in the Console.
+2. Select a ready Worker and then **Browse files**.
+3. Select the Agent.
+4. Select the file root:
 
-```text
-/agents/<agent-key>/
-├── .codex/                    # Codex configuration
-├── SOUL.md                    # persona: tone and behavior
-├── MISSION.md                 # persona: scope and responsibility
-├── DESIGN.md                  # persona: working agreements
-├── user-files/                # operator-provided files
-├── installed-skills/          # agent-installed skill bundles
-├── sessions/<base64url-session-id>/   # per-session workspace
-└── jobs/<job-id>/             # per-job workspace
-    ├── .codex/config.toml
-    ├── .ankole/skills/
-    └── temp/
-```
-
-The persona documents (`SOUL.md`, `MISSION.md`, `DESIGN.md`) are the agent's own library documents — authored through the Console, projected into the filesystem. The `sessions/` and `jobs/` directories are per-session and per-job workspaces, isolated by the session or job id. The model sees these paths verbatim — there is no path translation layer.
-
-## What is durable, what is ephemeral
-
-| Path | Durable? | Why |
+| Root | Contents | Common actions |
 |---|---|---|
-| `/agents/<key>/SOUL.md`, `MISSION.md`, `DESIGN.md` | yes | projected from PostgreSQL; survive worker restart |
-| `/agents/<key>/user-files/` | yes | on the persistent volume |
-| `/agents/<key>/installed-skills/` | yes | on the persistent volume; synced by the Agent Library |
-| `/agents/<key>/sessions/<id>/` | yes | on the persistent volume; per-session context |
-| `/agents/<key>/jobs/<id>/` | yes | on the persistent volume; per-job workspace |
-| Worker-local temp (`/tmp`) | no | ephemeral; gone when the worker restarts |
+| **User files** | References, templates, and input files that a person provided | Upload, download, rename, or remove |
+| **Agent sessions** | Work files from Agent conversations | Download artifacts and remove old files when needed |
+| **Agent installed skills** | Skill files that the Agent can currently read | Confirm synchronization; normally do not edit them here |
 
-Agent Home is backed by the `ankole_agents_data` volume (Compose) or the RWX claim (Helm). A worker that restarts reads the same files; a volume that is lost takes the files with it. See [Backup and restore](../backup-and-restore/) for how to protect Agent Home.
+The list opens through one Worker, but all Workers in a production deployment must share durable Agent storage. Docker Compose uses a local persistent volume. Kubernetes uses a shared volume that several nodes can read and write.
 
-## How files move between the control plane and the worker
+If Workers show different files, repair the storage mounts instead of uploading duplicate copies.
 
-The worker reads Agent Home directly — it does not fetch files from the control plane over RPC for normal operation. Two paths exist for moving files explicitly:
+## Upload reference material
 
-- **The file transfer lane** — a dedicated RuntimeFabric lane for uploading, downloading, moving, and deleting files on a worker. This is what the Console's `/agent-computer-workers/:worker_id/files` routes use. It has its own codec and path-security checks, separate from the RPC lane.
-- **Worker-file Console routes** — the operator surface for managing files on a specific worker:
+1. Open **User files**.
+2. Open the target directory, or enter a subdirectory during upload.
+3. Select **Upload** and add the file.
+4. In chat, tell the Agent the file name, directory, and task.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/agent-computer-workers/:worker_id/files` | List files |
-| `GET` | `/agent-computer-workers/:worker_id/files/content` | Download file content |
-| `POST` | `/agent-computer-workers/:worker_id/files` | Upload a file |
-| `POST` | `/agent-computer-workers/:worker_id/file-moves` | Move a file |
-| `DELETE` | `/agent-computer-workers/:worker_id/files` | Delete files |
+An upload creates missing subdirectories. Use stable names such as `customer-research/2026-q3-interviews.pdf`. Do not put every file at the root, and avoid names such as `final-v2-new.pdf` that do not identify the content.
 
-These routes are scoped to a worker id, not to an agent — they operate on whatever the worker's Agent Home contains.
+Uploading makes the file readable. It does not start work. Tell the Agent to use it in chat. To turn the material into durable knowledge, submit it through **Learn source** as described in [Long-term memory](../memory/).
 
-## Persona documents
+## Download Agent artifacts
 
-The three persona documents — `SOUL.md`, `MISSION.md`, `DESIGN.md` — are the operator-authored files the agent reads on every turn (see [Agents](../agents/)). They are stored in the `agent_library_container_entries` table in PostgreSQL (as agent-owned, content-addressed rows) and projected into the filesystem at `/agents/<key>/`. The operator authors them through `PUT /agents/:agent_uid/library-documents/:document_kind`; the agent reads them as files.
+After an Agent creates a file in a conversation, find it under **Agent sessions** and download it. For a large directory, first open the relevant conversation path and then search by name or kind.
 
-This means the persona documents are **durable truth (PostgreSQL) projected as files (Agent Home)**. Editing the document through the Console updates the PostgreSQL row; the next turn reads the updated projection. See [Prompt assembly](../prompt-assembly/) for how they reach the system prompt.
+If the attachment arrived in chat, download it there. Use the Console to recover an artifact that was not delivered, inspect intermediate files, or organize results that must be retained.
 
-## Installed skills
+## Rename and remove
 
-The `installed-skills/` directory holds skill bundles the agent has installed — distinct from the builtin skills shipped in the app image (`app/library/skills/`). The Agent Library syncs this directory against what it observes in worker-visible storage, so a skill that disappears from storage is reflected in the registry. See [Agent Library](../agent-library/) for the sync model and [Skills](../skills/) for the user-facing view.
+Use the action menu for a file to rename or remove it. Rename does not change the file contents.
 
-## What this guide is not
+Removal is permanent and has no trash. Removing a directory also removes its children. Confirm that no active Agent work uses the files.
 
-It is not a filesystem permissions guide — the worker runs under bubblewrap confinement, and the paths above are what the agent sees inside that sandbox. It is not a file-transfer protocol reference — the file transfer lane is the [Kernel](../kernel/) page's scope. And it is not a substitute for the Console API reference; the exact request shapes for the worker-file routes are there.
+Download important material first, or confirm that it is included in a [backup](../backup-and-restore/).
 
-## Next steps
+Do not edit files under **Agent installed skills**. Manage Skill enablement in the [Agent Library](../skills/). Change Skill content at its source and synchronize it again.
 
-- For the persona documents, read [Agents](../agents/).
-- For the Agent Library that syncs skills, read [Agent Library](../agent-library/).
-- For the backup that protects Agent Home, read [Backup and restore](../backup-and-restore/).
-- For the Console routes, read the [Console API reference](../console-api/).
+## What remains after a restart
+
+User files, Agent session files, and installed Skills live on persistent storage and remain after a Worker restart. Worker temporary directories are outside this view and can disappear after a restart.
+
+The Agent's `MISSION`, `SOUL`, and `DESIGN` documents are managed in the Agent editor. They are projected to the Worker but must not be changed through the file browser. See [Agents](../agents/) for those documents.
+
+## Common problems
+
+- **The list is empty:** confirm the Worker, Agent, and file root, and check that the Worker is ready.
+- **The Agent cannot find an uploaded file:** confirm that the file is in that Agent's **User files**, and include the exact relative path in your message.
+- **Only some Workers show the file:** confirm that every Worker mounts the same persistent volume.
+- **A generated artifact is missing:** confirm that the Job finished and inspect the correct conversation directory.
+- **The list is truncated:** open a more specific subdirectory and search again.

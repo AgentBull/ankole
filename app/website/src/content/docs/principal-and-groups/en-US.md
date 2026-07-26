@@ -1,107 +1,123 @@
 ---
-title: Principals and groups
-description: The operator's task-oriented view of AuthZ — list Principals, manage groups, assign members, create and review permission grants.
+title: Principals and permission groups
+description: Sync people and the organization directory, then assign access with directory, static, or computed groups.
 section: User guide
 order: 49
 ---
 
-Principals are who can act in Ankole; groups are how you scope their authority; grants are what they can do. This page is the operator's task-oriented view of the permission surface — the routes for managing Principals, groups, members, and grants, with worked examples. It complements the [Principal and AuthZ](../principal-authz/) concept page with concrete operations.
+Ankole represents people, Agents, and system services as principals. A permission group manages several principals together. A permission grant defines which resources a principal or group can use.
 
-The decisive property, stated up front: grants are owned by exactly one Principal or one group — never both, never neither. A grant on a group reaches every member of that group; a grant on a Principal reaches only that Principal. Use groups when authority scales by team membership; use direct Principal grants when one Principal needs something unique.
+An Identity Provider usually synchronizes employees and the organization directory automatically. You do not have to create each employee or maintain department membership again in Ankole.
 
-## List Principals
+## How an Identity Provider synchronizes the organization
 
-```bash
-curl https://ankole.example.com/api/v1/principals \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
+When you enable directory sync for an Identity Provider, Ankole converts its external directory into two types of data:
+
+- Employees become human principals. Directory sync updates profile data such as names and avatars.
+- Departments, user groups, and similar organization units become directory permission groups. Sync also updates their memberships.
+
+If the external directory has a department hierarchy, a person in a child department also becomes a member of its parent department groups. A grant on a parent department can therefore cover people in its child departments.
+
+Ankole starts the first full sync after you save the Identity Provider. It runs another full sync every six hours by default. Providers that support incremental sync can also send people and organization changes before the next full sync.
+
+To refresh the directory immediately, open **Console → Identity Providers**, select the Provider, and select **Run full sync**. Check **Access → Principals** and **Access → Permission groups** when the sync completes.
+
+The external identity system remains the source of truth for a directory group. Change departments and memberships in the company directory. Do not try to maintain these groups by hand in Ankole.
+
+If the result does not contain an expected person or department, check the external application's directory permissions and availability scope. API access does not always give the application access to the complete organization.
+
+See [Quick start](../quickstart/#2-set-up-the-identity-provider-first) to connect the first Identity Provider.
+
+## View principals
+
+Open **Console → Access → Principals**. The list shows the name, UID, type, and state:
+
+- **Human** principals come from the company directory that an Identity Provider synchronizes.
+- **Agent** principals appear when you create Agents.
+- **System** principals are created by Ankole for internal service work.
+
+Select a principal to see its groups and direct grants. Check both areas when you investigate access. A principal can have no direct grant but still get access through a group.
+
+## Select the correct permission group
+
+Each group source has a different membership owner:
+
+| Permission group | Use it when | Membership owner |
+| --- | --- | --- |
+| **Directory group** | The department or user group already exists in the company directory | Identity Provider sync |
+| **IM group** | Access must follow chat-group membership | Chat-channel sync |
+| **Static group** | The team exists only in Ankole, or its small membership changes infrequently | An administrator |
+| **Computed group** | Principal attributes can identify the members reliably | A CEL expression that Ankole evaluates |
+
+Directory and IM groups appear automatically in the permission-group list. They are read-only in the Console. Administrators create static and computed groups in Ankole.
+
+Use a directory group when the company directory already represents the target team. When a person changes teams or leaves, the next incremental or full directory sync adjusts access.
+
+## Create a static group
+
+1. Open **Console → Access → Permission groups** and select **New group**.
+2. Enter a stable lowercase name, display name, and description.
+3. Select **Static**, and then save the group.
+4. Open the new group and select **Add member** in the Members section.
+
+A new member immediately gets all grants on the group. Removing the member removes that access.
+
+## Create a computed group
+
+A computed group does not store a membership list and does not accept manual members. When Ankole checks access, it evaluates one CEL expression to decide if the principal belongs to the group.
+
+Select **Computed** when you create the group. Enter a CEL expression in **Membership condition**. The expression must return `true` or `false` and reads the current principal through `principal`.
+
+A computed group can currently use these fields:
+
+| Field | Meaning | Typical value |
+| --- | --- | --- |
+| `principal.uid` | Stable principal UID | `research-agent` |
+| `principal.type` | Principal type | `human`, `agent`, or `system` |
+| `principal.status` | Principal state | `active` or `disabled` |
+| `principal.displayName` | Display name, which can be empty | `Alex Smith` |
+| `principal.avatarURL` | Avatar URL, which can be empty | A URL from the Provider |
+
+This expression matches all active humans:
+
+```text
+principal.type == "human" && principal.status == "active"
 ```
 
-`GET /principals` lists every Principal — humans, agents, and system services. Read one with `GET /principals/:uid`, including its type (`human`/`agent`/`system`) and status (`active`/`disabled`). A disabled Principal loses authority across the installation immediately — use it to revoke access without deleting the Principal.
+This expression matches Agents whose UID starts with `research-`:
 
-## List a Principal's groups and grants
-
-```bash
-curl https://ankole.example.com/api/v1/principals/<uid>/groups -H "Authorization: Bearer $CONSOLE_TOKEN"
-curl https://ankole.example.com/api/v1/principals/<uid>/grants -H "Authorization: Bearer $CONSOLE_TOKEN"
+```text
+principal.type == "agent" && principal.uid.startsWith("research-")
 ```
 
-The groups list shows which AuthZ groups the Principal belongs to (static membership, computed membership, and synced directory groups). The grants list shows every permission grant owned directly by this Principal — not grants inherited through group membership.
+The Console previews all matching active principals while you enter the expression. Confirm the count and names before you save so that the group does not give access to more principals than you intended.
 
-## Manage groups
+You cannot change the group name, type, or membership condition after you save it. To change the rule, create a new group, confirm its preview, move the grants, and then delete the old group.
 
-```bash
-# List groups
-curl https://ankole.example.com/api/v1/principal-groups -H "Authorization: Bearer $CONSOLE_TOKEN"
+CEL cannot currently read an employee's email address, job title, or department memberships. Use a synchronized directory group for department access. Do not infer organization membership from a display name.
 
-# Create a group
-curl -X POST https://ankole.example.com/api/v1/principal-groups \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "name": "on-call", "domain": "operator" }'
+## Add a grant
 
-# Read a group
-curl https://ankole.example.com/api/v1/principal-groups/on-call -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+Open a permission group or principal and select **New grant** in the grants section. Then enter:
 
-Groups carry a `domain` — `operator` (managed by you), `directory` (synced from an IdP), or `im_group` (from a chat platform). Operator-domain groups are the ones you manage directly; directory groups are managed by the IdP sync.
+- **Resource pattern:** which resources the grant covers;
+- **Action:** the allowed operation, such as `read` or `update`;
+- **Condition:** an optional advanced limit; leave it empty for no extra condition;
+- **Description:** why this access is necessary.
 
-## Manage group members
+Prefer grants on permission groups. Use a direct principal grant only for an exception. A changed or deleted grant immediately affects its owner and related group members.
 
-```bash
-# Add a member
-curl -X PUT https://ankole.example.com/api/v1/principal-groups/on-call/members/<principal_uid> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
+## Assign access by organization structure
 
-# Remove a member
-curl -X DELETE https://ankole.example.com/api/v1/principal-groups/on-call/members/<principal_uid> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+Suppose every employee in the research department must view one Agent:
 
-Adding a member to a group immediately grants them every permission the group's grants allow. Removing them revokes it. For directory-synced groups, manage membership in the source directory — the sync propagates the change.
+1. Confirm that the Identity Provider synchronized the research department and its members.
+2. Open the matching directory permission group.
+3. Add a `read` grant for the target Agent to the group.
+4. Sign in as one department member. Confirm that the member can open the target Agent but cannot open resources outside the grant.
 
-## Manage permission grants
+Change research-department membership in the company directory. After the next sync, Ankole updates the group membership. You do not have to change the grants on the group.
 
-```bash
-# Create a grant on a group
-curl -X POST https://ankole.example.com/api/v1/permission-grants \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "group_id": "<group-uuid>",
-    "resource_pattern": "agent:agent-1",
-    "action": "read"
-  }'
+A successful save is not enough evidence. Verify the result with a real member account so that you know the resource pattern, action, and membership source are correct.
 
-# Read a grant
-curl https://ankole.example.com/api/v1/permission-grants/<id> -H "Authorization: Bearer $CONSOLE_TOKEN"
-
-# Update a grant
-curl -X PATCH https://ankole.example.com/api/v1/permission-grants/<id> \
-  -H "..." -d '{ "condition": "true" }'
-
-# Delete a grant
-curl -X DELETE https://ankole.example.com/api/v1/permission-grants/<id> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-A grant carries a `resource_pattern` (what it applies to), an `action` (what it permits), and a `condition` (a CEL boolean, default `true`). The `resource_pattern` uses a pattern syntax; the `action` must not contain a colon (the colon separates resource from action in the kernel). Set the owner to a group (`group_id`) or to a Principal (`principal_uid`) — never both.
-
-## A worked example
-
-Give the on-call team read access to a specific agent:
-
-1. Create the group `on-call` (domain: `operator`).
-2. Add the on-call humans as members (`PUT .../members/<uid>`).
-3. Create a grant on the group: `resource_pattern: "agent:agent-1"`, `action: "read"`.
-4. Every member of `on-call` can now read that agent — verify through `GET /principals/<uid>/groups`.
-
-## What this guide is not
-
-It is not the concept page — for the Principal/AuthZ model, decision statuses, and the kernel evaluation, read [Principal and AuthZ](../principal-authz/). It is not a directory-sync guide — see [Identity providers](../identity-providers/) for how directory groups arrive. And it is not a security-hardening guide — see [Security hardening](../security-hardening/) for the least-authority posture.
-
-## Next steps
-
-- For the concept page, read [Principal and AuthZ](../principal-authz/).
-- For directory-synced groups, read [Identity providers](../identity-providers/).
-- For the least-authority posture, read [Security hardening](../security-hardening/).
-- For the Console routes, read the [Console API reference](../console-api/).
+See [Principal and AuthZ](../principal-authz/) for the full permission model.

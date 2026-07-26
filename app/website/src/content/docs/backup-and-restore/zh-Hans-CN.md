@@ -5,7 +5,7 @@ section: Guides
 order: 315
 ---
 
-一套 Ankole 部署持有两样你无法重建的东西：PostgreSQL 数据库（全部持久控制面状态——Principal、agent、session、Brain 知识、任务、审计）和 Agent Home 卷（按 agent 的工作空间、人设文档、已安装 skill、session 与任务文件）。其余都是可重建的镜像或可重新派生的投影。本页是如何备份这两样、如何还原它们，以及让一份备份成为真实备份的那条规则。
+一个 Ankole 实例有两类无法重新生成的数据：PostgreSQL 数据库保存主体、Agent、会话、Brain 知识、任务和审计等控制面持久状态；Agent Home 卷保存每个 Agent 的工作区、角色文档、已安装 Skill、会话文件和任务文件。其他镜像和投影都可以重建。本页说明怎样备份和恢复这两类数据，以及怎样验证备份确实可用。
 
 先把决定性的性质说清楚：数据库 migration 无法通过回滚镜像来撤销。未经还原测试的备份是期望，不是备份。本页的全部要点是还原这一步——在事故依赖它之前，先在单独主机上测它。
 
@@ -14,7 +14,7 @@ order: 315
 | 备份 | 为什么 | 怎么做 |
 |---|---|---|
 | **PostgreSQL**（Compose 上的 `ankole_postgresql_data`；Helm 上的外部服务器） | 全部持久语义事实 | `pg_dump -Fc` 归档 |
-| **Agent Home**（Compose 上的 `ankole_agents_data`；Helm 上的 RWX PVC） | 按 agent 的工作空间、人设文档、已安装 skill、session/任务文件 | 卷快照或文件系统级备份，在 Ankole 停止时做 |
+| **Agent Home**（Compose 上的 `ankole_agents_data`；Helm 上的 RWX PVC） | 每个 Agent 的工作区、长期文档、已安装 Skill、会话与任务文件 | 卷快照或文件系统级备份，在 Ankole 停止时做 |
 
 **不要**备份容器镜像——它们可从 registry 重建。不要备份 Caddy 数据或临时 worker 状态；两者都不持有你无法重建的东西。也**不要**只备份两者之一——PostgreSQL 引用 Agent Home 里的文件，而没有指向它的数据库行的 Agent Home 是孤儿。
 
@@ -58,7 +58,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-然后跑 migration（本地 `bun run control-plane:setup`，或让 Helm init container 做），把 schema 带到镜像的版本——因为 migration 之前取的备份还原到 migration 之前的 schema。在宣布还原成功前确认数据——Principal、agent、一个已知的 Brain 条目——是你预期的。
+然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把 Schema 更新到镜像要求的版本。恢复完成前，请确认主体、Agent 和一条已知 Brain 记录都符合预期。
 
 ## 还原 Agent Home
 
@@ -74,10 +74,10 @@ README 的指示就是规则："在单独主机上一起测试数据库和 Agent
 
 有些操作让备份成为强制，不是建议：
 
-- **每次升级**——migration 不可逆；备份是你 schema 回滚的唯一路径。见[升级](../updating/)。
+- **每次升级**——migration 不可逆；备份是你 schema 回滚的唯一路径。
 - **`kit app-db rebuild --yes`**——删除本地 `ankole_dev` 数据库。只在数据确实可丢弃时跑，若有任何要紧先备份。
 - **`docker compose down -v`**——删除命名卷，包括 PostgreSQL 和 Agent Home。这是删除，不是重启。
-- **任何危害可能触及持久状态的事故**——见[事故响应](../incident-response/)。
+- **任何可能影响持久状态的异常**——先备份，再进行修复或回滚。
 
 ## 本指南不是什么
 
@@ -85,6 +85,5 @@ README 的指示就是规则："在单独主机上一起测试数据库和 Agent
 
 ## 下一步
 
-- 需要这份备份的升级流程，读[升级](../updating/)。
-- 假设这份备份的事故流程，读[事故响应](../incident-response/)。
-- 命名这些卷的部署布局，读[安装部署指南](../installation/)。
+- 跨主机恢复和演练，读[灾难恢复](../disaster-recovery/)。
+- 命名这些卷的部署布局，读[快速开始的部署部分](../quickstart/#deployment)。

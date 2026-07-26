@@ -22,6 +22,7 @@ const labels = {
 	k8sBody: t(lang, 'quickstart.k8s.body'),
 	k8sLink: t(lang, 'quickstart.k8s.link')
 }
+const deploymentHref = `${localePath(lang, 'docs/quickstart')}#deployment`
 ---
 
 <Section tone="raised">
@@ -33,7 +34,7 @@ const labels = {
 			subtitle={t(lang, 'quickstart.subtitle')}
 		/>
 		<div class="min-w-0">
-			<QuickStartTabs client:visible labels={labels} installHref={localePath(lang, 'docs/installation')} />
+			<QuickStartTabs client:visible labels={labels} deploymentHref={deploymentHref} />
 		</div>
 	</div>
 </Section>

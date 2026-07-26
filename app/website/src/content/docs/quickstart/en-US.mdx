@@ -1,0 +1,1773 @@
+---
+title: Quick start
+description: Deploy Ankole, set up enterprise identity and models, connect an IM channel, and complete a real Agent conversation.
+section: Getting started
+order: 2
+---
+
+import DocsKnowledgeNote from '../../../components/docs/DocsKnowledgeNote.astro'
+import {
+  QuickstartAgentPrompt,
+  QuickstartDisclosure,
+  QuickstartTabs
+} from '../../../components/docs/QuickstartTabs'
+
+export const quickstartLabels = {
+  advancedSettings: 'Advanced settings',
+  basicSettings: 'Basic setup',
+  copied: 'Copied',
+  copy: 'Copy',
+  hideAdvanced: 'Hide',
+  prerequisites: 'Before you start',
+  showAdvanced: 'Expand'
+}
+
+export const agentInstallPrompt = [
+  'Use https://ankole.agentbull.com/en-US/docs/quickstart/ to help me deploy and configure a private Ankole deployment instance.',
+  'First, inspect my environment and recommend Docker Compose, Kubernetes, or installing from source. Then help me set up the Identity Provider (IdP), LLM Provider, Agent, Channel Provider, and Signal Routing Rule (Signal Binding). If I did not specify an IdP and IM platform, ask which identity source and chat platform I want to use. Do not choose them for me.',
+  'Do not expose secrets in chat or command output. You are finished only when I receive a real Agent reply in my selected IM.'
+].join(' ')
+
+export const deploymentTabs = [
+  {
+    value: 'docker',
+    label: 'Docker Compose',
+    badge: 'Single-host recommended',
+    summary:
+      'The best starting point for most teams. One Linux, macOS, or Windows host with Docker runs PostgreSQL, the control plane, one Agent Computer Worker, and Caddy HTTPS.',
+    prerequisites: [
+      'A Linux, macOS, or Windows host that can run Linux amd64 or arm64 containers',
+      'Docker Engine with the Compose plugin, or Docker Desktop',
+      'Persistent disk, a DNS name, and ports 80 and 443'
+    ],
+    basic: {
+      title: 'Install with Docker Compose',
+      intro: 'Keep provider API keys out of this deployment file. You will add them in the Console after sign-in.',
+      steps: [
+        {
+          title: 'Get the deployment package',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole/tools/deploy/docker-compose',
+                'cp .env.example .env',
+                'chmod 600 .env'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Generate three independent secrets',
+          body: ['Copy and run this command. Then paste its complete output into .env.'],
+          code: [
+            {
+              language: 'bash',
+              code: [
+                "printf '%s\\n' \\",
+                "  '# PostgreSQL database password' \\",
+                '  "POSTGRES_PASSWORD=$(openssl rand -hex 32)" \\',
+                "  '' \\",
+                "  '# ANKOLE master encryption key' \\",
+                '  "ANKOLE_SECRET_BASE=$(openssl rand -hex 32)" \\',
+                "  '' \\",
+                "  '# Authentication key shared by the ANKOLE control plane and Agent Workers' \\",
+                '  "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=$(openssl rand -hex 32)"'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Set the public host',
+          body: [
+            'Set ANKOLE_HOST to the DNS name that points to this host. Set ACME_EMAIL to an address that can receive certificate notices.'
+          ],
+          fields: [
+            {
+              name: 'ANKOLE_HOST',
+              value: 'ankole.example.com',
+              description: 'The HTTPS host that people and provider callbacks will use.'
+            },
+            {
+              name: 'ACME_EMAIL',
+              value: 'ops@example.com',
+              description: 'Contact address for Caddy certificate management.'
+            }
+          ]
+        },
+        {
+          title: 'Start and verify the stack',
+          code: [
+            {
+              language: 'bash',
+              code: ['docker compose pull', 'docker compose up -d', 'docker compose ps'].join('\n')
+            }
+          ],
+          body: [
+            'Compose waits for PostgreSQL, runs migrations, stores the Worker key, and then starts the control plane, Worker, and Caddy.'
+          ]
+        },
+        {
+          title: 'Open the first setup',
+          code: [
+            {
+              language: 'bash',
+              code: 'docker compose logs control-plane | grep "SETUP ACTIVATION CODE"'
+            }
+          ],
+          body: ['Open https://<ANKOLE_HOST>/setup and enter the activation code.']
+        }
+      ]
+    },
+    advanced: {
+      title: 'Production control, backup, and local certificates',
+      summary: 'Use these settings before you move the first deployment into production.',
+      steps: [
+        {
+          title: 'Pin a verified image pair',
+          body: [
+            'The control-plane and Worker tags move together after RuntimeFabric verification. For a controlled rollout, pin both images to digests from the same source revision.'
+          ],
+          fields: [
+            {
+              name: 'ANKOLE_CONTROL_PLANE_IMAGE',
+              description: 'Control-plane image or immutable digest.'
+            },
+            {
+              name: 'ANKOLE_WORKER_IMAGE',
+              description: 'Worker image or immutable digest from the same verified pair.'
+            },
+            {
+              name: 'ANKOLE_POSTGRESQL_IMAGE',
+              description: 'Optional immutable digest for the bundled database image.'
+            }
+          ]
+        },
+        {
+          title: 'Back up before every upgrade',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose exec -T postgresql \\',
+                '  pg_dump -U ankole -d ankole -Fc \\',
+                '  > "ankole-$(date +%Y%m%d).dump"'
+              ].join('\n')
+            }
+          ],
+          body: [
+            'Also snapshot the ankole_agents_data volume. Test the database and Agent Home restore together on a separate host.'
+          ]
+        },
+        {
+          title: 'Upgrade with a short interruption',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose pull',
+                'docker compose down',
+                'docker compose up -d --force-recreate',
+                'docker compose ps'
+              ].join('\n')
+            }
+          ],
+          caution:
+            'docker compose down keeps named volumes. docker compose down -v deletes PostgreSQL, Agent Home, and Caddy data. Do not use -v unless permanent deletion is intended and a tested backup exists.'
+        },
+        {
+          title: 'Use a local-only HTTPS host',
+          body: [
+            'Set ANKOLE_HOST=ankole.localhost for a local test. After the first start, copy Caddy’s root certificate and trust it on every client.'
+          ],
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'docker compose cp \\',
+                '  caddy:/data/caddy/pki/authorities/local/root.crt \\',
+                '  ./ankole-local-ca.crt'
+              ].join('\n')
+            }
+          ],
+          links: [
+            {
+              label: 'Full Compose operations guide',
+              href: 'https://github.com/AgentBull/ankole/blob/main/tools/deploy/docker-compose/README.md'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'kubernetes',
+    label: 'Kubernetes',
+    badge: 'Enterprise recommended',
+    summary:
+      'Use the Helm chart when you already operate Kubernetes and need cluster scheduling, an HTTPS Ingress, and shared Agent Home storage.',
+    prerequisites: [
+      'Kubernetes 1.27 or later and Helm 3 or later',
+      'Linux amd64 or arm64 nodes',
+      'An HTTPS Ingress and ReadWriteMany storage for Agent Home'
+    ],
+    basic: {
+      title: 'Install the Helm chart',
+      intro: 'The shortest path uses the bundled PostgreSQL 18 image, which includes pg_search and vector.',
+      steps: [
+        {
+          title: 'Get the chart and create the namespace',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole',
+                'kubectl create namespace ankole'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Create the bootstrap Secret',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'POSTGRES_PASSWORD="$(openssl rand -hex 24)"',
+                'ANKOLE_SECRET_BASE="$(openssl rand -hex 32)"',
+                'ANKOLE_WORKER_AUTH_KEY="$(openssl rand -hex 24)"',
+                '',
+                'kubectl -n ankole create secret generic ankole-bootstrap \\',
+                '  --from-literal="POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \\',
+                '  --from-literal="ANKOLE_SECRET_BASE=${ANKOLE_SECRET_BASE}" \\',
+                '  --from-literal="ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=${ANKOLE_WORKER_AUTH_KEY}" \\',
+                '  --from-literal="DATABASE_URL=ecto://ankole:${POSTGRES_PASSWORD}@ankole-postgresql:5432/ankole"',
+                '',
+                'unset POSTGRES_PASSWORD ANKOLE_SECRET_BASE ANKOLE_WORKER_AUTH_KEY'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Create values-production.yaml',
+          code: [
+            {
+              language: 'yaml',
+              code: [
+                'fullnameOverride: ankole',
+                '',
+                'secrets:',
+                '  existingSecret: ankole-bootstrap',
+                '',
+                'controlPlane:',
+                '  publicHost: ankole.example.com',
+                '',
+                'worker:',
+                '  agents:',
+                '    persistence:',
+                '      storageClass: nfs-rwx',
+                '      size: 100Gi',
+                '',
+                'postgresql:',
+                '  enabled: true',
+                '  persistence:',
+                '    storageClass: standard',
+                '    size: 50Gi',
+                '',
+                'ingress:',
+                '  enabled: true',
+                '  className: nginx',
+                '  hosts:',
+                '    - host: ankole.example.com',
+                '      paths:',
+                '        - path: /',
+                '          pathType: Prefix',
+                '  tls:',
+                '    - secretName: ankole-tls',
+                '      hosts:',
+                '        - ankole.example.com'
+              ].join('\n')
+            }
+          ],
+          body: [
+            'Replace the host, Ingress details, and both StorageClass names. Keep fullnameOverride when you use the DATABASE_URL shown above.'
+          ]
+        },
+        {
+          title: 'Install and wait',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'helm upgrade --install ankole ./tools/deploy/helm/ankole-agent \\',
+                '  --namespace ankole \\',
+                '  --values values-production.yaml \\',
+                '  --wait \\',
+                '  --timeout 15m'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Verify the workloads',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'kubectl -n ankole get pods',
+                'kubectl -n ankole rollout status deployment/ankole-control-plane --timeout=10m',
+                'kubectl -n ankole rollout status deployment/ankole-worker --timeout=10m'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Open the first setup',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'kubectl -n ankole logs deployment/ankole-control-plane \\',
+                '  -c control-plane | grep "SETUP ACTIVATION CODE"'
+              ].join('\n')
+            }
+          ],
+          body: ['Open https://ankole.example.com/setup and enter the activation code.']
+        }
+      ]
+    },
+    advanced: {
+      title: 'External PostgreSQL, image policy, and cluster security',
+      summary: 'Review these items before a controlled production rollout.',
+      steps: [
+        {
+          title: 'Use an external PostgreSQL server',
+          body: [
+            'The server must run PostgreSQL 18 or later, preload pg_search, and make pg_search and vector available to the application database owner.'
+          ],
+          code: [
+            {
+              language: 'sql',
+              code: [
+                'SHOW server_version_num;',
+                'SHOW shared_preload_libraries;',
+                '',
+                'SELECT name, default_version, installed_version',
+                'FROM pg_available_extensions',
+                "WHERE name IN ('pg_search', 'vector')",
+                'ORDER BY name;'
+              ].join('\n')
+            }
+          ],
+          fields: [
+            {
+              name: 'postgresql.enabled',
+              value: 'false',
+              description: 'Disables the bundled database.'
+            },
+            {
+              name: 'DATABASE_URL',
+              description: 'Store the external database URL in ankole-bootstrap.'
+            }
+          ]
+        },
+        {
+          title: 'Confirm the Worker security profile',
+          body: [
+            'Strong bubblewrap isolation needs SYS_ADMIN, an unconfined seccomp profile, and an unmasked /proc. The chart sets them, but the cluster admission policy must allow them.'
+          ],
+          caution:
+            'Treat Worker nodes as a trusted first-party compute boundary. Use a dedicated node pool or an approved equivalent sandbox when cluster policy rejects this profile.'
+        },
+        {
+          title: 'Pin and upgrade matching images',
+          body: [
+            'Pin the control-plane and Worker digests from the same verified source revision. Back up PostgreSQL and Agent Home before helm upgrade.'
+          ],
+          caution:
+            'A Helm rollback does not reverse a database migration. Restore the database backup when an application rollback also needs an older schema.'
+        },
+        {
+          title: 'Read the complete chart contract',
+          links: [
+            {
+              label: 'Full Helm deployment guide',
+              href: 'https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md'
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'source',
+    label: 'Install from source',
+    summary:
+      'Use the source path for development, debugging, and local evaluation. It starts PostgreSQL, Phoenix, the Console, frontend assets, and one managed Docker Worker.',
+    prerequisites: [
+      'macOS or Linux; use WSL2 on Windows',
+      'An account that can install system packages',
+      'Docker Desktop or Docker Engine'
+    ],
+    basic: {
+      title: 'Run the development environment',
+      steps: [
+        {
+          title: 'Clone the repository',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'git clone https://github.com/AgentBull/ankole.git',
+                'cd ankole',
+                'git status --short'
+              ].join('\n')
+            }
+          ],
+          body: ['Run the remaining commands from the repository root.']
+        },
+        {
+          title: 'Install the pinned toolchain',
+          code: [
+            {
+              language: 'bash',
+              code: 'bash tools/devkit/scripts/env-setup.sh'
+            }
+          ],
+          body: [
+            'The script installs build packages, Docker, Rust, Elixir and Erlang, and the Bun version pinned by the repository.'
+          ]
+        },
+        {
+          title: 'Open a new terminal and verify every boundary',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun --version',
+                'elixir --version',
+                'rustc --version',
+                'cargo clippy --version',
+                'docker compose version',
+                'docker info'
+              ].join('\n')
+            }
+          ],
+          body: [
+            'On macOS, start Docker Desktop first. On Linux, sign out and back in if the installer added your user to the docker group.'
+          ]
+        },
+        {
+          title: 'Install dependencies and initialize PostgreSQL',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun install',
+                'bun run services:start',
+                'bun run services:status',
+                'bun run control-plane:setup'
+              ].join('\n')
+            }
+          ]
+        },
+        {
+          title: 'Start Ankole',
+          code: [
+            {
+              language: 'bash',
+              code: 'bun dev'
+            }
+          ],
+          body: [
+            'Keep this terminal open. Open http://localhost:4000 and use the activation code printed by the development server.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Local checks, shutdown, and forwarded origins',
+      summary: 'These controls help when you develop against the complete runtime or use a remote workspace.',
+      steps: [
+        {
+          title: 'Read the activation code in another terminal',
+          code: [
+            {
+              language: 'bash',
+              code: 'bun run kit show bootstrap-activation-code'
+            }
+          ]
+        },
+        {
+          title: 'Check the visible runtime boundaries',
+          code: [
+            {
+              language: 'bash',
+              code: [
+                'bun run services:status',
+                'curl -I http://localhost:4000/',
+                'docker ps --filter name=ankole-dev-agent-computer'
+              ].join('\n')
+            },
+            {
+              language: 'bash',
+              code: 'bun run services:stop'
+            }
+          ],
+          body: [
+            'Stop the control plane and Worker with Ctrl+C in the bun dev terminal. Stop PostgreSQL separately when you finish.'
+          ]
+        },
+        {
+          title: 'Use Codespaces or another forwarded origin',
+          body: [
+            'Register the forwarded HTTPS origin in the IdP. A localhost callback and a forwarded callback are different URLs, so verify sign-in against the URL the browser uses.'
+          ],
+          caution: 'Use this path for development. Use Docker Compose or Kubernetes for a production deployment.'
+        }
+      ]
+    }
+  }
+]
+
+export const identityTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    summary:
+      'Use one Slack app for Console sign-in and for workspace member and user-group sync. The default setup needs an OAuth client, a Bot Token, and an App Token.',
+    prerequisites: [
+      'A workspace administrator who can create and install a Slack app',
+      'A public HTTPS address for Ankole',
+      'A workspace member account for the first sign-in'
+    ],
+    basic: {
+      title: 'Set up the Slack IdP',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Slack Adapter on the plugin page, save the selection, and then select Slack.',
+            'Keep the provider ID as slack-main. Copy the login callback URL shown on the page. Do not type or change this URL by hand.'
+          ]
+        },
+        {
+          title: 'Create the Slack app',
+          body: [
+            'Open Slack API Your Apps and select Create New App → From scratch. Enter an app name and select the workspace that holds your employees.',
+            'Open Basic Information → App Credentials. Copy the Client ID and Client Secret.'
+          ],
+          links: [
+            {
+              label: 'Open Slack Your Apps',
+              href: 'https://api.slack.com/apps'
+            }
+          ]
+        },
+        {
+          title: 'Register the login callback',
+          body: [
+            'Open OAuth & Permissions → Redirect URLs. Select Add New Redirect URL, paste the complete URL from Ankole, and save it.',
+            'Ankole requests the openid, profile, and email sign-in scopes by default. Do not replace them with chat bot scopes.'
+          ],
+          links: [
+            {
+              label: 'Slack sign-in guide',
+              href: 'https://api.slack.com/authentication/sign-in-with-slack'
+            }
+          ]
+        },
+        {
+          title: 'Grant directory access and get the Bot Token',
+          body: [
+            'On OAuth & Permissions, add the four scopes below under Bot Token Scopes. Then select Install to Workspace and approve the installation.'
+          ],
+          copyItems: [
+            { value: 'users:read', description: 'Read member profiles' },
+            { value: 'users:read.email', description: 'Read member email addresses' },
+            { value: 'usergroups:read', description: 'Read user groups and their members' },
+            { value: 'team:read', description: 'Read basic workspace information' }
+          ],
+          caution: 'Copy the Bot User OAuth Token after installation. It must start with xoxb-. Reinstall the app after each scope change.'
+        },
+        {
+          title: 'Get the App Token and enable Socket Mode',
+          body: [
+            'Open Basic Information → App-Level Tokens. Select Generate Token and Scopes, add the scope below, and copy the generated xapp- token. Then open Socket Mode and turn on Enable Socket Mode.'
+          ],
+          copyItems: [
+            { value: 'connections:write', description: 'Let the App Token open a Socket Mode connection' }
+          ]
+        },
+        {
+          title: 'Subscribe to directory events',
+          body: [
+            'Open Event Subscriptions and enable events. Under Subscribe to bot events, add each of the five events below.'
+          ],
+          copyItems: [
+            { value: 'team_join', description: 'A member joins the workspace' },
+            { value: 'user_change', description: 'A member profile changes' },
+            { value: 'subteam_created', description: 'A user group is created' },
+            { value: 'subteam_updated', description: 'A user group changes' },
+            { value: 'subteam_members_changed', description: 'A user-group membership changes' }
+          ],
+          links: [
+            {
+              label: 'Slack Socket Mode guide',
+              href: 'https://api.slack.com/apis/connections/socket'
+            }
+          ]
+        },
+        {
+          title: 'Enter the Slack values in Ankole',
+          bullets: [
+            'Client ID: the Client ID from Basic Information',
+            'Client Secret: the Client Secret on the same page',
+            'Workspace ID: the T… part after /client/ in the Slack web URL; it limits sign-in and directory sync to this workspace',
+            'Bot Token: the xoxb- token',
+            'App Token: the xapp- token'
+          ],
+          body: [
+            'Keep Enable OIDC, Sync directory, and Realtime directory sync on. Select Save and sign in with OIDC, and then complete the Slack authorization.'
+          ]
+        },
+        {
+          title: 'Verify sign-in and the first sync',
+          body: [
+            'After Slack returns to Ankole, this user becomes the first root administrator. Open Console → Identity Providers, select slack-main, and select Run full sync.',
+            'When the sync finishes, check Console → Principals and Principal groups for the workspace members and Slack user groups.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Sign-in only, realtime sync, and credential updates',
+      summary: 'Turn off the default directory sync only when you do not need the Slack directory.',
+      steps: [
+        {
+          title: 'Use Slack only for sign-in',
+          body: [
+            'When you turn off Sync directory, the Bot Token is not required and realtime sync also turns off. The Client ID and Client Secret are still required.'
+          ]
+        },
+        {
+          title: 'Use full sync without realtime events',
+          body: [
+            'Keep Sync directory on and turn off Realtime directory sync. This setup needs the Bot Token but does not need the App Token. Member changes appear after the next full sync.'
+          ]
+        },
+        {
+          title: 'Update scopes or tokens',
+          body: [
+            'After a Slack scope or Bot Token change, reinstall the app and update the token in Identity. Update the App Token after rotation, or Socket Mode cannot connect.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'entra-id',
+    label: 'Microsoft Entra ID',
+    summary:
+      'Register a single-tenant Entra app. It signs users into the Console, reads users and groups, and receives directory changes through Microsoft Graph.',
+    prerequisites: [
+      'An Entra administrator who can register apps and grant admin consent',
+      'A public HTTPS address for Ankole',
+      'A tenant member account for the first sign-in'
+    ],
+    basic: {
+      title: 'Set up Microsoft Entra ID',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Microsoft 365 Adapter on the plugin page, save the selection, and then select Entra ID.',
+            'Keep the provider ID as entra-id-main. Copy the login callback URL shown on the page.'
+          ]
+        },
+        {
+          title: 'Register a single-tenant app',
+          body: [
+            'Open the Microsoft Entra admin center. Go to Entra ID → App registrations → New registration. Enter a name and select Accounts in this organizational directory only.',
+            'Under Redirect URI, select Web and paste the complete callback URL from Ankole. Then select Register.'
+          ],
+          links: [
+            {
+              label: 'Microsoft app registration guide',
+              href: 'https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app'
+            }
+          ]
+        },
+        {
+          title: 'Copy the three app values',
+          body: [
+            'On the app Overview page, copy Application (client) ID and Directory (tenant) ID.',
+            'Open Certificates & secrets → Client secrets → New client secret. Copy the Value as soon as you create it. Do not copy the Secret ID. The Value is hidden after you leave the page.'
+          ]
+        },
+        {
+          title: 'Grant Microsoft Graph permissions',
+          body: [
+            'Open API permissions → Add a permission → Microsoft Graph. Add the three permissions below. Then select Grant admin consent for <organization>. Confirm that all three show granted status.'
+          ],
+          copyItems: [
+            { value: 'User.Read', description: 'Delegated permission' },
+            { value: 'User.Read.All', description: 'Application permission' },
+            { value: 'Group.Read.All', description: 'Application permission' }
+          ],
+          links: [
+            {
+              label: 'Microsoft Graph permission reference',
+              href: 'https://learn.microsoft.com/en-us/graph/permissions-reference'
+            }
+          ]
+        },
+        {
+          title: 'Enter the Entra values in Ankole',
+          bullets: [
+            'Tenant ID: Directory (tenant) ID',
+            'Client ID: Application (client) ID',
+            'Client Secret: the secret Value',
+            'Public base URL: https://<ANKOLE_HOST>, not an internal container or cluster address'
+          ],
+          body: [
+            'Keep Enable OIDC, Sync directory, and Realtime directory sync on. Select Save and sign in with OIDC, and sign in with an account from this tenant.'
+          ]
+        },
+        {
+          title: 'Verify sign-in and the first sync',
+          body: [
+            'After sign-in, this user becomes the first root administrator. Open Console → Identity Providers, select entra-id-main, and select Run full sync.',
+            'When the sync finishes, check Principals and Principal groups for the tenant users and groups.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Graph notifications, guests, and group filters',
+      summary: 'Microsoft Graph must reach Ankole from the public internet for realtime sync.',
+      steps: [
+        {
+          title: 'Make the notification endpoint reachable',
+          body: [
+            'With realtime sync on, Public base URL must be a valid public HTTPS address. Ankole creates /webhooks/v1/entra-id/entra-id-main/directory under it and manages the Graph subscriptions.'
+          ],
+          links: [
+            {
+              label: 'Microsoft Graph change notification guide',
+              href: 'https://learn.microsoft.com/en-us/graph/change-notifications-overview'
+            }
+          ]
+        },
+        {
+          title: 'Turn off realtime sync without public ingress',
+          body: [
+            'If Graph cannot reach this instance, turn off Realtime directory sync before you save. Full sync still works, and Public base URL is no longer required.'
+          ]
+        },
+        {
+          title: 'Include guests or filter groups only when needed',
+          body: [
+            'Include guests is off by default. Groups filter accepts a Microsoft Graph OData $filter. Complete an unfiltered sync first, so you do not mistake a filter result for a permission failure.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'google-workspace',
+    label: 'Google Workspace',
+    summary:
+      'Google sign-in and directory access use separate credentials. An OAuth client handles sign-in. A service account with domain-wide delegation syncs users and groups.',
+    prerequisites: [
+      'A Google Workspace super administrator',
+      'An account that can manage a Google Cloud project',
+      'A public HTTPS address for Ankole'
+    ],
+    basic: {
+      title: 'Set up Google Workspace',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Google Workspace Adapter on the plugin page, save the selection, and then select Google Workspace.',
+            'Keep the provider ID as google-workspace-main. Copy the login callback URL shown on the page.'
+          ]
+        },
+        {
+          title: 'Prepare the Google Cloud project',
+          body: [
+            'Open Google Cloud Console and select or create a project owned by your organization. In the API Library, find and enable Admin SDK API.',
+            'Open Google Auth platform and complete the app information. Set Audience to Internal, so the app is for employees in this Workspace.'
+          ],
+          links: [
+            {
+              label: 'Open Google Cloud Console',
+              href: 'https://console.cloud.google.com/'
+            }
+          ]
+        },
+        {
+          title: 'Create the OAuth client for sign-in',
+          body: [
+            'Open Google Auth platform → Clients → Create client. Select Web application as the application type.',
+            'Under Authorized redirect URIs, paste the complete callback URL from Ankole. Create the client, and copy its Client ID and Client Secret.'
+          ],
+          links: [
+            {
+              label: 'Google OAuth client guide',
+              href: 'https://developers.google.com/workspace/guides/create-credentials'
+            }
+          ]
+        },
+        {
+          title: 'Create the service account for directory sync',
+          body: [
+            'Open IAM & Admin → Service Accounts and create a service account. Open its details, enable Google Workspace domain-wide delegation, and record its numeric Client ID.',
+            'Open Keys → Add key → Create new key and select JSON. You will paste the complete JSON file into Ankole. Do not commit this file to the repository.'
+          ],
+          links: [
+            {
+              label: 'Google service account guide',
+              href: 'https://developers.google.com/identity/protocols/oauth2/service-account'
+            }
+          ]
+        },
+        {
+          title: 'Approve domain-wide delegation in Workspace',
+          body: [
+            'Open admin.google.com. Go to Security → Access and data control → API Controls → Manage Domain Wide Delegation, and select Add new.',
+            'Enter the numeric service-account Client ID. OAuth scopes is one field, so copy the complete line below, paste it, and authorize it.'
+          ],
+          batchImport: {
+            label: 'Copy all OAuth scopes',
+            content:
+              'https://www.googleapis.com/auth/admin.directory.user.readonly,https://www.googleapis.com/auth/admin.directory.group.readonly,https://www.googleapis.com/auth/admin.directory.group.member.readonly'
+          },
+          links: [
+            {
+              label: 'Google Directory API authorization guide',
+              href: 'https://developers.google.com/workspace/admin/directory/v1/guides/authorizing'
+            }
+          ]
+        },
+        {
+          title: 'Enter the Google values in Ankole',
+          bullets: [
+            'Client ID and Client Secret: credentials from the Web application OAuth client',
+            'Allowed domains: a Workspace domain such as example.com, without @',
+            'Service account key: the complete contents of the JSON key file',
+            'Admin email: a Workspace administrator that can read users and groups'
+          ],
+          body: [
+            'Keep Enable OIDC and Sync directory on. Select Save and sign in with OIDC, and use a Workspace account from an allowed domain.'
+          ]
+        },
+        {
+          title: 'Verify sign-in and the first sync',
+          body: [
+            'After sign-in, this user becomes the first root administrator. Open Console → Identity Providers, select google-workspace-main, and select Run full sync.',
+            'When the sync finishes, check Principals and Principal groups for the Workspace users, groups, and memberships.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Domain boundary, sync timing, and service accounts',
+      summary: 'Google Workspace supports full sync only. It does not send realtime directory events to this adapter.',
+      steps: [
+        {
+          title: 'Keep Allowed domains narrow',
+          body: [
+            'Enter only the Workspace domains that the enterprise uses. Ankole also requires a Google-verified email and a Workspace hosted-domain claim. A consumer gmail.com account has no such claim, so Ankole rejects it even after Google authenticates it.'
+          ]
+        },
+        {
+          title: 'Run another full sync after a directory change',
+          body: [
+            'The Google Workspace adapter does not support realtime sync. After you add an employee, change a group, or suspend an account, run full sync again in Console → Identity Providers.'
+          ]
+        },
+        {
+          title: 'Reduce and rotate service-account access',
+          body: [
+            'After the first verification, you can use a dedicated administrator with user and group read access as Admin email. When you rotate the JSON key, update Service account key in Ankole.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    summary:
+      'Create a custom enterprise app. Its App ID and App Secret provide sign-in, employee and department sync, and realtime directory events over a long connection.',
+    prerequisites: [
+      'An administrator who can create and publish a custom enterprise app',
+      'An enterprise administrator who can approve directory permissions',
+      'A Lark or Feishu employee account for the first sign-in'
+    ],
+    basic: {
+      title: 'Set up the Lark or Feishu IdP',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Lark Adapter on the plugin page, save the selection, and then select Lark or Feishu.',
+            'Keep the provider ID as lark-main. Copy the login callback URL shown on the page.'
+          ]
+        },
+        {
+          title: 'Create the custom enterprise app',
+          body: [
+            'Use Feishu Open Platform for a Feishu tenant or Lark Developer for an international Lark tenant. Create a custom enterprise app.',
+            'Open Credentials & Basic Info and copy the App ID and App Secret.'
+          ],
+          links: [
+            {
+              label: 'Open Feishu Open Platform',
+              href: 'https://open.feishu.cn/app'
+            },
+            {
+              label: 'Open Lark Developer',
+              href: 'https://open.larksuite.com/app'
+            }
+          ]
+        },
+        {
+          title: 'Register the login callback',
+          body: [
+            'Open Development Configuration → Security Settings → Redirect URLs and add the complete URL from Ankole.',
+            'The callback must match exactly. A different scheme, host, port, or provider ID causes sign-in to fail.'
+          ],
+          links: [
+            {
+              label: 'Feishu web sign-in guide',
+              href: 'https://open.feishu.cn/document/sso/web-application-end-user-consent/guide'
+            }
+          ]
+        },
+        {
+          title: 'Import sign-in and directory permissions',
+          body: [
+            'Open Permissions and select the bulk import or export action. Paste the JSON below and confirm the import. If a permission needs enterprise approval, wait until its status is active.'
+          ],
+          batchImport: {
+            label: 'Bulk import JSON',
+            content: `{
+  "scopes": {
+    "tenant": [
+      "contact:contact.base:readonly",
+      "contact:department.base:readonly",
+      "contact:department.organize:readonly",
+      "contact:user.base:readonly",
+      "contact:user.department:readonly",
+      "contact:user.email:readonly",
+      "contact:user.employee_id:readonly"
+    ],
+    "user": [
+      "contact:user.employee_id:readonly"
+    ]
+  }
+}`
+          }
+        },
+        {
+          title: 'Configure long-connection directory events',
+          body: [
+            'Open Events & Callbacks → Event Configuration and select the long-connection or WebSocket delivery option. Add the seven events below.'
+          ],
+          copyItems: [
+            { value: 'contact.user.created_v3' },
+            { value: 'contact.user.updated_v3' },
+            { value: 'contact.user.deleted_v3' },
+            { value: 'contact.department.created_v3' },
+            { value: 'contact.department.updated_v3' },
+            { value: 'contact.department.deleted_v3' },
+            { value: 'contact.scope.updated_v3' }
+          ]
+        },
+        {
+          title: 'Set the availability range and publish',
+          body: [
+            'Add the first administrator and every department that you need to sync to the app availability range. Create and publish an app version. Unpublished callback, permission, and event changes do not apply to employees.'
+          ]
+        },
+        {
+          title: 'Enter the Lark or Feishu values in Ankole',
+          bullets: [
+            'App ID and App Secret: values from Credentials & Basic Info',
+            'Domain: select Feishu for the China service or Lark for the international service'
+          ],
+          body: [
+            'Keep Enable OIDC, Sync directory, and Incremental contact sync on. Select Save and sign in with OIDC. Then open Console → Identity Providers and run a full sync for lark-main.',
+            'Check Principals and Principal groups for the employees, departments, and memberships.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Long connections, app availability, and chat apps',
+      summary: 'The control plane opens the long connection. You do not need a public Feishu webhook.',
+      steps: [
+        {
+          title: 'Use full sync without incremental events',
+          body: [
+            'Turn off Incremental contact sync if you do not want directory events. Employee and department changes then appear after the next full sync.'
+          ]
+        },
+        {
+          title: 'Use the app availability range as the sign-in boundary',
+          body: [
+            'The app availability range controls who can sign in. After you add a department or employee, update the range and publish a new version.'
+          ]
+        },
+        {
+          title: 'Use separate apps for identity and chat',
+          body: [
+            'You can use one custom app for both roles, but separate apps are better for normal use. Keep sign-in and directory permissions on the IdP app. Keep bot permissions on the chat app. Both apps can use one platformSubjectNamespace for the same organization.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    summary:
+      'Create an internal enterprise app. The same Client ID and Client Secret provide sign-in, organization directory access, and realtime changes over Stream.',
+    prerequisites: [
+      'A DingTalk administrator who can create and publish an internal app',
+      'An administrator who can approve directory API access',
+      'An employee account in the organization for the first sign-in'
+    ],
+    basic: {
+      title: 'Set up the DingTalk IdP',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select DingTalk Adapter on the plugin page, save the selection, and then select DingTalk.',
+            'Keep the provider ID as dingtalk-main. Copy the login callback URL shown on the page.'
+          ]
+        },
+        {
+          title: 'Create the internal enterprise app',
+          body: [
+            'Open the DingTalk developer console. Go to App Development → Internal Enterprise Apps and create an app.',
+            'Open Basic Information → Credentials. Copy the Client ID, formerly AppKey, and the Client Secret, formerly AppSecret.'
+          ],
+          links: [
+            {
+              label: 'Open the DingTalk developer console',
+              href: 'https://open-dev.dingtalk.com/'
+            }
+          ]
+        },
+        {
+          title: 'Register the login callback',
+          body: [
+            'Open Development Configuration → Security Settings → Redirect URL. Paste the complete URL from Ankole and save it.',
+            'Keep the sign-in scope as openid corpid. The corpid claim limits sign-in to the selected DingTalk organization.'
+          ]
+        },
+        {
+          title: 'Request sign-in and directory API permissions',
+          body: [
+            'Open Permission Management → Contacts Management. Request read access for the operations below. Set the directory range to all employees, or include every department that must sign in and sync.'
+          ],
+          copyItems: [
+            { value: 'Contact.User.Read', description: 'Read personal contact information' },
+            { value: 'Get a user ID by unionId' },
+            { value: 'Get user details' },
+            { value: 'Get child department IDs' },
+            { value: 'Get department details' },
+            { value: 'Get basic department user information' }
+          ]
+        },
+        {
+          title: 'Subscribe to directory changes through Stream',
+          body: [
+            'Open Events & Callbacks and select Stream mode. Add the ten events below. They cover employee, department, administrator, and organization changes.'
+          ],
+          copyItems: [
+            { value: 'user_add_org' },
+            { value: 'user_modify_org' },
+            { value: 'user_leave_org' },
+            { value: 'user_active_org' },
+            { value: 'org_dept_create' },
+            { value: 'org_dept_modify' },
+            { value: 'org_dept_remove' },
+            { value: 'org_admin_add' },
+            { value: 'org_admin_remove' },
+            { value: 'org_remove' }
+          ],
+          links: [
+            {
+              label: 'DingTalk employee change Stream guide',
+              href: 'https://open.dingtalk.com/document/orgapp/personnel-platform-employee-change-event-stream'
+            }
+          ]
+        },
+        {
+          title: 'Set the availability range and publish',
+          body: [
+            'Add the first administrator and the departments that you need to sync to the app availability range. Create and publish a version that contains the callback, permissions, and event settings.'
+          ]
+        },
+        {
+          title: 'Enter the DingTalk values in Ankole',
+          bullets: [
+            'Client ID (AppKey): Client ID from the credentials page',
+            'Client Secret (AppSecret): Client Secret from the same page'
+          ],
+          body: [
+            'Keep Enable login, Sync directory, and Incremental contact sync on. Select Save and sign in with OIDC. Ankole checks the credentials before it opens DingTalk sign-in.',
+            'After sign-in, open Console → Identity Providers and run a full sync for dingtalk-main. Check Principals and Principal groups for the employees and departments.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Stream, directory range, and page size',
+      summary: 'The control plane opens the Stream connection. You do not need a public webhook.',
+      steps: [
+        {
+          title: 'Use full sync without Stream events',
+          body: [
+            'Turn off Incremental contact sync if you do not want directory events. Employee and department changes then appear after the next full sync.'
+          ]
+        },
+        {
+          title: 'Check the directory permission range',
+          body: [
+            'If the sync misses people or departments, check the directory range in Permission Management. An approved API permission can still return incomplete data when the range excludes it.'
+          ]
+        },
+        {
+          title: 'Keep the default page size first',
+          body: [
+            'The default page size is 50, and the allowed range is 1–100. Complete one full sync with the default. Change it only for a measured rate-limit or response-size problem.'
+          ]
+        }
+      ]
+    }
+  }
+]
+
+export const modelAdvanced = {
+  title: 'Optional model profiles and provider tuning',
+  summary: 'Leave optional capability slots empty until an Agent needs them.',
+  steps: [
+    {
+      title: 'Add optional capability profiles',
+      fields: [
+        {
+          name: 'Background Agent Jobs',
+          description:
+            'Runs durable Background Agent Jobs. The stored profile key is currently coding; normal conversations do not switch to it because a message contains a lot of code.'
+        },
+        {
+          name: 'vision_fallback',
+          description: 'Fallback when the primary model cannot inspect an image.'
+        },
+        {
+          name: 'embedding / rerank',
+          description: 'Models for retrieval and result ordering.'
+        },
+        {
+          name: 'web_search / web_fetch',
+          description: 'Providers for web discovery and page retrieval.'
+        },
+        {
+          name: 'image_generate',
+          description: 'Model for image generation.'
+        }
+      ]
+    }
+  ]
+}
+
+export const channelTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    badge: 'Default',
+    summary:
+      'Slack uses Socket Mode. Ankole opens an outbound WebSocket, so the chat path does not need a public Slack webhook.',
+    prerequisites: ['Permission to create and install a Slack app', 'A test channel or direct message'],
+    basic: {
+      title: 'Prepare a Slack app',
+      steps: [
+        {
+          title: 'Create the app and enable Socket Mode',
+          body: [
+            'Create a Slack app from scratch. Under Basic Information, create an App-Level Token, add the scope below, and then enable Socket Mode.'
+          ],
+          copyItems: [
+            { value: 'connections:write', description: 'Let the App Token open a Socket Mode connection' }
+          ]
+        },
+        {
+          title: 'Subscribe to the first message events',
+          body: ['Open Event Subscriptions → Subscribe to bot events. Add each event below.'],
+          copyItems: [
+            { value: 'app_mention', description: 'Receive channel @-mentions' },
+            { value: 'message.im', description: 'Receive direct messages' }
+          ]
+        },
+        {
+          title: 'Grant scopes and install the app',
+          body: [
+            'Under OAuth & Permissions → Bot Token Scopes, add each scope that matches the conversations you will use. The first two are required.'
+          ],
+          copyItems: [
+            { value: 'app_mentions:read', description: 'Read channel messages that mention the bot' },
+            { value: 'chat:write', description: 'Send bot replies' },
+            { value: 'channels:history', description: 'Read public channel messages' },
+            { value: 'groups:history', description: 'Add when the bot must read private channels' },
+            { value: 'im:history', description: 'Add when the bot must read direct messages' }
+          ],
+          caution: 'Install the app to the workspace after each scope change.'
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'botToken',
+              value: 'xoxb-…',
+              description: 'Bot User OAuth Token. The xoxb- prefix is required.'
+            },
+            {
+              name: 'appToken',
+              value: 'xapp-…',
+              description: 'App-Level Token for Socket Mode. The xapp- prefix is required.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Observation modes, subject mapping, and Slack as IdP',
+      summary: 'Expand when the Agent must observe more than direct mentions or Slack also supplies identity.',
+      steps: [
+        {
+          title: 'Observe unaddressed channel messages',
+          body: [
+            'Add the message event under Event Subscriptions and the matching history scopes under OAuth & Permissions before you use observe_all or may_intervene. Start with addressed_only.'
+          ],
+          copyItems: [
+            { value: 'message.channels', description: 'Receive normal messages from public channels' },
+            { value: 'channels:history', description: 'Read public channel history' },
+            { value: 'groups:history', description: 'Add when the bot must also read private channels' }
+          ]
+        },
+        {
+          title: 'Set the subject namespace',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'slack-main',
+              description: 'Use one namespace per Slack workspace. Share it with the Slack IdP config when Slack fills both roles.'
+            },
+            {
+              name: 'userName',
+              value: 'Slack',
+              description: 'Display name used for outbound messages.'
+            }
+          ]
+        },
+        {
+          title: 'Create a separate Slack IdP app',
+          body: [
+            'For normal use, create another Slack app for SSO and directory sync. Keep identity permissions on the IdP app and bot permissions on the chat app. Both records can use one platformSubjectNamespace for the same workspace.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    summary:
+      'Teams sends Bot Framework webhooks. A public HTTPS endpoint with a trusted certificate is mandatory.',
+    prerequisites: ['An Entra ID tenant', 'A public HTTPS Ankole host', 'Permission to register and install a Teams bot'],
+    basic: {
+      title: 'Prepare a Teams bot',
+      steps: [
+        {
+          title: 'Register the app and bot',
+          body: [
+            'Create an Entra app registration and an Azure Bot resource. The application client ID becomes appID; create a client secret for appPassword.'
+          ]
+        },
+        {
+          title: 'Set the Bot Framework messaging endpoint',
+          code: [
+            {
+              language: 'text',
+              code: 'https://<ANKOLE_HOST>/webhooks/v1/teams/<appID>/messages'
+            }
+          ],
+          body: ['The appID path segment must match the App ID in the signal routing rule.']
+        },
+        {
+          title: 'Choose the tenant mode',
+          fields: [
+            {
+              name: 'botTenancy',
+              value: 'single_tenant',
+              description: 'Recommended starting mode for one enterprise tenant.'
+            },
+            {
+              name: 'tenantID',
+              description: 'Entra tenant GUID. Required for a single-tenant bot.'
+            }
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'appID',
+              description: 'Azure Bot registration Microsoft App ID. It must be a GUID.'
+            },
+            {
+              name: 'appPassword',
+              description: 'Microsoft App client secret.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Cross-tenant bots, Entra identity, and directory webhooks',
+      summary: 'Expand when the bot serves more than one Entra tenant or Entra ID also supplies SSO.',
+      steps: [
+        {
+          title: 'Serve several Entra tenants with one Bot Framework app',
+          body: [
+            'Set botTenancy to multi_tenant only when the Azure Bot registration allows several Entra tenants. The adapter uses botframework.com for the bot token tenant. This Microsoft app-registration mode does not change the boundary of the Ankole deployment instance.'
+          ]
+        },
+        {
+          title: 'Share the subject namespace when Entra also supplies identity',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'entra-id-main',
+              description: 'Use the same namespace in the Teams channel and Entra ID provider when they represent the same organization.'
+            },
+            {
+              name: 'userName',
+              value: 'Teams',
+              description: 'Display name used for outbound messages.'
+            }
+          ]
+        },
+        {
+          title: 'Keep Graph directory sync in the IdP',
+          body: [
+            'Entra full and realtime directory sync belong to the IdP record. Graph notifications use a separate directory webhook and still require the public HTTPS host.'
+          ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    summary:
+      'Lark and Feishu use an outbound long connection. The chat path needs Internet access but does not need a public inbound webhook.',
+    prerequisites: ['Permission to create an enterprise custom app', 'A test user in the app availability scope'],
+    basic: {
+      title: 'Prepare a Lark or Feishu app',
+      steps: [
+        {
+          title: 'Create the app and enable bot capability',
+          body: [
+            'Create an enterprise custom app, enable its bot capability, and add the test user to the availability scope.'
+          ]
+        },
+        {
+          title: 'Import the baseline message scopes',
+          body: ['Open Permissions, select the bulk import or export action, paste the JSON below, and confirm the import.'],
+          batchImport: {
+            label: 'Bulk import JSON',
+            content: `{
+  "scopes": {
+    "tenant": [
+      "im:message:send_as_bot",
+      "im:message:readonly",
+      "im:message:update",
+      "im:message.group_at_msg:readonly",
+      "im:message.p2p_msg:readonly",
+      "im:resource"
+    ],
+    "user": []
+  }
+}`
+          }
+        },
+        {
+          title: 'Choose long connection and add the message event',
+          body: [
+            'In Events and Callbacks, choose long connection and add the event below. Keep the Ankole control plane running while the platform detects the client.'
+          ],
+          copyItems: [
+            { value: 'im.message.receive_v1', description: 'Receive messages sent to the bot' }
+          ]
+        },
+        {
+          title: 'Publish a version and collect the Console fields',
+          fields: [
+            {
+              name: 'appID',
+              description: 'Enterprise custom app ID.'
+            },
+            {
+              name: 'appSecret',
+              description: 'Enterprise custom app secret.'
+            },
+            {
+              name: 'domain',
+              value: 'feishu or lark',
+              description: 'Use feishu for Feishu.cn and lark for Larksuite.com.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Full-room context, separate identity, and subject mapping',
+      summary: 'Expand when the Agent must observe the room or Lark also supplies SSO.',
+      steps: [
+        {
+          title: 'Let the Agent observe unaddressed group messages',
+          body: [
+            'Add the permission below before you use observe_all or may_intervene. Start with addressed_only while you verify the first conversation.'
+          ],
+          copyItems: [
+            { value: 'im:message.group_msg', description: 'Read group messages that do not mention the bot' }
+          ]
+        },
+        {
+          title: 'Create a separate Lark IdP app',
+          body: [
+            'For normal use, create another custom app for SSO and directory sync. Keep sign-in and directory permissions on the IdP app and bot permissions on the chat app. Both records can use one platformSubjectNamespace for the same organization.'
+          ]
+        },
+        {
+          title: 'Set the shared adapter fields',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'lark-main',
+              description: 'Share this value with the Lark IdP config when both records represent the same organization.'
+            },
+            {
+              name: 'userName',
+              value: 'Lark / Feishu',
+              description: 'Display name used for outbound messages.'
+            }
+          ]
+        },
+        {
+          title: 'Respect the Lark app ownership rules',
+          bullets: [
+            'One Agent can have at most one enabled Lark binding.',
+            'One appID can be bound to only one Agent.'
+          ],
+          body: ['Create a separate Lark or Feishu app for each additional Agent.']
+        }
+      ]
+    }
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    summary:
+      'DingTalk uses Stream mode. One AppKey and AppSecret pair authenticates the robot and opens the event connection.',
+    alert: {
+      title: 'DingTalk limits some Ankole features',
+      body: [
+        'As of July 2026, DingTalk does not support custom card messages. In a group chat, an Agent cannot read the full conversation history. It receives only messages that explicitly @-mention it.',
+        'These limits reduce Ankole’s functionality and user experience. They also leave the long-term memory system with incomplete context. Prefer another chat channel when possible.'
+      ]
+    },
+    prerequisites: ['Permission to create an enterprise-internal DingTalk app and robot', 'A test conversation'],
+    basic: {
+      title: 'Prepare a DingTalk robot',
+      steps: [
+        {
+          title: 'Create an enterprise-internal app and robot',
+          body: [
+            'Enable the robot capability and make the app available to the test user. DingTalk delivers direct messages and group messages that @ the robot.'
+          ]
+        },
+        {
+          title: 'Enable Stream mode and publish the app',
+          body: [
+            'The same application credentials open the Stream connection, so you do not need a public message webhook.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'clientId',
+              description: 'Enterprise app Client ID, also called AppKey and used as the Stream clientId.'
+            },
+            {
+              name: 'clientSecret',
+              description: 'Enterprise app Client Secret, also called AppSecret and used as the Stream clientSecret.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'The only mode DingTalk can deliver for group messages.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Multiple Agents and identity settings',
+      summary: 'Expand when you plan several DingTalk Agents or also use DingTalk as an identity source.',
+      steps: [
+        {
+          title: 'Respect the connection ownership rules',
+          bullets: [
+            'One Agent can have at most one enabled DingTalk binding.',
+            'One clientId can be bound to only one Agent.'
+          ],
+          body: ['Create a separate robot and credential pair for each additional Agent.']
+        },
+        {
+          title: 'Keep DingTalk identity separate',
+          body: [
+            'DingTalk can also supply OIDC and directory sync, but that is an IdP record. A chat binding does not make DingTalk the Console login provider.'
+          ],
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'dingtalk-main',
+              description: 'Share it with the DingTalk IdP only when both records represent the same organization.'
+            }
+          ]
+        }
+      ]
+    }
+  }
+]
+
+export const signalAdvanced = {
+  title: 'Group behavior, confidential memory, and subject namespaces',
+  summary: 'The safe first binding replies only when addressed and keeps the default shared memory scope.',
+  steps: [
+    {
+      title: 'Choose how the Agent handles unaddressed group messages',
+      fields: [
+        {
+          name: 'addressed_only',
+          description: 'Ignore group messages that do not address the Agent. Use this for the first test.'
+        },
+        {
+          name: 'observe_all',
+          description: 'Store unaddressed messages as context without starting an Agent turn.'
+        },
+        {
+          name: 'may_intervene',
+          description: 'Let the Agent decide whether to join an unaddressed discussion.'
+        }
+      ],
+      caution:
+        'The provider must deliver those messages. DingTalk supports addressed_only only. Slack and Lark need extra events or scopes before they can observe a whole room.'
+    },
+    {
+      title: 'Use confidential memory only for a sensitive channel',
+      body: [
+        'The default shared scope lets the Agent use the conversation as shared knowledge. Confidential memory keeps that channel’s recalled history inside its channel scope.'
+      ]
+    },
+    {
+      title: 'Treat the namespace as an identity mapping key',
+      body: [
+        'Use one platformSubjectNamespace per provider organization. Reuse it between IdP and Channel Provider records only when both refer to the same organization.'
+      ]
+    }
+  ]
+}
+
+## How Ankole is deployed
+
+A private Ankole deployment instance has one control plane and one or more Agent Computer Workers. The control plane is the management platform. A Worker runs Agent tasks and acts as the Agent's work computer.
+
+One Worker can serve several Agents. In finance or another environment that needs strict isolation, give each Agent a dedicated Worker. A work computer can be shared by several interns or assigned to one colleague.
+
+<DocsKnowledgeNote
+  label="💡 Did you know?"
+  text="Even when several Agents share one Worker, each Agent runs in a separate sandbox. The sandbox provides basic process and file-system isolation and reduces interference between Agents. It is a lightweight isolation layer, not an absolute security boundary."
+/>
+
+Each instance also needs PostgreSQL and persistent disk storage. A single-host deployment can use a local or virtual disk. A Kubernetes deployment needs NFS or another shared volume that supports ReadWriteMany.
+
+<span id="terminology" aria-hidden="true" />
+
+### Terms used in this guide
+
+This page defines the terms used in Ankole user documentation and interfaces. The names in parentheses match third-party platforms, configuration fields, and APIs. Later sections use the short form.
+
+| Canonical term | Meaning | Short form |
+|---|---|---|
+| **Private deployment instance** | One complete Ankole system that an enterprise deploys and manages | Instance |
+| **Principal** | A person, Agent, or system service that can have an identity and permissions in Ankole | Principal |
+| **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
+| **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, or DingTalk | Platform |
+| **Channel Provider** | One chat application or bot configuration that receives messages and sends Agent replies | Channel Provider |
+| **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
+| **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
+| **Background Agent Jobs profile (internal key: `coding`)** | Selects AIGateway or a named ChatGPT subscription account for Background Agent Jobs; normal conversations do not select it by code volume | Background Agent Jobs |
+
+## Let an Agent complete the setup
+
+You can send this prompt to Codex, Claude Code, or another Agent that can operate a terminal:
+
+<QuickstartAgentPrompt
+  client:visible
+  labels={quickstartLabels}
+  prompt={agentInstallPrompt}
+/>
+
+<span id="deployment" aria-hidden="true" />
+
+## 1. Deploy Ankole
+
+Use Docker Compose for one host or Kubernetes for an enterprise deployment. Install from source for development and debugging.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose a deployment method"
+  defaultValue="docker"
+  labels={quickstartLabels}
+  tabs={deploymentTabs}
+/>
+
+## 2. Set up the identity provider first
+
+Ankole is designed for private deployment inside an enterprise. Each enterprise operates one instance. Inside that instance, Agents, employees, and system services are represented as Principals, and the authorization module manages their permissions.
+
+Like Hermes Agent and OpenClaw, Ankole connects to chat channels. It also connects to the enterprise identity source so it can synchronize employees, directory contacts, and the organization structure. Configure an Identity Provider (IdP) before you configure the chat channel.
+
+| Setting | What it controls | Configure it where |
+|---|---|---|
+| **Identity Provider (IdP)** | Console SSO and the employees, contacts, organization structure, and permission groups synchronized from the enterprise directory | `/setup` first, then **Console → Identity Providers** |
+| **Channel Provider** | The IM app or bot that receives messages and sends Agent replies | **Console → Signal Routing** |
+
+The identity source and chat channel can use different platforms. Employees can sign in through Google Workspace and talk to the Agent in Slack. Entra ID can supply identity while Lark, Slack, DingTalk, or Teams carries the conversation.
+
+### Complete the setup for your IdP
+
+Select the identity source that your enterprise uses. Each tab starts in the provider console and ends with the first sign-in and directory sync.
+
+If you enable the adapter for the first time, restart the control plane after the first sign-in. This restart starts the plugin background work, such as directory connections and Graph subscriptions.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose an identity provider"
+  defaultValue="slack"
+  labels={quickstartLabels}
+  tabs={identityTabs}
+/>
+
+## 3. Add an LLM Provider and create an Agent
+
+An Agent model profile stores a model reference, so add the LLM Provider first. Sign in to the Console. Open **Providers → New provider**, choose the provider kind, give it a stable Provider ID, enter the endpoint and credential fields, and save.
+
+Provider credentials stay encrypted in the control plane. Do not put them in deployment environment files or Agent files.
+
+Open **Agents → New Agent**. Give the Agent a stable UID, a clear display name, and a mission that says what it owns and what counts as an acceptable result.
+
+Then configure its model profiles:
+
+| Profile | First-run use |
+|---|---|
+| `primary` | Main reasoning model |
+| `light` | Short and frequent work |
+| `heavy` | Hard synthesis |
+
+All three are required before the Agent can run. For the first conversation, you can bind the same known-good provider and model to all three. Split them only after the end-to-end path works.
+
+<QuickstartDisclosure
+  client:visible
+  labels={quickstartLabels}
+  section={modelAdvanced}
+/>
+
+## 4. Connect a chat channel and create its signal routing rule
+
+Enable the chat platform's Control Plane Plugin in the Console, and then create the bot or application on that platform. Use separate apps for the IdP and chat roles, even when both use the same platform. This separation keeps sign-in and directory permissions away from bot permissions. It also separates credential rotation and app releases.
+
+One chat app usually represents one bot identity. If several Agents need different bot names, avatars, or permissions, create several apps on that platform. After you prepare an app, create its routing rule in the Console and connect it to the intended Agent.
+
+<QuickstartTabs
+  client:visible
+  ariaLabel="Choose a channel provider"
+  defaultValue="slack"
+  labels={quickstartLabels}
+  tabs={channelTabs}
+/>
+
+### Complete the connection in the Console
+
+The current release uses a direct connection. One routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, group-message behavior, and memory behavior. Create a separate rule for each bot.
+
+In the Console, open **Signal Routing → New routing rule** and set:
+
+| Field | What to choose |
+|---|---|
+| **Target Agent** | The Agent you created in step 3 |
+| **Adapter** | Slack, Teams, Lark/Feishu, or DingTalk |
+| **Rule name** | A stable name such as `slack-main` or `lark-main` |
+| **Group message mode** | Start with `addressed_only` |
+| **Confidential memory** | Leave off for the first test |
+| **Channel settings** | Paste the credentials and values from the channel tab |
+
+Save the rule. The list must show it as enabled. If the form rejects a credential, fix that error before testing the IM; the adapter has not opened its connection yet.
+
+<DocsKnowledgeNote
+  label="💡 Did you know?"
+  text="Today, one routing rule sends one signal source to one Agent. Chat apps are the most common source. Future rules can select an Agent by channel, conversation, or another condition. External systems such as Salesforce will also be able to send events that Agents can act on. This module is called Signal Routing because it handles every signal that can start Agent work, not only chat channels."
+/>
+
+<QuickstartDisclosure
+  client:visible
+  labels={quickstartLabels}
+  section={signalAdvanced}
+/>
+
+## 5. Talk to the Agent in the IM
+
+Add the bot to a test conversation. For Slack, Teams, Lark/Feishu, or DingTalk group chat, start with an explicit @-mention:
+
+> @Ankole What can you do, and which team are you serving?
+
+After the first real model reply, tune the Agent mission, models, and group-chat policy for the team.
+
+### If the Agent does not reply
+
+Check one boundary at a time, in this order:
+
+1. The latest provider app version is published and available to the test user.
+2. The bot is installed in the channel, team, or conversation.
+3. The required message event and scopes are active.
+4. The routing rule is enabled and points to the intended Agent.
+5. The Agent has `primary`, `light`, and `heavy` model profiles.
+6. The LLM Provider credential and model selector are valid.
+7. At least one Worker is ready.
+
+For Compose, inspect `docker compose logs -f control-plane worker`. For Kubernetes, inspect the control-plane and Worker pod logs. Read only the relevant error; do not print environment variables or secrets.
+
+Once the reply arrives, continue with [Agents](../agents/), [Signal routing rules](../signal-bindings/), or [Background Agent Jobs](../background-jobs/).

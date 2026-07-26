@@ -1,68 +1,58 @@
 ---
-title: Signal binding
-description: 如何把一个 agent 接到聊天平台——创建 binding、指向 adapter、用 filter 收窄范围，并选择它在群聊里的行为。
+title: 信号路由规则
+description: 把一个聊天应用连接到指定 Agent，并设置群聊消息和记忆的处理方式。
 section: User guide
 order: 14
 ---
 
-signal binding 是让 agent 可达的东西。它把一个 provider adapter——Lark、钉钉、Slack、Microsoft 365、Google Workspace——绑到一个 agent 上，让来自该 provider 的消息、webhook 和事件变成 agent 会被唤醒的 actor 事件。本页是运维者走过一个 binding 的路径：选 adapter、给 binding 命名、用 filter 收窄范围、选择群聊行为。
+信号路由规则决定一条消息交给哪个 Agent。当前，一条规则把一个聊天应用直接连接到一个 Agent；同一个 Agent 可以通过多条规则接入不同的聊天应用。
 
-先把决定性的性质说清楚：一个 binding 以 `(agent, binding_name)` 为键，禁用它会停止新信号唤醒 agent，而不删除 binding 的配置。你可以让 agent 安静下来，又不弄丢它的设置。
+这里使用“信号”，是因为消息入口未来不只限于聊天渠道。后续可以通过路由表达式，根据频道、会话或其他条件选择 Agent，也可以把 Salesforce 等外部系统的事件交给 Agent 处理。
 
-## 一个 binding 带着什么
+如果还没有准备好 Slack、Microsoft Teams、飞书 / Lark 或钉钉应用，请先按[快速开始](../quickstart/#4-连接聊天渠道并创建信号路由规则)完成聊天渠道配置。
 
-一个 binding 形态小而固定：
+## 创建路由规则
 
-| 字段 | 含义 |
+1. 打开 Console 的**信号路由**，选择**新增路由规则**。
+2. 选择接收消息的 Agent 和聊天渠道适配器。
+3. 填写一个便于辨认的规则名称，例如 `support-slack`。
+4. 选择群聊消息模式和记忆范围。
+5. 填写该聊天应用的凭证与连接信息，然后保存。
+6. 在对应的聊天应用中向机器人发送消息，确认指定 Agent 能够回复。
+
+每个聊天 Bot 账号都应有自己的聊天应用和路由规则。如果希望多个 Agent 分别使用不同的 Bot 账号，请为每个 Bot 创建独立应用，再分别创建规则。这样可以单独轮换凭证，也不会把不同 Agent 的身份和消息混在一起。
+
+## 选择群聊消息模式
+
+Console 只会显示当前聊天渠道支持的选项：
+
+| 模式 | 未明确提及 Agent 的群消息会怎样 |
 |---|---|
-| `adapter` | provider adapter id——`lark`、`dingtalk`、`slack`、`microsoft365`、`google_workspace`，或本部署 plugin 所声明的其它 |
-| `name` | 你选的 binding 名字；每个 agent 唯一 |
-| `config_ref` | 对 adapter 所需的 adapter 专属配置（app id、token、webhook 端点）的引用 |
-| `filters` | 决定哪些入境事实在范围内的规则 |
-| `unaddressed_group_message_policy` | agent 如何对待那些没有直接 @ 到它的群消息 |
-| `enabled` | 新信号是否可以通过这个 binding 唤醒 agent |
-| `confidential_memory` | agent 是否把通过这个 binding 看到的内容排除在共享记忆之外 |
+| **仅处理明确提及** | Agent 看不到这条消息，也不会回复。 |
+| **记录未提及消息** | 消息会进入会话上下文，但不会立即唤醒 Agent。后续有人提及 Agent 时，它可以结合这些消息理解上下文。 |
+| **可主动介入** | Agent 会先判断自己是否应该加入对话；只有认为发言有帮助时才回复。 |
 
-`config_ref` 背后的 adapter 专属字段因 provider 而异——各 provider 的前置条件（app id、token、事件订阅、webhook URL）见各 adapter 专页。
+Slack、Microsoft Teams 和飞书 / Lark 支持以上三种模式。钉钉目前只能处理明确提及机器人的群消息，因此 Console 只会提供第一种模式。
 
-## 列出可用 adapter
+“可主动介入”不是逢消息必答。它只是允许 Agent 在没人点名时作出判断。若 Agent 过于频繁地插话，应先收紧它的角色说明；若某个群只需要被动问答，直接改为“仅处理明确提及”。
 
-```bash
-curl https://ankole.example.com/api/v1/signal-adapters \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+## 选择记忆范围
 
-响应是本部署的 Control Plane Plugin 在 `signals_gateway.adapter` 契约下注册的 adapter 声明集合。如果你期待的 adapter 不见了，是声明它的 plugin 没启用——见 [Control Plane Plugins](../control-plane-plugins/)。
+**共享**会让群聊内容进入这个实例的共享记忆范围，适合需要跨会话积累信息的工作群。
 
-## 创建或替换 binding
+**仅本频道**会把群聊内容留在该频道自己的记忆范围内，其他频道无法读取。涉及客户资料、项目保密信息或彼此隔离的团队时，应选择这一项。
 
-```bash
-curl -X PUT https://ankole.example.com/api/v1/agents/<agent_uid>/signal-bindings/<adapter_id>/<binding_name> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "config_ref": "...", "filters": { ... }, "unaddressed_group_message_policy": "..." }'
-```
+## 修改或停用
 
-路径里的 `(adapter_id, binding_name)` 给 binding 命名；对同一对的第二次 `PUT` 替换它。用 `GET /agents/:agent_uid/signal-bindings` 列出 agent 的 binding。
+重新配置规则时，可以更换目标 Agent、群聊消息模式、记忆范围或聊天应用凭证。更换目标 Agent 后，新消息会交给新的 Agent，已经发生的会话和记忆不会自动迁移。
 
-## 用 filter 收窄范围
+删除规则会停止新的消息投递，但不会删除聊天应用本身。准备重新启用时，可以使用原来的应用重新创建规则。
 
-filter 决定 binding 接受哪些入境事实。不匹配的事实返回一次成功的空操作（`status: :filtered`）——agent 不会被唤醒，也不会有 actor 事件入队。用 filter 把 binding 收窄到特定的 channel、发送者或消息种类，让 agent 只在真正给它的工作上醒来。filter 的形态与 adapter 无关；各 adapter 专页会指出该 provider 上值得过滤的字段。
+## 排查没有回复的问题
 
-## 选择群聊行为
+- **聊天渠道未出现**：到**Agent 能力库 → Control Plane Plugins**启用对应插件，并按页面提示重启控制面。
+- **机器人收不到群消息**：检查平台侧的事件订阅、权限和应用发布状态；钉钉群消息必须明确 @ 机器人。
+- **规则已保存但没有回复**：确认目标 Agent 已启用、模型配置可用，并在规则列表中检查该规则是否可用。
+- **私聊正常、群聊不正常**：检查群聊消息模式，以及机器人是否已加入目标群。
 
-`unaddressed_group_message_policy` 控制当一条消息到达群聊、而 agent 没有被直接 @ 时该怎么办。这个策略决定该消息是产生 `may_intervene` 事件（允许 agent 插话），还是 `addressed` 事件（agent 被点名）。按 agent 的角色来设：共享支持频道里的客户成功 agent 可能想观察并插话；发布说明机器人大概率应该在被点名之前保持安静。
-
-## 禁用而不删除
-
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name` 尽管 HTTP 动词是 DELETE，实际上是一次*禁用*操作：它停止新信号唤醒 agent，但让 binding 的配置可恢复。用 `PATCH /agents/:agent_uid/signal-bindings/:binding_name` 重新配置或迁移一个 binding，包括把 `enabled` 重新打开。一个不可用的 binding 会记下 `unavailable_reason`，让你看到它为什么停了——通常是 adapter 配置缺失或被撤销。
-
-## 一个 binding 是一个 adapter 对一个 agent
-
-一个 binding 恰好把一个 adapter 接到一个 agent。想让两个 agent 共享一个 channel，给各自一个 binding；想让一个 agent 在两个 provider 里回答，给它两个 binding。没有“多对多”的 binding 对象——一对一的形态正是让每个 agent 的身份、记忆和权限范围保持清晰的那件事。
-
-## 下一步
-
-- 各 provider 的前置条件和 Console 字段，读用户指南下各 adapter 专页。
-- binding 模型以及 binding 如何变成 actor 事件，读 [SignalsGateway](../signals-gateway/) 开发者页。
-- 路由，读 [Console API 参考](../console-api/)。
+聊天渠道需要的权限、事件和凭证以[快速开始](../quickstart/#4-连接聊天渠道并创建信号路由规则)中的平台步骤为准。

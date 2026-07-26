@@ -52,10 +52,12 @@ Agent model profiles are:
 The runtime requires `primary`, `light`, and `heavy`. Other capabilities use
 defaults such as `embedding.default` and `web_fetch.default`.
 
-The `coding` profile selects one of two Codex runtimes. It can select an
-AIGateway provider and model, or it can select a named ChatGPT subscription
-account. A subscription profile also contains the Codex model, the model
-reasoning effort, and Fast Mode. Fast Mode is off by default.
+The Background Agent Jobs profile selects one of two Codex runtimes. Its
+persisted key and API name remain `coding` until that stored contract is
+migrated. It can select an AIGateway provider and model, or it can select a
+named ChatGPT subscription account. A subscription profile also contains the
+Codex model, the model reasoning effort, and Fast Mode. Fast Mode is off by
+default.
 
 A caller can select `provider_id/raw-model-id` directly. This skips the Agent
 profile but still requires an active provider.

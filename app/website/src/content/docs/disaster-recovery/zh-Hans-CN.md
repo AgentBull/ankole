@@ -1,6 +1,6 @@
 ---
 title: 灾难恢复
-description: 从丢失中恢复一套 Ankole 部署的完整形态——什么可恢复、什么不可、跨主机迁移、让恢复成为真实能力的演练。
+description: 恢复 Ankole 实例，包括可恢复数据、不可恢复数据、跨主机迁移和恢复演练。
 section: Guides
 order: 320
 ---
@@ -13,9 +13,9 @@ order: 320
 
 | 状态 | 可恢复？ | 从什么 |
 |---|---|---|
-| Principal、agent、session、任务、Brain 知识、审计、AuthZ 授予 | 是 | PostgreSQL `pg_dump` 归档 |
-| 按 agent 的工作空间、人设文档、已安装 skill、session/任务文件 | 是 | Agent Home 卷快照 |
-| Provider 凭证、adapter secret、WorkerEnv secret | 是 | 它们住在 PostgreSQL 和 Agent Home 里——随之还原 |
+| 主体、Agent、会话、任务、Brain 知识、审计和 AuthZ 授权 | 是 | PostgreSQL `pg_dump` 归档 |
+| 每个 Agent 的工作区、长期文档、已安装 Skill、会话与任务文件 | 是 | Agent Home 卷快照 |
+| Provider 凭证、聊天渠道凭证、加密环境变量 | 是 | 它们保存在 PostgreSQL 和 Agent Home 中，会随备份还原 |
 | 引导 secret（`ANKOLE_SECRET_BASE`、worker 认证 key） | **手工重输入** | 它们不在备份里；生成新的或复用记录的 |
 | 进行中的回合、运行中的后台任务、live worker 状态 | **否** | 临时；随进程丢失 |
 | 从未发往外部摄入器的日志 | **否** | 住在丢失的主机上 |
@@ -26,7 +26,7 @@ order: 320
 
 ### 第 1 步：从零部署 Ankole
 
-在新主机或集群上按[安装部署](../installation/)起一套新部署。**不要**试图把新部署接到旧主机的卷或数据库——旧的正是你要从中恢复的东西，半接的部署比全新的更糟。用新数据库、新 Agent Home 卷、新引导 secret（或记录的旧的——见第 4 步）。
+在新主机或集群上按照[快速开始](../quickstart/#deployment)部署一个新实例。不要让新实例直接连接旧主机的卷或数据库，因为这些正是需要恢复的对象。请先使用新数据库、新 Agent Home 卷和新的引导 Secret；如果恢复方案要求复用旧 Secret，请按第 4 步操作。
 
 ### 第 2 步：还原 PostgreSQL
 
@@ -39,7 +39,7 @@ docker compose exec -T postgresql \
   < "ankole-YYYYMMDD.dump"
 ```
 
-然后跑 migration（本地 `bun run control-plane:setup`，或让 Helm init container 做），把还原的 schema 带到镜像版本。还原的数据库持有备份那一刻的 Principal、agent、session、任务、Brain 知识、AuthZ 授予。
+然后执行 Migration（本地运行 `bun run control-plane:setup`，或由 Helm Init Container 执行），把恢复后的 Schema 更新到镜像要求的版本。数据库中会保留备份时刻的主体、Agent、会话、任务、Brain 知识和 AuthZ 授权。
 
 ### 第 3 步：还原 Agent Home
 
@@ -50,7 +50,7 @@ docker compose exec -T postgresql \
 引导 secret（`ANKOLE_SECRET_BASE`、`ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`、`POSTGRES_PASSWORD`）不在备份里。两条路径：
 
 - **复用记录的**——如果你把它们存在一个 secret 管理器里、与部署备份并列（不在其内），重输入它们。还原的 PostgreSQL 里的加密行正确解密，因为派生密钥相同。
-- **重新生成**——在 `.env`（Compose）或 Secret（Helm）里生成新的。还原的 PostgreSQL 完整，但从旧 `ANKOLE_SECRET_BASE` 派生的加密值（adapter secret、WorkerEnv secret）无法解密。恢复后你需要通过 Console 重输入那些凭证。
+- **重新生成**——在 `.env`（Compose）或 Secret（Helm）里生成新的。还原的 PostgreSQL 完整，但使用旧 `ANKOLE_SECRET_BASE` 加密的 Provider 凭证、聊天渠道凭证和环境变量将无法解密。恢复后需要在 Console 中重新输入这些值。
 
 复用更简单且保留 secret；若旧 secret 可能在灾难中被入侵，重新生成更安全。选匹配你为何恢复的路径。
 
@@ -59,8 +59,8 @@ docker compose exec -T postgresql \
 还原后，走一遍配置界面，确认每一项完整：
 
 - **Provider 与 model profile**——住在 PostgreSQL，已还原。
-- **Signal binding**——住在 PostgreSQL，已还原；但它们引用的 adapter 凭证若你在第 4 步重新生成了 `ANKOLE_SECRET_BASE`，可能需要重输入。
-- **Identity provider**——同上：行还原了，凭证可能需要重输入。
+- **信号路由规则**——存储在 PostgreSQL 中，会随数据库恢复。如果你在第 4 步重新生成了 `ANKOLE_SECRET_BASE`，可能需要重新填写规则引用的聊天渠道凭证。
+- **身份源提供商**——记录会随数据库恢复，但可能需要重新填写凭证。
 - **Control Plane Plugin 启用清单**——已还原，但下次进程启动生效。
 
 通过一个 binding 发一个真实回合，确认端到端路径在新部署上工作。
@@ -88,8 +88,8 @@ docker compose exec -T postgresql \
 ## 与其它指南的关系
 
 - [备份与还原](../backup-and-restore/)是让恢复可能的纪律——备份是来源。
-- [事故响应](../incident-response/)针对系统行为异常、不是缺席；它的遏制动作不是本页的关注。
-- [升级](../updating/)是往前移的受控版本；灾难恢复是往后移的不受控版本。
+- 系统仍在但行为异常时，先定位故障；本页处理的是实例已经不可用或数据已经丢失。
+- 计划升级是在原实例上向前迁移；灾难恢复是在新环境中从备份重建。
 - [安全加固](../security-hardening/)假设你会还原的备份经过测试——本页是那个测试。
 
 ## 本指南不是什么
@@ -99,5 +99,5 @@ docker compose exec -T postgresql \
 ## 下一步
 
 - 恢复所依赖的备份纪律，读[备份与还原](../backup-and-restore/)。
-- 全新部署步骤，读[安装部署](../installation/)。
-- 事故情形（系统行为异常、不是缺席），读[事故响应](../incident-response/)。
+- 全新部署步骤，读[快速开始](../quickstart/#deployment)。
+- 系统仍在运行但行为异常时，先按[日志阅读](../log-reading/)找到第一处故障。

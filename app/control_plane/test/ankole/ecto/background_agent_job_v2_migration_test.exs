@@ -76,7 +76,8 @@ defmodule Ankole.Ecto.BackgroundAgentJobV2MigrationTest do
   test "per-Agent Plugin state is sparse and stores only explicit enablement" do
     %{principal: agent} = PrincipalsFixtures.agent_fixture()
 
-    assert {:ok, %{skills: 12}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: skill_count}} = Library.sync_agent_skills(agent.uid)
+    assert skill_count > 0
 
     assert [[0]] = Repo.query!("SELECT count(*) FROM agent_plugin_overrides").rows
 

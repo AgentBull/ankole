@@ -2,7 +2,7 @@
 title: PDF generation
 description: How to set up an agent that creates, checks, and edits PDF files — the pdf skill, the tools it uses, and a worked example.
 section: Guides
-order: 327
+order: 306
 ---
 
 PDF generation is a common deliverable — a report, a proposal, a formatted document that must ship as a PDF. Ankole's `pdf` skill handles this through the worker's installed PDF toolchain (Pandoc, two PDF engines, Poppler, QPDF) and runs as a background job. This guide is the practical shape of a PDF-generating agent.
@@ -12,7 +12,7 @@ The decisive property, stated up front: the `pdf` skill is a **filesystem-and-to
 ## What you need
 
 - **The `pdf` skill enabled.** It is `default_enabled: true`, so it is on for every agent unless overridden. See [Skills](../skills/).
-- **The worker image.** The Agent Computer image installs Pandoc, two PDF engines (Typst and LaTeX), Poppler, and QPDF. These are part of the image — you do not install them.
+- **The worker image.** The Agent Computer Worker image installs Pandoc, two PDF engines (Typst and LaTeX), Poppler, and QPDF. These are part of the image — you do not install them.
 - **A `primary` model profile bound.** The agent writes the source content (Markdown or a document structure), then the skill's tools render it to PDF.
 
 ## What the skill does
@@ -31,7 +31,7 @@ Set up an agent that produces a weekly report as a PDF:
 
 1. Confirm `pdf` skill is enabled (it is by default).
 2. Create the agent, author a `MISSION.md`: "Produce a weekly status report as a PDF. Gather the week's metrics from the channel history, write the report in Markdown, render to PDF with Typst, verify with Poppler, and post the PDF to the channel."
-3. Add a weekly [schedule](../cron-schedules-ops/).
+3. Add a weekly [schedule](../schedules/).
 4. On each fire, the agent gathers context, writes Markdown, calls the `pdf` skill's tools through the shell, verifies the output, and posts the file.
 
 ## The `design-md` companion
@@ -46,5 +46,5 @@ It is not a Pandoc or Typst tutorial — the skill knows the tool invocations; t
 
 - For the skill system, read [Skills](../skills/) and [Writing a skill](../writing-a-skill/).
 - For the shell tools the skill uses, read [Code execution](../code-execution/).
-- For background jobs, read [Background jobs](../background-jobs-ops/).
-- For scheduling, read [Cron schedules](../cron-schedules-ops/).
+- For background jobs, read [Background jobs](../background-jobs/).
+- For scheduling, read [Schedules](../schedules/).

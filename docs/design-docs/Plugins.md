@@ -21,7 +21,7 @@ app/library/agent-plugins/<agent-plugin-id>/
 └── workspace-template/    # Optional Job Workspace content
 ```
 
-An Installation trusts these first-party packages. Each manifest defines
+A private deployment instance trusts these first-party packages. Each manifest defines
 `name`, `version`, `description`, and `skills`. The package directory must have
 the same name as the manifest. A package can carry more directories that its
 member Skills read, such as the `office` Playbook library below.
@@ -75,7 +75,7 @@ does not load the main-only member Skill.
 
 ### Decide Which Capabilities an Agent Can Use
 
-An Agent Plugin and each Skill have separate enabled states. Installation
+An Agent Plugin and each Skill have separate enabled states. Instance
 settings provide defaults. An Agent stores only values that override them.
 
 ```text
@@ -89,7 +89,7 @@ Every member Skill starts enabled. Disabling the parent Plugin makes all members
 unavailable without changing their saved settings. Those settings apply again
 when the parent becomes enabled.
 
-AppConfigure stores the installation defaults in these global keys:
+AppConfigure stores the instance defaults in these global keys:
 
 - `ai_agent.library.agent_plugin_defaults` stores Agent Plugin booleans.
 - `ai_agent.library.skill_defaults` stores Skill booleans.
@@ -163,7 +163,8 @@ Each Agent Plugin row contains its member Skills. The top-level Skill list
 contains standalone and Agent-installed Skills.
 
 The Console shows Agent Plugins, standalone Skills, and installed Skills as
-separate groups. It shows Control Plane Plugins only for the Installation.
+separate groups. It shows Control Plane Plugins only for the deployment
+instance.
 
 ## Control Plane Plugins
 

@@ -23,10 +23,6 @@ const rules = ['r1', 'r2', 'r3', 'r4'].map(key => ({
 	from: t(lang, `compounding.${key}.from`)
 }))
 
-const mechanisms = ['aim', 'playbook', 'review', 'rule', 'memory'].map(key => ({
-	title: t(lang, `compounding.${key}.title`),
-	body: t(lang, `compounding.${key}.body`)
-}))
 ---
 
 <Section>
@@ -79,24 +75,27 @@ const mechanisms = ['aim', 'playbook', 'review', 'rule', 'memory'].map(key => ({
 		</ol>
 	</Reveal>
 
+	{/*
+	 * What happens to a rule after it lands. Told as prose, not another grid: section 04
+	 * already lists what makes a colleague different, so this section answers the one
+	 * question the ledger raises — why a correction stays corrected. The argument runs
+	 * log, adjudication, objective; the closing paragraph steps up to full foreground.
+	 */}
 	<p class="mt-16 font-mono text-xs tracking-[0.12em] text-fg-quaternary uppercase">
-		{t(lang, 'compounding.how')}
+		{t(lang, 'compounding.after')}
 	</p>
 
-	<ol class="mt-6 grid list-none gap-x-10 gap-y-8 p-0 sm:grid-cols-2 lg:grid-cols-5">
-		{
-			mechanisms.map((item, index) => (
-				<li>
-					<Reveal step={index}>
-						<div class="border-t border-border pt-4">
-							<h3 class="text-sm font-semibold text-foreground">{item.title}</h3>
-							<p class="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
-						</div>
-					</Reveal>
-				</li>
-			))
-		}
-	</ol>
+	<div class="mt-6 max-w-2xl space-y-6">
+		<Reveal>
+			<p class="leading-8 text-muted-foreground">{t(lang, 'compounding.log.p1')}</p>
+		</Reveal>
+		<Reveal step={1}>
+			<p class="leading-8 text-muted-foreground">{t(lang, 'compounding.log.p2')}</p>
+		</Reveal>
+		<Reveal step={2}>
+			<p class="leading-8 text-foreground">{t(lang, 'compounding.log.p3')}</p>
+		</Reveal>
+	</div>
 
 	<Reveal class="mt-16">
 		<div class="border-t border-border pt-8">

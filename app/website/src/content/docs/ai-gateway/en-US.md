@@ -5,7 +5,7 @@ section: Developer guide
 order: 101
 ---
 
-AIGateway is the unified AI boundary of an Ankole installation. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.
+AIGateway is the unified AI boundary of an Ankole deployment instance. External applications, enterprise systems, and SDKs call it directly over an OpenResponses-compatible API; internal agents call the same surface for their model turns. Every call resolves a model selector against the provider bindings the operator configured, and the upstream credentials never leave the control plane.
 
 This page documents the real routes, request shapes, and the boundary between stateless and stateful calls. The source of truth is the control-plane router and the `Ankole.AIGateway` module; treat this page as the map, not the contract.
 
@@ -115,5 +115,5 @@ It is not a public, unauthenticated proxy. It is not a place to send provider cr
 ## Next steps
 
 - For where AIGateway sits in the whole system, read the [architecture overview](../architecture/).
-- For running the server that hosts these routes, read the [installation guide](../installation/).
-- For the behavior an operator configures, read [CONTRIBUTING.md](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md).
+- For running the server that hosts these routes, read the [deployment section of Quick start](../quickstart/#deployment).
+- For the first Provider and model-profile setup, read [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent).

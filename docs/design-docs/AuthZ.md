@@ -3,8 +3,9 @@
 AuthZ answers one question: can this Principal perform this action on this
 resource? A Principal is the human or Agent responsible for the request.
 
-PostgreSQL stores the permission rules for one Ankole Installation. AuthZ does
-not separate SaaS tenants or keep a worker-local access list.
+PostgreSQL stores the permission rules for one Ankole deployment instance.
+AuthZ manages subjects inside that instance. It does not create separate
+organization boundaries or keep a worker-local access list.
 
 AuthZ grants permission only through explicit allow rules. It has no deny rule.
 If required data is missing, invalid, disabled, or unmatched, AuthZ denies the
@@ -235,7 +236,7 @@ and `updated_at`.
 ## Create the First Administrator
 
 Root setup creates two built-in groups. The static `admin` group contains root
-operators for the Installation.
+operators for the deployment instance.
 
 AuthZ computes the `all_humans` group.
 It uses this CEL condition:

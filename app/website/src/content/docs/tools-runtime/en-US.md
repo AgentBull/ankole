@@ -5,7 +5,7 @@ section: Developer guide
 order: 120
 ---
 
-During a turn, the worker assembles the set of tools the model can call, converts each tool's schema to JSON Schema the model sees, and dispatches each function call the model makes back to the tool's `execute` function. This page documents that runtime: the `AgentTool` contract, how the per-turn tool set is assembled, how schemas are collected, and how the loop dispatches a call. It builds on [The agent loop](../agent-loop/) and [Agent Computer](../agent-computer/).
+During a turn, the worker assembles the set of tools the model can call, converts each tool's schema to JSON Schema the model sees, and dispatches each function call the model makes back to the tool's `execute` function. This page documents that runtime: the `AgentTool` contract, how the per-turn tool set is assembled, how schemas are collected, and how the loop dispatches a call. It builds on [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
 The decisive property, stated up front: tools are **assembled per turn, not statically registered**. Each turn builds its tool set from the categories the turn needs — computer, web, brain, schedule, MCP, background jobs — and the set is fresh for each turn, because the available skills, MCP servers, and worker environment can change between turns. There is no global tool registry; there is a per-turn collection.
 
@@ -89,6 +89,6 @@ It is not a tool-authoring tutorial — a new tool is an `AgentTool` object retu
 ## Next steps
 
 - For the loop that dispatches tool calls, read [The agent loop](../agent-loop/).
-- For the Agent Computer that runs the tools, read [Agent Computer](../agent-computer/).
+- For the Agent Computer Worker that runs the tools, read [Agent Computer Worker](../agent-computer-worker/).
 - For MCP tools (created from skill declarations), read the [MCP server reference](../mcp/).
 - For the skills that carry MCP dependencies, read [Writing a skill](../writing-a-skill/).

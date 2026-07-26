@@ -1,8 +1,8 @@
 ---
 title: Audit trail
 description: How to read Ankole's audit surfaces — the Brain audit log, the control-plane structured logs, and what each records about who changed what and when.
-section: User guide
-order: 50
+section: Developer guide
+order: 125
 ---
 
 An audit trail is the durable record of who changed what, and when. Ankole does not have one audit log; it has several surfaces, each owned by a different subsystem, each recording the decisions that matter to it. This page is the operator's map of those surfaces — what each records, how to read it, and how to use them together.
@@ -46,7 +46,7 @@ The control plane emits structured logs with a stable shape — an event name, a
 
 The logs are not PostgreSQL — they are whatever your log ingester receives. If you need them for audit, ship them to a durable store (a log index, an S3 archive) in real time. Logs that were never shipped are gone with the process.
 
-See [Observability](../observability/) for the log knobs and how to read them.
+See [Environment variables](../environment-variables/) for log settings and [Read Ankole logs](../log-reading/) for a diagnostic method.
 
 ## The actor-event and delivery rows
 
@@ -73,5 +73,5 @@ It is not a compliance framework — Ankole provides the surfaces, and your comp
 
 - For the Brain audit surface, read [Brain](../brain/).
 - For the permission model, read [Principal and AuthZ](../principal-authz/).
-- For the log knobs, read [Observability](../observability/) and [Environment variables](../environment-variables/).
+- For log settings and diagnosis, read [Environment variables](../environment-variables/) and [Read Ankole logs](../log-reading/).
 - For backup that protects the trail, read [Backup and restore](../backup-and-restore/).

@@ -1,107 +1,123 @@
 ---
-title: Principal 与 group
-description: AuthZ 的任务导向运维视角——列出 Principal、管理 group、分配成员、创建和查看权限授予。
+title: 主体与权限组
+description: 从身份源同步人员和组织架构，并用目录组、静态组或动态组统一分配权限。
 section: User guide
 order: 49
 ---
 
-Principal 是能在 Ankole 里行动的人；group 是你限定其权限范围的方式；grant 是它们能做什么。本页是权限面的任务导向运维视角——管理 Principal、group、成员和 grant 的路由，附完整示例。它以具体操作补充 [Principal 与 AuthZ](../principal-authz/) 概念页。
+Ankole 把人员、Agent 和系统服务统一表示为主体（Principal）。权限组把多个主体放在一起管理，授权规则则决定一个主体或权限组可以操作哪些资源。
 
-先把决定性的性质说清楚：grant 恰好归一个 Principal 或一个 group——不能两者皆有，不能两者皆无。group 上的 grant 到达该 group 的每个成员；Principal 上的 grant 只到达该 Principal。权限按团队成员身份扩展时用 group；一个 Principal 需要独特的东西时用直接 Principal grant。
+企业员工和组织架构通常由身份源提供商（IdP）自动同步。你不需要逐个创建员工，也不需要在 Ankole 里重复维护部门成员。
 
-## 列出 Principal
+## 身份源如何同步组织架构
 
-```bash
-curl https://ankole.example.com/api/v1/principals \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
+在身份源提供商中启用通讯录同步后，Ankole 会把外部目录转换为两类数据：
+
+- 员工会成为“人员”主体；姓名、头像等资料会随目录同步更新；
+- 部门、用户组等组织单元会成为目录权限组，成员关系也会一起同步。
+
+如果外部目录包含上下级部门，员工加入子部门后，也会成为其上级部门组的成员。因此，把权限授予一个上级部门，就能覆盖其下属部门中的员工。
+
+保存身份源提供商后，Ankole 会启动首次完整同步。之后默认每六小时进行一次完整同步；支持增量同步的身份源还会接收人员和组织变更，不必等待下一次完整同步。
+
+需要立即刷新时，打开 **Console → 身份源提供商**，选择对应的 Provider，再选择“执行完整同步”。同步完成后，到 **访问控制 → 主体** 和 **访问控制 → 权限组** 检查结果。
+
+目录组的来源仍是外部身份系统。请在企业通讯录中修改部门和成员，不要尝试在 Ankole 中手工维护这些组。
+
+如果同步结果缺少人员或部门，先检查外部应用的通讯录权限和可用范围，再重新执行完整同步。接口权限已经开通，并不代表应用能读取整个组织。
+
+首次连接身份源的方法见[快速开始](../quickstart/#2-先设置身份源提供商)。
+
+## 查看主体
+
+打开 **Console → 访问控制 → 主体**。列表会显示主体的名称、UID、类型和状态：
+
+- **人员**来自身份源提供商同步的企业通讯录；
+- **Agent**在创建 Agent 时自动出现；
+- **系统**由 Ankole 自身创建，用于执行内部服务工作。
+
+选择一个主体，可以查看它所属的权限组和直接授权。排查权限时，应同时检查两处：主体可能没有直接授权，但通过权限组获得了权限。
+
+## 选择合适的权限组
+
+权限组的来源和成员维护方式不同：
+
+| 权限组 | 适合什么情况 | 谁维护成员 |
+| --- | --- | --- |
+| **目录组** | 企业通讯录中已经存在的部门或用户组 | 身份源提供商自动同步 |
+| **IM 群组** | 权限需要跟随聊天群成员 | 聊天渠道同步 |
+| **静态组** | Ankole 内部临时组队，或成员较少且变化不频繁 | 管理员手工维护 |
+| **动态组** | 可以根据主体属性稳定判断成员 | Ankole 按 CEL 表达式实时计算 |
+
+目录组和 IM 群组会自动出现在权限组列表中，在 Console 中只能查看。静态组和动态组由管理员在 Ankole 中创建。
+
+企业组织架构已经能表达目标团队时，优先直接使用目录组。这样，员工转岗或离职后，权限会随下一次增量或完整目录同步自动调整。
+
+## 创建静态组
+
+1. 打开 **Console → 访问控制 → 权限组**，选择“新增组”。
+2. 填写稳定的小写英文名称、显示名称和说明。
+3. 类型选择“静态”，然后保存。
+4. 打开新建的组，在“成员”区域选择“添加成员”。
+
+成员加入后，会立即获得该组的全部授权；移除后，也会失去这些授权。
+
+## 创建动态组
+
+动态组不保存成员名单，也不接受手工添加成员。Ankole 会在需要判断权限时，用一条 CEL 表达式检查主体是否属于该组。
+
+创建权限组时选择“动态”，然后在“成员条件”中填写 CEL 表达式。表达式必须返回 `true` 或 `false`，并通过 `principal` 读取当前主体。
+
+动态组目前可以使用这些字段：
+
+| 字段 | 含义 | 常见值 |
+| --- | --- | --- |
+| `principal.uid` | 主体的稳定 UID | `research-agent` |
+| `principal.type` | 主体类型 | `human`、`agent`、`system` |
+| `principal.status` | 主体状态 | `active`、`disabled` |
+| `principal.displayName` | 显示名称，可能为空 | `张三` |
+| `principal.avatarURL` | 头像地址，可能为空 | Provider 返回的 URL |
+
+例如，匹配所有已启用的人员：
+
+```text
+principal.type == "human" && principal.status == "active"
 ```
 
-`GET /principals` 列出每个 Principal——人类、agent 和系统服务。用 `GET /principals/:uid` 读取一个，含其 type（`human`/`agent`/`system`）和 status（`active`/`disabled`）。被禁用的 Principal 跨部署立即失去权限——用它撤销访问而不删除 Principal。
+匹配 UID 以 `research-` 开头的 Agent：
 
-## 列出 Principal 的 group 和 grant
-
-```bash
-curl https://ankole.example.com/api/v1/principals/<uid>/groups -H "Authorization: Bearer $CONSOLE_TOKEN"
-curl https://ankole.example.com/api/v1/principals/<uid>/grants -H "Authorization: Bearer $CONSOLE_TOKEN"
+```text
+principal.type == "agent" && principal.uid.startsWith("research-")
 ```
 
-group 列表显示该 Principal 属于哪些 AuthZ group（静态成员、计算式成员、已同步 directory group）。grant 列表显示该 Principal 直接拥有的每个权限授予——不含通过 group 成员身份继承的 grant。
+输入表达式时，Console 会自动预览所有匹配的已启用主体。确认人数和名单符合预期后再保存，避免把权限授予过多主体。
 
-## 管理 group
+保存后，组名称、类型和成员条件都不能修改。如果规则需要变化，请创建一个新组，确认成员预览后迁移授权，再删除旧组。
 
-```bash
-# 列出 group
-curl https://ankole.example.com/api/v1/principal-groups -H "Authorization: Bearer $CONSOLE_TOKEN"
+CEL 当前不能读取员工的邮箱、职位或所属部门。按部门授权时，应直接使用身份源同步的目录组，不要用显示名称猜测组织关系。
 
-# 创建 group
-curl -X POST https://ankole.example.com/api/v1/principal-groups \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "name": "on-call", "domain": "operator" }'
+## 添加授权
 
-# 读取 group
-curl https://ankole.example.com/api/v1/principal-groups/on-call -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+打开一个权限组或主体，在“权限授权”区域选择“新增授权”，然后填写：
 
-group 带 `domain`——`operator`（你管理）、`directory`（从 IdP 同步）、`im_group`（从聊天平台）。operator-domain group 是你直接管理的；directory group 由 IdP 同步管理。
+- **资源模式**：权限作用于哪些资源；
+- **动作**：允许执行的操作，例如 `read` 或 `update`；
+- **条件**：可选的高级限制；留空表示不增加额外条件；
+- **描述**：说明为什么需要这项权限。
 
-## 管理 group 成员
+优先把授权授予权限组。只有某个主体需要例外权限时，才使用直接授权。修改或删除授权会立即影响它的所有者及相关组成员。
 
-```bash
-# 添加成员
-curl -X PUT https://ankole.example.com/api/v1/principal-groups/on-call/members/<principal_uid> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
+## 按组织架构授权
 
-# 移除成员
-curl -X DELETE https://ankole.example.com/api/v1/principal-groups/on-call/members/<principal_uid> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+假设研究部门中的所有员工都需要查看某个 Agent：
 
-把成员加进 group 立即授予他们该 group 的 grant 允许的每一项权限。移除则撤销。对于 directory 同步的 group，在来源 directory 管理成员身份——同步传播变更。
+1. 确认身份源已经同步出研究部门及其成员。
+2. 打开对应的目录权限组。
+3. 在该组中新增一条针对目标 Agent 的 `read` 授权。
+4. 用该部门的一位员工登录，确认他能打开目标 Agent，但不能访问未授权的资源。
 
-## 管理权限授予
+以后在企业通讯录中调整研究部门成员即可。Ankole 完成下一次同步后，会更新组成员；挂在组上的授权不需要重复修改。
 
-```bash
-# 在 group 上创建 grant
-curl -X POST https://ankole.example.com/api/v1/permission-grants \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "group_id": "<group-uuid>",
-    "resource_pattern": "agent:agent-1",
-    "action": "read"
-  }'
+不要只看 Console 中是否保存成功。用实际成员账号验证一次，才能确认资源范围、动作和成员来源都符合预期。
 
-# 读取 grant
-curl https://ankole.example.com/api/v1/permission-grants/<id> -H "Authorization: Bearer $CONSOLE_TOKEN"
-
-# 更新 grant
-curl -X PATCH https://ankole.example.com/api/v1/permission-grants/<id> \
-  -H "..." -d '{ "condition": "true" }'
-
-# 删除 grant
-curl -X DELETE https://ankole.example.com/api/v1/permission-grants/<id> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
-
-grant 带 `resource_pattern`（应用到什么）、`action`（允许什么）、`condition`（一个 CEL 布尔，默认 `true`）。`resource_pattern` 用模式语法；`action` 不得含冒号（冒号在 kernel 里分隔 resource 和 action）。设 owner 为 group（`group_id`）或 Principal（`principal_uid`）——不能两者都有。
-
-## 一个完整示例
-
-给 on-call 团队对特定 agent 的读权限：
-
-1. 创建 group `on-call`（domain: `operator`）。
-2. 把 on-call 的人加为成员（`PUT .../members/<uid>`）。
-3. 在 group 上创建 grant：`resource_pattern: "agent:agent-1"`、`action: "read"`。
-4. `on-call` 的每个成员现在都能读那个 agent——通过 `GET /principals/<uid>/groups` 验证。
-
-## 本指南不是什么
-
-它不是概念页——Principal/AuthZ 模型、决定状态、kernel 求值见 [Principal 与 AuthZ](../principal-authz/)。它不是 directory 同步指南——directory group 如何到达见 [Identity provider](../identity-providers/)。它不是安全加固指南——最小权限姿态见[安全加固](../security-hardening/)。
-
-## 下一步
-
-- 概念页，读 [Principal 与 AuthZ](../principal-authz/)。
-- directory 同步的 group，读 [Identity provider](../identity-providers/)。
-- 最小权限姿态，读[安全加固](../security-hardening/)。
-- Console 路由，读 [Console API 参考](../console-api/)。
+权限概念和授权规则的完整说明见[主体与授权管理](../principal-authz/)。

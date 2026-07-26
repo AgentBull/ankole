@@ -3,15 +3,15 @@
 This page explains what Ankole does not guarantee. Each subsystem design
 document describes the related behavior in more detail.
 
-## One Installation Does Not Isolate Hostile Customers
+## One Instance Is One Trust Boundary
 
-One Ankole Installation contains one set of Agents, accounts, configuration,
-provider connections, and data. Ankole does not divide an Installation into
-hidden SaaS tenants.
+Each enterprise should operate its own private deployment instance. One instance
+contains one set of Agents, accounts, configuration, provider connections, and
+data.
 
-Principal and AuthZ control who can use each resource. They do not provide
-infrastructure isolation between hostile customers. Run separate Installations
-when customers must not share trusted infrastructure.
+Principal and AuthZ control access inside that instance. They do not isolate
+organizations that do not trust the same infrastructure. Run a separate
+deployment instance for each organization.
 
 ## The Worker Container Protects the Host
 
@@ -26,8 +26,8 @@ The current Docker setup grants `SYS_ADMIN` and uses an unconfined seccomp
 profile. Kubernetes must grant equivalent kernel access for strong mode.
 
 Bubblewrap does not make hostile code safe inside one trusted worker. Use
-separate containers or Installations for hostile workloads. An attacker who
-controls a worker can control a trusted part of Ankole.
+separate containers or deployment instances for hostile workloads. An attacker
+who controls a worker can control a trusted part of Ankole.
 
 All sandboxes in one Worker can read and write `/var/share`. This directory is
 Worker-local and disposable. It is suitable for caches, but it does not isolate
@@ -35,7 +35,8 @@ Agents and does not provide durable storage.
 
 ## All Workers Must See the Same Agent Files
 
-Every worker in one Installation must mount the same `/agents` filesystem.
+Every worker in one deployment instance must mount the same `/agents`
+filesystem.
 A local directory works for one worker. Several workers need shared storage that
 supports read and write access from each worker.
 
@@ -279,7 +280,8 @@ Ankole currently does not provide:
 - a public OpenAI Conversations object API
 - Response delete or cancel endpoints
 - named branch views over the AIGateway message graph
-- hostile multi-tenant isolation inside one Installation
+- infrastructure isolation for mutually hostile organizations inside one
+  deployment instance
 
 A product requirement can change one of these decisions. The change must also
 name the owning module, explain how existing data changes, and state how the

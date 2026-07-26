@@ -1,8 +1,8 @@
 ---
 title: Using MCP servers
 description: How an Ankole agent uses Model Context Protocol servers as tools — where a server is declared, the two transports, the default timeout, why the agent sees a server only when the skill that declares it is enabled, and how an operator changes which MCP servers an agent sees.
-section: User guide
-order: 35
+section: Developer guide
+order: 123
 ---
 
 Model Context Protocol (MCP) servers are how an Ankole agent calls an external tool service during a turn — a lookup API, a local command server, a hosted knowledge base. This page is the operator view of MCP in use: what an MCP server is to the agent, where it is declared, the two transports, and how the set of servers an agent sees is built. It is the use-side companion to the [MCP server reference](../mcp/).
@@ -37,13 +37,13 @@ dependencies:
       timeout_ms: 120000
 ```
 
-When a turn runs, the Agent Computer loads the MCP declarations from every enabled skill, deduplicates by server name, and starts the servers. Two skills that declare the same server name contribute one server, with both skills recorded as the source.
+When a turn runs, the Agent Computer Worker loads the MCP declarations from every enabled skill, deduplicates by server name, and starts the servers. Two skills that declare the same server name contribute one server, with both skills recorded as the source.
 
 ## The two transports
 
 An MCP dependency is one of two transports, and the schema is strict — a field that belongs to one transport is rejected on the other.
 
-- **`streamable_http`** — a remote server reached over HTTP. It takes a `url`, a `bearer_token_env_var` (the name of the environment variable whose value is sent as the bearer token), and an optional `timeout_ms`. Use it for hosted MCP servers you authenticate to with a token. The token itself never goes in the YAML — only the name of the environment variable that holds it, so the secret stays in [WorkerEnv](../worker-env/) and out of the skill bundle.
+- **`streamable_http`** — a remote server reached over HTTP. It takes a `url`, a `bearer_token_env_var` (the name of the environment variable whose value is sent as the bearer token), and an optional `timeout_ms`. Use it for hosted MCP servers that require a token. Put only the environment variable name in the YAML. Store the token in [Environment variables](../worker-env/) in the Console, not in the Skill.
 - **`stdio`** — a local server started as a subprocess. It takes a `command` (1–1024 characters) and an optional `timeout_ms`. Use it for MCP servers shipped as executables or `npx`-style packages. The server runs as a child process of the worker for the duration of the turn's MCP use.
 
 ## Timeouts
@@ -52,7 +52,7 @@ The default MCP timeout is 360,000 ms (six minutes). The minimum is 100 ms. Set 
 
 ## How the enabled set is built
 
-The loader reads the `openai.yaml` of every skill the agent has **enabled** — not every skill the installation ships. A skill that is declared but not enabled on the agent contributes no MCP servers. Enabling a skill that declares MCP servers makes those servers available on the agent's next turn; disabling it removes them.
+The loader reads the `openai.yaml` of every skill the agent has **enabled** — not every skill the deployment instance ships. A skill that is declared but not enabled on the agent contributes no MCP servers. Enabling a skill that declares MCP servers makes those servers available on the agent's next turn; disabling it removes them.
 
 A generation hash is computed from the actual enabled skill metadata files that contribute each declaration, so the loader can tell when the set has materially changed and restart servers as needed. The consequence for the operator: the MCP surface tracks the agent's effective capabilities exactly. There is no drift between "what skills are on" and "what MCP servers are loaded."
 
@@ -64,7 +64,7 @@ Because the skill is the only registration source, the operator's lever is skill
 2. **Turn a server on for an agent** by enabling the skill that declares it. A builtin skill with `default_enabled: true` already contributes its servers to every agent.
 3. **Turn a server off for an agent** by narrowing (disabling) the skill that declares it.
 
-For an HTTP server that needs a token, the corresponding environment variable must be set in [WorkerEnv](../worker-env/); the `bearer_token_env_var` in the YAML is only the name, and an unset variable means the server authenticates without a token or fails at call time.
+For an HTTP server that needs a token, first store the token in [Environment variables](../worker-env/) in the Console. The `bearer_token_env_var` in the YAML contains only the variable name. The server cannot use the token if the variable is unset.
 
 ## What the operator does not touch
 
@@ -75,4 +75,4 @@ The transport wiring, the server start/stop lifecycle, and the deduplication-by-
 - For the full schema, transports, and loader behavior, read the [MCP server reference](../mcp/).
 - For the catalog and enablement model that decides which skills — and therefore which MCP servers — are on, read the [Agent Library](../agent-library/) developer page.
 - For how to author a skill that declares an MCP dependency, read [Writing a skill](../writing-a-skill/).
-- For the environment variables a `bearer_token_env_var` resolves to, read [Worker environment](../worker-env/).
+- To configure the value that `bearer_token_env_var` uses, read [Environment variables](../worker-env/).

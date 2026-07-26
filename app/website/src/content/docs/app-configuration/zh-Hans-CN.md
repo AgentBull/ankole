@@ -1,83 +1,120 @@
 ---
-title: AppConfigure
-description: 运维者管理的运行时配置存储——它是什么、与环境变量的区别、scope、加密、解密权限。
+title: 系统配置
+description: 在 Console 中管理 Ankole 的 AppConfigure 运行时设置，并查阅内置配置键。
 section: User guide
 order: 43
 ---
 
-AppConfigure 是 Ankole 的数据库-backed 运行时配置存储。它持有运维者在安装运行期间通过 Console 更改的设置——AI agent 限制、Brain dreaming、directory 同步间隔、plugin 启用等。本页是 AppConfigure 是什么、与环境变量有何不同、如何使用它的运维者视角。
+**Console → 系统配置**集中管理可以在实例运行期间调整的设置，例如长期记忆、Agent 运行限制、目录同步周期和插件开关。
 
-先把决定性的性质说清楚：AppConfigure 是**运行时可改、PostgreSQL-backed 的配置**。它不是环境变量（部署时设定），也不是自由形态的键值存储（每个键在启动时由拥有它的子系统声明）。通过 Console 改一个键，它就生效——多数键立即，少数下次进程启动。
+模型提供商、身份源提供商、聊天渠道和环境变量都有各自的管理页面，不需要在这里重复配置。
 
-## 与环境变量的区别
+## 系统配置与环境变量的区别
 
-Ankole 从两个生命周期不同的地方读配置：
+AppConfigure 设置保存在 PostgreSQL 中，用于控制 Ankole 运行期间的产品行为。大多数修改会在后续任务中生效，不需要重新部署。
 
-| | 环境变量 | AppConfigure |
+[部署环境变量](../environment-variables/)用于启动控制面、PostgreSQL 和 Worker。修改后需要重启相应进程。
+
+Agent 的 Skill、命令行工具或 MCP 服务需要 API Key 等自定义值时，请使用 [Agent 环境变量](../worker-env/)。
+
+## 查找设置
+
+系统配置按功能分组显示。你可以搜索设置名称或说明，也可以打开一个分组后集中查看相关选项。
+
+列表中的设置分为三类：
+
+- **可编辑**：可以直接打开并修改。
+- **只读**：用于显示当前状态，不能在此修改。
+- **由其他页面管理**：选择“前往管理”后，在对应功能页面中修改。
+
+设置名称是稳定的配置键。说明文字会告诉你它控制什么，以及数值使用的单位。
+
+## 理解作用范围和当前来源
+
+系统配置页修改的是实例级覆盖值。表中标为“实例或单个 Agent”的键还允许所属功能为特定 Agent 保存覆盖值，但不能在这个页面选择 Agent。
+
+当这些设置用于某个 Agent 时，系统会依次读取：
+
+1. 当前 Agent 的覆盖值；
+2. 实例级覆盖值；
+3. 当前版本内置的默认值。
+
+系统配置列表显示实例覆盖值或版本默认值。恢复默认值会删除实例级覆盖；没有单个 Agent 覆盖时，所有 Agent 都会重新使用当前版本的默认值。
+
+## 修改设置
+
+1. 打开目标设置或设置分组。
+2. 阅读字段说明，确认作用范围和单位。
+3. 修改需要的值并保存。
+4. 回到列表，确认该项显示为已覆盖。
+
+部分常用设置有专门的表单。其他高级设置使用 JSON 编辑器；修改前请保留原有字段结构，不要删除不了解的字段。
+
+大多数修改会在后续工作中生效。页面若明确提示“下次启动生效”，需要在合适的时间重启控制面。
+
+## 恢复默认值
+
+如果不再需要自定义值，打开该设置并选择“恢复默认值”。这会删除当前实例保存的覆盖值，让系统重新使用该版本声明的默认配置。
+
+恢复默认值不等于填入一个看起来相同的数值。将来默认配置发生变化时，前者会随版本更新，手工填写的值则会继续保持不变。
+
+## 当前内置的 AppConfigure 键
+
+下面列出 Ankole 当前内置的 AppConfigure 键。Control Plane Plugin 可以注册更多键，实际列表以当前实例的**系统配置**页面为准。
+
+### Agent 运行
+
+| 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| 生命周期 | 进程启动时设定，需重启才改 | 通过 Console 运行时改 |
-| 存储 | 部署的 `.env` 或 Secret | PostgreSQL（`app_configurations` 表） |
-| 什么属于这里 | 引导 secret、数据库 URL、端口、日志级别 | agent 设置、Brain 配置、plugin 启用、同步间隔 |
-| 加密 | 部分（worker 认证 key） | 按键：每个定义的 `encrypted` 标志 |
+| `ai_agent.max_iterations` | 实例或单个 Agent | 单个 Agent 回合允许进行的模型迭代次数 |
+| `ai_agent.max_output_tokens` | 实例或单个 Agent | 单次模型响应的输出 token 上限 |
+| `ai_agent.inactivity_timeout_ms` | 实例或单个 Agent | 模型或 Provider 无响应多久后结束当前回合 |
+| `ai_agent.library.agent_plugin_defaults` | 实例 | Agent Plugin 的默认启用状态 |
+| `ai_agent.library.skill_defaults` | 实例 | Skill 的默认启用状态 |
 
-设置能等到 PostgreSQL 起来，就属于 AppConfigure。等不到——PostgreSQL 可达之前就需要——就属于环境变量。完整划分见[环境变量](../environment-variables/)。
+### AI Gateway 与长期记忆
 
-## Console 界面
-
-AppConfigure 键通过四条 Console 路由管理：
-
-| 方法 | 路径 | 用途 |
+| 配置键 | 作用范围 | 用途 |
 |---|---|---|
-| `GET` | `/app-configurations` | 列出 console 可见条目（元数据，不含加密值） |
-| `GET` | `/app-configurations/:key` | 读取一个条目 |
-| `PUT` | `/app-configurations/:key` | 存储一个值 |
-| `DELETE` | `/app-configurations/:key` | 把一个值重置为默认 |
-| `POST` | `/app-configurations/:key/decryptions` | 揭示一个加密值 |
+| `ai_gateway.compaction` | 实例 | 对话历史自动压缩策略 |
+| `brain.knowledge` | 实例 | 长期记忆投影预算和召回结果数量 |
+| `brain.dreaming` | 实例或单个 Agent | Dreaming 与知识策展策略 |
+| `brain.embedding` | 实例 | Embedding 模型和向量维度 |
+| `brain.search` | 实例 | 长期记忆衰减和重排策略 |
+| `brain.sources` | 实例 | 外部知识源的同步与保留策略 |
 
-列出和读取返回元数据和非加密值。加密键的值在读取时不返回——只有解密动作揭示它，且解密是单独授权的动作。
+### 身份、插件和实例默认值
 
-## Scope
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `principals.identity_providers.active` | 实例，只读 | 当前可用于管理员登录的身份源；由身份源提供商页面管理 |
+| `principals.identity_providers.directory_full_sync_interval_hours` | 实例 | 企业通讯录和组织架构的全量同步间隔 |
+| `plugins.enabled_ids` | 实例 | 下次启动时启用的 Control Plane Plugin |
+| `system.timezone` | 实例 | 计划任务等控制面功能使用的默认时区 |
+| `i18n.default_locale` | 实例 | Ankole 界面的默认语言 |
 
-AppConfigure 条目带 scope：
+### Worker、网页读取和安全
 
-- **`global`**——整套部署一个值。多数键是全局的。
-- **`agent:<uid>`**——全局默认的按 agent 覆盖。子系统在个别 agent 需要不同设置时声明带 agent scope 的键。
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `runtime_fabric.worker_auth_key` | 实例，只读 | 控制面与 Worker 之间的认证密钥；由系统生成和维护 |
+| `agent_computer.background_agent_job.max_turns_per_worker` | 实例 | 每个 Worker 最多同时承载的后台 Agent Job 回合数 |
+| `worker.rendered_fetch_idle_ttl_ms` | 实例或单个 Agent | `web_fetch` 内置渲染回退的空闲保留时间 |
+| `security.ssrf_filter` | 实例或单个 Agent | 是否拒绝模型发起的私网、环回、链路本地和 CGNAT 地址访问 |
 
-scope 是键定义的一部分，不是运维者选的。全局键取一个值；agent-scoped 键取一个全局默认加按 agent 覆盖。
+无论该开关是否启用，云服务元数据地址都会被拒绝。
 
-## 加密
+### 首次设置状态
 
-每个 AppConfigure 定义带 `encrypted` 标志。为 `true` 时：
+| 配置键 | 作用范围 | 用途 |
+|---|---|---|
+| `setup.bootstrap_activation_code` | 实例，只读 | 首次设置页面使用的临时激活码 |
+| `setup.completed` | 实例，只读 | 当前实例是否已经完成首次设置 |
 
-- 值在 PostgreSQL 中静态加密，用 kernel 支持的 AEAD 原语。
-- `GET` 路由不返回值——只返回元数据。
-- `POST .../decryptions` 路由揭示值，且是单独授权的动作（与 `read` 分开）。
+这两个键由首次设置流程维护。需要查看激活码时，运行 `kit show bootstrap-activation-code`，不要在系统配置页手工修改。
 
-这与 [WorkerEnv secret](../worker-env/) 同模型——但 AppConfigure 面向子系统拥有的配置，WorkerEnv 面向 agent 的 shell 环境。
+## 加密设置
 
-## 运维者动的键
+含凭据的设置会加密保存，并在列表和编辑页中以掩码显示。编辑时保留掩码不会改变原值；输入新内容并保存会替换原值。
 
-完整列表在[环境变量](../environment-variables/)的"AppConfigure 键"一节。运维者最常动的：
-
-- **AI agent 限制**——`ai_agent.max_iterations`、`max_output_tokens`、`inactivity_timeout_ms`
-- **Brain**——`brain.dreaming`、`brain.knowledge`、`brain.embedding`、`brain.search`、`brain.sources`
-- **Plugin**——`plugins.enabled_ids`（下次启动生效）
-- **Directory 同步**——`principals.identity_providers.directory_full_sync_interval_hours`
-- **SSRF**——`security.ssrf_filter`
-- **后台任务**——`agent_computer.background_agent_job.max_turns_per_worker`
-
-## 改动何时生效
-
-- **多数键**立即生效——下次读取捡起新值。
-- **`plugins.enabled_ids`**下次进程启动生效，因为激活或停用 plugin 增删受监督子进程。
-- **加密键**（provider 凭证、secret）在下次读取时解密——无需重启，但已解析旧值的进行中回合保留它直到回合结束。
-
-## 本指南不是什么
-
-它不是配置参考——完整键列表带描述在[环境变量](../environment-variables/)。它不是运行时加新键的方式——每个键在启动时由子系统声明，未声明的键无法存储。它也不是 Console 各子系统路由的替代——provider 凭证更好通过 `/ai-gateway/providers/:id` 设，而非通过原始 AppConfigure 键。
-
-## 下一步
-
-- 完整键列表，读[环境变量](../environment-variables/)。
-- Console 界面，读 [Console 运维操作](../console-operations/)和 [Console API 参考](../console-api/)。
-- 加密 shell secret（另一个存储），读 [WorkerEnv secret](../worker-env/)。
+只有核对现有值确实有必要时才使用“显示内容”。不要把显示出来的凭据复制到聊天消息、截图或工单中。

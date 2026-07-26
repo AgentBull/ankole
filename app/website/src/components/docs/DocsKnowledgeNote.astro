@@ -1,0 +1,24 @@
+---
+interface Props {
+	label: string
+	text?: string
+}
+
+const { label, text } = Astro.props
+const hasContent = Astro.slots.has('default')
+---
+
+<aside
+	role="note"
+	aria-label={label}
+	class="not-prose my-6 max-w-3xl border-t border-border/60 pt-3 text-muted-foreground"
+>
+	<div class="grid gap-1 sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-5">
+		<p class="m-0 font-mono text-[10px] leading-5 tracking-[0.04em] text-muted-foreground/70">
+			{label}
+		</p>
+		<div class="m-0 text-[13px] leading-5 [&>p]:m-0">
+			{hasContent ? <slot /> : <p class="m-0">{text}</p>}
+		</div>
+	</div>
+</aside>

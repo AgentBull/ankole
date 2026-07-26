@@ -1,0 +1,402 @@
+---
+import type { Locale } from '../../i18n/config'
+
+interface Props {
+	lang: Locale
+}
+
+const { lang } = Astro.props
+const zh = lang === 'zh-Hans-CN'
+const docs = (slug: string) => `/${lang}/docs/${slug}/`
+
+const copy = zh
+	? {
+			title: 'Ankole 系统架构',
+			description:
+				'企业聊天、外部事件、身份源、Console 和 AI Provider 连接到控制面。控制面通过 RuntimeFabric 调度一个或多个 Agent Computer Worker，并把持久状态写入 PostgreSQL 和 Agent Home。',
+			external: '企业与外部系统',
+			control: '控制面 · 一个逻辑管理边界',
+			execution: '执行层 · 一台或多台 Worker',
+			data: '持久化边界',
+			channels: ['聊天渠道与外部事件', '消息 · Webhook · 计划任务'],
+			operators: ['Console 与 API', '管理员 · 企业应用'],
+			idp: ['身份源提供商', 'SSO · 通讯录 · 组织架构'],
+			providers: ['AI Provider', '模型 · 向量 · 图像 · Web'],
+			signals: ['SignalsGateway', '信号路由 · 消息收发'],
+			identity: ['主体与 AuthZ', '身份 · 权限 · 配置 · 插件'],
+			ai: ['AIGateway', '模型选择 · 会话 · 凭证'],
+			actor: ['Actor Runtime', '长时会话 · 唤醒 · 恢复'],
+			brain: ['Brain', '世界模型 · 召回 · Dreaming'],
+			jobs: ['后台 Agent 任务', '非阻塞 · 可恢复 · 可通信'],
+			fabric: 'RuntimeFabric · 实时控制，不保存事实',
+			workers: ['Agent Computer Worker 池 · 1…N', '主 Agent 与后台任务 · 工具 · Skills · 沙盒'],
+			postgres: ['PostgreSQL', '身份 · 会话 · 记忆 · 任务 · 审计'],
+			home: ['Agent Home', '文件 · 工作区 · 交付物'],
+			caption:
+				'控制面保存状态并决定工作应当怎样运行；Worker 提供实际计算环境。两者分开后，Agent 的工作不会和某个进程或某台机器绑定。'
+		}
+	: {
+			title: 'Ankole system architecture',
+			description:
+				'Enterprise channels, external events, identity providers, the Console, and AI providers connect to the control plane. The control plane schedules one or more Agent Computer Workers through RuntimeFabric and stores durable state in PostgreSQL and Agent Home.',
+			external: 'Enterprise and external systems',
+			control: 'Control plane · one logical management boundary',
+			execution: 'Execution · one or more Workers',
+			data: 'Durability boundary',
+			channels: ['Channels and external events', 'Messages · webhooks · schedules'],
+			operators: ['Console and APIs', 'Operators · enterprise apps'],
+			idp: ['Identity Providers', 'SSO · directory · organization'],
+			providers: ['AI Providers', 'Models · vectors · images · web'],
+			signals: ['SignalsGateway', 'Signal routing · message delivery'],
+			identity: ['Principal and AuthZ', 'Identity · access · config · plugins'],
+			ai: ['AIGateway', 'Model selection · sessions · credentials'],
+			actor: ['Actor Runtime', 'Long sessions · wake · recovery'],
+			brain: ['Brain', 'World model · recall · Dreaming'],
+			jobs: ['Background Agent Jobs', 'Non-blocking · resumable · interactive'],
+			fabric: 'RuntimeFabric · live control, no durable facts',
+			workers: ['Agent Computer Worker pool · 1…N', 'Main Agents and Jobs · tools · Skills · sandboxes'],
+			postgres: ['PostgreSQL', 'Identity · sessions · memory · Jobs · audit'],
+			home: ['Agent Home', 'Files · workspaces · deliverables'],
+			caption:
+				'The control plane stores state and decides how work must run. Workers provide the compute environment. This split keeps Agent work independent of one process or machine.'
+		}
+
+const controlNodes = [
+	{ copy: copy.signals, href: docs('signals-gateway') },
+	{ copy: copy.identity, href: docs('principal-authz') },
+	{ copy: copy.ai, href: docs('ai-gateway') },
+	{ copy: copy.actor, href: docs('actor-runtime') },
+	{ copy: copy.brain, href: docs('brain') },
+	{ copy: copy.jobs, href: docs('background-jobs') }
+]
+---
+
+<figure class="not-prose my-10 w-full min-w-0 max-w-5xl border-y border-border/80 py-6">
+	<svg
+		class="architecture-map hidden h-auto w-full lg:block"
+		viewBox="0 0 1000 840"
+		role="img"
+		aria-labelledby="ankole-architecture-title ankole-architecture-description"
+	>
+		<title id="ankole-architecture-title">{copy.title}</title>
+		<desc id="ankole-architecture-description">{copy.description}</desc>
+
+		<defs>
+			<marker
+				id="architecture-arrow"
+				viewBox="0 0 8 8"
+				refX="7"
+				refY="4"
+				markerWidth="7"
+				markerHeight="7"
+				orient="auto-start-reverse"
+			>
+				<path d="M0 0L8 4L0 8Z" class="arrow-head"></path>
+			</marker>
+		</defs>
+
+		<text x="20" y="17" class="layer-label">{copy.external}</text>
+
+		<g>
+			<rect x="20" y="30" width="220" height="74" class="node"></rect>
+			<text x="36" y="58" class="node-title">{copy.channels[0]}</text>
+			<text x="36" y="82" class="node-detail">{copy.channels[1]}</text>
+		</g>
+		<g>
+			<rect x="267" y="30" width="220" height="74" class="node"></rect>
+			<text x="283" y="58" class="node-title">{copy.operators[0]}</text>
+			<text x="283" y="82" class="node-detail">{copy.operators[1]}</text>
+		</g>
+		<g>
+			<rect x="514" y="30" width="220" height="74" class="node"></rect>
+			<text x="530" y="58" class="node-title">{copy.idp[0]}</text>
+			<text x="530" y="82" class="node-detail">{copy.idp[1]}</text>
+		</g>
+		<g>
+			<rect x="761" y="30" width="220" height="74" class="node"></rect>
+			<text x="777" y="58" class="node-title">{copy.providers[0]}</text>
+			<text x="777" y="82" class="node-detail">{copy.providers[1]}</text>
+		</g>
+
+		<path d="M130 104V184" class="flow"></path>
+		<path d="M377 104V156H500V184" class="flow"></path>
+		<path d="M624 104V156H500V184" class="flow"></path>
+		<path d="M871 104V184" class="flow"></path>
+
+		<rect x="20" y="140" width="960" height="390" class="zone"></rect>
+		<text x="42" y="168" class="layer-label">{copy.control}</text>
+
+		<a href={docs('signals-gateway')} aria-label={copy.signals[0]}>
+			<rect x="55" y="190" width="250" height="100" class="node node-link"></rect>
+			<text x="75" y="227" class="node-title">{copy.signals[0]}</text>
+			<text x="75" y="254" class="node-detail">{copy.signals[1]}</text>
+		</a>
+		<a href={docs('principal-authz')} aria-label={copy.identity[0]}>
+			<rect x="375" y="190" width="250" height="100" class="node node-link"></rect>
+			<text x="395" y="227" class="node-title">{copy.identity[0]}</text>
+			<text x="395" y="254" class="node-detail">{copy.identity[1]}</text>
+		</a>
+		<a href={docs('ai-gateway')} aria-label={copy.ai[0]}>
+			<rect x="695" y="190" width="250" height="100" class="node node-link"></rect>
+			<text x="715" y="227" class="node-title">{copy.ai[0]}</text>
+			<text x="715" y="254" class="node-detail">{copy.ai[1]}</text>
+		</a>
+
+		<a href={docs('actor-runtime')} aria-label={copy.actor[0]}>
+			<rect x="55" y="375" width="250" height="100" class="node node-link node-primary"></rect>
+			<text x="75" y="412" class="node-title">{copy.actor[0]}</text>
+			<text x="75" y="439" class="node-detail">{copy.actor[1]}</text>
+		</a>
+		<a href={docs('brain')} aria-label={copy.brain[0]}>
+			<rect x="375" y="375" width="250" height="100" class="node node-link node-primary"></rect>
+			<text x="395" y="412" class="node-title">{copy.brain[0]}</text>
+			<text x="395" y="439" class="node-detail">{copy.brain[1]}</text>
+		</a>
+		<a href={docs('background-jobs')} aria-label={copy.jobs[0]}>
+			<rect x="695" y="375" width="250" height="100" class="node node-link node-primary"></rect>
+			<text x="715" y="412" class="node-title">{copy.jobs[0]}</text>
+			<text x="715" y="439" class="node-detail">{copy.jobs[1]}</text>
+		</a>
+
+		<path d="M180 290V375" class="flow"></path>
+		<path d="M375 240H335V425H305" class="policy-flow"></path>
+		<path d="M305 425H375" class="flow flow-both"></path>
+		<path d="M625 425H695" class="flow"></path>
+		<path d="M500 375V330H820V290" class="policy-flow"></path>
+
+		<text x="500" y="558" text-anchor="middle" class="flow-label">{copy.fabric}</text>
+		<path d="M180 475V610H250" class="flow"></path>
+		<path d="M820 475V610H750" class="flow"></path>
+		<path d="M820 290V575H700" class="flow flow-both"></path>
+
+		<text x="20" y="595" class="layer-label">{copy.execution}</text>
+		<a href={docs('agent-computer-worker')} aria-label={copy.workers[0]}>
+			<rect x="120" y="610" width="760" height="94" class="node node-link node-primary"></rect>
+			<text x="150" y="649" class="node-title">{copy.workers[0]}</text>
+			<text x="150" y="678" class="node-detail">{copy.workers[1]}</text>
+		</a>
+
+		<text x="20" y="747" class="layer-label">{copy.data}</text>
+		<path d="M340 530V765" class="storage-flow"></path>
+		<path d="M660 704V765" class="storage-flow"></path>
+
+		<g>
+			<rect x="80" y="765" width="390" height="62" class="node storage-node"></rect>
+			<text x="100" y="792" class="node-title">{copy.postgres[0]}</text>
+			<text x="100" y="814" class="node-detail">{copy.postgres[1]}</text>
+		</g>
+		<g>
+			<rect x="530" y="765" width="390" height="62" class="node storage-node"></rect>
+			<text x="550" y="792" class="node-title">{copy.home[0]}</text>
+			<text x="550" y="814" class="node-detail">{copy.home[1]}</text>
+		</g>
+	</svg>
+
+	<div class="architecture-mobile lg:hidden">
+		<p class="mobile-layer-label">{copy.external}</p>
+		<div class="grid grid-cols-2 gap-px bg-border">
+			<div class="mobile-node">
+				<strong>{copy.channels[0]}</strong>
+				<span>{copy.channels[1]}</span>
+			</div>
+			<div class="mobile-node">
+				<strong>{copy.operators[0]}</strong>
+				<span>{copy.operators[1]}</span>
+			</div>
+			<div class="mobile-node">
+				<strong>{copy.idp[0]}</strong>
+				<span>{copy.idp[1]}</span>
+			</div>
+			<div class="mobile-node">
+				<strong>{copy.providers[0]}</strong>
+				<span>{copy.providers[1]}</span>
+			</div>
+		</div>
+
+		<div class="mobile-connector" aria-hidden="true">↓</div>
+		<section class="border border-border bg-background-secondary/40 p-3">
+			<p class="mobile-layer-label mb-3">{copy.control}</p>
+			<div class="grid grid-cols-2 gap-2">
+				{
+					controlNodes.map(node => (
+						<a href={node.href} class="mobile-node border border-border">
+							<strong>{node.copy[0]}</strong>
+							<span>{node.copy[1]}</span>
+						</a>
+					))
+				}
+			</div>
+		</section>
+
+		<div class="mobile-connector">
+			<span>{copy.fabric}</span>
+			<span aria-hidden="true">↓</span>
+		</div>
+		<a href={docs('agent-computer-worker')} class="mobile-node border border-primary">
+			<strong>{copy.workers[0]}</strong>
+			<span>{copy.workers[1]}</span>
+		</a>
+
+		<div class="mobile-connector" aria-hidden="true">↓</div>
+		<p class="mobile-layer-label">{copy.data}</p>
+		<div class="grid grid-cols-2 gap-2">
+			<div class="mobile-node border border-border">
+				<strong>{copy.postgres[0]}</strong>
+				<span>{copy.postgres[1]}</span>
+			</div>
+			<div class="mobile-node border border-border">
+				<strong>{copy.home[0]}</strong>
+				<span>{copy.home[1]}</span>
+			</div>
+		</div>
+	</div>
+
+	<figcaption class="mt-5 max-w-3xl text-xs leading-5 text-muted-foreground">{copy.caption}</figcaption>
+</figure>
+
+<style>
+	.architecture-map {
+		overflow: visible;
+	}
+
+	.architecture-map .zone {
+		fill: color-mix(in oklab, var(--background-secondary) 56%, transparent);
+		stroke: var(--border);
+		stroke-width: 1;
+	}
+
+	.architecture-map .node {
+		fill: var(--background);
+		stroke: var(--border);
+		stroke-width: 1;
+		vector-effect: non-scaling-stroke;
+	}
+
+	.architecture-map .node-primary {
+		stroke: var(--primary);
+	}
+
+	.architecture-map .storage-node {
+		fill: var(--background-secondary);
+	}
+
+	.architecture-map .node-link {
+		transition:
+			fill var(--duration-feedback) var(--ease-productive),
+			stroke var(--duration-feedback) var(--ease-productive);
+	}
+
+	.architecture-map a:hover .node-link,
+	.architecture-map a:focus-visible .node-link {
+		fill: color-mix(in oklab, var(--primary) 7%, var(--background));
+		stroke: var(--primary);
+	}
+
+	.architecture-map .node-title {
+		fill: var(--foreground);
+		font-family: var(--font-sans);
+		font-size: 15px;
+		font-weight: 600;
+	}
+
+	.architecture-map .node-detail {
+		fill: var(--muted-foreground);
+		font-family: var(--font-sans);
+		font-size: 12px;
+	}
+
+	.architecture-map .layer-label,
+	.mobile-layer-label {
+		fill: var(--muted-foreground);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		font-weight: 500;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.architecture-map .flow,
+	.architecture-map .policy-flow,
+	.architecture-map .storage-flow {
+		fill: none;
+		stroke: var(--muted-foreground);
+		stroke-width: 1;
+		vector-effect: non-scaling-stroke;
+		marker-end: url('#architecture-arrow');
+	}
+
+	.architecture-map .flow-both {
+		marker-start: url('#architecture-arrow');
+	}
+
+	.architecture-map .policy-flow,
+	.architecture-map .storage-flow {
+		stroke-dasharray: 4 5;
+	}
+
+	.architecture-map .arrow-head {
+		fill: var(--muted-foreground);
+	}
+
+	.architecture-map .flow-label {
+		fill: var(--muted-foreground);
+		font-family: var(--font-mono);
+		font-size: 10px;
+		letter-spacing: 0.03em;
+	}
+
+	.architecture-mobile {
+		color: var(--foreground);
+	}
+
+	.mobile-layer-label {
+		margin-block: 0 0.5rem;
+		color: var(--muted-foreground);
+	}
+
+	.mobile-node {
+		display: grid;
+		min-width: 0;
+		gap: 0.25rem;
+		background: var(--background);
+		padding: 0.75rem;
+		color: var(--foreground);
+		text-decoration: none;
+	}
+
+	.mobile-node strong {
+		font-size: 0.75rem;
+		font-weight: 600;
+		line-height: 1.25rem;
+	}
+
+	.mobile-node span {
+		font-size: 0.6875rem;
+		line-height: 1rem;
+		color: var(--muted-foreground);
+	}
+
+	a.mobile-node:hover,
+	a.mobile-node:focus-visible {
+		border-color: var(--primary);
+		background: color-mix(in oklab, var(--primary) 7%, var(--background));
+	}
+
+	.mobile-connector {
+		display: grid;
+		justify-items: center;
+		gap: 0.25rem;
+		padding-block: 0.625rem;
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		line-height: 1rem;
+		color: var(--muted-foreground);
+		text-align: center;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.architecture-map .node-link {
+			transition-duration: 1ms;
+		}
+	}
+</style>

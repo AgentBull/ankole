@@ -2,17 +2,19 @@
 
 [简体中文](README.zh-Hans.md)
 
-This Compose project runs a production Ankole installation on one Linux host.
-It includes PostgreSQL, database migration, worker-key bootstrap, the control
-plane, one Agent Computer worker, and Caddy HTTPS.
+This Compose project runs one private Ankole deployment instance on a Linux,
+macOS, or Windows host. Docker must be able to run Linux `amd64` or `arm64`
+containers. The project includes PostgreSQL, database migration, worker-key
+bootstrap, the control plane, one Agent Computer worker, and Caddy HTTPS.
 
 ## Requirements
 
-- A Linux `amd64` or `arm64` host.
-- Docker Engine with the Docker Compose plugin.
+- A Linux, macOS, or Windows host that can run Linux `amd64` or `arm64`
+  containers.
+- Docker Engine with the Docker Compose plugin, or Docker Desktop.
 - Public ports `80` and `443`.
 - A DNS name that points to the host, or `ankole.localhost` for a local-only
-  installation.
+  deployment.
 - Host storage and memory sized for PostgreSQL, Agent Home, and the selected
   model workload.
 
@@ -186,6 +188,7 @@ ports.
   did not change after the first start.
 - If the browser rejects setup, check the Caddy log, DNS, ports `80` and `443`,
   and certificate trust.
-- If the host kernel rejects the worker security options, use a supported Linux
-  Docker host. Do not remove the isolation settings without an equivalent
-  sandbox.
+- If the Docker environment rejects the worker security options, confirm that
+  it runs Linux containers and supports `SYS_ADMIN`, unconfined seccomp, and an
+  unconfined system-path profile. Do not remove the isolation settings without
+  an equivalent sandbox.

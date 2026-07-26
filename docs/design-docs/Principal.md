@@ -4,14 +4,14 @@ A Principal identifies the human or Agent responsible for an action. Work,
 permissions, and audit records all use that same identity.
 
 Current Principal types are `human`, `agent`, and `system`.
-One UID identifies a Principal across the complete Installation. Ankole does
-not add a hidden SaaS tenant ID.
+One UID identifies a Principal across the complete deployment instance. Ankole
+does not add a second organization boundary inside the instance.
 
 ## What the Principal Subsystem Stores
 
 `Ankole.Principals` stores:
 
-- stable rows for humans, Agents, and installation services
+- stable rows for humans, Agents, and system services
 - whether each Principal is active or disabled
 - human profiles
 - Agent subtype and creator information
@@ -29,7 +29,7 @@ It does not store:
 The Elixir control plane stores Principals in PostgreSQL. Bun code receives UIDs
 from control-plane APIs and does not create another identity model.
 
-## Use One UID throughout the Installation
+## Use One UID throughout the Deployment Instance
 
 `principals.uid` is the primary key. The table has no second internal Principal
 ID.
@@ -90,7 +90,7 @@ subsystems. They do not belong in the Principal row.
 
 ### System Principals
 
-A system Principal identifies an installation service that must own durable
+A system Principal identifies a system service that must own durable
 state. It has no `human_users` or `agents` row. It cannot sign in, own an Agent
 runtime, or act as a human through an external identity.
 
@@ -243,7 +243,7 @@ See [AuthZ](AuthZ.md) for the decision contract.
 
 - Use `principals.uid` to identify the responsible subject.
 - Store Principal UIDs in lowercase.
-- Use `system` only for an installation service that owns durable state.
+- Use `system` only for a system service that owns durable state.
 - Disable a Principal by changing its status. Do not delete it.
 - Keep Agent runtime facts outside the common Principal row.
 - Require a nonempty Agent role and a JSON options object.

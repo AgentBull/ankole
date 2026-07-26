@@ -65,6 +65,10 @@ import {
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
+function profileLabel(t: TFunction, profile: ProfileName) {
+  return profile === 'coding' ? t('console.models.background_agent_jobs') : profile
+}
+
 export function ModelProfilesEditor({
   agent,
   error,
@@ -105,8 +109,9 @@ export function ModelProfilesEditor({
       const result = model.markSaved(profile, draftFromProfile(recordValue(persistedProfile) ?? {}), submission)
       const messageKey = result.hasUnsavedChanges ? `${action}_with_unsaved_changes` : action
 
-      if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile }))
-      else toast.success(t(`console.models.${messageKey}`, { profile }))
+      const label = profileLabel(t, profile)
+      if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile: label }))
+      else toast.success(t(`console.models.${messageKey}`, { profile: label }))
     }
     onChanged()
   }
@@ -224,6 +229,7 @@ export function ModelProfilesEditor({
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
           const draft = model.profiles[profile]
+          const label = profileLabel(t, profile)
           const providerID = draft.providerID.value
           const selectedProvider = providers.find(provider => provider.provider_id === providerID)
           const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
@@ -259,7 +265,7 @@ export function ModelProfilesEditor({
             <div key={profile} className="grid gap-4 border border-border bg-card p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Badge variant={REQUIRED_PROFILES.has(profile) ? 'default' : 'outline'}>{profile}</Badge>
+                  <Badge variant={REQUIRED_PROFILES.has(profile) ? 'default' : 'outline'}>{label}</Badge>
                   {REQUIRED_PROFILES.has(profile) ? (
                     <span className="text-xs text-muted-foreground">{t('console.models.required')}</span>
                   ) : null}

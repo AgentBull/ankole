@@ -5,7 +5,7 @@ section: Developer guide
 order: 120
 ---
 
-一个回合中，worker 组装模型可调用的工具集，把每个工具的 schema 转成模型看到的 JSON Schema，并把模型发出的每次 function call 分发回工具的 `execute` 函数。本页文档化该运行时：`AgentTool` 契约、按回合工具集如何组装、schema 如何收集、循环如何分发一次调用。它建立在 [Agent 循环](../agent-loop/) 和 [Agent Computer](../agent-computer/) 之上。
+一个回合中，worker 组装模型可调用的工具集，把每个工具的 schema 转成模型看到的 JSON Schema，并把模型发出的每次 function call 分发回工具的 `execute` 函数。本页文档化该运行时：`AgentTool` 契约、按回合工具集如何组装、schema 如何收集、循环如何分发一次调用。它建立在 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/) 之上。
 
 先把决定性的性质说清楚：工具**按回合组装，不静态注册**。每个回合从回合所需的类别——computer、web、brain、schedule、MCP、后台任务——构建工具集，且集合对每个回合是全新的，因为已启用 skill、MCP server、worker 环境可能在回合间变化。没有全局工具注册表；只有按回合的集合。
 
@@ -89,6 +89,6 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 ## 下一步
 
 - 分发工具调用的循环，读 [Agent 循环](../agent-loop/)。
-- 跑工具的 Agent Computer，读 [Agent Computer](../agent-computer/)。
+- 跑工具的 Agent Computer Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - MCP 工具（从 skill 声明创建），读 [MCP server 参考](../mcp/)。
 - 携带 MCP 依赖的 skill，读[编写 skill](../writing-a-skill/)。

@@ -63,7 +63,7 @@ order: 200
 
 ## worker 测试运行器
 
-`kit agent-computer-test` 在规范 worker 容器运行时里跑 Agent Computer 包测试，于是测试在与真实回合相同的环境里执行。它取 `--suite` 为 `unit` 或 `integration`，以及一个 `--prebuilt-image` 指向特定 Agent Computer Docker 镜像，而不构建。
+`kit agent-computer-test` 在规范 worker 容器运行时里跑 Agent Computer Worker 包测试，于是测试在与真实回合相同的环境里执行。它取 `--suite` 为 `unit` 或 `integration`，以及一个 `--prebuilt-image` 指向特定 Agent Computer Worker Docker 镜像，而不构建。
 
 ## 发现更多
 
@@ -75,5 +75,5 @@ bun run kit --help
 
 ## 下一步
 
-- 用到这些命令的本地环境走查，读[快速开始](../quickstart/)和 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+- 用到这些命令的本地环境走查，读[快速开始](../quickstart/)。
 - `kit dev` 启动了什么，读[架构概览](../architecture/)。

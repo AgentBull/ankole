@@ -18,7 +18,7 @@ The ten profile slots are the biggest lever. Each one is a model choice, and mod
 | `primary` | the main reasoning model — most turns | the single biggest cost line |
 | `light` | high-volume, low-stakes paths | should be genuinely cheap |
 | `heavy` | hard synthesis | expensive; used rarely if `primary` is well-tuned |
-| `coding` | code-heavy work | only bound if the agent codes |
+| Background Agent Jobs (`coding` internally) | every Background Agent Job | selects the model or subscription account for durable background work |
 | `vision_fallback` | when `primary` cannot handle an image | only bound if the agent sees images |
 | `embedding`, `rerank` | memory and retrieval | priced per-call, usually small |
 | `web_search`, `web_fetch` | web tools | see Lever 3 |
@@ -29,7 +29,7 @@ Two moves save the most:
 - **Bind `light` to something genuinely cheap.** It exists for the high-volume path; a `light` that is nearly as expensive as `primary` defeats the slot.
 - **Turn `primary` down, not up, by default.** An agent that "feels expensive" is often a `primary` bound too heavy for the work it actually does. Move up only when quality demands it.
 
-Unbind a slot the agent does not use. `vision_fallback`, `image_generate`, `coding` — each unbound slot removes a path the agent could otherwise spend on.
+Unbind a slot the agent does not use. `vision_fallback` and `image_generate` then cannot incur calls. Background Agent Jobs are different: if their profile is unset, they still run through AIGateway with the Agent's `heavy` profile as the fallback. Configure this profile when you need a different model or a named ChatGPT subscription account for Jobs.
 
 ## Lever 2: reasoning effort
 
@@ -56,7 +56,7 @@ Three AppConfigure keys cap the per-turn spend:
 | `ai_agent.max_output_tokens` | the per-turn output token cap |
 | `ai_agent.inactivity_timeout_ms` | how long a turn may be inactive before it is reaped |
 
-`max_iterations` is the one that bounds a chatty agent loop. A loop that calls ten tools where two would do hits the model ten times; a lower cap forces the agent to converge. `max_output_tokens` bounds the size of each response. These are installation-wide defaults — set them to the shape of a normal turn, and accept that a genuinely hard turn may hit the cap and produce a "synthesize what you have" final answer.
+`max_iterations` is the one that bounds a chatty agent loop. A loop that calls ten tools where two would do hits the model ten times; a lower cap forces the agent to converge. `max_output_tokens` bounds the size of each response. These are instance-wide defaults — set them to the shape of a normal turn, and accept that a genuinely hard turn may hit the cap and produce a "synthesize what you have" final answer.
 
 ## Lever 5: background-job retry and slot caps
 
@@ -74,7 +74,7 @@ A job that fails transiently five times spends five runs' worth of tokens. Most 
 
 ## Where the spend actually is
 
-Before pulling levers, find the spend. Use the [Observability](../observability/) surfaces:
+Before you change models or concurrency, use the Console to find the Agent, conversation, or Background Agent Job that made the calls:
 
 - `GET /ai-gateway/conversations` shows the model calls recent turns made — which profiles resolved, how many calls, which providers. This is the fastest way to see whether the spend is `primary` (volume), `heavy` (a few expensive calls), or `web_search` (many small calls).
 - `GET /background-agent-jobs` shows job `attempts` — a job with `attempts: 5` spent five runs.
@@ -84,7 +84,7 @@ The fix is never "use the agent less." It is "this specific lever is set wrong f
 
 ## A worked example
 
-An installation's bill doubles in a week. The conversations surface shows `primary` calls are normal, but `web_search` calls are up tenfold — a team-assistant agent with `may_intervene` started searching on every channel message. The fix is the persona ("search only when someone asks a factual question"), not a cost lever. The bill was a symptom of a judgment problem; the persona is where judgment lives.
+A deployment instance's bill doubles in a week. The conversations surface shows `primary` calls are normal, but `web_search` calls are up tenfold — a team-assistant agent with `may_intervene` started searching on every channel message. The fix is the persona ("search only when someone asks a factual question"), not a cost lever. The bill was a symptom of a judgment problem; the persona is where judgment lives.
 
 This is the pattern: cost problems are often behavior problems in disguise, and the behavior lever is the persona or the binding policy, not a token cap.
 
@@ -94,7 +94,7 @@ It is not a real-time spend dashboard — Ankole does not emit one. It is not a 
 
 ## Next steps
 
-- For the profile slots, read [Providers and models](../providers-and-models/).
+- For Agent model profiles, read [Agents](../agents/#wire-up-its-models).
 - For the agent-loop knobs and their keys, read [Environment variables](../environment-variables/).
-- For the surfaces that show the spend, read [Observability](../observability/).
-- For the job caps, read [Background jobs (operator view)](../background-jobs-ops/).
+- For the related conversation and Job endpoints, read [Console API reference](../console-api/).
+- For the Job caps, read [Background Agent Jobs](../background-jobs/).

@@ -287,3 +287,8 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
 .prose :where(code):not(:where(pre code))::after {
   content: none;
 }
+
+.prose :where(th, td) :where(code):not(:where(pre code)) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

@@ -72,7 +72,8 @@ The WebSocket client handles reconnects, provider pings, fragments, and event
 dispatch. It acknowledges events after their handlers complete. Provider
 redelivery is safe because host writes are idempotent.
 
-A multi-node Installation must assign each application connection to one node.
+A multi-node deployment instance must assign each application connection to one
+node.
 The local registry cannot make that assignment across nodes.
 
 ## Receive Messages and Actions
@@ -190,7 +191,7 @@ resolves one tenant token when the turn starts. It projects these variables:
 
 WorkerEnv never sends `appSecret`.
 
-The Agent Plugin enables Skills. The signal binding supplies credentials only
+The Agent Plugin enables Skills. The routing rule (`SignalBinding` in code) supplies credentials only
 and cannot make a Skill available.
 
 The `lark-approvals` Skill is a separate user path. A Turn from an active human

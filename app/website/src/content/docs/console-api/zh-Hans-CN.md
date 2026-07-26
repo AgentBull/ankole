@@ -1,11 +1,11 @@
 ---
 title: Console API 参考
-description: /api/v1 之下的无状态 bearer-token REST 界面——门、按界面分组的完整路由表，以及 Console 策略动作。运维任务流程见 Console 运维操作。
-section: Developer guide
-order: 112
+description: Console 使用的 /api/v1 REST 接口参考，包括认证、资源路由和授权操作。
+section: Reference
+order: 203
 ---
 
-本页是 Console API 的 REST 参考：门、`/api/v1` 下的每一条路由，以及每条路由所跑的 Console 策略动作。运维任务索引——按普通步骤说明什么时候做什么——读 [Console 运维操作](../console-operations/)。
+本页是 Console API 的 REST 参考：鉴权入口、`/api/v1` 下的路由，以及每条路由所执行的权限动作。
 
 先把决定性的性质说清楚：Console API 是无状态、bearer 鉴权的，并且它在每一次请求上重新确认调用方仍然是一个活跃管理员。没有 session cookie 替你扛这件事，一个被禁用的管理员立即失效，而不是下一次登录才失效。
 
@@ -29,7 +29,7 @@ order: 112
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/ai-gateway/provider-kinds` | 列出本部署能配置的 provider 种类 |
+| `GET` | `/ai-gateway/provider-kinds` | 列出本实例可以配置的 Provider 类型 |
 | `GET` | `/ai-gateway/providers` | 列出已配置的 provider |
 | `PUT` | `/ai-gateway/providers/:provider_id` | 创建或替换一个 provider |
 | `DELETE` | `/ai-gateway/providers/:provider_id` | 移除一个 provider |
@@ -51,17 +51,17 @@ agent 是这样一个单位：运维者围绕它配置其它一切：
 | `PATCH` | `/agents/:agent_uid` | 更新一个 agent |
 | `DELETE` | `/agents/:agent_uid` | 移除一个 agent |
 
-### signal binding
+### 信号路由规则
 
-一个 signal binding 把一个 provider adapter 绑到一个 agent 上，让共享工作能够到达它：
+信号路由规则（API Schema 中名为 Signal Binding）把一个 Provider 适配器连接到一个 Agent，让共享工作可以到达它：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/signal-adapters` | 列出本部署声明的 adapter |
-| `GET` | `/agents/:agent_uid/signal-bindings` | 列出一个 agent 的 binding |
-| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换一个 binding |
-| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新一个 binding |
-| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 移除一个 binding |
+| `GET` | `/signal-adapters` | 列出本实例声明的适配器 |
+| `GET` | `/agents/:agent_uid/signal-bindings` | 列出一个 Agent 的路由规则 |
+| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
+| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
+| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 移除路由规则 |
 
 禁用一个 binding 会停止新信号唤醒它的 agent，而不删除这个 binding。
 
@@ -85,9 +85,9 @@ Agent Library 是一个 agent 能做什么——它的 plugin 和 skill。Consol
 
 一项能力先在全局启用，再按 agent 收窄或放宽。skill overlay 让运维者为某一个 agent 定制某个 skill 的行为，而不必 fork 它。
 
-### WorkerEnv secret
+### 环境变量（WorkerEnv）
 
-Agent Computer worker 需要 secret——API key、token——但这些 secret 不能明文躺在配置里。WorkerEnv 是那个加密存储：
+Agent Computer Worker 运行时可能需要 API key、token 等环境变量。Console 将这项功能称为“环境变量”；API 中仍使用 `WorkerEnv` 作为资源名：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
@@ -115,12 +115,12 @@ Agent Computer worker 需要 secret——API key、token——但这些 secret �
 
 Control Plane Plugin 是那些改变控制面自身行为的第一方扩展（一个 signals adapter、一个 Brain source connector）。Codex account 带着后台 Agent 任务执行时所用的账户。
 
-### identity provider 与 AppConfiguration
+### 身份源提供商与 AppConfiguration
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/identity-provider-adapters` | 列出本部署支持的 IdP adapter |
-| `GET` | `/identity-providers` | 列出已配置的 identity provider |
+| `GET` | `/identity-provider-adapters` | 列出本实例支持的 IdP 适配器 |
+| `GET` | `/identity-providers` | 列出已配置的身份源提供商 |
 | `PUT` | `/identity-providers/:provider_id` | 创建或替换一个 IdP |
 | `POST` | `/identity-providers/:provider_id/sync-runs` | 从一个 IdP 同步 directory group |
 | `GET` | `/app-configurations` | 列出运维者管理的配置键 |
@@ -138,7 +138,7 @@ Control Plane Plugin 是那些改变控制面自身行为的第一方扩展（�
 - **任务**：`/background-agent-jobs`（列出、读取、取消）。
 - **AI 活动**：`/ai-gateway/conversations`，按会话读取消息。
 - **记忆**：完整的 `/brain/*` 界面——条目、source、审计日志、dreaming 运行与 fitness、还原。
-- **Principal 与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`——即 [Principal 与 AuthZ](../principal-authz/) 页里的权限模型。
+- **主体与 AuthZ**：`/principals`、`/principal-groups`、`/permission-grants`。权限模型见[主体与 AuthZ](../principal-authz/)。
 
 ## 关于这里不包含什么
 
@@ -147,5 +147,5 @@ Control Plane Plugin 是那些改变控制面自身行为的第一方扩展（�
 ## 下一步
 
 - Console 所配置的那些运行时界面，读 [AIGateway API](../ai-gateway/)、[SignalsGateway](../signals-gateway/)、[Actor Runtime](../actor-runtime/)。
-- Console 自身所运行的权限模型，读 [Principal 与 AuthZ](../principal-authz/)。
-- 要先有一套可供配置的运行中部署，读[安装部署指南](../installation/)。
+- Console 使用的权限模型，见[主体与 AuthZ](../principal-authz/)。
+- 如果还没有运行中的实例，请先阅读[快速开始的部署部分](../quickstart/#deployment)。

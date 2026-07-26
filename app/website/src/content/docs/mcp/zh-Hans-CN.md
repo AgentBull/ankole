@@ -31,7 +31,7 @@ dependencies:
       timeout_ms: 120000
 ```
 
-一个回合跑起来时，Agent Computer 从每一个已启用的 skill 加载 MCP 声明，按 server 名去重，并启动这些 server。声明同一个 server 名的两个 skill 贡献一个 server，两个 skill 都记为来源。
+一个回合跑起来时，Agent Computer Worker 从每一个已启用的 skill 加载 MCP 声明，按 server 名去重，并启动这些 server。声明同一个 server 名的两个 skill 贡献一个 server，两个 skill 都记为来源。
 
 ## 两种传输
 
@@ -47,7 +47,7 @@ MCP 依赖是两种传输之一，schema 严格——属于一种传输的字段
 | `bearer_token_env_var` | 一个环境变量的名字，其值作为 bearer token 发送 |
 | `timeout_ms` | 可选请求超时 |
 
-`streamable_http` 用于用 token 鉴权的托管 MCP server。token 本身绝进 YAML——只有持有它的环境变量的名字，于是 secret 留在 [WorkerEnv](../worker-env/) 里，不进 skill bundle。
+`streamable_http` 用于需要 token 的托管 MCP server。YAML 中只填写保存 token 的环境变量名称，token 本身留在 Console 的[环境变量](../worker-env/)中，不会写进 Skill。
 
 ### `stdio`
 
@@ -81,5 +81,5 @@ server 名 1–1024 字符，去除首尾空白，不含控制字符。它是模
 ## 下一步
 
 - 声明 MCP 依赖的 skill，读 [Agent Library](../agent-library/) 开发者页。
-- `bearer_token_env_var` 所解析的环境变量，读 [WorkerEnv secret](../worker-env/)。
-- 在一个回合里跑 MCP 工具的 worker，读 [Agent Computer](../agent-computer/) 开发者页。
+- 配置 `bearer_token_env_var` 所使用的值，读[环境变量](../worker-env/)。
+- 在一个回合里跑 MCP 工具的 worker，读 [Agent Computer Worker](../agent-computer-worker/) 开发者页。

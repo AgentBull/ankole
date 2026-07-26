@@ -1,71 +1,68 @@
 ---
-title: Writing a skill
-description: How to author a skill bundle — the SKILL.md frontmatter, the prose the agent reads, optional MCP dependencies, and how an agent discovers and uses the skill.
+title: Develop Skills and Control Plane Plugins
+description: Add a work method for Agents, or add identity, channel, configuration, and supervised services to the control plane.
 section: Developer guide
-order: 114
+order: 113
 ---
 
-A skill is a filesystem bundle the agent reads during a turn to learn how to do something it was not built to do. This page is the contributor walkthrough: the bundle shape, the frontmatter that makes it discoverable, the prose that makes it useful, and the optional `openai.yaml` that declares MCP dependencies. It builds on the [Agent Library](../agent-library/) concept page; this is *how to write a skill*.
+Skills and Control Plane Plugins both extend Ankole, but they solve different problems. Select the correct extension point before you write code.
 
-The decisive property, stated up front: a skill is prose the model reads, not code the worker runs. The `SKILL.md` is the skill; everything else (supporting files, MCP dependencies, platform tags) is context for that prose. A skill that the model cannot follow from reading the `SKILL.md` is a broken skill, regardless of how good its supporting files are.
+| Requirement | Use |
+|---|---|
+| Teach an Agent how to perform a type of work | Skill |
+| Give an Agent MCP tools and usage instructions | Skill |
+| Add an IdP, chat adapter, or Provider kind | Control Plane Plugin |
+| Add control-plane settings or a supervised service | Control Plane Plugin |
 
-## The bundle shape
+A Skill is a set of files that an Agent reads. It does not require a new control-plane build. A Control Plane Plugin is a first-party Elixir module compiled into the control plane. It needs registration and activates at the next control-plane start.
 
-A skill is a directory containing a `SKILL.md`, and optionally supporting files and an `openai.yaml`:
+## Write a Skill
+
+A Skill is a directory with `SKILL.md`. It can also contain references, templates, and `openai.yaml`:
 
 ```text
 my-skill/
-├── SKILL.md          # required — the skill itself
-├── openai.yaml       # optional — MCP dependencies and metadata
-├── reference.md      # optional — supporting docs the SKILL.md references
-└── templates/        # optional — files the skill uses
+├── SKILL.md
+├── openai.yaml
+├── reference.md
+└── templates/
 ```
 
-The skill name is the directory name (lowercase, `[a-z][a-z0-9_-]{0,63}`). A skill is either `builtin` (shipped in `app/library/skills`, synced into the registry) or `installed` (agent-installed under worker-visible storage). See [Agent Library](../agent-library/) for the enablement model.
+Use lowercase letters, numbers, hyphens, or underscores in the directory name. Built-in Skills live in `app/library/skills/`. An installed Skill lives in the file space for its Agent.
 
-## The SKILL.md frontmatter
+### Write the frontmatter
 
-The top of `SKILL.md` is YAML frontmatter the library reads for discovery and enablement:
+The YAML at the top of `SKILL.md` controls discovery and enablement:
 
 ```yaml
 ---
 name: my-skill
-description: "One sentence: when the agent should use this skill. The model reads this to decide."
+description: "Use when the Agent must review a vendor contract."
 default_enabled: true
 category: productivity
-tags: [MyDomain, Automation]
+tags: [Contracts]
 ankole-runtime: background_job
-license: MIT
 platforms: [linux]
 ---
 ```
 
-The fields that matter most:
+The `description` must state a specific trigger because the Agent uses it to decide whether to read the Skill. Set `ankole-runtime: background_job` when the work needs Job isolation. Set `platforms: [linux]` only when the Skill needs Linux tools.
 
-- **`name`** — must match the directory name. The registry and the agent address the skill by this.
-- **`description`** — the one field the model reads to decide whether to use the skill. Write it as "use this skill when…" and be specific about the trigger; a vague description is a skill the model never reaches for.
-- **`default_enabled`** — whether the skill is on for agents by default. An operator can override per agent.
-- **`ankole-runtime`** — `background_job` if the skill's work needs the isolation of a background job (common for tool-heavy skills); omit if it runs in the foreground turn.
-- **`platforms`** — the platforms the skill's tools work on (`linux`, for skills that use Linux-only tools). A skill that needs `pandoc` is `linux`-only; a skill that is pure prose is platform-agnostic.
+### Write the body
 
-The existing skills in `app/library/skills/` are the best reference for the shape — read a few before writing your own.
+Write for a capable Agent that does not know your local rules. State:
 
-## The SKILL.md body
+1. when to use the Skill;
+2. which inputs to read;
+3. the order of work;
+4. the required result;
+5. actions that are forbidden or need approval.
 
-The body is the prose the agent reads when it uses the skill. Write it for a capable but uninformed reader: the model knows how to code and reason, but not your domain's conventions.
+Link each reference and template by name from `SKILL.md`. The Agent reads these files only when needed, so it cannot use a file that the main instructions do not identify.
 
-A useful shape:
+### Declare MCP dependencies
 
-1. **What the skill does**, in one paragraph.
-2. **When to use it** — the trigger, expanded beyond the frontmatter description.
-3. **How to do the task** — the steps, the tools, the conventions. This is the skill's core.
-4. **What not to do** — the failure modes, the guardrails.
-
-The body is where a skill is won or lost. A skill whose body is generic advice ("be careful", "check the docs") is no better than the model's default behavior; a skill whose body names the exact tools, the exact commands, and the exact conventions of your domain is what makes the agent do something it could not do without the skill.
-
-## MCP dependencies (optional `openai.yaml`)
-
-If the skill needs an MCP server, declare it in `openai.yaml` under `dependencies.tools`:
+Declare an MCP tool in `openai.yaml`:
 
 ```yaml
 dependencies:
@@ -77,24 +74,78 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-The agent sees the MCP server's tools only when the skill that declares it is enabled. See the [MCP server reference](../mcp/) for the transport shapes and the skill-as-registration-source model.
+The Agent sees this tool only while the Skill is enabled. See [MCP reference](../mcp/) for all fields.
 
-## How the agent discovers and uses the skill
+### Verify the Skill
 
-During a turn, the Agent Computer reads the enabled skills' `SKILL.md` files and makes them available to the model. The model reads the `description` to decide which skill to reach for, then reads the skill's body when it uses it. A skill that is enabled but whose description the model never matches is invisible — write the description to be matched.
+Enable the Skill on a test Agent and give it a real task. Confirm that the Agent selects the Skill, reads the required files, and follows the completion criteria. If selection fails, improve `description`. If execution is unstable, make the order and constraints explicit.
 
-Supporting files (`reference.md`, `templates/`) are available to the model when it uses the skill, but the model reads them on demand, not by default. Reference them by name from the `SKILL.md` body ("read `reference.md` for the full API") so the model knows they exist.
+## Develop a Control Plane Plugin
 
-## Test a skill
+Use a Control Plane Plugin for capabilities owned by the control plane. The module implements `Ankole.Plugins.Plugin`. The smallest valid Plugin has one stable ID:
 
-A skill is tested by using it: enable it on an agent, give the agent a task the skill covers, and read whether the agent follows the `SKILL.md`. If the agent ignores a step, the step was not clear enough; if the agent never reaches for the skill, the description was not matched. Iterate on the prose, not on machinery — the skill is the prose.
+```elixir
+defmodule Ankole.Plugins.MyPlugin do
+  @behaviour Ankole.Plugins.Plugin
 
-## What this guide is not
+  @impl true
+  def plugin_id, do: "my-plugin"
+end
+```
 
-It is not a prompt-engineering tutorial — write clear prose for a capable reader, the same skill you would use for any documentation. It is not a way to run arbitrary code; the skill is prose and optional MCP dependencies, and the tools the model calls are the worker's tools, not the skill's. And it is not a substitute for reading the existing skills; `app/library/skills/` is the canonical reference for the shape, and reading a few is the fastest way to write a good one.
+Use a lowercase slug for the Plugin ID. Implement other callbacks only when needed:
 
-## Next steps
+| Callback | Purpose |
+|---|---|
+| `display_name/0`, `description/0` | Name and description shown in the Console |
+| `adapter_declarations/0` | Declare IdP, chat, or other adapters |
+| `app_config_definitions/0` | Declare fixed AppConfigure settings |
+| `app_config_patterns/0` | Declare settings with dynamic IDs |
+| `children/0` | Start connections, registries, or reconcilers |
 
-- For the concept page (filesystem bundles, enablement, sync), read [Agent Library](../agent-library/).
-- For MCP dependencies in `openai.yaml`, read the [MCP server reference](../mcp/).
-- For the `/agents/:agent_uid/library-capabilities` routes that enable skills, read the [Console API reference](../console-api/).
+### Register the Plugin
+
+Add the module to `config/config.exs`:
+
+```elixir
+config :ankole, :control_plane_plugin_modules, [
+  Ankole.Plugins.MyPlugin
+]
+```
+
+The Plugin then appears in the Console catalog. After an administrator enables it, the next control-plane start registers its settings, adapters, and supervised processes. Plugins do not support hot loading.
+
+### Declare an adapter
+
+`adapter_declarations/0` returns adapter declarations. The `contract_id` selects the subsystem that reads each declaration:
+
+```elixir
+@impl true
+def adapter_declarations do
+  [
+    %{
+      contract_id: "signals_gateway.adapter",
+      id: "my-adapter",
+      plugin_id: plugin_id()
+    }
+  ]
+end
+```
+
+The owning subsystem defines the adapter-specific fields. A chat adapter follows the [SignalsGateway](../signals-gateway/) contract. IdPs and model Providers use their existing registries. Do not create a parallel configuration path inside the Plugin.
+
+### Declare settings and services
+
+Use `app_config_definitions/0` or `app_config_patterns/0` for settings that operators manage at runtime. Use environment variables only for startup facts that must exist before the database is available.
+
+`children/0` returns standard OTP child specifications. Put connections and reconcilers under the Plugin supervisor. They start when the Plugin activates and stop after disablement at the next control-plane start.
+
+### Verify the Plugin
+
+Run the control-plane tests and static checks. Enable the Plugin in the Console and restart the control plane. Confirm that it is active, its settings are visible, and each declared adapter completes a real connection. Run the related integration test when the Plugin implements an external protocol.
+
+## Continue
+
+- See [Agent Library](../skills/) for Skill enablement, inheritance, and installation.
+- See [Control Plane Plugins](../control-plane-plugins/) for discovery and activation.
+- See [Add a Provider](../adding-a-provider/) for a new LLM Provider.

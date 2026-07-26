@@ -11,6 +11,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
   alias Ankole.SignalsGateway.Entry
+  alias Ankole.SignalsGateway.ActorRuntime.ReplyDeletion
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -23,7 +24,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
   alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
@@ -732,7 +732,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
            now
          ) do
       {:ok, %{status: :retracted, retracted_message_ids: message_ids}} ->
-        {:ok, retry_reply_deletion_outbox_intents(repo, actor_event_id, message_ids)}
+        {:ok, ReplyDeletion.outbox_intents(repo, actor_event_id, message_ids)}
 
       {:ok, %{status: :noop, reason: reason}} ->
         {:noop, reason}
@@ -749,102 +749,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
          _retry_source,
          _now
        ) do
-    {:ok, retry_reply_deletion_outbox_intents(repo, actor_event_id, [])}
-  end
-
-  defp retry_reply_deletion_outbox_intents(repo, actor_event_id, message_ids) do
-    targets =
-      retry_response_reply_targets(repo, message_ids) ++
-        retry_actor_event_reply_targets(repo, actor_event_id)
-
-    targets
-    |> Enum.uniq_by(&{&1.signal_channel_id, &1.source_entry_id})
-    |> Enum.sort_by(&{&1.signal_channel_id, &1.source_entry_id})
-    |> Enum.map(&retry_reply_deletion_outbox_intent(&1, actor_event_id))
-  end
-
-  defp retry_response_reply_targets(_repo, []), do: []
-
-  defp retry_response_reply_targets(repo, message_ids) do
-    Entry
-    |> where([entry], entry.ai_message_id in ^message_ids)
-    |> order_by([entry], asc: entry.signal_channel_id, asc: entry.source_entry_id)
-    |> repo.all()
-    |> Enum.map(fn entry ->
-      %{
-        signal_channel_id: entry.signal_channel_id,
-        provider_thread_id: entry.provider_thread_id,
-        source_entry_id: entry.source_entry_id,
-        ai_message_id: entry.ai_message_id
-      }
-    end)
-  end
-
-  defp retry_actor_event_reply_targets(repo, actor_event_id) do
-    OutboxEntry
-    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
-    |> where([outbox], outbox.delivery_class == :durable_ai_reply)
-    |> order_by([outbox], asc: outbox.inserted_at, asc: outbox.outbound_key)
-    |> repo.all()
-    |> Enum.map(&retry_outbox_reply_target/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp retry_outbox_reply_target(
-         %OutboxEntry{
-           operation: :edit,
-           signal_channel_id: signal_channel_id,
-           target_source_entry_id: source_entry_id
-         } = outbox
-       )
-       when is_binary(signal_channel_id) and is_binary(source_entry_id) do
-    %{
-      signal_channel_id: signal_channel_id,
-      provider_thread_id: outbox.provider_thread_id,
-      source_entry_id: source_entry_id,
-      ai_message_id: outbox.ai_message_id
-    }
-  end
-
-  defp retry_outbox_reply_target(
-         %OutboxEntry{
-           operation: operation,
-           signal_channel_id: signal_channel_id,
-           created_source_entry_id: source_entry_id
-         } = outbox
-       )
-       when operation in [:post, :reply, :card, :divider] and is_binary(signal_channel_id) and
-              is_binary(source_entry_id) do
-    %{
-      signal_channel_id: signal_channel_id,
-      provider_thread_id: outbox.provider_thread_id,
-      source_entry_id: source_entry_id,
-      ai_message_id: outbox.ai_message_id
-    }
-  end
-
-  defp retry_outbox_reply_target(_outbox), do: nil
-
-  defp retry_reply_deletion_outbox_intent(target, actor_event_id) do
-    outbound_key =
-      case target.ai_message_id do
-        ai_message_id when is_binary(ai_message_id) ->
-          "ai-reply-retraction:#{ai_message_id}:#{target.source_entry_id}"
-
-        nil ->
-          "ai-reply-retraction:actor-event:#{actor_event_id}:#{target.source_entry_id}"
-      end
-
-    %{
-      outbound_key: outbound_key,
-      operation: :delete,
-      signal_channel_id: target.signal_channel_id,
-      provider_thread_id: target.provider_thread_id,
-      reply_to_source_entry_id: nil,
-      target_source_entry_id: target.source_entry_id,
-      ai_message_id: target.ai_message_id,
-      idempotency_key: outbound_key
-    }
+    {:ok, ReplyDeletion.outbox_intents(repo, actor_event_id, [])}
   end
 
   defp latest_terminal_retry_source(repo, actor_key, command_event) do

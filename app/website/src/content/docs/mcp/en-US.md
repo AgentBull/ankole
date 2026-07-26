@@ -31,7 +31,7 @@ dependencies:
       timeout_ms: 120000
 ```
 
-When a turn runs, the Agent Computer loads the MCP declarations from every enabled skill, deduplicates by server name, and starts the servers. Two skills that declare the same server name contribute one server, with both skills recorded as the source.
+When a turn runs, the Agent Computer Worker loads the MCP declarations from every enabled skill, deduplicates by server name, and starts the servers. Two skills that declare the same server name contribute one server, with both skills recorded as the source.
 
 ## The two transports
 
@@ -47,7 +47,7 @@ A remote server reached over HTTP. Fields:
 | `bearer_token_env_var` | the name of an environment variable whose value is sent as the bearer token |
 | `timeout_ms` | optional request timeout |
 
-Use `streamable_http` for hosted MCP servers you authenticate to with a token. The token itself never goes in the YAML — only the name of the environment variable that holds it, so the secret stays in [WorkerEnv](../worker-env/) and out of the skill bundle.
+Use `streamable_http` for hosted MCP servers that require a token. Put only the environment variable name in the YAML. Store the token in [Environment variables](../worker-env/) in the Console, not in the Skill.
 
 ### `stdio`
 
@@ -70,7 +70,7 @@ A server name is 1–1024 characters, trimmed, with no control characters. It is
 
 ## How the enabled set is built
 
-The loader reads the `openai.yaml` of every skill the agent has enabled — not every skill the installation ships. A skill that is declared but not enabled on the agent contributes no MCP servers. Enabling a skill that declares MCP servers makes those servers available on the agent's next turn; disabling it removes them. This keeps the MCP surface a projection of the agent's effective capabilities, not a second configuration surface an operator has to manage separately.
+The loader reads the `openai.yaml` of every skill the agent has enabled — not every skill the deployment instance ships. A skill that is declared but not enabled on the agent contributes no MCP servers. Enabling a skill that declares MCP servers makes those servers available on the agent's next turn; disabling it removes them. This keeps the MCP surface a projection of the agent's effective capabilities, not a second configuration surface an operator has to manage separately.
 
 A generation hash is computed from the actual enabled skill metadata files that contribute each declaration, so the loader can tell when the set has materially changed and restart servers as needed.
 
@@ -81,5 +81,5 @@ It is not a place to mount arbitrary long-running services. MCP servers are tool
 ## Next steps
 
 - For the skills that declare MCP dependencies, read the [Agent Library](../agent-library/) developer page.
-- For the environment variables a `bearer_token_env_var` resolves to, read [WorkerEnv secrets](../worker-env/).
-- For the worker that runs MCP tools during a turn, read the [Agent Computer](../agent-computer/) developer page.
+- To configure the value that `bearer_token_env_var` uses, read [Environment variables](../worker-env/).
+- For the worker that runs MCP tools during a turn, read the [Agent Computer Worker](../agent-computer-worker/) developer page.

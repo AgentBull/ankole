@@ -24,7 +24,7 @@ export interface DocsSection {
   docs: DocNavItem[]
 }
 
-/** Docs entries live at src/content/docs/<slug>/<locale>.md; the slug is the first id segment. */
+/** Docs entries live at src/content/docs/<slug>/<locale>.md or .mdx; the slug is the first id segment. */
 export function docSlug(id: string): string {
   return id.split('/')[0]
 }

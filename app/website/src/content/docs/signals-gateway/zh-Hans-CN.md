@@ -7,7 +7,7 @@ order: 102
 
 SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、一个 provider 事件，或一个定时提醒，从一边进来；一个归一化、持久的 actor 事件从另一边出去，准备好唤醒某个 session。这个网关的职责，是把各个 provider 各不相同的形态收成一种，并且让原始的 provider 事实与随后发生的执行保持分离。
 
-本页画出的是真实的入口路径、绑定模型，以及镜像与唤醒之间的边界。事实来源是 `Ankole.SignalsGateway` 模块及其 `Ingress`、`Projection`、`Bindings` 子模块。
+本页说明真实的入口路径、用户界面中“信号路由规则”背后的 Signal Binding 模型，以及镜像与唤醒之间的边界。事实来源是 `Ankole.SignalsGateway` 模块及其 `Ingress`、`Projection`、`Bindings` 子模块。
 
 ## 它守住的契约
 
@@ -22,9 +22,9 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 
 不论来自哪个 provider，每一条入境事实都走同一条固定管线：
 
-1. **解析绑定。** 网关按 `agent_uid` 和 `binding_name` 查找 signal binding。没有绑定，就没有路径——事实被拒绝。
+1. **解析路由规则。** 网关按 `agent_uid` 和 `binding_name` 查找内部的 Signal Binding。没有规则就没有路由，因此这条信息会被拒绝。
 2. **构造事实。** provider 原生的载荷通过 `FactNormalizer` 归一化为一种带类型的事实——条目、表情反应、动作或生命周期。provider 各自的名称（比如“删除”或“撤回”）会坍缩成同一种面向 actor 的类型。
-3. **应用绑定过滤。** 绑定的过滤规则决定这条事实是否在范围内。不匹配会返回 `{:ok, %{status: :filtered}}`，这是一次成功，不是错误。
+3. **应用路由过滤。** 规则的过滤条件决定这条信息是否在范围内。不匹配会返回 `{:ok, %{status: :filtered}}`，这是一次成功，不是错误。
 4. **接受并镜像。** 被接受的事实会 upsert channel 镜像，并写出条目投影。provider 事实就在这里变成持久的行。
 5. **在需要时交出 actor 事件。** 如果被接受的事实应当唤醒某个 actor，就向 session 队列追加一条 `ActorEvent`。表情反应是例外：它只更新镜像，永远不产生 actor 事件。
 
@@ -45,21 +45,21 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 
 **条目** 是一个 channel 中的一单位内容：一条消息、一篇帖子、一个事件。条目投影才是 agent 回合读取的东西；它既不是 actor 事件，也不是源载荷的逐字副本。
 
-## 绑定模型
+## 路由规则模型
 
-一个 signal binding 把一个 provider adapter 绑到一个 agent 上，名字由运维者自取。绑定挂在 agent 名下，通过 console 范围的路由管理：
+一条信号路由规则在内部保存为 Signal Binding。它把一个 Provider 适配器连接到一个 Agent，名称由运维者设置。规则归属于 Agent，并通过 Console 范围内的 API 管理：
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| `GET` | `/signal-adapters` | 列出本部署声明的 adapter |
-| `GET` | `/agents/:agent_uid/signal-bindings` | 列出某个 agent 的绑定 |
-| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换一个绑定 |
-| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新一个绑定 |
-| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 删除一个绑定 |
+| `GET` | `/signal-adapters` | 列出本实例声明的适配器 |
+| `GET` | `/agents/:agent_uid/signal-bindings` | 列出一个 Agent 的路由规则 |
+| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
+| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
+| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 删除路由规则 |
 
-一个绑定带着它使用的 adapter、一个配置引用、过滤规则、一条群消息策略、一个 `enabled` 开关，以及一个 `confidential_memory` 开关。禁用一个绑定会停止新事实唤醒它的 actor，但不会删除绑定本身；一个不可用的绑定会记下 `unavailable_reason`，运维者就能看到它为什么停了。
+一条规则包含适配器、配置引用、过滤条件、群消息策略、`enabled` 开关和 `confidential_memory` 开关。停用规则后，新信息不会再唤醒对应的 Actor，但规则本身仍会保留。不可用的规则会记录 `unavailable_reason`，运维者可以据此判断停止原因。
 
-adapter 不是写死的。它们在启动时从插件注册表中按 `signals_gateway.adapter` 契约解析出来，所以可用的 provider 集合，就是本部署的插件所声明的那些。请求一个没有任何声明提供的 adapter id，会返回 `signal_adapter_not_found`。
+适配器不是写死的。它们在启动时从插件注册表中按 `signals_gateway.adapter` 契约解析，所以可用的 Provider 集合就是本实例的插件所声明的集合。请求一个没有任何声明提供的适配器 ID，会返回 `signal_adapter_not_found`。
 
 ## provider 的 webhook 入口
 
@@ -84,4 +84,4 @@ POST /webhooks/v1/:handler_id/:instance_id/:kind
 ## 下一步
 
 - 被唤醒的 actor 事件如何跑起来，读 [AIGateway API](../ai-gateway/) 和[架构概览](../architecture/)。
-- 在一套运行中的部署里配置绑定，读[安装部署指南](../installation/)和 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+- 配置聊天渠道和路由规则，读[快速开始](../quickstart/)。

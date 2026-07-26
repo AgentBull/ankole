@@ -1,83 +1,120 @@
 ---
 title: AppConfigure
-description: The operator-managed runtime configuration store — what it is, how it differs from environment variables, the scopes, the encryption, and the decrypt permission.
+description: Manage Ankole AppConfigure runtime settings in the Console and reference the built-in keys.
 section: User guide
 order: 43
 ---
 
-AppConfigure is the database-backed runtime configuration store for Ankole. It holds the settings an operator changes through the Console while the installation is running — AI agent limits, Brain dreaming, directory sync intervals, plugin enablement, and more. This page is the operator-facing view of what AppConfigure is, how it differs from environment variables, and how to work with it.
+**Console → AppConfigure** contains settings that an administrator can change while the deployment instance is in service. Examples include durable memory, Agent limits, directory synchronization intervals, and plugin switches.
 
-The decisive property, stated up front: AppConfigure is **runtime-changeable, PostgreSQL-backed configuration**. It is not environment variables (which are deployment-time), and it is not a free-form key-value store (every key is declared at boot by the subsystem that owns it). Change a key through the Console, and it takes effect — for most keys immediately, for a few on the next process start.
+LLM Providers, Identity Providers, chat channels, and environment variables have their own Console pages. Do not configure them again here.
 
-## How it differs from environment variables
+## AppConfigure and environment variables
 
-Ankole reads configuration from two places with different lifecycles:
+AppConfigure settings are stored in PostgreSQL. They control Ankole product behavior while the instance runs. Most changes apply to later work and do not require a new deployment.
 
-| | Environment variables | AppConfigure |
+[Deployment environment variables](../environment-variables/) start the control plane, PostgreSQL, and Workers. Restart the affected process after you change one.
+
+Use [Agent environment variables](../worker-env/) when a Skill, command-line tool, or MCP service needs a custom value such as an API key.
+
+## Find a setting
+
+The page groups related settings. You can search by key or description, or open a group to see its settings together.
+
+Each row has one of these states:
+
+- **Editable:** open the row and change it here.
+- **Read-only:** the row shows current state but cannot be changed here.
+- **Managed elsewhere:** follow the management link to the Console page that owns the setting.
+
+The key is the stable name of the setting. Its description explains what it controls and which unit a number uses.
+
+## Understand scope and source
+
+The AppConfigure page changes instance overrides. A key marked **Instance or Agent** also lets its owning feature store an override for one Agent, but this page does not select or edit an Agent.
+
+When Ankole resolves one of these settings for an Agent, it uses this order:
+
+1. the current Agent override;
+2. the instance override;
+3. the default declared by the installed version.
+
+The AppConfigure list shows an instance override or the version default. **Reset to default** removes the instance override. All Agents without their own override then use the version default.
+
+## Change a setting
+
+1. Open the setting or setting group.
+2. Read the field descriptions and confirm the scope and units.
+3. Change the necessary values and save.
+4. Return to the list and confirm that the row shows an override.
+
+Common settings use a dedicated form. Some advanced settings use a JSON editor. Keep the existing field structure and do not remove fields that you do not understand.
+
+Most changes apply to later work. If the page says that a change applies at the next start, restart the control plane at a suitable time.
+
+## Reset a setting
+
+When you no longer need a custom value, open the setting and select **Reset to default**. This removes the stored override and makes Ankole use the default declared by the installed version.
+
+Resetting is different from entering the current default as a custom value. A reset follows a changed default in a later version. A stored custom value does not.
+
+## Current built-in AppConfigure keys
+
+The following AppConfigure keys are built into Ankole. A Control Plane Plugin can register more keys. The **AppConfigure** page in the current instance is the authoritative list.
+
+### Agent runtime
+
+| Key | Scope | Purpose |
 |---|---|---|
-| Lifecycle | set at process start, requires restart to change | changed through the Console at runtime |
-| Storage | the deployment's `.env` or Secret | PostgreSQL (`app_configurations` table) |
-| What belongs here | bootstrap secrets, database URL, ports, log level | agent settings, Brain config, plugin enablement, sync intervals |
-| Encrypted | some (worker auth key) | per-key: the `encrypted` flag on each definition |
+| `ai_agent.max_iterations` | Instance or Agent | Maximum model iterations for one Agent turn |
+| `ai_agent.max_output_tokens` | Instance or Agent | Output-token cap for one model response |
+| `ai_agent.inactivity_timeout_ms` | Instance or Agent | Time to wait for an inactive model or Provider before ending the turn |
+| `ai_agent.library.agent_plugin_defaults` | Instance | Default enablement for Agent Plugins |
+| `ai_agent.library.skill_defaults` | Instance | Default enablement for Skills |
 
-If a setting can wait until PostgreSQL is up, it belongs in AppConfigure. If it cannot — it is needed before PostgreSQL is reachable — it belongs in the environment. See [Environment variables](../environment-variables/) for the full split.
+### AI Gateway and long-term memory
 
-## The Console surface
-
-AppConfigure keys are managed through four Console routes:
-
-| Method | Path | Purpose |
+| Key | Scope | Purpose |
 |---|---|---|
-| `GET` | `/app-configurations` | List console-visible entries (metadata, not encrypted values) |
-| `GET` | `/app-configurations/:key` | Read one entry |
-| `PUT` | `/app-configurations/:key` | Store one value |
-| `DELETE` | `/app-configurations/:key` | Reset one value to its default |
-| `POST` | `/app-configurations/:key/decryptions` | Reveal one encrypted value |
+| `ai_gateway.compaction` | Instance | Automatic conversation-history compaction policy |
+| `brain.knowledge` | Instance | Long-term memory projection budget and result limit |
+| `brain.dreaming` | Instance or Agent | Dreaming and knowledge-curation policy |
+| `brain.embedding` | Instance | Embedding model and vector dimensions |
+| `brain.search` | Instance | Long-term memory decay and reranking policy |
+| `brain.sources` | Instance | External-source synchronization and retention policy |
 
-Listing and reading return metadata and non-encrypted values. An encrypted key's value is not returned on read — only the decrypt action reveals it, and decrypt is a separately authorized action.
+### Identity, Plugins, and instance defaults
 
-## Scopes
+| Key | Scope | Purpose |
+|---|---|---|
+| `principals.identity_providers.active` | Instance, read-only | Identity sources available for administrator sign-in; managed on the Identity Provider page |
+| `principals.identity_providers.directory_full_sync_interval_hours` | Instance | Full organization-directory synchronization interval |
+| `plugins.enabled_ids` | Instance | Control Plane Plugins to enable at the next start |
+| `system.timezone` | Instance | Default time zone for schedules and other control-plane features |
+| `i18n.default_locale` | Instance | Default language for the Ankole interface |
 
-AppConfigure entries carry a scope:
+### Workers, web reading, and security
 
-- **`global`** — one value for the entire installation. Most keys are global.
-- **`agent:<uid>`** — per-agent override of a global default. A subsystem declares a key with an agent scope when individual agents need different settings.
+| Key | Scope | Purpose |
+|---|---|---|
+| `runtime_fabric.worker_auth_key` | Instance, read-only | Authentication key between the control plane and Workers; generated and maintained by the system |
+| `agent_computer.background_agent_job.max_turns_per_worker` | Instance | Maximum concurrent Background Agent Job turns on each Worker |
+| `worker.rendered_fetch_idle_ttl_ms` | Instance or Agent | Idle lifetime for the built-in `web_fetch` rendered fallback |
+| `security.ssrf_filter` | Instance or Agent | Whether model-controlled fetches reject private, loopback, link-local, and CGNAT addresses |
 
-The scope is part of the key's definition, not something the operator picks. A global key takes one value; an agent-scoped key takes a global default plus per-agent overrides.
+Cloud metadata addresses are rejected even when this setting is off.
 
-## Encryption
+### First-run state
 
-Each AppConfigure definition carries an `encrypted` flag. When `true`:
+| Key | Scope | Purpose |
+|---|---|---|
+| `setup.bootstrap_activation_code` | Instance, read-only | Temporary activation code for the first-run setup page |
+| `setup.completed` | Instance, read-only | Whether this instance has completed first-run setup |
 
-- The value is encrypted at rest in PostgreSQL, using the kernel-backed AEAD primitive.
-- The `GET` route does not return the value — it returns metadata only.
-- The `POST .../decryptions` route reveals the value, and it is a separately authorized action (distinct from `read`).
+The first-run setup flow owns these keys. To read the activation code, run `kit show bootstrap-activation-code`. Do not edit these keys on the AppConfigure page.
 
-This is the same model as [WorkerEnv secrets](../worker-env/) — but AppConfigure is for subsystem-owned configuration, while WorkerEnv is for the agent's shell environment.
+## Encrypted settings
 
-## The keys an operator touches
+Ankole stores credential settings in encrypted form and shows a mask in the list and editor. Saving the mask keeps the current value. Entering new content replaces it.
 
-The full list is in [Environment variables](../environment-variables/) under "AppConfigure keys." The ones operators touch most often:
-
-- **AI agent limits** — `ai_agent.max_iterations`, `max_output_tokens`, `inactivity_timeout_ms`
-- **Brain** — `brain.dreaming`, `brain.knowledge`, `brain.embedding`, `brain.search`, `brain.sources`
-- **Plugins** — `plugins.enabled_ids` (takes effect on next start)
-- **Directory sync** — `principals.identity_providers.directory_full_sync_interval_hours`
-- **SSRF** — `security.ssrf_filter`
-- **Background jobs** — `agent_computer.background_agent_job.max_turns_per_worker`
-
-## When changes take effect
-
-- **Most keys** take effect immediately — the next read picks up the new value.
-- **`plugins.enabled_ids`** takes effect on the next process start, because activating or deactivating a plugin adds or removes supervised children.
-- **Encrypted keys** (provider credentials, secrets) are decrypted on the next read — no restart needed, but a running turn that already resolved the old value keeps it until the turn ends.
-
-## What this guide is not
-
-It is not a configuration reference — the full key list with descriptions is in [Environment variables](../environment-variables/). It is not a way to add new keys at runtime — every key is declared by a subsystem at boot, and an undeclared key cannot be stored. And it is not a substitute for the Console's per-subsystem routes; a provider credential is better set through `/ai-gateway/providers/:id` than through the raw AppConfigure key.
-
-## Next steps
-
-- For the full key list, read [Environment variables](../environment-variables/).
-- For the Console surface, read [Console operations](../console-operations/) and the [Console API reference](../console-api/).
-- For encrypted shell secrets (a different store), read [WorkerEnv secrets](../worker-env/).
+Use **Reveal** only when you must check the current value. Do not copy a revealed credential into chat, screenshots, or tickets.

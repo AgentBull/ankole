@@ -1,6 +1,6 @@
 ---
 title: Principal and AuthZ
-description: The permission boundary of an Ankole installation — Principals as accountable subjects, permission grants, group membership, and runtime enforcement rather than prompt convention.
+description: The permission boundary of an Ankole deployment instance — Principals as accountable subjects, permission grants, group membership, and runtime enforcement rather than prompt convention.
 section: Developer guide
 order: 106
 ---
@@ -11,11 +11,11 @@ The decisive property, stated up front: authorization is a runtime fact, enforce
 
 ## The Principal: one accountable subject
 
-A Principal is the durable accountable subject shared by humans, agents, and installation services. The `principals` table is keyed by a `uid` (a typed `PrincipalKey`, forced lowercase and present by check constraints), and each row carries a `type` — `:human`, `:agent`, or `:system` — and a `status` of `:active` or `:disabled`.
+A Principal is the durable accountable subject shared by humans, agents, and system services. The `principals` table is keyed by a `uid` (a typed `PrincipalKey`, forced lowercase and present by check constraints), and each row carries a `type` — `:human`, `:agent`, or `:system` — and a `status` of `:active` or `:disabled`.
 
 A human Principal has one `HumanUser` and any number of `ExternalIdentity` rows (the identities an operator federated in). An agent Principal has one `Agent` row. The point of routing both through one table is that accountability has one shape: whoever did the thing, there is a Principal row that did it, and it has a stable uid that every audit row, grant, and group membership points at.
 
-A disabled Principal is not partially usable. The kernel's decision returns `principal_disabled` for a disabled subject, so disabling a Principal removes its authority across the installation without chasing down every grant.
+A disabled Principal is not partially usable. The kernel's decision returns `principal_disabled` for a disabled subject, so disabling a Principal removes its authority across the instance without chasing down every grant.
 
 ## The grant: who may do what
 
@@ -32,7 +32,7 @@ Grants are append-only in spirit and natural-key unique per owner (one grant per
 
 A Principal group is a named collection Principals can be granted through, so authority scales without per-Principal rows. A group has a `domain` — `:operator`, `:directory`, or `:im_group` — a `kind` of `:static` or `:computed`, and an optional `computed_condition` for computed groups.
 
-Two built-in groups seed the installation. The `admin` group is the operator authority surface. The `all_humans` group has the computed condition `principal.type == "human" && principal.status == "active"`, so every active human is a member without anyone maintaining the list by hand. Static membership lives in `principal_group_memberships`; computed membership is evaluated against the snapshot. External directories (an IdP, an IM platform) can be synced into groups through external bindings, so an operator can point AuthZ at a directory it already trusts.
+Two built-in groups seed the deployment instance. The `admin` group is the operator authority surface. The `all_humans` group has the computed condition `principal.type == "human" && principal.status == "active"`, so every active human is a member without anyone maintaining the list by hand. Static membership lives in `principal_group_memberships`; computed membership is evaluated against the snapshot. External directories (an IdP, an IM platform) can be synced into groups through external bindings, so an operator can point AuthZ at a directory it already trusts.
 
 ## How a decision is made
 
@@ -85,7 +85,7 @@ Managing grants and memberships goes through the AuthZ facade, which validates o
 
 ## What Principal and AuthZ are not
 
-AuthZ is not a prompt instruction and not a hope. It does not ask the model to be responsible; it checks the Principal and enforces the answer. A Principal is not a tenant shim and not a per-request role — it is a stable, accountable subject whose authority is granted, grouped, and evaluated. And the kernel is not a second policy engine the operator configures; it is the deterministic evaluator over the snapshot the control plane assembled. The boundary is clean: state here, evaluation there, one decision the caller must honor.
+AuthZ is not a prompt instruction and not a hope. It does not ask the model to be responsible; it checks the Principal and enforces the answer. A Principal does not divide one instance into separate enterprise boundaries, and it is not a per-request role. It is a stable, accountable subject whose authority is granted, grouped, and evaluated. The kernel is not a second policy engine for the operator to configure. It deterministically evaluates the snapshot assembled by the control plane, and the caller must honor that decision.
 
 ## Next steps
 

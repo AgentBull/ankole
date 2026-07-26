@@ -1,68 +1,62 @@
 ---
-title: Signal bindings
-description: How to connect an agent to a chat platform — create a binding, point it at an adapter, scope it with filters, and choose how it behaves in group chats.
+title: Signal routing rules
+description: Connect a chat application to an Agent and select how it handles group messages and memory.
 section: User guide
 order: 14
 ---
 
-A signal binding is what makes an agent reachable. It ties one provider adapter — Lark, DingTalk, Slack, Microsoft 365, Google Workspace — to one agent, so messages, webhooks, and events from that provider become actor events the agent wakes on. This page is the operator's path through a binding: pick the adapter, name the binding, scope it, and choose its group-chat behavior.
+A signal routing rule decides which Agent receives a message. One rule currently connects one chat application directly to one Agent. An Agent can use several rules to connect to several chat applications.
 
-The decisive property, stated up front: a binding is keyed by `(agent, binding_name)`, and disabling it stops new signals from waking the agent without deleting the binding's configuration. You can quiet an agent without losing its setup.
+The term “signal” leaves room for more than chat. Future rules can use routing expressions to select an Agent by channel, conversation, or other conditions. They can also deliver events from systems such as Salesforce.
 
-## What a binding carries
+If you have not prepared a Slack, Microsoft Teams, Lark, Feishu, or DingTalk application, complete the Channel Provider steps in [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule) first.
 
-A binding has a small, fixed shape:
+## Create a routing rule
 
-| Field | Meaning |
+1. Open **Signal Routing** in the Console and select **New routing rule**.
+2. Select the Agent that will receive messages and the Channel Provider adapter.
+3. Enter a clear rule name, such as `support-slack`.
+4. Select the group-message mode and memory scope.
+5. Enter the credentials and connection details for the chat application, and save the rule.
+6. Send a message to the bot in that chat application. Confirm that the selected Agent replies.
+
+Give each bot account its own chat application and routing rule. If several Agents must use different bot accounts, create a separate application for each bot and then create each rule.
+
+This keeps Agent identities and messages separate and lets you rotate each credential by itself.
+
+## Select a group-message mode
+
+The Console shows only the modes that the selected Channel Provider supports:
+
+| Mode | What happens to a group message that does not address the Agent |
 |---|---|
-| `adapter` | the provider adapter id — `lark`, `dingtalk`, `slack`, `microsoft365`, `google_workspace`, or whatever this installation's plugins declare |
-| `name` | the binding name you choose; unique per agent |
-| `config_ref` | a reference to the adapter-specific configuration (app ids, tokens, webhook endpoints) the adapter needs |
-| `filters` | rules that decide which incoming facts are in scope |
-| `unaddressed_group_message_policy` | how the agent treats group messages where it was not directly addressed |
-| `enabled` | whether new signals may wake the agent through this binding |
-| `confidential_memory` | whether the agent keeps what it sees through this binding out of shared memory |
+| **Addressed messages only** | The Agent does not see the message and does not reply. |
+| **Observe unaddressed messages** | The message enters the conversation context but does not wake the Agent. The Agent can use it as context after someone addresses it. |
+| **May intervene** | The Agent first decides whether joining the conversation will help. It replies only when it decides to speak. |
 
-The adapter-specific fields behind `config_ref` differ per provider — see the per-adapter pages for the exact prerequisites (app ids, tokens, event subscriptions, webhook URLs).
+Slack, Microsoft Teams, Lark, and Feishu support all three modes. DingTalk can currently receive only group messages that explicitly address the bot, so the Console offers only the first mode for DingTalk.
 
-## List the available adapters
+**May intervene** does not make the Agent reply to every message. It lets the Agent decide when to speak. If it speaks too often, first tighten its role instructions.
 
-```bash
-curl https://ankole.example.com/api/v1/signal-adapters \
-  -H "Authorization: Bearer $CONSOLE_TOKEN"
-```
+Use **Addressed messages only** for a group that needs question-and-answer behavior only.
 
-The response is the set of adapter declarations this installation's Control Plane Plugins registered under the `signals_gateway.adapter` contract. If an adapter you expect is missing, the plugin that declares it is not enabled — see [Control Plane Plugins](../control-plane-plugins/).
+## Select the memory scope
 
-## Create or replace a binding
+**Shared** lets group messages enter the shared memory scope for this instance. Use it for work groups where the Agent must keep knowledge across conversations.
 
-```bash
-curl -X PUT https://ankole.example.com/api/v1/agents/<agent_uid>/signal-bindings/<adapter_id>/<binding_name> \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "config_ref": "...", "filters": { ... }, "unaddressed_group_message_policy": "..." }'
-```
+**Channel only** keeps group messages in memory that only this channel can read. Use it for customer data, confidential projects, or teams that must stay separate.
 
-The `(adapter_id, binding_name)` pair in the path names the binding; a second `PUT` to the same pair replaces it. List an agent's bindings with `GET /agents/:agent_uid/signal-bindings`.
+## Reconfigure or remove a rule
 
-## Scope with filters
+You can change the target Agent, group-message mode, memory scope, or chat credentials. If you select another Agent, new messages go to that Agent. Existing conversations and memory do not move automatically.
 
-Filters decide which incoming facts the binding accepts. A fact that does not match returns a successful no-op (`status: :filtered`) — the agent is not woken, and no actor event is queued. Use filters to narrow a binding to certain channels, senders, or message kinds, so the agent only wakes on work that is actually meant for it. The exact filter shape is adapter-agnostic; the per-adapter pages call out the fields worth filtering on for that provider.
+Removing a rule stops new message delivery but does not delete the chat application. You can create a new rule later with the same application.
 
-## Choose group-chat behavior
+## If the Agent does not reply
 
-`unaddressed_group_message_policy` controls what happens when a message arrives in a group chat and the agent was not directly @-mentioned. The policy decides whether that message produces a `may_intervene` event (the agent is allowed to speak up) or an `addressed` event (the agent was called). Set this to match the agent's role: a customer-success agent in a shared support channel may want to observe and intervene; a release-notes bot should probably stay quiet unless addressed.
+- **The Channel Provider is missing:** open **Agent Library → Control Plane Plugins**, enable its plugin, and restart the control plane when the page tells you to.
+- **The bot receives no group messages:** check the provider event subscriptions, permissions, and application release state. DingTalk group messages must explicitly @-mention the bot.
+- **The rule is saved but there is no reply:** confirm that the target Agent is enabled, its model configuration works, and the rule is available in the rule list.
+- **Direct messages work but group messages do not:** check the group-message mode and confirm that the bot belongs to the target group.
 
-## Disable without deleting
-
-`DELETE /agents/:agent_uid/signal-bindings/:binding_name` is, despite the HTTP verb, a *disable* operation: it stops new signals from waking the agent but keeps the binding's configuration recoverable. Use `PATCH /agents/:agent_uid/signal-bindings/:binding_name` to reconfigure or move a binding, including flipping `enabled` back on. A binding that is unavailable records an `unavailable_reason` so you can see why it stopped — usually a missing or revoked adapter configuration.
-
-## A binding is one adapter, one agent
-
-A binding connects exactly one adapter to exactly one agent. To let two agents share one channel, give each its own binding; to let one agent answer in two providers, give it two bindings. There is no "many-to-many" binding object — the one-to-one shape is what keeps each agent's identity, memory, and permission scope clean.
-
-## Next steps
-
-- For each provider's prerequisites and Console fields, read the adapter pages under the User guide.
-- For the binding model and how a binding becomes an actor event, read the [SignalsGateway](../signals-gateway/) developer page.
-- For the routes, read the [Console API reference](../console-api/).
+Use the provider-specific permissions, events, and credentials in [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule).

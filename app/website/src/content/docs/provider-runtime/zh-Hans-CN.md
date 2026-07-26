@@ -13,14 +13,14 @@ order: 119
 
 `Ankole.AIGateway.Resolver` 把请求的 `model` 字段变成具体的 provider 运行时 map。resolver 是主体可见选择符——`primary`、`light`、`embedding.default` 或显式 `provider_id/model`——变成 provider id、provider kind、上游模型名和解析后运行时设置的地方。
 
-LLM 别名（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）通过 agent 的 model profile 解析。Embedding 和 rerank 接受 `default`、显式默认绑定（`embedding.default`）或显式选择符。provider 模块永远看不到选择符或主体——它们只接收解析后的运行时 map。resolver 是唯一咨询主体身份和 model profile 的地方。
+LLM 别名（`primary`、`light`、`heavy`、`coding`、`vision_fallback`）通过 Agent 的模型档案解析。其中 `coding` 是“后台 Agent 任务”档案沿用至今的持久化键和 API 别名。Embedding 和 rerank 接受 `default`、显式默认绑定（`embedding.default`）或显式选择符。Provider 模块不会看到选择符或主体，只接收解析后的运行参数；Resolver 是唯一读取主体身份和模型档案的地方。
 
 解析可能在联系任何 provider 之前失败：
 
 - `422 unknown_model_selector`——该选择符未为该主体绑定。
 - `422 model_binding_not_configured`——能力和名称已绑但 provider 行不完整。
 
-这些是[Provider 与模型](../providers-and-models/)告诉运维者去查的错误。
+这些错误分别表示模型档案缺失、Provider 不可用或 Provider 配置不完整。
 
 ## 阶段 2：准备（Provider 模块 + Providers）
 
@@ -78,4 +78,4 @@ build_image_generate_request(runtime, request) # :image_generate
 - 如何写 provider，读[添加 provider](../adding-a-provider/)。
 - AIGateway 概念页（端点、错误形态），读 [AIGateway](../ai-gateway/)。
 - 执行请求的 kernel，读 [Kernel](../kernel/)。
-- 喂给 resolver 的 model profile，读 [Provider 与模型](../providers-and-models/)。
+- 首次配置模型档案，读[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。

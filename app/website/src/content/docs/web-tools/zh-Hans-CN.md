@@ -1,54 +1,112 @@
 ---
 title: Web 工具
-description: Ankole agent 如何搜索和抓取公开网络——web_search 与 web_fetch 工具、它们的可用性如何依赖 model profile 绑定、web_fetch 的 1-5 个公开 HTTPS URL 限制、渲染态 fetch 缓存，以及何时用这些工具而不是浏览器。
+description: 为 Agent 配置网页搜索和正文读取，并判断何时改用浏览器。
 section: User guide
-order: 32
+order: 33
 ---
 
-Web 工具是 agent 触达公开网络的轻量方式：搜索，以及抓取页面的可读文本。它们是 `web_search` 和 `web_fetch` 工具，定义在 `app/agent_computer/src/tools/web/web-tools.ts`，跑在回合内、经 AIGateway，而不是驱动浏览器。本页是运维视角——这两个工具做什么、要让它们出现需要配什么、什么时候用它们而不是用[浏览器](../browser-automation/)。
+Agent 可以使用 `web_search` 查找公开网页，再用 `web_fetch` 读取选中的页面。`web_search` 必须配置 Provider。
 
-先把决定性的性质说清楚：这两个工具只有在对应 model profile 已绑定时才存在。profile 是一个选择器，控制面在调用时把它解析成真实 provider，agent 永远看不到凭证。`web_search` 或 `web_fetch` profile 未设，对应工具就直接不出现在该回合的工具集里。
+`web_fetch` 会优先使用已配置的 Provider，也可以在 Provider 不可用时使用 Worker 内置的渲染回退。
 
-## 每个工具做什么
+## 先选择正确的工具
 
-- **`web_search`** 通过配置好的 AIGateway web 搜索 provider 搜索公开网络。agent 给一个 query，拿回搜索结果。
-- **`web_fetch`** 通过 AIGateway 从 HTTPS 网页抽取并返回可读文本，provider 不可用时有一个内部渲染态页面回退。agent 传入需要的 URL，拿回页面文本。
+| 能力 | 适合做什么 | 运行位置 |
+|---|---|---|
+| `web_search` | 根据关键词、时间或来源范围查找公开网页 | 主 Agent 和后台 Agent Job |
+| `web_fetch` | 把一个或多个已知公开网址读取为正文 | 主 Agent 和后台 Agent Job |
+| [浏览器自动化](../browser-automation/) | 登录、点击、输入、翻页、截图和读取交互后的页面 | **仅后台 Agent Job** |
 
-两个工具都是只读——`web_search` 是 `isReadOnly: true`，`web_fetch` 也是。两者都不向网络写任何东西。`web_search` 可与其他并行工具并发；`web_fetch` 是顺序的。
+浏览器自动化由 `browser` Skill 提供，并声明为 `ankole-runtime: background_job`。它不会出现在 `web_search` 或 `web_fetch` 的 Provider 列表中，也不能直接在主 Agent 的普通对话回合中运行。
 
-## 你必须配什么
+当任务需要浏览器时，需要让主 Agent 创建或使用后台 Agent Job。后台 Job 不会阻塞当前对话，并会按需把问题、状态或结果送回原对话。
 
-这两个工具不是无条件的。它们的可用性依赖 agent 上 `web_search` 和 `web_fetch` model profile 已绑定，正是 [Providers 与模型](../providers-and-models/)里列的那两个槽位。两个后果：
+## 配置 Web 工具
 
-1. **没绑定就没工具。** `web_search` profile 未设，`web_search` 就不出现在该回合的工具集里；`web_fetch` 同理。这就是为什么一个没接到 web provider 的新 agent 不能搜索——那个工具对模型来说真的不存在。
-2. **绑定是选择器，不是凭证。** profile 指向你通过 `PUT /ai-gateway/providers/<id>` 配过的 provider id，凭证加密存在那个 provider 的 `options` 里。控制面在调用时解析选择器；agent 和 worker 都看不到凭证。
+### 添加 Provider
 
-通过 Console 绑定 profile，用的是和推理槽位一样的 `PUT /agents/:agent_uid/model-profiles/<profile>` 路由。如果某回合的 web 调用以 `422 unknown_model_selector` 或 `422 model_binding_not_configured` 失败，原因是绑定，不是瞬时故障——确认 profile 指向的 provider id 确实存在且 options 完整。
+1. 打开 **Console → 模型提供商**。
+2. 选择支持 `web_search`、`web_fetch` 或两者的 Provider 类型。
+3. 填写 API Key 和该 Provider 要求的字段。
+4. 保存并确认 Provider 处于启用状态。
 
-## web_fetch：1 到 5 个公开 HTTPS URL
+同一种 Provider 类型可以建立多个实例。例如，你可以为不同地区或用途建立两个 Bright Data SERP Provider，再让不同 Agent 使用不同实例。
 
-`web_fetch` 一次调用接收一到五个 URL，且必须是公开 HTTPS。一到五个的限制和仅 HTTPS 的规则都是刻意的：这个工具用来读公开网页，把几个 URL 打包成一次调用让回合更高效。它只返回文本，绝不返回二进制内容。不要用它取 PDF、压缩包、图片、音频视频、可执行文件或其他二进制文件；这类下载 agent 用命令 shell 跑 `aria2c`。
+### 分配给 Agent
 
-provider 路径在已配置时优先，因为网关可以用自有的抽取服务。provider 不可用时，内部渲染态页面回退让渲染过的页面仍可达，所以一次 fetch 不会因为 provider 下线就静默失败。
+1. 打开 **Console → 智能体**，选择目标 Agent。
+2. 在**模型档案**中找到 `web_search`，选择一个支持网页搜索的 Provider。
+3. 找到 `web_fetch`，选择一个支持网页读取的 Provider。
+4. 分别保存，然后开始一轮新对话。
 
-## 渲染态 fetch 缓存
+这两项模型档案只需要选择 Provider，不需要选择模型或填写上下文长度。Provider 类型声明自己支持哪些能力，所以列表只会显示与当前档案匹配的实例。
 
-经渲染路径抓取的结果会被缓存，这样 agent 不会在一个回合里把同一页渲染两次。缓存寿命由 `worker.rendered_fetch_idle_ttl_ms` 这个 AppConfigure key 控制，它设定一个空闲的渲染态 fetch 结果保留多久。如果你发现 agent 在重复抓取它已经看过的页面，或者想缩短缓存以强制拿到更新鲜的结果，通过 AppConfigure 调它。默认值对大多数工作合理；只有当访问模式需要时才改。
+如果列表中没有可选项，请先添加对应 Provider。首次添加方法见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
-## 何时用 web 工具而不是浏览器
+## 当前内置 Provider
 
-这是 agent 在每个回合都要做的选择。[浏览器 skill](../browser-automation/) 自己把规则说清楚了：当不需要渲染交互、登录态、截图、浏览器侧代码时，优先用 `web_search` 和 `web_fetch`。
+以后也可以通过 Control Plane Plugin 添加更多 Provider 类型。以下是 Ankole 当前内置的类型。
 
-具体地：
+### `web_search` Provider
 
-- **用 web 工具**找一个页面、读它的文本，或在一个回合里收集几页内容。它们更便宜更快，也不占用浏览器会话。
-- **用浏览器**当页面只有在 JavaScript 跑完、点击或填写后才给出数据，当你需要持久登录会话，当你需要截图，或当你需要可复现的 Playwright 工作流。
+| Provider | 同时支持 `web_fetch` | 主要差异 | 适合的情况 |
+|---|---|---|---|
+| **Parallel** | 是 | 同一 Provider 同时提供搜索和正文提取；支持搜索目标、多条查询、模式和总字符预算 | 希望用一套凭据完成搜索与阅读，或处理研究型查询 |
+| **Bright Data SERP** | 否 | 通过 SERP API 搜索；必须填写 Zone，可指定国家、语言和 Google 域名 | 需要控制搜索地区、语言或本地化结果 |
+| **Jina Search** | 否 | 支持地区、位置、语言、页码、缓存和搜索引擎选项 | 需要直接的网页搜索，并希望控制地域、分页或缓存 |
+| **AgentBull Cloud** | 否 | 聚合多个搜索来源；支持来源范围、时间范围和跳过缓存 | 需要聚合搜索，或需要明确限制来源和时间 |
 
-如果你在配一个工作主要是读公开页面的 agent，确保 `web_search` 和 `web_fetch` profile 已绑定，浏览器 skill 保持默认。如果 agent 还要与登录后的站点交互，再开启浏览器。两条路径共存；它们不是对整个 agent 二选一，而是对每个任务二选一。
+Parallel 只需添加一个 Provider 实例，就可以同时分配给 `web_search` 和 `web_fetch`。
 
-## 下一步
+Jina Search 与 Jina Reader 是两个不同的 Provider 类型。即使它们使用同一套 Jina 凭据，也要分别添加，再分配给对应档案。
 
-- 这两个工具依赖的 profile 槽位，读 [Providers 与模型](../providers-and-models/)。
-- 更重的路径——真实浏览器交互——读[浏览器自动化](../browser-automation/)。
-- 回合如何每回合组装这些工具，读[工具运行时](../tools-runtime/)开发页。
-- 绑定 profile 的路由，读 [Console API 参考](../console-api/)。
+### `web_fetch` Provider
+
+| Provider | 同时支持 `web_search` | 主要差异 | 适合的情况 |
+|---|---|---|---|
+| **Parallel** | 是 | 使用与 Parallel Search 相同的 Provider 和凭据提取正文 | 已经使用 Parallel 搜索，希望保持一套配置 |
+| **Jina Reader** | 否 | 把公开网页转换为 Markdown；支持保留链接、目标选择器、等待选择器、缓存、引擎和 token 上限 | 阅读文章正文，或从页面中提取指定区域 |
+
+`web_fetch` 面向公开 HTTPS 页面。它不负责登录，也不是 PDF、图片、压缩包或音视频下载器。
+
+Worker 内置的渲染回退不是 Provider，因此不会出现在 Console 的 Provider 列表中。它只负责读取渲染后的正文。
+
+渲染回退不能点击、输入、复用登录状态或截图，也不会让主 Agent 获得浏览器自动化能力。
+
+选择器和等待选项可以帮助 Provider 读取延迟出现的正文，但不能代替真实交互。需要登录、点击或填写表单时，仍应使用后台 Agent Job 中的浏览器自动化。
+
+## 让 Agent 使用 Web 工具
+
+不需要输入特殊命令，直接说明目标即可。例如：
+
+> 查找本周发布的三条相关消息，阅读原文后总结差异，并附上来源链接。
+
+Agent 会先搜索，再选择需要阅读的页面。若你已经知道网址，可以直接把网址发给 Agent，并要求它读取和总结。
+
+以下情况应明确要求使用浏览器：
+
+- 页面需要登录；
+- 必须点击、输入或翻页后才能看到内容；
+- 需要截图或核对页面实际显示效果；
+- 网页内容只有在复杂交互后才会出现。
+
+浏览器工作会在后台 Agent Job 中运行。普通搜索、公开网页正文读取和多来源整理不需要浏览器，直接使用 `web_search` 与 `web_fetch` 更快。
+
+## 无法搜索或读取网页
+
+### 搜索或读取失败
+
+依次检查：
+
+1. 当前 Agent 是否已配置任务需要的档案；`web_search` 必须选择 Provider。
+2. 若 `web_fetch` 没有 Provider，Worker 是否提供内置渲染回退。
+3. 所选 Provider 是否声明了对应能力。
+4. Provider 是否处于启用状态，凭据和必填字段是否有效。
+5. 修改配置后是否开始了新对话。
+6. 目标网址是否为公开 HTTPS 页面，且不需要登录。
+
+### 浏览器没有运行
+
+确认 Agent 已启用 `browser` Skill，并允许创建后台 Agent Job。不要尝试把浏览器配置到 `web_search` 或 `web_fetch` 档案中。
+
+如果任务已在后台 Job 中运行，再检查 Worker 是否可用，以及 Job 是否报告了浏览器会话或访问权限问题。

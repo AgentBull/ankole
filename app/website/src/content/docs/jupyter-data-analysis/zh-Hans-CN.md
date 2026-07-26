@@ -2,7 +2,7 @@
 title: Jupyter 数据分析
 description: 如何设置一个通过 live Jupyter kernel 运行迭代 Python 数据分析的 agent——jupyter-live-kernel skill、DataFrame 检查、完整示例。
 section: Guides
-order: 328
+order: 304
 ---
 
 数据分析是迭代的——检查 DataFrame、调整查询、画结果、重复。一次性 Python 进程无法在调用间保持状态。`jupyter-live-kernel` skill 通过运行一个 agent 跨多个 cell 驱动的 live Jupyter kernel 解决它，保持状态。本指南是一个数据分析 agent 的实际形态。
@@ -12,7 +12,7 @@ order: 328
 ## 需要什么
 
 - **`jupyter-live-kernel` skill 已启用。** 它是 `default_enabled: true`。见 [Skills](../skills/)。
-- **worker 镜像。** Agent Computer 镜像安装了 Python、Jupyter 和 `hamelnb` kernel。这些是镜像的一部分。
+- **worker 镜像。** Agent Computer Worker 镜像安装了 Python、Jupyter 和 `hamelnb` kernel。这些是镜像的一部分。
 - **绑定 `primary` model profile。** agent 写 Python 代码；kernel 执行它。
 
 ## 何时用 kernel vs 一次性脚本
@@ -53,5 +53,5 @@ kernel 在后台任务期间保持存活。任务结束时 kernel 停止、其�
 
 - skill 系统，读 [Skills](../skills/)和[编写 skill](../writing-a-skill/)。
 - shell 工具，读[代码执行](../code-execution/)。
-- 后台任务，读[后台任务（运维视角）](../background-jobs-ops/)。
-- 上传文件到 worker，读 [Worker 文件](../worker-files/)。
+- 后台执行，读[后台 Agent 任务](../background-jobs/)。
+- 上传文件给 Agent，读[文件管理](../file-management/)。

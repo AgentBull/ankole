@@ -1,4 +1,4 @@
-# Ankole - 共有 AI 同僚のためのオープン AgentOS
+# Ankole - 自分の OKR を持つ AI 同僚のためのオープン AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -9,41 +9,51 @@
 
 [他と違うところ](#ankole-が他と違うところ) · [プロダクト形態](#プロダクト形態) · [Actor Runtime](#actor-runtime) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
 
-**Ankole は、共有 AI 同僚を動かすための、セルフホスト可能な AgentOS です。** 1 つの installation、複数の agent、実際の責任 — 自分が管理する infrastructure の上で。
+**Ankole は、自分の AI 同僚チームを自社サーバー上に組成するための、セルフホスト可能な AgentOS です。** 受け取るのは指示ではなく目標です。チームのチャンネルで仕事を引き受け、自ら分解し、実行し、納品し、結果で評価されます。
 
 AI の仕事を個人用チャット欄から出し、仕事が実際に起きている場所へ置きます。チャンネル、リポジトリ、スケジュール、ダッシュボード、社内システム、長期プロジェクトの文脈がその場所です。Ankole agent は、自分の identity、memory、permission、tool、workspace、responsibility boundary を持ち、**進行中の work を所有**でき、一回限りのメッセージへの回答にとどまりません。
 
 [Claude Tag](https://claude.com/product/tag) は分かりやすい公開参照です。Slack thread で AI を tag し、共有文脈を読ませ、組織の tools を使わせ、channel context を記憶し、時間のかかる work を follow up させる。Ankole はその pattern をより open で広い形にします。**Slack だけでも、Claude だけでも、1 つの agent だけでも、vendor-owned context でもありません。**
 
-Ankole が向いているのは、答えだけでなく責任者が必要な仕事です。よい Ankole role には見える結果があります。Code が merge される、report が shipped される、customer issue が handled される、alert が triaged される、market change が noticed される、backlog が worked down される、といった結果です。
+Ankole が向いているのは、答えだけでなく責任者が必要な仕事です。Ankole が担えるポストには三つの共通点があります。完全にリモートで完結すること、成果物が明確であること、そして事後に数値で判定できることです。
 
 ## Ankole が他と違うところ
 
-- **デフォルトで共有、個人チャットではない。** Agent は team-visible な channel や provider context に参加し、複数の人間が同じ work を observe、steer、continue できます。
-- **永続 ID、prompt の慣習ではない。** 人間と agent は Principal で、permission grants と audit trail を持ち、authorization は runtime の関心事です。
-- **長時間の actor session、request/response ではない。** Session は wake、signal 受信、checkpoint、stream progress、hibernate、context を保ったまま recover します。
-- **運用者所有の文脈、vendor-hosted ではない。** Memory、configuration、credentials、audit は自ホスト環境の自分の infrastructure にあります。
-- **Live 制御と durable な真実の両立、どちらかではない。** ZeroMQ RuntimeFabric が actor/worker/RPC の live トラフィックを運び、PostgreSQL は replay、fence、final commit の source であり続けます。
+アシスタントが答える問いは「それは私をどう助けるか」。同僚が答える問いは「この仕事は既定で誰の担当か」。Ankole が変えるのはモデルの大きさではなく、agent の組織内での位置です。
+
+- **それはチャンネルに属し、連れてきた個人には属さない。** 記憶は仕事の場に帰属し、権限はチャンネル単位で与えられ、行動は全員に見え、結論はチームの共有事実になります — そのすべてが vendor のテナントではなく、自分のサーバー上にあります。
+- **ポストは責任の枠であり、スキルの束ではない。** できることと担うことは別で、skill を積むことと責任を負うことも別です。Ankole が提供するのは、能力をポストに変える層 — 固有の identity、組織としての授権、監査証跡、エスカレーション経路、評価指標です。
+- **仕事のループの内側に住み、一部分に手を伸ばすだけではない。** 現場を見て、軽重を判断し、約束し、前に進め、結果を追い、例外を処理し、組織に説明する。SaaS は結果を記録し、RPA は動作を実行し、チャットボットは冒頭の問答を扱う — Ankole の agent はループ全体を担います。
+- **秩序を記録するだけでなく、秩序を生成する。** チャンネルで自然言語のまま生まれた約束、リスク、基準、締切を、その場で追跡可能・実行可能・退役可能な組織の現実に変えます。
+- **日々のループは既定でそれが担い、人は要所で介入する。** 承認、例外、問責の場面には人間がいます。成果物、判断、commit 済みの操作は durable ledger に残り、産出は「事後に採点できる」ことを前提に設計されています。
+
+生成された秩序を保つのは memory です。多くの agent の記憶は追記のみのログで、古い基準と新しい規則が対等に並び、時系列も上書き関係もありません。Ankole の記憶は裁定します。新しい規則が座を引き継ぎ、古い基準は有効期間ごと退役する。同種の訂正は一本にまとまる。矛盾する結論は時刻・出所・確信度で順位がつく。予測した事柄は、結果が出たら突き合わせる。すべては一つの目的、モデルの予測と実際の観測との差を縮めることに従います。
 
 ## Ankole が加えるもの
 
-- **複数の入力元。** IM、webhook、scheduled reminder、internal system、将来の provider adapter は normalized signal input になります。
-- **複数の agent。** 1 つの Ankole 環境で、異なる mission、access、tools、memory、outbound identity を持つ複数の agent を動かせます。
-- **Session actors.** 長期実行単位は `actor_id = {agent_id, session_id}` です。Session は context、workspace state、steering、cancel、recovery が交わる場所です。
-- **自分の文脈。** Conversation、model turn、summary、signal projection、decision、correction、将来の domain record は自分の infrastructure に残ります。
-- **運用者による制御。** Access、configuration、Agent Library defaults、Control Plane Plugin activation、actor lease、outbox side effect、audit surface は Ankole を運用する側が管理します。
+- **長時間の仕事は background で走る。** Background job、スケジュール、あとで確認。数時間走る仕事も、終われば agent が元のチャンネルに戻って報告し、途中で失敗した工程は明示して再試行します。
+- **その部屋がすでに知っていること。** 決まりごと、誰が何を好むか、前回その案が通らなかった理由 — 誰も agent に伝えようと思わなかった情報が、チャンネルの共有記憶になります。
+- **世界モデルを作る記憶。** Brain は会話を精選された知識へ蒸留し、帰納も演繹も行い、古くなった項目を退役させ、外界の変化を直接取り込みます。誰かがチャンネルで話題にする必要はありません。
+- **Deep Research と playbook。** Fan-out 検索、多層検証、対立仮説の検討によって、引用付きのレポートを出します。うまく回った種類の仕事は playbook として固定され、次回はそれに従います。
+- **本物のブラウザを使える。** Runtime が実際の Chromium session を保持し、agent は `ankole-browser` 経由で操作します。描画後のページの読み取り、クリック、入力、スクリーンショット、再現可能な Playwright script、そして工程をまたぐログイン状態の維持。
+- **自己進化する skill。** Agent は学んだことを overlay の提案として書き、人間が承認すると次の session から適用されます。黙って自分を書き換えることはありません。
+- **複数の agent、一つのプライベートデプロイインスタンス。** それぞれが固有の mission、権限、tools、memory、対外 identity を持ちます。主 agent は境界の明確な仕事を job agent に渡し、自身は待ち続けません。
+- **企業 identity と IM への接続。** Lark、Slack、DingTalk、Teams、Google Workspace は一等の adapter で、identity は既存の IdP から来ます。IM、webhook、スケジュール、社内システムはすべて正規化された signal input として届きます。
 
 ## プロダクト形態
 
-Ankole は、次のような workflow を自然にするためのものです。
+Ankole が担えるポストは、完全にリモートで完結し、成果物が明確で、事後に数値で判定できます。六つの業界からの例であり、網羅的な一覧ではありません。
 
-- **coding agent** が issue を監視し、bug を再現し、code を変更し、draft PR を開き、人間の decision が必要な点を報告する。
-- **customer-success agent** が shared group chat を観察し、重要な facts を記録し、work state を更新し、必要な時だけ private escalation する。
-- **research agent** が market、policy、competitor、internal notes を監視し、重要な変化があった時に follow up する。
-- **QA agent** が test backlog を進め、evidence を集め、context 付きの failure を review に渡す。
-- **operations agent** が alert を監視し、runbook を準備し、risk の高い action の前に approval を求める。
+| ポスト | 成果物 | 評価指標 |
+|---|---|---|
+| セカンダリー市場アナリスト | 個別銘柄・セクター分析、シナリオ、エントリー条件 | 事後検証での的中率と超過収益 |
+| クラウドコスト最適化エンジニア | コスト按分、適正化案、移行経路 | 業務量あたりのクラウド支出 |
+| スマートコントラクト監査 | 再現可能な PoC 付き監査報告 | 重大脆弱性の見逃し件数 |
+| 薬事申請担当 | 申請資料一式と照会事項への回答 | 一発承認率と照会回数 |
+| 特許エンジニア | 先行技術調査、発明提案書、請求項ドラフト | 登録率と拒絶後の不服審判 |
+| 越境 EC 運用アナリスト | 広告・在庫の週次レポート、選品リスト | TACoS と欠品日数 |
 
-共通する形は「この質問に答える」ではなく、**「この seat を持ち、利用可能な context を使い、結果で評価される」**です。
+共通する形は「この質問に答える」ではなく、**「このポストを守り、手元の context を活かし、結果で応える」**です。
 
 ## Actor Runtime
 

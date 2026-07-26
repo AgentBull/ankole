@@ -19,7 +19,7 @@ describe('settingDescription', () => {
         pattern_id: 'signals_gateway.lark.bindings.*',
         description: 'Encrypted Lark / Feishu chat binding configuration.'
       })
-    ).toBe('加密的 Lark / 飞书聊天绑定配置。')
+    ).toBe('加密的 Lark / 飞书聊天渠道配置。')
   })
 
   test('falls back to the canonical registry description for an untranslated key', () => {

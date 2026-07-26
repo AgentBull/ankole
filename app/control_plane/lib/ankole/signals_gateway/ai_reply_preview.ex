@@ -973,6 +973,12 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       {:ok, _event} ->
         :ok
 
+      # A retracted source entry takes its Actor event with it. There is no
+      # state left to keep, and the cards this preview opened are already
+      # queued for deletion.
+      {:error, :actor_event_not_found} ->
+        :ok
+
       {:error, reason} ->
         Logging.warning(
           "signals_gateway.ai_reply_preview.checkpoint_before_stop_failed",

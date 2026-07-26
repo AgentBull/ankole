@@ -7,7 +7,7 @@ order: 102
 
 SignalsGateway is the entry surface for shared work. A chat message, a webhook, a provider event, or a scheduled reminder comes in on one side; a normalized, durable actor event comes out the other side, ready to wake a session. The gateway's job is to turn the messy variety of providers into one shape, and to keep the original provider facts separate from the execution that follows.
 
-This page maps the real ingress path, the binding model, and the boundary between mirroring and waking. The source of truth is the `Ankole.SignalsGateway` module and its `Ingress`, `Projection`, and `Bindings` submodules.
+This page maps the real ingress path, the Signal Binding model behind user-facing routing rules, and the boundary between mirroring and waking. The source of truth is the `Ankole.SignalsGateway` module and its `Ingress`, `Projection`, and `Bindings` submodules.
 
 ## The contract it keeps
 
@@ -22,9 +22,9 @@ The separation matters because providers behave differently, retry, redeliver, a
 
 Every inbound fact walks the same fixed pipeline, regardless of provider:
 
-1. **Resolve the binding.** The gateway looks up the signal binding by `agent_uid` and `binding_name`. No binding, no path — the fact is rejected.
+1. **Resolve the routing rule.** The gateway looks up the internal Signal Binding by `agent_uid` and `binding_name`. No rule means no route, so the fact is rejected.
 2. **Construct the fact.** The provider-native payload is normalized into a typed fact through `FactNormalizer` — entry, reaction, action, or lifecycle. Provider-specific names like "delete" or "recall" collapse into one actor-facing kind.
-3. **Apply the binding filter.** The binding's filter rules decide whether this fact is in scope. A non-match returns `{:ok, %{status: :filtered}}`, which is a success, not an error.
+3. **Apply the routing filter.** The rule's filter decides whether this fact is in scope. A non-match returns `{:ok, %{status: :filtered}}`, which is a success, not an error.
 4. **Accept and mirror.** The accepted fact upserts the channel mirror and writes the entry projection. This is where provider facts become durable rows.
 5. **Hand off the actor event, when warranted.** If the accepted fact should wake an actor, an `ActorEvent` row is appended to the session queue. Reactions are the exception: they only update the mirror and never create an actor event.
 
@@ -45,21 +45,21 @@ A **channel** is the provider-side container an entry lives in: an IM direct mes
 
 An **entry** is one unit of content in a channel: one message, one post, one event. The entry projection is what the agent turn reads; it is not the actor event, and it is not the source payload verbatim.
 
-## The binding model
+## The routing-rule model
 
-A signal binding ties one provider adapter to one agent, under a name the operator chooses. Bindings live under the agent and are managed through console-scoped routes:
+A signal routing rule, stored as a Signal Binding, connects one provider adapter to one Agent under a name that the operator chooses. Rules belong to the Agent and are managed through Console-scoped routes:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/signal-adapters` | List the adapters this installation declared |
-| `GET` | `/agents/:agent_uid/signal-bindings` | List an agent's bindings |
-| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a binding |
-| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a binding |
-| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a binding |
+| `GET` | `/signal-adapters` | List the adapters this deployment instance declared |
+| `GET` | `/agents/:agent_uid/signal-bindings` | List an Agent's routing rules |
+| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
+| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
+| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |
 
-A binding carries the adapter it uses, a configuration reference, filter rules, a group-message policy, an `enabled` flag, and a `confidential_memory` flag. Disabling a binding stops new facts from waking its actor without deleting the binding; an unavailable binding records `unavailable_reason` so the operator can see why it stopped.
+A rule carries the adapter it uses, a configuration reference, filter rules, a group-message policy, an `enabled` flag, and a `confidential_memory` flag. Disabling a rule stops new facts from waking its Actor without deleting the rule. An unavailable rule records `unavailable_reason` so the operator can see why it stopped.
 
-Adapters are not hard-coded. They are resolved at boot from the plugin registry under the `signals_gateway.adapter` contract, so the set of available providers is whatever this installation's plugins declare. A request against an adapter id that no declaration provides returns `signal_adapter_not_found`.
+Adapters are not hard-coded. They are resolved at boot from the plugin registry under the `signals_gateway.adapter` contract, so the set of available providers is whatever this deployment instance's plugins declare. A request against an adapter id that no declaration provides returns `signal_adapter_not_found`.
 
 ## Provider webhook ingress
 
@@ -84,4 +84,4 @@ It is not a provider client. It does not hold open connections to every chat pla
 ## Next steps
 
 - For how a woken actor event gets run, read the [AIGateway API](../ai-gateway/) and the [architecture overview](../architecture/).
-- For configuring bindings in a running installation, read the [installation guide](../installation/) and [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md).
+- For configuring a Channel Provider and routing rule, read [Quick start](../quickstart/).

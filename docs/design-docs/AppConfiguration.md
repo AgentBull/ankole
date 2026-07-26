@@ -75,7 +75,7 @@ A pattern uses the same schema, encryption, default, generator, scope, and Conso
 
 `console_writable: false` lets only the responsible subsystem change a value.
 The Console can still read it. Use it when a Console edit would break the
-Installation, as it would for `runtime_fabric.worker_auth_key`, which the release
+deployment instance, as it would for `runtime_fabric.worker_auth_key`, which the release
 bootstrap generates and every Worker authenticates with, and for
 `principals.identity_providers.active`, which the identity-provider pages write.
 A client-side rule is not sufficient, because the REST API accepts a write that
@@ -96,9 +96,9 @@ names.
 
 ## Global Values and Agent Overrides
 
-Each row applies either to the complete Installation or to one Agent:
+Each row applies either to the complete deployment instance or to one Agent:
 
-- `global` identifies the Ankole Installation.
+- `global` identifies the Ankole deployment instance.
 - `agent:<agent_uid>` identifies one Agent override.
 
 A scoped definition allows both forms. A global definition rejects Agent

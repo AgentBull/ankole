@@ -1,11 +1,11 @@
 ---
 title: Browser automation
 description: How an Ankole agent drives a real browser session — the browser skill, when to use it instead of web_search/web_fetch, how to enable it, and why the agent must use the preconfigured ankole-browser CLI instead of launching Chromium itself.
-section: User guide
-order: 30
+section: Guides
+order: 305
 ---
 
-The browser skill is what lets an agent do real browser work — open pages, click, type, read rendered state, take screenshots, and run a reproducible Playwright script against a live session. It is a [skill](../agent-library/), not a built-in tool, and it runs as a [background job](../background-jobs-ops/). This page is the operator view: what the skill is, when to turn it on, and what the agent is and is not allowed to do with the browser.
+The browser skill is what lets an agent do real browser work — open pages, click, type, read rendered state, take screenshots, and run a reproducible Playwright script against a live session. It is a [skill](../agent-library/), not a built-in tool, and it runs as a [background job](../background-jobs/). This page is the operator view: what the skill is, when to turn it on, and what the agent is and is not allowed to do with the browser.
 
 The decisive property, stated up front: there is one browser owner per agent session, and it is the runtime, not the agent. The agent drives the browser through the preconfigured `ankole-browser` CLI the worker image injects. It must not launch Chromium itself or call `chromium.connectOverCDP` — those create a second owner and bypass session recovery.
 
@@ -30,7 +30,7 @@ Use `web_search` or `web_fetch` instead when you only want to find a page or rea
 
 Browser is a skill, so you turn it on through the [Agent Library](../agent-library/), not through a tool flag. Because `default_enabled` is `true`, a fresh agent already has the browser available unless you narrow it. The two layers:
 
-1. **Installation-wide default** — the skill ships `default_enabled: true`. Leave it alone to keep the browser available to every agent.
+1. **Instance-wide default** — the skill ships `default_enabled: true`. Leave it alone to keep the browser available to every agent.
 2. **Per-agent override** — narrow it for an agent that should not have a browser, or widen it for one you previously narrowed.
 
 Both layers are set through the Console's library-capability routes, covered in the [Console API reference](../console-api/). Reading an agent's `library-capabilities` triggers a skill sync, so what you see is the registry reconciled against the current filesystem, not a stale snapshot.
@@ -68,11 +68,10 @@ That last point matters: `run` does not open a second browser. It reuses the run
 
 ## What the operator does not touch
 
-The browser's environment variables are set by the worker image, not by the operator. They include `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, `ANKOLE_BROWSER_NODE`, and `ANKOLE_BROWSER_RUNNER`. None of these are operator-tunable; they are baked into the image the [worker environment](../worker-env/) runs. If you need different browser behavior, change it through the skill, not by overriding these variables.
+The worker image sets the browser environment variables. They include `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`, `ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`, `ANKOLE_BROWSER_DAEMON_SOCKET`, `ANKOLE_BROWSER_DAEMON_ENTRY`, `ANKOLE_BROWSER_CLI`, `ANKOLE_BROWSER_NODE`, and `ANKOLE_BROWSER_RUNNER`. You cannot override these names in **Environment variables** in the Console. Change the Skill if you need different browser behavior.
 
 ## Next steps
 
 - For the skill and enablement model that turns the browser on, read [Agent Library](../agent-library/).
 - For the lighter alternative — search and text fetch without a browser — read [Web tools](../web-tools/).
-- For the background job the browser runs inside, read [Background jobs (operator view)](../background-jobs-ops/).
-- For the worker image that injects the browser environment, read [Worker environment](../worker-env/).
+- For the Job that runs the browser, read [Background Agent Jobs](../background-jobs/).

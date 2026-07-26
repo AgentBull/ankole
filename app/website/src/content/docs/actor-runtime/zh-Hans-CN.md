@@ -61,7 +61,7 @@ activation 只在 `now < lease_expires_at` 时有效。一个 watchdog 会把一
 
 ## Actor Runtime 不是什么
 
-它不是存放持久事实的地方——那些在 AI-agent 状态层和 PostgreSQL 里。它不是 worker；worker 是可替换的 Agent Computer 进程，负责跑回合。它也不是入口；信号从 [SignalsGateway](../signals-gateway/) 进来，一旦变成 actor 事件，唤醒并跑起它们就是这个运行时的事。这里的边界，是把一条持久入队的事件转换成一个有隔离栏、可恢复的实时回合，再转换回一次持久提交。
+它不是存放持久事实的地方——那些在 AI-agent 状态层和 PostgreSQL 里。它不是 worker；worker 是可替换的 Agent Computer Worker 进程，负责跑回合。它也不是入口；信号从 [SignalsGateway](../signals-gateway/) 进来，一旦变成 actor 事件，唤醒并跑起它们就是这个运行时的事。这里的边界，是把一条持久入队的事件转换成一个有隔离栏、可恢复的实时回合，再转换回一次持久提交。
 
 ## 下一步
 

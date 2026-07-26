@@ -1,8 +1,8 @@
 ---
 title: Todo and clarify
 description: How an Ankole agent plans a complex task and resolves a real ambiguity mid-task — the todo tool (per-session, at most one item in progress) and the clarify tool (one decision question, durably recorded, ends the turn). What the agent uses each for, and what an operator should not expect them to do.
-section: User guide
-order: 36
+section: Developer guide
+order: 124
 ---
 
 `todo` and `clarify` are the agent's structured planning tools. One keeps the plan inside a session; the other asks you a single question when the answer genuinely changes the result. Both ship with the worker in `app/agent_computer/src/tools/`. They are not memory and they are not a chat surface — they are how the agent keeps its own footing and how it asks for one decision.
@@ -40,7 +40,7 @@ When the agent should not ask: when a safe, low-risk default is available. If th
 
 ## How clarify connects to background jobs
 
-Inside a [background job](../background-jobs-ops/), a `clarify` call moves the job into the `waiting_on_user` state. The job does not run further until you reply, and your reply is what moves it back to running. From your side, this looks like the job pausing to ask exactly one question. From the agent's side, it is the same contract — ask, end the turn, wait for the next message — applied inside a job lifecycle. See [Background jobs (operator view)](../background-jobs-ops/) for the state model and how you spot a job that is waiting on you.
+Inside a [background job](../background-jobs/), a `clarify` call moves the job into the `waiting_on_user` state. The job does not run further until you reply, and your reply is what moves it back to running. From your side, this looks like the job pausing to ask exactly one question. From the agent's side, it is the same contract — ask, end the turn, wait for the next message — applied inside a job lifecycle. See [Background Agent Jobs](../background-jobs/) for the state model and how you spot a job that is waiting on you.
 
 ## What the operator does not touch
 
@@ -50,5 +50,5 @@ The todo store, the clarify durable record, and the turn-ending behavior are wor
 
 - For the persona and capabilities that shape when an agent plans versus asks, read [Agents](../agents/).
 - For durable knowledge that does survive a session, read [Memory](../memory/).
-- For the `waiting_on_user` job state and how a clarify inside a job pauses it, read [Background jobs (operator view)](../background-jobs-ops/).
-- For the worker that runs these tools during a turn, read the [Agent Computer](../agent-computer/) developer page.
+- For the `waiting_on_user` Job state and how a clarify inside a Job pauses it, read [Background Agent Jobs](../background-jobs/).
+- For the worker that runs these tools during a turn, read the [Agent Computer Worker](../agent-computer-worker/) developer page.

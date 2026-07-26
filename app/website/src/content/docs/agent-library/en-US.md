@@ -5,16 +5,16 @@ section: Developer guide
 order: 107
 ---
 
-The Agent Library is the answer to one question: what is this agent actually allowed to do? It is the catalog of skills and Agent Plugins an installation ships, plus the per-agent state that decides which of them are on for a given agent. This page maps that model against the real code in `Ankole.AIAgent.Library`.
+The Agent Library is the answer to one question: what is this agent actually allowed to do? It is the catalog of skills and Agent Plugins a deployment instance ships, plus the per-agent state that decides which of them are on for a given agent. This page maps that model against the real code in `Ankole.AIAgent.Library`.
 
-The decisive property, stated up front: the skills and plugins themselves are filesystem bundles, not database rows. PostgreSQL holds enablement, registry semantics, and file observations — sparse per-agent overrides on top of installation-wide defaults. The bytes and versions stay in the installation library; the database only records who has what turned on.
+The decisive property, stated up front: the skills and plugins themselves are filesystem bundles, not database rows. PostgreSQL holds enablement, registry semantics, and file observations — sparse per-agent overrides on top of instance-wide defaults. The bytes and versions stay in the instance library; the database only records who has what turned on.
 
 ## Two kinds of capability
 
 The library keeps two related but distinct things:
 
 - **A Skill** is a filesystem bundle, identified by a `SKILL.md`. Skill names are lowercase, start with a letter, and use only letters, digits, `_`, and `-`, up to 64 characters. A skill is either `builtin` (shipped with the app image, synced from `app/library/skills`) or `installed` (agent-installed under worker-visible storage). The `agent_skills` row records enablement, source kind, content hash, and sync time — it is explicitly not a file-content table.
-- **An Agent Plugin** is a standard Codex Plugin package, plus Ankole's optional `workspace-template/` initialization directory. Package bytes and versions live in the installation library; PostgreSQL stores only sparse per-agent enablement overrides. Plugin identifiers follow the same format rules as skill names.
+- **An Agent Plugin** is a standard Codex Plugin package, plus Ankole's optional `workspace-template/` initialization directory. Package bytes and versions live in the instance library; PostgreSQL stores only sparse per-agent enablement overrides. Plugin identifiers follow the same format rules as skill names.
 
 The two are connected: an Agent Plugin can carry skills, and skill rows record their `agent_plugin_id` for parent-enablement and catalog presentation. But Agent Plugin membership is independent metadata — it does not change how a skill is loaded.
 
@@ -22,18 +22,18 @@ The two are connected: an Agent Plugin can carry skills, and skill rows record t
 
 An agent's effective capabilities are resolved by walking the catalog with two layers:
 
-1. **Installation-wide defaults** — `default_enabled` on each skill, and the global plugin defaults an operator sets.
+1. **Instance-wide defaults** — `default_enabled` on each skill, and the global plugin defaults an operator sets.
 2. **Per-agent overrides** — `enabled_override` on a skill row, or an Agent Plugin override scoped to one agent.
 
 The resolution is the `effective_enabled` field the capability endpoints return: take the default, apply the override if one exists. A capability with no override inherits the default; a capability with an override honors the override. The catalog is bounded at 256 plugins, so the resolution stays cheap and the surface stays legible.
 
 This is the model the Console's [Agent Library capabilities](../console-api/) routes expose: set the global default, then narrow or widen it per agent.
 
-## Persona documents and skill overlays
+## Durable Agent documents and Skill overlays
 
 Alongside capabilities, the library holds the agent's own writable documents and skill customizations:
 
-- **Agent documents** are the runtime docs seeded per agent — `mission`, `soul`, and `design`, the three `source_kind` values the container table accepts. They live in `agent_library_container_entries` as agent-owned, content-addressed rows (`content_hash` per row), and they are the only agent-owned files that table holds.
+- **Durable Agent documents** are `mission`, `soul`, and `design`, the three `source_kind` values accepted by the container table. The first two define responsibility and behavior. `design` stores the design system for visual work. They live in `agent_library_container_entries` and use content hashes.
 - **Skill overlays** are semantic rows in `agent_skill_overlays`, one per `(agent, skill)`. They let an operator customize how a skill behaves for one agent without forking the skill bundle. An overlay supports compare-and-swap replacement, so concurrent edits resolve deterministically.
 
 A skill view reads the skill's files plus any overlay the agent has for it, so the agent sees one coherent skill, not a bundle and a separate patch.
@@ -69,7 +69,7 @@ Reading `/agents/:agent_uid/library-capabilities` triggers an agent-skill sync, 
 
 ## What the Agent Library is not
 
-It is not a marketplace and not a hot-load system. The skills and plugins are trusted, first-party bundles that ship with the installation or are installed into worker-visible storage; there is no third-party discovery, no isolation machinery beyond what the worker already provides. The database is not the source of the skill bytes — those live on the filesystem, and the registry only tracks what it sees. And the library is not where the model's tools are defined; it is where the operator decides which capabilities an agent may bring to a turn. Crossing from "enabled" into "actually invoked" is the Agent Computer's job, at turn time.
+It is not a marketplace and not a hot-load system. The skills and plugins are trusted, first-party bundles that ship with the deployment instance or are installed into worker-visible storage; there is no third-party discovery, no isolation machinery beyond what the worker already provides. The database is not the source of the skill bytes — those live on the filesystem, and the registry only tracks what it sees. And the library is not where the model's tools are defined; it is where the operator decides which capabilities an agent may bring to a turn. Crossing from "enabled" into "actually invoked" is the Agent Computer Worker's job, at turn time.
 
 ## Next steps
 

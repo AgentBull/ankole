@@ -18,7 +18,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `primary` | 主推理模型——大多数回合 | 单条最大的成本项 |
 | `light` | 高频低风险路径 | 应当真正廉价 |
 | `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
-| `coding` | 代码密集工作 | 仅在 agent 写代码时绑 |
+| 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个模型或订阅账号 |
 | `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑 |
 | `embedding`、`rerank` | 记忆与检索 | 按调用计价，通常小 |
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
@@ -29,7 +29,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 - **把 `light` 绑到真正廉价的东西。** 它为高频路径而存在；一个几乎和 `primary` 一样贵的 `light` 让这个槽失去意义。
 - **默认把 `primary` 调低、不调高。** 一个"感觉贵"的 agent，常常是 `primary` 相对于它实际做的工作绑得太重。质量需要时才上调。
 
-agent 不用的槽就解绑。`vision_fallback`、`image_generate`、`coding`——每个解绑的槽移除一条 agent 本可花销的路径。
+Agent 用不到 `vision_fallback` 或 `image_generate` 时，可以把它们留空，避免产生相应调用。后台 Agent 任务不同：即使不单独配置，任务仍会回退到该 Agent 的 `heavy` 档案并通过 AIGateway 运行。只有在后台任务需要不同模型或指定的 ChatGPT 订阅账号时，才需要单独配置。
 
 ## 杠杆 2：reasoning effort
 
@@ -56,7 +56,7 @@ agent 不用的槽就解绑。`vision_fallback`、`image_generate`、`coding`—
 | `ai_agent.max_output_tokens` | 每回合输出 token 上限 |
 | `ai_agent.inactivity_timeout_ms` | 回合可 inactive 多久后被回收 |
 
-`max_iterations` 是约束话痨 agent 循环的那一个。两次工具调用就够的循环调了十次，就撞了模型十次；更低的上限迫使 agent 收敛。`max_output_tokens` 限制每次响应的大小。这些是部署范围的默认值——设成正常回合的形态，接受真正难的回合可能撞上限、产出"综合已有内容"的最终答案。
+`max_iterations` 限制单个 Agent 回合的模型迭代次数，避免本可用两次工具调用完成的任务反复调用模型。`max_output_tokens` 限制单次响应大小。两项都是实例级默认值，应按常见回合设置；复杂回合达到上限时，Agent 会基于已有内容给出最终回答。
 
 ## 杠杆 5：后台任务重试与槽位上限
 
@@ -74,7 +74,7 @@ agent 不用的槽就解绑。`vision_fallback`、`image_generate`、`coding`—
 
 ## 花费到底在哪
 
-拉杠杆之前，先找到花费。用[可观测性](../observability/)界面：
+调整模型或并发之前，先在 Console 找到产生调用的 Agent、会话或后台任务：
 
 - `GET /ai-gateway/conversations` 显示近期回合做过的模型调用——哪些 profile 解析了、多少次调用、哪些 provider。这是看花费是在 `primary`（量）、`heavy`（少数昂贵调用）、还是 `web_search`（许多小调用）的最快途径。
 - `GET /background-agent-jobs` 显示任务 `attempts`——一个 `attempts: 5` 的任务花了五次运行。
@@ -84,7 +84,7 @@ agent 不用的槽就解绑。`vision_fallback`、`image_generate`、`coding`—
 
 ## 一个完整示例
 
-一套部署的账单一周翻倍。会话界面显示 `primary` 调用正常，但 `web_search` 调用涨了十倍——一个带 `may_intervene` 的团队助理开始在每条频道消息上搜索。修复是人设（"只在有人问事实性问题时搜索"），不是成本杠杆。账单是判断问题的症状；判断住在人设里。
+一个实例的账单在一周内翻倍。会话界面显示 `primary` 调用量正常，但 `web_search` 调用增长了十倍：一个使用 `may_intervene` 的团队助理开始为每条频道消息执行搜索。应当修改 Agent 的角色要求，例如“只在有人询问事实时搜索”，而不是调整全局成本限制。账单只反映问题，是否搜索仍由 Agent 的角色要求决定。
 
 这是模式：成本问题常常是伪装的行为问题，行为杠杆是人设或 binding 策略，不是 token 上限。
 
@@ -94,7 +94,7 @@ agent 不用的槽就解绑。`vision_fallback`、`image_generate`、`coding`—
 
 ## 下一步
 
-- profile 槽，读 [Provider 与模型](../providers-and-models/)。
+- Agent 的模型档案，读 [Agent](../agents/#接上它的模型)。
 - agent 循环旋钮及其键，读[环境变量](../environment-variables/)。
-- 显示花费的界面，读[可观测性](../observability/)。
-- 任务上限，读[后台任务（运维视角）](../background-jobs-ops/)。
+- 相关会话与后台任务接口，读 [Console API 参考](../console-api/)。
+- 任务上限，读[后台 Agent 任务](../background-jobs/)。

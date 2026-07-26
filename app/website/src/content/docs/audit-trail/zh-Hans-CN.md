@@ -1,8 +1,8 @@
 ---
 title: 审计轨迹
 description: 如何阅读 Ankole 的审计面——Brain 审计日志、控制面结构化日志、各自记录了谁在何时改了什么。
-section: User guide
-order: 50
+section: Developer guide
+order: 125
 ---
 
 审计轨迹是"谁在何时改了什么"的持久记录。Ankole 没有单一审计日志；它有几个面，各自由不同子系统拥有，各自记录对自己要紧的决定。本页是这些面的运维者地图——各自记录什么、如何读取、如何配合使用。
@@ -46,7 +46,7 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
 
 日志不是 PostgreSQL——它们是你的日志摄入器接收到的。需要用于审计时，实时发往持久存储（日志索引、S3 归档）。从未外发的日志随进程消失。
 
-日志旋钮和如何读见[可观测性](../observability/)。
+日志级别和格式见[环境变量](../environment-variables/)，定位具体故障的方法见[怎样阅读 Ankole 日志](../log-reading/)。
 
 ## Actor-event 与 delivery 行
 
@@ -72,6 +72,6 @@ curl https://ankole.example.com/api/v1/brain/entries/<id>/audit-log \
 ## 下一步
 
 - Brain 审计面，读 [Brain](../brain/)。
-- 权限模型，读 [Principal 与 AuthZ](../principal-authz/)。
-- 日志旋钮，读[可观测性](../observability/)和[环境变量](../environment-variables/)。
+- 权限模型见[主体与 AuthZ](../principal-authz/)。
+- 日志配置与排查方法，读[环境变量](../environment-variables/)和[怎样阅读 Ankole 日志](../log-reading/)。
 - 保护轨迹的备份，读[备份与还原](../backup-and-restore/)。

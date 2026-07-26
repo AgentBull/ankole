@@ -1,33 +1,33 @@
 ---
 title: 安全加固
-description: 加固一套 Ankole 部署的端到端形态——最小权限、secret 纪律、SSRF、凭证轮换、最小入口。
+description: 加固 Ankole 实例，包括最小权限、Secret 管理、SSRF 防护、凭证轮换和减少外部入口。
 section: Guides
 order: 316
 ---
 
-Ankole 自带安全边界——Principal/AuthZ、加密 secret、沙箱 worker、鉴权入口。加固不是加墙，而是把已有的边界收紧到你实际使用所需的最小面。本页走完运维者加固的五个面，按最先关闭最多风险的顺序。
+Ankole 已提供主体与 AuthZ、Secret 加密、Worker 沙盒和鉴权入口等安全边界。加固的目标是把这些边界收紧到实际需要的最小范围。本页按优先级说明五类运维加固操作。
 
 先把决定性的性质说清楚：Ankole 的模型是*默认最小权限、仅在证据需要时扩展*。下面的每一步都在收窄一项权限、一个 secret 的影响范围、或一条网络路径。如果你发现自己在放宽某一项，问为什么——放宽才是值得审视的动作，不是收窄。
 
-## 面 1：Principal 与 AuthZ 权限
+## 1. 收紧主体与 AuthZ 权限
 
-agent 在它的 Principal 下运行，该 Principal 能做什么由 AuthZ 隔离。加固动作是*每个 agent 最小权限*，不是一个强大的 agent。
+Agent 以自己的主体身份运行，AuthZ 决定该主体可以做什么。请为每个 Agent 分配完成职责所需的最小权限，不要让一个 Agent 拥有过大的权限范围。
 
-- **每个 agent 一个 Principal，每个 agent 一个用途。** 客户成功 agent 和代码 agent 应是不同 Principal，这样一个被入侵不等于两个都被入侵。
-- **授予完成工作所需的最小权限。** 读一个频道的授予窄于写每个频道的授予；限定到具体 resource pattern 的授予窄于通配符。见 [Principal 与 AuthZ](../principal-authz/)。
+- **每个 Agent 使用一个主体，并只承担一种职责。** 客户支持 Agent 和代码 Agent 应使用不同主体，避免一个 Agent 被攻破后同时影响两类工作。
+- **只授予完成工作所需的权限。** 读取一个频道比写入所有频道范围更小；指定资源模式比使用通配符更安全。参见[主体与 AuthZ](../principal-authz/)。
 - **同步 directory group，再按 group 授予。** 已同步的 AuthZ group 让你按团队成员身份限定权限，并在某人离开时通过在来源 directory 移除成员身份来撤销——而不是逐条编辑授予。
-- **不确定时禁用，不要删除。** 被禁用的 Principal 跨部署立即失去权限；你可以重新启用。被删除的 Principal 的 uid 没了。
+- **不确定时先停用，不要删除。** 主体被停用后会立即在整个实例内失去权限，而且可以重新启用；删除主体则会永久移除它的 UID。
 
 审计面是 `/permission-grants` 和 `/principals/:uid/grants`。定期读它们；创建时合理的授予会漂移成过多。
 
-## 面 2：WorkerEnv secret 纪律
+## 面 2：Agent 使用的凭据
 
-secret 住在 WorkerEnv 里，静态加密、每行一密钥。加固动作关乎*影响范围与轮换*，不关乎更强的加密。
+Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”中并开启加密。安全重点是限制使用范围，并定期轮换。
 
-- **少解密。** `POST /worker-envs/:name/decryptions` 是一项单独授权、可观测的动作。优先轮换 secret（设新值）而非解密旧的。见 [WorkerEnv secret](../worker-env/)。
+- **少查看。** 优先直接输入新值完成轮换，不要为了确认而查看旧值。具体操作见[环境变量](../worker-env/)。
 - **能按 agent 限定就按 agent。** 一个全局 secret 触达每个 agent；按 agent 的 secret 触达一个。除非 secret 确实共享，优先按 agent 形态。
-- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`RUNTIME_FABRIC_URL`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的，以及少量 sandbox 关键名，无法通过 WorkerEnv 覆盖——存储拒绝它们。不要绕开；这些名字被保留是因为 sandbox 或 worker 身份拥有它们。
-- **按节奏轮换引导 secret。** `ANKOLE_SECRET_BASE` 和 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` 派生其它密钥；轮换它们是部署重启操作，被入侵的 `ANKOLE_SECRET_BASE` 影响范围是整套部署。
+- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`RUNTIME_FABRIC_URL`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及少量沙盒关键名称不能在 Console 中设置。不要绕开这项限制。
+- **定期轮换引导 Secret。** `ANKOLE_SECRET_BASE` 和 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` 会派生其他密钥，轮换时需要重启部署。`ANKOLE_SECRET_BASE` 一旦泄露，会影响整个实例。
 
 ## 面 3：SSRF 与模型控制的抓取
 
@@ -41,10 +41,10 @@ secret 住在 WorkerEnv 里，静态加密、每行一密钥。加固动作关�
 
 ## 面 4：adapter 凭证轮换
 
-每个聊天 adapter 和 identity provider 持有凭证（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID `appPassword`、Google Workspace `serviceAccountKey`）。按节奏轮换，并在任何泄漏嫌疑时轮换。
+每个聊天渠道和身份源提供商都持有凭证（`appID`/`appSecret`、`botToken`/`appToken`、`clientId`/`clientSecret`、Entra ID `appPassword`、Google Workspace `serviceAccountKey`）。请定期轮换；一旦怀疑泄露，立即轮换。
 
 - **先在 provider 轮换，再在 Ankole。** 在 provider 控制台作废旧凭证，再把新值放进 adapter 的 AppConfigure。顺序要紧：在 Ankole 轮换但仍在 provider 有效的凭证是一个窗口。
-- **shell secret 用 WorkerEnv；adapter secret 用 AppConfigure。** adapter 凭证不在 WorkerEnv——它们在 adapter 自己的加密 AppConfigure 行里。通过 Console 的 provider 或 identity-provider 界面轮换。
+- **按用途选择配置页面。** Agent 工具使用的凭据放在“环境变量”中；聊天渠道和身份源提供商的凭据在各自的 Console 页面中轮换。
 - **Directory 同步凭证也是凭证。** Google Workspace 的 `serviceAccountKey` 和 `adminEmail`、用于 Graph 的 Entra ID 应用——这些能读你的 directory。用与聊天凭证同等的严肃对待它们的轮换。
 
 ## 面 5：最小网络入口
@@ -59,7 +59,7 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 
 加固不是一次性通过；它是一种姿态。三个习惯保持它：
 
-- **定期读授予。** `/permission-grants` 和 `/principals/:uid/grants` 显示每个 Principal 能做什么。漂移会发生。
+- **定期检查授权规则。** `/permission-grants` 和 `/principals/:uid/grants` 会显示每个主体可以做什么。随着职责变化，旧授权可能已经过宽。
 - **读 Brain 审计日志。** `GET /brain/audit-log` 显示 agent 被告知相信什么、谁改过它。记忆是对据此行动的 agent 的一个安全面。
 - **测试还原。** [备份与还原](../backup-and-restore/)纪律是一项安全控制——你无法还原的备份不是从入侵中的恢复。
 
@@ -69,7 +69,6 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 
 ## 下一步
 
-- 权限模型，读 [Principal 与 AuthZ](../principal-authz/)。
-- secret 存储，读 [WorkerEnv secret](../worker-env/)。
+- 权限模型见[主体与 AuthZ](../principal-authz/)。
+- Agent 使用的凭据，读[环境变量](../worker-env/)。
 - SSRF 键与引导 secret，读[环境变量](../environment-variables/)。
-- 假设这份加固的事故流程，读[事故响应](../incident-response/)。

@@ -3,6 +3,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.SignalsGateway.Projection
   alias Ankole.SignalsGateway.ReplyPresentation
 
   setup do
@@ -215,12 +216,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
         complete_turn: true
       )
 
+    open_card_chain!(old_input, ["historical-card-message"])
     lifecycle_event = emit_removed_lifecycle!(agent.uid, old_input, "historical-remove-event")
 
     assert {:ok,
             %{
               status: :entry_lifecycle_ignored,
               lifecycle_event: processed_input,
+              reply_deletions: 0,
               aigateway_deletions: [
                 %{
                   status: :noop,
@@ -233,6 +236,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
              process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
     assert processed_input.id == lifecycle_event.id
+    assert deletion_targets(agent.uid, lifecycle_event.id) == []
     assert Repo.get(Message, old_message.id)
     assert Repo.get(Message, new_message.id)
     assert StatefulResponses.latest_visible_leaf(conversation.id) == new_message.id
@@ -430,6 +434,118 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     refute Enum.any?(checkpoint["presentation"]["actions"], & &1["disabled"])
   end
 
+  test "recalling the source entry mid turn deletes the cards that turn opened" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    input =
+      create_signal_input!(agent.uid, %{
+        source_event_id: "open-card-source-event",
+        source_entry_id: "open-card-source-message",
+        text: "request answered by a still open card",
+        explicit: true
+      })
+
+    open_card_chain!(input, ["card-message-1", "card-message-2"])
+
+    assert {:ok, %{canceled_actor_events: 1, runtime_retractions: retractions}} =
+             remove_source_entry!(agent.uid, input, "open-card-recalled")
+
+    assert [%{status: :canceled, reply_deletions: 2}] = retractions.results
+    assert retractions.canceled_actor_event_ids == [input.id]
+    refute Repo.get(ActorEvent, input.id)
+
+    assert deletion_targets(agent.uid, input.id) == ["card-message-1", "card-message-2"]
+  end
+
+  test "removing the source entry deletes the delivered reply it produced" do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+
+    input =
+      create_signal_input!(agent.uid, %{
+        source_event_id: "delivered-reply-source-event",
+        source_entry_id: "delivered-reply-source-message",
+        text: "request answered in full",
+        explicit: true
+      })
+
+    {:ok, conversation} = StatefulResponses.ensure_conversation(agent.uid, input.session_id)
+
+    answer =
+      start_and_commit_round!(
+        agent.uid,
+        input.id,
+        conversation_id: conversation.id,
+        request_items: [user_item("request answered in full")],
+        terminal_items: [assistant_item("the answer")],
+        complete_turn: true
+      )
+
+    mirror_delivered_reply!(input, "delivered-reply-message", answer.id)
+
+    lifecycle_event = emit_removed_lifecycle!(agent.uid, input, "delivered-reply-recalled")
+
+    assert {:ok, %{status: :entry_lifecycle_ignored, reply_deletions: 1}} =
+             process_ready_events_once(now: DateTime.add(@base_time, 2, :second))
+
+    assert deletion_targets(agent.uid, lifecycle_event.id) == ["delivered-reply-message"]
+  end
+
+  defp open_card_chain!(input, message_ids) do
+    cards =
+      message_ids
+      |> Enum.with_index()
+      |> Enum.map(fn {message_id, index} ->
+        %{
+          "index" => index,
+          "card_id" => "card-#{index}-#{input.id}",
+          "message_id" => message_id,
+          "state" => "open",
+          "streaming_state" => "open"
+        }
+      end)
+
+    checkpoint = %{
+      "schema_version" => 1,
+      "adapter" => "lark",
+      "cards" => cards,
+      "active_index" => length(cards) - 1,
+      "streaming_state" => "open"
+    }
+
+    assert {:ok, _updated} = Actors.put_reply_preview_checkpoint(input.id, checkpoint)
+  end
+
+  defp mirror_delivered_reply!(input, source_entry_id, ai_message_id) do
+    assert {:ok, _entry} =
+             %Entry{}
+             |> Entry.changeset(%{
+               signal_channel_id: input.signal_channel_id,
+               source_entry_id: source_entry_id,
+               reply_to_source_entry_id: input.source_entry_id,
+               provider_thread_id: input.provider_thread_id,
+               text: "the answer",
+               ai_message_id: ai_message_id,
+               document_id:
+                 Projection.entry_document_id(input.signal_channel_id, source_entry_id),
+               content_hash: Projection.entry_content_hash(["the answer"]),
+               first_seen_at: @base_time,
+               last_seen_at: @base_time
+             })
+             |> Repo.insert()
+  end
+
+  defp deletion_targets(agent_uid, lifecycle_event_id) do
+    OutboxEntry
+    |> where([outbox], outbox.agent_uid == ^agent_uid)
+    |> where([outbox], outbox.operation == :delete)
+    |> where([outbox], outbox.source_actor_event_id == ^lifecycle_event_id)
+    |> select([outbox], outbox.target_source_entry_id)
+    |> Repo.all()
+    |> Enum.sort()
+  end
+
   defp create_signal_input!(agent_uid, overrides) do
     assert {:ok, %{actor_event: input}} =
              emit_entry(
@@ -458,22 +574,26 @@ defmodule Ankole.SignalsGateway.ActorRuntime.EntryLifecycleNoopTest do
     input
   end
 
-  defp emit_removed_lifecycle!(agent_uid, input, source_event_id) do
+  defp emit_removed_lifecycle!(agent_uid, input, source_event_id, opts \\ []) do
     assert {:ok, %{canceled_actor_events: 0, lifecycle_events: [lifecycle_event]}} =
-             Ingress.emit_entry_removed(
-               agent_uid,
-               "bot",
-               lifecycle_entry(%{
-                 source_event_id: source_event_id,
-                 signal_channel_id: input.signal_channel_id,
-                 source_entry_id: input.source_entry_id,
-                 provider_thread_id: input.provider_thread_id
-               }),
-               provider_lifecycle_kind: :recalled,
-               now: DateTime.add(@base_time, 1, :second)
-             )
+             remove_source_entry!(agent_uid, input, source_event_id, opts)
 
     lifecycle_event
+  end
+
+  defp remove_source_entry!(agent_uid, input, source_event_id, opts \\ []) do
+    Ingress.emit_entry_removed(
+      agent_uid,
+      "bot",
+      lifecycle_entry(%{
+        source_event_id: source_event_id,
+        signal_channel_id: input.signal_channel_id,
+        source_entry_id: Keyword.get(opts, :source_entry_id, input.source_entry_id),
+        provider_thread_id: input.provider_thread_id
+      }),
+      provider_lifecycle_kind: :recalled,
+      now: DateTime.add(@base_time, 1, :second)
+    )
   end
 
   defp open_pending_interaction!(input) do

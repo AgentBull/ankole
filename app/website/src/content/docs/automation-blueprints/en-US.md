@@ -1,6 +1,6 @@
 ---
 title: Automation blueprints
-description: End-to-end automation shapes — schedule-triggered, self-deferred, and event-driven — that combine cron schedules, checkbacks, background jobs, and signal bindings.
+description: End-to-end automation patterns that combine cron schedules, checkbacks, background jobs, and signal routing rules.
 section: Guides
 order: 309
 ---
@@ -19,11 +19,11 @@ Every blueprint uses one of three triggers. Know which one you need before you p
 | **Self-deferred (checkback)** | the agent sets a delayed self-wakeup during a turn | the agent's `check_back_later` tool | [Schedules](../schedules/) |
 | **Event-driven (webhook)** | an external system POSTs to the webhook front door | a `signals_gateway.webhook_handler` plugin | [SignalsGateway](../signals-gateway/) |
 
-All three deliver through the agent's signal bindings — the binding the schedule fires through, or the binding the agent posts to when it wakes from a webhook event. There is no "automation delivers to channel" knob separate from the binding model.
+All three deliver through the Agent's routing rules: the rule used by a schedule, or the rule used when an Agent wakes from a Webhook event. There is no separate "automation delivers to channel" setting outside the routing model.
 
 ## Blueprint: daily digest (schedule)
 
-The shape [the daily briefing bot](../daily-briefing-bot/) guide walks in full. A cron schedule fires once a day, the agent researches and synthesizes, and the result posts to the bound channel.
+A schedule wakes the Agent once a day. The Agent collects and summarizes the requested information, then posts the result to the bound chat channel. Create and test it with [Schedules](../schedules/) before you set the daily cron expression.
 
 ```bash
 curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<session_id>/cron-schedules \
@@ -58,7 +58,7 @@ This fits work that is not on a cadence: "check whether the deploy finished in a
 
 ## Blueprint: research-and-report (schedule + background job)
 
-A schedule fires a turn, and the turn's work is long enough that the agent delegates it to a background job rather than holding the schedule's turn open. This is [the background research job](../background-research-job/) pattern, triggered by a schedule instead of a human.
+A schedule starts a turn. When the work needs long search and cross-checking, the Agent delegates it to a [Deep Research Background Agent Job](../deep-research-job/) instead of holding the turn open.
 
 1. The cron schedule fires its `task`.
 2. The agent decides the work is long and calls `create_background_job`.
@@ -75,7 +75,7 @@ This is the shape behind the Microsoft 365 directory webhook (`entra-id`, kinds 
 
 ## Blueprint: observe-and-escalate (binding policy + schedule)
 
-A team assistant that watches a channel ([team-assistant](../team-assistant/)) and a schedule that produces a periodic summary of what it observed. The binding policy (`may_intervene` or `record_only`) decides what the agent sees in real time; the schedule decides when it synthesizes.
+A team assistant watches a channel, and a schedule produces a periodic summary of what it observed. The binding policy (`may_intervene` or `record_only`) decides what the agent sees in real time; the schedule decides when it synthesizes.
 
 - Binding: `unaddressed_group_message_policy: record_only` — the agent sees everything, speaks on nothing, builds context.
 - Schedule: a daily or weekly digest of "what happened in this channel."
@@ -93,10 +93,10 @@ This separates observation (continuous, quiet) from synthesis (scheduled, loud).
 
 ## What automation in Ankole is not
 
-It is not a script language. There is no YAML of steps, no "if this then that" graph. The triggers wake the agent; the persona and the model decide the steps. It is not a separate delivery system — delivery is always the signal binding. And it is not a way to bypass permissions; an automated agent acts under the same AuthZ grants as a hand-driven one. Automation is triggers + agent + binding, and the agent is the part that decides.
+It is not a script language. There is no YAML step list or "if this then that" graph. Triggers wake the Agent; the persona and model decide the steps. It is not a separate delivery system because delivery always uses a routing rule. It also cannot bypass permissions: an automated Agent acts under the same AuthZ grants as an Agent started by a person. Automation combines triggers, an Agent, and a routing rule; the Agent makes the decisions.
 
 ## Next steps
 
 - For the schedule surface, read [Schedules](../schedules/).
-- For delegation, read [Delegation patterns](../delegate-patterns/).
+- For background execution and collaboration choices, read [Background Agent Jobs](../background-jobs/).
 - For the webhook front door, read the [SignalsGateway](../signals-gateway/) developer page.

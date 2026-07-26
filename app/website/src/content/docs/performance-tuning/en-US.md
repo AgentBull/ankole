@@ -1,11 +1,11 @@
 ---
 title: Performance tuning
-description: The capacity knobs — concurrent turns, database pool, Postgres max connections, worker turn caps, per-agent job slots — and the relationships between them that decide how much an installation can do at once.
+description: The capacity knobs — concurrent turns, database pool, Postgres max connections, worker turn caps, per-agent job slots — and the relationships between them that decide how much a deployment instance can do at once.
 section: Guides
 order: 319
 ---
 
-Performance in Ankole is mostly capacity: how many turns run at once, how many database connections they can draw from, and how many jobs an agent can run in parallel. This page names the knobs, gives their defaults, and — the part that matters — explains how they relate, because turning one without the others is how you get either a slow installation or a failed one.
+Performance in Ankole is mostly capacity: how many turns run at once, how many database connections they can draw from, and how many jobs an agent can run in parallel. This page names the knobs, gives their defaults, and — the part that matters — explains how they relate, because turning one without the others is how you get either a slow deployment instance or a failed one.
 
 The decisive property, stated up front: the knobs form a chain. Concurrent turns need database connections; database connections are capped by Postgres; job slots multiply the turns an agent can run. Raise one without the others and the chain breaks at the weakest link — turns queue, connections exhaust, or Postgres refuses connections. Tune them as a set, against the shape of your load, not one at a time.
 
@@ -29,7 +29,7 @@ Every turn holds database work; every database connection comes from Postgres. I
 | `agent_computer.background_agent_job.max_turns_per_worker` | configurable | per-worker turn cap for background jobs |
 | `max_running_per_agent` | 3 | at most three running background jobs per agent |
 
-The defaults (9 turns, 10 pool, 300 Postgres) are conservative and fit a single small host. The tuning question is which to raise, and by how much, when the installation is busier than that.
+The defaults (9 turns, 10 pool, 300 Postgres) are conservative and fit a single small host. The tuning question is which to raise, and by how much, when the deployment instance is busier than that.
 
 ## Tune for the symptom
 
@@ -37,7 +37,7 @@ Different symptoms point at different knobs. Read the symptom before you turn an
 
 ### "Turns are slow to start" (queuing)
 
-Turns queue when the worker pool is full — `ANKOLE_MAX_CONCURRENT_TURNS` is the ceiling on concurrent turns the worker accepts. If the [Observability](../observability/) surfaces show turns waiting for a slot, raise the cap. But raise it only as far as the rest of the chain allows: more concurrent turns mean more database work, and if the pool is already near its limit, raising the turn cap just moves the queue from the worker to the pool.
+Turns queue when the Worker pool is full. `ANKOLE_MAX_CONCURRENT_TURNS` is the concurrent-turn limit for each Worker. If the Console shows turns waiting for a Worker, add capacity only after you confirm that the database pool has room.
 
 ### "Turns are slow once running" (database saturation)
 
@@ -53,14 +53,14 @@ If `/ai-gateway/conversations` shows model calls taking most of a turn's time, t
 
 ## A worked sizing
 
-A busier installation, say 5 active agents each running 1–2 jobs and answering in channels:
+A busier deployment instance, say 5 active agents each running 1–2 jobs and answering in channels:
 
 - **Concurrent turns** — raise `ANKOLE_MAX_CONCURRENT_TURNS` to match the realistic peak (15–20), not the theoretical max.
 - **Database pool** — raise `ANKOLE_DATABASE_POOL_SIZE` so the pool is not the queue point (20–30 for this load).
 - **Postgres** — confirm `ANKOLE_POSTGRES_MAX_CONNECTIONS` (300) comfortably exceeds the pool plus the worker's own connections plus headroom; it usually does, but an external server may need its own `max_connections` raised.
 - **Per-agent job slots** — leave at 3; spread more work across agents rather than raising it.
 
-The numbers are not magic — they are "the smallest set that handles your peak without queuing at any link," and you find them by watching the [Observability](../observability/) surfaces after each change.
+These numbers are not fixed answers. Change one limit at a time. Compare queues, Background Agent Job states, and database metrics after each change. Keep the smallest capacity that handles your real peak.
 
 ## Worker count, not just worker capacity
 
@@ -70,11 +70,11 @@ Horizontal worker scaling is the cleaner path when a single worker's host is the
 
 ## What performance tuning is not
 
-It is not "turn everything up." Raising a cap past what the layer below it allows moves the bottleneck, it does not remove it, and a setup with every knob maxed is usually slower than one with the right knobs at the right size. It is not a substitute for reading the symptom — the [Observability](../observability/) surfaces tell you which link is the queue point, and tuning without that reading is guessing. And it is not free; more concurrency means more provider tokens as well as more connections, so pair it with the [Cost management](../cost-management/) levers.
+Performance tuning does not mean setting every limit to its maximum. Capacity above the next layer only moves the bottleneck. Use turn and Job states in the Console to identify the queue, then change that layer. Higher concurrency also uses more model calls and database connections, so review [Cost management](../cost-management/).
 
 ## Next steps
 
 - For the knobs as environment variables, read [Environment variables](../environment-variables/).
-- For the surfaces that show the symptom, read [Observability](../observability/).
+- For turn and Job endpoints, read [Console API reference](../console-api/).
 - For the model-side levers that also affect speed, read [Cost management](../cost-management/).
-- For the worker that runs the turns, read [Agent Computer](../agent-computer/).
+- For the worker that runs the turns, read [Agent Computer Worker](../agent-computer-worker/).

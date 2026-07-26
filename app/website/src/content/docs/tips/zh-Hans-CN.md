@@ -45,19 +45,19 @@ kubectl -n ankole logs deployment/ankole-control-plane -c control-plane | grep "
 
 一个"感觉慢"的 agent，常常是 `primary` 绑得太重，相对于它实际做的工作。
 
-## 轮换 WorkerEnv secret 而不弄断回合
+## 轮换环境变量中的凭据
 
 Worker 环境改动在**下一个回合**生效，不在当前正在跑的回合上。所以：
 
-1. 用 `PUT /worker-envs/:name`（或按 agent 形态）放新值。
+1. 在 Console 的“环境变量”中输入新值并保存。
 2. 让任何进行中的回合跑完——它已经有它的环境。
 3. 发一条新消息，验证新值生效。
 
 不要从你保存时正在跑的回合判断 secret 改动；它看不到新值。
 
-## 解密是单独权限——少用
+## 只在必要时查看加密值
 
-`POST /worker-envs/:name/decryptions` 是一项单独授权的动作，不是读取的副作用。优先轮换 secret（设新值）而非解密旧的；每次解密可观测，且值会到达调用方。只在确实需要看存储值时用解密——为调试，或为脚本化轮换前确认那里的内容。
+优先直接输入新值完成轮换，不要为了确认而查看旧值。只有在排查问题且确实需要核对现有内容时，才选择“查看”。
 
 ## 从卡住的回合恢复
 
@@ -75,15 +75,15 @@ Worker 环境改动在**下一个回合**生效，不在当前正在跑的回合
 
 ## 每次升级前都备份
 
-Helm 回滚不会反向执行数据库 migration。升级前那两分钟的 `pg_dump`，是"回滚了"和"从备份还原、丢了一天"之间的差别。命令见[升级](../updating/)。
+Helm 回滚不会反向执行数据库 migration。升级前那两分钟的 `pg_dump`，是“回滚了”和“从备份还原、丢了一天”之间的差别。备份与还原命令见[备份与还原](../backup-and-restore/)。
 
-## 把人设当作调谐面
+## 从正确的长期文档调整 Agent
 
-当 agent 行为错——太吵、太静、跑题——人设（`MISSION.md`、`SOUL.md`、`DESIGN.md`）几乎总是对的杠杆，而不是改配置。编辑文档，观察一天，再编辑。配置改 agent 的*能力*；人设改它的*判断*，而错的通常是判断。
+Agent 的职责不清时改 `MISSION.md`；沟通方式或判断习惯不合适时改 `SOUL.md`；网页、幻灯片、文档或图表的视觉风格不统一时改 `DESIGN.md`。三个文件各管一件事，不要把行为要求塞进视觉设计系统。
 
 ## 钉钉每个 agent 一个机器人
 
-钉钉强制一条硬约束：每个 agent 一个启用 binding，每个 `clientId` 一个 agent。要扩展，从一开始就按一个 agent 一个机器人规划——同一 agent 上第二个 binding 以 `dingtalk_binding_already_exists` 失败，在第二个 agent 上复用 `clientId` 以 `dingtalk_app_already_bound` 失败。见[钉钉首机器人](../dingtalk-first-bot/)指南。
+钉钉强制一条硬约束：每个 agent 一个启用 binding，每个 `clientId` 一个 agent。要扩展，从一开始就按一个 agent 一个机器人规划——同一 agent 上第二个 binding 以 `dingtalk_binding_already_exists` 失败，在第二个 agent 上复用 `clientId` 以 `dingtalk_app_already_bound` 失败。配置方法见 [Quickstart](../quickstart/#4-连接聊天渠道并创建信号路由规则)。
 
 ## Teams 总是需要公共端点
 
@@ -91,6 +91,6 @@ Teams 把消息作为 Bot Framework webhook 调用投递，不走长连接。Tea
 
 ## 下一步
 
-- 完整运维界面，读 [Console 运维操作](../console-operations/)和 [Console API 参考](../console-api/)。
+- Console 的接口参考，读 [Console API 参考](../console-api/)。
 - 环境旋钮，读[环境变量](../environment-variables/)。
 - kit 命令，读 [kit CLI 参考](../kit-cli/)。

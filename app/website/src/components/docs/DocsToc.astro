@@ -14,7 +14,10 @@ const toc = headings.filter(h => h.depth === 2 || h.depth === 3)
 
 {
 	toc.length > 0 && (
-		<aside class="hidden lg:sticky lg:top-14 lg:max-h-[calc(100vh-3.5rem)] lg:self-start lg:overflow-y-auto lg:py-10 xl:block">
+		<aside
+			data-docs-toc
+			class="hidden lg:sticky lg:top-14 lg:max-h-[calc(100vh-3.5rem)] lg:self-start lg:overflow-y-auto lg:py-10 xl:block"
+		>
 			<nav aria-label={t(lang, 'docs.toc.title')}>
 				<h2 class="px-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
 					{t(lang, 'docs.toc.title')}
@@ -24,8 +27,9 @@ const toc = headings.filter(h => h.depth === 2 || h.depth === 3)
 						<li>
 							<a
 								href={`#${heading.slug}`}
+								data-docs-toc-link
 								class:list={[
-									'block py-1 text-sm text-muted-foreground no-underline transition-colors hover:text-foreground',
+									'-ml-px block border-l border-transparent py-1 text-sm text-muted-foreground no-underline transition-colors hover:text-foreground',
 									heading.depth === 3 ? 'pl-7' : 'pl-3'
 								]}
 							>
@@ -38,3 +42,91 @@ const toc = headings.filter(h => h.depth === 2 || h.depth === 3)
 		</aside>
 	)
 }
+
+<script>
+	const toc = document.querySelector<HTMLElement>('[data-docs-toc]')
+
+	if (toc && toc.dataset.ready !== 'true') {
+		toc.dataset.ready = 'true'
+
+		const entries = Array.from(toc.querySelectorAll<HTMLAnchorElement>('[data-docs-toc-link]'))
+			.map(link => {
+				const href = link.getAttribute('href')
+				return href?.startsWith('#') ? { heading: document.getElementById(href.slice(1)), link } : undefined
+			})
+			.filter(entry => entry?.heading) as Array<{ heading: HTMLElement; link: HTMLAnchorElement }>
+
+		let activeLink: HTMLAnchorElement | undefined
+		let frame = 0
+
+		const revealActiveLink = (link: HTMLAnchorElement) => {
+			const tocRect = toc.getBoundingClientRect()
+			const linkRect = link.getBoundingClientRect()
+			const edge = 12
+			let nextScrollTop = toc.scrollTop
+
+			if (linkRect.top < tocRect.top + edge) {
+				nextScrollTop += linkRect.top - tocRect.top - edge
+			} else if (linkRect.bottom > tocRect.bottom - edge) {
+				nextScrollTop += linkRect.bottom - tocRect.bottom + edge
+			}
+
+			if (nextScrollTop !== toc.scrollTop) {
+				toc.scrollTo({
+					top: nextScrollTop,
+					behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+				})
+			}
+		}
+
+		const setActive = (link: HTMLAnchorElement) => {
+			if (activeLink === link) return
+
+			activeLink?.removeAttribute('aria-current')
+			link.setAttribute('aria-current', 'location')
+			activeLink = link
+			revealActiveLink(link)
+		}
+
+		const updateActive = () => {
+			frame = 0
+			if (entries.length === 0) return
+
+			const headingOffset = 96
+			let active = entries[0]
+
+			for (const entry of entries) {
+				if (entry.heading.getBoundingClientRect().top > headingOffset) break
+				active = entry
+			}
+
+			if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+				active = entries[entries.length - 1]
+			}
+
+			setActive(active.link)
+		}
+
+		const scheduleUpdate = () => {
+			if (frame !== 0) return
+			frame = window.requestAnimationFrame(updateActive)
+		}
+
+		window.addEventListener('scroll', scheduleUpdate, { passive: true })
+		window.addEventListener('resize', scheduleUpdate)
+		new ResizeObserver(scheduleUpdate).observe(document.querySelector('article') ?? document.body)
+		updateActive()
+	}
+</script>
+
+<style>
+	[data-docs-toc-link][aria-current='location'] {
+		border-left-color: var(--color-brand-50);
+		color: var(--foreground);
+		font-weight: 600;
+	}
+
+	:global([data-theme='dark']) [data-docs-toc-link][aria-current='location'] {
+		border-left-color: var(--color-brand-40);
+	}
+</style>

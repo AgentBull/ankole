@@ -1,11 +1,11 @@
 ---
 title: Console API reference
-description: The stateless bearer-token REST surface under /api/v1 — the gate, the full route tables by surface, and the Console policy actions. For operator task flows, see Console operations.
-section: Developer guide
-order: 112
+description: Reference for the /api/v1 REST API that the Console uses, including authentication, resource routes, and authorization actions.
+section: Reference
+order: 203
 ---
 
-This page is the REST reference for the Console API: the gate, every route under `/api/v1`, and the Console policy actions each one runs under. For the operator task index — what to do when, in plain steps — read [Console operations](../console-operations/).
+This page is the REST reference for the Console API: its authentication gate, the routes under `/api/v1`, and the permission action for each route.
 
 The decisive property, stated up front: the Console API is stateless and bearer-authenticated, and it re-confirms the caller is still an active admin on every request. There is no session cookie doing the work for you, and a disabled admin stops working immediately, not on the next login.
 
@@ -27,7 +27,7 @@ A running agent needs a model behind it. The operator wires that through AIGatew
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/ai-gateway/provider-kinds` | List the provider kinds this installation can configure |
+| `GET` | `/ai-gateway/provider-kinds` | List the provider kinds this deployment instance can configure |
 | `GET` | `/ai-gateway/providers` | List configured providers |
 | `PUT` | `/ai-gateway/providers/:provider_id` | Create or replace a provider |
 | `DELETE` | `/ai-gateway/providers/:provider_id` | Remove a provider |
@@ -49,17 +49,17 @@ The agent is the unit an operator configures everything else against:
 | `PATCH` | `/agents/:agent_uid` | Update an agent |
 | `DELETE` | `/agents/:agent_uid` | Remove an agent |
 
-### Signal bindings
+### Signal routing rules
 
-A signal binding ties a provider adapter to an agent so shared work can reach it:
+A signal routing rule (`Signal Binding` in the API schema) connects a provider adapter to an Agent so shared work can reach it:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/signal-adapters` | List adapters this installation declared |
-| `GET` | `/agents/:agent_uid/signal-bindings` | List an agent's bindings |
-| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a binding |
-| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a binding |
-| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a binding |
+| `GET` | `/signal-adapters` | List adapters this deployment instance declared |
+| `GET` | `/agents/:agent_uid/signal-bindings` | List an Agent's routing rules |
+| `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
+| `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
+| `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |
 
 Disabling a binding stops new signals from waking its agent without deleting the binding.
 
@@ -83,9 +83,9 @@ The Agent Library is what an agent can do — its plugins and skills. The Consol
 
 A capability is enabled globally, then narrowed or widened per agent. Skill overlays let an operator customize how a skill behaves for one agent without forking it.
 
-### WorkerEnv secrets
+### Environment variables (WorkerEnv)
 
-Agent Computer workers need secrets — API keys, tokens — but those secrets must not sit in plaintext config. WorkerEnv is the encrypted store:
+An Agent Computer Worker can need environment variables such as API keys and tokens. The Console calls this feature **Environment variables**. The API keeps `WorkerEnv` as its resource name:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -117,7 +117,7 @@ Control Plane Plugins are the first-party extensions that change what the contro
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/identity-provider-adapters` | List the IdP adapters this installation supports |
+| `GET` | `/identity-provider-adapters` | List the IdP adapters this deployment instance supports |
 | `GET` | `/identity-providers` | List configured identity providers |
 | `PUT` | `/identity-providers/:provider_id` | Create or replace an IdP |
 | `POST` | `/identity-providers/:provider_id/sync-runs` | Sync directory groups from an IdP |
@@ -140,10 +140,10 @@ Alongside configuration, the Console is the observability path for the rest of t
 
 ## A note on what is not here
 
-The `/webhooks/*` and `/api/v1/ai-gateway/*` routes are deliberately not under `console_api`. Webhook ingress authenticates the provider, not an admin; the AIGateway runtime API authenticates an agent or admin token for live AI calls. The Console is the operator's configuration surface, and it is the only surface that trusts an admin bearer token to change how the installation behaves.
+The `/webhooks/*` and `/api/v1/ai-gateway/*` routes are deliberately not under `console_api`. Webhook ingress authenticates the provider, not an admin; the AIGateway runtime API authenticates an agent or admin token for live AI calls. The Console is the operator's configuration surface, and it is the only surface that trusts an admin bearer token to change how the deployment instance behaves.
 
 ## Next steps
 
 - For the runtime surfaces the Console configures, read [AIGateway API](../ai-gateway/), [SignalsGateway](../signals-gateway/), and [Actor Runtime](../actor-runtime/).
 - For the permission model the Console itself runs under, read [Principal and AuthZ](../principal-authz/).
-- For getting a running installation to configure in the first place, read the [installation guide](../installation/).
+- To configure a new deployment instance, read the [deployment section of Quick start](../quickstart/#deployment).

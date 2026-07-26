@@ -5,9 +5,9 @@ section: Developer guide
 order: 118
 ---
 
-每个回合，worker 构建模型看到的系统 prompt。该 prompt 从回合时解析的 PostgreSQL-backed agent 上下文组装，在 worker 上渲染。本页文档化各部件如何从控制面到达 worker、每个部件是什么、组装发生在哪里。它建立在 [Agent Computer](../agent-computer/) 和 [AIGateway](../ai-gateway/) 页之上。
+每个回合，worker 构建模型看到的系统 prompt。该 prompt 从回合时解析的 PostgreSQL-backed agent 上下文组装，在 worker 上渲染。本页文档化各部件如何从控制面到达 worker、每个部件是什么、组装发生在哪里。它建立在 [Agent Computer Worker](../agent-computer-worker/) 和 [AIGateway](../ai-gateway/) 页之上。
 
-先把决定性的性质说清楚：系统 prompt **在 worker 上组装**，不在控制面。控制面提供数据——人设文档、skill、Brain 快照、agent 设置、channel 上下文——通过两条通道；worker 把它们渲染成模型收到的最终 prompt 字符串。控制面从不构造 prompt；它持有 worker 渲染的事实。
+系统 prompt **在 Worker 上组装**，不在控制面。控制面通过两条通道提供 Agent 长期文档、Skill、Brain 快照、Agent 设置和聊天上下文；Worker 再把这些数据渲染成模型收到的最终 prompt。
 
 ## 两条数据通道
 
@@ -16,15 +16,15 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 | 通道 | 携带什么 | 何时 |
 |---|---|---|
 | `turn_start.request_context` | agent 循环设置（`ai_agent.max_iterations`、`max_output_tokens`、`inactivity_timeout_ms`）、回合局部事实（信号、channel、回合种类） | 嵌入 TurnStart 信封，循环开始前 |
-| `AgentConversationContextBroker` RPC | 人设文档（`SOUL`/`MISSION`/`DESIGN`）、已启用 skill、Brain 快照（pinned memo + channel 条目）、安装时区、agent profile | worker 在循环开始时经 RuntimeFabric RPC 获取 |
+| `AgentConversationContextBroker` RPC | Agent 长期文档（`SOUL`/`MISSION`/`DESIGN`）、已启用 skill、Brain 快照（pinned memo + channel 条目）、安装时区、agent profile | worker 在循环开始时经 RuntimeFabric RPC 获取 |
 
 划分是刻意的：回合局部事实走 `turn_start`，因为它们每回合变；会话范围上下文由 worker 经 broker 获取，因为它在一会话内跨回合稳定且 broker 缓存它。broker 模块文档明确："此 RPC 刻意不返回转写消息或回合局部请求上下文。转写历史归 AIGateway；回合局部事实走 `turn_start`。"
 
 ## 控制面提供什么
 
-### 人设文档
+### Agent 长期文档
 
-`AgentConversationContextBroker` 通过 `Library.list_agent_documents/1` 读取 agent 的库文档，按键名返回：`soul`、`mission`、`design`。这些是运维者通过 Console 撰写的 `SOUL.md`/`MISSION.md`/`DESIGN.md`——agent 的语气、范围和工作约定。
+`AgentConversationContextBroker` 通过 `Library.list_agent_documents/1` 读取 Agent 的长期文档，并按 `soul`、`mission`、`design` 返回。`SOUL.md` 定义沟通与判断方式，`MISSION.md` 定义职责，`DESIGN.md` 提供视觉内容使用的设计系统。
 
 ### 已启用 skill
 
@@ -50,7 +50,7 @@ worker 上的 `system_prompt.ts` 构建最终 prompt。其模块文档说明了�
 
 1. **Epoch 标记**——`<!-- ankole-system-prompt-epoch:agent-computer-v3 -->`，让支持 prompt 缓存的 provider 识别 prompt 版本。
 2. **核心指令**——agent 的基础行为契约，从回合上下文组装。
-3. **人设文档**——`SOUL`、`MISSION`、`DESIGN`，从 broker 响应渲染。
+3. **Agent 长期文档**——`SOUL`、`MISSION`、`DESIGN`，从 broker 响应渲染。
 4. **持久上下文**——Brain 快照的 pinned memo 和 channel 条目，带指引渲染（"仅当条目仍然有效时使用……否则忽略"）。
 5. **Skill**——已启用 skill 的描述，告诉模型可以够到什么。
 6. **Channel 与运行时上下文**——当前 channel、工作空间路径、可用工具名。
@@ -72,6 +72,6 @@ worker 每回合从当前 PostgreSQL-backed 上下文重新渲染完整 prompt�
 ## 下一步
 
 - 使用此 prompt 的 agent 循环，读 [Agent 循环](../agent-loop/)。
-- 跑组装的 Agent Computer，读 [Agent Computer](../agent-computer/)。
+- 跑组装的 Agent Computer Worker，读 [Agent Computer Worker](../agent-computer-worker/)。
 - 喂给持久上下文块的 Brain 快照，读 [Brain](../brain/)。
 - skill 块，读 [Agent Library](../agent-library/)。

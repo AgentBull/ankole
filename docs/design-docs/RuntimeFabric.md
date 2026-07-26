@@ -29,7 +29,8 @@ rules or commit business records.
 Workers use RPC when they need to read or change stored Ankole data. The control
 plane uses file messages when it needs a worker file.
 
-All workers in one Installation must still see the same Agent Home storage.
+All workers in one deployment instance must still see the same Agent Home
+storage.
 File messages do not replace shared storage.
 
 ## One ZeroMQ Connection per Worker
@@ -591,7 +592,7 @@ structured attachment record.
 Agent Plugins and Skills combine filesystem packages with control-plane
 enablement state.
 
-Built-in packages remain on the installation filesystem.
+Built-in packages remain on the deployment-instance filesystem.
 Agent-installed Skills remain under the Agent Home `installed-skills` directory.
 
 Before a turn, the worker scans installed Skills and reports the full observed

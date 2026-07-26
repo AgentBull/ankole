@@ -61,7 +61,7 @@ This is the recovery story in one sentence: the durable event stays open, the ru
 
 ## What the Actor Runtime is not
 
-It is not a place to store durable facts — those live in the AI-agent state layer and PostgreSQL. It is not a worker; workers are replaceable Agent Computer processes that run turns. And it is not the entry surface; signals arrive through [SignalsGateway](../signals-gateway/), and once they become actor events, waking and running them is this runtime's job. The boundary is the conversion from a durable queued event into a fenced, recoverable live turn — and back into a durable commit.
+It is not a place to store durable facts — those live in the AI-agent state layer and PostgreSQL. It is not a worker; workers are replaceable Agent Computer Worker processes that run turns. And it is not the entry surface; signals arrive through [SignalsGateway](../signals-gateway/), and once they become actor events, waking and running them is this runtime's job. The boundary is the conversion from a durable queued event into a fenced, recoverable live turn — and back into a durable commit.
 
 ## Next steps
 

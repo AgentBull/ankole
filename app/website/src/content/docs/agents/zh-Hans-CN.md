@@ -1,80 +1,76 @@
 ---
 title: Agent
-description: 如何创建和管理一个 agent——它的身份、人设文档、model profile、能力，以及把它接到共享工作上的 binding。
+description: 在 Console 中创建 Agent，设置职责、长期行为、模型、能力和环境变量。
 section: User guide
 order: 13
 ---
 
-agent 是 Ankole 里其它一切配置所围绕的单位。provider 绑定、model profile、signal binding、library 能力、后台任务，全都挂在某一个 agent 上。本页是运维者走过一个 agent 生命周期的路径：创建它、给它人设、接上模型、启用能力、连接到共享工作。
+Agent 是一位长期工作的数字同事。每个 Agent 都有自己的身份、工作要求、模型、能力和文件空间，并通过信号路由规则接收来自聊天渠道的消息。
 
-先把决定性的性质说清楚：一个 agent 是一个持久的 Principal，带一个稳定的 `uid`。你为它配置的一切——profile、文档、binding——都指向那个 uid，所以改显示名永远不会弄断 binding。
+## 创建 Agent
 
-## 创建一个 agent
+1. 打开 **Console → 智能体**，选择“新增智能体”。
+2. 填写 UID。UID 是实例内唯一的稳定标识，保存后不能修改。建议使用简短的小写英文，例如 `research-analyst`。
+3. 填写显示名称、角色和头像 URL。显示名称可以随时修改，不会影响已有配置。
+4. 保存。页面随后会显示该 Agent 的长期设定、模型档案和专用环境变量。
 
-```bash
-curl -X POST https://ankole.example.com/api/v1/agents \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "display_name": "发布说明机器人" }'
-```
+角色用于概括 Agent 承担的工作，例如“研究分析师”或“客户支持”。职责、行为和视觉设计分别由下面三份长期文档管理。
 
-响应带着 agent 的 `uid`，你之后的每条路由都用它。用 `GET /agents` 列出 agent，用 `GET /agents/:agent_uid` 读取一个，用 `PATCH /agents/:agent_uid` 更新它的展示字段，用 `DELETE /agents/:agent_uid` 移除一个。移除是破坏性的——它的 binding、profile 和 library 状态会一起走——所以如果只是想让它安静，先禁用它的 signal binding。
+## 设置长期文档
 
-## 给它人设
+打开 Agent 编辑页中的 **MISSION / SOUL / DESIGN**：
 
-一个 agent 每个回合会读三份运行时文档，你通过 library-documents 界面撰写它们：
-
-| 文档 | 用途 |
+| 文档 | 应该写什么 |
 |---|---|
-| `mission`（`MISSION.md`） | agent 为何存在，它的范围与职责 |
-| `soul`（`SOUL.md`） | agent 如何说话和行事——语气、风格、边界 |
-| `design`（`DESIGN.md`） | agent 必须遵守的工作约定与约束 |
+| `MISSION.md` | Agent 为什么存在、负责哪些工作、什么结果算完成 |
+| `SOUL.md` | 沟通方式、判断原则，以及面对不确定情况时如何行动 |
+| `DESIGN.md` | Agent 制作网页、幻灯片、文档、图表等视觉内容时使用的设计系统 |
 
-设定一份：
+`DESIGN.md` 遵循 <a href="https://www.designmd.co/about" target="_blank" rel="noreferrer">DESIGN.md 格式</a>：YAML frontmatter 保存颜色、字体、间距、圆角和组件等设计 token，Markdown 正文解释视觉原则及其使用方法。Ankole 内置了一份可直接使用的默认设计系统，也可以在 **Console → 智能体 → DESIGN** 中改成企业自己的品牌规范。
 
-```bash
-curl -X PUT https://ankole.example.com/api/v1/agents/<agent_uid>/library-documents/mission \
-  -H "Authorization: Bearer $CONSOLE_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{ "content": "你是发布说明机器人。你关注合并的 PR……" }'
-```
+不要把工作流程、权限边界或行为要求写进 `DESIGN.md`。这些内容属于 `MISSION.md`、`SOUL.md` 或具体 Skill。长期文档先写得少而明确，再根据真实使用中的问题补充。
 
-这些是 agent 自己的可写文件——它们住在它的 `/agents/<key>/` 工作空间里，由 Agent Computer 每个回合读取。用 `GET /agents/:agent_uid/library-documents` 列出它们。用平实的散文写；agent 把它们当作权威上下文，而不是盲目服从的指令。
+保存后的修改会从后续对话开始生效，已经在执行的工作仍使用开始时读取到的版本。
 
-## 接上它的模型
+## 配置模型
 
-一个 agent 没有模型就跑不起来。至少绑三个必需的 profile 槽——`primary`、`light`、`heavy`——以及 agent 需要的可选槽（`embedding`、`web_search`、`coding` 等）。完整的槽列表和 provider 配置那一步，见 [Provider 与模型](../providers-and-models/)。
+在同一编辑页的“模型档案”中，至少配置 `primary`、`light` 和 `heavy`。它们分别承担日常对话、轻量任务和复杂推理；第一次设置时可以选择同一个已验证可用的模型。
 
-## 启用它的能力
+其他档案按实际需要配置：
 
-agent 的能力——它能用哪些 Agent Plugin 和 skill——来自 Agent Library。模型是“默认再覆盖”：能力有部署范围的默认值，你按 agent 收窄或放宽。
+- Agent 需要读图片时，配置 `vision_fallback`。
+- Agent 需要搜索或读取公开网页时，配置 `web_search` 和 `web_fetch`。
+- Agent 需要生成图片时，配置 `image_generate`。
+- 后台 Agent 任务需要单独选择模型或 ChatGPT 订阅账号时，配置“后台 Agent 任务”。
 
-- 看 agent 的有效能力：`GET /agents/:agent_uid/library-capabilities`。
-- 为某一个 agent 覆盖一个 plugin：`PUT /agents/:agent_uid/library-capabilities/agent-plugins/:id`。
-- 为某一个 agent 覆盖一个 skill：`PUT /agents/:agent_uid/library-capabilities/skills/:id`。
-- 不 fork 就为这个 agent 定制某个 skill 的行为：`PUT /agents/:agent_uid/library-skill-overlays/:skill_name`。
+模型提供商和首次模型配置见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 
-默认再覆盖的模型，以及“已启用”在回合时刻意味着什么，读 [Agent Library](../agent-library/) 开发者页。
+## 配置能力和环境变量
 
-## 把它接到共享工作
+Agent 会继承实例默认启用的 Agent Plugin 和 Skill。需要调整时，打开 **Console → Agent 能力库**，修改默认设置或为该 Agent 单独覆盖。具体方法见 [Agent 能力库](../skills/)。
 
-一个有模型和能力、却没有 signal binding 的 agent，是一个谁都够不到的 agent。一个 signal binding 把一个 provider adapter——Lark、钉钉、Slack、Microsoft 365、Google Workspace——绑到 agent 上，让消息、webhook 和事件变成它会被唤醒的 actor 事件。见 [Signal binding](../signal-bindings/) 和用户指南下各 adapter 的专页。
+若某个 Skill、命令行工具或 MCP 服务需要 API key，可以在 Agent 编辑页的“环境变量”中添加。Agent 专用值只提供给这个 Agent，并会覆盖同名的全局值。具体方法见[环境变量](../worker-env/)。
 
-## 观察 agent 运行
+## 接入聊天渠道
 
-agent 接好并开始收信号之后，Console 显示它在做什么：
+Agent 创建完成后，还需要一条信号路由规则，才能接收 Slack、Microsoft Teams、飞书 / Lark 或钉钉中的消息。
 
-- **session**——`GET /agents/:agent_uid/sessions` 列出该 agent 的长时 session，每一个是一个以 `{agent_uid, session_id}` 为键的 actor。
-- **按 session 的调度**——`/agents/:agent_uid/sessions/:session_id/cron-schedules` 和 `.../checkbacks` 显示一个 session 上已调度和已推迟的工作。
-- **后台任务**——`/background-agent-jobs` 显示该 agent 派生的持久任务；按 agent 过滤就只看它自己的。
-- **会话**——`/ai-gateway/conversations` 显示近期回合做过的模型调用，这是看 agent 是否解析到了你配置的模型的最快途径。
+打开 **Console → 信号路由**，选择聊天应用和目标 Agent。一个聊天应用可以建立多条规则，也可以为不同 Agent 准备不同的机器人应用。具体方法见[信号路由规则](../signal-bindings/)。
 
-## 关于 agent Principal
+## 修改或停用
 
-一个 agent 是一个 Principal——和人类管理员一样的可问责主体形态。它的权限像任何 Principal 一样通过 AuthZ 授予和求值，禁用 agent Principal 会跨部署移除它的权限。运维界面是 `/principals`；模型在 [Principal 与 AuthZ](../principal-authz/) 开发者页。
+显示名称、角色、长期设定、模型和能力都可以随时修改。UID 不能修改，因为其他配置会用它识别这个 Agent。
 
-## 下一步
+停用 Agent 后，它不会继续处理新工作。若只是想暂时停止某个聊天入口，停用或删除对应的信号路由规则即可，不必停用整个 Agent。
 
-- model profile 绑定，读 [Provider 与模型](../providers-and-models/)。
-- 把 agent 接到聊天平台，读 [Signal binding](../signal-bindings/) 和各 adapter 专页。
-- 路由，读 [Console API 参考](../console-api/)。
+## Agent 没有回复时
+
+依次检查：
+
+1. Agent 是否处于启用状态。
+2. `primary`、`light` 和 `heavy` 是否都已配置，模型提供商是否可用。
+3. 是否存在指向该 Agent 的信号路由规则。
+4. 是否至少有一个工作节点处于“就绪”状态。
+5. 在 **Console → 会话** 中是否出现了这次消息，以及页面显示了什么错误。
+
+聊天渠道特有的问题见[快速开始的排障部分](../quickstart/#agent-没有回复时)。

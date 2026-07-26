@@ -5,7 +5,7 @@ section: Guides
 order: 315
 ---
 
-An Ankole installation holds two things you cannot reconstruct: the PostgreSQL database (all durable control-plane state — Principals, agents, sessions, Brain knowledge, jobs, audit) and the Agent Home volume (per-agent workspaces, persona documents, installed skills, session and job files). Everything else is a rebuildable image or a re-derivable projection. This page is how to back up those two, how to restore them, and the one rule that makes a backup real.
+An Ankole deployment instance holds two things you cannot reconstruct: the PostgreSQL database and the Agent Home volume. PostgreSQL stores durable control-plane state. Agent Home stores workspaces, durable Agent documents, installed Skills, and conversation and Job files.
 
 The decisive property, stated up front: a database migration cannot be reversed by rolling the image back. A backup you have not restored is a hope, not a backup. The whole point of this page is the restore step — test it, on a separate host, before you rely on it.
 
@@ -14,7 +14,7 @@ The decisive property, stated up front: a database migration cannot be reversed 
 | Back up | Why | How |
 |---|---|---|
 | **PostgreSQL** (`ankole_postgresql_data` on Compose; your external server on Helm) | all durable semantic truth | `pg_dump -Fc` archive |
-| **Agent Home** (`ankole_agents_data` on Compose; the RWX claim on Helm) | per-agent workspace, persona docs, installed skills, session/job files | volume snapshot or filesystem-level backup, taken while Ankole is stopped |
+| **Agent Home** (`ankole_agents_data` on Compose; the RWX claim on Helm) | per-Agent workspaces, durable documents, installed Skills, conversation and Job files | volume snapshot or filesystem-level backup, taken while Ankole is stopped |
 
 Do **not** back up the container images — they are rebuildable from the registry. Do not back up the Caddy data or the ephemeral worker state; neither holds anything you cannot recreate. And do not back up only one of the two — PostgreSQL references files in Agent Home, and Agent Home without the database rows that point at it is an orphan.
 
@@ -30,7 +30,7 @@ docker compose exec -T postgresql \
 
 On Helm with the bundled PostgreSQL, `kubectl exec` into the PostgreSQL pod and run the same `pg_dump`. With an external PostgreSQL, run `pg_dump` wherever you run it for that server — the command shape is the same.
 
-Take this backup before every upgrade, before any destructive operation (`kit app-db rebuild`, `docker compose down -v`), and on whatever cadence your data-loss tolerance demands. A daily archive is a reasonable default for a small installation.
+Take this backup before every upgrade, before any destructive operation (`kit app-db rebuild`, `docker compose down -v`), and on whatever cadence your data-loss tolerance demands. A daily archive is a reasonable default for a small deployment instance.
 
 ## Back up Agent Home
 
@@ -74,10 +74,10 @@ If the restore works on the test host, your production backup is real. If it doe
 
 A few operations make a backup mandatory, not advisable:
 
-- **Every upgrade** — a migration cannot be reversed; the backup is your only rollback path for the schema. See [Updating](../updating/).
+- **Every upgrade** — a migration cannot be reversed; the backup is your only rollback path for the schema.
 - **`kit app-db rebuild --yes`** — drops the local `ankole_dev` database. Only run it when the data is genuinely disposable, and back it up first if any of it matters.
 - **`docker compose down -v`** — deletes the named volumes, including PostgreSQL and Agent Home. This is a delete, not a restart.
-- **Any incident where the harm might reach durable state** — see [Incident response](../incident-response/).
+- **Any fault that can affect durable state** — make the backup before you repair or roll back.
 
 ## What this guide is not
 
@@ -85,6 +85,5 @@ It is not a backup product recommendation — use whatever volume-snapshot, rest
 
 ## Next steps
 
-- For the upgrade procedure that needs this backup, read [Updating](../updating/).
-- For the incident flow that assumes this backup, read [Incident response](../incident-response/).
-- For the deployment layout that names these volumes, read the [installation guide](../installation/).
+- For cross-host recovery and rehearsals, read [Disaster recovery](../disaster-recovery/).
+- For the deployment layout that names these volumes, read the [deployment section of Quick start](../quickstart/#deployment).

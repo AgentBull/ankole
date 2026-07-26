@@ -13,14 +13,14 @@ The decisive property, stated up front: the resolver, the provider module, and t
 
 `Ankole.AIGateway.Resolver` turns the `model` field of a request into a concrete provider runtime map. The resolver is where a subject-visible selector — `primary`, `light`, `embedding.default`, or an explicit `provider_id/model` — becomes a provider id, a provider kind, an upstream model name, and the resolved runtime settings.
 
-LLM aliases (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) resolve through the agent's model profiles. Embedding and rerank accept `default`, explicit default bindings (`embedding.default`), or explicit selectors. Provider modules never see the selector or the subject — they receive the resolved runtime map only. The resolver is the sole point where subject identity and model profiles are consulted.
+LLM aliases (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) resolve through the agent's model profiles. `coding` is the persisted and API alias for the user-facing Background Agent Jobs profile. Embedding and rerank accept `default`, explicit default bindings (`embedding.default`), or explicit selectors. Provider modules never see the selector or the subject — they receive the resolved runtime map only. The resolver is the sole point where subject identity and model profiles are consulted.
 
 Resolution can fail before any provider is contacted:
 
 - `422 unknown_model_selector` — the selector is not bound for this subject.
 - `422 model_binding_not_configured` — the capability and name are bound but the provider row is incomplete.
 
-These are the errors [Providers and models](../providers-and-models/) tells operators to check.
+These errors identify a missing model profile, an unavailable Provider, or an incomplete Provider configuration.
 
 ## Stage 2: preparation (Provider module + Providers)
 
@@ -78,4 +78,4 @@ It is not a provider-authoring tutorial — see [Adding a provider](../adding-a-
 - For how to write a provider, read [Adding a provider](../adding-a-provider/).
 - For the AIGateway concept page (endpoints, error shapes), read [AIGateway](../ai-gateway/).
 - For the kernel that executes the request, read [Kernel](../kernel/).
-- For the model profiles that feed the resolver, read [Providers and models](../providers-and-models/).
+- For the first model-profile setup, read [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent).

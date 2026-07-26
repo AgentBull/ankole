@@ -70,7 +70,7 @@ defmodule AnkoleWeb.APISpec do
         },
         %Tag{
           name: "Codex Accounts",
-          description: "Operator-managed ChatGPT subscription accounts used by coding profiles"
+          description: "Operator-managed ChatGPT subscription accounts used by Background Agent Jobs"
         },
         %Tag{
           name: "LLM Runtime",

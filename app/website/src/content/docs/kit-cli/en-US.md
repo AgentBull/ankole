@@ -63,7 +63,7 @@ Options apply across these: `--start-services` starts Compose before the operati
 
 ## Worker test runner
 
-`kit agent-computer-test` runs the Agent Computer package tests in the canonical worker container runtime, so tests execute in the same environment a real turn uses. It takes a `--suite` of `unit` or `integration`, and a `--prebuilt-image` to run against a specific Agent Computer Docker image rather than building one.
+`kit agent-computer-test` runs the Agent Computer Worker package tests in the canonical worker container runtime, so tests execute in the same environment a real turn uses. It takes a `--suite` of `unit` or `integration`, and a `--prebuilt-image` to run against a specific Agent Computer Worker Docker image rather than building one.
 
 ## Discovering more
 
@@ -75,5 +75,5 @@ bun run kit --help
 
 ## Next steps
 
-- For the local-environment walkthrough that uses these commands, read the [quick start](../quickstart/) and [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md).
+- For the local-environment walkthrough that uses these commands, read [Quick start](../quickstart/).
 - For what `kit dev` starts, read the [architecture overview](../architecture/).

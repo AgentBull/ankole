@@ -1,82 +1,70 @@
 ---
-title: WorkerEnv secrets
-description: The encrypted shell-environment store for Agent Computer workers — three tracks, one merged environment per agent, decrypted only on the ephemeral RPC path to a turn.
+title: Environment variables
+description: Use the Console to configure the environment variables that command-line tools, MCP servers, and Background Agent Jobs need.
 section: User guide
 order: 10
 ---
 
-WorkerEnv is the store for the environment variables an Agent Computer shell sees when it runs a turn. An operator puts an API key or token here once, attaches it at the right scope, and the worker receives it — decrypted — only when a turn starts. This page maps the model against the real code in `Ankole.SignalsGateway.ActorRuntime.WorkerEnv`.
+An Agent can need environment variables when it runs commands, calls MCP servers, or starts Background Agent Jobs on an Agent Computer Worker. Use **Environment variables** in the Console for API keys, tokens, service URLs, and similar values.
 
-The decisive property, stated up front: secret values are encrypted at rest with a key derived per row, and the only place the decrypted flat map exists is the ephemeral RPC path to the worker. Nothing durable stores the merged environment. Browsing configuration never reveals a secret; revealing one is a separate, separately-authorized action.
+Do not put credentials in Skills, Agent documents, or chat messages.
 
-## Three tracks, one merged environment
+The Agent and the programs that it starts can read these variables. Store only credentials that the Agent must use. Configure credentials for LLM Providers, identity providers, and chat channels on their own Console pages.
 
-The shell environment a worker sees is a merge of three tracks, and understanding the merge is the whole game:
+## Select the scope first
 
-- **Declared variables** are AppConfigure definitions marked with a `worker_env_name`. Their schema, encryption, description, and per-agent overrides stay with AppConfigure; WorkerEnv only projects the resolved value into the shell. Marked definitions must register at boot, not lazily, or enumeration misses them.
-- **Custom variables** are free-form operator rows in `agent_computer_worker_envs`, either global or per agent, each with a per-row `secret` flag. This is the table the Console reads and writes.
-- **Binding-derived variables** are resolved by the agent's active signal adapters. They are ephemeral — they never become editable Console rows.
-
-The merge order, low to high, is: declared, then custom global, then custom agent, then binding-derived, then the model's explicit per-command `env`. Provider-derived identity wins over operator rows, while the trusted model still has the last word for a single command. A binding-derived token for the provider the agent is actually connected to will override an operator row of the same name — which is usually what you want.
-
-## Names and reserved names
-
-A WorkerEnv name is a shell variable name: it must match `~r/\A[A-Za-z_][A-Za-z0-9_]*\z/`. Some names are reserved because the sandbox bootstrap or the worker identity owns them — `PATH`, `HOME`, `SHELL`, `TERM`, `LANG`, `BASH_ENV`, `ENV`, `WORKER_ID`, `RUNTIME_FABRIC_URL`, `DATABASE_URL`, `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, and anything starting with `ANKOLE_`. Overriding these from operator rows would not restrict the model — it can re-export inside the shell — but it would break the sandbox contract in confusing ways, so the store rejects them.
-
-## Encryption: one key per row
-
-Secrets are sealed with kernel-backed AEAD encryption. The row key is derived from both the scope and the name, so a ciphertext copied to another row cannot decrypt as a valid value. The key-derivation domain is `worker_env`, which keeps these ciphertexts unreadable as AppConfigure rows and vice versa — the two stores cannot read each other's secrets even though both use the same kernel primitive.
-
-Values are plain strings by contract, because shell variables are strings; no JSON round-trip happens in the crypto layer. A declared key that resolves to a non-string, non-nil value is treated as a declaration bug and fails loudly, rather than exporting garbage into shells.
-
-## Per-name routing: one editing surface
-
-Console reads and writes route by name, so the operator sees one editing surface even though the backing tracks differ. A name resolves to its custom row first (matching merge precedence), then to its declared definition, and otherwise creates a custom row. This is why the operator never has to know which track a variable lives on to change it.
-
-## The routes
-
-The Console surface splits into global and per-agent scopes, each with read, write, delete, and decrypt:
-
-| Method | Path | Purpose |
+| Who needs the variable | Where to set it | Scope |
 |---|---|---|
-| `GET` | `/worker-envs` | List global variables |
-| `GET` | `/worker-envs/:name` | Read one global variable (metadata, not plaintext) |
-| `PUT` | `/worker-envs/:name` | Create or update a global variable |
-| `DELETE` | `/worker-envs/:name` | Remove a global variable |
-| `POST` | `/worker-envs/:name/decryptions` | Decrypt one global variable |
-| `GET` | `/agents/:agent_uid/worker-envs` | List one agent's effective variables with provenance |
-| `PUT` | `/agents/:agent_uid/worker-envs/:name` | Create or update a per-agent variable |
-| `DELETE` | `/agents/:agent_uid/worker-envs/:name` | Remove a per-agent variable |
-| `POST` | `/agents/:agent_uid/worker-envs/:name/decryptions` | Decrypt one per-agent variable |
+| All Agents | **Console → Environment variables** | Available to every Agent by default |
+| One Agent | **Console → Agents → select an Agent → Environment variables** | Available only to that Agent; a value with the same name overrides the global value |
 
-Listing and reading return metadata, not the secret value. Each action runs under the Console policy — read, update, reset, and decrypt are distinct actions on `worker_env:<name>` and `agent:<uid>:worker_env:<name>` resources.
+When you clear an Agent value, the global value with the same name becomes active again. If no global value exists, the Agent no longer receives the variable.
 
-## Decryption is a separate permission
+## Add a variable for all Agents
 
-Revealing an encrypted value is its own authorized action, distinct from reading the row. The policy action is `worker_env:<name>` `decrypt`, separate from `read` and `update`. This is deliberate: an operator who can browse configuration cannot, by that fact alone, see secret material. Decrypting a value is an observable, privileged act, not a side effect of reading the list.
+1. Open **Console → Environment variables** and select **New variable**.
+2. Enter the name. It can contain letters, digits, and underscores, but it cannot start with a digit. For example, use `MY_API_KEY`.
+3. Enter the value. Keep **Store as secret** on for API keys, tokens, passwords, and other sensitive values.
+4. Add an optional note to identify the tool or service that uses the variable. The Agent does not receive this note.
+5. Save the variable. It becomes available from the Agent's next turn.
 
-## The turn-injection boundary
+The runtime reserves `PATH`, `HOME`, `SHELL`, `TERM`, `LANG`, `BASH_ENV`, `ENV`, `WORKER_ID`, `RUNTIME_FABRIC_URL`, `DATABASE_URL`, `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, and names that start with `ANKOLE_`. You cannot set these names here.
 
-When a worker starts a turn, it calls the `worker_env.resolve` RuntimeFabric RPC. The broker resolves the agent to an active principal, computes the merged environment with secrets already decrypted, and returns it on the ephemeral RPC path. The decrypted flat map never touches durable storage — it exists only for the trip from the control plane to the worker for that turn.
+## Set a variable for one Agent
 
-Two consequences follow. First, Agent Computer is a trusted first-party runtime node; it receives decrypted secrets because it is trusted, and it does not get to resolve another agent's environment. Second, a change to a WorkerEnv value takes effect on the next turn, not on a turn already running — the running turn already has its environment. This is the same "next turn, not this turn" property the [Background Agent Jobs](../background-agent-jobs/) page describes for worker-secret changes.
+1. Open **Console → Agents** and select the Agent.
+2. Find **Environment variables**.
+3. Add a variable, or select **Override** for an existing variable.
+4. Enter the value and save it.
 
-## How it differs from AppConfigure and Control Plane Plugins
+This section shows default values, global values, and values for this Agent. The **Source** column shows which value is active. Select **Clear** to remove the Agent value and restore the global or default value.
 
-Ankole has three configuration surfaces that touch process or shell behavior, and WorkerEnv is the one that specifically holds shell variables for worker turns:
+## Understand the variable types
 
-- **AppConfigure** holds operator-managed application settings — including the declared WorkerEnv definitions themselves. When a declared variable is marked with `worker_env_name`, AppConfigure owns its schema, encryption, description, and per-agent overrides; WorkerEnv only projects the resolved value. A custom row in `agent_computer_worker_envs` is the operator's free-form escape hatch when there is no declared definition.
-- **Control Plane Plugins** contribute AppConfigure keys and supervised children at boot. A plugin can declare a `worker_env_name` AppConfigure key; once it does, that variable flows through WorkerEnv like any declared variable. The plugin is the source of the declaration; WorkerEnv is the projection into the shell.
-- **WorkerEnv** is the merged, name-routed, decrypt-on-RPC shell environment. It is not where configuration lives; it is where shell variables reach the worker.
+| Type | Meaning | Available actions |
+|---|---|---|
+| Custom | An administrator added the variable in the Console | Edit or delete |
+| Declared | Ankole or an enabled plugin provides the variable | Edit the value or reset it to the default |
 
-The split keeps each surface honest about what it owns: AppConfigure owns settings, plugins own declarations, WorkerEnv owns the shell projection and the secret-handling discipline.
+A declared variable has a fixed name and data format. A variable with no value and no default appears as **Unset**.
 
-## What WorkerEnv is not
+## Encrypt, reveal, and rotate values
 
-It is not a general secret store. It holds shell variables for worker turns, encrypted at rest with per-row keys, and nothing else. It is not a way to give the model credentials the operator did not approve — binding-derived variables come from active adapters the operator bound, and reserved names are off limits. And it is not durable in its merged form; the flat decrypted map exists for one RPC hop. The durable facts are the rows; the merged environment is rebuilt every turn.
+**Store as secret** is on by default for a new variable. The Console masks an encrypted value in lists, but the Agent receives the original value when it runs.
 
-## Next steps
+When you edit an encrypted variable, keep the mask unchanged to preserve the stored value. To rotate a credential, enter the new value and save it. You do not need to reveal the old value first.
 
-- For the worker that receives this environment, read the [Agent Computer](../agent-computer/) page.
-- For the AppConfigure definitions a declared variable comes from, read the [Console](../console-api/) page.
-- For the "next turn, not this turn" property shared with secret changes, read [Background Agent Jobs](../background-agent-jobs/).
+Select **Reveal** only when you must check the current value. If you turn off **Store as secret**, the Console asks you to confirm plaintext storage. Do not turn off encryption for API keys, tokens, or passwords.
+
+## When changes take effect
+
+A change does not alter a turn that has already started. The new value is available from the Agent's next turn and to Background Agent Jobs that start later.
+
+If the Agent does not receive the expected value, check these items in order:
+
+1. The name exactly matches the name in the Skill, script, or MCP configuration. Names are case-sensitive.
+2. Whether the Agent has a value with the same name. An Agent value overrides a global value.
+3. The variable does not show **Unset**.
+4. A new Agent turn started after the change.
+
+For an MCP server that uses `bearer_token_env_var`, put only the environment variable name in the MCP configuration. Store the token here. See [MCP](../mcp/) for the MCP configuration.

@@ -44,7 +44,7 @@ The transport is Rust-owned on purpose. It is the one place where a dropped fram
 The kernel's boundaries with the two runtimes are sharp, and each is a consequence of the shared-semantics rule:
 
 - **With the Actor Runtime.** The control plane owns actor state, the activation fence, and the durable transcript. The kernel owns the deterministic authorization evaluation and the transport that carries turn, progress, and RPC envelopes. When the Actor Runtime checks a worker reply against the fence, the decision logic that authorized the principal is kernel code; the fence rows themselves are control-plane state.
-- **With the Agent Computer.** The worker owns live execution. The kernel owns the AI streaming client that worker turns use to reach providers, and the transport that carries the worker's progress and file frames back. The worker does not reimplement streaming or framing; it calls the same native surface the control plane would call for the symmetric direction.
+- **With the Agent Computer Worker.** The worker owns live execution. The kernel owns the AI streaming client that worker turns use to reach providers, and the transport that carries the worker's progress and file frames back. The worker does not reimplement streaming or framing; it calls the same native surface the control plane would call for the symmetric direction.
 - **With AIGateway.** The gateway owns provider routing and credentials. The kernel owns the bytes-on-the-wire: the HTTP and WebSocket transport, the response normalization, the chunk encoding a caller ultimately receives.
 
 ## What the kernel is not
@@ -54,5 +54,5 @@ It is not a place for host-specific behavior. Anything that only one runtime nee
 ## Next steps
 
 - For the authorization evaluation the kernel runs, read [Principal and AuthZ](../principal-authz/).
-- For the transport the kernel carries envelopes over, read the [Actor Runtime](../actor-runtime/) and [Agent Computer](../agent-computer/) pages.
+- For the transport the kernel carries envelopes over, read the [Actor Runtime](../actor-runtime/) and [Agent Computer Worker](../agent-computer-worker/) pages.
 - For the AI streaming the kernel provides, read the [AIGateway API](../ai-gateway/).

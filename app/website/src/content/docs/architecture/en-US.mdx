@@ -1,0 +1,154 @@
+---
+title: Architecture
+description: See how the control plane, Agent Computer Workers, Actor Runtime, Brain, and Background Agent Jobs form Ankole.
+section: Developer guide
+order: 100
+---
+
+import DocsArchitectureDiagram from '../../../components/docs/DocsArchitectureDiagram.astro'
+
+Ankole is a self-hosted AgentOS for AI colleagues that have clear objectives, identities, and responsibilities. They stay in the team's work environment, can run one job for hours, and deliver a result that people can inspect and score.
+
+This requires more than a model behind a chat endpoint. The system must know who acts, who has access, how long work recovers, how an Agent learns from team activity that nobody sent to it, and how one correction changes later work.
+
+## System map
+
+<DocsArchitectureDiagram lang="en-US" />
+
+One private deployment instance has one logical control plane and one or more Agent Computer Workers. The control plane manages identity, state, and scheduling. Workers provide the compute environment where Agents work.
+
+External chats, webhooks, and schedules enter through SignalsGateway. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
+
+## Control plane and Agent Computer Workers
+
+### The control plane stores state and makes decisions
+
+The Elixir/OTP control plane owns the Console, Principals and access, system configuration, signal routing, Actor sessions, Brain, Background Agent Jobs, AIGateway, and Control Plane Plugins.
+
+All these modules use the same rule. State that changes a user-visible result goes to PostgreSQL before it drives execution or external delivery.
+
+A process can restart, but accepted messages, Job state, memory, and audit records must remain.
+
+OTP supervision trees give Agents, connections, and Jobs separate failure domains. If one execution branch hangs or crashes, the control plane can recover that branch without failing the complete deployment instance.
+
+### A Worker is the Agent's work computer
+
+An Agent Computer Worker runs model loops, tools, Skills, browsers, terminals, and file operations. It does not create durable domain state on its own. It accepts work from the control plane and commits execution results back to it.
+
+One Worker can serve several Agents, and each Agent still runs in a separate lightweight sandbox. Give an Agent a dedicated Worker when it needs stronger isolation.
+
+Add Workers for more concurrency or to separate work with different security requirements.
+
+RuntimeFabric connects the control plane and Workers over ZeroMQ. It carries wakeups, steering, cancellation, progress, and execution results.
+
+It is a low-latency live channel, not a database. Recovery still uses PostgreSQL state after a connection fails.
+
+## How one message becomes resumable work
+
+### SignalsGateway receives the outside world
+
+Chat adapters, webhooks, and schedules first convert external events into a common signal. A signal routing rule selects the Agent, session, and channel or thread that must receive the reply.
+
+A group chat can process only messages that address the Agent, record unaddressed messages, or let the Agent decide when to intervene. The available modes depend on the chat platform and signal routing rule.
+
+SignalsGateway stores a received message and its source before it wakes the Agent. It also creates traceable delivery state before an adapter sends a reply.
+
+A temporary provider failure cannot confuse “what Ankole decided to send” with “what the provider accepted.”
+
+### Actor Runtime manages long-running sessions
+
+Each active session is an addressable Virtual Actor. It has a mailbox, lifecycle, and recovery position. New messages and schedules can wake it, and it can receive added input, cancellation, or human intervention while it runs.
+
+Actor Runtime owns this long-running work identity. It creates a new activation and fence for each turn. A Worker can commit only the turn it currently owns. An old Worker cannot overwrite a newer result after recovery or retry.
+
+Streamed content is progress. Only messages, tool results, and state transitions that the control plane confirms and stores are facts. This keeps “the interface shows work in progress” separate from “the work is complete.”
+
+## Brain: a world model that keeps correcting itself
+
+Brain is not a vector database filled with chat excerpts. It maintains an evolving world model. New evidence can extend, revise, or retire old conclusions, and conflicting memories are resolved by time, source, and confidence.
+
+Knowledge can come from conversations with the Agent, group chat that nobody addressed to it, documents, connectors, and other external sources.
+
+Memory is separated by shared, Agent, direct-message, and channel scopes so context does not cross the wrong boundary.
+
+During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, compacts repeated facts, resolves conflicts, and compares earlier predictions with later outcomes.
+
+Brain owns “what the world is like now.” Skill Overlay owns “how this work should be done next time.” An Agent can propose a Skill change after a failure or correction. A person approves it before later sessions use it.
+
+This structure implements the homepage promise that an Agent learns the team's rules over time. Compounding does not mean a longer log. It means that the next job starts from better knowledge and a better method.
+
+See [Long-term memory](../memory/) for the user view. See [Brain](../brain/) for storage, Dreaming, and write authority.
+
+## Background Agent Jobs: long work without blocking the main session
+
+A main Agent can delegate research, data analysis, file work, code changes, and Deep Research to a Background Agent Job. The main session remains available and can continue talking to the user.
+
+The control plane stores the Job lifecycle, and a Worker runs the Job. If that Worker stops, the system can dispatch the Job again and continue from durable state. A process exit does not delete the complete job.
+
+The main Agent and Job can continue to communicate. A Job can ask for input, return failures and final results, or stay silent when requested. When it waits for a person, it releases its execution slot and resumes after the answer arrives.
+
+Deep Research is an advanced use of this architecture. An Agent Plugin supplies the workspace template, Skills supply the research method, and a Background Agent Job supplies durable execution.
+
+Agent Home retains the research material and deliverables.
+
+See [Background Agent Jobs](../background-jobs/) and [Deep Research](../deep-research-job/).
+
+## AIGateway: one boundary for AI capabilities
+
+AIGateway separates model capabilities from Agent execution. Main Agents, Jobs, Brain, and external API clients use the same boundary for LLM, embedding, rerank, image, Web Search, and Web Fetch Providers.
+
+Model profiles select the model for each type of work. The control plane stores Provider credentials in encrypted form, and AIGateway uses them for upstream requests.
+
+Agents and Workers receive only the model choices and call results that they can use.
+
+AIGateway supports calls that store no history and stateful conversations that can continue. It owns request conversion, stream events, tool results, context compaction, usage records, and final-result commits.
+
+Workers do not implement a separate lifecycle for each Provider.
+
+See [AIGateway](../ai-gateway/) and [Add an LLM Provider](../adding-a-provider/).
+
+## Enterprise identity, access, and extensions
+
+Ankole represents people, Agents, and system services as Principals. An Identity Provider supplies Console SSO and synchronizes employees, contacts, and the organization directory.
+
+A chat channel sends and receives messages. These Providers can use different platforms.
+
+AuthZ decides at runtime from the Principal, permission group, resource, action, and condition. Access is not a sentence in a prompt, and a model cannot declare that it has a permission.
+
+Control Plane Plugins connect IdPs, chat channels, and other control-plane capabilities. Agent Plugins add tools and workspace templates.
+
+Skills describe how to do a type of work and can be limited to the main Agent or Background Agent Jobs.
+
+See [Principals and permission groups](../principal-and-groups/), [Signal routing rules](../signal-bindings/), and [Agent Library](../skills/).
+
+## Durability boundaries
+
+PostgreSQL stores durable domain facts such as identity, access, configuration, messages, sessions, Jobs, memory, delivery state, and audit records. Use these records to decide whether the system committed a result.
+
+Agent Home stores workspace files, tool output, and final deliverables. A single-host deployment can use a local or virtual disk. A Kubernetes deployment with several Workers needs NFS or another shared volume that supports `ReadWriteMany`.
+
+RuntimeFabric, Worker process state, and stream previews are rebuildable. They support live execution, but they do not replace PostgreSQL or Agent Home.
+
+## Three deployment forms
+
+| Form | Control plane and Workers | Persistence |
+| --- | --- | --- |
+| **Docker Compose · recommended for one host** | One Linux, macOS, or Windows host runs the control plane and one Worker | PostgreSQL and Agent Home use persistent volumes on the host |
+| **Kubernetes · recommended for enterprise deployment** | One control plane connects to one or more Worker Pods and schedules them by node or security need | PostgreSQL plus shared `ReadWriteMany` Agent Home storage |
+| **Source installation** | The development environment runs the control plane and Worker separately | PostgreSQL and a local workspace configured for development |
+
+The logical boundary is the same for every form. The instance has one control plane and can add Workers horizontally. See [Quick start](../quickstart/#1-deploy-ankole) for the complete procedures.
+
+## Five technical decisions
+
+| Decision | Problem it solves |
+| --- | --- |
+| **Virtual Actors carry AI work** | Give each session an address, mailbox, lifecycle, and recovery position |
+| **OTP supervision trees define failure domains** | Recover one Agent or connection branch without failing the complete instance |
+| **ZeroMQ carries live control** | Move wakeups, steering, progress, and backpressure while an Agent runs |
+| **Agent Computer Workers provide execution** | Keep model loops, tools, files, terminals, and sandboxes near the workspace |
+| **The PostgreSQL ledger stores facts** | Make messages, Jobs, memory, decisions, and committed operations resumable and auditable |
+
+These decisions support one result. An Agent can work for hours, accept new information while it runs, fail and recover independently, and leave a trace for each committed action.
+
+For the longer runtime argument, read <a href="https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/" target="_blank" rel="noreferrer">Why OTP Is a Better Runtime for Multi-Agent Orchestration</a>.

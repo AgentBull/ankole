@@ -118,7 +118,7 @@ This is where provider differences live — URL construction, auth headers, body
 
 First-party providers are compiled into the release and discovered by the registry. For a plugin-contributed provider, declare it through the `ai_gateway.provider` contract in a Control Plane Plugin's `adapter_declarations/0`, and the registry picks it up from the plugin's declaration — same model as a signal adapter, different contract id.
 
-See [Creating a Control Plane Plugin](../creating-a-control-plane-plugin/) for the plugin registration path; the provider contract is `ai_gateway.provider`, the kind id must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`.
+See [Develop Skills and Control Plane Plugins](../writing-a-skill/) for Plugin registration. The Provider contract is `ai_gateway.provider`, and the kind ID must match `~r/\A[a-z][a-z0-9_]{0,62}\z/`.
 
 ## What this guide is not
 
@@ -127,5 +127,5 @@ It is not an HTTP-client tutorial — the prepare function builds a prepared req
 ## Next steps
 
 - For the AIGateway concept (routing, resolution, the unified boundary), read [AIGateway](../ai-gateway/).
-- For the plugin registration path, read [Creating a Control Plane Plugin](../creating-a-control-plane-plugin/).
-- For the operator-facing provider configuration, read [Providers and models](../providers-and-models/).
+- For Plugin registration, read [Develop Skills and Control Plane Plugins](../writing-a-skill/).
+- For the first Provider setup, read [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent).

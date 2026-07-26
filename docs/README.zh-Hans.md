@@ -7,11 +7,12 @@
 
 ## 产品边界
 
-Ankole 是一个自托管系统，让 Agent 可以执行耗时较长的数字工作。一次 Ankole
-安装包含自己的 Agent、用户、外部平台连接、配置和数据，不存在隐藏的 SaaS 租户层。
+Ankole 是面向企业内部的私有化 Agent 系统，让 Agent 可以执行耗时较长的数字工作。
+每家企业拥有一套私有化部署实例，其中包含自己的 Agent、用户、外部平台连接、配置
+和数据。
 
-Principal 表示“谁对这次操作负责”，可以是人，也可以是 Agent。AuthZ 判断这个
-Principal 可以做什么。
+主体（Principal）表示“谁对这次操作负责”，可以是人、Agent 或系统服务。授权管理
+模块（AuthZ）判断这个主体可以做什么。
 
 Agent 可以从外部平台消息、定时任务和 Background Agent Job 接收工作。即使进程失败，
 它也能继续执行。PostgreSQL 保存重启后仍然需要的数据。
@@ -22,7 +23,7 @@ Agent 可以从外部平台消息、定时任务和 Background Agent Job 接收�
 外部平台与定时任务
         |
         v
-SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型服务商
+SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型提供商
         |                              ^
         | turn_start                   | response.create
         v                              |
@@ -33,7 +34,7 @@ SignalsGateway ---- PostgreSQL ---- AIGateway ---- 模型服务商
 | 模块 | 用途 | 详细文档 |
 | --- | --- | --- |
 | SignalsGateway | 接收外部平台事件、启动 Agent 回合并发送回复 | [SignalsGateway](design-docs/SignalsGateway.md) |
-| AIGateway | 选择模型服务商，并为每个 Principal 保存 Response | [AIGateway](design-docs/AIGateway.md) |
+| AIGateway | 选择模型提供商，并为每个主体保存 Response | [AIGateway](design-docs/AIGateway.md) |
 | Brain | 保存有用知识，并在 Agent 需要时找出这些知识 | [Brain](design-docs/Brain.md) |
 | RuntimeFabric | 在进程之间传送实时消息、RPC 调用和文件 | [RuntimeFabric](design-docs/RuntimeFabric.md) |
 | Agent Computer | 运行模型循环、Codex 和工具 | `app/agent_computer/` |
@@ -90,7 +91,7 @@ PostgreSQL 保存领域文档和工作状态。控制面把其中一些记录 ma
 | `docs/` | 当前公开架构与运维文档 |
 
 当前外部平台适配器包括 Lark、DingTalk、Slack、Microsoft 365 和 Google
-Workspace。中国市场模型 Plugin 为 AIGateway 增加模型服务商。
+Workspace。中国市场模型 Plugin 为 AIGateway 增加模型提供商。
 
 ## 控制面启动顺序
 
@@ -114,11 +115,11 @@ Workspace。中国市场模型 Plugin 为 AIGateway 增加模型服务商。
 
 PostgreSQL 保存以下数据，因为 Ankole 重启后仍然需要它们：
 
-- Principal、人、Agent、权限组、成员关系和授权规则
+- 主体、人员、Agent、权限组、成员关系和授权规则
 - AppConfigure 值和加密的外部平台配置
 - 消息连接、频道、消息、删除标记、ActorEvent 和待发回复
 - 定时规则和每次计划执行
-- AIGateway 对话、消息、压缩结果和模型服务商
+- AIGateway 对话、消息、压缩结果和模型提供商
 - Brain 词条、正文、关系、资料、引用、聊天摘要、游标和审计记录
 - BackgroundAgentJob 及其回合记录
 
@@ -172,7 +173,7 @@ Plugin。
 
 ## 常见修改应放在哪里
 
-- 在 `app/control_plane/lib/ankole/ai_gateway/providers/` 添加模型服务商，
+- 在 `app/control_plane/lib/ankole/ai_gateway/providers/` 添加模型提供商，
   或使用 `ai_gateway.provider` Plugin contract。
 - 在 `app/agent_computer/src/tools/` 添加执行进程工具，并在创建回合工具列表时注册。
 - 添加消息平台时，用 Plugin 声明 ingress 和 outbox modules。
@@ -221,14 +222,14 @@ tools/e2e/run --brain-real-llm
 
 | 文档 | 主题 |
 | --- | --- |
-| [AIGateway](design-docs/AIGateway.md) | 模型服务商、Response 历史、上下文压缩和生成文件 |
+| [AIGateway](design-docs/AIGateway.md) | 模型提供商、Response 历史、上下文压缩和生成文件 |
 | [SignalsGateway](design-docs/SignalsGateway.md) | 接收平台消息、运行 Agent、预览和发送回复 |
 | [Brain](design-docs/Brain.md) | 知识、检索、保存的资料和 Dreaming |
 | [Brain 运维](operations/Brain.zh-Hans.md) | PostgreSQL 要求与运维恢复 |
 | [RuntimeFabric](design-docs/RuntimeFabric.md) | ZeroMQ 消息、RPC 和文件传输 |
 | [Schedule](design-docs/Schedule.md) | 单次唤醒、周期任务和 ActorEvent |
 | [BackgroundAgentJob](design-docs/BackgroundAgentJob.md) | 进程失败后仍可继续的后台工作与 Codex 执行 |
-| [Principal](design-docs/Principal.md) | 人和 Agent 的统一身份，以及外部账号合并 |
+| [主体（Principal）](design-docs/Principal.md) | 人和 Agent 的统一身份，以及外部账号合并 |
 | [AuthZ](design-docs/AuthZ.md) | 权限组、授权规则和 CEL 条件 |
 | [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |

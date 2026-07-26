@@ -1,11 +1,11 @@
 ---
 title: 浏览器自动化
 description: Ankole agent 如何驱动一个真实浏览器会话——browser skill、何时该用它而不是 web_search/web_fetch、如何启用、以及为什么 agent 必须用预配置的 ankole-browser CLI 而不是自己启动 Chromium。
-section: User guide
-order: 30
+section: Guides
+order: 305
 ---
 
-browser skill 让 agent 做真实浏览器工作——打开页面、点击、输入、读渲染后的状态、截图，以及对一个活动会话跑可复现的 Playwright 脚本。它是一个 [skill](../agent-library/)，不是内置工具，且作为[后台任务](../background-jobs-ops/)运行。本页是运维视角：这个 skill 是什么、何时开启、agent 对浏览器能做什么、不能做什么。
+browser skill 让 agent 做真实浏览器工作——打开页面、点击、输入、读渲染后的状态、截图，以及对一个活动会话跑可复现的 Playwright 脚本。它是一个 [skill](../agent-library/)，不是内置工具，且作为[后台任务](../background-jobs/)运行。本页是运维视角：这个 skill 是什么、何时开启、agent 对浏览器能做什么、不能做什么。
 
 先把决定性的性质说清楚：每个 agent 会话只有一个浏览器所有者，就是运行时，不是 agent。agent 通过 worker 镜像注入的预配置 `ankole-browser` CLI 来驱动浏览器。它绝不能自己启动 Chromium，也不能调用 `chromium.connectOverCDP`——这两者会造出第二个所有者，绕过会话恢复。
 
@@ -30,7 +30,7 @@ skill 自带的 description 是模型判断要不要用它的契约：当工作�
 
 browser 是 skill，所以你通过 [Agent Library](../agent-library/) 开启它，而不是通过工具开关。因为 `default_enabled` 是 `true`，新建的 agent 默认就有浏览器，除非你收窄它。两层：
 
-1. **安装级默认值**——skill 出厂带 `default_enabled: true`。保持不变，每个 agent 都能用浏览器。
+1. **实例级默认值**——Skill 默认设置 `default_enabled: true`。保持这个值时，每个 Agent 都可以使用浏览器。
 2. **按 agent 覆盖**——为不该有浏览器的 agent 收窄它，或为你之前收窄过的 agent 放开它。
 
 两层都通过 Console 的 library-capability 路由设置，见 [Console API 参考](../console-api/)。读某个 agent 的 `library-capabilities` 会触发一次 skill 同步，所以你看到的是注册表对当前文件系统重对账后的结果，不是过期快照。
@@ -68,11 +68,10 @@ agent 通过 `ankole-browser` CLI 来使用这些。`app/agent_computer/src/brow
 
 ## 运维不该碰的东西
 
-浏览器的环境变量由 worker 镜像设置，不是运维可调的。它们包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_NODE`、`ANKOLE_BROWSER_RUNNER`。这些都不是运维可调的；它们烧进了 [worker 环境](../worker-env/) 跑的镜像里。如果需要不同的浏览器行为，改 skill，而不是覆盖这些变量。
+浏览器的环境变量由 worker 镜像设置，不是运维可调的。它们包括 `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE`、`ANKOLE_BROWSER_CHROMIUM_ARGS_JSON`、`ANKOLE_BROWSER_DAEMON_SOCKET`、`ANKOLE_BROWSER_DAEMON_ENTRY`、`ANKOLE_BROWSER_CLI`、`ANKOLE_BROWSER_NODE`、`ANKOLE_BROWSER_RUNNER`。这些名称不能在 Console 的“环境变量”中覆盖。如果需要不同的浏览器行为，请修改 Skill。
 
 ## 下一步
 
 - 打开浏览器所依赖的 skill 与启用模型，读 [Agent Library](../agent-library/)。
 - 更轻的替代方案——不带浏览器的搜索与文本 fetch——读 [Web 工具](../web-tools/)。
-- 浏览器跑在里面的后台任务，读[后台任务（运维视角）](../background-jobs-ops/)。
-- 注入浏览器环境的 worker 镜像，读 [worker 环境](../worker-env/)。
+- 浏览器所在的后台任务，读[后台 Agent 任务](../background-jobs/)。

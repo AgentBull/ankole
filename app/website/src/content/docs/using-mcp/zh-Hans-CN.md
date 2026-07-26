@@ -1,8 +1,8 @@
 ---
 title: 使用 MCP server
 description: Ankole agent 如何把 Model Context Protocol server 当工具用——server 声明在哪、两种传输、默认超时、为什么 agent 只在声明它的 skill 启用时才看得到 server，以及运维如何改变 agent 看得到的 MCP server。
-section: User guide
-order: 35
+section: Developer guide
+order: 123
 ---
 
 Model Context Protocol（MCP）server 是 Ankole agent 在一个回合里调用外部工具服务的方式——一个查询 API、一个本地命令 server、一个托管的知识库。本页是 MCP 使用中的运维视角：server 对 agent 是什么、声明在哪、两种传输、agent 看得到的 server 集合怎么拼成。它是 [MCP server 参考](../mcp/)的使用侧配套。
@@ -37,13 +37,13 @@ dependencies:
       timeout_ms: 120000
 ```
 
-一个回合跑起来时，Agent Computer 从每个已启用 skill 加载 MCP 声明，按 server 名去重，拉起 server。两个声明了同名 server 的 skill 贡献一个 server，两个 skill 都记为来源。
+一个回合跑起来时，Agent Computer Worker 从每个已启用 skill 加载 MCP 声明，按 server 名去重，拉起 server。两个声明了同名 server 的 skill 贡献一个 server，两个 skill 都记为来源。
 
 ## 两种传输
 
 一条 MCP 依赖是两种传输之一，schema 很严——属于一种的字段放到另一种上会被拒。
 
-- **`streamable_http`**——通过 HTTP 访问的远程 server。带 `url`、`bearer_token_env_var`（一个环境变量的名字，其值作为 bearer token 发出）、可选的 `timeout_ms`。用于用 token 认证的托管 MCP server。token 本身绝不进 YAML——只放持有它的环境变量的名字，于是密钥留在 [WorkerEnv](../worker-env/) 里，不进 skill bundle。
+- **`streamable_http`**——通过 HTTP 访问的远程 server。带 `url`、`bearer_token_env_var`（一个环境变量的名字，其值作为 bearer token 发出）、可选的 `timeout_ms`。用于需要 token 的托管 MCP server。YAML 中只填写环境变量名称，token 本身保存在 Console 的[环境变量](../worker-env/)中，不会写进 Skill。
 - **`stdio`**——作为子进程拉起的本地 server。带 `command`（1–1024 字符）和可选的 `timeout_ms`。用于以可执行文件或 `npx` 风格包分发的 MCP server。server 作为 worker 的子进程跑，存活到本次回合的 MCP 用完为止。
 
 ## 超时
@@ -64,7 +64,7 @@ dependencies:
 2. **为 agent 开一个 server**——启用声明它的 skill。一个 `default_enabled: true` 的内置 skill 已经把它的 server 贡献给每个 agent。
 3. **为 agent 关一个 server**——收窄（禁用）声明它的 skill。
 
-对需要 token 的 HTTP server，对应的环境变量必须在 [WorkerEnv](../worker-env/) 里设好；YAML 里的 `bearer_token_env_var` 只是名字，变量没设意味着这个 server 不带 token 认证，或者在调用时报错。
+对于需要 token 的 HTTP server，请先在 Console 的[环境变量](../worker-env/)中保存 token。YAML 里的 `bearer_token_env_var` 只填写变量名称；如果没有设置这个变量，server 将无法使用该 token。
 
 ## 运维不该碰的东西
 
@@ -75,4 +75,4 @@ dependencies:
 - 完整 schema、传输、加载器行为，读 [MCP server 参考](../mcp/)。
 - 决定哪些 skill——进而哪些 MCP server——开着的目录与启用模型，读 [Agent Library](../agent-library/) 开发者页。
 - 如何写一个声明 MCP 依赖的 skill，读 [Writing a skill](../writing-a-skill/)。
-- `bearer_token_env_var` 解析到的环境变量，读 [worker 环境](../worker-env/)。
+- 配置 `bearer_token_env_var` 所使用的值，读[环境变量](../worker-env/)。

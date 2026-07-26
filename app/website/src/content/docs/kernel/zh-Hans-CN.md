@@ -24,7 +24,7 @@ kernel 的存在，是为了阻止 Bun 这边和 Elixir 这边对同一种原生
 四个模块承载共享语义：
 
 - **`common/`**——宿主中立的原语：AEAD token 加密与解密、密钥派生、哈希、编码、UUID 帮助函数（含 `gen_uuid_v7`，对 Elixir 暴露为 `gen_uuid_v7/0`，对 Bun 暴露为 `genUUIDv7()`）、JWT 帮助函数、电话号码归一化。这些是两个运行时都会伸手去拿的小型受信任操作。
-- **`authz/`**——只基于快照的授权求值。`authorize` 和 `authorize_all` 接受一个 `AuthzSnapshot`，返回一个 `AuthzDecision`；CEL condition 校验和 resource pattern 匹配也在这里。这就是 [Principal 与 AuthZ](../principal-authz/) 页里描述的、控制面为之装配快照的那个确定性求值器。
+- **`authz/`**——只根据快照执行授权求值。`authorize` 和 `authorize_all` 接收 `AuthzSnapshot` 并返回 `AuthzDecision`；CEL 条件校验和资源模式匹配也在这里完成。这就是[主体与 AuthZ](../principal-authz/)中描述的确定性求值器，控制面负责为它组装快照。
 - **`runtime_fabric/`**——RuntimeFabric v1 信封协议：lane、持久性等级、关联规则，以及回合/控制/进度/RPC 体语义，全部在宿主编码的 protobuf 字节之上校验。唯一的结构声明是 `proto/envelope.proto`；每个宿主从它派生自己的编解码——Rust 用 `prost-build`，Elixir 用 `protox`，TypeScript 用 `protoc-gen-es`。没有哪个宿主自己发明结构。
 - **`universal_ai_client/`**——一个 feature 门控的原生异步流式客户端，用于已准备好的 AI provider 请求：上游的 HTTP SSE/EventStream 和 WebSocket 传输、provider 响应归一化、下游的 SSE/WebSocket 分块编码、需求信用、取消。这就是 [AIGateway](../ai-gateway/) 用来与 provider 通信的 AI 数据面原语。
 
@@ -44,7 +44,7 @@ kernel 的存在，是为了阻止 Bun 这边和 Elixir 这边对同一种原生
 kernel 与两个运行时的边界是清晰的，每一条都是共享语义规则的推论：
 
 - **与 Actor Runtime。** 控制面拥有 actor 状态、activation 隔离栏和持久转写。kernel 拥有确定性的授权求值，以及承载回合、进度和 RPC 信封的传输。Actor Runtime 把一条 worker 回复拿去和隔离栏核对时，授权该 principal 的决定逻辑是 kernel 代码；隔离栏行本身则是控制面状态。
-- **与 Agent Computer。** worker 拥有实时执行。kernel 拥有 worker 回合用来触及 provider 的 AI 流式客户端，以及承载 worker 进度帧和文件帧回来的传输。worker 不重新实现流式或组帧；它调用的是同一个原生面——和 Control Plane 在对称方向上会调用的那个一样。
+- **与 Agent Computer Worker。** worker 拥有实时执行。kernel 拥有 worker 回合用来触及 provider 的 AI 流式客户端，以及承载 worker 进度帧和文件帧回来的传输。worker 不重新实现流式或组帧；它调用的是同一个原生面——和 Control Plane 在对称方向上会调用的那个一样。
 - **与 AIGateway。** 网关拥有 provider 路由和凭证。kernel 拥有线上字节：HTTP 和 WebSocket 传输、响应归一化、调用方最终收到的分块编码。
 
 ## kernel 不是什么
@@ -53,6 +53,6 @@ kernel 与两个运行时的边界是清晰的，每一条都是共享语义规�
 
 ## 下一步
 
-- kernel 所跑的授权求值，读 [Principal 与 AuthZ](../principal-authz/)。
-- kernel 承载信封所用的传输，读 [Actor Runtime](../actor-runtime/) 和 [Agent Computer](../agent-computer/)。
+- Kernel 执行的授权求值，见[主体与 AuthZ](../principal-authz/)。
+- kernel 承载信封所用的传输，读 [Actor Runtime](../actor-runtime/) 和 [Agent Computer Worker](../agent-computer-worker/)。
 - kernel 所提供的 AI 流式，读 [AIGateway API](../ai-gateway/)。

@@ -22,7 +22,7 @@ This makes it a good fit if you want one small client that can call any Feishu/L
 - Optional `Plug` webhook adapter
 - WebSocket event-push client
 
-## Installation
+## Setup
 
 Add the dependency to `mix.exs`:
 

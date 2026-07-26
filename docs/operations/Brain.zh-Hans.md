@@ -57,7 +57,7 @@ bun run kit app-db rebuild --yes
 PostgreSQL、备份，再让迁移 init container 成功运行，最后启动新版控制面。不要让 V1
 和 V2 控制面同时连接一个数据库。
 
-迁移后检查固定共享 Principal 和库名：
+迁移后检查固定共享主体和库名：
 
 ```sql
 SELECT uid, type
@@ -75,7 +75,7 @@ ORDER BY owner_uid, store_key;
 
 ## 配置模型
 
-在 Console 中配置模型服务商和 Agent ModelProfile。模型与服务商选择保存在数据库中；
+在 Console 中配置模型提供商和 Agent ModelProfile。模型与提供商选择保存在数据库中；
 不要把模型 ID 或 API key 写进 Brain 环境变量。
 
 | 模型档位 | 用途 | 要求 |
@@ -85,12 +85,12 @@ ORDER BY owner_uid, store_key;
 | `embedding` | 所有词条块、情景摘要和查询向量 | 全局嵌入模型 Agent 必须具备 |
 | `rerank` | 可选的全局检索重排 | 仅启用重排时需要 |
 
-Stage B 只策展 Agent Principal，并使用该 Agent 自己的 `light` 档；human 与 system
-Principal 不能拥有 Stage B 运行。Stage A 在频道可见且活跃的 Agent 中，确定性选择
+Stage B 只整理 Agent 主体，并使用该 Agent 自己的 `light` 档；人员主体与系统
+主体不能拥有 Stage B 运行。Stage A 在频道可见且已启用的 Agent 中，确定性选择
 UID 字典序最小、能解析 `light` 档的 Agent。系统不再有
 `brain.dreaming.model_agent_uid`。
 
-通过全局 `brain.embedding` 配置一个安装级向量空间：
+通过全局 `brain.embedding` 配置一个实例级向量空间：
 
 ```json
 {
@@ -131,7 +131,7 @@ Brain 注册五组 AppConfigure：
   关闭。
 - `brain.search` 配置 30 天半衰期、`0.5` 词条衰减下限和可选精排。
 - `brain.dreaming` 按 Agent 覆盖启用状态和微批限制。Agent 默认启用；human 与
-  system Principal 没有 Stage B 消费面。
+  系统主体没有 Stage B 消费面。
 - `brain.sources` 默认启用 connector 轮询，间隔 15 分钟，单块上限 1500 token。
 - `brain.knowledge` 配置 1500 token 的 pinned memo 预算和默认 10 条召回结果。
 
@@ -155,10 +155,10 @@ ActorEvent 类型不作为策展材料。
 2. **旧向量空间。** 重新生成模型 Agent 或维度不符合全局配置的向量。
 3. **Stage A 可用性。** 查看每个频道的 processor 和 `light` 档；选择失败原因写在
    `unavailable_reason`。
-4. **Stage B 可用性。** 检查被策展 Principal 的 `light` 档和最近成功时间。
+4. **Stage B 可用性。** 检查正在整理的主体是否配置 `light` 档，以及最近一次成功时间。
 5. **失败或卡死策展。** retryable Stage B 任务出现在 `stage_b.retryable_jobs`，
    只有在最后一次尝试时才产生 `curation_jobs_failing` 告警，之前的重试不需要
-   operator 介入。Oban Lifeline 会在执行 30 分钟后救援任务；同一 Principal 反复
+   运维者介入。Oban Lifeline 会在执行 30 分钟后救援任务；同一主体反复
    出现时，继续查服务商和校验错误。
 6. **向量积压或失败。** 修复服务商或档位，再重新跑对应批任务。
 7. **内容纪律。** 通过正常带版本的 Brain 操作处理日期命名、近重名、超过 200 投影
@@ -199,7 +199,7 @@ LIMIT 100;
 
 ## 手动执行维护
 
-为一个 Principal 运行一次 Stage B：
+为一个主体运行一次 Stage B：
 
 ```sh
 /app/bin/ankole eval 'IO.inspect(Ankole.Brain.run_dreaming("agent-uid"), limit: :infinity)'

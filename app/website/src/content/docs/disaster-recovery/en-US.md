@@ -1,11 +1,11 @@
 ---
 title: Disaster recovery
-description: The full shape of recovering an Ankole installation from loss — what is recoverable, what is not, the cross-host migration, and the rehearsal that makes a recovery real.
+description: The full shape of recovering an Ankole deployment instance from loss — what is recoverable, what is not, the cross-host migration, and the rehearsal that makes a recovery real.
 section: Guides
 order: 320
 ---
 
-Disaster recovery is what you do when an installation is gone — the host died, the cluster was lost, the volume was destroyed — and you need to bring it back somewhere else. It is not an incident (the system is not misbehaving, it is absent), and it is not an upgrade (there is nothing to roll forward). This page is the end-to-end recovery shape, built on the backup discipline and the migration mechanics the other guides cover.
+Disaster recovery is what you do when a deployment instance is gone — the host died, the cluster was lost, the volume was destroyed — and you need to bring it back somewhere else. It is not an incident (the system is not misbehaving, it is absent), and it is not an upgrade (there is nothing to roll forward). This page is the end-to-end recovery shape, built on the backup discipline and the migration mechanics the other guides cover.
 
 The decisive property, stated up front: recovery is a *restore onto a fresh deployment*, not a repair of the old one. You deploy Ankole from scratch, restore PostgreSQL and Agent Home from backups, and re-enter the bootstrap secrets. What you recover is exactly what you backed up — no more, no less — and a recovery you have not rehearsed is a plan, not a capability.
 
@@ -14,19 +14,19 @@ The decisive property, stated up front: recovery is a *restore onto a fresh depl
 | State | Recoverable? | From what |
 |---|---|---|
 | Principals, agents, sessions, jobs, Brain knowledge, audit, AuthZ grants | yes | PostgreSQL `pg_dump` archive |
-| Per-agent workspaces, persona documents, installed skills, session/job files | yes | Agent Home volume snapshot |
-| Provider credentials, adapter secrets, WorkerEnv secrets | yes | they live in PostgreSQL and Agent Home — restored with them |
+| Per-Agent workspaces, durable documents, installed Skills, conversation and Job files | yes | Agent Home volume snapshot |
+| Provider credentials, chat-channel credentials, encrypted environment variables | yes | PostgreSQL and Agent Home store them, so the backup restores them |
 | Bootstrap secrets (`ANKOLE_SECRET_BASE`, worker auth key) | **re-enter by hand** | they are not in the backup; generate new ones or reuse the recorded ones |
 | In-flight turns, running background jobs, live worker state | **no** | ephemeral; lost with the process |
 | Logs that were never shipped to an external ingester | **no** | lived on the lost host |
 
-The bootstrap-secret row is the one that surprises people: the secrets that derive other keys are deployment-time inputs, not PostgreSQL state, so they are not in the `pg_dump`. Keep them in your secrets manager (not in the backup of the installation, but alongside it), or regenerate them and accept that the derived keys change.
+The bootstrap-secret row is the one that surprises people: the secrets that derive other keys are deployment-time inputs, not PostgreSQL state, so they are not in the `pg_dump`. Keep them in your secrets manager (not in the backup of the instance, but alongside it), or regenerate them and accept that the derived keys change.
 
 ## The recovery procedure
 
 ### Step 1: deploy Ankole fresh, from scratch
 
-Stand up a new installation on a new host or cluster, following [Installation](../installation/). Do **not** try to attach the new deployment to the old host's volumes or database — the old ones are the thing you are recovering from, and a half-attached deployment is worse than a clean one. Use a new database, a new Agent Home volume, and new bootstrap secrets (or the recorded old ones — see Step 4).
+Stand up a new deployment instance on a new host or cluster, following [Quick start](../quickstart/#deployment). Do **not** try to attach the new instance to the old host's volumes or database — the old ones are the thing you are recovering from, and a half-attached instance is worse than a clean one. Use a new database, a new Agent Home volume, and new bootstrap secrets (or the recorded old ones — see Step 4).
 
 ### Step 2: restore PostgreSQL
 
@@ -49,8 +49,8 @@ Restore the `ankole_agents_data` volume (or the RWX claim on Helm) from the snap
 
 The bootstrap secrets (`ANKOLE_SECRET_BASE`, `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY`, `POSTGRES_PASSWORD`) are not in the backup. Two paths:
 
-- **Reuse the recorded ones** — if you stored them in a secrets manager alongside (not inside) the installation backup, re-enter them. Existing encrypted rows in the restored PostgreSQL decrypt correctly, because the derived keys are the same.
-- **Regenerate them** — generate new ones in `.env` (Compose) or the Secret (Helm). The restored PostgreSQL is intact, but encrypted values that were derived from the old `ANKOLE_SECRET_BASE` (adapter secrets, WorkerEnv secrets) will not decrypt. You will need to re-enter those credentials through the Console after recovery.
+- **Reuse the recorded ones** — if you stored them in a secrets manager alongside (not inside) the instance backup, re-enter them. Existing encrypted rows in the restored PostgreSQL decrypt correctly, because the derived keys are the same.
+- **Regenerate them** — generate new ones in `.env` (Compose) or the Secret (Helm). The restored PostgreSQL is intact, but provider credentials, chat-channel credentials, and environment variables encrypted with the old `ANKOLE_SECRET_BASE` will not decrypt. Enter these values again in the Console after recovery.
 
 Reusing is simpler and preserves secrets; regenerating is safer if the old secrets may have been compromised in the disaster. Pick the path that matches why you are recovering.
 
@@ -59,7 +59,7 @@ Reusing is simpler and preserves secrets; regenerating is safer if the old secre
 After the restore, walk the configuration surfaces and confirm each is intact:
 
 - **Providers and model profiles** — live in PostgreSQL, restored.
-- **Signal bindings** — live in PostgreSQL, restored; but the adapter credentials they reference may need re-entry if you regenerated `ANKOLE_SECRET_BASE` (Step 4).
+- **Signal routing rules** — stored in PostgreSQL and restored. You might need to enter their Channel Provider credentials again if you regenerated `ANKOLE_SECRET_BASE` in Step 4.
 - **Identity providers** — same: rows restored, credentials may need re-entry.
 - **Control Plane Plugins enable list** — restored, but takes effect on the next process start.
 
@@ -88,8 +88,8 @@ A recovery you have not rehearsed is a plan, not a capability. The rehearsal is 
 ## How this relates to the other guides
 
 - [Backup and restore](../backup-and-restore/) is the discipline that makes recovery possible — the backups are the source.
-- [Incident response](../incident-response/) is for when the system is misbehaving, not gone; its containment moves are not this page's concern.
-- [Updating](../updating/) is the controlled version of moving forward; disaster recovery is the uncontrolled version of moving back.
+- When the system still exists but misbehaves, diagnose the fault first. This page applies when the instance is unavailable or its data is lost.
+- A planned upgrade moves the existing instance forward. Disaster recovery rebuilds the instance from backups in a new environment.
 - [Security hardening](../security-hardening/) assumes the backups you would restore from are tested — this page is that test.
 
 ## What this guide is not
@@ -99,5 +99,5 @@ It is not a guarantee that no data is lost — anything not in the backup is gon
 ## Next steps
 
 - For the backup discipline recovery depends on, read [Backup and restore](../backup-and-restore/).
-- For the fresh-deployment steps, read [Installation](../installation/).
-- For the incident case (system misbehaving, not gone), read [Incident response](../incident-response/).
+- For the fresh-deployment steps, read [Quick start](../quickstart/#deployment).
+- When the system is still running but misbehaves, use [Log reading](../log-reading/) to find the first fault.

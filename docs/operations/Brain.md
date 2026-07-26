@@ -97,7 +97,7 @@ Principals cannot own a Stage B run. Stage A selects the
 lexicographically smallest visible active channel member whose `light` profile
 resolves. There is no `brain.dreaming.model_agent_uid` setting.
 
-Configure one installation-wide vector space in the global `brain.embedding`
+Configure one instance-wide vector space in the global `brain.embedding`
 key:
 
 ```json
@@ -248,7 +248,7 @@ Synchronize one registered connector source by its row UUID:
 
 The generic connector runtime is present, but Ankole does not yet ship a real
 Feishu document connector. Use this command only for a connector that the
-installation has registered. Chat through the Lark adapter is independent of
+deployment instance has registered. Chat through the Lark adapter is independent of
 document-source synchronization.
 
 ## Inspect Sources

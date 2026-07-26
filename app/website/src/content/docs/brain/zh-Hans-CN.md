@@ -1,6 +1,6 @@
 ---
 title: Brain
-description: 一套 Ankole 部署的长期记忆——策展知识、源聊天召回、dreaming 与人工监督，PostgreSQL 行是事实，Markdown 是投影。
+description: Ankole 实例的长期记忆，包括整理后的知识、原始聊天召回、Dreaming 和人工审核；PostgreSQL 记录是事实，Markdown 是投影。
 section: Developer guide
 order: 104
 ---

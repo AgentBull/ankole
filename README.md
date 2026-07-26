@@ -1,4 +1,4 @@
-# Ankole - Open AgentOS for Shared AI Colleagues
+# Ankole - Open AgentOS for AI Colleagues With Their Own OKRs
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -9,41 +9,51 @@
 
 [How it's different](#how-ankole-is-different) · [Product shape](#product-shape) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
 
-**Ankole is a self-hosted AgentOS for shared AI colleagues.** One installation, many agents, real responsibilities — on infrastructure you control.
+**Ankole is a self-hosted AgentOS for building your own AI colleagues.** They take an objective, not a script: they pick up a job in your team's channel, break it down, run it, deliver it, and you judge them on the result.
 
 It moves AI work out of a private chat box and into the places where work already happens: channels, repositories, schedules, dashboards, internal systems, and long-running project context. An Ankole agent has its own identity, memory, permissions, tools, workspace, and responsibility boundary — so it can **own ongoing work**, not just answer a one-off message.
 
 [Claude Tag](https://claude.com/product/tag) is a useful public reference point: tag an AI into a Slack thread, let it read the shared context, use organization tools, remember channel context, and follow up when work takes time. Ankole targets the broader open version of that pattern: **not only Slack, not only Claude, not only one agent, and not vendor-owned context.**
 
-Ankole is for work that needs an owner, not just an answer. A good Ankole role has a visible result: code merged, a report shipped, a customer issue handled, an alert triaged, a market change noticed, or a backlog worked down.
+Ankole is for work that needs an owner, not just an answer. A seat it can hold is remote from end to end, has a named deliverable, and has a number that settles it afterwards.
 
 ## How Ankole is different
 
-- **Shared by default, not private chat.** Agents join team-visible channels and provider contexts; multiple humans can observe, steer, and continue the same work.
-- **Durable identity, not a prompt convention.** Humans and agents are Principals with permission grants and audit trails, so authorization is a runtime concern.
-- **Long-running actor sessions, not request/response.** Sessions wake, receive signals, checkpoint, stream progress, hibernate, and recover with context.
-- **Operator-owned context, not vendor-hosted.** Memory, configuration, credentials, and audit live in your infrastructure on a self-hosted installation.
-- **Live control plus durable truth, not one or the other.** ZeroMQ RuntimeFabric carries live actor/worker/RPC traffic while PostgreSQL remains the source of replay, fences, and final commits.
+An assistant answers "how does it help me". A colleague answers "who owns this work by default". What Ankole changes is the agent's position in the organization, not the size of the model.
+
+- **It belongs to the channel, not to whoever brought it.** Its memory belongs to the venue, its permissions are granted per channel, its actions are visible to everyone, and its conclusions become the team's shared facts — all of it on your own servers, not in a vendor's tenant.
+- **A seat is a slot of responsibility, not a bundle of skills.** Being able to do the job is not the same as owning it, and loading skills is not the same as carrying responsibility. Ankole supplies the layer that turns ability into a seat: its own identity, organizational authorization, an audit trail, escalation paths, and a metric to answer to.
+- **It lives inside the loop of work, not reaching into one segment.** See the scene, weigh what matters, commit, push, track the result, handle the exception, answer to the organization. SaaS records the outcome, RPA performs the motions, chatbots handle the opening question — an Ankole agent owns the loop.
+- **It does not just record order — it generates it.** When commitments, risks, standards, and deadlines form in natural language in a channel, it turns them into tracked, executable, retirable organizational reality on the spot.
+- **The daily loop is its by default; people step in at the edges.** Humans stay present for approvals, exceptions, and accountability. Deliverables, decisions, and committed actions sit in a durable ledger, and its output is built to be scored afterwards.
+
+That generated order is only as good as the memory that holds it. Most agents keep an append-only store in which an old rule and its replacement are equals, with no timeline and nothing superseding anything. Ankole's memory adjudicates: a new rule takes the seat and the old one retires with the period it governed, kindred corrections merge, contradictions are ranked by time, source, and confidence, and a prediction is checked against how things actually went — all of it shrinking the gap between what the model expects and what it observes.
 
 ## What Ankole Adds
 
-- **Many sources.** IM, webhooks, scheduled reminders, internal systems, and future provider adapters all become normalized signal input.
-- **Many agents.** One installation can host multiple agents with different missions, access, tools, memory, and outbound identities.
-- **Session actors.** The long-running execution unit is `actor_id = {agent_id, session_id}`. A session is where context, workspace state, steering, cancellation, and recovery meet.
-- **Owned context.** Conversations, model turns, summaries, signal projections, decisions, corrections, and future domain records live in your infrastructure.
-- **Operator control.** Access, configuration, Agent Library defaults, Control Plane Plugin activation, actor leases, outbox side effects, and audit surfaces belong to the installation operator.
+- **Long jobs run in the background.** Background jobs, schedules, and check back later. A job can run for hours; when it finishes, the agent returns to the same channel and says plainly which step failed and was retried.
+- **What the room already knows.** House rules, who prefers what, why an option did not survive last time — things nobody thought to tell an agent — settle into the channel's shared memory.
+- **Memory that models the world.** Brain distils talk into curated knowledge, induces and deduces over it, retires what has gone stale, and takes in changes from the outside world directly, with nobody having to mention them in a channel first.
+- **Deep research, and playbooks.** Fan-out retrieval, layered checks, and competing-hypothesis analysis produce a cited report. Once a kind of job runs well it becomes a playbook and the next one follows it.
+- **A browser it can really use.** The runtime owns a real Chromium session driven through `ankole-browser`: rendered pages, clicks, typing, screenshots, repeatable Playwright scripts, and a signed-in session across steps.
+- **Skills that improve themselves.** An agent proposes a change to its own skills as an overlay; a human approves it and it applies from the next session. It never rewrites itself behind your back.
+- **Many agents, one deployment instance.** Each has its own mission, access, tools, memory, and outbound identity. A main agent hands bounded work to job agents without blocking on them.
+- **Enterprise identity and IM.** Lark, Slack, DingTalk, Teams, and Google Workspace are first-party adapters, and identity comes from the IdP you already run. IM, webhooks, schedules, and internal systems all arrive as one normalized signal input.
 
 ## Product Shape
 
-Ankole should make these workflows natural:
+A seat Ankole can hold is remote from end to end, produces a named artifact, and can be settled afterwards with a number. Six examples across six industries, not a catalogue:
 
-- A **coding agent** watches an issue, reproduces the bug, changes code, opens a draft PR, and reports what still needs a human decision.
-- A **customer-success agent** observes a shared group chat, records the important facts, updates work state, and escalates privately only when needed.
-- A **research agent** monitors markets, policy, competitors, and internal notes, then follows up when a change matters.
-- A **QA agent** works through a test backlog, gathers evidence, and hands off failures with enough context for review.
-- An **operations agent** watches alerts, prepares a runbook, and asks for approval before taking risky action.
+| Seat | Deliverable | Graded on |
+|---|---|---|
+| Equity research analyst | Company and sector notes, scenario trees, entry conditions | Hit rate and excess return once the call is scored |
+| Cloud cost engineer | Spend attribution, right-sizing plans, migration paths | Cloud spend per unit of work |
+| Smart contract auditor | Audit report with reproducible proofs of concept | Criticals missed |
+| Regulatory affairs specialist | Submission dossiers and deficiency responses | First-pass approval rate and rounds of questions |
+| Patent engineer | Prior-art searches, invention disclosures, claim drafts | Grant rate and appeals after rejection |
+| Marketplace operations analyst | Ad and restock weeklies, product shortlists | TACoS and days out of stock |
 
-The common pattern is not "answer this question." It is **"hold this seat, use the available context, and be judged by the result."**
+The common shape is not "answer this question." It is **hold this seat, use the context you have, and answer for the result.**
 
 ## Actor Runtime
 

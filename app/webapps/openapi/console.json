@@ -6626,7 +6626,7 @@
     { "description": "Active accountable subjects available to operator surfaces", "name": "Principals" },
     { "description": "Principal groups, memberships, and permission grants", "name": "AuthZ" },
     {
-      "description": "Operator-managed ChatGPT subscription accounts used by coding profiles",
+      "description": "Operator-managed ChatGPT subscription accounts used by Background Agent Jobs",
       "name": "Codex Accounts"
     },
     { "description": "Operator-managed LLM provider and agent model profile configuration", "name": "LLM Runtime" },

@@ -137,7 +137,7 @@ ensures or removes its Graph subscriptions.
 The repository tests provider HTTP behavior, token verification, webhook
 dispatch, normalization, outbox mapping, directory sync, and subscriptions.
 A real Microsoft acceptance test needs operator credentials and a public HTTPS
-installation.
+deployment instance.
 
 The implementation sources are:
 

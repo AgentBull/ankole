@@ -5,7 +5,7 @@ section: Developer guide
 order: 101
 ---
 
-AIGateway 是一套 Ankole 部署的统一 AI 边界。外部应用、企业系统和 SDK 直接通过 OpenResponses 兼容的 API 调用它；内部 agent 也通过同一个入口发起模型回合。每一次调用都会把模型选择符解析到运维者配置的 provider 绑定上，而上游凭证永远不会离开控制面。
+AIGateway 是 Ankole 实例统一的 AI 边界。外部应用、企业系统和 SDK 通过兼容 OpenResponses 的 API 调用它，内部 Agent 也通过同一入口发起模型回合。每次调用都会把模型选择符解析到运维者配置的 Provider 绑定，上游凭证始终留在控制面。
 
 本页记录的是真实的路由、请求形态，以及无状态与有状态调用之间的边界。事实来源是控制面的路由器和 `Ankole.AIGateway` 模块；本页是地图，不是契约。
 
@@ -19,7 +19,7 @@ AIGateway 夹在调用方和 provider 之间。调用方——agent 的模型循
 
 `/api/v1/ai-gateway` 下的每个端点都经过 `:ai_gateway_api` 管线和 `RequireAIGatewayAccessToken` 插件。请求必须在 `Authorization` 头里带上 bearer token，插件只接受两类：
 
-- **agent token**——以某个活跃 agent Principal 为主体的 AIGateway API key；调用范围限定在该 agent 的模型绑定和选择符内，`subject_type = "agent"`。
+- **Agent Token**——以某个已启用 Agent 主体签发的 AIGateway API Key；调用范围只包含该 Agent 的模型绑定和选择符，`subject_type = "agent"`。
 - **admin token**——某个活跃人类管理员的控制台 token；调用范围限定在运维者能看到的 provider 视图内，`subject_type = "admin_human"`。
 
 缺失或无法验证的 token 返回 `401`，`code: "invalid_token"`。没有匿名路径。
@@ -115,5 +115,5 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 ## 下一步
 
 - 要看 AIGateway 在整个系统里的位置，读[架构概览](../architecture/)。
-- 要运行承载这些路由的服务，读[安装部署指南](../installation/)。
-- 运维者配置的行为，见 [CONTRIBUTING.md](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md)。
+- 要运行承载这些路由的服务，读[快速开始的部署部分](../quickstart/#deployment)。
+- 首次配置 Provider 和模型档案，见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。

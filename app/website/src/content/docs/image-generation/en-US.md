@@ -1,38 +1,65 @@
 ---
 title: Image generation
-description: How image generation works — the image_generate profile slot, the ImageModelCatalog that validates endpoints, and why it is an internal AIGateway capability, not a tool the agent calls.
+description: Select an image model for an Agent and generate or edit images in chat.
 section: User guide
-order: 39
+order: 22
 ---
 
-Image generation is an AIGateway capability that produces images from a model prompt. It is not a tool the agent calls directly — it is composed into a Responses request by the hosted-tool preparation path, and the `image_generate` model profile slot controls which provider serves it. This page is the operator-facing view of that capability.
+Enable image generation when an Agent must make illustrations, concept art, or visual drafts. The user stays in the same chat, and the Agent returns each generated image as an attachment. If the selected model accepts reference images, the Agent can also edit an existing image.
 
-The decisive property, stated up front: image generation is **internal to AIGateway**. It is not exposed as a worker function tool. The agent does not call `image_generate` the way it calls `web_search` or `command`; instead, an image-generation request is composed into a Responses request when the hosted-tool path needs one, and AIGateway resolves it through the bound provider.
+## Enable image generation
 
-## The profile slot
+1. In **LLM Providers** in the Console, add a Provider that supports image generation.
+2. Open **Agents** and select the Agent that needs this capability.
+3. Find `image_generate` in its model profiles.
+4. Select an image-generation Provider and model, and save the profile.
+5. Return to the chat and send the Agent a clear image request.
 
-The `image_generate` slot is one of the ten model profile slots, and it is optional. Only `primary`, `light`, and `heavy` are required; `image_generate` is bound only when the agent needs to generate images. Leave it unbound if no agent in the installation generates images — the slot existing is a license to use the capability.
+The `image_generate` profile is optional. Leave it empty for an Agent that does not need images. The Agent can still complete text, file, and other work.
 
-See [Providers and models](../providers-and-models/) for how to bind the slot through the Console.
+## Write a short visual brief
 
-## The ImageModelCatalog
+The request does not need to be long. Tell the Agent where the image will be used, what it must show, and where it must not improvise. Start with the purpose and subject. Then add only the composition, visual style, and constraints that affect the result.
 
-`ImageModelCatalog` is the definitive catalog of image-model endpoints and their capabilities. It is deliberately separate from language-model metadata, because image requests have their own fields — quality, background, and other parameters a text model does not use. The catalog validates that a provider endpoint can satisfy every requested field before the request is sent; an image request is rejected when no endpoint can satisfy the fields, not when the model returns an error.
+Use these five parts when they are useful:
 
-The catalog has a one-hour cache, so the endpoint metadata is fresh enough to serve requests without re-fetching on every call, but not so stale that a provider's changed capabilities go unnoticed for long.
+- **Use and canvas:** name the destination, such as a website, presentation, or social post. Give a landscape, portrait, square, or exact aspect ratio.
+- **Subject and scene:** name the main subject, its surroundings, and the action.
+- **Composition and visual language:** specify only the viewpoint, placement, negative space, material, light, or medium that matters.
+- **Text in the image:** put the exact text in quotation marks and state its position. Keep long copy outside the image when possible.
+- **Constraints:** name text, watermarks, logos, or objects that must not appear. For a reference image, also state what must remain unchanged.
 
-## What the operator does
+For example:
 
-- **Bind the `image_generate` profile** to a provider that serves image generation. Without the slot bound, the hosted-tool preparation path cannot compose an image request.
-- **Do not expect a tool named `image_generate` in the agent's tool set.** The capability is internal; the model triggers it through the Responses composition, not through a function call.
-- **Watch the cost.** Image generation is priced per image; an agent that generates many images per turn can spend quickly. The `image_generate` slot being unbound is the cheapest state.
+```text
+Use: A 16:9 hero image for a product announcement. The page title will be on the left.
+Subject: A white device on a dark blue table, placed on the right.
+Composition: Simple geometry, soft side light, and a large open area on the left.
+Text: Include only "ANKOLE 2.0" in the bottom-right corner.
+Constraints: No people, watermarks, other brand marks, or extra text.
+```
 
-## What this guide is not
+Text, size, and reference-image support vary by model. Check the documentation for the selected model and its Provider.
 
-It is not a prompt-engineering guide for image generation — the model's behavior within the Responses composition is the persona's concern. It is not a tool reference — there is no `image_generate` tool to document. And it is not a substitute for the provider's image-model documentation; the catalog validates capabilities, but the provider names the models and their fields.
+## Refine the image in the same chat
 
-## Next steps
+An image rarely needs to be final on the first attempt. Generate one direction, and then make small changes in the same chat. Change one issue, or one related group of issues, in each turn. This makes the result easier to control and avoids a full rewrite.
 
-- For the profile slots and how to bind them, read [Providers and models](../providers-and-models/).
-- For the AIGateway boundary that serves image generation, read [AIGateway](../ai-gateway/).
-- For cost awareness, read [Cost management](../cost-management/).
+For an edit, state both what to change and what to preserve. For example:
+
+```text
+Change only the background to light gray. Keep the subject, composition,
+lighting, text position, and colors unchanged.
+```
+
+If you attach more than one reference image, label them as “Image 1” and “Image 2” and state the role of each image. For example, use the subject from Image 1 and the colors from Image 2. This works only when the selected model supports reference images or editing.
+
+## If no image appears
+
+- **The Agent returns text only:** confirm that its `image_generate` model profile is saved.
+- **No model is available:** the current LLM Providers do not offer an image-generation model. Add a Provider that supports this capability.
+- **The request is not supported:** select a compatible model, or remove an unsupported size, format, transparent-background, reference-image, or editing request.
+- **An image appears, but its content is wrong:** this is usually not a setup fault. Continue in the same chat and state what to change and what to preserve.
+- **Generation succeeds but the chat has no attachment:** confirm that the Channel Provider can still upload files and read the error for that conversation.
+
+Available sizes, formats, transparent backgrounds, reference images, and editing features depend on the model and its Provider.

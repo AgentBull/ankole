@@ -5,7 +5,7 @@ section: Developer guide
 order: 117
 ---
 
-A turn is a unit of work that spans two runtimes: the Elixir control plane schedules and fences it, and the Bun worker runs the agent loop inside it. This page documents the boundary between the two — what the control-plane `TurnLifecycle` owns, what the worker's `runAgentLoop` owns, and how they communicate across RuntimeFabric. It builds on the [Actor Runtime](../actor-runtime/) and [Agent Computer](../agent-computer/) pages; this is the turn-level detail between them.
+A turn is a unit of work that spans two runtimes: the Elixir control plane schedules and fences it, and the Bun worker runs the agent loop inside it. This page documents the boundary between the two — what the control-plane `TurnLifecycle` owns, what the worker's `runAgentLoop` owns, and how they communicate across RuntimeFabric. It builds on the [Actor Runtime](../actor-runtime/) and [Agent Computer Worker](../agent-computer-worker/) pages; this is the turn-level detail between them.
 
 The decisive property, stated up front: the control plane owns the turn's *identity and commit*; the worker owns the turn's *execution*. The worker decides when the loop ends; the control plane decides whether the turn's result is durable. A turn that the worker reports as finished is not durable until the control plane commits it.
 
@@ -77,6 +77,6 @@ It is not a model-prompting guide — the loop's shape is mechanical (call, exec
 ## Next steps
 
 - For the activation fence and the actor model, read [Actor Runtime](../actor-runtime/).
-- For the worker that runs the loop, read [Agent Computer](../agent-computer/).
+- For the worker that runs the loop, read [Agent Computer Worker](../agent-computer-worker/).
 - For the stateful Responses transport the loop calls, read [AIGateway](../ai-gateway/).
 - For compaction (which the worker does not own), read [Context compression](../context-compression-and-caching/).

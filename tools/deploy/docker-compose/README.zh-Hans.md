@@ -2,14 +2,14 @@
 
 [English](README.md)
 
-本 Compose 项目在一台 Linux 主机上运行生产版 Ankole。它包含 PostgreSQL、
-数据库 migration、Worker key bootstrap、控制面、一个 Agent Computer Worker
-和 Caddy HTTPS。
+本 Compose 项目在一台 Linux、macOS 或 Windows 主机上运行 Ankole 私有化部署实例。
+Docker 必须能够运行 Linux `amd64` 或 `arm64` 容器。项目包含 PostgreSQL、
+数据库 migration、Worker key bootstrap、控制面、一个 Agent Computer Worker 和 Caddy HTTPS。
 
 ## 前置条件
 
-- Linux `amd64` 或 `arm64` 主机。
-- Docker Engine 和 Docker Compose plugin。
+- 能运行 Linux `amd64` 或 `arm64` 容器的 Linux、macOS 或 Windows 主机。
+- Docker Engine 和 Docker Compose plugin，或 Docker Desktop。
 - 对外开放 `80` 和 `443` 端口。
 - 指向该主机的域名；只在本机使用时也可以用 `ankole.localhost`。
 - 根据 PostgreSQL、Agent Home 和模型负载准备足够的存储和内存。
@@ -177,5 +177,6 @@ RuntimeFabric 位于 Docker internal network。只有 Caddy 会发布主机端�
 - Worker 反复重连时，确认首次启动后没有修改 `.env` 中的 Worker key。
 - 浏览器拒绝设置流程时，检查 Caddy 日志、DNS、`80` 和 `443` 端口以及
   certificate 信任状态。
-- 主机 kernel 拒绝 Worker security option 时，请使用受支持的 Linux Docker
-  主机。没有等效 sandbox 时，不要删除隔离设置。
+- Docker 环境拒绝 Worker security option 时，先确认它正在运行 Linux 容器，
+  并支持 `SYS_ADMIN`、unconfined seccomp 和 system-path profile。没有等效
+  sandbox 时，不要删除隔离设置。

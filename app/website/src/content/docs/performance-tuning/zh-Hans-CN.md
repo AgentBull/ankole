@@ -1,6 +1,6 @@
 ---
 title: 性能调优
-description: 容量旋钮——并发回合、数据库连接池、Postgres 最大连接数、worker 回合上限、按 agent 任务槽——以及决定一套部署能同时做多少的它们之间的关系。
+description: 了解并发回合、数据库连接池、PostgreSQL 最大连接数、Worker 回合上限和 Agent 任务槽怎样共同决定一个实例的并发能力。
 section: Guides
 order: 319
 ---
@@ -37,7 +37,7 @@ Ankole 里的性能主要是容量：一次能跑多少回合、它们能从连�
 
 ### "回合启动慢"（排队）
 
-worker 池满时回合排队——`ANKOLE_MAX_CONCURRENT_TURNS` 是 worker 接受的并发回合上限。若[可观测性](../observability/)界面显示回合在等槽，抬上限。但只抬到链的其余允许的程度：更多并发回合意味着更多数据库工作，若连接池已近上限，抬回合上限只是把队列从 worker 移到连接池。
+Worker 池满时，回合会排队。`ANKOLE_MAX_CONCURRENT_TURNS` 是每个 Worker 接受的并发回合上限。若 Console 显示回合正在等可用 Worker，可以增加容量，但必须同时确认数据库连接池仍有余量。
 
 ### "回合一旦跑起来就慢"（数据库饱和）
 
@@ -60,7 +60,7 @@ worker 池满时回合排队——`ANKOLE_MAX_CONCURRENT_TURNS` 是 worker 接�
 - **Postgres**——确认 `ANKOLE_POSTGRES_MAX_CONNECTIONS`（300）舒适地超过连接池加 worker 自己的连接加余量；通常够，但外部服务器可能需要抬自己的 `max_connections`。
 - **按 agent 任务槽**——留在 3；把更多工作摊到 agent，而不是抬它。
 
-数字不是魔法——它们是"在峰值时处理你的负载、在任何环节不排队的最小集合"，你通过每次改动后观察[可观测性](../observability/)界面找到它们。
+这些数字不是固定答案。每次只调整一个上限，再比较 Console 中的排队状态、后台任务状态和数据库指标，找到能够处理实际峰值的最小容量。
 
 ## 不只是 worker 容量，还有 worker 数量
 
@@ -70,11 +70,11 @@ Kubernetes 上，worker 是一个可水平扩展的 Deployment——更多 worke
 
 ## 性能调优不是什么
 
-它不是"把一切调到最大"。把上限抬到下层允许范围之外，移动瓶颈，不移除它，每个旋钮拉满的设置通常比正确大小慢。它不是读症状的替代——[可观测性](../observability/)界面告诉你哪个环节是排队点，不读就调是猜。它也不是免费的；更多并发意味着更多 provider token 以及更多连接，所以把它与[成本管理](../cost-management/)杠杆配对。
+性能调优不是把所有上限调到最大。上层容量超过下层承载能力时，瓶颈只会移动。先从 Console 的回合和任务状态判断队列在哪一层，再调整对应上限。更高并发也会增加模型调用和数据库连接，应同时检查[成本管理](../cost-management/)。
 
 ## 下一步
 
 - 作为环境变量的旋钮，读[环境变量](../environment-variables/)。
-- 显示症状的界面，读[可观测性](../observability/)。
+- 回合与任务接口，读 [Console API 参考](../console-api/)。
 - 也影响速度的模型侧杠杆，读[成本管理](../cost-management/)。
-- 跑回合的 worker，读 [Agent Computer](../agent-computer/)。
+- 跑回合的 worker，读 [Agent Computer Worker](../agent-computer-worker/)。

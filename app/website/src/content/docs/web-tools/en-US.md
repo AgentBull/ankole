@@ -1,54 +1,112 @@
 ---
 title: Web tools
-description: How an Ankole agent searches and fetches the public web — the web_search and web_fetch tools, how their availability depends on model profiles being bound, web_fetch's 1-5 public HTTPS URL limit, rendered-fetch caching, and when to use these tools instead of the browser.
+description: Configure web search and page reading for an Agent, and know when to use a browser instead.
 section: User guide
-order: 32
+order: 33
 ---
 
-Web tools are the lightweight way for an agent to reach the public web: search it, and fetch readable text from pages. They are the `web_search` and `web_fetch` tools, defined in `app/agent_computer/src/tools/web/web-tools.ts`, and they run inside the turn through AIGateway rather than driving a browser. This page is the operator view — what the tools do, what must be configured for them to appear, and when to reach for them instead of the [browser](../browser-automation/).
+An Agent can use `web_search` to find public pages and `web_fetch` to read selected pages. `web_search` requires a Provider.
 
-The decisive property, stated up front: these tools exist only when their model profiles are bound. A profile is a selector the control plane resolves to a real provider at call time; the agent never sees the credential. If the `web_search` or `web_fetch` profile is unset, the corresponding tool is simply absent from the turn's tool set.
+`web_fetch` prefers a configured Provider, but it can use the Worker's built-in rendered fallback when the Provider is unavailable.
 
-## What each tool does
+## Select the correct tool
 
-- **`web_search`** searches the public web through the configured AIGateway web-search provider. The agent supplies a query, and gets back search results.
-- **`web_fetch`** extracts and returns readable text from HTTPS web pages through AIGateway, with an internal rendered-page fallback when the provider is unavailable. The agent passes the URLs it needs, and gets back the page text.
+| Capability | Use it for | Execution surface |
+|---|---|---|
+| `web_search` | Find public pages by keyword, time, or source scope | Main Agent and Background Agent Jobs |
+| `web_fetch` | Read one or more known public URLs as text | Main Agent and Background Agent Jobs |
+| [Browser automation](../browser-automation/) | Sign in, click, type, paginate, take screenshots, and read interactive pages | **Background Agent Jobs only** |
 
-Both tools are read-only — `web_search` is `isReadOnly: true`, and so is `web_fetch`. Neither writes anything to the web. `web_search` runs in parallel with other parallel tools; `web_fetch` is sequential.
+Browser automation comes from the `browser` Skill and declares `ankole-runtime: background_job`. It does not appear in the `web_search` or `web_fetch` Provider lists, and it cannot run directly in a normal main-Agent turn.
 
-## What you must configure
+When a task needs a browser, ask the main Agent to create or use a Background Agent Job. The Job does not block the current conversation and sends questions, state, or results back when needed.
 
-The tools are not unconditional. Their availability depends on the `web_search` and `web_fetch` model profiles being bound to the agent, exactly the slots listed in [Providers and models](../providers-and-models/). Two consequences:
+## Configure Web tools
 
-1. **No binding, no tool.** If the `web_search` profile is unset, `web_search` does not appear in the turn's tool set; the same goes for `web_fetch`. This is why a fresh agent that has not been wired to a web provider cannot search — the tool is genuinely not there for the model to call.
-2. **The binding is a selector, not a credential.** The profile points at a provider id you configured at `PUT /ai-gateway/providers/<id>`, with credentials stored encrypted in that provider's `options`. The control plane resolves the selector at call time; the agent and the worker never see the credential.
+### Add Providers
 
-Bind the profiles through the Console, the same `PUT /agents/:agent_uid/model-profiles/<profile>` route used for the reasoning slots. If a turn fails with `422 unknown_model_selector` or `422 model_binding_not_configured` on a web call, the cause is the binding, not a transient fault — confirm the profile points at a provider id that actually exists and has complete options.
+1. Open **Console → LLM Providers**.
+2. Select a Provider kind that supports `web_search`, `web_fetch`, or both.
+3. Enter the API key and the required Provider fields.
+4. Save it and confirm that the Provider is enabled.
 
-## web_fetch: 1 to 5 public HTTPS URLs
+You can create several instances of one Provider kind. For example, two Bright Data SERP instances can use different regions or serve different Agents.
 
-`web_fetch` accepts one to five URLs in a single call, and they must be public HTTPS. The one-to-five limit and the HTTPS-only rule are both deliberate: the tool is for reading public web pages, and batching a few URLs into one call keeps the turn efficient. It returns text only — never binary content. Do not use it for PDFs, archives, images, audio, video, executables, or other binary files; for those downloads, the agent uses the command shell to run `aria2c`.
+### Assign Providers to an Agent
 
-The provider path is preferred when configured, because the gateway can use its own extraction services. When the provider is unavailable, the internal rendered-page fallback keeps rendered pages reachable, so a fetch does not silently fail just because the provider is down.
+1. Open **Console → Agents** and select the Agent.
+2. In **Model profiles**, find `web_search` and select a Provider that supports search.
+3. Find `web_fetch` and select a Provider that supports page reading.
+4. Save both profiles and start a new conversation.
 
-## Rendered-fetch caching
+These are Provider-only profiles. They do not require a model or a context length. Each Provider kind declares its capabilities, so the list contains only matching instances.
 
-Fetched results that came through the rendered path are cached so the agent does not re-render the same page twice in a turn. The cache lifetime is controlled by the `worker.rendered_fetch_idle_ttl_ms` AppConfigure key, which sets how long an idle rendered-fetch result stays cached. Tune it through AppConfigure if you find the agent re-fetching pages it already saw, or if you want to shorten the cache to force fresher results. The default is sensible for most work; change it only when the access pattern calls for it.
+If the list is empty, add a matching Provider first. See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for the first Provider setup.
 
-## When to use web tools instead of the browser
+## Current built-in Providers
 
-This is the choice the agent makes on every turn. The rule, stated by the [browser skill](../browser-automation/) itself: prefer `web_search` and `web_fetch` when rendered interaction, login state, screenshots, or browser-side code are unnecessary.
+A Control Plane Plugin can add more Provider kinds. The following kinds are built into Ankole now.
 
-Concretely:
+### `web_search` Providers
 
-- **Use the web tools** to find a page, read its text, or gather several pages' content in a turn. They are cheaper and faster, and they do not consume a browser session.
-- **Use the browser** when the page only yields its data after JavaScript runs, after a click or fill, when you need a persistent login session, when you need a screenshot, or when you need a reproducible Playwright workflow.
+| Provider | Also supports `web_fetch` | Main difference | Use it when |
+|---|---|---|---|
+| **Parallel** | Yes | One Provider supplies search and extraction; supports an objective, several queries, modes, and a total character budget | You want one credential for search and reading, or you have a research-oriented query |
+| **Bright Data SERP** | No | Uses a SERP API; requires a Zone and can select country, language, and Google domain | You must control the search region, language, or localized results |
+| **Jina Search** | No | Supports region, location, language, page, cache, and search-engine options | You need direct web search with region, pagination, or cache controls |
+| **AgentBull Cloud** | No | Aggregates search sources and supports source scope, time range, and cache bypass | You need metasearch or an explicit source and time scope |
 
-If you are configuring an agent whose work is mostly reading public pages, make sure the `web_search` and `web_fetch` profiles are bound and leave the browser skill at its default. If the agent needs to interact with logged-in sites, also enable the browser. The two paths coexist; they are not alternatives for the whole agent, they are alternatives per task.
+One Parallel Provider instance can be assigned to both `web_search` and `web_fetch`.
 
-## Next steps
+Jina Search and Jina Reader are different Provider kinds. Add them separately and assign each one to its matching profile, even when they use the same Jina credential.
 
-- For the profile slots these tools depend on, read [Providers and models](../providers-and-models/).
-- For the heavier path — real browser interaction — read [Browser automation](../browser-automation/).
-- For how the turn assembles these tools each turn, read the [Tools runtime](../tools-runtime/) developer page.
-- For the routes that bind a profile, read the [Console API reference](../console-api/).
+### `web_fetch` Providers
+
+| Provider | Also supports `web_search` | Main difference | Use it when |
+|---|---|---|---|
+| **Parallel** | Yes | Uses the same Provider and credential as Parallel Search to extract page text | You already use Parallel Search and want one configuration |
+| **Jina Reader** | No | Converts a public page to Markdown; supports retained links, target and wait selectors, cache, engine, and token limits | You need article text or a selected part of a page |
+
+`web_fetch` is for public HTTPS pages. It does not sign in and is not a downloader for PDFs, images, archives, audio, or video.
+
+The Worker's built-in rendered fallback is not a Provider, so it does not appear in the Console Provider list. It only reads rendered page text.
+
+The fallback cannot click, type, reuse login state, or take screenshots. It does not give browser automation to the main Agent.
+
+Selectors and wait options can help a Provider read delayed page text, but they do not provide real interaction. Use browser automation in a Background Agent Job when a task needs login, clicks, or form input.
+
+## Ask the Agent to use Web tools
+
+You do not need a special command. Describe the result that you want. For example:
+
+> Find three relevant announcements from this week. Read the original pages, compare the changes, and include source links.
+
+The Agent searches first and then selects pages to read. If you already know the URL, send it to the Agent and ask it to read and summarize the page.
+
+Explicitly ask for a browser when:
+
+- the page requires a login;
+- the Agent must click, type, or change pages before it can see the content;
+- the task needs a screenshot or a check of the rendered page;
+- the content appears only after complex interaction.
+
+Browser work runs in a Background Agent Job. Use `web_search` and `web_fetch` directly for ordinary search, public page reading, and multi-source comparison.
+
+## If a Web task does not work
+
+### Search or fetch failed
+
+Check these items in order:
+
+1. The current Agent has the profiles that the task needs. `web_search` requires a Provider.
+2. If `web_fetch` has no Provider, the Worker supplies the built-in rendered fallback.
+3. The selected Provider kind declares the required capability.
+4. The Provider is enabled and its credentials and required fields are valid.
+5. You started a new conversation after you changed the profiles.
+6. The target is a public HTTPS page that does not require a login.
+
+### Browser automation did not run
+
+Confirm that the Agent has the `browser` Skill enabled and can create a Background Agent Job. Do not try to assign browser automation to a `web_search` or `web_fetch` profile.
+
+If the task is already in a Background Agent Job, inspect Worker availability and any browser-session or access problem reported by the Job.

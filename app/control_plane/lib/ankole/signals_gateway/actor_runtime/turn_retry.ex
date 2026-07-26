@@ -18,12 +18,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.AIGatewayLink
   alias Ankole.SignalsGateway.AIReplyPreview
+  alias Ankole.SignalsGateway.ActorRuntime.ReplyDeletion
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
+  alias Ankole.SignalsGateway.Outbox
   alias Ankole.SignalsGateway.OutboxEntry
 
   import Ankole.SignalsGateway.Utils, only: [parse_datetime: 1, signal_session_id: 1]
@@ -95,6 +97,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
          %{
            results: results,
            canceled_actor_events: Enum.count(results, &(&1.status == :canceled)),
+           canceled_actor_event_ids:
+             for(%{status: :canceled, actor_event: event} <- results, do: event.id),
            retried_actor_events: Enum.count(results, &(&1.status == :retried)),
            retry_controls: results |> Enum.flat_map(& &1.retry_controls) |> Enum.uniq()
          }}
@@ -163,6 +167,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
     result
     |> Map.get(:input_superseded_actor_event_ids, [])
     |> Enum.each(&AIReplyPreview.input_superseded/1)
+
+    # A preview whose input is gone would keep editing cards the outbox deletes.
+    result
+    |> Map.get(:runtime_retractions, %{})
+    |> Map.get(:canceled_actor_event_ids, [])
+    |> Enum.each(&AIReplyPreview.stop/1)
 
     {:ok, Map.put(result, :retry_control_outcomes, outcomes)}
   end
@@ -506,12 +516,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
       :cancel ->
         with {:ok, cancellation} <-
                cancel_event_live_turn(repo, input, kind, now),
+             {:ok, reply_deletions} <- commit_reply_deletions(repo, input),
              {:ok, _deleted} <- repo.delete(input) do
           {:ok,
            %{
              status: :canceled,
              actor_event: input,
              ai_message: cancellation.message,
+             reply_deletions: length(reply_deletions),
              retry_controls: cancellation.retry_controls
            }}
         end
@@ -560,6 +572,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
        do: :cancel
 
   defp source_entry_retraction(_entries, _input, _source_entry_id), do: :no_match
+
+  # The event row holds the only record of the cards this turn opened, so the
+  # channel deletions must be committed before the retraction deletes the row.
+  defp commit_reply_deletions(repo, %ActorEvent{} = input) do
+    repo
+    |> ReplyDeletion.outbox_intents(input.id)
+    |> Enum.map(fn intent ->
+      intent
+      |> Map.merge(%{
+        agent_uid: input.agent_uid,
+        binding_name: input.binding_name,
+        source_actor_event_id: input.id
+      })
+      |> then(&Outbox.commit_outbox_in_tx(repo, &1))
+    end)
+    |> collect_results()
+  end
 
   defp cancel_event_live_turn(repo, %ActorEvent{} = input, reason, now) do
     deliveries = live_deliveries_for_event(repo, input)

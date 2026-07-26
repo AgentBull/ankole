@@ -1,71 +1,68 @@
 ---
-title: 编写 skill
-description: 如何编写一个 skill bundle——SKILL.md frontmatter、agent 读取的散文、可选 MCP 依赖、agent 如何发现并使用 skill。
+title: 开发 Skill 与 Control Plane Plugin
+description: 为 Agent 增加工作方法，或为控制面增加身份源、聊天适配器、配置项和后台服务。
 section: Developer guide
-order: 114
+order: 113
 ---
 
-skill 是一个文件系统 bundle，agent 在回合中读取它以学会做它原本不会的事。本页是贡献者 walkthrough：bundle 形态、让它可被发现的 frontmatter、让它有用的散文、声明 MCP 依赖的可选 `openai.yaml`。它建立在 [Agent Library](../agent-library/) 概念页之上；本页是*如何写一个 skill*。
+Skill 和 Control Plane Plugin 都能扩展 Ankole，但它们解决的问题不同。先选对扩展点，再开始写代码。
 
-先把决定性的性质说清楚：skill 是模型读取的散文，不是 worker 运行的代码。`SKILL.md` 就是 skill；其余一切（支撑文件、MCP 依赖、平台标签）都是那份散文的上下文。一个模型读了 `SKILL.md` 仍跟不上的 skill 是坏的 skill，无论它的支撑文件多好。
+| 需要增加什么 | 选择 |
+|---|---|
+| 教 Agent 怎样完成某类工作 | Skill |
+| 给 Agent 提供 MCP 工具及其使用方法 | Skill |
+| 增加身份源、聊天适配器或 Provider 类型 | Control Plane Plugin |
+| 增加控制面配置项或受监督后台进程 | Control Plane Plugin |
 
-## bundle 形态
+Skill 是 Agent 读取的文件，不需要重新编译控制面。Control Plane Plugin 是编译进控制面的第一方 Elixir 模块，需要注册，并在控制面下次启动时激活。
 
-skill 是一个包含 `SKILL.md` 的目录，可选地有支撑文件和 `openai.yaml`：
+## 编写 Skill
+
+一个 Skill 是包含 `SKILL.md` 的目录，也可以带参考资料、模板和 `openai.yaml`：
 
 ```text
 my-skill/
-├── SKILL.md          # 必需——skill 本身
-├── openai.yaml       # 可选——MCP 依赖和元数据
-├── reference.md      # 可选——SKILL.md 引用的支撑文档
-└── templates/        # 可选——skill 使用的文件
+├── SKILL.md
+├── openai.yaml
+├── reference.md
+└── templates/
 ```
 
-skill 名是目录名（小写，`[a-z][a-z0-9_-]{0,63}`）。skill 要么是 `builtin`（发布在 `app/library/skills`，同步进注册表），要么是 `installed`（agent 安装到 worker 可见存储下）。启用模型见 [Agent Library](../agent-library/)。
+目录名使用小写字母、数字、连字符或下划线。内置 Skill 放在 `app/library/skills/`，安装到某个 Agent 的 Skill 则保存在该 Agent 的文件空间。
 
-## SKILL.md frontmatter
+### 写 frontmatter
 
-`SKILL.md` 顶部是库读取用于发现和启用的 YAML frontmatter：
+`SKILL.md` 顶部的 YAML 用于发现和启用：
 
 ```yaml
 ---
 name: my-skill
-description: "一句话：agent 何时该用这个 skill。模型读它来决定。"
+description: "当 Agent 需要核对供应商合同时使用。"
 default_enabled: true
 category: productivity
-tags: [MyDomain, Automation]
+tags: [Contracts]
 ankole-runtime: background_job
-license: MIT
 platforms: [linux]
 ---
 ```
 
-最要紧的字段：
+`description` 要说明具体触发条件，因为 Agent 会根据它决定是否读取 Skill。需要后台任务隔离时设置 `ankole-runtime: background_job`；只有依赖 Linux 工具时才设置 `platforms: [linux]`。
 
-- **`name`**——必须匹配目录名。注册表和 agent 用它寻址 skill。
-- **`description`**——模型读取以决定是否使用 skill 的唯一字段。写成"当……时使用这个 skill"，触发条件要具体；模糊的描述是模型永远够不到的 skill。
-- **`default_enabled`**——skill 是否默认对 agent 开启。运维者可按 agent 覆盖。
-- **`ankole-runtime`**——若 skill 的工作需要后台任务的隔离（工具密集 skill 常见）写 `background_job`；在前台回合跑则省略。
-- **`platforms`**——skill 的工具在哪些平台工作（`linux`，用于 Linux 专属工具的 skill）。需要 `pandoc` 的 skill 只在 `linux`；纯散文的 skill 平台无关。
+### 写正文
 
-`app/library/skills/` 里已有的 skill 是形态的最佳参考——写之前读几个。
+正文要让一个有能力但不了解项目约定的 Agent 完成任务。至少写清：
 
-## SKILL.md 正文
+1. 什么时候使用。
+2. 要读取哪些输入。
+3. 按什么顺序工作。
+4. 结果必须包含什么。
+5. 哪些动作禁止或需要确认。
 
-正文是 agent 使用 skill 时读取的散文。写给一个有能力但无背景的读者：模型会写代码和推理，但不知道你领域的约定。
+参考资料和模板应从 `SKILL.md` 中按名称链接。Agent 只会按需读取这些文件，所以不能假设它会自动发现未被引用的资料。
 
-一个有用的形态：
+### 声明 MCP 依赖
 
-1. **skill 做什么**，一段。
-2. **何时使用**——触发，比 frontmatter 描述展开。
-3. **如何做任务**——步骤、工具、约定。这是 skill 的核心。
-4. **不要做什么**——失败模式、护栏。
-
-正文是 skill 成或败的地方。正文是通用建议（"小心"、"查文档"）的 skill 不比模型默认行为好；正文点出你领域确切的工具、命令和约定的 skill，才让 agent 做它没有 skill 就做不了的事。
-
-## MCP 依赖（可选 `openai.yaml`）
-
-若 skill 需要 MCP server，在 `openai.yaml` 的 `dependencies.tools` 下声明：
+需要 MCP 工具时，在 `openai.yaml` 中声明：
 
 ```yaml
 dependencies:
@@ -77,24 +74,78 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-agent 只在声明它的 skill 启用时看到 MCP server 的工具。传输形态和"skill 作注册来源"的模型见 [MCP server 参考](../mcp/)。
+Agent 只有在启用这个 Skill 时才会看到相应工具。完整字段见 [MCP 参考](../mcp/)。
 
-## agent 如何发现并使用 skill
+### 验证 Skill
 
-一个回合中，Agent Computer 读取已启用 skill 的 `SKILL.md` 文件并提供给模型。模型读 `description` 决定够哪个 skill，使用时读 skill 的正文。一个已启用但模型从不匹配其描述的 skill 是不可见的——把描述写成会被匹配的。
+在测试 Agent 上启用 Skill，给出一个真实任务，并检查 Agent 是否正确选中 Skill、读取所需资料并遵守完成标准。若 Agent 从未选中它，先改 `description`；若执行步骤不稳定，改正文中的顺序和约束。
 
-支撑文件（`reference.md`、`templates/`）在模型使用 skill 时可用，但模型按需读取，不默认读取。从 `SKILL.md` 正文按名引用它们（"读 `reference.md` 看完整 API"），让模型知道它们存在。
+## 开发 Control Plane Plugin
 
-## 测试 skill
+Control Plane Plugin 适合扩展控制面拥有的能力。模块实现 `Ankole.Plugins.Plugin`，最小实现只有一个稳定的 Plugin ID：
 
-skill 靠使用来测：在 agent 上启用它、给 agent 一个 skill 覆盖的任务、读 agent 是否遵循 `SKILL.md`。agent 忽略某一步，那一步不够清晰；agent 从不够向 skill，描述没被匹配。改散文，不改机制——skill 就是散文。
+```elixir
+defmodule Ankole.Plugins.MyPlugin do
+  @behaviour Ankole.Plugins.Plugin
 
-## 本指南不是什么
+  @impl true
+  def plugin_id, do: "my-plugin"
+end
+```
 
-它不是 prompt 工程教程——写给有能力的读者清晰散文，和写任何文档用同样的技巧。它不是跑任意代码的方式；skill 是散文和可选 MCP 依赖，模型调用的工具是 worker 的工具，不是 skill 的。它也不是读已有 skill 的替代；`app/library/skills/` 是形态的权威参考，读几个是写好一个的最快方式。
+Plugin ID 使用小写 slug。其他回调按需要实现：
 
-## 下一步
+| 回调 | 用途 |
+|---|---|
+| `display_name/0`、`description/0` | Console 中显示的名称与说明 |
+| `adapter_declarations/0` | 声明身份源、聊天渠道或其他适配器 |
+| `app_config_definitions/0` | 声明固定的 AppConfigure 配置项 |
+| `app_config_patterns/0` | 声明带动态 ID 的配置项 |
+| `children/0` | 启动长连接、Registry 或定期调和进程 |
 
-- 概念页（文件系统 bundle、启用、同步），读 [Agent Library](../agent-library/)。
-- `openai.yaml` 里的 MCP 依赖，读 [MCP server 参考](../mcp/)。
-- 启用 skill 的 `/agents/:agent_uid/library-capabilities` 路由，读 [Console API 参考](../console-api/)。
+### 注册 Plugin
+
+把模块加入 `config/config.exs`：
+
+```elixir
+config :ankole, :control_plane_plugin_modules, [
+  Ankole.Plugins.MyPlugin
+]
+```
+
+注册后，Plugin 会出现在 Console 的目录中。管理员启用它后，控制面会在下一次启动时注册配置项、适配器和受监督进程。Plugin 不支持热加载。
+
+### 声明适配器
+
+`adapter_declarations/0` 返回适配器声明。`contract_id` 决定由哪个子系统读取：
+
+```elixir
+@impl true
+def adapter_declarations do
+  [
+    %{
+      contract_id: "signals_gateway.adapter",
+      id: "my-adapter",
+      plugin_id: plugin_id()
+    }
+  ]
+end
+```
+
+适配器的专属字段由对应子系统定义。聊天适配器应遵循 [SignalsGateway](../signals-gateway/) 的契约；身份源和模型 Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
+
+### 声明配置与后台进程
+
+运维人员需要在运行期管理的设置应通过 `app_config_definitions/0` 或 `app_config_patterns/0` 声明。只有数据库可用前必须存在的启动参数才使用环境变量。
+
+`children/0` 返回标准 OTP child spec。长连接和调和进程必须进入 Plugin 的监督树，随 Plugin 激活而启动，并在停用后的下次控制面启动时停止。
+
+### 验证 Plugin
+
+先运行控制面测试和静态检查，再从 Console 启用 Plugin 并重启控制面。确认它显示为已激活，配置项可见，声明的适配器能完成一次真实连接。若它包含外部协议，还要运行对应的集成测试。
+
+## 继续阅读
+
+- Skill 的启用、继承和安装方式见 [Agent 能力库](../skills/)。
+- Plugin 的发现与激活边界见 [Control Plane Plugins](../control-plane-plugins/)。
+- 新增 LLM Provider 见[添加 Provider](../adding-a-provider/)。

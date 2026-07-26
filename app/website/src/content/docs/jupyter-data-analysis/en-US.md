@@ -2,7 +2,7 @@
 title: Jupyter data analysis
 description: How to set up an agent that runs iterative Python data analysis through a live Jupyter kernel — the jupyter-live-kernel skill, DataFrame inspection, and a worked example.
 section: Guides
-order: 328
+order: 304
 ---
 
 Data analysis is iterative — inspect a DataFrame, adjust a query, plot a result, repeat. A one-shot Python process cannot hold state between calls. The `jupyter-live-kernel` skill solves this by running a live Jupyter kernel the agent drives across multiple cells, preserving state. This guide is the practical shape of a data-analysis agent.
@@ -12,7 +12,7 @@ The decisive property, stated up front: the Jupyter kernel is **stateful across 
 ## What you need
 
 - **The `jupyter-live-kernel` skill enabled.** It is `default_enabled: true`. See [Skills](../skills/).
-- **The worker image.** The Agent Computer image installs Python, Jupyter, and the `hamelnb` kernel. These are part of the image.
+- **The worker image.** The Agent Computer Worker image installs Python, Jupyter, and the `hamelnb` kernel. These are part of the image.
 - **A `primary` model profile bound.** The agent writes the Python code; the kernel executes it.
 
 ## When to use the kernel vs a one-shot script
@@ -53,5 +53,5 @@ It is not a Python or pandas tutorial — the agent writes the code; the skill p
 
 - For the skill system, read [Skills](../skills/) and [Writing a skill](../writing-a-skill/).
 - For the shell tools, read [Code execution](../code-execution/).
-- For background jobs, read [Background jobs](../background-jobs-ops/).
-- For uploading files to the worker, read [Worker files](../worker-files/).
+- For background jobs, read [Background jobs](../background-jobs/).
+- For uploading files for an Agent, read [File management](../file-management/).

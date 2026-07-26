@@ -1,8 +1,8 @@
 ---
 title: 任务清单与澄清
 description: Ankole agent 如何为复杂任务做计划、如何在任务中途解决真正的歧义——todo 工具（按会话、同时最多一项进行中）和 clarify 工具（一个问题，持久记录，结束本回合）。agent 各拿它们做什么，运维不该期待它们做什么。
-section: User guide
-order: 36
+section: Developer guide
+order: 124
 ---
 
 `todo` 和 `clarify` 是 agent 的结构化计划工具。一个把计划留在会话内，另一个在答案真的会改变结果时只问你一个问题。两者都随 worker 出厂，源在 `app/agent_computer/src/tools/`。它们不是记忆，也不是聊天界面——它们让 agent 自己站稳脚跟，也让它发起一次决策提问。
@@ -40,7 +40,7 @@ agent 不该问的时候：存在安全的低风险默认值。如果 agent 能�
 
 ## clarify 与后台任务如何衔接
 
-在[后台任务](../background-jobs-ops/)里，一次 `clarify` 调用会把任务推入 `waiting_on_user` 状态。在你回复前任务不再推进，你的回复把它推回 running。从你这边看，这像任务停下来只问一个问题。从 agent 这边看，是同一套契约——提问、结束回合、等下一条消息——落进任务生命周期里。状态模型和你如何发现一个在等你的任务，见 [Background jobs（运维视角）](../background-jobs-ops/)。
+在[后台任务](../background-jobs/)里，一次 `clarify` 调用会把任务推入 `waiting_on_user` 状态。在你回复前任务不再推进，你的回复把它推回 running。从你这边看，这像任务停下来只问一个问题。从 agent 这边看，是同一套契约——提问、结束回合、等下一条消息——落进任务生命周期里。状态模型和你如何发现一个在等你的任务，见[后台 Agent 任务](../background-jobs/)。
 
 ## 运维不该碰的东西
 
@@ -50,5 +50,5 @@ todo store、clarify 的持久记录、结束回合的行为，都是 worker 内
 
 - 塑造 agent 何时做计划、何时提问的人设与能力，读 [Agents](../agents/)。
 - 真正熬过会话的持久知识，读 [Memory](../memory/)。
-- `waiting_on_user` 任务状态，以及任务内一次 clarify 如何暂停它，读 [Background jobs（运维视角）](../background-jobs-ops/)。
-- 回合内跑这些工具的 worker，读 [Agent Computer](../agent-computer/) 开发者页。
+- `waiting_on_user` 任务状态，以及任务内一次 clarify 如何暂停它，读[后台 Agent 任务](../background-jobs/)。
+- 回合内跑这些工具的 worker，读 [Agent Computer Worker](../agent-computer-worker/) 开发者页。

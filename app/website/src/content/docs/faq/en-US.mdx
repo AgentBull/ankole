@@ -1,0 +1,529 @@
+---
+title: FAQ and troubleshooting
+description: Diagnose Ankole deployment, identity, model, Worker, and chat-channel failures from the symptom you can observe.
+section: Reference
+order: 204
+---
+
+import {
+  FaqIssueList,
+  FaqProviderTabs
+} from '../../../components/docs/FaqProviderTabs'
+
+export const faqLabels = {
+  symptom: 'Symptom',
+  cause: 'Meaning',
+  resolution: 'Fix'
+}
+
+export const commonIssues = [
+  {
+    question: 'What should I check when /setup or the Console does not open?',
+    symptom: 'The page times out, refuses the connection, returns 502, or stays blank. Provider setup has not started yet.',
+    cause: 'The control plane is not healthy, or DNS, the reverse proxy, or the Ingress does not send traffic to it. Later Provider errors are usually consequences.',
+    resolution: [
+      'Check the control plane, PostgreSQL, and reverse proxy. Fix the first error in the logs.',
+      'If direct control-plane access works, check DNS, TLS, and the proxy target.',
+      'Do not delete the database or persistent volume. A startup failure does not prove data damage.'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: 'Check the deployment' },
+      { href: '../log-reading/', label: 'Read the logs' }
+    ]
+  },
+  {
+    question: 'Where is the activation code for first-time setup?',
+    symptom: '/setup asks for the activation code, but the startup terminal is closed or the code is lost in the logs.',
+    cause: 'The control plane uses this code only for first-time setup. It expires after the first administrator signs in.',
+    resolution: [
+      'If setup is not complete, select your deployment method in Quick start and use the log command in that tab.',
+      'Search for SETUP ACTIVATION CODE. Do not guess the code from browser storage or database rows.',
+      'If the instance already has a root administrator, sign in through the configured IdP instead of activating it again.'
+    ],
+    links: [
+      { href: '../quickstart/#deployment', label: 'Read the activation code' }
+    ]
+  },
+  {
+    question: 'Why is an enabled adapter still missing from the Provider list?',
+    symptom: 'The Control Plane Plugin is saved as enabled, but its option does not appear on the identity or signal-routing page.',
+    cause: 'The control plane loads the plugin set at startup. Saving schedules the plugin for the next start; it does not add supervised work and configuration keys to the running process.',
+    resolution: [
+      'Restart only the control plane. Do not remove data or restart PostgreSQL.',
+      'After it starts, confirm that the plugin is active and return to the Provider page.',
+      'If the control plane does not start, fix the first plugin initialization error in its logs.'
+    ],
+    links: [
+      { href: '../skills/', label: 'Enable Plugins in Agent Library' }
+    ]
+  },
+  {
+    question: 'No chat platform gets a reply. Is this still a channel problem?',
+    symptom: 'Channels, direct messages, and a second chat app all fail. A direct Agent conversation in the Console also fails.',
+    cause: 'When the Console path also fails, the shared downstream path is the likely fault: the LLM Provider, Agent model profiles, or Worker, not one platform event permission.',
+    resolution: [
+      'Confirm that the LLM Provider is enabled and that its credential and model names work.',
+      'Confirm that the Agent has primary, light, and heavy profiles and that at least one Worker is ready.',
+      'Complete one real model conversation in the Console, then return to the selected chat-platform tab.'
+    ],
+    links: [
+      { href: '../quickstart/#3-add-an-llm-provider-and-create-an-agent', label: 'Configure the LLM Provider and Agent' },
+      { href: '../worker-management/', label: 'Worker fleet' }
+    ]
+  },
+  {
+    question: 'A schedule did not run on time. What should I check first?',
+    symptom: 'The schedule exists, but it did not start at the expected time, or its next run does not match your expectation.',
+    cause: 'The schedule can be disabled, the instance timezone or cron expression can be wrong, or the control plane was not running at trigger time.',
+    resolution: [
+      'Open the schedule, confirm that it is enabled, and inspect the displayed next run.',
+      'Check the instance timezone and cron expression. Use the time shown by the Console instead of estimating from the expression.',
+      'Select Run now. If it works, correct the time settings. If it fails, inspect the run record.'
+    ],
+    links: [
+      { href: '../schedules/', label: 'Configure and inspect schedules' }
+    ]
+  },
+  {
+    question: 'A schedule ran. Why did no result arrive in chat?',
+    symptom: 'A run record exists, but the target chat or conversation did not receive an Agent message.',
+    cause: 'The trigger worked. The fault is later in the path: the target route, Channel Provider, Agent models, or an available Worker.',
+    resolution: [
+      'Open the run record, confirm its outcome, and read the first error.',
+      'Check the target Agent, conversation or chat destination, and its signal routing rule.',
+      'Confirm that the Agent model profiles work and that at least one Worker is ready.'
+    ],
+    links: [
+      { href: '../schedules/', label: 'Inspect schedule runs' },
+      { href: '../signal-bindings/', label: 'Check signal routing rules' }
+    ]
+  }
+]
+
+export const identityTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: 'Slack sign-in fails during the authorization redirect',
+        symptom: 'Slack reports a redirect_uri mismatch before it returns to Ankole, or authorization returns to the wrong page.',
+        cause: 'The Slack Redirect URL does not exactly match the callback shown by /setup, or Ankole contains a Client ID from another app.',
+        resolution: [
+          'Copy the full callback from /setup into OAuth & Permissions → Redirect URLs.',
+          'Compare the scheme, host, port, path, and Provider ID character by character.',
+          'Save the Slack app and start a new sign-in from Ankole. Do not reuse the old authorization page.'
+        ]
+      },
+      {
+        question: 'Slack sign-in works, but members or user groups are missing',
+        symptom: 'The administrator enters the Console, but Principals or permission groups are empty or miss recent members.',
+        cause: 'The identity app lacks users:read, users:read.email, or team:read; its Bot Token predates the new scopes; or the full sync has not run.',
+        resolution: [
+          'Add the identity scopes listed in Quick start.',
+          'After a scope change, install the app to the workspace again and save the new Bot Token in the IdP.',
+          'Verify a full sync before you troubleshoot realtime sync.'
+        ]
+      },
+      {
+        question: 'Slack completes a full directory sync, but later changes stay stale',
+        symptom: 'The first sync has data, but member or user-group changes do not appear promptly.',
+        cause: 'Realtime sync uses Socket Mode. The App Token is missing, has the wrong prefix, Socket Mode is off, or the control plane cannot reach Slack.',
+        resolution: [
+          'Enable realtime sync in the IdP and provide a valid App Token.',
+          'Enable Socket Mode in Slack and allow outbound internet access from the control plane.',
+          'After App Token rotation, update the value in Ankole and test a new directory change.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure the Slack IdP in Quick start' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'entra',
+    label: 'Microsoft Entra ID',
+    issues: [
+      {
+        question: 'Microsoft sign-in reports AADSTS50011',
+        symptom: 'The Microsoft authorization page reports a reply URL mismatch, usually with error AADSTS50011.',
+        cause: 'The Web Redirect URI in the Entra app registration does not exactly match the Ankole callback shown by /setup.',
+        resolution: [
+          'Copy the /setup callback into the app registration as a Web Redirect URI.',
+          'Check the scheme, host, port, path, and Provider ID. Do not use the Teams messaging endpoint here.',
+          'Wait for the portal change to apply, then start a new sign-in from Ankole.'
+        ]
+      },
+      {
+        question: 'Entra ID sign-in works, but directory sync is empty or returns 403',
+        symptom: 'The administrator can sign in, but Ankole has no users or permission groups. The logs can show a Graph 403.',
+        cause: 'The app lacks Group.Read.All or User.Read.All, or the permissions exist but a tenant administrator has not granted consent.',
+        resolution: [
+          'Add the required Microsoft Graph Application permissions.',
+          'Ask a tenant administrator to select Grant admin consent. Adding a permission alone is not enough.',
+          'Run a full sync after consent and inspect Principals and permission groups.'
+        ]
+      },
+      {
+        question: 'Entra ID full sync works, but realtime changes do not arrive',
+        symptom: 'A later full sync repairs the data, but membership changes do not appear within minutes.',
+        cause: 'Graph must reach the public HTTPS directory webhook. A bad publicBaseURL, unavailable ingress, or untrusted certificate prevents delivery.',
+        resolution: [
+          'Confirm that the public HTTPS address is reachable from the internet and uses a trusted certificate.',
+          'Check that publicBaseURL matches the real entry point. It defines the Graph notification URL.',
+          'Inspect subscription reconciliation logs and let the control plane rebuild the subscription after the entry point works.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure Entra ID in Quick start' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'google',
+    label: 'Google Workspace',
+    issues: [
+      {
+        question: 'Why does Ankole reject a valid Google account?',
+        symptom: 'Google authorization succeeds, but Ankole returns login_domain_not_allowed.',
+        cause: 'The account domain is not in allowedDomains, the email is not verified, or the user has a consumer Gmail account without an hd claim.',
+        resolution: [
+          'Use an enterprise Google Workspace account, not a personal gmail.com account.',
+          'Confirm that the exact account domain is in allowedDomains.',
+          'Add more than one domain only when the enterprise operates a multi-domain Workspace.'
+        ]
+      },
+      {
+        question: 'Google sign-in works, but directory sync is empty or returns 403',
+        symptom: 'The administrator enters the Console, but no members or permission groups are synchronized.',
+        cause: 'Directory sync uses the Service Account, not the OAuth Client. Domain-wide delegation, delegated scopes, or adminEmail is usually wrong.',
+        resolution: [
+          'Enable Domain-wide delegation for the Service Account.',
+          'Grant the Directory API scopes from Quick start in the Workspace admin console.',
+          'Check adminEmail and the complete Service Account JSON, then run a full sync.'
+        ]
+      },
+      {
+        question: 'Why do Google Workspace member changes not appear at once?',
+        symptom: 'Ankole updates some time after a Workspace user or group change.',
+        cause: 'The Google Workspace IdP currently supports full sync only. It has no realtime directory subscription. This delay is expected.',
+        resolution: [
+          'Wait for the next full sync. Do not expose a webhook for this Provider.',
+          'If the next sync also misses the change, check delegation, scopes, and adminEmail.',
+          'Use an IdP with realtime directory sync when the business requires prompt updates.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure Google Workspace in Quick start' }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'Lark or Feishu reports a callback mismatch during sign-in',
+        symptom: 'The authorization page does not open, or authorization cannot return to Ankole.',
+        cause: 'Lark matches redirect_uri exactly. localhost and 127.0.0.1, different ports, and different Provider IDs produce different URLs.',
+        resolution: [
+          'Copy the full callback shown for this IdP in /setup.',
+          'Add it to the app security settings without rewriting the host or path.',
+          'Publish a version with the new setting and include the test user in the availability scope.'
+        ]
+      },
+      {
+        question: 'Lark or Feishu sign-in works, but employees or departments are missing',
+        symptom: 'The administrator enters the Console, but Principals and permission groups are incomplete.',
+        cause: 'Directory permissions are incomplete, the app availability scope excludes the employees, or the new permissions are not in a published version.',
+        resolution: [
+          'Use the batch permission list in Quick start to add all directory read permissions.',
+          'Include the required departments and employees in the app availability scope.',
+          'Publish a new version and verify full sync before checking realtime sync.'
+        ]
+      },
+      {
+        question: 'Lark or Feishu full sync works, but employee changes stay stale',
+        symptom: 'The first sync has data, but later employee additions, moves, or removals do not appear promptly.',
+        cause: 'Realtime sync uses the Lark long connection and directory events. Without the connection, subscriptions, or a published version, only full sync remains.',
+        resolution: [
+          'Keep the control plane running and select long connection under Events and callbacks.',
+          'Subscribe to the user and department change events from Quick start and publish the app.',
+          'Allow outbound access from the control plane. The long connection does not need public ingress.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#2-set-up-the-identity-provider-first',
+            label: 'Configure the Lark or Feishu IdP in Quick start'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'DingTalk sign-in reports Application does not exist (900103)',
+        symptom: 'DingTalk reports 900103 as soon as the authorization page opens, before the callback after a code scan.',
+        cause: 'DingTalk cannot find an available internal app for this Client ID. The value can be an AgentId or robotCode, or the app configuration can be unpublished.',
+        resolution: [
+          'Use the Client ID from Credentials and basic information, not AgentId, robotCode, or a group-robot webhook token.',
+          'Confirm that the app belongs to this enterprise and has the required sign-in and directory permissions.',
+          'Publish a new version and open a new authorization page from Ankole.'
+        ]
+      },
+      {
+        question: 'DingTalk reports a callback error only after the code scan',
+        symptom: 'The authorization page opens and accepts the code scan, but redirect_uri fails after consent.',
+        cause: 'DingTalk checks the callback after consent. The registered URL does not exactly match the URL sent by Ankole.',
+        resolution: [
+          'Copy the full callback URL from /setup.',
+          'Register it under Development configuration → Security settings → Redirect URL.',
+          'Publish the version and start a new code scan. Do not reuse the old authorization page.'
+        ]
+      },
+      {
+        question: 'DingTalk directory sync reports 60011 or misses employees',
+        symptom: 'Sign-in works, but directory reads fail or omit members. Logs can contain sub-code 60011.',
+        cause: 'User, department, or field read permissions are missing, or the app authorization scope excludes part of the organization.',
+        resolution: [
+          'Use the grant link from the error and the Quick start list to add all directory permissions.',
+          'Include the required departments and employees in the app authorization scope.',
+          'Publish a new version and run a full sync. Do not hide a permission error by changing page size.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure the DingTalk IdP in Quick start' }
+        ]
+      }
+    ]
+  }
+]
+
+export const channelTabs = [
+  {
+    value: 'slack',
+    label: 'Slack',
+    issues: [
+      {
+        question: 'The Slack routing rule rejects a token prefix',
+        symptom: 'Saving the channel returns invalid_token_prefix before a connection opens.',
+        cause: 'The Bot Token and App Token are reversed, or one value is another Slack token type.',
+        resolution: [
+          'The Bot Token must start with xoxb- and come from OAuth & Permissions.',
+          'The App Token must start with xapp- and include connections:write.',
+          'Correct the values and save again. Do not troubleshoot events before credential validation passes.'
+        ]
+      },
+      {
+        question: 'Slack direct messages work, but channel mentions do not',
+        symptom: 'The bot answers a direct message, but an explicit @mention in a channel never reaches Ankole.',
+        cause: 'The bot is not a channel member, or the app does not subscribe to app_mention with app_mentions:read.',
+        resolution: [
+          'Invite the bot to the test channel.',
+          'Add app_mention under Event Subscriptions and grant app_mentions:read.',
+          'After a scope change, install the app again and update the Bot Token in Ankole.'
+        ]
+      },
+      {
+        question: 'Slack delivers @mentions but not ordinary channel messages',
+        symptom: 'addressed_only works, but observe_all or may_intervene still sees only explicit mentions.',
+        cause: 'The routing rule controls messages that Ankole receives. The Slack app still lacks the matching message event or history scope for that conversation type.',
+        resolution: [
+          'First verify the complete addressed_only path.',
+          'Add the message event and history scope for the target conversation type as shown in Quick start.',
+          'Install the app again, update the token, and then change the group-message mode.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Configure the Slack channel in Quick start'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    issues: [
+      {
+        question: 'Teams sends a message, but Ankole receives nothing',
+        symptom: 'Teams shows no reply, and the control plane has no matching inbound activity.',
+        cause: 'Teams delivers Bot Framework webhooks. A private endpoint, untrusted certificate, or wrong path prevents the request from reaching Ankole.',
+        resolution: [
+          'Give the instance a public HTTPS address with a trusted certificate.',
+          'Set the Bot Framework Messaging endpoint to the exact Teams webhook URL from Quick start.',
+          'Confirm that the bot app is installed for the test user, team, or channel.'
+        ]
+      },
+      {
+        question: 'Teams reaches Ankole, but sending the reply fails authentication',
+        symptom: 'The control plane receives the activity, then returns 401, 403, or a bot-token error when it sends the reply.',
+        cause: 'appID, appPassword, tenantID, or botTenancy does not match the Azure Bot registration.',
+        resolution: [
+          'Confirm that appID is the application GUID and appPassword is an unexpired Client Secret value.',
+          'Use single_tenant and the enterprise tenantID for a single-tenant app.',
+          'Use multi_tenant only when the Azure Bot registration supports it.'
+        ]
+      },
+      {
+        question: 'Teams personal chat works, but a channel @mention does not',
+        symptom: 'The same bot answers in personal chat but receives no channel message.',
+        cause: 'The app is not installed in that team or channel, or the message does not mention the bot as Teams expects.',
+        resolution: [
+          'Install the app in the target team and allow it in the target channel.',
+          'Use an explicit @mention for the first test.',
+          'Confirm that the routing rule is enabled and targets the intended Agent.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Configure the Teams channel in Quick start'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'lark',
+    label: 'Lark / Feishu',
+    issues: [
+      {
+        question: 'The Lark or Feishu bot exists, but no message gets a reply',
+        symptom: 'Neither direct messages nor group @mentions reach Ankole.',
+        cause: 'The bot capability, published version, availability scope, long connection, or im.message.receive_v1 is not active.',
+        resolution: [
+          'Enable the bot, include the test user in the app scope, and publish the latest version.',
+          'Select long connection under Events and callbacks and subscribe to im.message.receive_v1.',
+          'Keep the control plane running with outbound access. The connection does not need a public webhook.'
+        ]
+      },
+      {
+        question: 'Lark or Feishu delivers @mentions but not ordinary group messages',
+        symptom: 'addressed_only works, but observe_all or may_intervene cannot see messages that do not mention the bot.',
+        cause: 'The app lacks im:message.group_msg. A routing rule cannot read a message that the platform does not deliver.',
+        resolution: [
+          'Verify the addressed_only path first.',
+          'Add im:message.group_msg under Permissions and publish a new version.',
+          'Confirm the app scope covers the group members, then change the group-message mode.'
+        ]
+      },
+      {
+        question: 'Lark or Feishu receives the message, but the reply or card update fails',
+        symptom: 'The Agent starts work, but the IM has no final reply or the card stays in an old state.',
+        cause: 'The chat app lacks permission to send messages, update messages, or read message resources, or the new permissions are unpublished.',
+        resolution: [
+          'Add the send, update, and resource permissions from Quick start.',
+          'Publish the app and confirm that the bot remains in the conversation.',
+          'Send a new message in the same conversation. Do not use an old failed turn to test new permissions.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Configure the Lark or Feishu channel in Quick start'
+          }
+        ]
+      }
+    ]
+  },
+  {
+    value: 'dingtalk',
+    label: 'DingTalk',
+    issues: [
+      {
+        question: 'Is it a fault when DingTalk ignores group messages without an @mention?',
+        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages never enter Ankole.',
+        cause: 'No. As of July 2026, DingTalk delivers only group messages that explicitly mention the bot and does not expose the complete group history to the Agent.',
+        resolution: [
+          'Use an explicit @mention for every group test and keep the mode on addressed_only.',
+          'Use Slack, Teams, or Lark/Feishu when the Agent needs continuous group context.',
+          'Do not select observe_all. Ankole cannot recover messages that DingTalk does not deliver.'
+        ]
+      },
+      {
+        question: 'Why can DingTalk not show Ankole custom cards?',
+        symptom: 'The Agent can reply, but the message cannot use the same custom card layout and interactions as other platforms.',
+        cause: 'As of July 2026, DingTalk does not support the custom card messages that Ankole needs. This is a platform limit, not a bad cardTemplate, credential, or routing rule.',
+        resolution: [
+          'Do not rotate credentials or card templates to troubleshoot this behavior.',
+          'Continue with addressed_only when the available DingTalk message format is sufficient.',
+          'Use Slack, Teams, or Lark/Feishu when custom cards and complete group context are important.'
+        ]
+      },
+      {
+        question: 'The DingTalk Stream connection receives no messages',
+        symptom: 'The routing rule is enabled, but neither direct messages nor explicit @mentions reach Ankole.',
+        cause: 'Mismatched credentials, an unpublished bot, or an app scope that excludes the test user can stop the Stream connection or delivery.',
+        resolution: [
+          'Check the Client ID and Client Secret of the chat app. Do not reuse the IdP app credentials by accident.',
+          'Enable and publish the bot, and include the test user in its scope.',
+          'Allow outbound access from the control plane. The Stream connection does not need a public webhook.'
+        ]
+      },
+      {
+        question: 'Why can the same DingTalk app not connect to a second Agent?',
+        symptom: 'A second routing rule is rejected, or another Agent already uses the same Client ID.',
+        cause: 'The current adapter allows one Client ID for one Agent. Each Agent can also have only one enabled DingTalk route.',
+        resolution: [
+          'Create another internal DingTalk app when the second Agent needs a separate bot identity.',
+          'Use its new Client ID and Client Secret in a new routing rule.',
+          'If you only want to change the target Agent, disable the old route before you enable the new one.'
+        ]
+      }
+    ]
+  }
+]
+
+This page is not a product overview and does not repeat each provider setup guide. Find the earliest failed boundary, then select the relevant identity or chat provider. [Quick start](../quickstart/) remains the source of truth for installation and first-time setup.
+
+## Find the failed boundary
+
+| What you observe | Check first |
+|---|---|
+| `/setup` or the Console does not open | Deployment, control plane, DNS, and HTTPS |
+| The Console opens, but sign-in fails or the directory is incomplete | Identity Provider (IdP) |
+| The Agent works in the Console, but one IM gets no message | That Channel Provider and its signal routing rule |
+| The IM message enters Ankole, but the Agent cannot generate a reply | LLM Provider, model profiles, and Worker |
+| Only one platform fails | Select that Provider below; do not apply another platform's fix |
+
+## Problems shared by all platforms
+
+<FaqIssueList
+  client:visible
+  labels={faqLabels}
+  issues={commonIssues}
+/>
+
+## Identity Provider troubleshooting
+
+The IdP owns sign-in, contacts, and organization sync. Select the identity source that your enterprise uses. Slack Socket Mode, Entra ID Graph subscriptions, and Google Workspace full sync are different mechanisms and require different checks.
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose an identity provider"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={identityTabs}
+/>
+
+## Chat-channel troubleshooting
+
+The chat channel receives IM messages and sends Agent replies. Select the platform in the routing rule. The platform used for the IdP does not change this choice.
+
+<FaqProviderTabs
+  client:visible
+  ariaLabel="Choose a chat platform"
+  defaultValue="slack"
+  labels={faqLabels}
+  tabs={channelTabs}
+/>
+
+## If the failing boundary is still unclear
+
+Reproduce the fault once. Record the exact time, Agent UID, routing-rule name, Provider, and full error shown by the interface. Then collect only the control-plane and Worker logs around that time, and find the first error by event name.
+
+Do not send a Client Secret, Bot Token, App Token, model API key, full environment dump, or unredacted configuration file. When you report an issue, include redacted logs and exact reproduction steps instead of a complete log archive.
+
+- [Read Ankole logs](../log-reading/)

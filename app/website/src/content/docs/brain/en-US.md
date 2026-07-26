@@ -1,6 +1,6 @@
 ---
 title: Brain
-description: The long-term memory of an Ankole installation — curated knowledge, source-chat recall, dreaming, and human oversight, with PostgreSQL rows as truth and Markdown as projection.
+description: The long-term memory of an Ankole deployment instance — curated knowledge, source-chat recall, dreaming, and human oversight, with PostgreSQL rows as truth and Markdown as projection.
 section: Developer guide
 order: 104
 ---

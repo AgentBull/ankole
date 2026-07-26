@@ -1,73 +1,155 @@
 ---
-title: Skills
-description: How an Ankole agent uses skills at runtime — the worker tools (skill_view, skill_append, skill_replace), the five builtin skills, the default-then-override enablement model, and how an operator turns a skill on or off for an agent.
+title: Agent Library
+description: Enable Agent Plugins, Skills, and Control Plane Plugins globally or for one Agent.
 section: User guide
-order: 34
+order: 32
 ---
 
-A skill is a filesystem bundle with a `SKILL.md` that teaches an agent how to do a job. The agent does not invent skills at runtime; it reads the ones the [Agent Library](../agent-library/) has enabled, learns from them, and records what it learned back. This page is the operator view of skills in use: what the worker tools are, what ships builtin, when the agent reads versus writes a skill, and how you turn one on or off.
+The Agent Library decides which working methods and extensions an Agent can use. The Console separates them into three types:
 
-The decisive property, stated up front: a skill is a filesystem bundle, not a database row. The bundle carries the instructions and any resources; the database holds only enablement and a sparse per-agent overlay of notes the agent has added while using the skill. The skill's own `SKILL.md` is the contract the model reads; the overlay is what the agent adds on top.
+These are trusted components that are already installed in this instance. The Agent Library is not a public marketplace. Enabling an item here does not download unknown code from the internet.
 
-## What a skill is
+## Understand the three capability types
 
-A skill is a directory with a `SKILL.md` at its root, discovered by the [Agent Library](../agent-library/). A `SKILL.md` is frontmatter plus a Markdown body. The frontmatter carries the things the runtime needs:
+| Type | Purpose | When a change applies |
+|---|---|---|
+| **Agent Plugin** | Groups related Skills, MCP capabilities, and workspace templates | The Agent's next turn |
+| **Skill** | Instructions and resources for one repeatable kind of work | The Agent's next turn |
+| **Control Plane Plugin** | Adds chat adapters, identity sources, settings, or services to the control plane | The next control-plane start |
 
-- **`default_enabled`** — whether the skill is on for every agent unless an override narrows it.
-- **`ankole-runtime: background_job`** — a marker that the skill's work runs as a [background job](../background-jobs-ops/), isolated from the owning turn, rather than inline.
+### Agent Plugin: capabilities that share one package
 
-The body is the instructions. For an inline skill, the agent reads the `SKILL.md` and any referenced files when it decides the task needs the skill. For a background-job skill, the agent reads only the `SKILL.md`, which carries routing guidance, and the actual work runs inside a background job.
+An Ankole Agent Plugin is a superset of an <a href="https://developers.openai.com/plugins" target="_blank" rel="noreferrer">OpenAI Plugin</a>.
 
-## What ships builtin
+An OpenAI Plugin can group one or more Skills, an MCP server, and optional UI in one package. Ankole keeps this structure and adds a **workspace template**.
 
-Five skills ship in `app/library/skills/`, and they cover the heavy paths an agent is likely to need:
+An Agent Plugin can therefore provide working methods, execution tools, and the initial environment for a task. It is more than one prompt.
 
-- **`browser`** — browser automation through the `ankole-browser` CLI against a runtime-owned Chromium session. See [Browser automation](../browser-automation/).
-- **`brain-review`** — a conversational, post-hoc review of Brain memory. It runs only when a human explicitly asks to review, audit, clean up, or 复盘 the agent's memory. See [Memory](../memory/).
-- **`design-md`** — visual artifacts and VIS design.
-- **`jupyter-live-kernel`** — iterative Python through a Jupyter kernel that stays alive across executions. See [Code execution](../code-execution/).
-- **`pdf`** — create, check, and edit PDF files.
+Enabling an Agent Plugin in the Console makes the package available to the Agent. You can still enable or disable each member Skill.
 
-Each is a `default_enabled` builtin unless an operator narrows it, so a fresh agent has them available. They are the canonical examples to read when you want to see how a skill is shaped.
+#### Workspace templates prepare complex tasks
 
-## How the agent reads a skill
+The `workspace-template/` directory belongs to an Agent Plugin. When Ankole creates a Background Agent Job, it can copy this template into the new Job workspace.
 
-The worker ships three skill tools, all in `app/agent_computer/src/tools/library/skill-tools.ts`. They are the agent's only surface on skill content:
+A template can provide `AGENTS.md`, directories, research methods, validation scripts, Playbooks, and other task files. The Job receives a durable workspace that it can update and recover.
 
-- **`skill_view`** (line 75) — read an enabled skill's file. For a `background_job` skill it returns only the routing guidance and rejects referenced resources; for an inline skill it reads referenced files only when needed, resolving relative paths from the returned skill directory. It is read-only, and its description is blunt: this tool cannot enable disabled skills.
-- **`skill_append`** (line 123) — append a durable note to this agent's DB-backed overlay for an enabled skill. The control plane owns the read-modify-write transaction, so concurrent turns do not lose each other's additions.
-- **`skill_replace`** (line 152) — replace the entire overlay for a skill, using the latest resolved content hash as an optimistic compare-and-swap fence. A concurrent change is rejected instead of silently overwriting.
+Ankole's state-of-the-art [Deep Research](../deep-research-job/) is a representative example. The main Agent first confirms the research request and then creates a Background Agent Job with the `deep-research` workspace template.
 
-The overlay is the key idea. The skill bundle itself is not agent-specific — it is shared across every agent that has the skill enabled. What is agent-specific is the layer of notes the agent has added while using it: corrections, local conventions, things it learned. `skill_append` adds to that layer; `skill_replace` rewrites it. The bundle stays in the filesystem; the overlay lives in PostgreSQL as sparse per-agent state.
+The template provides the research workflow, evidence directories, analysis methods, and validation tools. The Job can collect sources, revise its analysis, and create the final report in one workspace.
 
-## When the agent uses each tool
+Enabling an Agent Plugin with a workspace template does not change an existing conversation or create a Job. Ankole initializes a new Job workspace only when a task selects that template.
 
-The shape of the work picks the tool:
+### Skill: one repeatable working method
 
-- **`skill_view`** before the agent does anything the skill covers. The agent reads the `SKILL.md` to learn the procedure, then reads referenced files only when the procedure calls for them.
-- **`skill_append`** when the agent learns something durable about this skill in this agent's context — a local convention, a corrected step, a gotcha. The description tells the model to use it only after reading the skill, and only for agent-specific additions learned while using it.
-- **`skill_replace`** for revisions, deduplication, or budget-preserving compaction — when the overlay has grown past its memo budget, or the agent has learned enough to rewrite it more tightly. Read the skill first; a concurrent change by another turn is rejected.
+Ankole Skills conform to the <a href="https://agentskills.io/specification" target="_blank" rel="noreferrer">official Agent Skills specification</a>.
 
-The agent does not enable or disable skills. That is a control-plane decision, made through the [Agent Library](../agent-library/). The worker tools only read and annotate.
+Each Skill contains at least one `SKILL.md` file with YAML frontmatter. It can also contain `scripts/`, `references/`, and `assets/`.
 
-## How to enable a skill
+The Agent first sees the name and description. It loads the full instructions and required resources only after a task matches.
 
-Skills are governed by the default-then-override model, resolved per agent. Two layers:
+A Skill explains how to complete a kind of work. When the workflow needs live data, authentication, or a controlled action, the Skill can guide the Agent through MCP tools supplied by the Skill or Agent Plugin.
 
-1. **Installation-wide default** — `default_enabled` in the skill's `SKILL.md`. A builtin with `default_enabled: true` is on for every agent.
-2. **Per-agent override** — narrow a skill for an agent that should not have it, or widen one you previously narrowed. The Console's library-capability routes set this; reading an agent's `library-capabilities` triggers a skill sync, so what you see is the registry reconciled against the current filesystem, not a stale snapshot.
+#### Ankole extension: select the Skill execution surface
 
-The resolution is the `effective_enabled` field the capability endpoints return: take the default, apply the override if one exists. A skill with no override inherits the default; a skill with an override honors the override.
+Ankole adds `ankole-runtime` to the standard frontmatter:
 
-For a background-job skill, enabling it is necessary but not sufficient — the worker must also be able to run a background job, which is its own surface. See [Background jobs (operator view)](../background-jobs-ops/).
+```yaml
+---
+name: my-skill
+description: Use for tasks that meet these conditions.
+ankole-runtime: any
+---
+```
 
-## What the operator does not touch
+| Value | Where the Skill is available | Use it when |
+|---|---|---|
+| `any` | Main Agent and Background Agent Jobs | Both execution surfaces can safely complete the work; this is also the default when the field is absent |
+| `main` | Main Agent conversations only | The Skill must ask the user, confirm a choice, or create and manage a Background Agent Job |
+| `background_job` | Background Agent Jobs only | The work is long-running, depends on the Job workspace, or processes files, browser work, or data in one Job |
 
-The skill bundle's files, the overlay's content hash fencing, and the filesystem layout under `/agents` are not operator-tunable. If a skill behaves wrong, the fix is in the `SKILL.md`, not in a worker environment variable. The overlay is agent-owned state: an operator does not edit it by hand — the agent appends and replaces it through its tools, and a human review of it happens through the same worker surface.
+This field controls where the Skill is visible. It does not create a Background Agent Job.
 
-## Next steps
+The Deep Research entry Skill uses `main` because it confirms the request in the original conversation and creates the Job. The research Skills can then run inside the Background Agent Job.
 
-- For the catalog and enablement model that decides which skills are on, read the [Agent Library](../agent-library/) developer page.
-- For how to author a new skill, read [Writing a skill](../writing-a-skill/).
-- For the memory review skill and what it reviews, read [Memory](../memory/).
-- For the worker that runs these tools, read the [Agent Computer](../agent-computer/) developer page.
+### Control Plane Plugin: extend the management platform
+
+A Control Plane Plugin is not an OpenAI Plugin and does not enter the Agent's working context. It extends the Ankole control plane.
+
+A Control Plane Plugin can provide Channel Providers, identity sources, system settings, and supervised services. These components change the startup structure, so an enable or disable action applies only at the next control-plane start.
+
+## Manage Agent Plugins and Skills
+
+### Set instance defaults
+
+1. Open **Agent Library** in the Console.
+2. Set the scope to **Global defaults**.
+3. Find the capability under **Agent Plugins** or **Skills**.
+4. Enable or disable its default.
+
+The global default applies to new Agents and to Agents that do not have an override. A turn that has already started does not change. The Agent reads the new capability set on its next turn.
+
+Enable common, low-risk capabilities by default and narrow them for exceptions.
+
+A capability that applies to a small role, needs special credentials, or has material risk is easier to manage when it is disabled by default and enabled only where needed.
+
+### Override one Agent
+
+1. At the top of Agent Library, change the scope to the target Agent.
+2. Find the Agent Plugin or Skill.
+3. Select **Follow global**, **Enabled**, or **Disabled**.
+
+**Follow global** removes the exception. Later changes to the instance default then apply to this Agent. An explicit enabled or disabled value remains as that Agent's override.
+
+An Agent Plugin can contain several Skills. Disabling the parent makes its Skills unavailable but does not rewrite each Skill setting. When you enable the parent again, the Skills return to their own effective states.
+
+### Review Skill experience
+
+While it uses a Skill, an Agent can retain Agent-specific cautions, such as an internal-system convention or a verified operating detail. This **Skill experience** appears with the Skill whenever that Agent reads it.
+
+Review it from the Agent Plugin detail page or **Knowledge → Skill experience**. For a manual note, state the situation first and then the caution.
+
+Do not copy a general rule into every Agent's experience. Change the Skill source when the rule applies to all Agents.
+
+## Manage Control Plane Plugins
+
+### Enable or disable
+
+Channel Providers, identity sources, and similar platform capabilities come from Control Plane Plugins:
+
+1. Open the **Control Plane Plugins** tab.
+2. Find the Plugin and set it to **Enabled next start**.
+3. Save and restart the control plane.
+4. Return to Agent Library and confirm that it is **Active now**.
+5. Configure the Channel Provider, identity source, or setting that the Plugin provides.
+
+Docker Compose:
+
+```bash
+docker compose restart control-plane
+```
+
+Kubernetes:
+
+```bash
+kubectl -n ankole rollout restart deployment/ankole-control-plane
+```
+
+Disabling a Control Plane Plugin also applies on the next start. It can make an existing Channel Provider or identity source unavailable. Confirm that no active configuration depends on it before you disable it.
+
+## Troubleshoot
+
+### Agent Plugins and Skills
+
+- **A capability is missing:** confirm that the deployment package contains it. The library can show only installed components.
+- **A Skill is enabled but unavailable to the Agent:** check whether its parent Agent Plugin is disabled, and start a new turn.
+- **A Skill appears only in some tasks:** inspect `ankole-runtime`. A `main` Skill does not enter a Background Agent Job, and a `background_job` Skill does not enter a normal main-Agent conversation.
+- **Some Agents ignore a global change:** they can have per-Agent overrides. Select each Agent scope and inspect the setting.
+- **A Background Agent Job cannot select a workspace template:** confirm that the Agent Plugin is enabled for the Agent and that the Plugin contains `workspace-template/`.
+
+### Control Plane Plugins
+
+- **A Control Plane Plugin says Enabled next start:** the setting is saved, but the control plane has not restarted.
+- **The control plane does not start after a restart:** read the startup log and correct the Plugin configuration or dependency before starting it again.
+- **The Channel Provider is still missing:** confirm that the Plugin is **Active now**, and then inspect its Channel Provider configuration.
+
+See [Develop Skills and Control Plane Plugins](../writing-a-skill/) for both extension paths.

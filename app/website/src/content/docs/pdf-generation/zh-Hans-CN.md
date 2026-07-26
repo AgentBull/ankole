@@ -2,7 +2,7 @@
 title: PDF 生成
 description: 如何设置一个创建、检查和编辑 PDF 文件的 agent——pdf skill、它用的工具、完整示例。
 section: Guides
-order: 327
+order: 306
 ---
 
 PDF 生成是常见的交付物——报告、提案、必须以 PDF 发出的格式化文档。Ankole 的 `pdf` skill 通过 worker 安装的 PDF 工具链（Pandoc、两个 PDF 引擎、Poppler、QPDF）处理它，并作为后台任务运行。本指南是一个 PDF 生成 agent 的实际形态。
@@ -12,7 +12,7 @@ PDF 生成是常见的交付物——报告、提案、必须以 PDF 发出的�
 ## 需要什么
 
 - **`pdf` skill 已启用。** 它是 `default_enabled: true`，所以除非覆盖，对每个 agent 都开。见 [Skills](../skills/)。
-- **worker 镜像。** Agent Computer 镜像安装了 Pandoc、两个 PDF 引擎（Typst 和 LaTeX）、Poppler 和 QPDF。这些是镜像的一部分——你不用装。
+- **worker 镜像。** Agent Computer Worker 镜像安装了 Pandoc、两个 PDF 引擎（Typst 和 LaTeX）、Poppler 和 QPDF。这些是镜像的一部分——你不用装。
 - **绑定 `primary` model profile。** agent 写源内容（Markdown 或文档结构），然后 skill 的工具渲染成 PDF。
 
 ## skill 做什么
@@ -31,7 +31,7 @@ skill 作为后台任务运行（`ankole-runtime: background_job`），所以长
 
 1. 确认 `pdf` skill 已启用（默认是）。
 2. 创建 agent，撰写 `MISSION.md`："产出每周状态报告 PDF。从频道历史收集本周指标，用 Markdown 写报告，用 Typst 渲染 PDF，用 Poppler 验证，把 PDF 发到频道。"
-3. 加一条每周[调度](../cron-schedules-ops/)。
+3. 加一条每周执行的[计划任务](../schedules/)。
 4. 每次触发，agent 收集上下文、写 Markdown、通过 shell 调 `pdf` skill 的工具、验证输出、发文件。
 
 ## `design-md` 伙伴
@@ -46,5 +46,5 @@ skill 作为后台任务运行（`ankole-runtime: background_job`），所以长
 
 - skill 系统，读 [Skills](../skills/)和[编写 skill](../writing-a-skill/)。
 - skill 用的 shell 工具，读[代码执行](../code-execution/)。
-- 后台任务，读[后台任务（运维视角）](../background-jobs-ops/)。
-- 调度，读 [Cron 调度](../cron-schedules-ops/)。
+- 后台执行，读[后台 Agent 任务](../background-jobs/)。
+- 定时执行，读[计划任务](../schedules/)。

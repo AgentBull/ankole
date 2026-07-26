@@ -15,7 +15,7 @@ AIGateway 拥有 live 会话转写。每条消息是 `ai_gateway_messages` 里�
 
 | 字段 | 含义 |
 |---|---|
-| `subject_uid` | 会话所属的 Principal |
+| `subject_uid` | 会话所属的主体 |
 | `conversation_id` | 该消息所属的会话 |
 | `type` | 消息类型（assistant、tool result 等） |
 | `role` | 消息在转写中扮演的角色 |

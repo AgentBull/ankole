@@ -1,82 +1,64 @@
 ---
 title: 文件管理
-description: Agent Home 文件系统如何工作——布局、什么持久、文件如何在控制面与 worker 间移动、Console 的 worker-file 界面。
+description: 在 Console 中上传参考资料、下载 Agent 产物，并管理 Agent 的持久文件。
 section: User guide
-order: 45
+order: 31
 ---
 
-Agent Home 是 agent 的 worker 在回合中读取和写入的共享文件系统。它持有人设文档、工作空间文件、已安装 skill、session 状态和任务产物。本页是该文件系统的运维者视角——布局、什么持久、文件如何在控制面与 worker 间移动、管理它们的 Console 路由。
+**多数时候，你不需要打开本页介绍的文件浏览器。直接把文件发给 Agent，或者在对话中让它创建、读取、修改、整理和发送文件即可。只有需要找回没有成功发送的产物、检查中间文件或手工整理文件时，才需要进入 Console。**
 
-先把决定性的性质说清楚：Agent Home 是**模型视为路径的真实文件系统**，不是抽象。模型可见的绝对路径就是容器路径——worker 不翻译路径。持久的是文件系统本身（在持久卷上）；临时的是读写它的进程。
+Agent 在 Worker 的持久文件系统中读取资料、保存工作过程和产出文件。你可以在 Console 中上传参考资料，下载报告、图片或数据文件，也可以重命名和删除不再需要的内容。
 
-## 布局
+## 找到 Agent 的文件
 
-Agent Home 挂载在 `/agents`，按 actor key 布局：
+1. 打开 Console 的**工作节点**。
+2. 选择一个可用的 Worker，再选择**浏览文件**。
+3. 选择 Agent。
+4. 选择要查看的文件范围：
 
-```text
-/agents/<agent-key>/
-├── .codex/                    # Codex 配置
-├── SOUL.md                    # 人设：语气与行为
-├── MISSION.md                 # 人设：范围与职责
-├── DESIGN.md                  # 人设：工作约定
-├── user-files/                # 运维者提供的文件
-├── installed-skills/          # agent 安装的 skill bundle
-├── sessions/<base64url-session-id>/   # 按 session 的工作空间
-└── jobs/<job-id>/             # 按任务的工作空间
-    ├── .codex/config.toml
-    ├── .ankole/skills/
-    └── temp/
-```
-
-人设文档（`SOUL.md`、`MISSION.md`、`DESIGN.md`）是 agent 自己的库文档——通过 Console 撰写、投影进文件系统。`sessions/` 和 `jobs/` 是按 session 和按任务的工作空间，按 session 或任务 id 隔离。模型逐字看到这些路径——没有路径翻译层。
-
-## 什么持久，什么临时
-
-| 路径 | 持久？ | 为什么 |
+| 范围 | 内容 | 常见操作 |
 |---|---|---|
-| `/agents/<key>/SOUL.md`、`MISSION.md`、`DESIGN.md` | 是 | 从 PostgreSQL 投影；熬过 worker 重启 |
-| `/agents/<key>/user-files/` | 是 | 在持久卷上 |
-| `/agents/<key>/installed-skills/` | 是 | 在持久卷上；由 Agent Library 同步 |
-| `/agents/<key>/sessions/<id>/` | 是 | 在持久卷上；按 session 上下文 |
-| `/agents/<key>/jobs/<id>/` | 是 | 在持久卷上；按任务工作空间 |
-| Worker 本地临时（`/tmp`） | 否 | 临时；worker 重启即消失 |
+| **用户文件** | 人为提供给 Agent 的参考资料、模板和输入文件 | 上传、下载、重命名、删除 |
+| **Agent 会话** | Agent 在聊天会话中产生的工作文件 | 下载产物，必要时清理旧文件 |
+| **Agent 已安装技能** | 当前 Agent 可以读取的 Skill 文件 | 查看是否已经同步；通常不在这里手工修改 |
 
-Agent Home 由 `ankole_agents_data` 卷（Compose）或 RWX PVC（Helm）支撑。重启的 worker 读同样的文件；丢失的卷带走文件。如何保护 Agent Home 见[备份与还原](../backup-and-restore/)。
+列表按 Worker 打开，但正式部署中的 Agent 持久存储应由所有 Worker 共享。Docker Compose 使用本机持久卷；Kubernetes 使用可多节点读写的共享卷。若不同 Worker 看到的文件不一致，应先检查存储挂载，而不是重复上传。
 
-## 文件如何在控制面与 worker 间移动
+## 上传参考资料
 
-worker 直接读 Agent Home——正常操作不通过 RPC 从控制面取文件。显式移动文件有两条路径：
+1. 进入**用户文件**。
+2. 打开目标目录，或在上传时填写子目录。
+3. 选择**上传**并添加文件。
+4. 回到聊天中告诉 Agent 文件名、所在目录和要完成的任务。
 
-- **文件传输 lane**——一条专用的 RuntimeFabric lane，用于在 worker 上上传、下载、移动和删除文件。Console 的 `/agent-computer-workers/:worker_id/files` 路由用它。它有自己的编解码和路径安全检查，与 RPC lane 分开。
-- **Worker-file Console 路由**——在特定 worker 上管理文件的运维界面：
+子目录会在上传时自动创建。用稳定、清楚的名称，例如 `customer-research/2026-q3-interviews.pdf`；不要把所有文件都放在根目录，也不要仅用 `final-v2-new.pdf` 这类无法判断内容的名字。
 
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `GET` | `/agent-computer-workers/:worker_id/files` | 列出文件 |
-| `GET` | `/agent-computer-workers/:worker_id/files/content` | 下载文件内容 |
-| `POST` | `/agent-computer-workers/:worker_id/files` | 上传文件 |
-| `POST` | `/agent-computer-workers/:worker_id/file-moves` | 移动文件 |
-| `DELETE` | `/agent-computer-workers/:worker_id/files` | 删除文件 |
+上传文件只表示 Agent 可以读取它，不会自动开始处理。要立即使用，请在聊天中明确告诉 Agent；要长期吸收为知识，请从[长期记忆](../memory/)的**学习资料**入口提交。
 
-这些路由按 worker id 范围限定，不按 agent——它们操作 worker 的 Agent Home 包含的任何东西。
+## 下载 Agent 的产物
 
-## 人设文档
+Agent 在会话中生成文件后，可以从**Agent 会话**中找到并下载。若文件很多，先按会话目录缩小范围，再搜索文件名或类型。
 
-三份人设文档——`SOUL.md`、`MISSION.md`、`DESIGN.md`——是运维者撰写的、agent 每个回合读取的文件（见 [Agent](../agents/)）。它们存在 PostgreSQL 的 `agent_library_container_entries` 表里（作为 agent 拥有的、按内容寻址的行），投影进文件系统 `/agents/<key>/`。运维者通过 `PUT /agents/:agent_uid/library-documents/:document_kind` 撰写；agent 作为文件读取。
+如果聊天里已经收到附件，直接从聊天下载即可。Console 主要用于找回没有成功投递的产物、检查中间文件，或批量整理长期保留的结果。
 
-这意味着人设文档是**持久事实（PostgreSQL）投影为文件（Agent Home）**。通过 Console 编辑文档更新 PostgreSQL 行；下次回合读更新后的投影。它们如何到达系统 prompt 见 [Prompt 组装](../prompt-assembly/)。
+## 重命名和删除
 
-## 已安装 skill
+选择文件右侧的操作菜单可以重命名或删除。重命名不会修改文件内容。
 
-`installed-skills/` 目录持有 agent 已安装的 skill bundle——区别于随应用镜像发布的 builtin skill（`app/library/skills/`）。Agent Library 将此目录与 worker 可见存储中观察到的东西同步，所以从存储消失的 skill 反映在注册表里。同步模型见 [Agent Library](../agent-library/)；用户视角见 [Skills](../skills/)。
+删除文件和目录是永久操作，没有回收站。删除目录时会连同子目录一起移除。清理前先确认 Agent 没有正在使用这些文件；重要内容应先下载，或确认已经包含在[备份](../backup-and-restore/)中。
 
-## 本指南不是什么
+不要直接编辑**Agent 已安装技能**中的文件。Skill 的启用状态通过[Agent 能力库](../skills/)管理；Skill 内容应在它的来源中修改，再重新同步。
 
-它不是文件系统权限指南——worker 在 bubblewrap 约束下运行，上述路径是 agent 在该 sandbox 内看到的。它不是文件传输协议参考——文件传输 lane 是 [Kernel](../kernel/) 页的范围。它也不是 Console API 参考的替代；worker-file 路由的确切请求形态在那里。
+## 哪些内容会保留
 
-## 下一步
+用户文件、Agent 会话文件和已安装 Skill 都位于持久存储中，Worker 重启后仍会保留。Worker 的临时目录不属于这里，重启后可能消失。
 
-- 人设文档，读 [Agent](../agents/)。
-- 同步 skill 的 Agent Library，读 [Agent Library](../agent-library/)。
-- 保护 Agent Home 的备份，读[备份与还原](../backup-and-restore/)。
-- Console 路由，读 [Console API 参考](../console-api/)。
+Agent 的 `MISSION`、`SOUL` 和 `DESIGN` 文档由 Console 的 Agent 编辑页管理。它们会投影到 Worker，但不应当通过文件浏览器修改。如何配置这些文档见 [Agent](../agents/)。
+
+## 常见问题
+
+- **列表为空**：确认选择了正确的 Worker、Agent 和文件范围，并检查 Worker 是否处于可用状态。
+- **上传后 Agent 找不到文件**：确认文件在该 Agent 的**用户文件**中，并在消息里提供准确的相对路径。
+- **文件只在部分 Worker 出现**：检查所有 Worker 是否挂载同一个持久卷。
+- **无法下载生成结果**：确认任务已完成，并在正确的会话目录中查找。
+- **列表提示已截断**：进入更具体的子目录后再搜索。

@@ -5,9 +5,9 @@ section: Developer guide
 order: 118
 ---
 
-Every turn, the worker builds the system prompt the model sees. That prompt is assembled from PostgreSQL-backed agent context, resolved at turn time, and rendered on the worker. This page documents how the pieces get from the control plane to the worker, what each piece is, and where the assembly happens. It builds on the [Agent Computer](../agent-computer/) and [AIGateway](../ai-gateway/) pages.
+Every turn, the worker builds the system prompt the model sees. That prompt is assembled from PostgreSQL-backed agent context, resolved at turn time, and rendered on the worker. This page documents how the pieces get from the control plane to the worker, what each piece is, and where the assembly happens. It builds on the [Agent Computer Worker](../agent-computer-worker/) and [AIGateway](../ai-gateway/) pages.
 
-The decisive property, stated up front: the system prompt is **assembled on the worker**, not on the control plane. The control plane provides the data — persona documents, skills, Brain snapshot, agent settings, channel context — through two channels; the worker renders it into the final prompt string the model receives. The control plane never constructs the prompt; it holds the facts the worker renders.
+The system prompt is **assembled on the Worker**, not on the control plane. The control plane supplies durable Agent documents, Skills, the Brain snapshot, Agent settings, and chat context through two paths. The Worker renders these facts into the final prompt.
 
 ## The two data channels
 
@@ -16,15 +16,15 @@ The worker receives context from the control plane through two paths, each carry
 | Channel | What it carries | When |
 |---|---|---|
 | `turn_start.request_context` | agent-loop settings (`ai_agent.max_iterations`, `max_output_tokens`, `inactivity_timeout_ms`), turn-local facts (the signal, the channel, the kind of turn) | embedded in the TurnStart envelope, before the loop begins |
-| `AgentConversationContextBroker` RPC | persona documents (`SOUL`/`MISSION`/`DESIGN`), enabled skills, Brain snapshot (pinned memo + channel entry), installation timezone, agent profile | fetched by the worker at loop start, through an RPC over RuntimeFabric |
+| `AgentConversationContextBroker` RPC | durable Agent documents (`SOUL`/`MISSION`/`DESIGN`), enabled skills, Brain snapshot (pinned memo + channel entry), instance timezone, agent profile | fetched by the worker at loop start, through an RPC over RuntimeFabric |
 
 The split is deliberate: turn-local facts travel on `turn_start` because they change every turn; conversation-scoped context is fetched by the worker through the broker because it is stable across turns within a conversation and the broker caches it. The broker's moduledoc is explicit: "This RPC intentionally does not return transcript messages or turn-local request context. Transcript history is owned by AIGateway; turn-local facts travel on `turn_start`."
 
 ## What the control plane provides
 
-### Persona documents
+### Durable Agent documents
 
-`AgentConversationContextBroker` reads the agent's library documents through `Library.list_agent_documents/1` and returns them keyed by name: `soul`, `mission`, `design`. These are the `SOUL.md`/`MISSION.md`/`DESIGN.md` files the operator authors through the Console — the agent's tone, scope, and working agreements.
+`AgentConversationContextBroker` reads the Agent's durable documents through `Library.list_agent_documents/1`. It returns them as `soul`, `mission`, and `design`. `SOUL.md` defines communication and judgment, `MISSION.md` defines responsibilities, and `DESIGN.md` supplies the design system for visual work.
 
 ### Enabled skills
 
@@ -50,7 +50,7 @@ These belong to the actor turn, not to any individual model response, so they ri
 
 1. **Epoch marker** — `<!-- ankole-system-prompt-epoch:agent-computer-v3 -->`, so prompt-cache-aware providers can identify the prompt version.
 2. **Core instructions** — the agent's base behavior contract, assembled from the turn's context.
-3. **Persona documents** — `SOUL`, `MISSION`, `DESIGN`, rendered from the broker's response.
+3. **Durable Agent documents** — `SOUL`, `MISSION`, and `DESIGN`, rendered from the broker's response.
 4. **Durable context** — the Brain snapshot's pinned memo and channel entry, rendered with guidance ("Use an item only if it remains valid… otherwise ignore it").
 5. **Skills** — the enabled skill descriptions, telling the model what it can reach for.
 6. **Channel and runtime context** — the current channel, the workspace paths, the available tool names.
@@ -72,6 +72,6 @@ It is not a prompt-engineering tutorial — the literal strings in `system_promp
 ## Next steps
 
 - For the agent loop that uses this prompt, read [The agent loop](../agent-loop/).
-- For the Agent Computer that runs the assembly, read [Agent Computer](../agent-computer/).
+- For the Agent Computer Worker that runs the assembly, read [Agent Computer Worker](../agent-computer-worker/).
 - For the Brain snapshot that feeds the durable-context block, read [Brain](../brain/).
 - For the skills block, read [Agent Library](../agent-library/).

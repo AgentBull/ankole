@@ -1,4 +1,4 @@
-# Ankole - 面向共享 AI 同事的开源 AgentOS
+# Ankole - 让 AI 同事有自己 OKR 的开源 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -9,41 +9,51 @@
 
 [与其它方案的区别](#ankole-与其它方案的区别) · [产品形态](#产品形态) · [Actor 运行时](#actor-运行时) · [架构](#架构) · [当前状态](#当前状态) · [开发](#开发)
 
-**Ankole 是一个自托管的 AgentOS，用来运行共享 AI 同事。** 一套部署、多个 agent、真实的职责——运行在你自己掌控的基础设施上。
+**Ankole 是一套自托管的 AgentOS，让你在自己的服务器上组建 AI 同事团队。** 它们领的是目标，不是指令：在团队群里承接任务，自主拆解、执行、交付，最终用结果说话。
 
 它把 AI 工作从私人聊天框里移出来，放进工作本来发生的地方：频道、代码仓库、日程、仪表盘、内部系统和长期项目上下文。一个 Ankole agent 拥有自己的身份、记忆、权限、工具、工作空间和责任边界——因此它能**持有正在进行的任务**，而不只是回答一条一次性消息。
 
 [Claude Tag](https://claude.com/product/tag) 是一个容易理解的公开参照：在 Slack thread 里 tag 一个 AI，让它读取共享上下文、使用组织工具、记住 channel context，并在工作需要时间时主动跟进。Ankole 面向的是这个模式更开放、更泛化的版本：**不只 Slack，不只 Claude，不只一个 agent，也不把上下文交给某个厂商托管。**
 
-Ankole 适合的是需要负责人承担的工作，而不只是需要一个回答的问题。一个适合 Ankole 的岗位应该有可见结果：代码合并、报告交付、客户问题处理、告警分流、市场变化被发现，或者 backlog 被推进。
+Ankole 适合的是需要有人负责的工作，而不只是需要一个回答的问题。它能坐的岗位有三个共同点：可以远程完成、有明确交付物、事后能用数据评判。
 
 ## Ankole 与其它方案的区别
 
-- **默认共享，而不是私人聊天。** Agent 进入团队可见的 channel 和 provider context；多个人可以观察、steer，并接着推进同一件事。
-- **持久身份，而不是 prompt 约定。** 人类和 agent 都是 Principal，有权限授权和审计轨迹，因此 authorization 是 runtime 关注点。
-- **长时 actor session，而不是 request/response。** Session 可以 wake、接收 signal、checkpoint、stream progress、hibernate，并带着上下文恢复。
-- **部署者掌控上下文，而不是厂商托管。** 记忆、配置、凭证和审计都在你自己的基础设施里，是自托管部署。
-- **Live 控制加上 durable 事实，而不是二选一。** ZeroMQ RuntimeFabric 承载 actor/worker/RPC 的 live 流量，PostgreSQL 仍然是 replay、fence 和 final commit 的来源。
+助手回答的问题是「它怎么帮我」；同事回答的是「这段工作默认由谁负责」。Ankole 改变的是 agent 在组织里的位置，而不是模型的大小。
+
+- **它属于这个群，不属于带它进群的人。** 记忆归工作场域，权限按频道授予，行为对所有人可见，结论沉淀为团队的共同事实——而这一切都在你自己的服务器上，不在厂商的租户里。
+- **岗位是责任槽，不是能力包。** 会做不等于该做，装上技能不等于承担责任。Ankole 提供的是把能力变成岗位的那层结构：独立身份、组织授权、审计轨迹、升级路径和考核口径。
+- **它住进劳动的闭环，而不是只够到其中一段。** 看见现场、判断轻重、形成承诺、推进行动、追踪结果、处理例外、对组织有交代——SaaS 记录结果，RPA 执行动作，问答机器人处理开头，Ankole 的 agent 负责整个闭环。
+- **它不只记录秩序，还生成秩序。** 群里用自然语言形成的承诺、风险、口径和截止日期，当场变成可追踪、可执行、会退役的组织现实。
+- **日常闭环默认由它负责，人在关键处介入。** 请示、审批、异常、问责时人类在场；交付物、决策和已提交的操作都记在持久账本里，产出按「事后能被打分」设计。
+
+生成的秩序靠记忆维护。多数 agent 的记忆是只增不减的日志：旧口径和新规则并排躺着，没有时间线，也没有谁取代谁。Ankole 的记忆会裁决——新规则接位，旧口径连同生效时段一起退役；同类纠正并成一条；矛盾的结论按时间、来源和置信度分出高下；预测过的事，结果出来还要回头对账。这些动作服从同一个目标：缩小模型预测与真实观测之间的落差。
 
 ## Ankole 增加了什么
 
-- **多种来源。** IM、webhook、定时提醒、内部系统和未来 provider adapter 都会被归一化为 signal input。
-- **多个 agent。** 一套 Ankole 部署可以托管多个 agent，它们有不同的 mission、访问权限、工具、记忆和出站身份。
-- **Session actor。** 长期执行单元是 `actor_id = {agent_id, session_id}`。Session 是上下文、workspace state、steering、cancel 和恢复交汇的地方。
-- **自己的上下文。** Conversation、model turn、summary、signal projection、决策、纠正和未来 domain record 都留在你的基础设施里。
-- **部署者控制。** 访问控制、配置、Agent Library 默认值、Control Plane Plugin 启动状态、actor lease、outbox side effect 和 audit surface 都由部署和运维 Ankole 的人掌握。
+- **长任务在后台运行。** 后台任务、定时任务、稍后回来查看。一个任务可以连续运行数小时，完成后 agent 回到原来的群里通知你；中途哪一步出错，它会说明原因并重试。
+- **群聊里的隐性知识。** 谁定下的规则、谁偏好什么、上次那个方案为什么没通过——这些从来没有人专门告诉过它的信息，会沉淀为这个群的共享记忆。
+- **会建立世界模型的记忆。** Brain 把对话蒸馏为精选知识，既归纳也演绎，淘汰过期条目，并把外部世界的变化直接纳入认知——不必等谁在群里提起。
+- **Deep Research 与 playbook。** 扇出检索、分层验证、对立假设检验，交付带引证的报告。一类任务跑通之后固化为 playbook，下次直接沿用。
+- **真的会用浏览器。** 运行时持有一个真实的 Chromium 会话，agent 通过 `ankole-browser` 驱动：读取渲染后的页面、点击、输入、截图、执行可复现的 Playwright 脚本，登录状态跨步骤保持。
+- **技能自己进化。** agent 把踩过的坑写成 overlay 提案，经人工批准后在下一个会话生效。它不会擅自修改自己，改动内容全程可查。
+- **多个 agent，一套私有化部署实例。** 每个 agent 有各自的使命、权限、工具、记忆和对外身份；主 agent 把边界清晰的任务派发给 job agent，自身不必阻塞等待。
+- **对接企业身份与 IM。** 飞书、Slack、钉钉、Teams、Google Workspace 都是一等适配器，身份来自你现有的 IdP。IM、webhook、定时任务和内部系统统一归一化为 signal input。
 
 ## 产品形态
 
-Ankole 应该让这些工作流变得自然：
+Ankole 能坐的岗位：可以远程完成、有明确交付物、事后能用数据评判。下面六个跨六个行业，是示例而非完整清单。
 
-- **coding agent** 关注 issue、复现 bug、修改代码、打开 draft PR，并报告哪些地方还需要人类决策；
-- **customer-success agent** 观察共享群聊，记录重要事实，更新 work state，只在需要时私下升级；
-- **research agent** 监控市场、政策、竞品和内部 notes，并在变化真正重要时跟进；
-- **QA agent** 推进测试 backlog，收集证据，并把带上下文的 failure 交给人复核；
-- **operations agent** 观察 alert、准备 runbook，并在采取高风险动作前请求批准。
+| 岗位 | 交付物 | 拿什么考核 |
+|---|---|---|
+| 二级市场研究员 | 个股与行业研究、情景推演、交易触发条件 | 事后复盘的命中率与超额 |
+| 云成本优化师 | 成本归因、配置右调方案、迁移路径 | 单位业务量的云支出 |
+| 智能合约审计员 | 审计报告与可复现的 PoC | 高危漏洞的漏报数 |
+| 药品注册专员 | 注册资料包与发补答复 | 一次通过率与发补轮次 |
+| 专利工程师 | 检索报告、交底书、权利要求书 | 授权率与驳回复审次数 |
+| 跨境电商运营分析师 | 投放与补货周报、选品清单 | TACoS 与断货天数 |
 
-共同模式不是“回答这个问题”，而是**“持有这个岗位、使用可用上下文、并由结果接受评价”**。
+共同点不是「回答这个问题」，而是**守住这个岗位、用好掌握的上下文、用结果说话**。
 
 ## Actor 运行时
 
@@ -52,7 +62,7 @@ Ankole 是一个面向长时 AI 工作的 actor-oriented runtime。每个 active
 Runtime 建立在五个技术判断上：
 
 - **Virtual Actors for AI work。** 一个 session 是有地址、有状态、有 mailbox、有生命周期和恢复路径的工作身份，不是散落在后台的一段任务。
-- **OTP Supervision Trees as failure domains。** 一个 agent 卡住、超时或崩溃时，Ankole 可以隔离或重启那一支，而不是让它拖垮整套部署。
+- **OTP Supervision Trees as failure domains。** 一个 Agent 卡住、超时或崩溃时，Ankole 可以隔离或重启对应分支，不会拖垮整个实例。
 - **ZeroMQ Activation Fabric for live control。** Wakeup、steering、checkpoint、streaming 和 backpressure 通过低延迟 routing layer 流动，让 agent 正在工作时也能被引导和接管。
 - **Agent Computer as execution substrate。** LLM loop、tools、MCP server、文件、terminal state 和 streaming output 跑在靠近 workspace 的 Bun + TypeScript 计算环境里。
 - **Durable Ledger for recovery and audit。** Mailbox、turn、reminder、decision 和已提交 side effect 比进程活得更久。Streaming 是进度；已提交的工作才是事实。
@@ -73,10 +83,10 @@ flowchart TB
   end
 
   SG["SignalsGateway<br/>共享工作入口 / 交付<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>配置 / Control Plane Plugins<br/>Control Plane"]
+  Platform["主体 / AuthZ<br/>配置 / Control Plane Plugins<br/>Control Plane"]
   Runtime["Actor Runtime<br/>长时 session / 恢复<br/>Control Plane"]
   Main["主 agents<br/>model loop · tools · skills<br/>Agent Computer"]
-  Brain["Brain<br/>长期记忆<br/>策展知识 · 召回<br/>dreaming · 人工监督"]
+  Brain["Brain<br/>长程记忆<br/>精选知识 · 召回<br/>dreaming · 人工监督"]
   Delegate["Background Agent Job<br/>持久 · 可恢复工作<br/>Control Plane"]
   AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态 conversation"]
   Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · 独立 Skills<br/>Agent Computer"]
@@ -110,7 +120,7 @@ flowchart TB
 整体上：
 
 - **三个一等入口。** 共享工作从 SignalsGateway 进入，应用和企业系统直接调用 AIGateway，运维者通过 Console 和 API 管理系统。AIGateway 不是只给 worker 使用的内部代理。
-- **AIGateway 是统一 AI 边界。** 它提供 OpenResponses-compatible HTTP、SSE 和 WebSocket API，同时支持无状态请求与 Principal-scoped 有状态 conversation；LLM、embedding、rerank、web search、web fetch 都通过同一个 provider 路由面解析，上游凭证始终留在 control plane。
+- **AIGateway 是统一 AI 边界。** 它提供兼容 OpenResponses 的 HTTP、SSE 和 WebSocket API，同时支持无状态请求和按主体隔离的有状态会话。LLM、Embedding、Rerank、Web Search 和 Web Fetch 都通过同一个 Provider 路由面解析，上游凭证始终留在控制面。
 - **Actor 把持久工作与执行资源分开。** Actor Runtime 拥有长时 session 与恢复语义；可替换的 Agent Computer worker 负责 model loop、tools、skills 和 sandbox。
 - **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
 - **后台 Agent 任务是持久工作，不是一个子进程。** Job 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒 owner 会话。它只保存一个可选的 Workspace Template；CodexRunner 每次运行都加载 Agent 当前启用的全部 Agent Plugin，以及允许 Background Agent Job 使用的已启用 Skill，并只投影刻意收窄的平台 tools。
@@ -131,7 +141,7 @@ Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking c
 
 | 领域 | 状态 |
 | --- | --- |
-| Control plane | `app/control_plane` 下的 Phoenix/OTP 应用，拥有 durable state、配置、actor 编排、Principal/AuthZ、AIGateway、Brain、SignalsGateway 和运维 API。 |
+| Control plane | `app/control_plane` 下的 Phoenix/OTP 应用，负责持久状态、配置、Actor 编排、主体与 AuthZ、AIGateway、Brain、SignalsGateway 和运维 API。 |
 | Agent Computer | `app/agent_computer` 下的 Bun/TypeScript worker runtime，在隔离的 Linux worker 镜像内运行 agent loop 和本地 tools；不是独立 CLI。 |
 | Kernel | `app/kernel` 下的 Rust crate，由 Elixir (Rustler) 和 Bun (N-API) 加载，承载 crypto、identifier、AuthZ evaluator 和 ZeroMQ transport。 |
 | Frontend | `app/webapps` 下的 Vite + React console、auth 和 setup surfaces，构建进 Phoenix static shell。 |
@@ -143,7 +153,7 @@ Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking c
 
 这个仓库是 Ankole 当前活跃的 control-plane 和 runtime workspace。
 
-- `app/control_plane` - Phoenix/OTP control plane，承载 Principal/AuthZ、AppConfigure、setup、console、Control Plane Plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
+- `app/control_plane` - Phoenix/OTP 控制面，承载主体与 AuthZ、AppConfigure、Setup、Console、Control Plane Plugin Registry、I18n、SignalsGateway、Actor Runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
 - `app/kernel` - 被 Elixir 和 Bun 共同加载的 Rust foundation，承载 crypto、identifier、phone/JWT helper、AuthZ evaluator、protobuf envelope 和 ZeroMQ RuntimeFabric transport。
 - `app/agent_computer` - Bun + TypeScript Agent Computer worker，承载本地 LLM loop、provider adapters、tools、skill loading、文件、terminal state 和 worker daemon。
 - `app/webapps` - Vite + React frontend applications，提供 auth、setup、console surfaces，并构建进 Phoenix static shell。
@@ -154,7 +164,7 @@ Ankole 的公共 API 目前没有兼容性承诺，版本之间会有 breaking c
 - `libs/slack_openapi` - 本地 Slack Web API、Socket Mode 与 OIDC client library。
 - `internals/plugins` - 随仓库维护、编译进私有 release 的第一方 Control Plane Plugin code。
 - `tools/devkit` - local services、app database helpers、code generation 和 analysis 的 workspace automation。
-- `docs/design-docs` - Principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway 和 provider adapters 的当前设计文档。
+- `docs/design-docs` - 主体身份、授权、配置、I18n、插件、RuntimeFabric、SignalsGateway 和 Provider 适配器的当前设计文档。
 
 RuntimeFabric 是 control-plane 到 worker 的 live fabric。它通过 ZeroMQ 承载 actor traffic、bounded RPC 和 worker-file frames；PostgreSQL 仍然负责 durable replay、fence、reconciliation 和 final commit。SignalsGateway 是 provider ingress layer：外部 chat、webhook 和 provider event 会变成 actor event，但不会把外部来源事实误写成 execution state。
 
