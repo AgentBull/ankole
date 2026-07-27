@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 26.07.48 (2026-07-27)
+
+- Serialize shared Codex Home setup for overlapping Background Agent Jobs from one Agent. Plugin installation, hook trust, and Skill configuration now finish for one Job before the next Job changes the same Plugin cache, while Jobs for different Agents and all post-setup execution remain concurrent. Add regression coverage for same-Home serialization, cross-Agent concurrency, and lock release after failure, and document the process-local queue's worker-placement boundary.
+
 ## Version 26.07.47 (2026-07-27)
 
 - Deepen the Deep Research guide in both languages around the real Job behavior. Document the clarification interview with its direct-create shortcut, the elements of a well-defined request, the four-stage workflow of planning, parallel collection into `sources/` notes, independent verification, and criteria-audited delivery, plus the durable `research-state.md` with its frame-restart rule, Skill data-source priority, and deliverable format rules. Add a Playbook section that explains the built-in `ach` and `analogical-foresight` methods, Playbook selection during planning, method pinning in the request, and domain Playbooks added by a private deployment.

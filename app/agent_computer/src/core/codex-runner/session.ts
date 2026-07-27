@@ -30,6 +30,7 @@ import {
 } from '../../tools/codex/protocol'
 import type { TurnHandlerResult } from '../turns/turn_options'
 import { installAndTrustAgentPlugins, type PreparedAgentPlugins } from './agent-plugin-materializer'
+import { withCodexHomeSetup } from './codex-home-setup'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
   classifyCodexRecoveryFailure,
@@ -188,22 +189,26 @@ class CodexJobSession {
         if (!this.closing && !this.finalizing) this.rejectDone(error)
       }
     })
+    const client = this.client
 
-    const initializeResponse = await this.client.initialize()
-    if (await this.finishClaimedFinalization()) return
-    await installAndTrustAgentPlugins(this.client, sandbox.codexCwd, this.input.preparedAgentPlugins)
+    const initializeResponse = await client.initialize()
     if (await this.finishClaimedFinalization()) return
     const expectedSkillNames = [
       ...this.input.runtimeFiles.expectedSkillNames,
       ...this.input.preparedAgentPlugins.expectedSkillNames
     ].sort(compareCodePoints)
-    await configureCodexSkills(
-      this.client,
-      sandbox.codexCwd,
-      this.input.runtimeFiles.skillsRoot,
-      this.input.runtimeFiles.expectedSkillNames,
-      this.input.preparedAgentPlugins
-    )
+    await withCodexHomeSetup(this.input.materialized.codexHome, async () => {
+      abortSignal?.throwIfAborted()
+      await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
+      abortSignal?.throwIfAborted()
+      await configureCodexSkills(
+        client,
+        sandbox.codexCwd,
+        this.input.runtimeFiles.skillsRoot,
+        this.input.runtimeFiles.expectedSkillNames,
+        this.input.preparedAgentPlugins
+      )
+    })
     if (await this.finishClaimedFinalization()) return
 
     this.recreatedThreadOnResume = await this.resumeExistingThread()
