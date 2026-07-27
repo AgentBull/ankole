@@ -282,6 +282,32 @@ describe('schedule tools', () => {
     expect(JSON.stringify(zodToJSONSchema(cron!.schema))).not.toContain('idempotency_key')
   })
 
+  it('uses the provider tool call id to make a manual cron run idempotent', async () => {
+    const calls: Array<{ method: ScheduleRPCMethod; request: JSONObject }> = []
+    const cron = createScheduleTools({
+      turnStart: turnStartForScheduleTool(),
+      requestScheduleRPC: async (method: ScheduleRPCMethod, request: Record<string, unknown>): Promise<JSONObject> => {
+        calls.push({ method, request })
+        return { status: 'scheduled' }
+      }
+    }).find(tool => tool.name === 'cron')
+
+    await cron!.execute('call_manual_run', {
+      action: 'run',
+      name: 'market-open-check'
+    })
+
+    expect(calls).toEqual([
+      {
+        method: rpcMethods.scheduleCronRun,
+        request: {
+          name: 'market-open-check',
+          toolCallId: 'call_manual_run'
+        }
+      }
+    ])
+  })
+
   it('makes cron-origin turns read-only to prevent recursive schedule mutation', async () => {
     const requests: JSONObject[] = []
     const cron = createScheduleTools({

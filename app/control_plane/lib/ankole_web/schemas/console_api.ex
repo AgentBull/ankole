@@ -1747,16 +1747,15 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           binding_name: %Schema{type: :string},
-          name: %Schema{type: :string, nullable: true},
+          name: %Schema{type: :string, minLength: 1},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
           schedule: JSONValue,
           timezone: %Schema{type: :string, nullable: true},
           payload: JSONValue,
           delivery: JSONValue,
-          idempotency_key: %Schema{type: :string},
-          failure_policy: JSONValue
+          idempotency_key: %Schema{type: :string}
         },
-        required: [:binding_name, :schedule, :delivery, :idempotency_key],
+        required: [:binding_name, :name, :schedule, :delivery, :idempotency_key],
         additionalProperties: false
       },
       struct?: false
@@ -1772,13 +1771,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleCronUpdateRequest",
         type: :object,
+        minProperties: 1,
         properties: %{
-          name: %Schema{type: :string, nullable: true},
+          name: %Schema{type: :string, minLength: 1},
           schedule: JSONValue,
           timezone: %Schema{type: :string, nullable: true},
           payload: JSONValue,
-          delivery: JSONValue,
-          failure_policy: JSONValue
+          delivery: JSONValue
         },
         additionalProperties: false
       },

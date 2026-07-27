@@ -55,4 +55,4 @@ make, ask the human.
 
 If needed, you could use the `send_message_to_background_job` tool to send a steering message to the Job.
 
-When the Job successfully completes, it will send a message to you. Forward that message to the human.
+When the Job successfully completes, it will send a message to you. Read `report/report.md` in the Job workspace before you forward the result: the goal is a delivered report that serves the confirmed research purpose. If the report states a gap or limitation that defeats that purpose, tell the human, and steer the Job when you can supply what it lacked — new information you hold, or a decision from the human.

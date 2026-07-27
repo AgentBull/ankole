@@ -17,6 +17,7 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
   alias Ankole.Schedule
+  alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
@@ -374,43 +375,522 @@ defmodule Ankole.ScheduleTest do
       assert Schedule.list_cron_runs(paused.id, 10) == []
     end
 
-    test "manual cron runs fire while paused or failed without advancing recurrence" do
+    test "payload updates keep the live slot and update its event snapshot in place" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 5, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "snapshot-update",
+                   idempotency_key: "snapshot-update",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot)
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      [original] = Schedule.list_cron_runs(schedule.id, 10)
+
+      assert {:ok, updated} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{
+                   "name" => "snapshot-update-renamed",
+                   "payload" => %{"task" => "updated digest"}
+                 },
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert updated.next_fire_at == first_slot
+      assert updated.name == "snapshot-update-renamed"
+      assert [current] = Schedule.list_cron_runs(schedule.id, 10)
+      assert current.id == original.id
+      assert current.status == "scheduled"
+      assert current.idempotency_key == original.idempotency_key
+      assert current.wake_payload["cron_schedule_name"] == "snapshot-update-renamed"
+      assert current.wake_payload["payload"] == %{"task" => "updated digest"}
+    end
+
+    test "pause and resume replace a cancelled event in the same deterministic slot" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 5, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "same-slot-resume",
+                   idempotency_key: "same-slot-resume",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "anchor_at" => DateTime.to_iso8601(first_slot)
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      [original] = Schedule.list_cron_runs(schedule.id, 10)
+
+      assert {:ok, paused} =
+               Schedule.pause_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert paused.status == "paused"
+      assert paused.next_fire_at == nil
+      assert Repo.get!(ScheduledEvent, original.id).status == "cancelled"
+
+      assert {:ok, resumed} =
+               Schedule.resume_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert resumed.status == "active"
+      assert resumed.next_fire_at == first_slot
+
+      assert [replacement, cancelled] = Schedule.list_cron_runs(schedule.id, 10)
+      assert replacement.status == "scheduled"
+      assert replacement.id != original.id
+      assert replacement.cron_fire_slot_at == first_slot
+      assert cancelled.id == original.id
+      assert cancelled.status == "cancelled"
+
+      assert {:ok, active_noop} =
+               Schedule.resume_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert active_noop.next_fire_at == first_slot
+
+      assert Enum.count(Schedule.list_cron_runs(schedule.id, 10), &(&1.status == "scheduled")) ==
+               1
+    end
+
+    test "a cron rule can move away from and return to a cancelled historical slot" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      original_slot = DateTime.add(@base_time, 5, :minute)
+      moved_slot = DateTime.add(@base_time, 10, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "slot-round-trip",
+                   idempotency_key: "slot-round-trip",
+                   schedule: every_schedule(original_slot)
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, moved} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"schedule" => every_schedule(moved_slot)},
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert moved.next_fire_at == moved_slot
+
+      assert {:ok, restored} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"schedule" => every_schedule(original_slot)},
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert restored.next_fire_at == original_slot
+
+      runs = Schedule.list_cron_runs(schedule.id, 10)
+      assert Enum.count(runs, &(&1.status == "scheduled")) == 1
+      assert Enum.find(runs, &(&1.status == "scheduled")).cron_fire_slot_at == original_slot
+      assert Enum.count(runs, &(&1.status == "cancelled")) == 2
+    end
+
+    test "manual cron run replay uses the caller tool id and different calls stay distinct" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
 
-      for {status, offset} <- [{"paused", 1}, {"failed", 2}] do
-        now = DateTime.add(@base_time, offset, :second)
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "manual-idempotency",
+                   idempotency_key: "manual-idempotency"
+                 ),
+                 now: @base_time
+               )
 
-        assert {:ok, %{status: :created, cron_schedule: schedule}} =
-                 Schedule.create_cron_schedule(
-                   cron_attrs(agent.uid,
-                     status: status,
-                     name: "manual-#{status}",
-                     idempotency_key: "manual-#{status}",
-                     schedule: %{
-                       "kind" => "every",
-                       "every_ms" => 60_000,
-                       "timezone" => "Etc/UTC",
-                       "anchor_at" => DateTime.to_iso8601(DateTime.add(now, 1, :minute))
-                     }
-                   ),
-                   now: now
-                 )
+      assert {:ok, %{status: :scheduled, scheduled_event: first}} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "call-manual-1"
+               )
 
-        assert {:ok, %{status: :scheduled, scheduled_event: manual_event}} =
-                 Schedule.run_cron_schedule(schedule.id, now: now)
+      assert {:ok, %{status: :already_scheduled, scheduled_event: replayed}} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: DateTime.add(@base_time, 1, :second),
+                 tool_call_id: "call-manual-1"
+               )
 
-        assert manual_event.wake_payload["trigger"] == "manual"
+      assert replayed.id == first.id
 
-        assert {:ok, %{status: :fired, actor_event: actor_event}} =
-                 Schedule.fire_due_event(manual_event.id, now: now)
+      assert {:ok, %{status: :scheduled, scheduled_event: second}} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "call-manual-2"
+               )
 
-        assert actor_event.type == "cron.fire"
+      assert second.id != first.id
+      assert first.cron_fire_slot_at == second.cron_fire_slot_at
 
-        assert {:ok, unchanged} = Schedule.get_cron_schedule(schedule.id)
-        assert unchanged.status == status
-        assert unchanged.next_fire_at == nil
-        assert unchanged.last_fire_at == nil
-      end
+      assert {:ok, %{actor_event: first_input}} =
+               Schedule.fire_due_event(first.id, now: @base_time)
+
+      assert {:ok, %{actor_event: second_input}} =
+               Schedule.fire_due_event(second.id, now: @base_time)
+
+      assert first_input.source_event_id == "cron-manual:#{schedule.id}:call-manual-1"
+      assert second_input.source_event_id == "cron-manual:#{schedule.id}:call-manual-2"
+    end
+
+    test "terminal recurring fire failure schedules the next slot" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "terminal-failure-continues",
+                   idempotency_key: "terminal-failure-continues",
+                   schedule: every_schedule(first_slot)
+                 ),
+                 now: @base_time
+               )
+
+      [event] = Schedule.list_cron_runs(schedule.id, 10)
+
+      ScheduledEvent
+      |> where([scheduled_event], scheduled_event.id == ^event.id)
+      |> Repo.update_all(set: [binding_name: ""])
+
+      assert {:error, %Ecto.Changeset{}} =
+               Schedule.fire_due_event(event.id,
+                 now: first_slot,
+                 attempt: 10,
+                 max_attempts: 10
+               )
+
+      assert Repo.get!(ScheduledEvent, event.id).status == "failed"
+
+      assert {:ok, advanced} = Schedule.get_cron_schedule(schedule.id)
+      assert advanced.next_fire_at == DateTime.add(first_slot, 1, :minute)
+
+      assert [next, failed] = Schedule.list_cron_runs(schedule.id, 10)
+      assert next.status == "scheduled"
+      assert next.cron_fire_slot_at == DateTime.add(first_slot, 1, :minute)
+      assert failed.id == event.id
+      assert failed.status == "failed"
+    end
+
+    @tag ownership_timeout: 10_000
+    test "a concurrent recurring fire and payload update serialize without a deadlock" do
+      parent = self()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+      unique = Ecto.UUID.generate()
+
+      {agent_uid, schedule, event} =
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+          assert {:ok, %{cron_schedule: schedule}} =
+                   Schedule.create_cron_schedule(
+                     cron_attrs(agent.uid,
+                       name: "concurrent-#{unique}",
+                       idempotency_key: "concurrent-#{unique}",
+                       schedule: every_schedule(first_slot)
+                     ),
+                     now: @base_time
+                   )
+
+          [event] = Schedule.list_cron_runs(schedule.id, 10)
+          {agent.uid, schedule, event}
+        end)
+
+      event_id = event.id
+
+      on_exit(fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          job_ids =
+            ScheduledEvent
+            |> where([scheduled_event], scheduled_event.agent_uid == ^agent_uid)
+            |> select([scheduled_event], scheduled_event.oban_job_id)
+            |> Repo.all()
+            |> Enum.reject(&is_nil/1)
+
+          if job_ids != [] do
+            Oban.Job
+            |> where([job], job.id in ^job_ids)
+            |> Repo.delete_all()
+          end
+
+          Ankole.Principals.Principal
+          |> where([principal], principal.uid == ^agent_uid)
+          |> Repo.delete_all()
+        end)
+      end)
+
+      blocker =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+            Repo.transact(fn repo ->
+              event =
+                ScheduledEvent
+                |> where([scheduled_event], scheduled_event.id == ^event_id)
+                |> lock("FOR UPDATE")
+                |> repo.one!()
+
+              send(parent, {:recurring_event_locked, self()})
+
+              receive do
+                :release_recurring_event -> {:ok, event.id}
+              end
+            end)
+          end)
+        end)
+
+      assert_receive {:recurring_event_locked, blocker_pid}, 5_000
+
+      fire =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+            Schedule.fire_due_event(event_id, now: first_slot)
+          end)
+        end)
+
+      Process.sleep(50)
+
+      update =
+        Task.async(fn ->
+          Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+            Schedule.update_cron_schedule(
+              schedule.id,
+              %{"payload" => %{"version" => 2}},
+              now: first_slot
+            )
+          end)
+        end)
+
+      Process.sleep(50)
+      send(blocker_pid, :release_recurring_event)
+
+      assert {:ok, ^event_id} = Task.await(blocker, 5_000)
+      assert {:ok, %{status: :fired}} = Task.await(fire, 5_000)
+      assert {:ok, %CronSchedule{}} = Task.await(update, 5_000)
+
+      Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        assert {:ok, current} = Schedule.get_cron_schedule(schedule.id)
+        assert current.status == "active"
+
+        live_events =
+          ScheduledEvent
+          |> where([scheduled_event], scheduled_event.cron_schedule_id == ^schedule.id)
+          |> where([scheduled_event], scheduled_event.status in ["scheduled", "firing"])
+          |> where(
+            [scheduled_event],
+            fragment(
+              "COALESCE(?->>'trigger', 'scheduled') = 'scheduled'",
+              scheduled_event.wake_payload
+            )
+          )
+          |> Repo.all()
+
+        assert [%ScheduledEvent{} = next] = live_events
+        assert next.cron_fire_slot_at == current.next_fire_at
+        assert next.wake_payload["payload"] == %{"version" => 2}
+
+        source_event_id = "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
+
+        assert ActorEvent
+               |> where([actor_event], actor_event.source_event_id == ^source_event_id)
+               |> Repo.aggregate(:count) == 1
+      end)
+    end
+
+    test "deleted cron names can be reused without poisoning list or name lookup" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{cron_schedule: removed}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "reusable-name",
+                   idempotency_key: "reusable-name-old"
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: "deleted"}} = Schedule.remove_cron_schedule(removed.id)
+
+      assert {:ok, %{cron_schedule: current}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "reusable-name",
+                   idempotency_key: "reusable-name-current"
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, fetched} =
+               Schedule.get_cron_schedule_by_name(
+                 agent.uid,
+                 current.session_id,
+                 "reusable-name"
+               )
+
+      assert fetched.id == current.id
+
+      assert Enum.map(Schedule.list_cron_schedules(agent.uid, current.session_id), & &1.id) == [
+               current.id
+             ]
+
+      assert {:ok, %{status: "deleted"}} = Schedule.get_cron_schedule(removed.id)
+    end
+
+    test "cron updates reject empty and unknown changes" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "validated-update",
+                   idempotency_key: "validated-update"
+                 ),
+                 now: @base_time
+               )
+
+      assert {:error, :cron_schedule_update_required} =
+               Schedule.update_cron_schedule(schedule.id, %{})
+
+      assert {:error, {:unknown_cron_schedule_update_fields, ["failure_policy"]}} =
+               Schedule.update_cron_schedule(schedule.id, %{"failure_policy" => %{}})
+    end
+
+    test "a timezone-only cron update changes the rule and its pending event" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "timezone-update",
+                   idempotency_key: "timezone-update",
+                   schedule: %{
+                     "kind" => "cron",
+                     "expression" => "0 9 * * *",
+                     "timezone" => "Etc/UTC"
+                   }
+                 ),
+                 now: @base_time
+               )
+
+      assert {:ok, updated} =
+               Schedule.update_cron_schedule(
+                 schedule.id,
+                 %{"timezone" => "Asia/Shanghai"},
+                 now: @base_time
+               )
+
+      assert updated.timezone == "Asia/Shanghai"
+      assert updated.schedule["timezone"] == "Asia/Shanghai"
+
+      assert [%ScheduledEvent{} = pending] =
+               Schedule.list_cron_runs(schedule.id, 10)
+               |> Enum.filter(&(&1.status == "scheduled"))
+
+      assert pending.timezone == "Asia/Shanghai"
+      assert pending.wake_payload["timezone"] == "Asia/Shanghai"
+      assert pending.cron_fire_slot_at == updated.next_fire_at
+    end
+
+    test "release reconciliation repairs an active schedule with no live recurring event" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      first_slot = DateTime.add(@base_time, 1, :minute)
+      repair_at = DateTime.add(@base_time, 10, :minute)
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "stranded-repair",
+                   idempotency_key: "stranded-repair",
+                   schedule: every_schedule(first_slot)
+                 ),
+                 now: @base_time
+               )
+
+      [original] = Schedule.list_cron_runs(schedule.id, 10)
+
+      original
+      |> ScheduledEvent.changeset(%{
+        status: "cancelled",
+        cancelled_at: repair_at,
+        last_fire_error: %{"reason" => "test_stranded"}
+      })
+      |> Repo.update!()
+
+      assert {:ok, %{reconciled: reconciled}} =
+               Schedule.reconcile_cron_schedules(now: repair_at)
+
+      assert reconciled >= 1
+      assert {:ok, repaired} = Schedule.get_cron_schedule(schedule.id)
+      assert repaired.next_fire_at == DateTime.add(@base_time, 11, :minute)
+
+      assert [replacement, cancelled] = Schedule.list_cron_runs(schedule.id, 10)
+      assert replacement.status == "scheduled"
+      assert replacement.cron_fire_slot_at == repaired.next_fire_at
+      assert cancelled.id == original.id
+      assert cancelled.status == "cancelled"
+    end
+
+    test "manual cron runs fire while paused without advancing recurrence" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      now = DateTime.add(@base_time, 1, :second)
+
+      assert {:ok, %{status: :created, cron_schedule: schedule}} =
+               Schedule.create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   status: "paused",
+                   name: "manual-paused",
+                   idempotency_key: "manual-paused",
+                   schedule: %{
+                     "kind" => "every",
+                     "every_ms" => 60_000,
+                     "timezone" => "Etc/UTC",
+                     "anchor_at" => DateTime.to_iso8601(DateTime.add(now, 1, :minute))
+                   }
+                 ),
+                 now: now
+               )
+
+      assert {:ok, %{status: :scheduled, scheduled_event: manual_event}} =
+               Schedule.run_cron_schedule(schedule.id,
+                 now: now,
+                 tool_call_id: "manual-paused-call"
+               )
+
+      assert manual_event.wake_payload["trigger"] == "manual"
+
+      assert {:ok, %{status: :fired, actor_event: actor_event}} =
+               Schedule.fire_due_event(manual_event.id, now: now)
+
+      assert actor_event.type == "cron.fire"
+
+      assert {:ok, unchanged} = Schedule.get_cron_schedule(schedule.id)
+      assert unchanged.status == "paused"
+      assert unchanged.next_fire_at == nil
+      assert unchanged.last_fire_at == nil
     end
 
     test "pausing preserves a pending manual run while cancelling recurrence" do
@@ -433,7 +913,10 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{scheduled_event: manual_event}} =
-               Schedule.run_cron_schedule(schedule.id, now: @base_time)
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "manual-before-pause-call"
+               )
 
       assert {:ok, paused} =
                Schedule.pause_cron_schedule(schedule.id,
@@ -466,7 +949,10 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{scheduled_event: manual_event}} =
-               Schedule.run_cron_schedule(schedule.id, now: @base_time)
+               Schedule.run_cron_schedule(schedule.id,
+                 now: @base_time,
+                 tool_call_id: "manual-before-delete-call"
+               )
 
       assert {:ok, deleted} =
                Schedule.remove_cron_schedule(schedule.id,
@@ -761,6 +1247,23 @@ defmodule Ankole.ScheduleTest do
       assert {:ok,
               %{
                 "status" => "ok",
+                "checkback" => %{
+                  "checkback_id" => ^replacement_event_id,
+                  "status" => "scheduled"
+                }
+              }} =
+               schedule_rpc(
+                 "check_back_later.get",
+                 %FabricProto.ScheduleCheckBackLaterTargetRequest{
+                   scheduled_event_id: scheduled_event_id
+                 },
+                 turn_ref,
+                 route
+               )
+
+      assert {:ok,
+              %{
+                "status" => "ok",
                 "checkbacks" => [
                   %{"checkback_id" => ^replacement_event_id, "status" => "scheduled"}
                 ]
@@ -1015,7 +1518,11 @@ defmodule Ankole.ScheduleTest do
       due_now = DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
 
       scheduled_event
-      |> ScheduledEvent.changeset(%{due_at: due_now})
+      |> ScheduledEvent.changeset(%{due_at: due_now, cron_fire_slot_at: due_now})
+      |> Repo.update!()
+
+      cron_schedule
+      |> CronSchedule.changeset(%{next_fire_at: due_now})
       |> Repo.update!()
 
       assert :ok =
@@ -1361,7 +1868,9 @@ defmodule Ankole.ScheduleTest do
                Schedule.fire_due_event(old_event.id, now: reset_at)
 
       assert cron_input.type == "cron.fire"
-      assert cron_input.source_event_id == old_event.idempotency_key
+
+      assert cron_input.source_event_id ==
+               "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
 
       assert get_in(cron_input.payload, ["data", "cron_fire_slot_at"]) ==
                DateTime.to_iso8601(first_slot)
@@ -1564,11 +2073,18 @@ defmodule Ankole.ScheduleTest do
           "signal_channel_id" => "mock:chat:schedule",
           "provider_thread_id" => "thread-schedule"
         },
-        "idempotency_key" => "cron-key-1",
-        "failure_policy" => %{}
+        "idempotency_key" => "cron-key-1"
       },
       stringify_keys(overrides)
     )
+  end
+
+  defp every_schedule(anchor_at) do
+    %{
+      "kind" => "every",
+      "every_ms" => 60_000,
+      "anchor_at" => DateTime.to_iso8601(anchor_at)
+    }
   end
 
   defp ai_message_fixture(agent_uid, session_id \\ "mock:chat:schedule") do

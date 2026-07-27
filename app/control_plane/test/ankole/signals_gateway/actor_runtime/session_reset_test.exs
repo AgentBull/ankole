@@ -380,8 +380,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SessionResetTest do
                      "signal_channel_id" => "lark:chat:reset-barrier",
                      "provider_thread_id" => "thread-reset-barrier"
                    },
-                   "idempotency_key" => "reset-boundary-cron",
-                   "failure_policy" => %{}
+                   "idempotency_key" => "reset-boundary-cron"
                  },
                  now: DateTime.add(@base_time, 1, :second)
                )

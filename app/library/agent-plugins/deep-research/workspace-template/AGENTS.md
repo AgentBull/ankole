@@ -2,6 +2,23 @@
 
 The current directory is the working directory for this Deep Research Job. Perform all research work in this directory and place all output files here.
 
+## Research State
+
+Create `research-state.md` in the working directory when you plan the research, and keep your private working state in it. The goal is that progress survives and work is not repeated: after an interruption or a loss of conversation context, this file must be sufficient to continue the research without exploring again what is already settled. Revise it when the state it describes changes.
+
+Record in it:
+
+- the success criteria this research must satisfy, each with its current status. Derive them from the task; when the task states none, derive them from what the user needs the report to answer;
+- the current candidate conclusions, once analysis produces them, and the open gaps in their support;
+- the directions you examined and rejected, each with the reason; and
+- unresolved concerns about the validity of collected information.
+
+This file is working memory, not a deliverable. Do not give it to any reviewing subagent, even when a Playbook defines the reviewer's other inputs: independent review must form its own view without your reasoning. Anything the reader must know goes in the report, not in this file.
+
+## Restart
+
+A report built on a wrong frame wastes the whole Job, so a restart is cheaper than it looks. When you find that the research frame is wrong — a misidentified subject, a misread question, a broken core assumption — do not patch the analysis. Record the corrected frame in `research-state.md`, discard the analysis artifacts that the wrong frame invalidates, and do the affected stages again. Keep `./sources`; re-collect only what the corrected frame makes insufficient.
+
 ## Standard Workflow
 
 > Use the Codex plan tool to track current execution steps.
@@ -43,14 +60,15 @@ Follow these steps in order:
 
 Follow this sequential workflow to generate and deliver the report:
 
-1. **Content Preparation**: Draft the report content in the user's language, adhering strictly to any specified structure or requirements.
-2. **Deliverable Generation & Format Selection**:
+1. **Criteria Audit**: Deliver only a report that accounts for every success criterion in `research-state.md`; this applies under every verifier protocol. A criterion is accounted for when the report satisfies it with cited evidence, or states it as an open gap together with the consequence for the conclusions. When a gap defeats the research purpose, close it with further collection targeted at evidence you can still reach, whenever the purpose tolerates the delay; a late report can fail its purpose as surely as an incomplete one.
+2. **Content Preparation**: Draft the report content in the user's language, adhering strictly to any specified structure or requirements.
+3. **Deliverable Generation & Format Selection**:
    - **Default Format**: If no file format is specified, deliver `report/report.md`.
    - **Requested Format (PDF, PPT, HTML, etc.)**: 
      - Use the corresponding generation skill (`pdf`, `pptx`, etc.) to produce the file.
      - If the user did not specify a visual design, apply `design-md` as the design reference.
      - Deliver **only** the requested format file unless the user explicitly requests the Markdown source as well.
-3. **Quick Check**: Before completion, delegate a brief, lightweight sanity check of the final deliverable to a single subagent. Keep this check quick, and do not repeat the check yourself.
+4. **Quick Check**: Before completion, delegate a brief, lightweight sanity check of the final deliverable to a single subagent. Keep this check quick, and do not repeat the check yourself.
 
 #### Deliverable Writing Style
 

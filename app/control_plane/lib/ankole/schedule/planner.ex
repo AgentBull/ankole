@@ -41,14 +41,12 @@ defmodule Ankole.Schedule.Planner do
       "cron" ->
         with {:ok, timezone} <- schedule_timezone(schedule, attrs, opts),
              {:ok, expression} <- Attrs.required_text(schedule, "expression"),
-             {:ok, normalized_expression} <- validate_cron_expression(expression),
-             {:ok, stagger_ms} <- Attrs.non_negative_integer(schedule, "stagger_ms", 0) do
+             {:ok, normalized_expression} <- validate_cron_expression(expression) do
           {:ok,
            %{
              "kind" => "cron",
              "expression" => normalized_expression,
-             "timezone" => timezone,
-             "stagger_ms" => stagger_ms
+             "timezone" => timezone
            }, timezone}
         end
 
@@ -158,7 +156,6 @@ defmodule Ankole.Schedule.Planner do
          {:ok, local_after} <- TimeZone.shift(after_at, timezone),
          {:ok, expression} <- Attrs.required_text(schedule, "expression"),
          {:ok, cron_expression} <- parse_cron_expression(expression),
-         {:ok, stagger_ms} <- Attrs.non_negative_integer(schedule, "stagger_ms", 0),
          {:ok, local_next} <-
            next_cron_local(
              cron_expression,
@@ -168,7 +165,7 @@ defmodule Ankole.Schedule.Planner do
              @max_timezone_candidate_rejections
            ),
          {:ok, utc_next} <- TimeZone.shift(local_next, "Etc/UTC") do
-      {:ok, DateTime.add(utc_next, stagger_ms, :millisecond)}
+      {:ok, utc_next}
     end
   end
 

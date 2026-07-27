@@ -47,6 +47,13 @@ defmodule Ankole.Schedule do
   defdelegate create_cron_schedule(attrs, opts \\ []), to: Cron
 
   @doc """
+  Restores the recurring-event invariant for all stored cron schedules.
+  """
+  @spec reconcile_cron_schedules(keyword()) ::
+          {:ok, %{reconciled: non_neg_integer()}} | {:error, term()}
+  defdelegate reconcile_cron_schedules(opts \\ []), to: Cron
+
+  @doc """
   Updates a cron schedule and re-arms the next active fire.
   """
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
@@ -125,6 +132,14 @@ defmodule Ankole.Schedule do
   """
   @spec get_scheduled_event(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
   defdelegate get_scheduled_event(scheduled_event_id), to: Queries
+
+  @doc """
+  Resolves a checkback identifier through any replacement chain.
+  """
+  @spec get_current_checkback(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
+  defdelegate get_current_checkback(scheduled_event_id),
+    to: Checkbacks,
+    as: :resolve_current_checkback
 
   @doc """
   Lists recent concrete fires for a cron schedule.

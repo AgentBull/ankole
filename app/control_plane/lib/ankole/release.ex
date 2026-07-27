@@ -7,6 +7,7 @@ defmodule Ankole.Release do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
+  alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
 
   @app :ankole
@@ -16,6 +17,11 @@ defmodule Ankole.Release do
   def migrate do
     load_app()
     with_repo(&Ecto.Migrator.run(&1, :up, all: true))
+
+    with_repo(fn _repo ->
+      with_release_oban(&reconcile_cron_schedules!/0)
+    end)
+
     :ok
   end
 
@@ -38,6 +44,37 @@ defmodule Ankole.Release do
 
     :ok = WorkerAuthKey.ensure_registered()
     {:ok, ^auth_key} = AppConfigure.put_global(WorkerAuthKey.definition(), auth_key)
+  end
+
+  defp reconcile_cron_schedules! do
+    case Schedule.reconcile_cron_schedules() do
+      {:ok, _result} -> :ok
+      {:error, reason} -> raise "failed to reconcile cron schedules: #{inspect(reason)}"
+    end
+  end
+
+  defp with_release_oban(fun) do
+    {:ok, _apps} = Application.ensure_all_started(:oban)
+
+    oban_opts =
+      :ankole
+      |> Application.fetch_env!(Oban)
+      |> Keyword.merge(plugins: false, queues: false)
+
+    case Oban.start_link(oban_opts) do
+      {:ok, pid} ->
+        try do
+          fun.()
+        after
+          Supervisor.stop(pid)
+        end
+
+      {:error, {:already_started, _pid}} ->
+        fun.()
+
+      {:error, reason} ->
+        raise "failed to start release Oban: #{inspect(reason)}"
+    end
   end
 
   defp start_child!(module) do

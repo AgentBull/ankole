@@ -15,7 +15,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  @statuses ~w(active paused deleted failed)
+  @statuses ~w(active paused deleted)
 
   schema "actor_cron_schedules" do
     field :status, :string, default: "active"
@@ -36,8 +36,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     field :last_fire_at, :utc_datetime_usec
     field :idempotency_key, :string
     field :created_by, :map, default: %{}
-    field :failure_policy, :map, default: %{}
-
     timestamps()
   end
 
@@ -60,8 +58,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :next_fire_at,
       :last_fire_at,
       :idempotency_key,
-      :created_by,
-      :failure_policy
+      :created_by
     ])
     |> normalize_blank([
       :status,
@@ -82,8 +79,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :timezone,
       :payload,
       :idempotency_key,
-      :created_by,
-      :failure_policy
+      :created_by
     ])
     |> validate_inclusion(:status, @statuses)
     |> validate_timezone(:timezone)
@@ -91,7 +87,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> JSONPayload.validate_map(:payload)
     |> validate_nullable_map(:delivery)
     |> JSONPayload.validate_map(:created_by)
-    |> JSONPayload.validate_map(:failure_policy)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :session_id, :idempotency_key],
       name: :actor_cron_schedules_idempotency_index
@@ -109,7 +104,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> check_constraint(:payload, name: :actor_cron_schedules_payload_object)
     |> check_constraint(:delivery, name: :actor_cron_schedules_delivery_object)
     |> check_constraint(:created_by, name: :actor_cron_schedules_created_by_object)
-    |> check_constraint(:failure_policy, name: :actor_cron_schedules_failure_policy_object)
   end
 
   defp validate_nullable_map(changeset, field) do

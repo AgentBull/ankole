@@ -131,8 +131,7 @@ const EverySchedule = z.object({
 const CronSchedule = z.object({
   kind: z.literal('cron'),
   expression: z.string().min(1),
-  timezone: z.string().optional(),
-  stagger_ms: z.number().int().nonnegative().optional()
+  timezone: z.string().optional()
 })
 
 const DeliveryParams = z.object({
@@ -311,7 +310,7 @@ function createCronTool(
         .with('pause', () => call(rpcMethods.scheduleCronPause, target()))
         .with('resume', () => call(rpcMethods.scheduleCronResume, target()))
         .with('remove', () => call(rpcMethods.scheduleCronRemove, target()))
-        .with('run', () => call(rpcMethods.scheduleCronRun, target()))
+        .with('run', () => call(rpcMethods.scheduleCronRun, { ...target(), toolCallId: toolCallID }))
         .with('runs', () =>
           call(rpcMethods.scheduleCronRuns, { ...target(), ...(params.limit ? { limit: params.limit } : {}) })
         )

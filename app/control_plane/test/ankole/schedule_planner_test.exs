@@ -91,8 +91,7 @@ defmodule Ankole.Schedule.PlannerTest do
   test "preserves day-of-month and day-of-week AND semantics" do
     schedule = %{
       "kind" => "cron",
-      "expression" => "0 9 15 * MON",
-      "stagger_ms" => 0
+      "expression" => "0 9 15 * MON"
     }
 
     assert {:ok, actual} =
@@ -102,7 +101,7 @@ defmodule Ankole.Schedule.PlannerTest do
   end
 
   defp assert_next_fire(expression, after_at, expected) do
-    schedule = %{"kind" => "cron", "expression" => expression, "stagger_ms" => 0}
+    schedule = %{"kind" => "cron", "expression" => expression}
 
     assert {:ok, actual} = Planner.next_fire_after(schedule, @timezone, after_at)
     assert DateTime.compare(actual, expected) == :eq

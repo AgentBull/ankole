@@ -139,6 +139,9 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     |> unique_constraint([:cron_schedule_id, :cron_fire_slot_at],
       name: :actor_scheduled_events_cron_slot_index
     )
+    |> unique_constraint(:cron_schedule_id,
+      name: :actor_scheduled_events_one_live_recurring_index
+    )
     |> check_constraint(:kind, name: :actor_scheduled_events_kind_check)
     |> check_constraint(:status, name: :actor_scheduled_events_status_check)
     |> check_constraint(:timezone, name: :actor_scheduled_events_timezone_present)

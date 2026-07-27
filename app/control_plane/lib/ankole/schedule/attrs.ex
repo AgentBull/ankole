@@ -70,31 +70,10 @@ defmodule Ankole.Schedule.Attrs do
     end
   end
 
-  @spec non_negative_integer(map(), String.t(), non_neg_integer()) ::
-          {:ok, non_neg_integer()} | {:error, term()}
-  def non_negative_integer(map, key, default) do
-    case integer_value(map, key) do
-      {:ok, value} when value >= 0 -> {:ok, value}
-      {:ok, _value} -> {:error, {:invalid_non_negative_integer, key}}
-      {:error, _reason} -> {:ok, default}
-    end
-  end
-
   @spec parse_positive_integer(term()) :: {:ok, pos_integer()} | {:error, :invalid_integer}
   def parse_positive_integer(value) do
     with {:ok, integer} <- parse_integer(value),
          true <- integer > 0 do
-      {:ok, integer}
-    else
-      _value -> {:error, :invalid_integer}
-    end
-  end
-
-  @spec parse_non_negative_integer(term()) ::
-          {:ok, non_neg_integer()} | {:error, :invalid_integer}
-  def parse_non_negative_integer(value) do
-    with {:ok, integer} <- parse_integer(value),
-         true <- integer >= 0 do
       {:ok, integer}
     else
       _value -> {:error, :invalid_integer}

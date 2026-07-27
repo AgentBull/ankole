@@ -702,8 +702,7 @@ export type BackgroundAgentJobTurnProgress = {
  */
 export type ScheduleCronUpdateRequest = {
   delivery?: JsonValue
-  failure_policy?: JsonValue
-  name?: string | null
+  name?: string
   payload?: JsonValue
   schedule?: JsonValue
   timezone?: string | null
@@ -1007,9 +1006,8 @@ export type BrainDreamingFitness = {
 export type ScheduleCronWriteRequest = {
   binding_name: string
   delivery: JsonValue
-  failure_policy?: JsonValue
   idempotency_key: string
-  name?: string | null
+  name: string
   payload?: JsonValue
   schedule: JsonValue
   status?: 'active' | 'paused'
@@ -4659,6 +4657,9 @@ export type AnkoleWebScheduleControllerCronRunsResponse =
 
 export type AnkoleWebScheduleControllerRunCronData = {
   body?: never
+  headers: {
+    'Idempotency-Key': string
+  }
   path: {
     agent_uid: string
     session_id: string

@@ -106,7 +106,16 @@ defmodule AnkoleWeb.ScheduleController do
   operation(:run_cron,
     summary: "Manually run one recurring schedule",
     parameters:
-      @actor_parameters ++ [cron_schedule_id: [in: :path, type: :string, required: true]],
+      @actor_parameters ++
+        [
+          cron_schedule_id: [in: :path, type: :string, required: true],
+          idempotency_key: [
+            in: :header,
+            name: "Idempotency-Key",
+            type: :string,
+            required: true
+          ]
+        ],
     responses: [ok: {"Scheduled event", "application/json", ScheduleEventResponse}]
   )
 
@@ -207,7 +216,9 @@ defmodule AnkoleWeb.ScheduleController do
     with {:ok, actor} <- actor_params(params),
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(actor.agent_uid), "update"),
          {:ok, schedule} <- cron_for_actor(params, actor),
-         {:ok, %{scheduled_event: event}} <- Schedule.run_cron_schedule(schedule.id) do
+         {:ok, request_id} <- request_idempotency_key(conn),
+         {:ok, %{scheduled_event: event}} <-
+           Schedule.run_cron_schedule(schedule.id, idempotency_key: request_id) do
       json(conn, %{schedule_event: Schedule.event_projection(event)})
     else
       {:error, reason} -> error(conn, reason)
@@ -379,6 +390,19 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   defp normalize_external_attrs(_attrs), do: %{}
+
+  defp request_idempotency_key(conn) do
+    case get_req_header(conn, "idempotency-key") do
+      [value] when is_binary(value) ->
+        case String.trim(value) do
+          "" -> {:error, {:missing, "Idempotency-Key"}}
+          request_id -> {:ok, request_id}
+        end
+
+      _values ->
+        {:error, {:missing, "Idempotency-Key"}}
+    end
+  end
 
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: error(conn, 404, "not_found", "schedule was not found")

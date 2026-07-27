@@ -218,7 +218,7 @@
     "method": "schedule.cron.run",
     "scope": "turn",
     "effect": "write",
-    "request_type": "ankole.runtime_fabric.v1.ScheduleCronTargetRequest",
+    "request_type": "ankole.runtime_fabric.v1.ScheduleCronRunRequest",
     "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
   },
   {

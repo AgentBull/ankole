@@ -20,8 +20,9 @@ defmodule Ankole.Schedule.Fire do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
-      with {:ok, event} <- claim_due_event_in_tx(repo, scheduled_event_id, now),
-           {:ok, result} <- fire_claimed_event_in_tx(repo, event, now, opts) do
+      with {:ok, event, schedule} <-
+             claim_due_event_with_schedule_in_tx(repo, scheduled_event_id, now),
+           {:ok, result} <- fire_claimed_event_in_tx(repo, event, schedule, now, opts) do
         {:ok, result}
       else
         :noop -> {:ok, %{status: :noop, scheduled_event: nil}}
@@ -29,6 +30,28 @@ defmodule Ankole.Schedule.Fire do
       end
     end)
     |> persist_fire_error(scheduled_event_id, opts)
+  end
+
+  defp claim_due_event_with_schedule_in_tx(repo, scheduled_event_id, now) do
+    case repo.get(ScheduledEvent, scheduled_event_id) do
+      %ScheduledEvent{kind: "cron_fire", cron_schedule_id: cron_schedule_id}
+      when is_binary(cron_schedule_id) ->
+        schedule = Store.lock_cron_schedule(repo, cron_schedule_id)
+
+        case claim_due_event_in_tx(repo, scheduled_event_id, now) do
+          {:ok, event} -> {:ok, event, schedule}
+          :noop -> :noop
+        end
+
+      %ScheduledEvent{} ->
+        case claim_due_event_in_tx(repo, scheduled_event_id, now) do
+          {:ok, event} -> {:ok, event, nil}
+          :noop -> :noop
+        end
+
+      nil ->
+        :noop
+    end
   end
 
   defp claim_due_event_in_tx(repo, scheduled_event_id, now) do
@@ -53,6 +76,7 @@ defmodule Ankole.Schedule.Fire do
   defp fire_claimed_event_in_tx(
          repo,
          %ScheduledEvent{kind: "check_back_later"} = event,
+         _schedule,
          now,
          _opts
        ) do
@@ -62,8 +86,14 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp fire_claimed_event_in_tx(repo, %ScheduledEvent{kind: "cron_fire"} = event, now, opts) do
-    with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, event.cron_schedule_id),
+  defp fire_claimed_event_in_tx(
+         repo,
+         %ScheduledEvent{kind: "cron_fire"} = event,
+         schedule,
+         now,
+         opts
+       ) do
+    with %CronSchedule{} = schedule <- schedule,
          :ok <- Cron.validate_fire_schedule(schedule, event),
          {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now),
          {:ok, event} <- mark_event_fired(repo, event, actor_event, now),
@@ -123,12 +153,18 @@ defmodule Ankole.Schedule.Fire do
   defp source_event_id(%ScheduledEvent{kind: "check_back_later", id: id}),
     do: "check_back_later:#{id}:wakeup"
 
-  defp source_event_id(%ScheduledEvent{
-         kind: "cron_fire",
-         cron_schedule_id: cron_schedule_id,
-         cron_fire_slot_at: %DateTime{} = slot_at
-       }),
-       do: Store.cron_idempotency_key(cron_schedule_id, slot_at)
+  defp source_event_id(
+         %ScheduledEvent{
+           kind: "cron_fire",
+           cron_schedule_id: cron_schedule_id,
+           cron_fire_slot_at: %DateTime{} = slot_at
+         } = event
+       ) do
+    case get_in(event.wake_payload || %{}, ["trigger"]) || "scheduled" do
+      "manual" -> event.idempotency_key
+      "scheduled" -> Store.cron_source_event_id(cron_schedule_id, slot_at)
+    end
+  end
 
   defp actor_event_payload(%ScheduledEvent{} = event, now) do
     %{
@@ -159,28 +195,89 @@ defmodule Ankole.Schedule.Fire do
   end
 
   defp persist_fire_error({:error, reason} = error, scheduled_event_id, opts) do
-    now = DateTime.utc_now(:microsecond)
-    attempt = fire_attempt(opts)
-    status = if terminal_fire_failure?(opts), do: "failed", else: "scheduled"
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    ScheduledEvent
-    |> where([event], event.id == ^scheduled_event_id)
-    |> where([event], event.status in ["scheduled", "firing"])
-    |> update([event],
-      set: [
-        status: ^status,
-        fire_attempts: fragment("GREATEST(?, ?)", event.fire_attempts, ^attempt),
-        fire_claimed_at: ^now,
-        last_fire_error: ^%{"reason" => inspect(reason)},
-        updated_at: ^now
-      ]
-    )
-    |> Repo.update_all([])
+    case Repo.transact(fn repo ->
+           persist_fire_error_in_tx(repo, scheduled_event_id, reason, now, opts)
+         end) do
+      {:ok, _event} ->
+        error
 
-    error
+      {:error, persistence_reason} ->
+        {:error, {:fire_error_persistence_failed, reason, persistence_reason}}
+    end
   end
 
   defp persist_fire_error(result, _scheduled_event_id, _opts), do: result
+
+  defp persist_fire_error_in_tx(repo, scheduled_event_id, reason, now, opts) do
+    case repo.get(ScheduledEvent, scheduled_event_id) do
+      %ScheduledEvent{kind: "cron_fire", cron_schedule_id: cron_schedule_id}
+      when is_binary(cron_schedule_id) ->
+        schedule = Store.lock_cron_schedule(repo, cron_schedule_id)
+
+        with {:ok, event} <-
+               persist_locked_fire_error(repo, scheduled_event_id, reason, now, opts),
+             {:ok, _schedule} <-
+               maybe_advance_after_terminal_failure(repo, schedule, event, now, opts) do
+          {:ok, event}
+        end
+
+      %ScheduledEvent{} ->
+        persist_locked_fire_error(repo, scheduled_event_id, reason, now, opts)
+
+      nil ->
+        {:ok, nil}
+    end
+  end
+
+  defp persist_locked_fire_error(repo, scheduled_event_id, reason, now, opts) do
+    case Store.lock_scheduled_event(repo, scheduled_event_id) do
+      %ScheduledEvent{status: status} when status in ["scheduled", "firing"] ->
+        persisted_status = if terminal_fire_failure?(opts), do: "failed", else: "scheduled"
+        attempt = fire_attempt(opts)
+
+        ScheduledEvent
+        |> where([event], event.id == ^scheduled_event_id)
+        |> update([event],
+          set: [
+            status: ^persisted_status,
+            fire_attempts: fragment("GREATEST(?, ?)", event.fire_attempts, ^attempt),
+            fire_claimed_at: ^now,
+            last_fire_error: ^%{"reason" => inspect(reason)},
+            updated_at: ^now
+          ]
+        )
+        |> repo.update_all([])
+
+        {:ok, repo.get!(ScheduledEvent, scheduled_event_id)}
+
+      %ScheduledEvent{} = event ->
+        {:ok, event}
+
+      nil ->
+        {:ok, nil}
+    end
+  end
+
+  defp maybe_advance_after_terminal_failure(
+         repo,
+         %CronSchedule{} = schedule,
+         %ScheduledEvent{status: "failed"} = event,
+         now,
+         opts
+       ) do
+    Cron.advance_after_terminal_failure(repo, schedule, event, now, opts)
+  end
+
+  defp maybe_advance_after_terminal_failure(
+         _repo,
+         _schedule,
+         _event,
+         _now,
+         _opts
+       ),
+       do: {:ok, nil}
 
   defp fire_attempt(opts) do
     case Keyword.get(opts, :attempt) do

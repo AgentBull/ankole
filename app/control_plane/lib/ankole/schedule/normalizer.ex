@@ -151,34 +151,29 @@ defmodule Ankole.Schedule.Normalizer do
          delivery: delivery,
          next_fire_at: next_fire_at_for_status(status, next_fire_at),
          idempotency_key: idempotency_key,
-         created_by: Keyword.get(opts, :created_by) || %{"kind" => "operator_api"},
-         failure_policy: Attrs.map_value(attrs, "failure_policy") || %{}
+         created_by: Keyword.get(opts, :created_by) || %{"kind" => "operator_api"}
        }}
     end
   end
 
   @spec cron_schedule_update_attrs(CronSchedule.t(), map(), DateTime.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def cron_schedule_update_attrs(%CronSchedule{} = existing, attrs, now, opts) do
+  def cron_schedule_update_attrs(%CronSchedule{} = existing, attrs, _now, opts) do
     attrs = Attrs.normalize_external_attrs(attrs)
-    schedule_input = Map.get(attrs, "schedule", existing.schedule)
-    base = %{"timezone" => Map.get(attrs, "timezone", existing.timezone)}
-    delivery_input = Map.get(attrs, "delivery", existing.delivery)
-    status_input = Map.get(attrs, "status", existing.status)
 
-    with {:ok, schedule, timezone} <- Planner.normalize_schedule_json(schedule_input, base, opts),
-         {:ok, delivery} <- normalize_cron_delivery(delivery_input),
-         {:ok, status} <- normalize_cron_status(status_input),
-         {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now) do
-      {:ok,
-       %{}
-       |> Attrs.maybe_put(:status, Map.get(attrs, "status"))
-       |> Attrs.maybe_put(:schedule, schedule)
-       |> Attrs.maybe_put(:timezone, timezone)
-       |> Attrs.maybe_put(:payload, Map.get(attrs, "payload"))
-       |> Attrs.maybe_put(:delivery, delivery)
-       |> Attrs.maybe_put(:failure_policy, Map.get(attrs, "failure_policy"))
-       |> Map.put(:next_fire_at, next_fire_at_for_status(status, next_fire_at))}
+    with :ok <- validate_cron_update_fields(attrs),
+         {:ok, name} <- normalize_updated_name(attrs),
+         {:ok, schedule, timezone} <- normalize_updated_schedule(existing, attrs, opts),
+         {:ok, delivery} <- normalize_updated_delivery(attrs),
+         {:ok, payload} <- normalize_updated_payload(attrs) do
+      changes =
+        %{}
+        |> Attrs.maybe_put(:name, name)
+        |> maybe_put_updated_schedule(attrs, schedule, timezone)
+        |> Attrs.maybe_put(:payload, payload)
+        |> Attrs.maybe_put(:delivery, delivery)
+
+      {:ok, changes}
     end
   end
 
@@ -186,7 +181,6 @@ defmodule Ankole.Schedule.Normalizer do
   defp next_fire_at_for_status(_status, _next_fire_at), do: nil
 
   defp normalize_cron_status(status) when status in ["active", "paused"], do: {:ok, status}
-  defp normalize_cron_status(status) when status in ["deleted", "failed"], do: {:ok, status}
   defp normalize_cron_status(_status), do: {:error, :invalid_cron_status}
 
   defp normalize_cron_delivery(delivery) when is_map(delivery) do
@@ -197,6 +191,65 @@ defmodule Ankole.Schedule.Normalizer do
   end
 
   defp normalize_cron_delivery(_delivery), do: {:error, :cron_delivery_route_required}
+
+  defp validate_cron_update_fields(attrs) do
+    allowed = ~w(name schedule timezone payload delivery)
+
+    case Map.keys(attrs) -- allowed do
+      _unknown when map_size(attrs) == 0 ->
+        {:error, :cron_schedule_update_required}
+
+      [] ->
+        :ok
+
+      fields ->
+        {:error, {:unknown_cron_schedule_update_fields, Enum.sort(fields)}}
+    end
+  end
+
+  defp normalize_updated_name(attrs) do
+    case Map.fetch(attrs, "name") do
+      {:ok, _value} -> Attrs.required_text(attrs, "name")
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp normalize_updated_schedule(existing, attrs, opts) do
+    schedule_input =
+      case {Map.fetch(attrs, "schedule"), Map.fetch(attrs, "timezone")} do
+        {{:ok, schedule}, _timezone} -> schedule
+        {:error, {:ok, timezone}} -> Map.put(existing.schedule, "timezone", timezone)
+        {:error, :error} -> existing.schedule
+      end
+
+    base = %{"timezone" => Map.get(attrs, "timezone", existing.timezone)}
+    Planner.normalize_schedule_json(schedule_input, base, opts)
+  end
+
+  defp normalize_updated_delivery(attrs) do
+    case Map.fetch(attrs, "delivery") do
+      {:ok, delivery} -> normalize_cron_delivery(delivery)
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp normalize_updated_payload(attrs) do
+    case Map.fetch(attrs, "payload") do
+      {:ok, payload} when is_map(payload) -> {:ok, payload}
+      {:ok, _payload} -> {:error, :invalid_cron_payload}
+      :error -> {:ok, nil}
+    end
+  end
+
+  defp maybe_put_updated_schedule(changes, attrs, schedule, timezone) do
+    if Map.has_key?(attrs, "schedule") or Map.has_key?(attrs, "timezone") do
+      changes
+      |> Map.put(:schedule, schedule)
+      |> Map.put(:timezone, timezone)
+    else
+      changes
+    end
+  end
 
   defp optional_boolean(attrs, key, default) do
     case Map.fetch(attrs, key) do

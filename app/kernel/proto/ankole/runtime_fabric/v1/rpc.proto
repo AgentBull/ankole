@@ -511,12 +511,18 @@ message ScheduleCronAddRequest {
   bytes payload_json = 4;
   bytes delivery_json = 5;
   string idempotency_key = 6;
-  bytes failure_policy_json = 7;
+  reserved 7;
+  reserved "failure_policy_json";
 }
 
 message ScheduleCronUpdateRequest {
   string name = 1;
   bytes updates_json = 2;
+}
+
+message ScheduleCronRunRequest {
+  string name = 1;
+  string tool_call_id = 2;
 }
 
 // ===== skills =====

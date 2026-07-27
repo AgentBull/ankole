@@ -270,7 +270,10 @@ export function SchedulesListPage() {
                 }
               }}
               onRun={row =>
-                runCron.mutate({ path: { agent_uid: agentUID, session_id: sessionID, cron_schedule_id: row.id } })
+                runCron.mutate({
+                  headers: { 'Idempotency-Key': crypto.randomUUID() },
+                  path: { agent_uid: agentUID, session_id: sessionID, cron_schedule_id: row.id }
+                })
               }
               onRemove={row =>
                 removeCron.mutate({ path: { agent_uid: agentUID, session_id: sessionID, cron_schedule_id: row.id } })
@@ -594,6 +597,10 @@ export function ScheduleCronEditorPage() {
         model.validationError.value = t('console.schedules.schedule_invalid')
         return
       }
+      if (Object.keys(body).length === 0) {
+        navigate(backTo)
+        return
+      }
       updateCron.mutate({ body, path: { agent_uid: agentUID, session_id: sessionID, cron_schedule_id: cronID } })
       return
     }
@@ -914,7 +921,6 @@ function draftFromCron(row: CronScheduleRow, schedule: Record<string, unknown>):
     everyMs: String(schedule.every_ms ?? ''),
     anchorAt: String(schedule.anchor_at ?? ''),
     timezone: row.timezone ?? '',
-    staggerMs: String(schedule.stagger_ms ?? '0'),
     deliveryChannelId: delivery.signal_channel_id ?? '',
     deliveryThreadId: delivery.provider_thread_id ?? '',
     payload: safeStringify(row.payload ?? {}),
@@ -932,7 +938,6 @@ function emptyDraft(): ScheduleEditorDraft {
     everyMs: '',
     anchorAt: '',
     timezone: '',
-    staggerMs: '0',
     deliveryChannelId: '',
     deliveryThreadId: '',
     payload: '{}',

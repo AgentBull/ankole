@@ -883,10 +883,10 @@
       },
       "ScheduleCronUpdateRequest": {
         "additionalProperties": false,
+        "minProperties": 1,
         "properties": {
           "delivery": { "$ref": "#/components/schemas/JSONValue" },
-          "failure_policy": { "$ref": "#/components/schemas/JSONValue" },
-          "name": { "nullable": true, "type": "string" },
+          "name": { "minLength": 1, "type": "string" },
           "payload": { "$ref": "#/components/schemas/JSONValue" },
           "schedule": { "$ref": "#/components/schemas/JSONValue" },
           "timezone": { "nullable": true, "type": "string" }
@@ -1258,15 +1258,14 @@
         "properties": {
           "binding_name": { "type": "string" },
           "delivery": { "$ref": "#/components/schemas/JSONValue" },
-          "failure_policy": { "$ref": "#/components/schemas/JSONValue" },
           "idempotency_key": { "type": "string" },
-          "name": { "nullable": true, "type": "string" },
+          "name": { "minLength": 1, "type": "string" },
           "payload": { "$ref": "#/components/schemas/JSONValue" },
           "schedule": { "$ref": "#/components/schemas/JSONValue" },
           "status": { "enum": ["active", "paused"], "nullable": true, "type": "string" },
           "timezone": { "nullable": true, "type": "string" }
         },
-        "required": ["binding_name", "schedule", "delivery", "idempotency_key"],
+        "required": ["binding_name", "name", "schedule", "delivery", "idempotency_key"],
         "title": "ScheduleCronWriteRequest",
         "type": "object"
       },
@@ -4858,6 +4857,13 @@
             "description": "",
             "in": "path",
             "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "Idempotency-Key",
             "required": true,
             "schema": { "type": "string" }
           }

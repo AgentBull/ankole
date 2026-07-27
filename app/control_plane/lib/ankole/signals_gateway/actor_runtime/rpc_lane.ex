@@ -133,7 +133,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "schedule.cron.remove" =>
       {ScheduleRPCBroker, :handle_cron_remove, :turn_write, FabricProto.ScheduleCronTargetRequest},
     "schedule.cron.run" =>
-      {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronTargetRequest},
+      {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronRunRequest},
     "skills.installed.replace" =>
       {SkillRegistryBroker, :handle_replace, :turn_write,
        FabricProto.InstalledSkillReplaceRequest},

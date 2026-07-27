@@ -217,14 +217,14 @@ defmodule Ankole.Schedule.RPCBroker do
     end)
   end
 
-  @spec handle_cron_run(TurnRef.t(), FabricProto.ScheduleCronTargetRequest.t(), map()) ::
+  @spec handle_cron_run(TurnRef.t(), FabricProto.ScheduleCronRunRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
   def handle_cron_run(%TurnRef{} = turn_ref, request, ctx) do
     respond(ctx, fn ->
       with :ok <- reject_cron_origin_broad_mutation(turn_ref),
            {:ok, schedule} <- cron_schedule_from_turn(request.name, turn_ref),
            {:ok, %{status: status, scheduled_event: event}} <-
-             Schedule.run_cron_schedule(schedule.id) do
+             Schedule.run_cron_schedule(schedule.id, tool_call_id: request.tool_call_id) do
         {:ok,
          %{
            "status" => rpc_status(status),
@@ -266,7 +266,7 @@ defmodule Ankole.Schedule.RPCBroker do
 
   defp checkback_from_turn(scheduled_event_id, %TurnRef{} = turn_ref) do
     with {:ok, scheduled_event_id} <- safe_integer(scheduled_event_id, :checkback_id),
-         {:ok, event} <- Schedule.get_scheduled_event(scheduled_event_id),
+         {:ok, event} <- Schedule.get_current_checkback(scheduled_event_id),
          :ok <- checkback_belongs_to_turn(event, turn_ref) do
       {:ok, event}
     end
@@ -360,8 +360,7 @@ defmodule Ankole.Schedule.RPCBroker do
          "schedule" => Common.decode_json_bytes(request.schedule_json),
          "payload" => Common.decode_json_bytes(request.payload_json) || %{},
          "delivery" => delivery,
-         "idempotency_key" => idempotency_key,
-         "failure_policy" => Common.decode_json_bytes(request.failure_policy_json) || %{}
+         "idempotency_key" => idempotency_key
        }}
     end
   end

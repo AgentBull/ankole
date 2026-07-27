@@ -66,6 +66,7 @@ import {
   ScheduleCheckBackLaterUpdateRequestSchema,
   ScheduleCronAddRequestSchema,
   ScheduleCronListRequestSchema,
+  ScheduleCronRunRequestSchema,
   ScheduleCronRunsRequestSchema,
   ScheduleCronTargetRequestSchema,
   ScheduleCronUpdateRequestSchema,
@@ -299,7 +300,7 @@ export const rpcSchemas = {
     request: ScheduleCronTargetRequestSchema,
     response: JSONPassthroughResponseSchema
   },
-  [rpcMethods.scheduleCronRun]: { request: ScheduleCronTargetRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.scheduleCronRun]: { request: ScheduleCronRunRequestSchema, response: JSONPassthroughResponseSchema },
   [rpcMethods.skillsInstalledReplace]: {
     request: InstalledSkillReplaceRequestSchema,
     response: InstalledSkillReplaceResponseSchema

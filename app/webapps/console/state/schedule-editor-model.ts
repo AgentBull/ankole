@@ -21,7 +21,6 @@ export type ScheduleEditorDraft = {
   everyMs: string
   anchorAt: string
   timezone: string
-  staggerMs: string
   deliveryChannelId: string
   deliveryThreadId: string
   payload: string
@@ -30,23 +29,21 @@ export type ScheduleEditorDraft = {
 
 export type CronCreateBody = {
   binding_name: string
-  name?: string | null
+  name: string
   status?: CronStatus
   schedule: Record<string, unknown>
   timezone?: string | null
   payload?: unknown
   delivery: { signal_channel_id: string; provider_thread_id?: string }
   idempotency_key: string
-  failure_policy?: Record<string, unknown>
 }
 
 export type CronUpdateBody = {
-  name?: string | null
+  name?: string
   schedule?: Record<string, unknown>
   timezone?: string | null
   payload?: unknown
   delivery?: { signal_channel_id: string; provider_thread_id?: string }
-  failure_policy?: Record<string, unknown>
 }
 
 export const ScheduleEditorModel = createModel(() => {
@@ -59,11 +56,11 @@ export const ScheduleEditorModel = createModel(() => {
   const everyMs = signal('')
   const anchorAt = signal('')
   const timezone = signal('')
-  const staggerMs = signal('0')
   const deliveryChannelId = signal('')
   const deliveryThreadId = signal('')
   const payload = signal('{}')
   const idempotencyKey = signal('')
+  const initialDraft = signal<ScheduleEditorDraft>()
   const validationError = signal<string>()
 
   const apply = (draft: ScheduleEditorDraft) => {
@@ -76,7 +73,6 @@ export const ScheduleEditorModel = createModel(() => {
       everyMs.value = draft.everyMs
       anchorAt.value = draft.anchorAt
       timezone.value = draft.timezone
-      staggerMs.value = draft.staggerMs
       deliveryChannelId.value = draft.deliveryChannelId
       deliveryThreadId.value = draft.deliveryThreadId
       payload.value = draft.payload
@@ -92,8 +88,6 @@ export const ScheduleEditorModel = createModel(() => {
       if (!expression) return null
       const out: Record<string, unknown> = { kind: 'cron', expression }
       if (timezone.value.trim()) out.timezone = timezone.value.trim()
-      const stagger = Number(staggerMs.value)
-      if (Number.isFinite(stagger) && stagger > 0) out.stagger_ms = Math.floor(stagger)
       return out
     }
     const ms = Number(everyMs.value)
@@ -119,6 +113,17 @@ export const ScheduleEditorModel = createModel(() => {
     }
   }
 
+  const scheduleFieldsChanged = (original: ScheduleEditorDraft): boolean =>
+    original.scheduleKind !== scheduleKind.value ||
+    original.cronExpression.trim() !== cronExpression.value.trim() ||
+    original.everyMs.trim() !== everyMs.value.trim() ||
+    original.anchorAt.trim() !== anchorAt.value.trim() ||
+    original.timezone.trim() !== timezone.value.trim()
+
+  const deliveryFieldsChanged = (original: ScheduleEditorDraft): boolean =>
+    original.deliveryChannelId.trim() !== deliveryChannelId.value.trim() ||
+    original.deliveryThreadId.trim() !== deliveryThreadId.value.trim()
+
   return {
     sourceKey,
     bindingName,
@@ -129,7 +134,6 @@ export const ScheduleEditorModel = createModel(() => {
     everyMs,
     anchorAt,
     timezone,
-    staggerMs,
     deliveryChannelId,
     deliveryThreadId,
     payload,
@@ -139,6 +143,7 @@ export const ScheduleEditorModel = createModel(() => {
       if (sourceKey.value === nextSourceKey) return
       sourceKey.value = nextSourceKey
       apply(draft)
+      initialDraft.value = { ...draft }
     },
     clearValidation() {
       validationError.value = undefined
@@ -146,35 +151,53 @@ export const ScheduleEditorModel = createModel(() => {
     toCreateBody(): CronCreateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
+      const nextPayload = buildPayload()
       const binding = bindingName.value.trim()
+      const trimmedName = name.value.trim()
       const idempotency = idempotencyKey.value.trim()
-      if (!binding || !schedule || !delivery || !idempotency) return null
+      if (!binding || !trimmedName || !schedule || !delivery || !idempotency || nextPayload === null) return null
       const body: CronCreateBody = {
         binding_name: binding,
+        name: trimmedName,
         schedule,
         delivery,
         idempotency_key: idempotency
       }
-      const trimmedName = name.value.trim()
-      if (trimmedName) body.name = trimmedName
       const currentStatus = status.value || 'active'
       body.status = currentStatus
       const tz = timezone.value.trim()
       body.timezone = tz || null
-      body.payload = buildPayload()
+      body.payload = nextPayload
       return body
     },
     toUpdateBody(): CronUpdateBody | null {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
-      if (!schedule || !delivery) return null
-      const body: CronUpdateBody = { schedule, delivery }
+      const original = initialDraft.value
+      const nextPayload = buildPayload()
+      if (!schedule || !delivery || !original || nextPayload === null) return null
+      const body: CronUpdateBody = {}
       const trimmedName = name.value.trim()
-      body.name = trimmedName || null
+      if (!trimmedName) return null
+      if (trimmedName !== original.name.trim()) body.name = trimmedName
       const tz = timezone.value.trim()
-      body.timezone = tz || null
-      body.payload = buildPayload()
+      if (scheduleFieldsChanged(original)) body.schedule = schedule
+      if (tz !== original.timezone.trim()) body.timezone = tz || null
+      if (deliveryFieldsChanged(original)) body.delivery = delivery
+      if (!sameJSON(nextPayload, parseJSON(original.payload))) body.payload = nextPayload
       return body
     }
   }
 })
+
+function parseJSON(value: string): unknown {
+  try {
+    return JSON.parse(value || '{}')
+  } catch {
+    return null
+  }
+}
+
+function sameJSON(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
+}

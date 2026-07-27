@@ -11,6 +11,7 @@ defmodule Ankole.Schedule.Queries do
   def list_cron_schedules(agent_uid, session_id \\ nil) when is_binary(agent_uid) do
     CronSchedule
     |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
+    |> where([schedule], schedule.status != "deleted")
     |> maybe_where_session(session_id)
     |> order_by([schedule], asc: schedule.agent_uid, asc: schedule.session_id, asc: schedule.name)
     |> Repo.all()
@@ -28,11 +29,14 @@ defmodule Ankole.Schedule.Queries do
           {:ok, CronSchedule.t()} | {:error, :not_found}
   def get_cron_schedule_by_name(agent_uid, session_id, name)
       when is_binary(agent_uid) and is_binary(session_id) and is_binary(name) do
-    case Repo.get_by(CronSchedule,
-           agent_uid: String.downcase(agent_uid),
-           session_id: session_id,
-           name: name
-         ) do
+    query =
+      CronSchedule
+      |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
+      |> where([schedule], schedule.session_id == ^session_id)
+      |> where([schedule], schedule.name == ^name)
+      |> where([schedule], schedule.status != "deleted")
+
+    case Repo.one(query) do
       %CronSchedule{} = schedule -> {:ok, schedule}
       nil -> {:error, :not_found}
     end

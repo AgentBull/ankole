@@ -32,7 +32,6 @@ defmodule Ankole.Schedule.Projections do
       "last_fire_at" => Planner.datetime(schedule.last_fire_at),
       "idempotency_key" => schedule.idempotency_key,
       "created_by" => schedule.created_by || %{},
-      "failure_policy" => schedule.failure_policy || %{},
       "inserted_at" => Planner.datetime(schedule.inserted_at),
       "updated_at" => Planner.datetime(schedule.updated_at)
     }

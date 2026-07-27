@@ -54,17 +54,27 @@ records the authenticated request and the turn-fence values that created it.
 
 The row records its Oban job ID and, after wake-up, the new ActorEvent ID.
 
-The permanent idempotency key is:
+Checkbacks and manual cron runs use this request idempotency key:
 
 ```text
 (kind, agent_uid, session_id, idempotency_key)
 ```
 
-Each cron slot also has this unique key:
+An automatic cron event gets a new internal key when Schedule creates the row.
+Schedule does not use a previous terminal row as proof that a new row exists.
+
+Automatic cron events also use this partial unique key:
 
 ```text
 (cron_schedule_id, cron_fire_slot_at)
+WHERE trigger = scheduled AND status != cancelled
 ```
+
+Thus, a canceled row releases its slot. A fired or failed row continues to
+consume its logical slot. Manual runs do not use this slot key.
+
+Another partial unique index permits at most one automatic cron event with
+`status = scheduled` or `status = firing` for each recurring rule.
 
 ### One Recurring Rule
 
@@ -79,7 +89,6 @@ The `status` value is one of:
 - `active`
 - `paused`
 - `deleted`
-- `failed`
 
 Each row stores the Agent, Session, binding, time rule, time zone, input, and
 delivery route. It also records the previous and next planned wake-up.
@@ -141,8 +150,7 @@ A cron expression uses five or six fields:
 {
   "kind": "cron",
   "expression": "0 9 * * *",
-  "timezone": "Asia/Singapore",
-  "stagger_ms": 0
+  "timezone": "Asia/Singapore"
 }
 ```
 
@@ -184,16 +192,29 @@ Removing its source provider entry also cancels matching pending checkbacks.
 Creating an active rule also plans its first wake-up. Each successful wake-up
 plans the next one in the same transaction.
 
-Updating a rule cancels its pending wake-ups. If the updated rule is active,
-Schedule plans a new one.
+Schedule locks the recurring rule before it changes or fires an automatic
+event. An active rule has exactly one automatic event. The event due time and
+slot equal `next_fire_at`. A paused or deleted rule has no automatic event and
+has no `next_fire_at`.
+
+When an update keeps the next slot, Schedule updates the pending event snapshot
+in place. This applies to changes such as the name, input, or delivery route.
+The existing Oban job continues to refer to the same event.
+
+When an update changes the next slot, Schedule cancels the old event and
+inserts a new event. A canceled history row does not block a new event for the
+same slot.
 
 Pausing clears `next_fire_at` and cancels pending wake-ups. Resuming calculates
-the next time from the moment of resumption.
+the next time from the moment of resumption. Resuming an active rule verifies
+the current event and does not create another event.
 
 Removing a rule marks it `deleted` and cancels all pending wake-ups.
 
 A manual run creates an immediate wake-up without changing the recurring rule.
-It works for an active, paused, or failed rule.
+It works for an active or paused rule. The caller must provide a request key.
+RuntimeFabric uses the provider tool call ID, and REST uses `Idempotency-Key`.
+Repeating the same request returns the same event.
 
 Cron delivery requires a `signal_channel_id`.
 The delivery route must match the source turn route for worker-originated requests.
@@ -233,7 +254,20 @@ A repeated wake does nothing when the row has ended or is not due. If the
 recurring rule is no longer valid, Schedule cancels that wake-up.
 
 A retryable error restores `scheduled` for another Oban attempt. After the final
-failure, Schedule changes the row to `failed`.
+failure, Schedule changes the row to `failed`. If this was an automatic cron
+event and the rule is still active, Schedule plans the next slot in the same
+transaction. A manual run never moves the recurring cursor.
+
+Every cron write uses this lock order:
+
+```text
+CronSchedule
+  -> ScheduledEvent
+  -> ActorEvent
+```
+
+An old Oban job refers to a ScheduledEvent ID. If an update canceled that
+event, the job cannot claim it because only a `scheduled` event can fire.
 
 Model projections return a stable domain reason for a known cancellation or
 failure. They map all other stored diagnostics to `schedule_fire_failed` and do
@@ -291,7 +325,9 @@ set of more cron rules.
 
 - PostgreSQL stores every schedule that can affect a user.
 - Oban wakes Schedule but does not define the time rule.
-- One concrete cron slot creates at most one scheduled event.
+- An active recurring rule has exactly one pending automatic event.
+- A canceled automatic event can be replaced in the same slot.
+- A fired or failed automatic slot cannot run again.
 - One scheduled event creates at most one ActorEvent.
 - A worker cannot schedule output to an unrelated provider route.
 - A cron-originated turn cannot change or manually run cron definitions.
