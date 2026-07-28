@@ -223,8 +223,12 @@ HOME=/agents/<agent-key>
 CODEX_HOME=/agents/<agent-key>/.codex
 ```
 
-Overlapping Jobs for one Agent share ordinary Codex state.
-Different Agents use different Codex Homes.
+Overlapping Jobs for one Agent share ordinary Codex state. Agent Computer
+serializes Plugin installation, hook trust, and Skill configuration for that
+Agent's Codex Home. Job execution stays concurrent after this setup finishes.
+Different Agents use different Codex Homes. A stopped queued Job completes
+finalization and returns its Worker turn slot without waiting for active setup.
+Its skipped queue position keeps later Jobs behind setup that is still active.
 
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.
@@ -241,7 +245,8 @@ Credential refresh uses compare-and-swap when it writes an updated credential.
 
 NFS makes the same files visible to several workers. It does not lock an Agent
 or coordinate SQLite. Worker placement keeps one Agent's live work on one ready
-worker when possible.
+worker. The Codex Home setup queue is process-local and uses that placement
+contract.
 
 ## Prepare Skills for Each Run
 
