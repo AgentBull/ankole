@@ -163,6 +163,13 @@ page as inline. It does not send terminal element batches against provider
 topology that can have changed. A card created from an already terminal reply
 stays CardKit because its complete content was sent once.
 
+When a user submits a clarification answer, the adapter rebuilds the active card
+from the durable reply-interaction checkpoint. An answered card removes all
+buttons and forms and shows the accepted choice or custom answer as plain text.
+The card is shared in a group, so every member who can see the card can also see
+the submitted answer. A superseded card removes the controls without showing an
+answer.
+
 The renderer aims to stay below 24 KiB and 160 elements. It splits Markdown into
 source pages of about 12 KiB without changing the stored Markdown.
 

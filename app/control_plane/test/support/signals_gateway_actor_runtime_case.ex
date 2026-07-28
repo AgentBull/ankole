@@ -355,6 +355,12 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
                model: "openai/gpt-5.4-nano"
              })
 
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "heavy", %{
+               provider_id: provider_id,
+               model: "openai/gpt-5.6-sol"
+             })
+
     fixture
   end
 
@@ -364,7 +370,8 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
       Enum.map(
         [
           {"google/gemini-3.5-flash", 65_536},
-          {"openai/gpt-5.4-nano", 32_768}
+          {"openai/gpt-5.4-nano", 32_768},
+          {"openai/gpt-5.6-sol", 128_000}
         ],
         fn {id, max_completion_tokens} ->
           %{

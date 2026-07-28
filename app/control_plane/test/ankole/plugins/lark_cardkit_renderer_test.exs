@@ -491,7 +491,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     refute get_in(activity_update, ["params", "element", "expanded"])
   end
 
-  test "renders versioned choice values and locks an accepted choice in place" do
+  test "renders versioned choice values and freezes an accepted choice as text" do
     source_event_id = Ecto.UUID.generate()
     long_label = String.duplicate("较长的选项文案", 12)
 
@@ -511,9 +511,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "control_id" => "audience",
             "selected_option_id" => "operators",
             "option_value" => "Operators",
-            "revision" => 4,
-            "disabled" => true,
-            "selected" => true
+            "revision" => 4
           },
           %{
             "id" => "executives",
@@ -545,17 +543,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert [%{"width" => "weighted", "elements" => option_elements}] = actions["columns"]
     assert [operators, executives, long_option] = option_elements
     assert Enum.all?(option_elements, &(&1["tag"] == "interactive_container"))
-    assert operators["disabled"]
+    refute operators["disabled"]
     assert operators["width"] == "fill"
     assert operators["has_border"]
     assert operators["corner_radius"] == "8px"
 
     assert [
-             %{"text" => %{"content" => "运营人员 (selected)"} = title},
+             %{"text" => %{"content" => "运营人员"}},
              %{"text" => %{"content" => "负责日常运行和故障处理的团队。"}}
            ] = operators["elements"]
 
-    assert title["i18n_content"]["zh_cn"] == "运营人员（已选择）"
     assert [%{"text" => %{"content" => "管理层"}}] = executives["elements"]
     assert [%{"text" => %{"content" => ^long_label}}] = long_option["elements"]
 
@@ -572,9 +569,28 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
                "sourceActorEventId" => source_event_id
              }
            }
+
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "choice",
+        "interaction_id" => "clarify:4",
+        "option_id" => "operators",
+        "value" => "Operators"
+      })
+
+    assert {:ok, card} = Renderer.render(answered, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+    refute Enum.any?(elements, &(&1["element_id"] == "actions"))
+
+    receipt = Enum.find(elements, &(&1["element_id"] == "interaction_answer"))
+    assert [%{"elements" => [label, value]}] = receipt["columns"]
+    assert label["text"]["content"] == "Submitted answer"
+    assert label["text"]["i18n_content"]["zh_cn"] == "已提交答案"
+    assert value["text"]["tag"] == "plain_text"
+    assert value["text"]["content"] == "运营人员"
   end
 
-  test "renders a root-level free-text form and removes it after supersession" do
+  test "renders a free-text form, then freezes the literal accepted answer" do
     source_event_id = Ecto.UUID.generate()
 
     presentation =
@@ -660,27 +676,43 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
              }
            }
 
-    superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
-    assert {:ok, card} = Renderer.render(superseded, mode: :terminal)
+    submitted_answer = "Use **literal text**.\n<at id=\"user\"></at>"
 
-    refute Enum.any?(get_in(card, ["body", "elements"]), fn element ->
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "free_text",
+        "interaction_id" => "clarify:form",
+        "value" => submitted_answer
+      })
+
+    assert {:ok, card} = Renderer.render(answered, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    refute Enum.any?(elements, fn element ->
              String.starts_with?(element["element_id"] || "", "action_form")
            end)
 
-    actions = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
+    refute Enum.any?(elements, &(&1["element_id"] == "actions"))
+    refute Enum.any?(elements, &(&1["element_id"] == "action_separator"))
 
-    assert actions["columns"]
-           |> hd()
-           |> Map.fetch!("elements")
-           |> Enum.filter(&(&1["tag"] == "interactive_container"))
-           |> Enum.all?(& &1["disabled"])
+    receipt = Enum.find(elements, &(&1["element_id"] == "interaction_answer"))
+    assert [%{"elements" => [label, value]}] = receipt["columns"]
+    assert label["text"]["content"] == "Submitted answer"
+    assert label["text"]["i18n_content"]["zh_cn"] == "已提交答案"
+    assert value["text"]["tag"] == "plain_text"
+    assert value["text"]["content"] == submitted_answer
 
-    refute Enum.any?(
-             get_in(card, ["body", "elements"]),
-             &(&1["element_id"] == "action_separator")
-           )
+    state = Enum.find(elements, &(&1["element_id"] == "state"))
+    assert state["text"]["content"] == "Reply received"
+    assert state["text"]["i18n_content"]["zh_cn"] == "已收到回复"
 
-    state = Enum.find(get_in(card, ["body", "elements"]), &(&1["element_id"] == "state"))
+    superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
+    assert {:ok, card} = Renderer.render(superseded, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+    refute Enum.any?(elements, &(&1["element_id"] == "actions"))
+    refute Enum.any?(elements, &(&1["element_id"] == "interaction_answer"))
+
+    state = Enum.find(elements, &(&1["element_id"] == "state"))
     assert state["text"]["content"] == "No longer active because the conversation continued"
     assert state["text"]["i18n_content"]["zh_cn"] == "已失效，对话已继续"
   end

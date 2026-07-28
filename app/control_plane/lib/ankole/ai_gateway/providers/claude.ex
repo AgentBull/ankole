@@ -50,6 +50,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
       upstream(:sse)
       api_resolver(:anthropic_messages)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
   end
 

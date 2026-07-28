@@ -18,6 +18,48 @@ defmodule Ankole.Brain.Dreaming.StageA do
   @model_unavailable_reason "no Agent that can see the channel has a resolvable light profile"
   @dreaming_disabled_reason "brain.dreaming disabled"
 
+  @episode_summary_prompt """
+  Brain is the long-term memory of this workspace. This call is a Stage A pass over the chat of \
+  one channel: it turns one window of messages into the episodes that later work searches. The \
+  messages themselves stay in place and stay searchable by keyword, so an episode does not have to \
+  preserve them. It has to make the right span of chat findable and tell the reader what came out \
+  of it.
+
+  The window holds consecutive messages, oldest first, one for each line, in the form \
+  `[message_N] <timestamp> <author>: <text>`. `message_N` is the alias of that message, and the \
+  response names messages only by these aliases.
+
+  An episode is one topic thread. `topic` names the thread. `question` is what a later reader asks \
+  when they look for it. `summary` is the standalone account of what happened, with the facts, \
+  numbers, and names that make the episode useful before anyone opens the messages. `resolution` \
+  is the outcome that closed the thread, and `resolution_message` is the message that states that \
+  outcome. `systems` names the services, components, and artifacts that the thread is about. \
+  `messages` holds the messages that carry the thread. `question`, `resolution`, \
+  `resolution_message`, and `systems` are null when the window does not answer them. Write each \
+  episode in the language of the messages it covers.
+
+  `noise_messages` holds the messages that no episode covers and that deferral does not hold back, \
+  mostly chat whose value dies with the conversation: greetings, acknowledgements, one-off \
+  logistics. A window that holds nothing worth an episode is a normal result.
+
+  Deferral holds messages back for the next run, which reads this window again together with \
+  whatever arrived after it. A thread whose outcome has not arrived yet belongs there while its \
+  messages are still deferrable, because an episode written now costs a second overlapping episode \
+  once the outcome lands.
+
+  Constraints:
+  - Every alias in the window appears in the messages of an episode, in noise_messages, or in \
+  deferred_messages. A missing alias, an alias that the window does not supply, or a deferred \
+  alias outside the deferrable list makes the whole response invalid, and the window runs again \
+  unchanged.
+  - `deferred_messages` never covers the whole window. A response that defers everything writes \
+  nothing and hands the next run the same input.
+  - At most 12 episodes, each with a topic, at least one message, and a summary of at most 500 \
+  characters. `resolution_message`, when it is not null, is one of that episode's own messages.
+  - The whole response stays under 4,000 characters. Cut the narration of the conversation, not \
+  the facts that a later reader needs.\
+  """
+
   @doc false
   @spec enqueue_episode_summary_jobs(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}
@@ -56,8 +98,9 @@ defmodule Ankole.Brain.Dreaming.StageA do
          :ok <- seed_cold_start_cursor(signal_channel_id, dreaming_config),
          {:ok, entries} <- summary_window(signal_channel_id, dreaming_config),
          :ok <- require_non_empty_window(entries),
-         {:ok, output} <- call_episode_summarizer(model_agent_uid, entries),
-         {:ok, validated} <- validate_summary_output(output, entries, dreaming_config) do
+         deferrable_ids = deferrable_source_entry_ids(entries, dreaming_config),
+         {:ok, output} <- call_episode_summarizer(model_agent_uid, entries, deferrable_ids),
+         {:ok, validated} <- validate_summary_output(output, entries, deferrable_ids) do
       persist_summary_output(signal_channel_id, entries, validated, model_agent_uid)
     else
       {:ok, %{"enabled" => false}} ->
@@ -438,29 +481,31 @@ defmodule Ankole.Brain.Dreaming.StageA do
   defp require_non_empty_window([]), do: :empty_window
   defp require_non_empty_window([_entry | _entries]), do: :ok
 
-  defp call_episode_summarizer(model_agent_uid, entries) do
+  defp call_episode_summarizer(model_agent_uid, entries, deferrable_ids) do
     message_refs = message_refs(entries)
 
     request = %{
       "model" => "light",
       "store" => false,
-      "max_output_tokens" => 1_024,
+      # Reasoning tokens come out of this budget before the first output character, and a
+      # 1,024-token cap truncated many calls while they were still reasoning.
+      "max_output_tokens" => 8_192,
+      "provider_options" => %{"reasoningEffort" => "medium"},
       "text" => ResponseFormat.stage_a(),
       "input" => [
         %{
           "role" => "system",
           "content" => [
-            %{
-              "type" => "input_text",
-              "text" =>
-                "The long-term memory system (codename Brain) preserves chat messages, curated current knowledge entries, and external materials that people ask it to learn so future work can retrieve the few most relevant items. This Stage A pass creates navigation episodes over chat messages only. Summarize the channel window into durable episodes. For each episode, extract a concise topic, the question being handled when present, the outcome summary, the resolution when present, and the named systems involved. Set absent optional fields to null. When a message states the resolution, set resolution_message to that message_N alias. Use only supplied message_N aliases. Put trivial or noisy messages in noise_messages. Put only still-unfinished tail messages in deferred_messages. Classify every supplied message as episode evidence, noise, or deferred."
-            }
+            %{"type" => "input_text", "text" => @episode_summary_prompt}
           ]
         },
         %{
           "role" => "user",
           "content" => [
-            %{"type" => "input_text", "text" => summary_window_text(entries, message_refs)}
+            %{
+              "type" => "input_text",
+              "text" => summary_window_text(entries, message_refs, deferrable_ids)
+            }
           ]
         }
       ]
@@ -477,15 +522,28 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
-  defp summary_window_text(entries, message_refs) do
-    entries
-    |> Enum.map(fn entry ->
-      observed = entry |> observed_at() |> datetime()
-      message_ref = Map.fetch!(message_refs.by_source_id, entry.source_entry_id)
+  defp summary_window_text(entries, message_refs, deferrable_ids) do
+    lines =
+      entries
+      |> Enum.map(fn entry ->
+        observed = entry |> observed_at() |> datetime()
+        message_ref = Map.fetch!(message_refs.by_source_id, entry.source_entry_id)
 
-      "[#{message_ref}] #{observed} #{author_name(entry.author) || "unknown"}: #{entry_text(entry)}"
-    end)
-    |> Enum.join("\n")
+        "[#{message_ref}] #{observed} #{author_name(entry.author) || "unknown"}: #{entry_text(entry)}"
+      end)
+      |> Enum.join("\n")
+
+    lines <> "\n\nDeferrable messages: " <> deferrable_line(entries, message_refs, deferrable_ids)
+  end
+
+  defp deferrable_line(entries, message_refs, deferrable_ids) do
+    entries
+    |> Enum.filter(&MapSet.member?(deferrable_ids, &1.source_entry_id))
+    |> Enum.map(&Map.fetch!(message_refs.by_source_id, &1.source_entry_id))
+    |> case do
+      [] -> "none"
+      refs -> Enum.join(refs, ", ")
+    end
   end
 
   defp message_refs(entries) do
@@ -594,7 +652,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
   defp validate_summary_output(
          %{"episodes" => episodes, "noise_source_entry_ids" => noise_ids} = output,
          entries,
-         dreaming_config
+         deferrable_ids
        )
        when is_list(episodes) and is_list(noise_ids) do
     allowed = entries |> Enum.map(& &1.source_entry_id) |> MapSet.new()
@@ -603,7 +661,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
     with {:ok, validated_episodes} <- validate_episodes(episodes, allowed),
          {:ok, validated_noise} <- validate_source_ids(noise_ids, allowed),
          {:ok, validated_deferred} <-
-           validate_deferred_source_ids(deferred_ids, entries, dreaming_config) do
+           validate_deferred_source_ids(deferred_ids, allowed, deferrable_ids) do
       used =
         validated_episodes
         |> Enum.flat_map(& &1["source_entry_ids"])
@@ -628,7 +686,7 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
-  defp validate_summary_output(_output, _entries, _dreaming_config),
+  defp validate_summary_output(_output, _entries, _deferrable_ids),
     do: {:error, :invalid_summary_output_shape}
 
   defp validate_episodes(episodes, allowed) do
@@ -771,33 +829,35 @@ defmodule Ankole.Brain.Dreaming.StageA do
     end
   end
 
-  defp validate_deferred_source_ids(source_ids, entries, dreaming_config)
-       when is_list(source_ids) do
-    allowed = entries |> Enum.map(& &1.source_entry_id) |> MapSet.new()
+  # Deferral is limited to the still-young configured tail. Otherwise a model could indefinitely
+  # defer arbitrary old rows and prevent the durable cursor from making progress. The request names
+  # this same set, so the model never has to reconstruct the budget from timestamps it cannot
+  # compare against the current time.
+  defp deferrable_source_entry_ids(entries, dreaming_config) do
     tail_rows = Map.fetch!(dreaming_config, "episode_tail_guard_rows")
     tail_minutes = Map.fetch!(dreaming_config, "episode_tail_guard_minutes")
     age_cutoff = DateTime.utc_now(:microsecond) |> DateTime.add(-tail_minutes * 60, :second)
 
-    # Deferral is limited to the still-young configured tail. Otherwise a model could indefinitely
-    # defer arbitrary old rows and prevent the durable cursor from making progress.
-    tail_allowed =
-      entries
-      |> Enum.take(-tail_rows)
-      |> Enum.filter(&(DateTime.compare(observed_at(&1), age_cutoff) == :gt))
-      |> Enum.map(& &1.source_entry_id)
-      |> MapSet.new()
+    entries
+    |> Enum.take(-tail_rows)
+    |> Enum.filter(&(DateTime.compare(observed_at(&1), age_cutoff) == :gt))
+    |> Enum.map(& &1.source_entry_id)
+    |> MapSet.new()
+  end
 
+  defp validate_deferred_source_ids(source_ids, allowed, deferrable_ids)
+       when is_list(source_ids) do
     with {:ok, validated} <- validate_source_ids(source_ids, allowed),
-         :ok <- deferred_in_tail(validated, tail_allowed) do
+         :ok <- deferred_in_tail(validated, deferrable_ids) do
       {:ok, validated}
     end
   end
 
-  defp validate_deferred_source_ids(_source_ids, _entries, _dreaming_config),
+  defp validate_deferred_source_ids(_source_ids, _allowed, _deferrable_ids),
     do: {:error, :invalid_deferred_source_entry_ids}
 
-  defp deferred_in_tail(source_ids, tail_allowed) do
-    case Enum.all?(source_ids, &MapSet.member?(tail_allowed, &1)) do
+  defp deferred_in_tail(source_ids, deferrable_ids) do
+    case Enum.all?(source_ids, &MapSet.member?(deferrable_ids, &1)) do
       true -> :ok
       false -> {:error, :invalid_deferred_source_entry_ids}
     end

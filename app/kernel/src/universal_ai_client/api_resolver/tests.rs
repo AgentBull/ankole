@@ -405,6 +405,122 @@ fn aigateway_decodes_opaque_history_before_native_responses_provider() {
 }
 
 #[test]
+fn aigateway_decodes_opaque_history_without_tool_definitions() {
+    // A Codex local compaction request replays the full history with no tools.
+    let opaque_message = "ankole-aigateway-opaque-v1:aGlzdG9yeSBzZWNyZXQ";
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "function_call",
+                    "call_id": "call_history",
+                    "name": "send_message",
+                    "arguments": format!("{{\"message\":\"{opaque_message}\",\"task_name\":\"h\"}}")
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+    let arguments: Value =
+        serde_json::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
+
+    assert_eq!(arguments["message"], "history secret");
+    assert!(!provider_body.to_string().contains(opaque_message));
+}
+
+#[test]
+fn aigateway_keeps_prefix_substrings_inside_plain_argument_values_verbatim() {
+    let quoted = "rg 'ankole-aigateway-opaque-v1:aGlzdG9yeSBzZWNyZXQ' logs/";
+    let arguments = json!({"cmd": quoted}).to_string();
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "function_call",
+                    "call_id": "call_grep",
+                    "name": "exec_command",
+                    "arguments": arguments
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+    let replayed: Value =
+        serde_json::from_str(provider_body["input"][0]["arguments"].as_str().unwrap()).unwrap();
+
+    assert_eq!(replayed["cmd"], quoted);
+}
+
+#[test]
+fn aigateway_passes_plaintext_values_of_encrypted_fields_through() {
+    // History can hold a plaintext value for a marked field when the emitting
+    // request carried no markers. That value was never encoded, so it must
+    // pass through instead of failing the request.
+    let arguments = json!({"message": "already plain", "task_name": "h"}).to_string();
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "tools": [encrypted_send_message_tool()],
+                "input": [{
+                    "type": "function_call",
+                    "call_id": "call_plain",
+                    "name": "send_message",
+                    "arguments": arguments.clone()
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let provider_body = Value::Object(resolver.build_body().unwrap());
+
+    assert_eq!(
+        provider_body["input"][0]["arguments"].as_str().unwrap(),
+        arguments
+    );
+}
+
+#[test]
+fn aigateway_rejects_corrupt_opaque_history_values() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIResponses,
+        ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "function_call",
+                    "call_id": "call_corrupt",
+                    "name": "send_message",
+                    "arguments": "{\"message\":\"ankole-aigateway-opaque-v1:!!not-base64!!\"}"
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let error = resolver.build_body().unwrap_err();
+    assert_eq!(error.code, "invalid_encrypted_content");
+}
+
+#[test]
 fn aigateway_rejects_nested_encrypted_tool_fields_before_provider_dispatch() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIResponses,

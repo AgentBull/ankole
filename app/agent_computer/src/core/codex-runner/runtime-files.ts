@@ -66,6 +66,7 @@ export function renderCodexJobAgents(input: {
   jobRoot: string
   soul: string
   mission: string
+  jobGuidance?: string
   brainSnapshot?: BrainSnapshot
   timezone?: string | null
   now?: Date
@@ -75,11 +76,23 @@ export function renderCodexJobAgents(input: {
       jobRoot: input.jobRoot,
       soul: input.soul,
       mission: input.mission,
+      jobGuidance: input.jobGuidance,
       brainSnapshot: input.brainSnapshot,
       timezone: input.timezone,
       now: input.now ?? new Date()
     })
   }
+}
+
+/**
+ * Reads the shared Job guidance template shipped with the app library.
+ * A missing template keeps the Job usable; the guidance section is skipped.
+ */
+export function readCodexJobGuidance(builtinSkillsRoot: string): string | undefined {
+  const path = join(builtinSkillsRoot, 'templates', 'AGENT_JOB.md')
+  if (!existsSync(path)) return undefined
+  const content = readFileSync(path, 'utf8').trim()
+  return content || undefined
 }
 
 async function materializeSkills(
@@ -135,6 +148,7 @@ function renderTaskAgents(input: {
   jobRoot: string
   soul: string
   mission: string
+  jobGuidance?: string
   brainSnapshot?: BrainSnapshot
   background?: string
   notes?: string
@@ -159,7 +173,8 @@ function renderTaskAgents(input: {
     section('Durable Context', formatAgentDurableContext(input.brainSnapshot)),
     section('Background', input.background),
     section('Notes', input.notes),
-    section('Execution Context', executionContext)
+    section('Execution Context', executionContext),
+    section('Job Guidance', input.jobGuidance)
   ]
     .filter(Boolean)
     .join('\n\n')

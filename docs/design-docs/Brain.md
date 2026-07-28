@@ -300,7 +300,9 @@ resolution author from the authoritative mirrored message. The embedding input
 contains topic, question, summary, resolution, and systems.
 
 Every input row must be classified as episode evidence, noise, or permitted
-deferred tail. One transaction stores valid episodes and advances the cursor.
+deferred tail. The request names that permitted tail, because the model cannot
+compare the row timestamps against the current time. One transaction stores
+valid episodes and advances the cursor.
 Invalid output or model failure does not advance it. After the last retry,
 Stage A can explicitly skip the failed section; the original chat remains
 keyword-searchable.

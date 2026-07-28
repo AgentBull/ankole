@@ -1,9 +1,12 @@
+import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
+import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { codexConfigCLIOverrides, materializeCodexConfig } from '../src/tools/codex/config'
+import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
 
 function officialRuntime(accountID: string) {
   return {
@@ -12,6 +15,27 @@ function officialRuntime(accountID: string) {
     authJSON: '{}',
     authHash: 'hash',
     modelProfile: { model: 'gpt-5.6-sol', modelReasoningEffort: 'high' as const, fastMode: false }
+  }
+}
+
+function aigatewayRuntime(): CodexRuntimeConfig {
+  return {
+    mode: 'aigateway',
+    accountID: 'aigateway',
+    aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
+      apiKey: 'agent-key',
+      baseUrl: 'https://control.example.test/api/v1/ai-gateway'
+    }),
+    modelProfile: {
+      model: 'gpt-5.6-sol',
+      selector: 'openrouter/openai/gpt-5.6-sol',
+      providerOptions: {
+        reasoningEffort: 'xhigh',
+        nested: { preserved: true }
+      },
+      supportsParallelToolCalls: true,
+      modelReasoningEffort: 'xhigh'
+    }
   }
 }
 
@@ -57,5 +81,50 @@ describe('@ankole/agent-computer Codex config', () => {
 
     expect(override).toBeDefined()
     expect(parse(override!)).toEqual({ projects: { [projectRoot]: { trust_level: 'trusted' } } })
+  })
+
+  it('keeps the shared AIGateway provider model-free and sends the frozen binding through one process header', () => {
+    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-aigateway-'))
+    try {
+      const materialized = materializeCodexConfig({
+        agentsRoot,
+        agentUID: 'agent-1',
+        runtime: aigatewayRuntime()
+      })
+      const config = parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<string, any>
+      const binding = JSON.parse(
+        Buffer.from(materialized.env.ANKOLE_AIGATEWAY_MODEL_BINDING!, 'base64url').toString('utf8')
+      )
+
+      expect(config.model).toBeUndefined()
+      expect(config.model_provider).toBe('ankole_aigateway')
+      expect(config.model_reasoning_effort).toBeUndefined()
+      expect(config.model_auto_compact_token_limit).toBe(100000)
+      expect(config.model_providers.ankole_aigateway.env_http_headers).toEqual({
+        'x-ankole-aigateway-model-binding': 'ANKOLE_AIGATEWAY_MODEL_BINDING'
+      })
+      expect(binding).toEqual({
+        selector: 'openrouter/openai/gpt-5.6-sol',
+        provider_options: {
+          reasoningEffort: 'xhigh',
+          nested: { preserved: true }
+        },
+        supports_parallel_tool_calls: true
+      })
+
+      const official = materializeCodexConfig({
+        agentsRoot,
+        agentUID: 'agent-1',
+        runtime: officialRuntime('account-1')
+      })
+      const officialConfig = parse(readFileSync(join(official.codexHome, 'config.toml'), 'utf8')) as Record<string, any>
+      expect(officialConfig.model).toBeUndefined()
+      expect(officialConfig.model_provider).toBeUndefined()
+      expect(officialConfig.model_providers).toBeUndefined()
+      expect(officialConfig.model_auto_compact_token_limit).toBeUndefined()
+      expect(official.env.ANKOLE_AIGATEWAY_MODEL_BINDING).toBeUndefined()
+    } finally {
+      rmSync(agentsRoot, { recursive: true, force: true })
+    }
   })
 })

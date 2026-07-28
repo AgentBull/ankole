@@ -81,7 +81,7 @@ class CodexJobSession {
 
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
-    this.threadModel = input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelOverride : undefined
+    this.threadModel = input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelProfile.model : undefined
     this.turnRecorder = new BackgroundAgentJobTurnRecorder({
       jobID: input.jobID,
       attempt: input.job.attempts,

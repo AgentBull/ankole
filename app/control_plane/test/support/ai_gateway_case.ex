@@ -115,6 +115,29 @@ defmodule Ankole.AIGatewayCase do
   end
 
   @doc false
+  def background_agent_fixture(attrs \\ %{}) do
+    fixture = Ankole.PrincipalsFixtures.agent_fixture(attrs)
+    provider_id = "background-agent-test-" <> Ecto.UUID.generate()
+
+    {:ok, _provider} =
+      Ankole.AIGateway.ProviderConfigs.create_provider(%{
+        provider_id: provider_id,
+        provider_kind: "openrouter",
+        base_url: "https://openrouter.ai/api/v1",
+        connection_options: %{"api_key" => "sk-test"}
+      })
+
+    {:ok, _profile} =
+      Ankole.AIAgent.ModelProfiles.put_model_profile(fixture.principal.uid, "coding", %{
+        provider_id: provider_id,
+        model: "openai/gpt-5.6-sol",
+        provider_options: %{"reasoningEffort" => "xhigh"}
+      })
+
+    fixture
+  end
+
+  @doc false
   def chat_completion_body(model, content) do
     %{
       "id" => "chatcmpl_#{System.unique_integer([:positive])}",

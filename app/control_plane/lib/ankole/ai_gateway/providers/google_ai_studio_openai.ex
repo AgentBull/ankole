@@ -47,6 +47,7 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
 
     embedding_model do

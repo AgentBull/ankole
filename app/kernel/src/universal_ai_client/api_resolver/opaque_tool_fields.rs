@@ -85,7 +85,7 @@ impl OpaqueToolFields {
         let plan = ToolFieldPlan::from_context(context)?;
         let mut provider_context = context.clone();
         sanitize_context_tools(&mut provider_context)?;
-        plan.lower_context(&mut provider_context)?;
+        lower_context(&mut provider_context)?;
 
         Ok((
             Self {
@@ -578,11 +578,6 @@ impl ToolFieldPlan {
         Ok(())
     }
 
-    fn lower_context(&self, context: &mut ResponseContext) -> Result<(), StreamError> {
-        lower_request_value(self, &mut context.provider_options)?;
-        lower_request_value(self, &mut context.request)
-    }
-
     fn fields_for_item(&self, item: &Value) -> Option<&BTreeSet<String>> {
         let name = item.get("name").and_then(Value::as_str)?;
         let namespace = item
@@ -768,23 +763,32 @@ fn contains_encrypted_annotation(value: &Value) -> bool {
     }
 }
 
-fn lower_request_value(plan: &ToolFieldPlan, request: &mut Value) -> Result<(), StreamError> {
+// Lowering decodes by value, not by tool plan: every opaque value carries the
+// gateway's own versioned prefix, so replayed history decodes correctly even
+// when the request resends no tool definitions (for example a Codex local
+// compaction request). The plan only selects which output fields to encode.
+fn lower_context(context: &mut ResponseContext) -> Result<(), StreamError> {
+    lower_request_value(&mut context.provider_options)?;
+    lower_request_value(&mut context.request)
+}
+
+fn lower_request_value(request: &mut Value) -> Result<(), StreamError> {
     let Some(input) = request.get_mut("input") else {
         return Ok(());
     };
-    lower_input_value(plan, input)
+    lower_input_value(input)
 }
 
-fn lower_input_value(plan: &ToolFieldPlan, value: &mut Value) -> Result<(), StreamError> {
+fn lower_input_value(value: &mut Value) -> Result<(), StreamError> {
     match value {
         Value::Array(items) => {
             for item in items {
-                lower_input_value(plan, item)?;
+                lower_input_value(item)?;
             }
         }
         Value::Object(map) => {
             if map.get("type").and_then(Value::as_str) == Some("function_call") {
-                lower_function_call(plan, map)?;
+                lower_function_call(map)?;
             }
             for child in map.values_mut() {
                 lower_opaque_content_parts(child)?;
@@ -795,23 +799,54 @@ fn lower_input_value(plan: &ToolFieldPlan, value: &mut Value) -> Result<(), Stre
     Ok(())
 }
 
-fn lower_function_call(
-    plan: &ToolFieldPlan,
-    call: &mut Map<String, Value>,
-) -> Result<(), StreamError> {
-    let item = Value::Object(call.clone());
-    let Some(fields) = plan.fields_for_item(&item) else {
-        return Ok(());
-    };
+fn lower_function_call(call: &mut Map<String, Value>) -> Result<(), StreamError> {
     let arguments = call
         .get("arguments")
         .map(value_to_string)
-        .unwrap_or_else(|| "{}".to_string());
-    call.insert(
-        "arguments".to_string(),
-        json!(decode_tool_arguments(fields, &arguments)?),
-    );
+        .unwrap_or_default();
+    if !contains_opaque_prefix(&arguments) {
+        return Ok(());
+    }
+    if let Some(decoded) = decode_prefixed_arguments(&arguments)? {
+        call.insert("arguments".to_string(), json!(decoded));
+    }
     Ok(())
+}
+
+fn contains_opaque_prefix(text: &str) -> bool {
+    text.contains(OPAQUE_CONTENT_PREFIX) || text.contains(LEGACY_CHAT_CONTENT_PREFIX)
+}
+
+fn starts_with_opaque_prefix(text: &str) -> bool {
+    text.starts_with(OPAQUE_CONTENT_PREFIX) || text.starts_with(LEGACY_CHAT_CONTENT_PREFIX)
+}
+
+// The prefix may also appear inside a longer plain value, for example a shell
+// command that quotes an opaque blob. Only a whole field value that starts
+// with the prefix is gateway-encoded, so anything else stays verbatim.
+fn decode_prefixed_arguments(arguments: &str) -> Result<Option<String>, StreamError> {
+    let Ok(mut parsed) = sonic_rs::from_str::<Value>(arguments) else {
+        return Ok(None);
+    };
+    let Some(object) = parsed.as_object_mut() else {
+        return Ok(None);
+    };
+    let mut changed = false;
+    for (_name, field) in object.iter_mut() {
+        let Some(text) = field.as_str() else {
+            continue;
+        };
+        if starts_with_opaque_prefix(text) {
+            *field = json!(decode_opaque_content(text)?);
+            changed = true;
+        }
+    }
+    if !changed {
+        return Ok(None);
+    }
+    sonic_rs::to_string(&parsed).map(Some).map_err(|_| {
+        invalid_tool_arguments_error("AIGateway could not encode decoded tool arguments as JSON")
+    })
 }
 
 fn lower_opaque_content_parts(value: &mut Value) -> Result<(), StreamError> {
@@ -851,21 +886,6 @@ fn encode_tool_arguments(
     fields: &BTreeSet<String>,
     arguments: &str,
 ) -> Result<String, StreamError> {
-    transform_tool_arguments(fields, arguments, true)
-}
-
-fn decode_tool_arguments(
-    fields: &BTreeSet<String>,
-    arguments: &str,
-) -> Result<String, StreamError> {
-    transform_tool_arguments(fields, arguments, false)
-}
-
-fn transform_tool_arguments(
-    fields: &BTreeSet<String>,
-    arguments: &str,
-    encode: bool,
-) -> Result<String, StreamError> {
     let mut arguments = sonic_rs::from_str::<Value>(arguments).map_err(|_| {
         invalid_tool_arguments_error("encrypted tool arguments must be one complete JSON value")
     })?;
@@ -879,11 +899,7 @@ fn transform_tool_arguments(
         let text = value.as_str().ok_or_else(|| {
             invalid_tool_arguments_error("encrypted tool parameter values must be strings")
         })?;
-        *value = json!(if encode {
-            encode_opaque_content(text)
-        } else {
-            decode_opaque_content(text)?
-        });
+        *value = json!(encode_opaque_content(text));
     }
     sonic_rs::to_string(&arguments).map_err(|_| {
         invalid_tool_arguments_error("AIGateway could not encode encrypted tool arguments as JSON")

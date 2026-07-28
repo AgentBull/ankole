@@ -93,6 +93,56 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
   end
 
+  test "Codex binding routes the semantic model through the frozen selector and options", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, Ankole.AIGatewayCase.chat_completion_body("openai/gpt-5.6-sol", "done")}
+      end)
+
+    provider_id = "codex-binding-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{"api_key" => "sk-openrouter"}
+             })
+
+    binding =
+      %{
+        "selector" => "#{provider_id}/openai/gpt-5.6-sol",
+        "provider_options" => %{
+          "reasoningEffort" => "xhigh",
+          "textVerbosity" => "low"
+        },
+        "supports_parallel_tool_calls" => true
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("x-ankole-aigateway-model-binding", binding)
+      |> post(~p"/api/v1/ai-gateway/responses", %{
+        "model" => "gpt-5.6-sol",
+        "input" => "hello"
+      })
+
+    assert json_response(conn, 200)["status"] == "completed"
+    assert_receive {:gateway_request, upstream_request}
+    assert upstream_request.body["model"] == "openai/gpt-5.6-sol"
+    assert upstream_request.body["reasoning"] == %{"effort" => "xhigh"}
+    assert upstream_request.body["parallel_tool_calls"] == true
+  end
+
   test "responses retrieve returns an agent-scoped stored response resource", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
@@ -1627,6 +1677,53 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert subject_uid == agent.uid
     assert subject_type == "agent"
     assert opts[:timeout] == 300_000
+  end
+
+  test "responses WebSocket freezes the decoded Codex binding in connection state", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    encoded =
+      %{
+        "selector" => "openrouter/openai/gpt-5.6-sol",
+        "provider_options" => %{"reasoningEffort" => "xhigh"},
+        "supports_parallel_tool_calls" => true
+      }
+      |> Ankole.JSON.encode!()
+      |> Base.url_encode64(padding: false)
+
+    conn =
+      %{
+        conn
+        | host: "www.example.com",
+          req_headers: [{"host", "www.example.com"} | conn.req_headers]
+      }
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("x-ankole-aigateway-model-binding", encoded)
+      |> put_req_header("connection", "Upgrade")
+      |> put_req_header("upgrade", "websocket")
+      |> put_req_header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+      |> put_req_header("sec-websocket-version", "13")
+      |> get(~p"/api/v1/ai-gateway/responses")
+
+    assert conn.state == :upgraded
+
+    assert_receive {_ref, :upgrade,
+                    {:websocket,
+                     {AnkoleWeb.AIGatewayResponsesSocket,
+                      %{
+                        subject_uid: subject_uid,
+                        subject_type: "agent",
+                        codex_model_binding: binding
+                      }, _opts}}}
+
+    assert subject_uid == agent.uid
+
+    assert binding == %{
+             "selector" => "openrouter/openai/gpt-5.6-sol",
+             "provider_options" => %{"reasoningEffort" => "xhigh"},
+             "supports_parallel_tool_calls" => true
+           }
   end
 
   test "response output phase fixture from upstream compliance remains schema-compatible" do

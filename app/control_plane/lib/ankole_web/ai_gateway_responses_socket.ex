@@ -10,6 +10,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @behaviour WebSock
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.Logging
@@ -220,8 +221,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp handle_socket_event(%{"type" => "response.create"} = event, state) do
-    with {:ok, request, socket_context} <-
-           prepare_response_create_request(state, prepare_request(event)),
+    request =
+      event
+      |> prepare_request()
+      |> CodexModelBinding.apply(Map.get(state, :codex_model_binding))
+
+    with {:ok, request, socket_context} <- prepare_response_create_request(state, request),
          {:ok, active_stream} <- open_active_stream(state, request) do
       active_stream = Map.merge(active_stream, socket_context)
       {:ok, Map.put(state, :active_stream, active_stream)}

@@ -83,6 +83,8 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert operator_uid == human.uid
     assert checkpoint["presentation"]["interaction_status"] == "answered"
 
+    assert checkpoint["presentation"]["interaction_answer"] == "Operators"
+
     assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
 
     assert Enum.find(
@@ -131,6 +133,10 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     checkpoint = Repo.get!(ActorEvent, source_event.id).reply_preview_checkpoint
     assert checkpoint["interactions"]["clarify:call-1"]["state"] == "answered"
     assert checkpoint["presentation"]["interaction_status"] == "answered"
+
+    assert checkpoint["presentation"]["interaction_answer"] ==
+             "Use the latest paragraph above."
+
     assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
   end
 
@@ -158,6 +164,7 @@ defmodule Ankole.SignalsGateway.ReplyInteractionsTest do
     assert interaction["state"] == "superseded"
     assert interaction["superseded_by_actor_event_id"] == newer_event.id
     assert checkpoint["presentation"]["interaction_status"] == "superseded"
+    refute Map.has_key?(checkpoint["presentation"], "interaction_answer")
     assert checkpoint["refresh_pending"]
     assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
 

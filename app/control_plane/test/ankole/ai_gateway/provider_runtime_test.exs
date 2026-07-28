@@ -74,6 +74,18 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "transport" in openrouter["connection_options"]
     assert "transport" in openai_compatible["connection_options"]
 
+    for provider_kind <- ~w(openai openrouter google_ai_studio_openai azure_openai claude) do
+      provider = Enum.find(kinds, &(&1["provider_kind"] == provider_kind))
+
+      assert Enum.find(provider["capability_specs"], &(&1["kind"] == "llm"))[
+               "supports_parallel_tool_calls"
+             ]
+    end
+
+    refute Enum.find(openai_compatible["capability_specs"], &(&1["kind"] == "llm"))[
+             "supports_parallel_tool_calls"
+           ]
+
     assert is_nil(azure_openai["default_base_url"])
     refute Map.has_key?(openrouter, "default_transport")
     refute Map.has_key?(azure_openai, "default_transport")

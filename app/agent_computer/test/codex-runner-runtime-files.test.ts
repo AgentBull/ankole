@@ -8,7 +8,11 @@ import {
   RuntimeSkillSummarySchema,
   SkillOverlayResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../src/core/codex-runner/runtime-files'
+import {
+  materializeCodexJobRuntimeFiles,
+  readCodexJobGuidance,
+  renderCodexJobAgents
+} from '../src/core/codex-runner/runtime-files'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Codex Job runtime files', () => {
@@ -21,6 +25,38 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(content).toContain('/agents/agent-1/jobs/job-1')
     expect(content).toContain('real paths inside this Worker')
     expect(content).toContain('request_parent_input')
+  })
+
+  it('renders the shared Job guidance template after the execution context', () => {
+    const content = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION',
+      jobGuidance: 'Guidance body.'
+    }).content
+    expect(content).toContain('## Job Guidance\n\nGuidance body.')
+    expect(content.indexOf('## Execution Context')).toBeLessThan(content.indexOf('## Job Guidance'))
+
+    const without = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION'
+    }).content
+    expect(without).not.toContain('## Job Guidance')
+  })
+
+  it('reads the bundled AGENT_JOB.md template through the builtin library root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-job-guidance-'))
+    try {
+      expect(readCodexJobGuidance(root)).toBeUndefined()
+      mkdirSync(join(root, 'templates'), { recursive: true })
+      writeFileSync(join(root, 'templates', 'AGENT_JOB.md'), '\n')
+      expect(readCodexJobGuidance(root)).toBeUndefined()
+      writeFileSync(join(root, 'templates', 'AGENT_JOB.md'), 'Wait guidance.\n')
+      expect(readCodexJobGuidance(root)).toBe('Wait guidance.')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('projects selected Skills into the real Job .ankole directory', async () => {

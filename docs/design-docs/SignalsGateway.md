@@ -174,6 +174,23 @@ tombstone blocks a late copy of the removed message for 24 hours.
 A provider acknowledgement confirms receipt only. It is not an Agent reply and
 cannot contain model-generated text.
 
+## Resolve a Reply Interaction
+
+A clarification interaction is durable state in the source ActorEvent
+checkpoint. The first authorized callback for the current interaction changes
+it from `pending` to `answered`, stores the normalized answer and operator, and
+creates one `signal.action.invoked` ActorEvent. A repeated callback does not
+create another event.
+
+A newer human message or control command can change a pending interaction to
+`superseded`. An answered or superseded interaction cannot return to `pending`,
+even if an older provider checkpoint write finishes later.
+
+The durable state projects each terminal result into `ReplyPresentation`.
+An answered projection contains bounded plain display text from the accepted
+answer. A superseded projection contains no answer. Adapters can choose how to
+render this projection, but they do not decide which callback wins.
+
 ## Combine Nearby Messages before Waking the Agent
 
 SignalsGateway can combine nearby chat messages into one ActorEvent. It keeps a

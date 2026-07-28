@@ -65,6 +65,8 @@ Both take the agent's slot lock, then the job row under `FOR UPDATE`, then the C
 
 A job retains one optional workspace template, but each execution uses the agent's *current* enabled Agent Plugins and compatible Skills — not a snapshot frozen at spawn time. The dispatch path (`BackgroundAgentJobDispatch.process`) resolves the job from the actor event, hands it to the turn runtime, and treats steer events separately so a live delivery to the session is not mistaken for a job steer. The job runs on a Codex account (`codex_account_id`, default `aigateway`), and the account slot is part of the claim, so the job does not exceed the account's concurrency.
 
+When a job first initializes its workspace, the runner composes the project `AGENTS.md`: the optional workspace template comes first, followed by the rendered job context — the agent's SOUL and MISSION, durable Brain context, execution facts, and a closing Job Guidance section whose body is the shared template `app/library/templates/AGENT_JOB.md`. That template carries deployment-wide execution guidance for every job; the current content teaches the turn-cost model and the long-blocking-wait contract for subagent coordination. A resumed thread keeps its existing `AGENTS.md`.
+
 ## The operator surface
 
 Three console-scoped routes cover what an operator needs:

@@ -28,7 +28,7 @@ import { resolveCodexJobMCPServers } from './mcp-config'
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection } from './projection'
-import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from './runtime-files'
+import { materializeCodexJobRuntimeFiles, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../skills/effective-skill'
 
 export type CodexJobSetupInput = {
@@ -66,6 +66,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
         jobRoot: jobProject.root,
         soul: agentContext.soul ?? '',
         mission: agentContext.mission ?? '',
+        jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
         brainSnapshot: agentContext.brainSnapshot,
         timezone: agentContext.conversation?.timezone
       }).content
@@ -105,7 +106,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     projectRoot: jobProject.root,
     mcpServers,
     pluginsEnabled: backgroundAgentPlugins.length > 0,
-    ...(runtimeConfig.mode === 'official_subscription' ? { modelProfile: runtimeConfig.modelProfile } : {})
+    runtimeConfig
   })
   const projectionAPIKey =
     runtimeConfig.mode === 'aigateway'

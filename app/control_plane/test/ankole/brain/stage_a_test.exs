@@ -218,6 +218,12 @@ defmodule Ankole.Brain.StageATest do
     refute request_json =~ "old-fact"
     refute request_json =~ "young-deferred"
 
+    # Reasoning shares the output budget, and the request names the same deferrable tail that
+    # validation enforces.
+    assert body["max_tokens"] == 8_192
+    assert body["reasoning"] == %{"effort" => "medium"}
+    assert request_json =~ "Deferrable messages: message_2"
+
     assert [
              %Episode{
                topic: "Retention decision",

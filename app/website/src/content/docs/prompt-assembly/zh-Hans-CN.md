@@ -48,12 +48,11 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 
 worker 上的 `system_prompt.ts` 构建最终 prompt。其模块文档说明了设计："慢变指令在前；会话范围运行时、skill 和 Brain 快照构成后缀。" 各块按序：
 
-1. **Epoch 标记**——`<!-- ankole-system-prompt-epoch:agent-computer-v3 -->`，让支持 prompt 缓存的 provider 识别 prompt 版本。
-2. **核心指令**——agent 的基础行为契约，从回合上下文组装。
-3. **Agent 长期文档**——`SOUL`、`MISSION`、`DESIGN`，从 broker 响应渲染。
-4. **持久上下文**——Brain 快照的 pinned memo 和 channel 条目，带指引渲染（"仅当条目仍然有效时使用……否则忽略"）。
-5. **Skill**——已启用 skill 的描述，告诉模型可以够到什么。
-6. **Channel 与运行时上下文**——当前 channel、工作空间路径、可用工具名。
+1. **核心指令**——agent 的基础行为契约，从回合上下文组装。
+2. **Agent 长期文档**——`SOUL`、`MISSION`、`DESIGN`，从 broker 响应渲染。
+3. **持久上下文**——Brain 快照的 pinned memo 和 channel 条目，带指引渲染（"仅当条目仍然有效时使用……否则忽略"）。
+4. **Skill**——已启用 skill 的描述，告诉模型可以够到什么。
+5. **Channel 与运行时上下文**——当前 channel、工作空间路径、可用工具名。
 
 worker 每回合从当前 PostgreSQL-backed 上下文重新渲染完整 prompt——它不信任缓存版本。AIGateway 保留先前请求指令供审计，但回合渲染当前状态。
 

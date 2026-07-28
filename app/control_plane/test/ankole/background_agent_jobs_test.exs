@@ -136,7 +136,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "create_with_dispatch durably creates one queued work item and one isolated dispatch event" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     attrs = %{
       "agent_uid" => agent.uid,
@@ -188,8 +188,90 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 1
   end
 
-  test "start replay returns the original dispatch after attempts and lifecycle state change" do
+  test "AIGateway Jobs freeze the resolved coding model and every provider option" do
+    %{principal: agent} = background_agent_fixture()
+    assert {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "coding")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: profile["provider_id"],
+               model: "openai/gpt-5.6-sol",
+               context_length: 262_144,
+               provider_options: %{
+                 "reasoningEffort" => "xhigh",
+                 "strictJSONSchema" => true,
+                 "textVerbosity" => "low"
+               }
+             })
+
+    attrs = %{
+      "agent_uid" => agent.uid,
+      "owner_session_id" => "parent-session-model-snapshot",
+      "source_tool_call_id" => "tool-model-snapshot",
+      "title" => "Freeze the model",
+      "task" => "Use the model selected when this Job is created.",
+      "reply_route" => %{"binding_name" => "lark"}
+    }
+
+    assert {:ok, %{job: job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
+    assert job.codex_account_id == "aigateway"
+
+    assert job.metadata["codex_aigateway"] == %{
+             "context_length" => 262_144,
+             "model" => "gpt-5.6-sol",
+             "provider_options" => %{
+               "reasoningEffort" => "xhigh",
+               "strictJSONSchema" => true,
+               "textVerbosity" => "low"
+             },
+             "selector" => "#{profile["provider_id"]}/openai/gpt-5.6-sol",
+             "supports_parallel_tool_calls" => true
+           }
+
+    refute Map.has_key?(job.metadata, "codex_subscription")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: profile["provider_id"],
+               model: "moonshotai/kimi-k2.7-code",
+               provider_options: %{"reasoningEffort" => "medium"}
+             })
+
+    assert {:ok, %{job: replayed}} = BackgroundAgentJobs.create_with_dispatch(attrs)
+    assert replayed.id == job.id
+    assert replayed.metadata["codex_aigateway"] == job.metadata["codex_aigateway"]
+
+    assert {:ok, %{job: next_job}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               attrs
+               | "source_tool_call_id" => "tool-model-snapshot-next",
+                 "title" => "Freeze the next model"
+             })
+
+    assert next_job.metadata["codex_aigateway"] == %{
+             "model" => "kimi-k2.7-code",
+             "provider_options" => %{"reasoningEffort" => "medium"},
+             "selector" => "#{profile["provider_id"]}/moonshotai/kimi-k2.7-code",
+             "supports_parallel_tool_calls" => true
+           }
+  end
+
+  test "Job creation rejects an Agent without a coding model or heavy fallback" do
     %{principal: agent} = agent_fixture()
+
+    assert {:error, :model_profile_not_configured} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session-no-model",
+               "source_tool_call_id" => "tool-no-model",
+               "title" => "No model",
+               "task" => "This Job cannot execute.",
+               "reply_route" => %{"binding_name" => "lark"}
+             })
+  end
+
+  test "start replay returns the original dispatch after attempts and lifecycle state change" do
+    %{principal: agent} = background_agent_fixture()
 
     attrs = %{
       "agent_uid" => agent.uid,
@@ -229,7 +311,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "concurrent starts converge on one Job and one dispatch" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     attrs = %{
       "agent_uid" => agent.uid,
@@ -256,7 +338,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "workspace template selection stores one id and idempotent replay ignores later disablement" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     attrs = %{
       "agent_uid" => agent.uid,
@@ -284,7 +366,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "success requires a completed lead Turn and interrupts active child Turns" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     assert {:ok, %{job: research}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -333,7 +415,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "success cannot bypass the current-attempt trajectory by omitting the runtime thread anchor" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "trajectory-gate-without-anchor")
 
     assert {:ok, %{job: running}} =
@@ -357,7 +439,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "waiting requires the interrupted Turn that contains the pending user-input request" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "waiting-trajectory-gate")
 
     assert {:ok, %{job: running}} =
@@ -443,7 +525,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "waiting cannot close an attempt while one of its runtime Turns is active" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "waiting-turn-gate")
 
     assert {:ok, %{job: running}} =
@@ -486,7 +568,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "creation rejects the removed workspace_mounts field before journaling work" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     assert {:error, {:unsupported_background_agent_job_create_fields, ["workspace_mounts"]}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -510,7 +592,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "creation rejects legacy workspace paths before journaling work" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     for {task, path, index} <- [
           {"Read /workspace/user-files/inbox/report.pdf.", "/workspace/user-files", 1},
@@ -564,7 +646,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     waiting = create_job!(agent.uid, "waiting")
 
     assert {:ok, %{job: running, wakeup_event: nil}} =
@@ -710,7 +792,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "failure wakeups omit unrecognized diagnostic maps" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "opaque-failure")
 
     assert {:ok, %{job: _running}} =
@@ -732,7 +814,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "status and parent wakeup roll back together when the frozen reply route is invalid" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "invalid-route")
 
     assert {:ok, %{job: running}} =
@@ -765,7 +847,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "stop is durable and idempotent while running work also receives an interrupt command" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     queued = create_job!(agent.uid, "queued-stop")
 
     assert {:ok, %{job: stopped, command_event: nil}} =
@@ -872,7 +954,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message send journals text once and list visibility is bounded by parent session or channel" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     same_session = create_job!(agent.uid, "same-session")
     same_channel = create_job!(agent.uid, "same-channel")
     other_channel = create_job!(agent.uid, "other-channel")
@@ -943,7 +1025,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "list uses fixed 32-item pages ordered by the latest update and grouped status" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     owner_session_id = "list-owner-session"
     signal_channel_id = "chat-list-page"
     base = ~U[2026-07-21 00:00:00.000000Z]
@@ -1038,7 +1120,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message send rejects a settled job and does not create a command" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "settled-continuation")
 
     assert {:ok, %{job: running}} =
@@ -1073,7 +1155,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "claiming a continuation clears the answered parent input" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     waiting =
       agent.uid
@@ -1095,7 +1177,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "claiming a continuation stops when the lead thread only fails" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     running =
       agent.uid
@@ -1121,7 +1203,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "a completed lead turn clears earlier continuation failures" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     running =
       agent.uid
@@ -1142,7 +1224,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "status commits reject missing status and lifecycle regression" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "status-transition")
 
     assert {:ok, %{job: running}} =
@@ -1164,7 +1246,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "parent wakeup bounds artifacts and keeps their handoff after a long summary" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "bounded-wakeup")
 
     assert {:ok, %{job: running}} =
@@ -1250,7 +1332,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "only normalized ankole_chatml headers can be stored as Turns" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "trajectory-shape")
     now = DateTime.utc_now(:microsecond)
 
@@ -1316,7 +1398,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "execution projection aggregates one attempt while paginating only lead agent semantic groups" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "execution-projection")
 
     from(row in Job, where: row.id == ^job.id)
@@ -1480,7 +1562,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "trajectory pages stay within 24 KiB even when one semantic message is large" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "trajectory-page-bytes")
 
     from(row in Job, where: row.id == ^job.id)
@@ -1502,7 +1584,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message result waits through the status commit window and then reports continuation" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-message-continuation")
 
     job =
@@ -1573,7 +1655,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message result exposes the matching lifecycle event only to its owner session" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "causal-message-waiting")
 
     job =
@@ -1635,7 +1717,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message result returns the causal Turn for succeeded and failed Jobs" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     for {job_status, turn_status} <- [{"succeeded", "completed"}, {"failed", "failed"}] do
       job = create_job!(agent.uid, "causal-message-#{job_status}")
@@ -1711,7 +1793,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "message result reports delivery failure when a completed command has no trajectory" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "undelivered-message")
 
     job =
@@ -1743,7 +1825,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "one runtime Turn id maps to one durable row" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "turn-identity")
     first = insert_turn!(job, 1, "thread-1", "turn-1", "completed")
 
@@ -1756,7 +1838,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "job summary derives bounded prior-attempt context from Turn trajectories" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "attempt-history")
 
     from(row in Job, where: row.id == ^job.id)
@@ -1808,7 +1890,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "attempt history keeps the lead report when one attempt has more than one hundred child Turns" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "large-attempt-history")
 
     from(row in Job, where: row.id == ^job.id)
@@ -1842,7 +1924,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   end
 
   test "attempt history reports the durable failure before the last assistant text" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "failed-attempt-history")
 
     from(row in Job, where: row.id == ^job.id)

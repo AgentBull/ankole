@@ -48,12 +48,11 @@ These belong to the actor turn, not to any individual model response, so they ri
 
 `system_prompt.ts` on the worker builds the final prompt. Its moduledoc states the design: "Slow-changing instructions lead; conversation-scoped runtime, skill, and Brain snapshots form the suffix." The blocks, in order:
 
-1. **Epoch marker** — `<!-- ankole-system-prompt-epoch:agent-computer-v3 -->`, so prompt-cache-aware providers can identify the prompt version.
-2. **Core instructions** — the agent's base behavior contract, assembled from the turn's context.
-3. **Durable Agent documents** — `SOUL`, `MISSION`, and `DESIGN`, rendered from the broker's response.
-4. **Durable context** — the Brain snapshot's pinned memo and channel entry, rendered with guidance ("Use an item only if it remains valid… otherwise ignore it").
-5. **Skills** — the enabled skill descriptions, telling the model what it can reach for.
-6. **Channel and runtime context** — the current channel, the workspace paths, the available tool names.
+1. **Core instructions** — the agent's base behavior contract, assembled from the turn's context.
+2. **Durable Agent documents** — `SOUL`, `MISSION`, and `DESIGN`, rendered from the broker's response.
+3. **Durable context** — the Brain snapshot's pinned memo and channel entry, rendered with guidance ("Use an item only if it remains valid… otherwise ignore it").
+4. **Skills** — the enabled skill descriptions, telling the model what it can reach for.
+5. **Channel and runtime context** — the current channel, the workspace paths, the available tool names.
 
 The worker re-renders the full prompt every turn from current PostgreSQL-backed context — it does not trust a cached version. AIGateway retains prior request instructions for audit, but the turn renders the current state.
 

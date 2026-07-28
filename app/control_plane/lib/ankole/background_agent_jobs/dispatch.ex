@@ -7,6 +7,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ProviderDefinition
+  alias Ankole.AIGateway.Providers
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -18,6 +20,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
 
   @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
+  @codex_aigateway_metadata_key "codex_aigateway"
   @codex_subscription_metadata_key "codex_subscription"
 
   @supported_create_fields ~w(
@@ -87,7 +90,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       attrs
       |> Map.put("reply_route", reply_route)
       |> Map.put("codex_account_id", coding_runtime.codex_account_id)
-      |> put_codex_subscription_metadata(coding_runtime.subscription_config)
+      |> put_codex_runtime_metadata(coding_runtime)
       |> create_new_job(agent_uid, now)
     end
   end
@@ -130,7 +133,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
         |> Map.put("reply_route", reply_route)
         |> Map.put("codex_account_id", coding_runtime.codex_account_id)
         |> Map.put("metadata", metadata)
-        |> put_codex_subscription_metadata(coding_runtime.subscription_config)
+        |> put_codex_runtime_metadata(coding_runtime)
 
       persist_respawn(source_job_id, attrs, now)
     end
@@ -263,11 +266,24 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       |> repo.all()
 
     case account_ids do
-      [] -> {:ok, attrs}
-      [account_id] -> {:ok, Map.put(attrs, "codex_account_id", account_id)}
-      _overlap -> {:error, :agent_codex_account_overlap}
+      [] ->
+        {:ok, attrs}
+
+      [account_id] ->
+        case same_codex_runtime_mode?(account_id, attrs["codex_account_id"]) do
+          true -> {:ok, Map.put(attrs, "codex_account_id", account_id)}
+          false -> {:error, :agent_codex_account_overlap}
+        end
+
+      _overlap ->
+        {:error, :agent_codex_account_overlap}
     end
   end
+
+  defp same_codex_runtime_mode?("aigateway", "aigateway"), do: true
+  defp same_codex_runtime_mode?("aigateway", _selected_account_id), do: false
+  defp same_codex_runtime_mode?(_live_account_id, "aigateway"), do: false
+  defp same_codex_runtime_mode?(_live_account_id, _selected_account_id), do: true
 
   defp existing_job_result(repo, %Job{} = job) do
     case find_dispatch_event(repo, job) do
@@ -286,39 +302,95 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                profile
                |> Map.drop(["codex_account_id", "profile"])
                |> ModelProfiles.codex_subscription_config() do
-          {:ok, %{codex_account_id: account_id, subscription_config: config}}
+          {:ok,
+           %{
+             aigateway_config: nil,
+             codex_account_id: account_id,
+             subscription_config: config
+           }}
         end
 
       {:ok, %{"provider_id" => _provider_id}} ->
-        {:ok, %{codex_account_id: "aigateway", subscription_config: nil}}
+        with {:ok, runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding"),
+             {:ok, config} <- codex_aigateway_config(runtime) do
+          {:ok,
+           %{
+             aigateway_config: config,
+             codex_account_id: "aigateway",
+             subscription_config: nil
+           }}
+        end
 
       {:error, :model_profile_not_configured} ->
-        {:ok, %{codex_account_id: "aigateway", subscription_config: nil}}
+        {:error, :model_profile_not_configured}
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp put_codex_subscription_metadata(attrs, nil) do
+  defp codex_aigateway_config(runtime) when is_map(runtime) do
+    with provider_id when is_binary(provider_id) <- Map.get(runtime, "provider_id"),
+         provider_kind when is_binary(provider_kind) <- Map.get(runtime, "provider_kind"),
+         model when is_binary(model) <- Map.get(runtime, "model"),
+         provider_options when is_map(provider_options) <-
+           Map.get(runtime, "provider_options", %{}),
+         {:ok, provider} <- Providers.fetch(provider_kind),
+         {:ok, language_model} <-
+           ProviderDefinition.capability(provider, :language_model) do
+      config = %{
+        "model" => codex_model(provider_kind, model),
+        "provider_options" => provider_options,
+        "selector" => provider_id <> "/" <> model,
+        "supports_parallel_tool_calls" => language_model.supports_parallel_tool_calls?
+      }
+
+      {:ok, maybe_put_context_length(config, Map.get(runtime, "context_length"))}
+    else
+      _value -> {:error, :invalid_codex_aigateway_runtime}
+    end
+  end
+
+  defp codex_model("openrouter", model) do
+    case String.split(model, "/", parts: 2) do
+      [_author, model] when model != "" -> model
+      _parts -> model
+    end
+  end
+
+  defp codex_model(_provider_kind, model), do: model
+
+  defp maybe_put_context_length(config, context_length)
+       when is_integer(context_length) and context_length > 0,
+       do: Map.put(config, "context_length", context_length)
+
+  defp maybe_put_context_length(config, _context_length), do: config
+
+  defp put_codex_runtime_metadata(attrs, runtime) do
     case Map.get(attrs, "metadata", %{}) do
       metadata when is_map(metadata) ->
-        Map.put(attrs, "metadata", Map.delete(metadata, @codex_subscription_metadata_key))
+        metadata =
+          metadata
+          |> Map.delete(@codex_aigateway_metadata_key)
+          |> Map.delete(@codex_subscription_metadata_key)
+          |> maybe_put_runtime_metadata(
+            @codex_aigateway_metadata_key,
+            runtime.aigateway_config
+          )
+          |> maybe_put_runtime_metadata(
+            @codex_subscription_metadata_key,
+            runtime.subscription_config
+          )
+
+        Map.put(attrs, "metadata", metadata)
 
       _value ->
         attrs
     end
   end
 
-  defp put_codex_subscription_metadata(attrs, config) when is_map(config) do
-    case Map.get(attrs, "metadata", %{}) do
-      metadata when is_map(metadata) ->
-        Map.put(attrs, "metadata", Map.put(metadata, @codex_subscription_metadata_key, config))
-
-      _value ->
-        attrs
-    end
-  end
+  defp maybe_put_runtime_metadata(metadata, _key, nil), do: metadata
+  defp maybe_put_runtime_metadata(metadata, key, value), do: Map.put(metadata, key, value)
 
   @spec defer_actor_event(ActorEvent.t(), DateTime.t()) ::
           {:ok, ActorEvent.t()} | {:error, term()}

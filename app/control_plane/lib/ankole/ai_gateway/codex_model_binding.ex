@@ -1,0 +1,81 @@
+defmodule Ankole.AIGateway.CodexModelBinding do
+  @moduledoc false
+
+  @header_name "x-ankole-aigateway-model-binding"
+  @responses_lite_header_name "x-openai-internal-codex-responses-lite"
+  @responses_lite_client_metadata_key "ws_request_header_x_openai_internal_codex_responses_lite"
+
+  @spec header_name() :: String.t()
+  def header_name, do: @header_name
+
+  @spec responses_lite_header_name() :: String.t()
+  def responses_lite_header_name, do: @responses_lite_header_name
+
+  @spec decode(String.t()) :: {:ok, map()} | {:error, :invalid_codex_model_binding}
+  def decode(encoded) when is_binary(encoded) do
+    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
+         {:ok, binding} <- Ankole.JSON.decode(json),
+         %{
+           "selector" => selector,
+           "provider_options" => provider_options,
+           "supports_parallel_tool_calls" => supports_parallel_tool_calls
+         } <- binding,
+         true <- is_binary(selector) and selector != "",
+         true <- is_map(provider_options),
+         true <- is_boolean(supports_parallel_tool_calls) do
+      {:ok,
+       %{
+         "selector" => selector,
+         "provider_options" => provider_options,
+         "supports_parallel_tool_calls" => supports_parallel_tool_calls
+       }}
+    else
+      _value -> {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  def decode(_encoded), do: {:error, :invalid_codex_model_binding}
+
+  @spec apply(map(), map() | nil, keyword()) :: map()
+  def apply(request, binding, opts \\ [])
+
+  def apply(request, nil, _opts) when is_map(request), do: request
+
+  def apply(request, binding, opts) when is_map(request) and is_map(binding) do
+    defaults = Map.fetch!(binding, "provider_options")
+
+    responses_lite? =
+      Keyword.get_lazy(opts, :responses_lite?, fn -> responses_lite_request?(request) end)
+
+    request
+    |> Map.put("model", Map.fetch!(binding, "selector"))
+    |> put_provider_options(defaults)
+    |> Map.put(
+      "parallel_tool_calls",
+      Map.fetch!(binding, "supports_parallel_tool_calls") and not responses_lite?
+    )
+  end
+
+  defp responses_lite_request?(request) do
+    case Map.get(request, "client_metadata") do
+      metadata when is_map(metadata) ->
+        Map.get(metadata, @responses_lite_client_metadata_key) == "true"
+
+      _value ->
+        false
+    end
+  end
+
+  defp put_provider_options(request, defaults) do
+    case Map.get(request, "provider_options") do
+      nil ->
+        Map.put(request, "provider_options", defaults)
+
+      overrides when is_map(overrides) ->
+        Map.put(request, "provider_options", Map.merge(defaults, overrides))
+
+      _invalid ->
+        request
+    end
+  end
+end

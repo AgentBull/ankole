@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'n
 import { dirname, join } from 'node:path'
 import { parse, stringify } from 'smol-toml'
 import { DEFAULT_MCP_TIMEOUT_MS, type MCPServerConfig } from '../../tools/mcp/config'
-import type { CodexSubscriptionModelProfile } from '../../tools/codex/runtime-config'
+import type { CodexRuntimeConfig } from '../../tools/codex/runtime-config'
 
 type TomlTable = Record<string, unknown>
 
@@ -18,12 +18,12 @@ export function materializeCodexJobProjectConfig(input: {
   projectRoot: string
   mcpServers: MCPServerConfig[]
   pluginsEnabled: boolean
-  modelProfile?: CodexSubscriptionModelProfile
+  runtimeConfig: CodexRuntimeConfig
 }): MaterializedCodexJobProjectConfig {
   const path = join(input.projectRoot, '.codex', 'config.toml')
   const config = readToml(path)
 
-  applyModelProfile(config, input.modelProfile)
+  applyRuntimeConfig(config, input.runtimeConfig)
   applyMCPServers(config, input.mcpServers)
   applyRunnerSafety(config, input.pluginsEnabled)
   atomicWrite(path, stringify(config))
@@ -31,13 +31,21 @@ export function materializeCodexJobProjectConfig(input: {
   return { path }
 }
 
-function applyModelProfile(config: TomlTable, profile: CodexSubscriptionModelProfile | undefined): void {
-  if (!profile) return
+function applyRuntimeConfig(config: TomlTable, runtime: CodexRuntimeConfig): void {
+  const profile = runtime.modelProfile
 
   config.model = profile.model
-  config.model_reasoning_effort = profile.modelReasoningEffort
-  if (profile.fastMode) config.service_tier = 'priority'
-  else delete config.service_tier
+  if (profile.modelReasoningEffort) config.model_reasoning_effort = profile.modelReasoningEffort
+  else delete config.model_reasoning_effort
+
+  if (runtime.mode === 'aigateway') {
+    delete config.model_provider
+    delete config.service_tier
+  } else {
+    delete config.model_provider
+    if (runtime.modelProfile.fastMode) config.service_tier = 'priority'
+    else delete config.service_tier
+  }
 }
 
 function applyMCPServers(config: TomlTable, servers: MCPServerConfig[]): void {

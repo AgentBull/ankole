@@ -35,6 +35,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   @worker_turn_error_dead_letter_attempts 5
   @worker_turn_error_retry_base_seconds 5
   @worker_turn_error_retry_max_seconds 120
+  # One wait per Job execution attempt, indexed by delivery attempt. The ladder
+  # spreads the five-attempt budget across roughly 3.7 hours so a durable Job
+  # rides out an upstream outage instead of failing while a retry could still
+  # succeed. Ordinary actor events keep the short exponential backoff because
+  # a user waits on them.
+  @background_agent_job_turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -1086,7 +1092,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          false
        ) do
     if retryable_turn_error?(reason) do
-      retry_available_at = DateTime.add(now, retry_backoff_seconds(deliveries), :second)
+      retry_available_at = DateTime.add(now, retry_backoff_seconds(event, deliveries), :second)
 
       event
       |> ActorEvent.changeset(%{available_at: retry_available_at})
@@ -1109,7 +1115,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp retryable_turn_error?(_reason), do: false
 
-  defp retry_backoff_seconds(deliveries) do
+  defp retry_backoff_seconds(%ActorEvent{session_id: session_id}, deliveries)
+       when BackgroundAgentJobs.is_job_session_id(session_id) do
+    attempt_no = max(max_delivery_attempt_no(deliveries), 1)
+    ladder = @background_agent_job_turn_error_retry_seconds
+    Enum.at(ladder, min(attempt_no, length(ladder)) - 1)
+  end
+
+  defp retry_backoff_seconds(%ActorEvent{}, deliveries) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
     exponential = round(@worker_turn_error_retry_base_seconds * :math.pow(2, attempt_no - 1))
     min(exponential, @worker_turn_error_retry_max_seconds)

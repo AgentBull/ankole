@@ -57,10 +57,33 @@ persisted key and API name remain `coding` until that stored contract is
 migrated. It can select an AIGateway provider and model, or it can select a
 named ChatGPT subscription account. A subscription profile also contains the
 Codex model, the model reasoning effort, and Fast Mode. Fast Mode is off by
-default.
+default. When `coding` is absent, the existing `heavy` profile is its fallback.
+A Job cannot be created when neither profile is configured.
 
 A caller can select `provider_id/raw-model-id` directly. This skips the Agent
 profile but still requires an active provider.
+
+## Bind a Codex Job to Its Model Snapshot
+
+The control plane resolves the effective `coding` profile when it creates a
+Job. An AIGateway Job stores the real Codex model name, the exact
+`provider_id/raw-model-id` selector, all provider options, and the optional
+context length. It also stores the provider's parallel-tool-call capability. A
+retry uses this snapshot. A new or respawned Job resolves the current profile
+again.
+
+Agent Computer puts the real model name in the Job's Codex project configuration
+and selects the AIGateway provider in the Agent Codex Home. It sends the frozen
+selector, provider options, and parallel-tool-call capability in the
+`x-ankole-aigateway-model-binding` provider header. AIGateway replaces the
+Codex-facing model name with the selector before provider resolution and uses
+the stored provider options as request defaults. It sets `parallel_tool_calls`
+from the stored provider capability. An explicit Codex Responses Lite marker in
+the HTTP header or WebSocket client metadata keeps this value false. The
+`coding` profile name never enters Codex as a model name.
+
+An official-subscription Job does not use this binding. Agent Computer loads its
+stored model settings and native `auth.json` credentials instead.
 
 ## Describe Each Provider in Code
 
@@ -69,6 +92,11 @@ Each module declares its identifier, settings, default endpoint, transport optio
 
 Each capability selects an upstream protocol, a Rust API resolver, and an Elixir
 function that creates a `UniversalAIRequest`.
+
+Each language-model capability can declare `supports_parallel_tool_calls`. It
+defaults to false. OpenAI, OpenRouter, Google AI Studio OpenAI, Azure OpenAI,
+and Claude declare it true. The generic `openai_compatible` provider keeps the
+default because its upstream is unknown.
 
 Built-in language-model providers are:
 
@@ -432,7 +460,17 @@ part of the Worker-facing Responses contract. It is not a provider capability.
 
 The Rust API resolver removes the marker before it builds a provider request.
 It decodes AIGateway opaque values in replayed function calls and Agent
-messages. The provider receives a normal schema and plain parameter values.
+messages. The values are self-describing through their versioned prefix, so
+this decode does not need the tool definitions; a request that replays history
+without tools, such as a Codex local compaction request, still reaches the
+provider with plain parameter values. A quoted prefix inside a longer plain
+value stays verbatim, and a plaintext value of a marked field passes through.
+The provider receives a normal schema and plain parameter values.
+
+Readers of stored trajectory outside the provider path, such as the Console
+Turn projection and the Job trajectory message, reveal stored opaque values
+through `Ankole.AIGateway.OpaqueContent`. The Worker resume projection keeps
+the stored form, because a resumed thread must restore what the Worker stored.
 
 After the provider adapter creates public Response events, AIGateway encodes
 each marked parameter as a versioned Base64URL value. It buffers the complete

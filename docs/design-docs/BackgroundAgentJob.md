@@ -115,7 +115,7 @@ The Elixir control plane:
 - changes Job state and counts attempts
 - dispatches, steers, stops, and completes Jobs
 - checks the optional workspace template
-- selects the Agent's Codex account and subscription model settings
+- selects the Agent's Codex runtime and snapshots its model settings
 - selects workers and checks turn fences
 - notifies the originating conversation
 
@@ -164,11 +164,18 @@ It stores one optional `workspace_template_id`.
 It also stores status, attempts, timestamps, result, error, and selected runtime
 details.
 
-For an official subscription, the selected runtime details include a snapshot
-of the Background Agent Jobs Model Profile. Its persisted key and API name
-remain `coding` until that stored contract is migrated. A new Job and a
-respawned Job each use the Model Profile that is active when the control plane
-creates that Job. A retry of the same Job uses its stored snapshot.
+The selected runtime details include a creation-time snapshot of the effective
+Background Agent Jobs Model Profile. Its persisted key and API name remain
+`coding` until that stored contract is migrated. For AIGateway, the snapshot
+contains the Codex model name, the exact provider and model selector, all
+provider options, the optional context length, and the provider's
+parallel-tool-call capability. For an official subscription, it contains the
+Codex model, reasoning effort, and Fast Mode.
+
+A new Job and a respawned Job each resolve the Model Profile that is active when
+the control plane creates that Job. The existing `heavy` fallback applies when
+`coding` is absent. Creation fails when neither profile is configured. A retry
+or an idempotent replay of the same Job uses its stored snapshot.
 
 Each execution and resume reads the Agent's current enabled Skills. Skills with
 an absent `ankole-runtime` value, `any`, or `background_job` are available.
@@ -235,18 +242,43 @@ The runner marks the exact Job path as trusted for that process.
 
 Agent-level configuration contains stable worker and provider defaults. Job
 configuration contains model, reasoning, Plugin, MCP, and safety choices.
+
+For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
+The Job configuration contains the real Codex model name and its supported
+reasoning effort. The runner never sends `coding` to Codex. It attaches the
+Job's exact provider and model selector, all stored provider options, and the
+stored parallel-tool-call capability to each AIGateway request. AIGateway
+applies that binding before it resolves the provider. It sets
+`parallel_tool_calls` from the provider capability unless Codex marks the
+request as Responses Lite.
+
 For an official subscription, the runner writes `model` and
 `model_reasoning_effort` from the Job snapshot. It writes
 `service_tier = "priority"` only when Fast Mode is on. It removes
-`service_tier` when Fast Mode is off.
-
-Agent Computer writes native Codex authentication into the Agent Codex Home.
-Credential refresh uses compare-and-swap when it writes an updated credential.
+`service_tier` when Fast Mode is off. Agent Computer writes native Codex
+authentication into the Agent Codex Home. Credential refresh uses
+compare-and-swap when it writes an updated credential.
 
 NFS makes the same files visible to several workers. It does not lock an Agent
 or coordinate SQLite. Worker placement keeps one Agent's live work on one ready
 worker. The Codex Home setup queue is process-local and uses that placement
 contract.
+
+## Compose the Project AGENTS.md
+
+Project initialization writes one `AGENTS.md` at the Job Workspace root. The
+optional workspace template supplies the first part. The runner appends the
+rendered Job context after it: the Agent SOUL and MISSION documents, the
+durable Brain context, and the execution-context facts.
+
+The rendered Job context ends with a `Job Guidance` section. Its body is the
+shared template `app/library/templates/AGENT_JOB.md`, read from the builtin
+library root in the Worker image. The template carries deployment-wide
+execution guidance for every Job; the current content gives the model the
+turn-cost model and the long-blocking-wait contract for subagent coordination.
+A missing or empty template only removes the section. A resumed thread keeps
+the existing project `AGENTS.md`; the template applies when a Job initializes
+its Workspace.
 
 ## Prepare Skills for Each Run
 
@@ -316,6 +348,11 @@ The control plane increments `attempts` only after it acquires a real execution
 lease.
 A placement failure returns an unstarted attempt to `queued`.
 
+A retryable worker failure waits before the next execution attempt. Job
+sessions wait on a fixed ladder from one minute to two hours, so the five
+attempts span some hours and a Job survives an upstream outage. Other actor
+events keep a short exponential backoff, because a user waits on them.
+
 One control-plane transaction stores the final state and the notification.
 If a worker disappears, the control plane dispatches the Job again.
 
@@ -334,8 +371,10 @@ Start uses this idempotency key:
 {agent_uid, owner_session_id, source_tool_call_id}
 ```
 
-A new request selects the Codex account and checks the requested capabilities.
-One transaction inserts both the Job and its dispatch event.
+A new request resolves the effective `coding` Model Profile, selects the Codex
+runtime, and checks the requested capabilities. It fails before insertion when
+neither `coding` nor its `heavy` fallback is configured. One transaction inserts
+both the Job and its dispatch event.
 
 The dispatch event targets this actor session:
 
@@ -346,8 +385,10 @@ The dispatch event targets this actor session:
 Every stored Job Session ID uses the `job:` prefix. Repeating the same start
 request returns the original Job and event.
 
-Live Jobs for one Agent use the same Codex account. Ankole can select another
-account after the Agent has no live Job delivery.
+Live Jobs for one Agent use the same Codex runtime mode. Official-subscription
+Jobs keep their existing account pin. Ankole rejects a switch between
+AIGateway and an official subscription until the Agent has no live Job
+delivery.
 
 This keeps the shared Codex state on the selected worker. It does not add a
 filesystem lock.

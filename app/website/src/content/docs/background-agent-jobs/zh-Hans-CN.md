@@ -65,6 +65,8 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 一个任务保留一个可选的工作空间模板，但每一次执行用的是 agent *当前* 启用的 Agent Plugins 和兼容 Skills——不是 spawn 时冻结的快照。派发路径（`BackgroundAgentJobDispatch.process`）从 actor 事件解析出任务，交给回合运行时，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。任务跑在一个 Codex account 上（`codex_account_id`，默认 `aigateway`），account 槽是 claim 的一部分，所以任务不会超出 account 的并发。
 
+任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION、持久 Brain 上下文、执行事实，以及收尾的 Job Guidance 一节，其正文来自共享模板 `app/library/templates/AGENT_JOB.md`。该模板承载对每个任务生效的部署级执行指导；当前内容向模型说明回合成本模型与子 agent 协调的长阻塞等待契约。续接既有线程的任务保留原有 `AGENTS.md`。
+
 ## 运维界面
 
 三条 console 范围的路由覆盖运维者的需要：

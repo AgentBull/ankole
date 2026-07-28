@@ -26,12 +26,13 @@ defmodule Ankole.AIGateway.Compaction do
 
   @config_key "ai_gateway.compaction"
   @default_threshold_percent 0.50
-  @default_max_threshold_tokens 120_000
+  @default_max_threshold_tokens 100_000
   @default_context_length 256_000
   @minimum_context_length 64_000
   @small_context_trigger_ratio 0.85
   @default_tail_rows 2
-  @summarizer_max_output_tokens 4_096
+  @summarizer_max_output_tokens 8_192
+  @summarizer_retry_max_output_tokens 16_384
   @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
@@ -1062,7 +1063,7 @@ defmodule Ankole.AIGateway.Compaction do
         scaffold -
         CompactionRender.approx_tokens(previous_chat_history || "") -
         CompactionRender.approx_tokens(recent_context_verbatim || "") -
-        @summarizer_max_output_tokens
+        summarizer_output_cap(runtime)
 
     max(budget, CompactionRender.min_render_budget_tokens())
   end
@@ -1072,11 +1073,35 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp call_summarizer(_subject_uid, runtime, selector, prompt) do
+    case request_summary(runtime, selector, prompt, summarizer_output_cap(runtime)) do
+      {:ok, %{truncated: true} = truncated_summary} ->
+        case request_summary(runtime, selector, prompt, summarizer_retry_output_cap(runtime)) do
+          {:ok, retried_summary} -> {:ok, retried_summary}
+          {:error, _retry_failed} -> {:ok, truncated_summary}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  # Scale the output reservation with the summarizer's window so a small-context
+  # summarizer keeps enough input render budget for the tighter context-error retry.
+  defp summarizer_output_cap(runtime) do
+    min(@summarizer_max_output_tokens, floor(summarizer_context_length(runtime) * 0.2))
+  end
+
+  defp summarizer_retry_output_cap(runtime) do
+    min(@summarizer_retry_max_output_tokens, floor(summarizer_context_length(runtime) * 0.4))
+  end
+
+  defp request_summary(runtime, selector, prompt, max_output_tokens) do
     request = %{
       "model" => selector,
       "instructions" => CompactionPrompt.system_prompt(),
       "input" => prompt,
-      "max_output_tokens" => @summarizer_max_output_tokens
+      "reasoning" => %{"effort" => "low"},
+      "max_output_tokens" => max_output_tokens
     }
 
     with {:ok, prepared_request} <-
@@ -1088,10 +1113,19 @@ defmodule Ankole.AIGateway.Compaction do
          text: text,
          model: Map.get(runtime, "model", selector),
          selector: selector,
-         usage: Map.get(body, "usage", %{})
+         usage: Map.get(body, "usage", %{}),
+         truncated: summary_truncated?(body)
        }}
     end
   end
+
+  defp summary_truncated?(%{"incomplete_details" => %{"reason" => "max_output_tokens"}}), do: true
+
+  defp summary_truncated?(%{"choices" => choices}) when is_list(choices) do
+    Enum.any?(choices, &(Map.get(&1, "finish_reason") == "length"))
+  end
+
+  defp summary_truncated?(_body), do: false
 
   defp summarizer_selectors(request_model, request) do
     selectors =
@@ -1270,7 +1304,8 @@ defmodule Ankole.AIGateway.Compaction do
       "summarizer" => %{
         "model" => summary.model,
         "selector" => summary.selector,
-        "usage" => summary.usage
+        "usage" => summary.usage,
+        "truncated" => summary.truncated
       },
       "history_usage_tokens_before" => total_tokens,
       "covered_message_count" => length(candidate.prefix)

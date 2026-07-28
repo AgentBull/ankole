@@ -143,7 +143,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
              presentation["actions"]
   end
 
-  test "a terminal interaction result locks the whole clarification card" do
+  test "a terminal interaction result locks the controls and projects its display answer" do
     presentation =
       ReplyPresentation.new()
       |> ReplyPresentation.apply_event("interaction.request", %{
@@ -171,13 +171,51 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
     resolved =
       ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "choice",
         "interaction_id" => "clarify:1",
-        "option_id" => "all"
+        "option_id" => "all",
+        "value" => "all-records"
       })
 
     assert resolved["interaction_status"] == "answered"
+
+    assert resolved["interaction_answer"] == "全部"
+
     assert Enum.all?(resolved["actions"], &(&1["disabled"] == true))
     assert Enum.find(resolved["actions"], &(&1["id"] == "all"))["selected"] == true
+  end
+
+  test "a free-text answer keeps its accepted text and supersession removes it" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请补充范围",
+        "controls" => [
+          %{
+            "id" => "custom",
+            "type" => "form",
+            "label" => "自定义",
+            "interaction_id" => "clarify:free-text",
+            "fields" => [
+              %{"id" => "answer", "type" => "input", "label" => "你的回答"}
+            ]
+          }
+        ]
+      })
+
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "free_text",
+        "interaction_id" => "clarify:free-text",
+        "value" => "第一行\n**保持原样**"
+      })
+
+    assert answered["interaction_answer"] == "第一行\n**保持原样**"
+
+    superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
+    assert superseded["interaction_status"] == "superseded"
+    refute Map.has_key?(superseded, "interaction_answer")
   end
 
   test "normalization preserves explicit false values from string and atom keys" do

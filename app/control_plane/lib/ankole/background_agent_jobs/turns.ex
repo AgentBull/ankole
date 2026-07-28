@@ -3,6 +3,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   import Ecto.Query
 
+  alias Ankole.AIGateway.OpaqueContent
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -258,7 +259,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
         %{
           turn_id: group.turn_id,
           position: group.position,
-          messages: bound_group(group.content["messages"])
+          messages: group.content["messages"] |> OpaqueContent.reveal() |> bound_group()
         }
       end)
 
@@ -468,6 +469,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     trajectory =
       turn
       |> trajectory_messages()
+      |> OpaqueContent.reveal()
       |> then(&Map.put(turn.trajectory || empty_trajectory(), "messages", &1))
 
     projection(turn, trajectory)

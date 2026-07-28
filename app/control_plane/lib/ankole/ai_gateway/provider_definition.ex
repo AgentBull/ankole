@@ -60,7 +60,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       :upstream,
       :api_resolver,
       :prepare,
-      :timeout_ms
+      :timeout_ms,
+      supports_parallel_tool_calls?: false
     ]
 
     @type kind ::
@@ -80,7 +81,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             upstream: :sse | :eventstream | :websocket_text | :json,
             api_resolver: atom(),
             prepare: atom(),
-            timeout_ms: pos_integer() | nil
+            timeout_ms: pos_integer() | nil,
+            supports_parallel_tool_calls?: boolean()
           }
   end
 

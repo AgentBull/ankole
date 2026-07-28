@@ -27,6 +27,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @max_results 12
   @max_receipts 20
   @max_actions 8
+  @max_interaction_answer_chars 1_000
   @max_table_columns 8
   @max_table_rows 20
   @max_chart_series 6
@@ -79,6 +80,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     )
     |> Map.put("meta", normalize_meta(value(presentation, "meta")))
     |> normalize_interaction_status(value(presentation, "interaction_status"))
+    |> normalize_interaction_answer(value(presentation, "interaction_answer"))
     |> remove_thought_unless_working()
   end
 
@@ -204,9 +206,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @doc """
   Projects one terminal reply-interaction result into the visible presentation.
 
-  The durable interaction state is provider-neutral. Renderers only receive the
-  resulting locked controls and terminal status; they never decide whether an
-  answer still counts.
+  The durable interaction state is provider-neutral. Renderers receive the
+  resulting locked controls, terminal status, and bounded display text for an
+  accepted answer. They never decide whether an answer still counts.
   """
   @spec resolve_interaction(t(), String.t(), map() | nil) :: t()
   def resolve_interaction(presentation, status, answer \\ nil)
@@ -225,13 +227,18 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
           |> maybe_put_selected(status, option_id)
         end)
 
-      if presentation["interaction_status"] == status and presentation["actions"] == actions do
-        presentation
-      else
+      interaction_answer = resolved_interaction_answer(status, answer, actions)
+
+      resolved =
         presentation
         |> Map.put("actions", actions)
         |> Map.put("interaction_status", status)
-        |> bump_revision()
+        |> put_or_delete("interaction_answer", interaction_answer)
+
+      if resolved == presentation do
+        presentation
+      else
+        bump_revision(resolved)
       end
     else
       presentation
@@ -392,6 +399,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       |> Map.put("prompt", prompt)
       |> Map.put("actions", actions)
       |> Map.put("interaction_status", "pending")
+      |> Map.delete("interaction_answer")
       |> Map.delete("thought")
       |> put_revision(payload)
     end
@@ -803,6 +811,58 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   defp normalize_interaction_status(presentation, _status),
     do: Map.delete(presentation, "interaction_status")
 
+  defp normalize_interaction_answer(
+         %{"state" => "awaiting_input", "interaction_status" => "answered"} = presentation,
+         answer
+       ) do
+    put_or_delete(
+      presentation,
+      "interaction_answer",
+      bounded_optional_text(answer, @max_interaction_answer_chars)
+    )
+  end
+
+  defp normalize_interaction_answer(presentation, _answer),
+    do: Map.delete(presentation, "interaction_answer")
+
+  defp resolved_interaction_answer("answered", answer, actions) when is_map(answer) do
+    kind = value(answer, "kind")
+    interaction_id = bounded_optional_text(value(answer, "interaction_id"), 120)
+    option_id = bounded_optional_text(value(answer, "option_id"), 80)
+    answer_text = bounded_optional_text(value(answer, "value"), @max_interaction_answer_chars)
+
+    case {kind, interaction_id, option_id, answer_text} do
+      {"choice", interaction_id, option_id, answer_text}
+      when is_binary(interaction_id) and is_binary(option_id) and is_binary(answer_text) ->
+        selected_choice_label(actions, interaction_id, option_id) || answer_text
+
+      {"free_text", interaction_id, _option_id, answer_text}
+      when is_binary(interaction_id) and is_binary(answer_text) ->
+        answer_text
+
+      _invalid ->
+        nil
+    end
+  end
+
+  defp resolved_interaction_answer(_status, _answer, _actions), do: nil
+
+  defp selected_choice_label(actions, interaction_id, option_id) do
+    Enum.find_value(actions, fn
+      %{
+        "type" => "button",
+        "interaction_id" => ^interaction_id,
+        "selected_option_id" => ^option_id,
+        "label" => label
+      }
+      when is_binary(label) ->
+        label
+
+      _action ->
+        nil
+    end)
+  end
+
   defp maybe_put_selected(action, "answered", option_id) when is_binary(option_id) do
     Map.put(action, "selected", action["selected_option_id"] == option_id)
   end
@@ -980,6 +1040,9 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp put_or_delete(map, key, nil), do: Map.delete(map, key)
+  defp put_or_delete(map, key, value), do: Map.put(map, key, value)
 
   defp string_key_map(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)

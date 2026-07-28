@@ -15,6 +15,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
   alias Ankole.SignalsGateway.Entry
 
   import Ankole.SignalsGateway.ActorRuntimeCase, only: [complete_actor_event: 4]
+  import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsGatewayFixtures
 
@@ -275,7 +276,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
     end
 
     test "removal preserves queued and running BackgroundAgentJobs and their dispatches" do
-      %{principal: agent} = agent_fixture()
+      %{principal: agent} = background_agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
 
       assert {:ok, %{status: :recorded}} =

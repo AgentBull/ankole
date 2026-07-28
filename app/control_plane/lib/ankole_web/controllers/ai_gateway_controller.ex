@@ -9,6 +9,7 @@ defmodule AnkoleWeb.AIGatewayController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.CodexModelBinding
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
   alias OpenAPISpex.Schema
@@ -31,15 +32,19 @@ defmodule AnkoleWeb.AIGatewayController do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
 
-    case AIGateway.stream_requested?(request) do
-      true ->
-        stream_response(conn, subject_uid, request)
+    with {:ok, request} <- bind_codex_request(conn, request) do
+      case AIGateway.stream_requested?(request) do
+        true ->
+          stream_response(conn, subject_uid, request)
 
-      false ->
-        case AIGateway.create_response(subject_uid, request) do
-          {:ok, %{body: body}} -> json(conn, body)
-          {:error, reason} -> error(conn, reason)
-        end
+        false ->
+          case AIGateway.create_response(subject_uid, request) do
+            {:ok, %{body: body}} -> json(conn, body)
+            {:error, reason} -> error(conn, reason)
+          end
+      end
+    else
+      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -84,8 +89,12 @@ defmodule AnkoleWeb.AIGatewayController do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
 
-    case AIGateway.compact_response(subject_uid, request) do
-      {:ok, %{body: body}} -> json(conn, body)
+    with {:ok, request} <- bind_codex_request(conn, request) do
+      case AIGateway.compact_response(subject_uid, request) do
+        {:ok, %{body: body}} -> json(conn, body)
+        {:error, reason} -> error(conn, reason)
+      end
+    else
       {:error, reason} -> error(conn, reason)
     end
   end
@@ -309,6 +318,24 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp done_sse_chunk, do: "data: [DONE]\n\n"
 
+  defp bind_codex_request(conn, request) do
+    case get_req_header(conn, CodexModelBinding.header_name()) do
+      [] ->
+        {:ok, request}
+
+      [encoded] ->
+        with {:ok, binding} <- CodexModelBinding.decode(encoded) do
+          responses_lite? =
+            get_req_header(conn, CodexModelBinding.responses_lite_header_name()) == ["true"]
+
+          {:ok, CodexModelBinding.apply(request, binding, responses_lite?: responses_lite?)}
+        end
+
+      _values ->
+        {:error, :invalid_codex_model_binding}
+    end
+  end
+
   defp error(conn, %OpenAIError{} = error) do
     conn
     |> put_status(error.status)
@@ -345,6 +372,9 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp error_tuple(:invalid_request_body),
     do: {400, "invalid_request_body", "JSON object body required"}
+
+  defp error_tuple(:invalid_codex_model_binding),
+    do: {400, "invalid_codex_model_binding", "Codex model binding is invalid"}
 
   defp error_tuple(:invalid_compaction_item),
     do: {400, "invalid_compaction_item", "input must contain exactly one compaction item"}

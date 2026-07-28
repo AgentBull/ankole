@@ -16,7 +16,7 @@ import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transp
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
 import { steeringMessages } from '../../src/core/turns/turn_control'
-import { AGENT_SYSTEM_PROMPT_EPOCH, buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
+import { buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import { create } from '@bufbuild/protobuf'
 import { jsonBytes } from '../../src/fabric/envelope_proto'
@@ -656,7 +656,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).toContain('Asia/Shanghai')
     expect(instructions).toContain('Prefer concise evidence.')
     expect(instructions).toContain('financial-data')
-    expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
     expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
     const changedInstructions = buildAgentSystemPrompt(changedOptions)
     expect(changedInstructions).not.toBe(instructions)
@@ -697,7 +696,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       ]
     })
 
-    expect(instructions).toContain(`ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH}`)
     expect(instructions).toContain('<background_agent_job_policy>')
     expect(instructions).toContain('If direct work becomes heavier than expected')
     expect(instructions).toContain('create_background_job')

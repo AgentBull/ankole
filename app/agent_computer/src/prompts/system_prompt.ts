@@ -17,9 +17,6 @@ import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_pro
 import { formatAgentDurableContext } from './durable_context'
 import { ankoleSkillRuntime } from '../skills/effective-skill'
 
-export const AGENT_SYSTEM_PROMPT_EPOCH = 'agent-computer-v3'
-const SystemPromptEpochMarker = `<!-- ankole-system-prompt-epoch:${AGENT_SYSTEM_PROMPT_EPOCH} -->`
-
 export type BuildAgentSystemPromptOptions = {
   agentHome?: string
   userFilesRoot?: string
@@ -59,7 +56,6 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
   const skillPrompt = toolAvailable(opts, 'skill_view') ? formatSkillsForSystemPrompt(skillsForSystemPrompt(opts)) : ''
 
   return [
-    SystemPromptEpochMarker,
     `You are ${displayName}, an AI colleague Agent powered by Ankole.`,
     soul.trim(),
     missionSection(mission),

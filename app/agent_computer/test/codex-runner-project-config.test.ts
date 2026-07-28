@@ -1,12 +1,44 @@
+import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parse } from 'smol-toml'
 import { materializeCodexJobProjectConfig } from '../src/core/codex-runner/project-config'
+import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
+
+function aigatewayRuntime(): CodexRuntimeConfig {
+  return {
+    mode: 'aigateway',
+    accountID: 'aigateway',
+    aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {}),
+    modelProfile: {
+      model: 'gpt-5.6-sol',
+      selector: 'openrouter/openai/gpt-5.6-sol',
+      providerOptions: { reasoningEffort: 'xhigh', verbosity: 'low' },
+      supportsParallelToolCalls: true,
+      modelReasoningEffort: 'xhigh'
+    }
+  }
+}
+
+function officialRuntime(input: {
+  model: string
+  modelReasoningEffort: 'max' | 'ultra'
+  fastMode: boolean
+}): CodexRuntimeConfig {
+  return {
+    mode: 'official_subscription',
+    accountID: 'account-1',
+    authJSON: '{}',
+    authHash: 'hash',
+    modelProfile: input
+  }
+}
 
 describe('@ankole/agent-computer Codex job project config', () => {
-  it('preserves template model settings and applies runner safety', () => {
+  it('applies the frozen AIGateway model over template settings and applies runner safety', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-'))
     const configPath = join(root, '.codex', 'config.toml')
     mkdirSync(join(root, '.codex'), { recursive: true })
@@ -28,6 +60,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       const materialized = materializeCodexJobProjectConfig({
         projectRoot: root,
         pluginsEnabled: true,
+        runtimeConfig: aigatewayRuntime(),
         mcpServers: [
           {
             name: 'remote-data',
@@ -50,8 +83,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
       const config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
 
       expect(materialized).toEqual({ path: configPath })
-      expect(config.model).toBe('plugin-model')
-      expect(config.model_reasoning_effort).toBe('medium')
+      expect(config.model).toBe('gpt-5.6-sol')
+      expect(config.model_provider).toBeUndefined()
+      expect(config.model_reasoning_effort).toBe('xhigh')
       expect(config.web_search).toBe('disabled')
       expect(config.features.memories).toBe(false)
       expect(config.features.plugins).toBe(true)
@@ -88,6 +122,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         materializeCodexJobProjectConfig({
           projectRoot: root,
           pluginsEnabled: false,
+          runtimeConfig: aigatewayRuntime(),
           mcpServers: []
         })
       ).toThrow('invalid Codex project config')
@@ -107,18 +142,27 @@ describe('@ankole/agent-computer Codex job project config', () => {
         projectRoot: root,
         pluginsEnabled: false,
         mcpServers: [],
-        modelProfile: { model: 'gpt-5.6-sol', modelReasoningEffort: 'max', fastMode: false }
+        runtimeConfig: officialRuntime({
+          model: 'gpt-5.6-sol',
+          modelReasoningEffort: 'max',
+          fastMode: false
+        })
       })
       let config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
       expect(config.model).toBe('gpt-5.6-sol')
       expect(config.model_reasoning_effort).toBe('max')
+      expect(config.model_provider).toBeUndefined()
       expect(config.service_tier).toBeUndefined()
 
       materializeCodexJobProjectConfig({
         projectRoot: root,
         pluginsEnabled: false,
         mcpServers: [],
-        modelProfile: { model: 'gpt-5.6-terra', modelReasoningEffort: 'ultra', fastMode: true }
+        runtimeConfig: officialRuntime({
+          model: 'gpt-5.6-terra',
+          modelReasoningEffort: 'ultra',
+          fastMode: true
+        })
       })
       config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
       expect(config.model).toBe('gpt-5.6-terra')
@@ -129,16 +173,19 @@ describe('@ankole/agent-computer Codex job project config', () => {
     }
   })
 
-  it('materializes the default config without any Job policy fields', () => {
+  it('materializes the frozen AIGateway model without template policy fields', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-default-'))
     try {
       materializeCodexJobProjectConfig({
         projectRoot: root,
         pluginsEnabled: false,
+        runtimeConfig: aigatewayRuntime(),
         mcpServers: []
       })
       const config = parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
       expect(config.features.plugins).toBe(false)
+      expect(config.model).toBe('gpt-5.6-sol')
+      expect(config.model_provider).toBeUndefined()
       expect(config.features.multi_agent_v2).toEqual({
         enabled: true,
         hide_spawn_agent_metadata: true

@@ -1,6 +1,7 @@
 defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
@@ -154,7 +155,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   end
 
   test "Job creation accepts one enabled workspace template and rejects unavailable templates" do
-    %{principal: agent} = agent_fixture()
+    %{principal: agent} = background_agent_fixture()
 
     assert {:error, {:agent_plugin_disabled, "lark"}} =
              create_job(agent.uid, "lark-disabled", "lark")

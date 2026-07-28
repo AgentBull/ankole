@@ -146,6 +146,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       []
       |> append(trigger_context_element(presentation))
       |> append(answer_element(presentation, mode))
+      |> append(interaction_answer_element(presentation))
       |> append_all(result_elements(presentation))
       |> append_all(action_elements(presentation, mode))
 
@@ -261,6 +262,36 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       "content" => if(answer == "", do: " ", else: safe_stream_markdown(answer))
     }
   end
+
+  defp interaction_answer_element(%{
+         "interaction_status" => "answered",
+         "interaction_answer" => text
+       })
+       when is_binary(text) and text != "" do
+    %{
+      "tag" => "column_set",
+      "element_id" => "interaction_answer",
+      "columns" => [
+        %{
+          "tag" => "column",
+          "width" => "weighted",
+          "weight" => 1,
+          "vertical_spacing" => "4px",
+          "elements" => [
+            %{
+              "tag" => "div",
+              "text" => CardI18n.plain_text("submitted_answer") |> metadata_text(),
+              "icon" => standard_icon("check_outlined"),
+              "margin" => "0px 0px 0px 0px"
+            },
+            plain_text_div(text, "normal", "default")
+          ]
+        }
+      ]
+    }
+  end
+
+  defp interaction_answer_element(_presentation), do: nil
 
   defp result_elements(%{"results" => results}) when is_list(results) do
     results
@@ -456,7 +487,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp activity_title(activities, _mode),
     do: CardI18n.plain_text("activity_title_summary", %{count: length(activities)})
 
-  defp action_elements(%{"actions" => actions} = presentation, mode)
+  defp action_elements(
+         %{"actions" => actions, "interaction_status" => "pending"} = presentation,
+         mode
+       )
        when is_list(actions) and actions != [] and mode == :terminal do
     choices = Enum.flat_map(actions, &render_choice_action/1)
 
@@ -634,17 +668,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp choice_title(action) do
-    text =
-      if action["selected"] == true do
-        CardI18n.plain_text("selected_option_with_label", %{label: action["label"]})
-      else
-        %{"tag" => "plain_text", "content" => action["label"]}
-      end
-
     %{
       "tag" => "div",
       "text" =>
-        Map.merge(text, %{
+        Map.merge(%{"tag" => "plain_text", "content" => action["label"]}, %{
           "text_size" => "normal",
           "text_color" => "default"
         })
@@ -652,11 +679,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp choice_description(description) when is_binary(description) and description != "",
-    do: choice_text(description, "notation", "grey")
+    do: plain_text_div(description, "notation", "grey")
 
   defp choice_description(_description), do: nil
 
-  defp choice_text(content, size, color) do
+  defp plain_text_div(content, size, color) do
     %{
       "tag" => "div",
       "text" => %{
@@ -928,6 +955,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       %{"element_id" => "actions"} ->
         true
 
+      %{"element_id" => "interaction_answer"} ->
+        true
+
       %{"element_id" => "trigger_context"} ->
         true
 
@@ -1135,6 +1165,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
             |> Map.put("results", [])
             |> Map.put("receipts", [])
             |> Map.put("actions", [])
+            |> Map.delete("interaction_answer")
           end
         end)
 

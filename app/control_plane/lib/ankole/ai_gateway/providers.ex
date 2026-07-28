@@ -564,7 +564,8 @@ defmodule Ankole.AIGateway.Providers do
     %{
       "kind" => ProviderDefinition.capability_name(capability.kind),
       "upstream" => Atom.to_string(capability.upstream),
-      "api_resolver" => Atom.to_string(capability.api_resolver)
+      "api_resolver" => Atom.to_string(capability.api_resolver),
+      "supports_parallel_tool_calls" => capability.supports_parallel_tool_calls?
     }
   end
 

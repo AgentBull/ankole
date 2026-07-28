@@ -39,6 +39,7 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
       upstream(:sse)
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
 
     embedding_model do
@@ -74,6 +75,28 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     |> common_headers(ctx)
     |> UniversalAIRequest.bearer_auth()
     |> ReasoningEffort.put_provider_options(ctx, target: :reasoning)
+    |> put_prompt_cache_key(ctx)
+  end
+
+  # OpenAI requires `prompt_cache_key` for reliable prompt-cache routing on
+  # GPT-5.6+ models, and OpenRouter forwards the field to the upstream
+  # provider. The chat resolver builds the provider body from provider
+  # options, so the public request value is copied here. This stays an
+  # OpenRouter-scoped rule: other OpenAI-compatible upstreams may reject the
+  # field.
+  defp put_prompt_cache_key({:error, _reason} = error, _ctx), do: error
+
+  defp put_prompt_cache_key(%UniversalAIRequest{} = request, ctx) do
+    case Map.get(ctx.request, "prompt_cache_key") do
+      key when is_binary(key) and key != "" ->
+        UniversalAIRequest.put_provider_options(
+          request,
+          Map.put(request.provider_options, "prompt_cache_key", key)
+        )
+
+      _value ->
+        request
+    end
   end
 
   @doc """

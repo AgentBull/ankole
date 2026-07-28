@@ -99,6 +99,66 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
+  test "OpenRouter chat requests forward the prompt cache key" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:json, 200,
+         %{
+           "id" => "chatcmpl_cache_key",
+           "object" => "chat.completion",
+           "created" => 1_764_967_971,
+           "model" => request.body["model"],
+           "choices" => [
+             %{
+               "index" => 0,
+               "message" => %{"role" => "assistant", "content" => "ok"},
+               "finish_reason" => "stop"
+             }
+           ],
+           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1, "total_tokens" => 4}
+         }}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-cache-key",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               connection_options: %{
+                 "api_key" => "sk-openrouter",
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-cache-key",
+               model: "openai/gpt-5.6-sol"
+             })
+
+    assert {:ok, %{body: _body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "prompt_cache_key" => "job-thread-9"
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "chat/completions"
+    assert request.body["prompt_cache_key"] == "job-thread-9"
+
+    assert {:ok, %{body: _noop_body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello again"
+             })
+
+    assert_receive {:gateway_request, keyless_request}
+    refute Map.has_key?(keyless_request.body, "prompt_cache_key")
+  end
+
   test "stateless responses preserve the Codex encrypted reasoning round trip" do
     %{principal: agent} = agent_fixture()
 
@@ -1075,11 +1135,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     _result = Compaction.delete_config()
 
     assert %{
-             tokens: 120_000,
+             tokens: 100_000,
              context_length: 400_000,
              effective_context_length: 400_000,
              threshold: 0.50,
-             max_threshold_tokens: 120_000
+             max_threshold_tokens: 100_000
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
 
     assert %{
@@ -1241,7 +1301,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert summarizer_request.body["model"] == "gpt-compact-light"
     assert summarizer_request.body["store"] == false
-    assert summarizer_request.body["max_output_tokens"] == 4_096
+    assert summarizer_request.body["max_output_tokens"] == 8_192
+    assert summarizer_request.body["reasoning"] == %{"effort" => "low"}
     assert summarizer_input =~ "first user message with enough detail"
     assert summarizer_input =~ "first assistant answer"
     assert summarizer_input =~ "second user message with enough detail"

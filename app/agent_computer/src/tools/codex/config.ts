@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { agentHomePaths } from '../../core/agent-home-paths'
@@ -10,6 +11,8 @@ export type MaterializedCodexConfig = {
   initialAuthHash?: string
   env: Record<string, string>
 }
+
+const AIGATEWAY_MODEL_BINDING_ENV = 'ANKOLE_AIGATEWAY_MODEL_BINDING'
 
 export function materializeCodexConfig(input: {
   agentsRoot: string
@@ -24,7 +27,7 @@ export function materializeCodexConfig(input: {
   const common = codexConfigToml(undefined)
   if (input.runtime.mode === 'aigateway') {
     atomicWriteIfChanged(configPath, codexConfigToml(input.runtime.aiGatewayKey.baseUrl))
-  } else if (!existsSync(configPath) || !readFileSync(configPath, 'utf8').includes('[features]')) {
+  } else {
     atomicWriteIfChanged(configPath, common)
   }
 
@@ -38,6 +41,7 @@ export function materializeCodexConfig(input: {
 
   if (input.runtime.mode === 'aigateway') {
     env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.apiKey
+    env[AIGATEWAY_MODEL_BINDING_ENV] = encodeAIGatewayModelBinding(input.runtime)
     return { agentHome: paths.home, codexHome: paths.codexHome, env }
   }
 
@@ -89,18 +93,29 @@ hide_spawn_agent_metadata = true
   if (!baseURL) return common
 
   const normalizedBaseURL = baseURL.replace(/\/+$/, '')
-  return `model = "coding"
-model_provider = "ankole_aigateway"
-model_reasoning_effort = "xhigh"
+  return `model_provider = "ankole_aigateway"
+model_auto_compact_token_limit = 100000
 ${common}
 
 [model_providers.ankole_aigateway]
 name = "Ankole AIGateway"
 base_url = ${JSON.stringify(normalizedBaseURL)}
 env_key = "ANKOLE_AIGATEWAY_API_KEY"
+env_http_headers = { "x-ankole-aigateway-model-binding" = "${AIGATEWAY_MODEL_BINDING_ENV}" }
 wire_api = "responses"
 supports_websockets = true
 `
+}
+
+function encodeAIGatewayModelBinding(runtime: Extract<CodexRuntimeConfig, { mode: 'aigateway' }>): string {
+  return Buffer.from(
+    JSON.stringify({
+      selector: runtime.modelProfile.selector,
+      provider_options: runtime.modelProfile.providerOptions,
+      supports_parallel_tool_calls: runtime.modelProfile.supportsParallelToolCalls
+    }),
+    'utf8'
+  ).toString('base64url')
 }
 
 function atomicWrite(path: string, content: string): void {

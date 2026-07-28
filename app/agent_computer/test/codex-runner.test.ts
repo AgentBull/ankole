@@ -756,7 +756,15 @@ function response(): BackgroundAgentJobResponse {
     replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),
     attempts: 1,
     workspaceTemplateId: '',
-    workspaceOwnerJobId: jobID
+    workspaceOwnerJobId: jobID,
+    metadataJson: jsonBytes({
+      codex_aigateway: {
+        model: 'gpt-5.6-sol',
+        selector: 'openrouter/openai/gpt-5.6-sol',
+        provider_options: { reasoningEffort: 'xhigh' },
+        supports_parallel_tool_calls: true
+      }
+    })
   })
 }
 

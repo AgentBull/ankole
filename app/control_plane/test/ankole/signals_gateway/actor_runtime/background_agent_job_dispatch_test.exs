@@ -858,6 +858,57 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert second_job.codex_account_id == first_account.account_id
   end
 
+  test "an Agent cannot switch between AIGateway and official auth while a Job is live" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    first_job = create_job!(agent.uid, "runtime-mode-overlap-first")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{
+                 agent_uid: agent.uid,
+                 session_id: BackgroundAgentJobs.job_session_id(first_job.id)
+               },
+               now: DateTime.add(first_job.queued_at, 1, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, _first_envelope}, 200
+
+    auth_json =
+      Ankole.JSON.encode!(%{
+        "tokens" => %{"account_id" => "runtime-mode-overlap", "access_token" => "token"}
+      })
+
+    assert {:ok, account} =
+             CodexAccounts.create_account(%{
+               "name" => "Runtime mode overlap",
+               "auth_json" => auth_json
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               "codex_account_id" => account.account_id
+             })
+
+    assert {:error, :agent_codex_account_overlap} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "owner-runtime-mode-overlap",
+               "source_tool_call_id" => "tool-runtime-mode-overlap",
+               "title" => "Do not mix Codex auth modes",
+               "task" => "This Job must wait until the current mode is idle.",
+               "reply_route" => %{
+                 "binding_name" => "bot",
+                 "signal_channel_id" => "chat-runtime-mode-overlap"
+               }
+             })
+  end
+
   test "worker placement applies the configurable job-only capacity" do
     %{principal: agent} = agent_fixture()
     definition = BackgroundAgentJobWorkerConfig.definition()
@@ -1182,6 +1233,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                    ),
                    now: failure_time
                  )
+
+        # Job sessions wait on the long retry ladder so the five-attempt
+        # budget can ride out an upstream outage of a few hours.
+        assert DateTime.diff(retry_available_at, failure_time, :second) ==
+                 Enum.at([60, 600, 1_800, 3_600, 7_200], expected_attempt - 1)
 
         retry_available_at
       end)

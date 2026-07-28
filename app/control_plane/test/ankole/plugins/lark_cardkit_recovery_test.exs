@@ -219,7 +219,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     refute persisted.reply_preview_cleanup_at
   end
 
-  test "refresh renders an interactive element by replacing the same message", %{
+  test "refresh freezes an accepted answer by replacing the same message", %{
     event: event
   } do
     pending =
@@ -260,7 +260,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         ]
       })
 
-    superseded = ReplyPresentation.resolve_interaction(pending, "superseded")
+    answered =
+      ReplyPresentation.resolve_interaction(pending, "answered", %{
+        "kind" => "free_text",
+        "interaction_id" => "clarify:missing-actions",
+        "value" => "路径 C"
+      })
 
     checkpoint = %{
       "schema_version" => 1,
@@ -270,11 +275,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "message_uuid" => "message-missing-actions-uuid",
       "streaming_state" => "closed",
       "element_ids" => ["state", "answer"],
-      "presentation" => ReplyPresentation.checkpoint(superseded),
+      "presentation" => ReplyPresentation.checkpoint(answered),
       "previous_presentation" => ReplyPresentation.checkpoint(pending),
       "answer_content" => "请选择路径",
       "refresh_pending" => true,
-      "refresh_reason" => "interaction_superseded"
+      "refresh_reason" => "interaction_answered"
     }
 
     assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
@@ -289,7 +294,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              CardKit.refresh(
                %Request{
                  actor_event: stored,
-                 presentation: superseded,
+                 presentation: answered,
                  previous_presentation: pending,
                  checkpoint: checkpoint,
                  mode: :terminal
@@ -301,7 +306,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:interactive_message_rebuilt, patch_opts}
     assert patch_opts[:path_params] == %{message_id: "message-missing-actions"}
     card = Ankole.JSON.decode!(patch_opts[:body][:content])
-    assert Enum.any?(card["body"]["elements"], &(&1["element_id"] == "actions"))
+    elements = card["body"]["elements"]
+    refute Enum.any?(elements, &(&1["element_id"] == "actions"))
+
+    receipt = Enum.find(elements, &(&1["element_id"] == "interaction_answer"))
+
+    assert [%{"elements" => [_label, %{"text" => %{"content" => "路径 C"}}]}] =
+             receipt["columns"]
 
     refute result.reply_preview_checkpoint["refresh_pending"]
     assert result.reply_preview_checkpoint["card_id"] == "card-missing-actions"
@@ -310,7 +321,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
              "inline_message"
 
-    assert "actions" in result.reply_preview_checkpoint["element_ids"]
+    assert "interaction_answer" in result.reply_preview_checkpoint["element_ids"]
+    refute "actions" in result.reply_preview_checkpoint["element_ids"]
   end
 
   test "a consumed UUID acknowledges an ambiguous CardKit mutation retry", %{event: event} do

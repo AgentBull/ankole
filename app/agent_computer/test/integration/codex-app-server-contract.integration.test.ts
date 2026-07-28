@@ -24,7 +24,9 @@ import { materializeCodexConfig } from '../../src/tools/codex/config'
 import { codexAppServerSandboxSpec } from '../../src/tools/codex/sandbox'
 import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
 import { prepareCodexJobProject } from '../../src/core/codex-runner/job-project'
+import { materializeCodexJobProjectConfig } from '../../src/core/codex-runner/project-config'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
+import type { CodexRuntimeConfig } from '../../src/tools/codex/runtime-config'
 
 const checkedInProtocolRoot = join(import.meta.dir, '../../src/tools/codex/generated/protocol')
 
@@ -378,6 +380,9 @@ grep -q 'TASK_AGENTS_MARKER' ${jobProjectRoot}/AGENTS.md
 grep -q '# PPTX' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
 grep -q 'PG_OVERLAY_MARKER' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
 grep -q '^name: pdf$' /repo/app/library/skills/pdf/SKILL.md
+grep -q '^model = "gpt-5.6-sol"$' ${jobProjectRoot}/.codex/config.toml
+grep -q '^model_provider = "ankole_aigateway"$' \${CODEX_HOME}/config.toml
+test -n "\${ANKOLE_AIGATEWAY_MODEL_BINDING:-}"
 printf 'command path works\n' > ${jobProjectRoot}/command-probe.txt
 test "$(bun -e "const { genericHash } = require('/repo/app/kernel'); process.stdout.write(genericHash(Buffer.from('bullx')))")" = '7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706'
 test ! -e ./AGENTS.override.md
@@ -425,23 +430,36 @@ test ! -e ./AGENTS.override.md
       }) as RPCRequester
     }
     const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
+    const runtimeConfig: CodexRuntimeConfig = {
+      mode: 'aigateway',
+      accountID: 'aigateway',
+      modelProfile: {
+        model: 'gpt-5.6-sol',
+        selector: 'openrouter/openai/gpt-5.6-sol',
+        providerOptions: { reasoningEffort: 'xhigh' },
+        supportsParallelToolCalls: true,
+        modelReasoningEffort: 'xhigh'
+      },
+      aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
+        agentUid: 'agent-1',
+        apiKey: 'unused-test-key',
+        tokenType: 'Bearer',
+        expiresAt: BigInt(Math.floor(Date.now() / 1_000) + 3_600),
+        expiresIn: 3_600n,
+        scope: 'ai_gateway',
+        baseUrl: 'http://control.test/api/v1/ai-gateway'
+      })
+    }
     const materialized = materializeCodexConfig({
       agentsRoot: root,
       agentUID: 'agent-1',
-      runtime: {
-        mode: 'aigateway',
-        accountID: 'aigateway',
-        modelOverride: 'coding',
-        aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {
-          agentUid: 'agent-1',
-          apiKey: 'unused-test-key',
-          tokenType: 'Bearer',
-          expiresAt: BigInt(Math.floor(Date.now() / 1_000) + 3_600),
-          expiresIn: 3_600n,
-          scope: 'ai_gateway',
-          baseUrl: 'http://control.test/api/v1/ai-gateway'
-        })
-      }
+      runtime: runtimeConfig
+    })
+    materializeCodexJobProjectConfig({
+      projectRoot: project.root,
+      mcpServers: [],
+      pluginsEnabled: false,
+      runtimeConfig
     })
     let realClient: CodexAppServerClient | undefined
 
@@ -499,9 +517,17 @@ test ! -e ./AGENTS.override.md
           cwd: realSandbox.codexCwd,
           approvalPolicy: 'never',
           sandbox: 'danger-full-access'
-        })) as { instructionSources: string[] }
+        })) as {
+          instructionSources: string[]
+          model: string
+          modelProvider: string
+          reasoningEffort: string | null
+        }
         expect(thread.instructionSources.some(path => path.endsWith('/AGENTS.md'))).toBe(true)
         expect(thread.instructionSources).toHaveLength(1)
+        expect(thread.model).toBe('gpt-5.6-sol')
+        expect(thread.modelProvider).toBe('ankole_aigateway')
+        expect(thread.reasoningEffort).toBe('xhigh')
       } catch (error) {
         throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`)
       }

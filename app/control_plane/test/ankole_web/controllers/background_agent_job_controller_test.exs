@@ -4,6 +4,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   alias OpenApiSpex, as: OpenAPISpex
 
   import Ecto.Query, warn: false
+  import Ankole.AIGatewayCase, only: [background_agent_fixture: 0]
   import Ankole.PrincipalsFixtures
   import OpenAPISpex.TestAssertions
 
@@ -31,8 +32,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   end
 
   test "admin lists with filters and cursor, reads the timeline, and cancels", %{conn: conn} do
-    agent = agent_fixture().principal
-    other_agent = agent_fixture().principal
+    agent = background_agent_fixture().principal
+    other_agent = background_agent_fixture().principal
     oldest = create_job!(agent.uid, "oldest")
     middle = create_job!(agent.uid, "middle")
     newest = create_job!(other_agent.uid, "newest")
@@ -117,7 +118,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
   test "cursor pagination neither skips nor repeats jobs with the same queued timestamp", %{
     conn: conn
   } do
-    agent = agent_fixture().principal
+    agent = background_agent_fixture().principal
     jobs = Enum.map(1..3, &create_job!(agent.uid, "same-time-#{&1}"))
     queued_at = ~U[2026-07-10 04:00:00.000000Z]
     Enum.each(jobs, &set_queued_at(&1, queued_at))
@@ -153,7 +154,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
        %{
          conn: conn
        } do
-    agent = agent_fixture().principal
+    agent = background_agent_fixture().principal
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
