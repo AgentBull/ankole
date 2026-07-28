@@ -197,18 +197,21 @@ class CodexJobSession {
       ...this.input.runtimeFiles.expectedSkillNames,
       ...this.input.preparedAgentPlugins.expectedSkillNames
     ].sort(compareCodePoints)
-    await withCodexHomeSetup(this.input.materialized.codexHome, async () => {
-      abortSignal?.throwIfAborted()
-      await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
-      abortSignal?.throwIfAborted()
-      await configureCodexSkills(
-        client,
-        sandbox.codexCwd,
-        this.input.runtimeFiles.skillsRoot,
-        this.input.runtimeFiles.expectedSkillNames,
-        this.input.preparedAgentPlugins
-      )
-    })
+    await withCodexHomeSetup(
+      this.input.materialized.codexHome,
+      async () => {
+        await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
+        abortSignal?.throwIfAborted()
+        await configureCodexSkills(
+          client,
+          sandbox.codexCwd,
+          this.input.runtimeFiles.skillsRoot,
+          this.input.runtimeFiles.expectedSkillNames,
+          this.input.preparedAgentPlugins
+        )
+      },
+      abortSignal
+    )
     if (await this.finishClaimedFinalization()) return
 
     this.recreatedThreadOnResume = await this.resumeExistingThread()

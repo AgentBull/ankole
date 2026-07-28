@@ -1,8 +1,8 @@
 # Changelog
 
-## Version 26.07.48 (2026-07-27)
+## Version 26.07.48 (2026-07-28)
 
-- Serialize shared Codex Home setup for overlapping Background Agent Jobs from one Agent. Plugin installation, hook trust, and Skill configuration now finish for one Job before the next Job changes the same Plugin cache, while Jobs for different Agents and all post-setup execution remain concurrent. Add regression coverage for same-Home serialization, cross-Agent concurrency, and lock release after failure, and document the process-local queue's worker-placement boundary.
+- Serialize shared Codex Home setup for overlapping Background Agent Jobs from one Agent. Plugin installation, hook trust, and Skill configuration now finish for one Job before the next Job changes the same Plugin cache, while Jobs for different Agents and all post-setup execution remain concurrent. A stopped queued Job returns its Worker turn slot after finalization without waiting for active setup, but its skipped queue position keeps later Jobs behind that setup. Add regression coverage for same-Home serialization, cross-Agent concurrency, lock release after failure, prompt queued cancellation, and preserved queue order, and document the process-local queue's worker-placement boundary.
 
 ## Version 26.07.47 (2026-07-27)
 

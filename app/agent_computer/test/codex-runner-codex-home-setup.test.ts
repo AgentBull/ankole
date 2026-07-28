@@ -43,4 +43,48 @@ describe('@ankole/agent-computer Codex Home setup', () => {
 
     await expect(withCodexHomeSetup('/agents/failure/.codex', async () => 'recovered')).resolves.toBe('recovered')
   })
+
+  it('cancels a queued setup without letting the next setup pass the active one', async () => {
+    const order: string[] = []
+    let releaseFirst = (): void => undefined
+    let markFirstStarted = (): void => undefined
+    const firstGate = new Promise<void>(resolve => {
+      releaseFirst = resolve
+    })
+    const firstStarted = new Promise<void>(resolve => {
+      markFirstStarted = resolve
+    })
+
+    const first = withCodexHomeSetup('/agents/cancel/.codex', async () => {
+      order.push('first-start')
+      markFirstStarted()
+      await firstGate
+      order.push('first-end')
+    })
+    await firstStarted
+
+    const controller = new AbortController()
+    let cancelledSetupRan = false
+    const cancelled = withCodexHomeSetup(
+      '/agents/cancel/.codex',
+      async () => {
+        cancelledSetupRan = true
+      },
+      controller.signal
+    )
+    controller.abort(new Error('queued setup cancelled'))
+
+    await expect(cancelled).rejects.toThrow('queued setup cancelled')
+    expect(cancelledSetupRan).toBe(false)
+
+    const next = withCodexHomeSetup('/agents/cancel/.codex', async () => {
+      order.push('next')
+    })
+    await Promise.resolve()
+    expect(order).toEqual(['first-start'])
+
+    releaseFirst()
+    await Promise.all([first, next])
+    expect(order).toEqual(['first-start', 'first-end', 'next'])
+  })
 })
