@@ -90,7 +90,13 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.value.maxTurns).toBe(9)
     expect(ready.body.value.availableTurnSlots).toBe(9)
     if (heartbeat.body.case !== 'workerHeartbeat') throw new Error('expected workerHeartbeat body')
-    expect(heartbeat.body.value.activeTurns).toBe(0)
+    expect(heartbeat.body.value).toMatchObject({
+      activeTurns: 0,
+      availableTurnSlots: 9,
+      maxTurns: 9,
+      runtime: 'bun',
+      version: '0.1.0'
+    })
     if (capacity.body.case !== 'workerCapacity') throw new Error('expected workerCapacity body')
     expect(capacity.body.value.maxTurns).toBe(9)
     expect(capacity.body.value.activeTurns).toBe(0)

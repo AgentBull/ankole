@@ -95,6 +95,12 @@ message AgentComputerWorkerHeartbeat {
   reserved 3;
   string incarnation_id = 4;
   uint32 active_turns = 5;
+  // A heartbeat is a complete worker snapshot so the control plane can rebuild
+  // its UNLOGGED worker registry without restarting the worker process.
+  string runtime = 6;
+  string version = 7;
+  uint32 max_turns = 8;
+  uint32 available_turn_slots = 9;
 }
 
 message AgentComputerWorkerCapacity {

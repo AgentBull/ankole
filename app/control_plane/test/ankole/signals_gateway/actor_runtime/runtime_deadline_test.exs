@@ -285,11 +285,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       assert {:ok, %AgentComputerWorker{status: "ready"}} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
-                   incarnation_id: worker.incarnation_id,
-                   active_turns: 1
-                 },
+                 worker_heartbeat_payload(worker, %{active_turns: 1}),
                  %{authenticated?: true, transport_route: route}
                )
 

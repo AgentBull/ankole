@@ -160,6 +160,36 @@ defmodule Ankole.E2E.ChaosE2ETest do
     )
   end
 
+  @tag timeout: 120_000
+  @tag ownership_timeout: 120_000
+  test "live worker heartbeat rebuilds its missing volatile registry row" do
+    ctx = start_worker_e2e_stack!()
+    worker = Repo.get_by!(AgentComputerWorker, worker_id: ctx.worker_id)
+
+    assert {:ok, _deleted} = Repo.delete(worker)
+    assert is_nil(Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id))
+
+    assert {:ok, %AgentComputerWorker{} = recovered} =
+             wait_until(deadline(30_000), fn ->
+               case Repo.get_by(AgentComputerWorker, worker_id: ctx.worker_id) do
+                 %AgentComputerWorker{id: id, status: "ready"} = current
+                 when id != worker.id ->
+                   current
+
+                 _worker ->
+                   nil
+               end
+             end)
+
+    assert recovered.incarnation_id == worker.incarnation_id
+    assert recovered.transport_route == worker.transport_route
+    assert recovered.version == worker.version
+    assert recovered.capacity == worker.capacity
+    assert recovered.load == %{"active_turns" => 0}
+    assert recovered.metadata == worker.metadata
+    assert DateTime.after?(recovered.last_worker_heartbeat_at, worker.last_worker_heartbeat_at)
+  end
+
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
   test "an attachment removed after the turn commits blocks delivery without a phantom file message" do

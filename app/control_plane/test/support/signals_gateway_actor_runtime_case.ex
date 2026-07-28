@@ -168,6 +168,34 @@ defmodule Ankole.SignalsGateway.ActorRuntimeCase do
     end
   end
 
+  def worker_heartbeat_payload(%AgentComputerWorker{} = worker, overrides \\ %{}) do
+    fields =
+      Map.merge(
+        %{
+          worker_id: worker.worker_id,
+          incarnation_id: worker.incarnation_id,
+          monotonic_ms: 0,
+          runtime: worker.metadata["runtime"],
+          version: worker.version,
+          max_turns: worker.capacity["max_turns"],
+          active_turns: 0
+        },
+        overrides
+      )
+
+    available_turn_slots =
+      Map.get(
+        overrides,
+        :available_turn_slots,
+        fields.max_turns - fields.active_turns
+      )
+
+    struct!(
+      FabricProto.AgentComputerWorkerHeartbeat,
+      Map.put(fields, :available_turn_slots, available_turn_slots)
+    )
+  end
+
   @doc """
   Normalizes a domain or generated turn fence into the proto struct.
   """

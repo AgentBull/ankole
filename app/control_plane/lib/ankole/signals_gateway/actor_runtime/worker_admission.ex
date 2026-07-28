@@ -3,13 +3,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   Worker admission boundary for authenticated actor lane lifecycle messages.
 
   Every worker lifecycle message (ready / heartbeat / capacity) lands here after
-  the transport has authenticated the route, and gets projected into the durable
-  `agent_computer_worker` table — the scheduler's single source of worker
-  liveness. Lifecycle messages must come from the authenticated worker id and
-  route and process incarnation the projection owns. When a worker dies, is
-  replaced, or its route breaks, all live deliveries are superseded and its
-  assignments released, but the
-  underlying actor event rows stay open so the scheduler can simply retry them.
+  the transport has authenticated the route, and gets projected into the
+  UNLOGGED `agent_computer_workers` registry — the scheduler's single source of
+  worker liveness. The registry is rebuilt from authenticated worker heartbeats
+  after database recovery. Lifecycle messages must come from the authenticated
+  worker id and route and process incarnation the projection owns. When a worker
+  dies, is replaced, or its route breaks, all live deliveries are superseded and
+  its assignments released, but the underlying actor event rows stay open so
+  the scheduler can simply retry them.
   """
 
   import Ecto.Query, warn: false
@@ -99,10 +100,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
               refresh_worker_ready(repo, worker, attrs, now)
 
             nil ->
-              %AgentComputerWorker{}
-              |> AgentComputerWorker.changeset(attrs)
-              |> repo.insert()
-              |> notify_worker_stale_deadline(repo)
+              insert_worker_projection(repo, attrs)
           end
         end
       end)
@@ -114,10 +112,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   @doc """
   Records an authenticated worker heartbeat projection.
 
-  A heartbeat renews the worker's lease (its `last_worker_heartbeat_at`), which is
-  the clock the watchdog reads to decide staleness. It is accepted only if the
-  authenticated identity matches and the worker still owns its route, so
-  heartbeats from a previous process cannot keep a superseded worker alive.
+  A heartbeat carries the complete live worker snapshot. It renews the worker's
+  lease and can rebuild a missing UNLOGGED projection after database recovery.
+  An existing projection is updated only if its route and incarnation still
+  match, so an old process cannot replace the current worker.
   """
   @spec handle_worker_heartbeat(FabricProto.AgentComputerWorkerHeartbeat.t(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -126,14 +124,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         authenticated_route
       ) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
-         {:ok, worker_id} <- required_text(worker_heartbeat.worker_id, "worker_id"),
-         {:ok, incarnation_id} <-
-           required_text(worker_heartbeat.incarnation_id, "incarnation_id"),
-         :ok <- authenticated_worker_matches(auth, worker_id) do
-      update_worker_projection(worker_id, incarnation_id, auth.route, %{
-        last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
-        load: %{"active_turns" => worker_heartbeat.active_turns}
-      })
+         {:ok, attrs} <- worker_heartbeat_attrs(worker_heartbeat, auth.route),
+         :ok <- authenticated_worker_matches(auth, attrs.worker_id) do
+      now = DateTime.utc_now(:microsecond)
+      attrs = Map.put(attrs, :last_worker_heartbeat_at, now)
+
+      update_worker_projection(
+        attrs.worker_id,
+        attrs.incarnation_id,
+        auth.route,
+        Map.take(attrs, [:version, :capacity, :load, :metadata, :last_worker_heartbeat_at]),
+        attrs
+        |> Map.put(:status, @ready_worker_status)
+        |> Map.put(:started_at, now)
+      )
     end
   end
 
@@ -289,22 +293,40 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   # it is reachable again, so a stale projection may re-enter the ready pool.
   # The stale transition already released assignments and superseded deliveries;
   # re-admission never restores those fences or accepts late Turn writes.
-  defp update_worker_projection(worker_id, incarnation_id, route, attrs) do
-    Repo.transact(fn repo ->
-      case lock_worker_by_id(repo, worker_id) do
-        %AgentComputerWorker{} = worker ->
-          with :ok <- worker_route_matches(worker, route),
-               :ok <- worker_incarnation_matches(worker, incarnation_id) do
-            worker
-            |> AgentComputerWorker.changeset(revalidate_authenticated_stale_worker(worker, attrs))
-            |> repo.update()
-            |> notify_worker_stale_deadline(repo)
-          end
+  defp update_worker_projection(worker_id, incarnation_id, route, attrs, missing_attrs \\ nil) do
+    result =
+      Repo.transact(fn repo ->
+        case lock_worker_by_id(repo, worker_id) do
+          %AgentComputerWorker{} = worker ->
+            with :ok <- worker_route_matches(worker, route),
+                 :ok <- worker_incarnation_matches(worker, incarnation_id) do
+              worker
+              |> AgentComputerWorker.changeset(
+                revalidate_authenticated_stale_worker(worker, attrs)
+              )
+              |> repo.update()
+              |> notify_worker_stale_deadline(repo)
+            end
 
-        nil ->
-          {:error, :worker_not_ready}
-      end
-    end)
+          nil when is_map(missing_attrs) ->
+            with :ok <- worker_route_available(repo, missing_attrs),
+                 {:ok, worker} <- insert_worker_projection(repo, missing_attrs) do
+              {:ok, {:admitted, worker}}
+            end
+
+          nil ->
+            {:error, :worker_not_ready}
+        end
+      end)
+
+    case result do
+      {:ok, {:admitted, worker}} ->
+        Ankole.RuntimeEvents.Scheduler.hydrate()
+        {:ok, worker}
+
+      result ->
+        result
+    end
   end
 
   defp revalidate_authenticated_stale_worker(
@@ -334,6 +356,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       |> repo.update()
       |> notify_worker_stale_deadline(repo)
     end
+  end
+
+  defp insert_worker_projection(repo, attrs) do
+    %AgentComputerWorker{}
+    |> AgentComputerWorker.changeset(attrs)
+    |> repo.insert()
+    |> notify_worker_stale_deadline(repo)
   end
 
   defp maybe_release_replaced_worker(
@@ -619,6 +648,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
            "available_turn_slots" => worker_ready.available_turn_slots
          },
          load: %{},
+         transport_route: route,
+         metadata: %{"runtime" => runtime}
+       }}
+    end
+  end
+
+  defp worker_heartbeat_attrs(
+         %FabricProto.AgentComputerWorkerHeartbeat{} = worker_heartbeat,
+         route
+       ) do
+    with {:ok, worker_id} <- required_text(worker_heartbeat.worker_id, "worker_id"),
+         {:ok, incarnation_id} <-
+           required_text(worker_heartbeat.incarnation_id, "incarnation_id"),
+         {:ok, runtime} <- required_text(worker_heartbeat.runtime, "runtime"),
+         {:ok, version} <- required_text(worker_heartbeat.version, "version") do
+      {:ok,
+       %{
+         worker_id: worker_id,
+         incarnation_id: incarnation_id,
+         version: version,
+         capacity: %{
+           "max_turns" => worker_heartbeat.max_turns,
+           "available_turn_slots" => worker_heartbeat.available_turn_slots
+         },
+         load: %{"active_turns" => worker_heartbeat.active_turns},
          transport_route: route,
          metadata: %{"runtime" => runtime}
        }}

@@ -392,6 +392,10 @@ fn worker_lifecycle_envelopes_expose_worker_id_for_route_auth() {
             monotonic_ms: 0,
             active_turns: 0,
             incarnation_id: "incarnation-a".into(),
+            runtime: "bun".into(),
+            version: "test".into(),
+            max_turns: 1,
+            available_turn_slots: 1,
         }),
         proto::envelope::Body::WorkerCapacity(proto::AgentComputerWorkerCapacity {
             worker_id: "worker-a".into(),
@@ -450,6 +454,27 @@ fn rejects_inconsistent_worker_capacity() {
     assert!(
         validate_error(inconsistent)
             .contains("worker_capacity available and active turns must equal max_turns")
+    );
+
+    let incomplete_heartbeat = base_envelope(
+        "worker-heartbeat-incomplete",
+        "",
+        proto::Lane::Control,
+        proto::DurabilityClass::ControlEphemeral,
+        proto::envelope::Body::WorkerHeartbeat(proto::AgentComputerWorkerHeartbeat {
+            worker_id: "worker-a".into(),
+            incarnation_id: "incarnation-a".into(),
+            runtime: "bun".into(),
+            version: "test".into(),
+            max_turns: 4,
+            active_turns: 2,
+            available_turn_slots: 1,
+            monotonic_ms: 0,
+        }),
+    );
+    assert!(
+        validate_error(incomplete_heartbeat)
+            .contains("worker_heartbeat available and active turns must equal max_turns")
     );
 }
 

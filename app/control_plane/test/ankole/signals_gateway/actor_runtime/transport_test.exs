@@ -180,15 +180,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, heartbeat_worker} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
-                   incarnation_id: worker.incarnation_id,
+                 worker_heartbeat_payload(worker, %{
                    monotonic_ms: 123,
-                   active_turns: 1
-                 },
+                   max_turns: 2,
+                   active_turns: 1,
+                   version: "heartbeat-test"
+                 }),
                  %{authenticated?: true, transport_route: route}
                )
 
+      assert heartbeat_worker.version == "heartbeat-test"
+      assert heartbeat_worker.capacity == %{"available_turn_slots" => 1, "max_turns" => 2}
       assert heartbeat_worker.load == %{"active_turns" => 1}
 
       assert {:ok, capacity_worker} =
@@ -208,21 +210,64 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:error, :stale_worker_incarnation} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
+                 worker_heartbeat_payload(worker, %{
                    incarnation_id: "replaced-incarnation"
-                 },
+                 }),
                  %{authenticated?: true, transport_route: route}
                )
 
       assert {:error, :stale_transport_route} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
-                   incarnation_id: worker.incarnation_id
-                 },
+                 worker_heartbeat_payload(worker),
                  %{authenticated?: true, transport_route: route <> "-stale"}
                )
+    end
+
+    test "authenticated heartbeat rebuilds a missing volatile worker projection" do
+      route = unique_route()
+      assert {:ok, worker} = admit_worker(route)
+      assert {:ok, _deleted} = Repo.delete(worker)
+      assert is_nil(Repo.get(AgentComputerWorker, worker.id))
+
+      heartbeat =
+        worker_heartbeat_payload(worker, %{
+          monotonic_ms: 123,
+          max_turns: 4,
+          active_turns: 1
+        })
+
+      assert {:error, :worker_auth_identity_mismatch} =
+               ActorRuntime.handle_worker_heartbeat(
+                 heartbeat,
+                 %{
+                   authenticated?: true,
+                   transport_route: route,
+                   worker_id: "different-worker"
+                 }
+               )
+
+      assert is_nil(Repo.get_by(AgentComputerWorker, worker_id: worker.worker_id))
+
+      assert {:ok, recovered} =
+               ActorRuntime.handle_worker_heartbeat(
+                 heartbeat,
+                 %{
+                   authenticated?: true,
+                   transport_route: route,
+                   worker_id: worker.worker_id
+                 }
+               )
+
+      assert recovered.id != worker.id
+      assert recovered.worker_id == worker.worker_id
+      assert recovered.incarnation_id == worker.incarnation_id
+      assert recovered.status == "ready"
+      assert recovered.version == worker.version
+      assert recovered.transport_route == route
+      assert recovered.capacity == %{"available_turn_slots" => 3, "max_turns" => 4}
+      assert recovered.load == %{"active_turns" => 1}
+      assert recovered.metadata == %{"runtime" => "bun"}
+      assert %DateTime{} = recovered.last_worker_heartbeat_at
     end
 
     test "authenticated heartbeat revalidates the same live worker after a stale transition" do
@@ -239,12 +284,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, revalidated} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
-                   incarnation_id: worker.incarnation_id,
-                   monotonic_ms: 123,
-                   active_turns: 0
-                 },
+                 worker_heartbeat_payload(worker, %{monotonic_ms: 123}),
                  %{authenticated?: true, transport_route: route}
                )
 
@@ -265,10 +305,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
 
       assert {:ok, recovered} =
                ActorRuntime.handle_worker_heartbeat(
-                 %FabricProto.AgentComputerWorkerHeartbeat{
-                   worker_id: worker.worker_id,
-                   incarnation_id: worker.incarnation_id
-                 },
+                 worker_heartbeat_payload(worker),
                  %{authenticated?: true, transport_route: route}
                )
 

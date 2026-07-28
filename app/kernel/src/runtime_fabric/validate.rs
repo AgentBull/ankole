@@ -127,7 +127,15 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
         }
         proto::envelope::Body::WorkerHeartbeat(payload) => {
             require_non_empty(&payload.worker_id, "worker_heartbeat.worker_id")?;
-            require_non_empty(&payload.incarnation_id, "worker_heartbeat.incarnation_id")
+            require_non_empty(&payload.incarnation_id, "worker_heartbeat.incarnation_id")?;
+            require_non_empty(&payload.runtime, "worker_heartbeat.runtime")?;
+            require_non_empty(&payload.version, "worker_heartbeat.version")?;
+            validate_worker_capacity_snapshot(
+                payload.max_turns,
+                payload.available_turn_slots,
+                payload.active_turns,
+                "worker_heartbeat",
+            )
         }
         proto::envelope::Body::WorkerCapacity(payload) => {
             require_non_empty(&payload.worker_id, "worker_capacity.worker_id")?;
@@ -201,18 +209,32 @@ fn validate_worker_ready_capacity(payload: &proto::AgentComputerWorkerReady) -> 
 }
 
 fn validate_worker_capacity(payload: &proto::AgentComputerWorkerCapacity) -> KernelResult<()> {
-    if payload.max_turns == 0 {
-        return Err(KernelError::new(
-            "worker_capacity.max_turns must be positive",
-        ));
+    validate_worker_capacity_snapshot(
+        payload.max_turns,
+        payload.available_turn_slots,
+        payload.active_turns,
+        "worker_capacity",
+    )
+}
+
+fn validate_worker_capacity_snapshot(
+    max_turns: u32,
+    available_turn_slots: u32,
+    active_turns: u32,
+    field: &str,
+) -> KernelResult<()> {
+    if max_turns == 0 {
+        return Err(KernelError::new(format!(
+            "{field}.max_turns must be positive"
+        )));
     }
 
-    let observed_turns = u64::from(payload.available_turn_slots) + u64::from(payload.active_turns);
+    let observed_turns = u64::from(available_turn_slots) + u64::from(active_turns);
 
-    if observed_turns != u64::from(payload.max_turns) {
-        return Err(KernelError::new(
-            "worker_capacity available and active turns must equal max_turns",
-        ));
+    if observed_turns != u64::from(max_turns) {
+        return Err(KernelError::new(format!(
+            "{field} available and active turns must equal max_turns"
+        )));
     }
 
     Ok(())

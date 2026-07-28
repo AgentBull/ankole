@@ -143,6 +143,10 @@ ActorRuntime can rebuild these routing tables after a restart:
 These UNLOGGED tables use text states with database checks. Their values describe
 only the current transport state.
 
+Each heartbeat carries the worker's full identity, runtime, version, capacity,
+and load snapshot. An authenticated heartbeat recreates a missing worker row
+after PostgreSQL clears the UNLOGGED registry.
+
 Durable domain tables can still use PostgreSQL enums.
 
 ## Authenticate a Worker
@@ -281,9 +285,10 @@ The actor lane carries these common messages:
 - `turn_noop_completed`
 - `turn_error`
 
-Worker capacity has one scheduling representation. `worker_ready` and
-`worker_capacity` carry integer `max_turns` and `available_turn_slots` fields.
-`worker_heartbeat` and `worker_capacity` carry integer `active_turns` fields.
+Worker capacity has one scheduling representation. `worker_ready`,
+`worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
+`available_turn_slots` fields. `worker_heartbeat` and `worker_capacity` also
+carry integer `active_turns` fields.
 The kernel rejects zero maximum capacity, available capacity above the maximum,
 and capacity updates whose active and available values do not equal the maximum.
 The control plane does not derive capacity from load or parse JSON and string

@@ -26,6 +26,8 @@ export type WorkerConfig = {
 const defaultMaxConcurrentTurns = 9
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH']
 const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
+const workerRuntime = 'bun'
+const workerVersion = '0.1.0'
 
 /**
  * Parses the worker process environment into the stable computer-worker config.
@@ -140,8 +142,8 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = c
       value: create(AgentComputerWorkerReadySchema, {
         workerId: config.workerID,
         incarnationId: config.incarnationID,
-        runtime: 'bun',
-        version: '0.1.0',
+        runtime: workerRuntime,
+        version: workerVersion,
         maxTurns: config.maxConcurrentTurns,
         availableTurnSlots: available
       })
@@ -160,6 +162,8 @@ export function workerHeartbeatEnvelope(
   monotonicMs = Math.floor(performance.now()),
   activeTurns = 0
 ): Envelope {
+  const available = clampAvailableSlots(config, config.maxConcurrentTurns - activeTurns)
+
   return createEnvelope({
     ...envelopeHeader(`worker-heartbeat-${crypto.randomUUID()}`, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
     body: {
@@ -168,7 +172,11 @@ export function workerHeartbeatEnvelope(
         workerId: config.workerID,
         incarnationId: config.incarnationID,
         monotonicMs: BigInt(monotonicMs),
-        activeTurns
+        activeTurns,
+        runtime: workerRuntime,
+        version: workerVersion,
+        maxTurns: config.maxConcurrentTurns,
+        availableTurnSlots: available
       })
     }
   })
