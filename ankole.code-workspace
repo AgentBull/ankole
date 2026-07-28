@@ -7,24 +7,44 @@
       "path": "."
     },
     {
-      "name": "./app",
-      "path": "app"
+      "name": "./app/agent_computer",
+      "path": "app/agent_computer"
     },
     {
-      "name": "./packages/native-addons",
-      "path": "packages/native-addons"
+      "name": "./app/ankole-browser",
+      "path": "app/ankole-browser"
     },
     {
-      "name": "./packages/sdk",
-      "path": "packages/sdk"
+      "name": "./app/control_plane",
+      "path": "app/control_plane"
     },
     {
-      "name": "./plugin/lark-adapter",
-      "path": "plugin/lark-adapter"
+      "name": "./app/kernel",
+      "path": "app/kernel"
+    },
+    {
+      "name": "./app/webapps",
+      "path": "app/webapps"
+    },
+    {
+      "name": "./app/website",
+      "path": "app/website"
+    },
+    {
+      "name": "./libs/feishu_openapi",
+      "path": "libs/feishu_openapi"
+    },
+    {
+      "name": "./libs/uikit",
+      "path": "libs/uikit"
     },
     {
       "name": "./tools/devkit",
       "path": "tools/devkit"
+    },
+    {
+      "name": "./tools/openapi-client-generator",
+      "path": "tools/openapi-client-generator"
     }
   ]
 }
