@@ -43,7 +43,7 @@ Configure optional profiles only when the Agent needs them:
 - Configure `vision_fallback` when the Agent must read images.
 - Configure `web_search` and `web_fetch` when the Agent must search or read public web pages.
 - Configure `image_generate` when the Agent must create images.
-- Configure **Background Agent Jobs** when Jobs need a separate model or a ChatGPT subscription account.
+- Configure **Background Agent Jobs** when Jobs need a separate provider or model. A ChatGPT subscription uses the same provider selection through its [ChatGPT subscription provider](../chatgpt-subscription-provider/).
 
 See [Quick start](../quickstart/#3-add-an-llm-provider-and-create-an-agent) for the first LLM Provider and model setup.
 

@@ -46,7 +46,19 @@ defmodule Ankole.AIGatewayCase do
     defp request_map(conn, ""), do: request_map(conn, nil)
 
     defp request_map(conn, body) when is_binary(body) do
-      request_map(conn, Ankole.JSON.decode!(body))
+      decoded =
+        case get_req_header(conn, "content-type") do
+          [content_type | _rest]
+          when is_binary(content_type) ->
+            if String.starts_with?(content_type, "application/x-www-form-urlencoded"),
+              do: URI.decode_query(body),
+              else: Ankole.JSON.decode!(body)
+
+          _missing ->
+            Ankole.JSON.decode!(body)
+        end
+
+      request_map(conn, decoded)
     end
 
     defp request_map(conn, body) do
@@ -65,6 +77,15 @@ defmodule Ankole.AIGatewayCase do
       conn
       |> put_resp_content_type("application/json")
       |> send_resp(status, Ankole.JSON.encode!(body))
+    end
+
+    defp send_upstream_response({:json, status, headers, body}, conn) do
+      conn =
+        Enum.reduce(headers, conn, fn {name, value}, conn ->
+          put_resp_header(conn, name, value)
+        end)
+
+      send_upstream_response({:json, status, body}, conn)
     end
 
     defp send_upstream_response({:raw, status, content_type, body}, conn) do
@@ -124,7 +145,7 @@ defmodule Ankole.AIGatewayCase do
         provider_id: provider_id,
         provider_kind: "openrouter",
         base_url: "https://openrouter.ai/api/v1",
-        connection_options: %{"api_key" => "sk-test"}
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
     {:ok, _profile} =

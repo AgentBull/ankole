@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Providers.AgentBullCloud do
     label(%{"default" => "AgentBull Cloud", "zh-Hans-CN" => "AgentBull Cloud"})
     base_url("https://serp.yuma.host")
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

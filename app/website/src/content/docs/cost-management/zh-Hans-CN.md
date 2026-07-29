@@ -18,7 +18,7 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 | `primary` | 主推理模型——大多数回合 | 单条最大的成本项 |
 | `light` | 高频低风险路径 | 应当真正廉价 |
 | `heavy` | 硬综合 | 昂贵；`primary` 调好时很少用到 |
-| 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个模型或订阅账号 |
+| 后台 Agent 任务（内部键为 `coding`） | 每个后台 Agent 任务 | 决定持久后台任务使用哪个 Provider 和模型 |
 | `vision_fallback` | `primary` 处理不了图像时 | 仅在 agent 看图像时绑 |
 | `embedding`、`rerank` | 记忆与检索 | 按调用计价，通常小 |
 | `web_search`、`web_fetch` | web 工具 | 见杠杆 3 |
@@ -29,11 +29,11 @@ Ankole 花的大部分是模型 token，而其中大部分由一小撮配置杠�
 - **把 `light` 绑到真正廉价的东西。** 它为高频路径而存在；一个几乎和 `primary` 一样贵的 `light` 让这个槽失去意义。
 - **默认把 `primary` 调低、不调高。** 一个"感觉贵"的 agent，常常是 `primary` 相对于它实际做的工作绑得太重。质量需要时才上调。
 
-Agent 用不到 `vision_fallback` 或 `image_generate` 时，可以把它们留空，避免产生相应调用。后台 Agent 任务不同：即使不单独配置，任务仍会回退到该 Agent 的 `heavy` 档案并通过 AIGateway 运行。只有在后台任务需要不同模型或指定的 ChatGPT 订阅账号时，才需要单独配置。
+Agent 用不到 `vision_fallback` 时，可以把它留空，避免产生相应调用。`image_generate` 留空时，若主 Provider 声明支持原生图像生成，请求仍可走原生路径。后台 Agent 任务不同：即使不单独配置，任务仍会回退到该 Agent 的 `heavy` 档案并通过 AIGateway 运行。只有后台任务需要不同 Provider 或模型时，才需要单独配置。
 
 ## 杠杆 2：reasoning effort
 
-对 Codex 支持的 primary profile，`model_reasoning_effort` 是一档七级的旋钮：`minimal | low | medium | high | xhigh | max | ultra`。更低 effort 更廉价更快；更高 effort 在难题上更好、花费更多。默认 `high`。
+对支持 Codex reasoning effort 的 Provider，`model_reasoning_effort` 是一档七级的旋钮：`minimal | low | medium | high | xhigh | max | ultra`。更低 effort 更廉价更快；更高 effort 在难题上更好、花费更多。默认 `high`。
 
 这是比换模型更细的杠杆。一个在 `medium` 就够、却配成 `high` 的 `primary` agent，多花钱却无可见收益。在 `primary` profile 上设它，匹配 agent 的实际工作；只给那个做硬综合的 agent 上调，不是给所有 agent。
 

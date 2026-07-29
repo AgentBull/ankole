@@ -12,7 +12,7 @@ defmodule Ankole.AIGateway.Providers.OpenAICompatible do
   provider :openai_compatible do
     label(%{"default" => "OpenAI Compatible", "zh-Hans-CN" => "OpenAI 兼容"})
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:endpoint_kind, default: "chat_completions")
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)

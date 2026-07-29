@@ -156,6 +156,16 @@ defmodule Ankole.AIGateway.ProviderDSL do
     end
   end
 
+  @doc """
+  Declares that this provider can execute the public native image-generation
+  tool without an AIGateway hosted image profile.
+  """
+  defmacro supports_native_image_generation(value \\ true) do
+    quote do
+      @ai_provider_capability_attrs {:supports_native_image_generation, unquote(value)}
+    end
+  end
+
   @doc false
   defmacro __before_compile__(env) do
     provider_kind =
@@ -216,6 +226,9 @@ defmodule Ankole.AIGateway.ProviderDSL do
     prepare = Map.fetch!(attrs, :prepare)
     supports_parallel_tool_calls? = Map.get(attrs, :supports_parallel_tool_calls, false)
 
+    supports_native_image_generation? =
+      Map.get(attrs, :supports_native_image_generation, false)
+
     unless upstream in @upstream_kinds do
       raise ArgumentError,
             "unsupported upstream #{inspect(upstream)} for #{inspect(module)} #{kind}"
@@ -226,13 +239,19 @@ defmodule Ankole.AIGateway.ProviderDSL do
             "supports_parallel_tool_calls must be a boolean for #{inspect(module)} #{kind}"
     end
 
+    unless is_boolean(supports_native_image_generation?) do
+      raise ArgumentError,
+            "supports_native_image_generation must be a boolean for #{inspect(module)} #{kind}"
+    end
+
     capability = %Capability{
       kind: kind,
       upstream: upstream,
       api_resolver: api_resolver,
       prepare: prepare,
       timeout_ms: Map.get(attrs, :timeout_ms),
-      supports_parallel_tool_calls?: supports_parallel_tool_calls?
+      supports_parallel_tool_calls?: supports_parallel_tool_calls?,
+      supports_native_image_generation?: supports_native_image_generation?
     }
 
     Module.put_attribute(module, :ai_provider_capabilities, capability)

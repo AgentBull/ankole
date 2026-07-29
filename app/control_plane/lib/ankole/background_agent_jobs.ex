@@ -87,6 +87,10 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate requeue_unstarted_attempt(job_id, agent_uid, expected_attempt),
     to: Lifecycle
 
+  @doc false
+  defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
+    to: Lifecycle
+
   @doc "Delays one still-open job actor event without consuming it."
   defdelegate defer_actor_event(actor_event, available_at), to: Dispatch
 
@@ -133,6 +137,34 @@ defmodule Ankole.BackgroundAgentJobs do
   end
 
   @doc false
+  def compensate_turn_error_in_tx(
+        repo,
+        %ActorEvent{
+          agent_uid: agent_uid,
+          session_id: session_id,
+          input_state: "open"
+        },
+        %{
+          "details_json" => %{"error_code" => "credential_pool_exhausted"} = details
+        },
+        %DateTime{}
+      ) do
+    with true <- valid_credential_pool_retry_at?(details),
+         {:ok, job_id} <- parse_job_session_id(session_id),
+         {:ok, job} <-
+           Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(
+             repo,
+             job_id,
+             agent_uid
+           ) do
+      {:ok, %{kind: :credential_pool_requeued, job: job}}
+    else
+      false -> {:ok, nil}
+      :error -> {:ok, nil}
+      {:error, _reason} = error -> error
+    end
+  end
+
   def compensate_turn_error_in_tx(
         repo,
         %ActorEvent{agent_uid: agent_uid, session_id: session_id},
@@ -186,7 +218,27 @@ defmodule Ankole.BackgroundAgentJobs do
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
+  defp valid_credential_pool_retry_at?(%{"retry_at" => retry_at})
+       when is_binary(retry_at) do
+    match?({:ok, %DateTime{}, _offset}, DateTime.from_iso8601(retry_at))
+  end
+
+  defp valid_credential_pool_retry_at?(_details), do: false
+
   @doc false
+  def finalize_turn_error(
+        {:ok,
+         %{
+           turn_error_compensation: %{kind: :credential_pool_requeued} = compensation
+         } = result}
+      ) do
+    {:ok,
+     result
+     |> Map.delete(:turn_error_compensation)
+     |> Map.put(:status, :background_agent_job_requeued)
+     |> Map.put(:background_agent_job_requeue, compensation)}
+  end
+
   def finalize_turn_error({:ok, %{turn_error_compensation: compensation} = result}) do
     {:ok,
      result

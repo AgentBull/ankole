@@ -167,14 +167,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
     do: defer(event, :agent_capacity, opts)
 
   defp handle_start_result(
-         {:error, :background_agent_job_codex_account_at_capacity},
-         event,
-         _job,
-         opts
-       ),
-       do: defer(event, :codex_account_capacity, opts)
-
-  defp handle_start_result(
          {:ok, %{send_outcome: outcome}},
          event,
          job,

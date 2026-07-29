@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
     label(%{"default" => "OpenAI", "zh-Hans-CN" => "OpenAI"})
     base_url("https://api.openai.com/v1", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:endpoint_kind, default: "responses", advanced: true)
     setting(:upstream_transport, advanced: true)
     setting(:organization, advanced: true)
@@ -45,6 +45,7 @@ defmodule Ankole.AIGateway.Providers.OpenAI do
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
       supports_parallel_tool_calls()
+      supports_native_image_generation()
     end
   end
 

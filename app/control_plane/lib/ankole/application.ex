@@ -26,8 +26,9 @@ defmodule Ankole.Application do
     #     which plugin-contributed children to start (snapshot taken once at boot).
     #   - IdentityProviders.StartupSync after Oban + Plugins: full-sync enqueue
     #     needs the queue, active provider config, and adapter declarations.
-    #   - PubSub + AIGateway response streams before SignalsGateway: conversation
-    #     previews use PubSub and a recovered Actor turn may open a provider stream.
+    #   - PubSub + AIGateway credential and response-stream processes before
+    #     SignalsGateway: a recovered Actor turn may select a credential and open a
+    #     provider stream.
     #   - SignalsGateway owns both preview and ActorRuntime supervision, keeping
     #     their restart escalation inside the SignalsGateway failure domain.
     #   - RuntimeEvents after SignalsGateway: LISTEN is followed by a snapshot of
@@ -47,6 +48,7 @@ defmodule Ankole.Application do
         {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
         {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
         {Phoenix.PubSub, name: Ankole.PubSub},
+        Ankole.AIGateway.CredentialPool,
         Ankole.AIGateway.ResponseStream.Supervisor,
         Ankole.SignalsGateway.Supervisor
       ]

@@ -83,6 +83,12 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 AIGateway 在任何上游调用之前，先把模型选择符解析到一个真实的 provider 绑定。选择符是调用方看到的东西——比如 `main`，或一个显式的 provider 自有名称——解析结果取决于主体：agent 的选择符来自它配置的模型绑定，管理员看到的是显式的 provider 条目。`GET /models` 列出当前主体能解析到的东西，支持可选的 OpenRouter 风格过滤（`q`、`context`、`min_price`、`max_price`、`sort`、模态过滤）。
 
+每个 Provider 行拥有一个凭据池。Provider kind、base URL、请求头、设置和能力声明由所有池成员共享。model profile 只指向 Provider 行，从不指定池成员。AIGateway 按该行配置的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略选择健康成员。Console 会根据当前界面语言翻译这些策略名称，API 值和存储值保持不变。AIGateway 会尽量让同一个有状态 thread 使用同一成员。
+
+能归属到具体凭据的 `429`、`5xx` 或传输失败，只会冷却实际发起请求的凭据。AIGateway 改选其他成员、重建 Provider 请求，再按指数退避和抖动做有界重试。Rust kernel 每次只执行一次传输尝试。池为空时，AIGateway 不会切换到另一个 Provider。
+
+`chatgpt_subscription` 是普通 Provider kind。它的 OAuth 凭据留在控制面，token 刷新在 Provider 行锁内执行。Agent Computer 和外部调用方都不会收到这些 token。
+
 解析可能以两种方式失败，调用方应当处理：
 
 - `422 unknown_model_selector`——该选择符没有为这个主体绑定。
@@ -96,13 +102,20 @@ AIGateway 在任何上游调用之前，先把模型选择符解析到一个真�
 
 - `400`——请求体验证失败：缺 `model`、缺 `input`、`limit` 或 `top_n` 不合法、HTTP 上出现有状态字段、压缩输入格式不对。`code` 会指出字段。
 - `401`——bearer token 缺失或无法验证。
+- `429`——所选 Provider 的凭据池已耗尽。错误码是 `credential_pool_exhausted`；若 AIGateway 知道最早恢复时间，错误会带 `retry_at`。
 - `404`——对该主体而言找不到某个已存储的响应、会话、agent 或文件。
 - `422`——请求格式正确，但控制面无法服务它：未知选择符、未配置的绑定、不支持的能力、被禁用的 provider。
 - `502` / `504`——上游 provider 失败。`502` 涵盖传输和无效响应失败（`upstream_transport_failed`、`invalid_upstream_response`、`ai_gateway_request_failed`）；`504` 是 `upstream_timeout`。provider 返回的客户端 `4xx` 会按它自己的状态码透传。
 
 当上游返回了 `error.message` 时，AIGateway 会转发这条消息；否则就如实报告上游的 HTTP 状态码。
 
-## web 工具、文件，以及 LLM 之外的能力
+## 图像生成
+
+`image_generation` 是公共 Responses 工具，有两条执行路径。主体配置了 `image_generate` 档案时，AIGateway 使用该档案的独立 Provider 和模型执行工具；没有配置时，只有主 Provider 的能力声明支持原生图像生成，AIGateway 才把工具透传给它。两条路径都不存在时，请求准备会直接失败，不会仿真工具。
+
+两条路径使用相同的公共流事件和图像持久化。模型用量与图像用量分别记在实际产出对应内容的凭据上。
+
+## web 工具、文件，以及其他能力
 
 同一个主体和 token 也驱动相邻的能力。`POST /web_search` 接收一个（有长度上限的）`query`，返回 provider 支持的搜索结果；`POST /web_fetch` 接收一到五个公网 HTTPS URL，返回页面内容。`POST /embeddings` 接受文本、token 数组或输入块；`POST /rerank` 对一个非空文档数组重排，并接收一个正整数 `top_n`。`GET /web_tools` 告诉调用方，当前主体实际能用其中哪几样。
 

@@ -1,6 +1,5 @@
 import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
-import { genericHash } from '@ankole/kernel'
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { errorMessage } from '../../common/errors'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -9,8 +8,7 @@ import {
   rpcMethods,
   type BackgroundAgentJobResponse,
   type BackgroundAgentJobStatus,
-  type BackgroundAgentJobTurnUsage,
-  type RPCRequester
+  type BackgroundAgentJobTurnUsage
 } from '../../lanes/rpc_lane'
 import { CodexAppServerClient, CodexAppServerRPCError, type JSONRPCMessage } from '../../tools/codex/app-server-client'
 import type { DynamicToolCallParams } from '../../tools/codex/generated/protocol/v2/DynamicToolCallParams'
@@ -34,8 +32,10 @@ import { withCodexHomeSetup } from './codex-home-setup'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
   classifyCodexRecoveryFailure,
+  codexCredentialPoolExhaustion,
   initialCodexRecoveryState,
   transitionCodexRecovery,
+  type CodexCredentialPoolExhaustion,
   type CodexRecoveryState
 } from './recovery-policy'
 import type { PreparedCodexJobExecution } from './setup'
@@ -64,13 +64,12 @@ class CodexJobSession {
   private waitingOnUserInput = false
   private recoveryInFlight = false
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
+  private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
   private recreatedThreadOnResume = false
   private finalizing = false
   private closing = false
   private turnResult: TurnHandlerResult | undefined
-  private authReconcilePromise: Promise<JSONObject> | undefined
-
   private steerTimer: ReturnType<typeof setInterval> | undefined
   private steerInFlight = false
   private resolveCompaction: (() => void) | undefined
@@ -81,7 +80,7 @@ class CodexJobSession {
 
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
-    this.threadModel = input.runtimeConfig.mode === 'aigateway' ? input.runtimeConfig.modelProfile.model : undefined
+    this.threadModel = input.runtimeConfig.modelProfile.model
     this.turnRecorder = new BackgroundAgentJobTurnRecorder({
       jobID: input.jobID,
       attempt: input.job.attempts,
@@ -151,13 +150,6 @@ class CodexJobSession {
     }
     try {
       await this.input.cleanup()
-    } catch (error) {
-      captureCleanupError(error)
-    }
-    try {
-      if (this.input.runtimeConfig.mode === 'official_subscription' && !this.authReconcilePromise) {
-        await this.reconcileCodexAuth()
-      }
     } catch (error) {
       captureCleanupError(error)
     }
@@ -263,7 +255,7 @@ class CodexJobSession {
 
   private async publishRunningStatus(initializeResponse: JSONObject, expectedSkillNames: string[]): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available')
-    const { opts, turnStart, jobID, job, sandbox, jobProject, mcpServers, projection } = this.input
+    const { opts, turnStart, jobID, sandbox, jobProject, mcpServers, projection } = this.input
     await opts.rpc(
       rpcMethods.backgroundAgentJobStatusUpdate,
       {
@@ -271,7 +263,6 @@ class CodexJobSession {
         status: 'running',
         runtimeThreadId: this.runtimeThreadID,
         metadataJson: jsonBytes({
-          codex_account_id: job.codexAccountId,
           codex_user_agent: stringValue(initializeResponse.userAgent),
           job_project_cwd: sandbox.codexCwd,
           job_workspace: jobProject.root,
@@ -289,18 +280,6 @@ class CodexJobSession {
       },
       { turn: turnStart.turn }
     )
-  }
-
-  private reconcileCodexAuth(): Promise<JSONObject> {
-    if (this.input.runtimeConfig.mode !== 'official_subscription') return Promise.resolve({ changed: false })
-    this.authReconcilePromise ??= writebackCodexAuth({
-      turnStart: this.input.turnStart,
-      jobID: this.input.jobID,
-      authPath: this.input.materialized.authPath,
-      initialAuthHash: this.input.materialized.initialAuthHash,
-      rpc: this.input.opts.rpc
-    })
-    return this.authReconcilePromise
   }
 
   private async commit(
@@ -339,8 +318,6 @@ class CodexJobSession {
         this.turnRecorder.finishTurn(this.codexTurnID, status, details.error)
       }
       await this.turnRecorder.flush()
-      if (this.input.runtimeConfig.mode === 'official_subscription') await this.reconcileCodexAuth()
-
       await this.input.opts.rpc(
         rpcMethods.backgroundAgentJobStatusUpdate,
         {
@@ -506,6 +483,9 @@ class CodexJobSession {
 
     this.recoveryInFlight = true
     try {
+      const poolExhaustion = codexCredentialPoolExhaustion(error) ?? this.pendingCredentialPoolExhaustion
+      if (poolExhaustion) throw new CodexCredentialPoolExhaustedError(poolExhaustion, error)
+
       const failure = classifyCodexRecoveryFailure(error)
       const decision = transitionCodexRecovery({
         stage: 'turn',
@@ -567,6 +547,11 @@ class CodexJobSession {
     }
     if (!isLeadNotification) return
 
+    if (message.method === 'error') {
+      const exhaustion = codexCredentialPoolExhaustion(jsonObject(params.error))
+      if (exhaustion) this.pendingCredentialPoolExhaustion = exhaustion
+    }
+
     if (message.method === 'item/completed') {
       const item = jsonObject(params.item)
       if (item.type === 'contextCompaction' && stringValue(params['threadId']) === this.compactingThreadID) {
@@ -577,6 +562,7 @@ class CodexJobSession {
     }
 
     if (projection.type === 'turn_started') {
+      this.pendingCredentialPoolExhaustion = undefined
       this.completedFilesChanged = mergeBackgroundAgentJobPathHandoffs(
         this.completedFilesChanged,
         this.activeFilesChanged
@@ -825,35 +811,6 @@ async function listCodexSkills(
   })
 }
 
-async function writebackCodexAuth(input: {
-  turnStart: TurnStart
-  jobID: string
-  authPath?: string
-  initialAuthHash?: string
-  rpc: RPCRequester
-}): Promise<JSONObject> {
-  if (!input.authPath || !input.initialAuthHash) throw new Error('Codex account auth was not materialized')
-  const authJSON = readFileSync(input.authPath, 'utf8')
-  const finalHash = genericHash(Buffer.from(authJSON))
-  if (finalHash === input.initialAuthHash) return { changed: false, auth_hash: finalHash }
-
-  let lastError: unknown
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    try {
-      await input.rpc(
-        rpcMethods.codexAccountAuthUpdate,
-        { jobId: input.jobID, authJson: authJSON },
-        { turn: input.turnStart.turn }
-      )
-      return { changed: true, auth_hash: finalHash }
-    } catch (error) {
-      lastError = error
-      if (attempt < 3) await Bun.sleep(50 * 2 ** (attempt - 1))
-    }
-  }
-  throw lastError instanceof Error ? lastError : new Error(errorMessage(lastError))
-}
-
 function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): string {
   let input: string
   if (turnStart.actor_event.type === 'command.steer') {
@@ -980,6 +937,24 @@ class CodexJobTransientError extends Error {
       { cause: cause instanceof Error ? cause : undefined }
     )
     this.name = 'CodexJobTransientError'
+  }
+}
+
+class CodexCredentialPoolExhaustedError extends Error {
+  readonly code = 'credential_pool_exhausted'
+  readonly retryable = true
+  readonly status = 429
+  readonly retryAt: string | undefined
+  readonly details: JSONObject
+
+  constructor(exhaustion: CodexCredentialPoolExhaustion, cause: JSONObject) {
+    const retrySuffix = exhaustion.retryAt ? ` retry_at=${exhaustion.retryAt}` : ''
+    super(`AIGateway credential pool exhausted.${retrySuffix}`, {
+      cause: new Error(stringValue(cause.message) ?? 'Codex reported an exhausted credential pool')
+    })
+    this.name = 'CodexCredentialPoolExhaustedError'
+    this.retryAt = exhaustion.retryAt
+    this.details = exhaustion.retryAt ? { retry_at: exhaustion.retryAt } : {}
   }
 }
 

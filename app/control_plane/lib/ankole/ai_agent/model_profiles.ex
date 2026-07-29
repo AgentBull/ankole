@@ -14,7 +14,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
-  alias Ankole.AIAgent.CodexAccounts
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -23,14 +22,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
     primary light heavy coding vision_fallback embedding rerank web_search web_fetch image_generate
   )
   @required_profiles ~w(primary light heavy)
-  @codex_subscription_fields ~w(model model_reasoning_effort fast_mode)
-  @codex_reasoning_efforts ~w(minimal low medium high xhigh max ultra)
-  @codex_subscription_defaults %{
-    "model" => "gpt-5.6-sol",
-    "model_reasoning_effort" => "high",
-    "fast_mode" => false
-  }
-
   @type profile :: String.t()
 
   @doc """
@@ -107,31 +98,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  @doc "Normalizes the model settings for an official Codex subscription."
-  @spec codex_subscription_config(map()) :: {:ok, map()} | {:error, term()}
-  def codex_subscription_config(attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
-
-    with [] <- Map.keys(attrs) -- @codex_subscription_fields,
-         attrs <- Map.merge(@codex_subscription_defaults, attrs),
-         {:ok, model} <- required_text(attrs, "model"),
-         {:ok, reasoning_effort} <-
-           normalize_codex_reasoning_effort(Map.get(attrs, "model_reasoning_effort")),
-         {:ok, fast_mode} <- normalize_codex_fast_mode(Map.get(attrs, "fast_mode")) do
-      {:ok,
-       %{
-         "model" => model,
-         "model_reasoning_effort" => reasoning_effort,
-         "fast_mode" => fast_mode
-       }}
-    else
-      [_field | _fields] -> {:error, :invalid_codex_account_profile}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  def codex_subscription_config(_attrs), do: {:error, :invalid_codex_account_profile}
-
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
       case Repo.get(Agent, agent_uid) do
@@ -158,22 +124,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp profiles_from_agent(%Agent{options: options}) when is_map(options) do
     case get_in(options, ["ai_agent", "models"]) do
-      models when is_map(models) -> put_codex_subscription_defaults(models)
+      models when is_map(models) -> models
       _value -> %{}
     end
   end
-
-  defp put_codex_subscription_defaults(
-         %{"coding" => %{"codex_account_id" => account_id} = profile} = profiles
-       )
-       when is_binary(account_id) do
-    case codex_subscription_config(Map.take(profile, @codex_subscription_fields)) do
-      {:ok, config} -> Map.put(profiles, "coding", Map.merge(profile, config))
-      {:error, _reason} -> profiles
-    end
-  end
-
-  defp put_codex_subscription_defaults(profiles), do: profiles
 
   defp profile_result(nil, _profile), do: {:error, :model_profile_not_configured}
   defp profile_result(%{} = attrs, profile), do: {:ok, Map.put(attrs, "profile", profile)}
@@ -209,28 +163,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp normalize_profile_attrs(_profile, nil), do: {:ok, nil}
   defp normalize_profile_attrs(_profile, %{} = attrs) when map_size(attrs) == 0, do: {:ok, nil}
-
-  defp normalize_profile_attrs("coding", attrs) when is_map(attrs) do
-    attrs = normalize_external_attrs(attrs)
-
-    case Map.get(attrs, "codex_account_id") do
-      account_id when is_binary(account_id) ->
-        with {:ok, account_id} <- required_text(attrs, "codex_account_id"),
-             {:ok, _account} <- CodexAccounts.fetch_account(account_id),
-             {:ok, config} <-
-               attrs
-               |> Map.delete("codex_account_id")
-               |> codex_subscription_config() do
-          {:ok, Map.put(config, "codex_account_id", account_id)}
-        else
-          {:error, :not_found} -> {:error, :codex_account_not_found}
-          {:error, _reason} = error -> error
-        end
-
-      _value ->
-        normalize_aigateway_profile("coding", attrs)
-    end
-  end
 
   defp normalize_profile_attrs(profile, attrs) when is_map(attrs) do
     normalize_aigateway_profile(profile, normalize_external_attrs(attrs))
@@ -288,15 +220,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   end
 
   defp normalize_context_length(_value), do: {:error, :invalid_context_length}
-
-  defp normalize_codex_reasoning_effort(value) when value in @codex_reasoning_efforts,
-    do: {:ok, value}
-
-  defp normalize_codex_reasoning_effort(_value),
-    do: {:error, :invalid_codex_model_reasoning_effort}
-
-  defp normalize_codex_fast_mode(value) when is_boolean(value), do: {:ok, value}
-  defp normalize_codex_fast_mode(_value), do: {:error, :invalid_codex_fast_mode}
 
   defp maybe_put_context_length(profile, nil), do: profile
 

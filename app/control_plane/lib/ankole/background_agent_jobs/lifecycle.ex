@@ -5,7 +5,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   alias Ecto.Adapters.SQL
 
-  alias Ankole.AIAgent.CodexAccounts.Account
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -46,8 +45,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
-           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-         :ok <- claim_codex_account_slot(repo, job) do
+           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       claim_attempt(repo, job, expected_attempt)
     else
       nil -> {:error, :job_not_found}
@@ -62,8 +60,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
-           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-         :ok <- claim_codex_account_slot(repo, job) do
+           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
       claim_continuation(repo, job, expected_attempt)
     else
       nil -> {:error, :job_not_found}
@@ -93,6 +90,32 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         {:error, _reason} = error -> error
       end
     end)
+  end
+
+  @doc false
+  @spec requeue_credential_pool_exhausted_attempt_in_tx(
+          module(),
+          pos_integer(),
+          String.t()
+        ) ::
+          {:ok, Job.t()} | {:error, term()}
+  def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
+           Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
+      job
+      |> Job.changeset(%{
+        status: "queued",
+        attempts: attempts - 1,
+        started_at: if(attempts == 1, do: nil, else: job.started_at)
+      })
+      |> repo.update()
+    else
+      nil -> {:error, :job_not_found}
+      %Job{} -> {:error, :background_agent_job_attempt_changed}
+      {:error, _reason} = error -> error
+    end
   end
 
   @spec commit_status_with_wakeup(pos_integer(), String.t(), map(), keyword()) ::
@@ -390,12 +413,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   def nudge_queued_after_slot_release(repo, %Job{status: status} = job, now)
       when status in @terminal_statuses or status == "waiting_on_user" do
     Job
-    |> where(
-      [row],
-      row.agent_uid == ^job.agent_uid or
-        (^job.codex_account_id != "aigateway" and
-           row.codex_account_id == ^job.codex_account_id)
-    )
+    |> where([row], row.agent_uid == ^job.agent_uid)
     |> where([row], row.status == "queued")
     |> select([row], {row.id, row.agent_uid})
     |> repo.all()
@@ -541,45 +559,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         |> repo.update()
       end
     end
-  end
-
-  defp claim_codex_account_slot(_repo, %Job{codex_account_id: "aigateway"}), do: :ok
-
-  defp claim_codex_account_slot(repo, %Job{codex_account_id: account_id, id: id}) do
-    account =
-      Account
-      |> where([row], row.account_id == ^account_id)
-      |> lock("FOR UPDATE")
-      |> repo.one()
-
-    cond do
-      is_nil(account) ->
-        {:error, :codex_account_not_found}
-
-      subscription_account_running?(repo, account_id, id) ->
-        {:error, :background_agent_job_codex_account_at_capacity}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp subscription_account_running?(repo, account_id, job_id) do
-    Job
-    |> join(:inner, [row], assignment in ActorSessionWorkerAssignment,
-      on:
-        assignment.agent_uid == row.agent_uid and
-          assignment.session_id ==
-            fragment(
-              "? || ?",
-              type(^BackgroundAgentJobs.job_session_prefix(), :string),
-              row.id
-            ) and
-          assignment.status in ["assigned", "draining"]
-    )
-    |> where([row, _assignment], row.codex_account_id == ^account_id)
-    |> where([row, _assignment], row.id != ^job_id)
-    |> repo.exists?()
   end
 
   defp append_wakeup_event(repo, %Job{} = job, now) do

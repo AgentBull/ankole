@@ -85,7 +85,9 @@ export function parseOutputItems(
             id: responseFunctionCallKey(fc) || '',
             type: 'function' as const,
             name: fc.name,
-            arguments: fc.arguments
+            ...(fc.namespace ? { namespace: fc.namespace } : {}),
+            arguments: fc.arguments,
+            ...(fc.caller ? { caller: fc.caller } : {})
           }))
         : undefined,
     usage,

@@ -23,7 +23,7 @@ pub(super) fn normalize_image_error(error: StreamError) -> StreamError {
         provider_code.filter(|code| image_user_error_code(code))
     };
 
-    match user_code {
+    let mut normalized = match user_code {
         Some(code) => {
             let mut normalized =
                 StreamError::new(code, "image_generation", "The image request was rejected.");
@@ -31,7 +31,9 @@ pub(super) fn normalize_image_error(error: StreamError) -> StreamError {
             normalized
         }
         None => error,
-    }
+    };
+    normalized.stage = "image_generation".to_string();
+    normalized
 }
 
 pub(super) fn redact_hosted_error(mut error: StreamError) -> StreamError {
@@ -57,7 +59,6 @@ pub(super) fn redact_hosted_error(mut error: StreamError) -> StreamError {
     }
     error.provider_body_excerpt = None;
     error.message = public_message(&error).to_string();
-    error.stage = "hosted_responses".to_string();
     error
 }
 
@@ -181,5 +182,33 @@ mod tests {
         assert_eq!(public["message"], "The image request was rejected.");
         assert_eq!(public["status"], 400);
         assert_eq!(public["details_json"]["provider_status"], 400);
+    }
+
+    #[test]
+    fn normalizes_every_image_failure_to_the_image_stage() {
+        let error = StreamError::new(
+            "provider_status_rejected",
+            "connect",
+            "private provider message",
+        )
+        .provider_status(503);
+
+        let normalized = normalize_image_error(error);
+
+        assert_eq!(normalized.stage, "image_generation");
+    }
+
+    #[test]
+    fn hosted_redaction_keeps_the_attempt_stage() {
+        let error = StreamError::new(
+            "provider_status_rejected",
+            "connect",
+            "private provider message",
+        )
+        .provider_status(503);
+
+        let redacted = redact_hosted_error(error);
+
+        assert_eq!(redacted.stage, "connect");
     }
 }

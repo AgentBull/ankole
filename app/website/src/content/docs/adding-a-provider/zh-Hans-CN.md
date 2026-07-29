@@ -21,12 +21,13 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     label(%{"default" => "My Provider"})
     base_url("https://api.example.com/v1")
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
       upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
   end
 
@@ -58,7 +59,7 @@ end
 `Setting` 声明一个运维者或请求选项：
 
 ```elixir
-setting(:api_key, encrypted: true)
+setting(:api_key, encrypted: true, scope: :credential)
 setting(:organization, advanced: true)
 setting(:reasoningEffort, type: :select, default: "high",
        options: ["minimal", "low", "medium", "high", "xhigh"], scope: :request)
@@ -71,11 +72,13 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `default` | 默认值 |
 | `options` | `:select` 的允许值 |
 | `required?` | 运维者是否必须提供 |
-| `encrypted?` | 存储元数据——值静态加密；provider 代码读取解密后的值 |
+| `encrypted?` | 凭据值静态加密所需的存储元数据 |
 | `advanced?` | Console 表单的呈现元数据；不改变校验或运行时 |
-| `scope` | `:connection`（按 provider）或 `:request`（按 model profile） |
+| `scope` | `:credential`（按池成员）、`:connection`（按 Provider 行）或 `:request`（按 model profile） |
 
-`encrypted?` 仅是存储元数据。provider 代码从同一设置 map 读解密后的值；没有单独的凭证抽象。`advanced?` 仅是呈现——它在 Console 里把字段藏到"高级"开关后；不影响校验或行为。
+每个 Provider 行都有凭据池，单成员也是池的退化情况。Resolver 在调用 prepare 函数前选择一个健康成员，并解密它的 `:credential` 设置。端点和自定义请求头等 connection 设置由整行共享；request 设置来自 model profile。prepare 函数从解析后的同一个 settings map 读取三种 scope，不实现池选择。
+
+`advanced?` 仅控制呈现。它在 Console 中把字段放进高级设置，不改变校验或行为。
 
 ## 能力
 
@@ -86,6 +89,8 @@ language_model do
   upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
+  supports_parallel_tool_calls()
+  supports_native_image_generation()
 end
 ```
 
@@ -96,6 +101,8 @@ end
 | `api_resolver` | Rust 侧的 resolver atom（如 `:openai_responses`），拥有编码和传输 |
 | `prepare` | 构建准备好的请求的 Elixir 函数 |
 | `timeout_ms` | 可选的按能力超时 |
+| `supports_parallel_tool_calls?` | Provider 是否接受并行工具调用 |
+| `supports_native_image_generation?` | LLM 是否能在没有 hosted `image_generate` 档案时执行公共图像工具 |
 
 六种能力映射到运行时使用的外部名：`language_model` → `"llm"`、`embedding_model` → `"embedding"`、`rerank_model` → `"rerank"`，三种 web/image 能力名不变。只提供 LLM 的 provider 只声明 `language_model`；提供 LLM 和 embedding 的 provider 两者都声明。
 
@@ -112,7 +119,7 @@ def prepare_language_model(%PrepareContext{} = context) do
 end
 ```
 
-provider 的差异住在这里——URL 构造、auth 头、体塑形、特定上游 API 的怪癖。prepare 函数是 provider 的实际工作；DSL 声明只是这些工作如何被发现和路由。
+Provider 的差异住在这里——URL 构造、auth 头、体塑形和特定上游 API 的规则。prepare 函数是 Provider 的实际工作；DSL 声明说明这些工作如何被发现和路由。凭据重试不属于 prepare 函数：控制面可以改选池成员、重建请求，再让 kernel 执行一次新的传输尝试。
 
 ## 注册 provider
 

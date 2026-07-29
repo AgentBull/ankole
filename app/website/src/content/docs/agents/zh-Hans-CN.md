@@ -41,7 +41,7 @@ Agent 是一位长期工作的数字同事。每个 Agent 都有自己的身份�
 - Agent 需要读图片时，配置 `vision_fallback`。
 - Agent 需要搜索或读取公开网页时，配置 `web_search` 和 `web_fetch`。
 - Agent 需要生成图片时，配置 `image_generate`。
-- 后台 Agent 任务需要单独选择模型或 ChatGPT 订阅账号时，配置“后台 Agent 任务”。
+- 后台 Agent 任务需要单独选择 Provider 或模型时，配置“后台 Agent 任务”。ChatGPT 订阅也通过普通的 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)选择。
 
 模型提供商和首次模型配置见[快速开始](../quickstart/#3-添加模型提供商并创建-agent)。
 

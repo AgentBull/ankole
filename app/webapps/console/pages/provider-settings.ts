@@ -37,6 +37,11 @@ export function connectionSettings(kind: AIGatewayProviderKindItem | undefined):
 // `transport` is a low-level escape hatch and is not rendered in the form.
 const HIDDEN_CONNECTION_KEYS = new Set(['transport'])
 
+/** Returns the credential fields stored in each encrypted pool member. */
+export function credentialSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
+  return settingsForScope(kind, 'credential')
+}
+
 /** Returns the request-scoped settings accepted by model profiles for a provider kind. */
 export function requestSettings(kind: AIGatewayProviderKindItem | undefined): ProviderSetting[] {
   return settingsForScope(kind, 'request')
@@ -44,7 +49,7 @@ export function requestSettings(kind: AIGatewayProviderKindItem | undefined): Pr
 
 function settingsForScope(
   kind: AIGatewayProviderKindItem | undefined,
-  scope: 'connection' | 'request'
+  scope: 'connection' | 'credential' | 'request'
 ): ProviderSetting[] {
   if (!kind) return []
 
@@ -53,7 +58,7 @@ function settingsForScope(
     .filter((setting): setting is ProviderSetting => setting !== null)
 }
 
-function asSetting(raw: unknown, expectedScope: 'connection' | 'request'): ProviderSetting | null {
+function asSetting(raw: unknown, expectedScope: 'connection' | 'credential' | 'request'): ProviderSetting | null {
   const record = recordValue(raw)
   if (!record) return null
 
@@ -115,18 +120,6 @@ export function settingDraftValue(value: unknown): string {
   if (value == null) return ''
   if (typeof value === 'object') return JSON.stringify(value, null, 2)
   return String(value)
-}
-
-export type EncryptedOptionState = { present: boolean; masked?: string | null }
-
-/** Reads the masked presence projection for an encrypted option, if any. */
-export function encryptedOptionState(
-  provider: AIGatewayProviderItem | undefined,
-  key: string
-): EncryptedOptionState | undefined {
-  const option = provider?.encrypted_options?.[key]
-  if (!option) return undefined
-  return { present: option.present, masked: option.masked }
 }
 
 export type BuildResult = { ok: true; value: Record<string, unknown> } | { ok: false; key: string; error: string }

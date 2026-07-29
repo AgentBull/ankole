@@ -92,9 +92,9 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   })
   opts.abortSignal?.throwIfAborted()
   const runtimeConfig = await resolveCodexRuntimeConfig({
-    turn: turnStart.turn,
-    job,
-    requesters: opts
+    turnStart,
+    agentUID: job.agentUid,
+    requestAIGatewayAPIKey: opts.requestAIGatewayAPIKey
   })
   opts.abortSignal?.throwIfAborted()
   const materialized = materializeCodexConfig({
@@ -108,10 +108,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     pluginsEnabled: backgroundAgentPlugins.length > 0,
     runtimeConfig
   })
-  const projectionAPIKey =
-    runtimeConfig.mode === 'aigateway'
-      ? runtimeConfig.aiGatewayKey
-      : await requestProjectionAIGatewayKey(turnStart, opts)
+  const projectionAPIKey = runtimeConfig.aiGatewayKey
   opts.abortSignal?.throwIfAborted()
   const projectionAIGateway = httpClientFromAIGatewayAPIKey(projectionAPIKey, options =>
     requestProjectionAIGatewayKey(turnStart, opts, options)

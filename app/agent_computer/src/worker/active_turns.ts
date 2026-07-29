@@ -111,6 +111,7 @@ export function turnFailureDetails(error: unknown): JSONObject {
   }
 
   if (workerError.code) details.error_code = workerError.code
+  if (workerError.retryAt) details.retry_at = workerError.retryAt
 
   const gateway = aigatewayErrorDetails(error)
   if (gateway) details.aigateway = gateway
@@ -155,12 +156,13 @@ export function aigatewayErrorDetails(error: unknown): JSONObject | undefined {
   return Object.keys(details).length > 0 ? details : undefined
 }
 
-function workerErrorDetails(error: unknown): { code?: string; retryable?: boolean } {
+function workerErrorDetails(error: unknown): { code?: string; retryable?: boolean; retryAt?: string } {
   if (!error || typeof error !== 'object') return {}
-  const record = error as { code?: unknown; retryable?: unknown }
+  const record = error as { code?: unknown; retryable?: unknown; retryAt?: unknown }
   return {
     ...(typeof record.code === 'string' ? { code: record.code } : {}),
-    ...(typeof record.retryable === 'boolean' ? { retryable: record.retryable } : {})
+    ...(typeof record.retryable === 'boolean' ? { retryable: record.retryable } : {}),
+    ...(typeof record.retryAt === 'string' ? { retryAt: record.retryAt } : {})
   }
 }
 

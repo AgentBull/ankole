@@ -9,7 +9,7 @@ import {
   responseEventStaleTimeoutMs,
   responseFrameRefreshesStaleDeadline
 } from '../../src/core/llm/session'
-import { buildResponseCreateParams } from '../../src/core/llm/wire'
+import { buildResponseCreateParams, toResponseInput } from '../../src/core/llm/wire'
 
 import { fakeResponseSocket } from '../support/llm'
 
@@ -182,6 +182,109 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     ])
     expect(hostedOnly.tools).toEqual([{ type: 'image_generation' }])
     expect(withHosted.prompt_cache_key).not.toBe(withoutHosted.prompt_cache_key)
+  })
+
+  it('declares deferred namespace tools, hosted Tool Search, and PTC in the official wire shape', () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary'
+    })
+
+    const request = buildResponseCreateParams(model, {
+      messages: [{ role: 'user', content: 'query finance data' }],
+      programmaticToolCalling: true,
+      tools: {
+        stockPrice: {
+          name: 'stock_price',
+          description: 'Query one stock price.',
+          parameters: z.record(z.string(), z.unknown()),
+          jsonSchema: {
+            type: 'object',
+            properties: { symbol: { type: 'string' } },
+            required: ['symbol'],
+            additionalProperties: false
+          },
+          namespace: 'mcp__finance',
+          namespaceDescription: 'Financial data tools.',
+          deferLoading: true,
+          toolSearchText:
+            'mcp__financestock_price mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
+          allowedCallers: ['direct', 'programmatic']
+        }
+      }
+    })
+
+    expect(request.tools as unknown).toEqual([
+      {
+        type: 'namespace',
+        name: 'mcp__finance',
+        description: 'Financial data tools.',
+        tools: [
+          {
+            type: 'function',
+            name: 'stock_price',
+            description: 'Query one stock price.',
+            parameters: {
+              type: 'object',
+              properties: { symbol: { type: 'string' } },
+              required: ['symbol'],
+              additionalProperties: false
+            },
+            strict: false,
+            defer_loading: true,
+            __ankole_search_text:
+              'mcp__financestock_price mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
+            allowed_callers: ['direct', 'programmatic']
+          }
+        ]
+      },
+      { type: 'tool_search', execution: 'server' },
+      { type: 'programmatic_tool_calling' }
+    ])
+  })
+
+  it('round-trips namespace and program caller on function calls and outputs', () => {
+    const caller = { type: 'program' as const, caller_id: 'prog_1' }
+    const input = toResponseInput([
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            namespace: 'mcp__finance',
+            name: 'stock_price',
+            arguments: '{"symbol":"600519"}',
+            caller
+          }
+        ]
+      },
+      {
+        role: 'tool',
+        toolCallID: 'call_1',
+        result: '{"price":1700}',
+        caller
+      }
+    ])
+
+    expect(input).toEqual([
+      {
+        type: 'function_call',
+        call_id: 'call_1',
+        namespace: 'mcp__finance',
+        name: 'stock_price',
+        arguments: '{"symbol":"600519"}',
+        caller
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: '{"price":1700}',
+        caller
+      }
+    ])
   })
 
   it('passes image input through as Responses input_image content', async () => {
@@ -603,6 +706,76 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       input: [{ role: 'user', content: 'hi' }]
     })
     expect(JSON.stringify(sentPayloads[0]!.input)).not.toContain('system prompt')
+  })
+
+  it('enables PTC by default for the main agent and keeps writes direct-only', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_ptc_default',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'done' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    await runAgentLoop({
+      model,
+      maxModelIterations: 3,
+      messages: [{ role: 'user', content: 'check tools' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000018',
+        conversationID: '18181818-1818-1818-1818-181818181818'
+      },
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Read one value.',
+          schema: z.object({ key: z.string() }),
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => '查询',
+          execute: async () => ({ content: [{ type: 'text', text: 'value' }], details: {} })
+        },
+        {
+          name: 'write',
+          description: 'Write one value.',
+          schema: z.object({ key: z.string() }),
+          isReadOnly: false,
+          isDestructive: true,
+          describeActivity: () => '写入',
+          execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: {} })
+        }
+      ]
+    })
+
+    expect(sentPayloads[0]!.tools).toEqual([
+      expect.objectContaining({ name: 'lookup', allowed_callers: ['direct', 'programmatic'] }),
+      expect.objectContaining({ name: 'write', allowed_callers: ['direct'] }),
+      { type: 'programmatic_tool_calling' }
+    ])
   })
 
   it('keeps user text parts as Responses input_text parts', async () => {

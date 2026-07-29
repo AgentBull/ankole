@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway.Providers do
   """
 
   alias Ankole.AIGateway.PrepareContext
+  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.ProviderDefinition
   alias Ankole.AIGateway.ProviderDefinition.Capability
   alias Ankole.AIGateway.ProviderDefinition.Setting
@@ -30,6 +31,7 @@ defmodule Ankole.AIGateway.Providers do
 
   @builtins [
     Ankole.AIGateway.Providers.AzureOpenAI,
+    Ankole.AIGateway.Providers.ChatGPTSubscription,
     Ankole.AIGateway.Providers.Claude,
     Ankole.AIGateway.Providers.OpenAI,
     Ankole.AIGateway.Providers.OpenAICompatible,
@@ -146,6 +148,7 @@ defmodule Ankole.AIGateway.Providers do
       "capability_specs" => Enum.map(provider.capabilities, &capability_projection/1),
       "default_base_url" => provider.base_url,
       "connection_options" => connection_option_keys(provider),
+      "credential_options" => credential_option_keys(provider),
       "runtime_provider_options" => runtime_provider_option_keys(provider)
     }
   end
@@ -173,6 +176,44 @@ defmodule Ankole.AIGateway.Providers do
     do: {:error, :invalid_connection_options}
 
   @doc """
+  Normalizes and validates one provider credential payload.
+
+  Credential metadata such as the pool entry id and label is not part of this
+  payload. Required fields and select values are checked before plaintext is
+  encrypted so an unusable credential cannot enter the pool.
+  """
+  @spec normalize_credential_options(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def normalize_credential_options(provider_kind, options) when is_map(options) do
+    options = normalize_option_keys(options)
+
+    with {:ok, provider} <- fetch(provider_kind),
+         :ok <-
+           reject_unknown_keys(options, credential_option_keys(provider), :credential_options),
+         :ok <- validate_setting_options(provider, :credential, options, :credential_options),
+         :ok <-
+           validate_required_setting_options(
+             provider,
+             :credential,
+             options,
+             :credential_options
+           ),
+         :ok <- validate_provider_credential_options(provider, options) do
+      {:ok, options}
+    end
+  end
+
+  def normalize_credential_options(_provider_kind, _options),
+    do: {:error, :invalid_credential_options}
+
+  defp validate_provider_credential_options(provider, options) do
+    if function_exported?(provider.module, :validate_credential_options, 1) do
+      provider.module.validate_credential_options(options)
+    else
+      :ok
+    end
+  end
+
+  @doc """
   Validates per-request provider options for a provider kind.
   """
   @spec validate_runtime_provider_options(String.t(), map()) :: :ok | {:error, term()}
@@ -195,6 +236,22 @@ defmodule Ankole.AIGateway.Providers do
   @spec supports_capability?(definition(), String.t()) :: boolean()
   def supports_capability?(%ProviderDefinition{} = provider, capability),
     do: capability in capability_names(provider)
+
+  @doc """
+  Returns whether the selected language-model provider executes the public
+  `image_generation` tool itself.
+  """
+  @spec supports_native_image_generation?(map()) :: boolean()
+  def supports_native_image_generation?(%{"provider_kind" => provider_kind}) do
+    with {:ok, provider} <- fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
+      capability.supports_native_image_generation?
+    else
+      _error -> false
+    end
+  end
+
+  def supports_native_image_generation?(_runtime), do: false
 
   @doc """
   Loads and validates a provider module's compiled definition.
@@ -290,6 +347,29 @@ defmodule Ankole.AIGateway.Providers do
   end
 
   @doc """
+  Returns the provider-specific fields stored in each encrypted credential entry.
+  """
+  @spec credential_option_keys(definition()) :: [String.t()]
+  def credential_option_keys(%ProviderDefinition{} = provider) do
+    provider.settings
+    |> Enum.filter(&(&1.scope == :credential))
+    |> Enum.map(&Atom.to_string(&1.key))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @doc """
+  Returns whether a provider requires at least one credential field.
+
+  Providers with only optional credential settings can use one empty pool
+  member for anonymous upstream access.
+  """
+  @spec credential_required?(definition()) :: boolean()
+  def credential_required?(%ProviderDefinition{} = provider) do
+    Enum.any?(provider.settings, &(&1.scope == :credential and &1.required?))
+  end
+
+  @doc """
   Returns request-scoped provider option keys accepted by a provider definition.
   """
   @spec runtime_provider_option_keys(definition()) :: [String.t()]
@@ -310,7 +390,16 @@ defmodule Ankole.AIGateway.Providers do
          {:ok, ctx} <- PrepareContext.build(provider, capability_kind, runtime, request, opts),
          ctx = apply_provider_request_policies(ctx),
          {:ok, prepared} <- call_prepare(provider.module, capability, ctx) do
-      {:ok, prepared}
+      rebuild = fn next_runtime, request_override ->
+        build_prepared_request(
+          next_runtime,
+          capability_kind,
+          request_override || request,
+          opts
+        )
+      end
+
+      {:ok, CredentialAttempts.attach(prepared, runtime, rebuild, request)}
     end
   end
 
@@ -325,7 +414,8 @@ defmodule Ankole.AIGateway.Providers do
            request: request
          } = ctx
        )
-       when provider_kind in ["openai", "azure_openai"] and is_map(request) do
+       when provider_kind in ["openai", "azure_openai"] and
+              is_map(request) do
     if openai_responses_endpoint?(provider_kind, ctx) do
       %{ctx | request: Map.put(request, "store", false)}
     else
@@ -346,6 +436,8 @@ defmodule Ankole.AIGateway.Providers do
   defp openai_responses_endpoint?("azure_openai", %PrepareContext{settings: settings})
        when is_map(settings),
        do: Map.get(settings, :endpoint_kind) == "responses"
+
+  defp openai_responses_endpoint?("chatgpt_subscription", _ctx), do: true
 
   defp openai_responses_endpoint?(_provider_kind, _ctx), do: false
 
@@ -565,7 +657,8 @@ defmodule Ankole.AIGateway.Providers do
       "kind" => ProviderDefinition.capability_name(capability.kind),
       "upstream" => Atom.to_string(capability.upstream),
       "api_resolver" => Atom.to_string(capability.api_resolver),
-      "supports_parallel_tool_calls" => capability.supports_parallel_tool_calls?
+      "supports_parallel_tool_calls" => capability.supports_parallel_tool_calls?,
+      "supports_native_image_generation" => capability.supports_native_image_generation?
     }
   end
 
@@ -588,6 +681,24 @@ defmodule Ankole.AIGateway.Providers do
       end
     end)
   end
+
+  defp validate_required_setting_options(provider, scope, options, error_tag) do
+    provider.settings
+    |> Enum.filter(&(&1.scope == scope and &1.required?))
+    |> Enum.reduce_while(:ok, fn setting, :ok ->
+      key = Atom.to_string(setting.key)
+      value = Map.get(options, key, setting.default)
+
+      if present_setting_value?(value) do
+        {:cont, :ok}
+      else
+        {:halt, {:error, {error_tag, {:required, key}}}}
+      end
+    end)
+  end
+
+  defp present_setting_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_setting_value?(value), do: not is_nil(value)
 
   defp stringify_label(label) when is_map(label) do
     Map.new(label, fn

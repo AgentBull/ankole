@@ -334,6 +334,10 @@ defmodule Ankole.Kernel do
   @spec phone_normalize_e164(String.t()) :: result(String.t())
   def phone_normalize_e164(_phone), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc false
+  @spec program_run_nif(String.t()) :: result(String.t())
+  def program_run_nif(_request_json), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Generates a standard hyphenated UUIDv4 string.
   """

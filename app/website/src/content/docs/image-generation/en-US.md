@@ -7,15 +7,24 @@ order: 22
 
 Enable image generation when an Agent must make illustrations, concept art, or visual drafts. The user stays in the same chat, and the Agent returns each generated image as an attachment. If the selected model accepts reference images, the Agent can also edit an existing image.
 
-## Enable image generation
+## Select the execution path
 
-1. In **LLM Providers** in the Console, add a Provider that supports image generation.
-2. Open **Agents** and select the Agent that needs this capability.
+The public `image_generation` tool has two execution paths:
+
+- **Hosted:** configure the Agent's `image_generate` profile. AIGateway executes the tool with that separate provider and model, then returns the result to the main model.
+- **Native:** leave `image_generate` empty and use a main provider that declares native image generation. OpenAI and ChatGPT Subscription support this path. AIGateway passes the public tool to that provider.
+
+The `image_generate` profile is therefore a routing switch, not an enable switch. If the profile is empty and the main provider does not declare native image generation, AIGateway rejects the tool with a clear configuration error.
+
+To use the hosted path:
+
+1. In **LLM Providers** in the Console, add a Provider that supports the required image model.
+2. Open **Agents** and select the Agent.
 3. Find `image_generate` in its model profiles.
-4. Select an image-generation Provider and model, and save the profile.
-5. Return to the chat and send the Agent a clear image request.
+4. Select the image Provider and model, and save the profile.
+5. Return to the chat and send a clear image request.
 
-The `image_generate` profile is optional. Leave it empty for an Agent that does not need images. The Agent can still complete text, file, and other work.
+Model-token usage stays with the main provider credential. Image-token usage stays with the credential that generated the image, including after a pool rotation.
 
 ## Write a short visual brief
 
@@ -56,7 +65,7 @@ If you attach more than one reference image, label them as “Image 1” and “
 
 ## If no image appears
 
-- **The Agent returns text only:** confirm that its `image_generate` model profile is saved.
+- **The Agent returns text only:** confirm that the client or Agent exposes the `image_generation` tool. Then confirm that `image_generate` is configured or that the main Provider supports native image generation.
 - **No model is available:** the current LLM Providers do not offer an image-generation model. Add a Provider that supports this capability.
 - **The request is not supported:** select a compatible model, or remove an unsupported size, format, transparent-background, reference-image, or editing request.
 - **An image appears, but its content is wrong:** this is usually not a setup fault. Continue in the same chat and state what to change and what to preserve.

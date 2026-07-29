@@ -13,7 +13,7 @@ import {
 function provider(providerID: string, providerKind: string): AIGatewayProviderItem {
   return {
     connection_options: {},
-    encrypted_options: {},
+    credential_pool: { entries: [], strategy: 'fill_first' },
     id: providerID,
     provider_id: providerID,
     provider_kind: providerKind,
@@ -26,6 +26,7 @@ function kind(providerKind: string, capabilities: string[]): AIGatewayProviderKi
     capabilities,
     capability_specs: [],
     connection_options: [],
+    credential_options: [],
     default_base_url: null,
     label: { default: providerKind },
     provider_kind: providerKind,

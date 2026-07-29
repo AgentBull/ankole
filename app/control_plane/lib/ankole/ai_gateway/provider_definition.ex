@@ -11,10 +11,10 @@ defmodule Ankole.AIGateway.ProviderDefinition do
     @moduledoc """
     Declares one operator or request option accepted by a provider.
 
-    `encrypted?` is storage metadata only. Provider code still reads the
-    decrypted value from the same settings map, so request construction does not
-    need a separate credential abstraction. `advanced?` is presentation metadata
-    for operator forms and does not change validation or runtime behavior.
+    Credential-scoped settings are encrypted together in each provider pool
+    entry. Provider code still reads the selected plaintext value from the same
+    settings map. `advanced?` is presentation metadata for operator forms and
+    does not change validation or runtime behavior.
     """
 
     @enforce_keys [:key]
@@ -40,7 +40,7 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             required?: boolean(),
             encrypted?: boolean(),
             advanced?: boolean(),
-            scope: :connection | :request
+            scope: :connection | :credential | :request
           }
   end
 
@@ -61,7 +61,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
       :api_resolver,
       :prepare,
       :timeout_ms,
-      supports_parallel_tool_calls?: false
+      supports_parallel_tool_calls?: false,
+      supports_native_image_generation?: false
     ]
 
     @type kind ::
@@ -82,7 +83,8 @@ defmodule Ankole.AIGateway.ProviderDefinition do
             api_resolver: atom(),
             prepare: atom(),
             timeout_ms: pos_integer() | nil,
-            supports_parallel_tool_calls?: boolean()
+            supports_parallel_tool_calls?: boolean(),
+            supports_native_image_generation?: boolean()
           }
   end
 

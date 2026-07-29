@@ -14,8 +14,7 @@ import {
   ankoleWebAgentControllerUpdateMutation,
   ankoleWebAiGatewayControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
   ankoleWebAiGatewayProviderControllerIndexOptions as ankoleWebAIGatewayProviderControllerIndexOptions,
-  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions,
-  ankoleWebCodexAccountControllerIndexOptions
+  ankoleWebAiGatewayProviderControllerProviderKindsOptions as ankoleWebAIGatewayProviderControllerProviderKindsOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem } from '../api/generated/types.gen'
 import { requestErrorMessage } from '../../common/request-errors'
@@ -118,7 +117,6 @@ export function AgentEditorPage() {
     ...ankoleWebAIGatewayControllerModelsOptions(),
     enabled: Boolean(uid)
   })
-  const codexAccounts = useQuery(ankoleWebCodexAccountControllerIndexOptions())
   const selectedAgent = agents.data?.agents.find(agent => agent.uid === uid)
   const modelProfiles = useQuery({
     ...ankoleWebAgentControllerIndexModelProfilesOptions({ path: { agent_uid: selectedAgent?.uid ?? '' } }),
@@ -183,7 +181,6 @@ export function AgentEditorPage() {
               providers={providers.data?.ai_gateway_providers ?? []}
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data}
-              codexAccounts={codexAccounts.data?.codex_accounts ?? []}
               onChanged={refresh}
             />
             <WorkerEnvAgentSection agentUID={selectedAgent.uid} />

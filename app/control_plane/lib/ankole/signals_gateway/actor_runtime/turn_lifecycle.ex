@@ -130,16 +130,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     result =
       case Keyword.get(opts, :conversation, :required) do
         :none ->
-          request_context =
-            %{
-              "actor_key" => %{
-                "agent_uid" => actor_key.agent_uid,
-                "session_id" => actor_key.session_id
-              }
-            }
-            |> Map.merge(Keyword.get(opts, :request_context, %{}))
-
-          {:ok, %{request_context: request_context}}
+          TurnPolicy.build_turn_start_spec(actor_key, opts)
 
         :required ->
           TurnPolicy.build_turn_start_spec(actor_key, opts)
@@ -1092,7 +1083,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          false
        ) do
     if retryable_turn_error?(reason) do
-      retry_available_at = DateTime.add(now, retry_backoff_seconds(event, deliveries), :second)
+      retry_available_at =
+        credential_pool_retry_at(event, reason, now) ||
+          DateTime.add(now, retry_backoff_seconds(event, deliveries), :second)
 
       event
       |> ActorEvent.changeset(%{available_at: retry_available_at})
@@ -1134,6 +1127,45 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       attempt_numbers -> Enum.max(attempt_numbers)
     end
   end
+
+  defp credential_pool_retry_at(
+         %ActorEvent{session_id: session_id},
+         %{"details_json" => details},
+         now
+       )
+       when BackgroundAgentJobs.is_job_session_id(session_id) and is_map(details) do
+    if credential_pool_exhausted_details?(details) do
+      details
+      |> pool_retry_at_value()
+      |> parse_pool_retry_at(now)
+    else
+      nil
+    end
+  end
+
+  defp credential_pool_retry_at(%ActorEvent{}, _reason, _now), do: nil
+
+  defp credential_pool_exhausted_details?(details) do
+    details["error_code"] == "credential_pool_exhausted" or
+      get_in(details, ["aigateway", "code"]) == "credential_pool_exhausted"
+  end
+
+  defp pool_retry_at_value(details) do
+    details["retry_at"] ||
+      get_in(details, ["aigateway", "details_json", "retry_at"])
+  end
+
+  defp parse_pool_retry_at(retry_at, now) when is_binary(retry_at) do
+    case DateTime.from_iso8601(retry_at) do
+      {:ok, parsed, _offset} ->
+        if DateTime.compare(parsed, now) == :lt, do: now, else: parsed
+
+      _error ->
+        nil
+    end
+  end
+
+  defp parse_pool_retry_at(_retry_at, _now), do: nil
 
   defp turn_error_reason(%FabricProto.TurnError{} = payload) do
     %{

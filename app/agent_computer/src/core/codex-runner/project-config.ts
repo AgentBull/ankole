@@ -38,14 +38,8 @@ function applyRuntimeConfig(config: TomlTable, runtime: CodexRuntimeConfig): voi
   if (profile.modelReasoningEffort) config.model_reasoning_effort = profile.modelReasoningEffort
   else delete config.model_reasoning_effort
 
-  if (runtime.mode === 'aigateway') {
-    delete config.model_provider
-    delete config.service_tier
-  } else {
-    delete config.model_provider
-    if (runtime.modelProfile.fastMode) config.service_tier = 'priority'
-    else delete config.service_tier
-  }
+  delete config.model_provider
+  delete config.service_tier
 }
 
 function applyMCPServers(config: TomlTable, servers: MCPServerConfig[]): void {
@@ -64,12 +58,16 @@ function applyMCPServers(config: TomlTable, servers: MCPServerConfig[]): void {
         ? {
             url: server.url,
             ...(server.bearerTokenEnvVar ? { bearer_token_env_var: server.bearerTokenEnvVar } : {}),
-            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000
+            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000,
+            ...(server.enabledTools ? { enabled_tools: server.enabledTools } : {}),
+            ...(server.disabledTools ? { disabled_tools: server.disabledTools } : {})
           }
         : {
             command: '/bin/sh',
             args: ['-lc', server.command],
-            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000
+            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000,
+            ...(server.enabledTools ? { enabled_tools: server.enabledTools } : {}),
+            ...(server.disabledTools ? { disabled_tools: server.disabledTools } : {})
           }
   }
   config.mcp_servers = materialized
@@ -91,6 +89,9 @@ function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
   features.tool_suggest = false
   features.plugins = pluginsEnabled
   features.remote_plugin = false
+
+  const codeMode = tableAt(features, 'code_mode')
+  codeMode.enabled = true
 
   const multiAgent = tableAt(features, 'multi_agent_v2')
   multiAgent.enabled = true

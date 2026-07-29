@@ -1915,36 +1915,76 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule AIGatewayProviderEncryptedOptionProjection do
+  defmodule AIGatewayCredentialPoolEntry do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AIGatewayProviderEncryptedOptionProjection",
+        title: "AIGatewayCredentialPoolEntry",
         type: :object,
         properties: %{
-          present: %Schema{type: :boolean},
-          masked: %Schema{type: :string, nullable: true}
+          id: %Schema{type: :string},
+          label: %Schema{type: :string},
+          source: %Schema{type: :string},
+          priority: %Schema{type: :integer},
+          disabled_at: %Schema{type: :string, nullable: true},
+          credential_present: %Schema{type: :boolean},
+          status: %Schema{type: :string, enum: ~w(ok exhausted dead disabled)},
+          retry_at: %Schema{type: :string, nullable: true},
+          request_count: %Schema{type: :integer},
+          rate_limits: %Schema{type: :object, additionalProperties: true},
+          usage: %Schema{type: :object, additionalProperties: true},
+          last_selected_at: %Schema{type: :string, nullable: true},
+          last_error_code: %Schema{type: :string, nullable: true},
+          last_error_reason: %Schema{type: :string, nullable: true},
+          last_error_message: %Schema{type: :string, nullable: true},
+          provider_status: %Schema{type: :integer, nullable: true},
+          reauth_required: %Schema{type: :boolean},
+          account_id: %Schema{type: :string, nullable: true},
+          plan_type: %Schema{type: :string, nullable: true},
+          email: %Schema{type: :string, nullable: true},
+          last_refresh: %Schema{type: :string, nullable: true},
+          auth_type: %Schema{type: :string, nullable: true}
         },
-        required: [:present],
+        required: [
+          :id,
+          :label,
+          :source,
+          :priority,
+          :disabled_at,
+          :credential_present,
+          :status,
+          :request_count,
+          :rate_limits,
+          :usage,
+          :last_selected_at
+        ],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule AIGatewayProviderEncryptedOptionsProjection do
+  defmodule AIGatewayCredentialPool do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "AIGatewayProviderEncryptedOptionsProjection",
+        title: "AIGatewayCredentialPool",
         type: :object,
-        additionalProperties: AIGatewayProviderEncryptedOptionProjection
+        properties: %{
+          strategy: %Schema{
+            type: :string,
+            enum: ~w(fill_first round_robin least_used random)
+          },
+          entries: %Schema{type: :array, items: AIGatewayCredentialPoolEntry}
+        },
+        required: [:strategy, :entries],
+        additionalProperties: false
       },
       struct?: false
     )
@@ -1965,7 +2005,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
           connection_options: %Schema{type: :object, additionalProperties: true},
-          encrypted_options: AIGatewayProviderEncryptedOptionsProjection,
+          credential_pool: AIGatewayCredentialPool,
           disabled_at: %Schema{type: :string, nullable: true},
           provider_metadata: %Schema{type: :object, additionalProperties: true}
         },
@@ -1974,7 +2014,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :provider_id,
           :provider_kind,
           :connection_options,
-          :encrypted_options,
+          :credential_pool,
           :provider_metadata
         ],
         additionalProperties: false
@@ -2034,9 +2074,153 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           provider_id: %Schema{type: :string},
           provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
-          connection_options: %Schema{type: :object, additionalProperties: true}
+          connection_options: %Schema{type: :object, additionalProperties: true},
+          credential_pool: %Schema{type: :object, additionalProperties: true}
         },
         additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayCredentialWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayCredentialWriteRequest",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          label: %Schema{type: :string},
+          priority: %Schema{type: :integer},
+          disabled_at: %Schema{type: :string, nullable: true}
+        },
+        additionalProperties: true
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayCredentialStrategyWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayCredentialStrategyWriteRequest",
+        type: :object,
+        properties: %{
+          strategy: %Schema{
+            type: :string,
+            enum: ~w(fill_first round_robin least_used random)
+          }
+        },
+        required: [:strategy],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayChatGPTLoginStartRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayChatGPTLoginStartRequest",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          label: %Schema{type: :string},
+          priority: %Schema{type: :integer}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayChatGPTLoginPollRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayChatGPTLoginPollRequest",
+        type: :object,
+        properties: %{
+          login_context: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [:login_context],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayChatGPTBrowserLoginRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayChatGPTBrowserLoginRequest",
+        type: :object,
+        properties: %{
+          login_context: %Schema{type: :object, additionalProperties: true},
+          callback_url: %Schema{type: :string}
+        },
+        required: [:login_context, :callback_url],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayChatGPTEnterpriseCredentialRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayChatGPTEnterpriseCredentialRequest",
+        type: :object,
+        properties: %{
+          id: %Schema{type: :string},
+          label: %Schema{type: :string},
+          priority: %Schema{type: :integer},
+          access_token: %Schema{type: :string},
+          account_id: %Schema{type: :string},
+          plan_type: %Schema{type: :string},
+          email: %Schema{type: :string},
+          fedramp: %Schema{type: :boolean}
+        },
+        required: [:access_token, :account_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayChatGPTLoginResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "AIGatewayChatGPTLoginResponse",
+        type: :object,
+        additionalProperties: true
       },
       struct?: false
     )
@@ -2067,7 +2251,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             required: %Schema{type: :boolean},
             encrypted: %Schema{type: :boolean},
             advanced: %Schema{type: :boolean},
-            scope: %Schema{type: :string, enum: ["connection", "request"]}
+            scope: %Schema{type: :string, enum: ["connection", "credential", "request"]}
           },
           required: [:key, :type, :default, :options, :required, :encrypted, :advanced, :scope],
           additionalProperties: false
@@ -2094,6 +2278,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             items: %Schema{type: :object, additionalProperties: true}
           },
           connection_options: %Schema{type: :array, items: %Schema{type: :string}},
+          credential_options: %Schema{type: :array, items: %Schema{type: :string}},
           runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}}
         },
         required: [
@@ -2104,6 +2289,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :settings,
           :capability_specs,
           :connection_options,
+          :credential_options,
           :runtime_provider_options
         ],
         additionalProperties: false
@@ -2179,14 +2365,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "ModelProfileWriteRequest",
         type: :object,
         properties: %{
-          codex_account_id: %Schema{type: :string},
           provider_id: %Schema{type: :string},
           model: %Schema{type: :string},
-          model_reasoning_effort: %Schema{
-            type: :string,
-            enum: ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
-          },
-          fast_mode: %Schema{type: :boolean},
           context_length: %Schema{type: :integer, minimum: 1},
           provider_options: %Schema{type: :object, additionalProperties: true}
         },
@@ -2459,98 +2639,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           }
         },
         required: [:deleted_file],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule CodexAccountItem do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "CodexAccountItem",
-        type: :object,
-        properties: %{
-          account_id: %Schema{type: :string},
-          name: %Schema{type: :string},
-          auth_hash: %Schema{type: :string},
-          inserted_at: %Schema{type: :string},
-          updated_at: %Schema{type: :string}
-        },
-        required: [:account_id, :name, :auth_hash, :inserted_at, :updated_at],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule CodexAccountListResponse do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "CodexAccountListResponse",
-        type: :object,
-        properties: %{codex_accounts: %Schema{type: :array, items: CodexAccountItem}},
-        required: [:codex_accounts],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule CodexAccountResponse do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "CodexAccountResponse",
-        type: :object,
-        properties: %{codex_account: CodexAccountItem},
-        required: [:codex_account],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule CodexAccountCreateRequest do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "CodexAccountCreateRequest",
-        type: :object,
-        properties: %{
-          name: %Schema{type: :string},
-          auth_json: %Schema{type: :string}
-        },
-        required: [:name, :auth_json],
-        additionalProperties: false
-      },
-      struct?: false
-    )
-  end
-
-  defmodule CodexAccountUpdateRequest do
-    @moduledoc false
-    require OpenAPISpex
-
-    OpenAPISpex.schema(
-      %{
-        title: "CodexAccountUpdateRequest",
-        type: :object,
-        properties: %{
-          name: %Schema{type: :string},
-          auth_json: %Schema{type: :string, nullable: true}
-        },
-        required: [:name],
         additionalProperties: false
       },
       struct?: false
@@ -2873,7 +2961,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           owner_session_id: %Schema{type: :string},
           source_actor_event_id: %Schema{type: :string, nullable: true},
           source_tool_call_id: %Schema{type: :string},
-          codex_account_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},
           task: %Schema{type: :string},
@@ -2900,7 +2987,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :agent_uid,
           :owner_session_id,
           :source_tool_call_id,
-          :codex_account_id,
           :title,
           :task,
           :status,

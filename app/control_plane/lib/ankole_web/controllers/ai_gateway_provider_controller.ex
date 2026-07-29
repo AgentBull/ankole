@@ -8,9 +8,17 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
+  alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.ProviderConfigs
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTBrowserLoginRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTEnterpriseCredentialRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTLoginPollRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTLoginResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayChatGPTLoginStartRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayCredentialStrategyWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayCredentialWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderKindListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.AIGatewayProviderResponse
@@ -55,6 +63,130 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ]
   )
 
+  operation(:show,
+    summary: "Get one AIGateway provider and its credential-pool status",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:add_credential,
+    summary: "Add one credential-pool member",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Credential", "application/json", AIGatewayCredentialWriteRequest, required: true},
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_credential,
+    summary: "Update one credential-pool member",
+    parameters: [
+      provider_id: [in: :path, type: :string, required: true],
+      credential_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Credential", "application/json", AIGatewayCredentialWriteRequest, required: true},
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:delete_credential,
+    summary: "Delete one credential-pool member",
+    parameters: [
+      provider_id: [in: :path, type: :string, required: true],
+      credential_id: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_credential_strategy,
+    summary: "Set the provider credential-pool selection strategy",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Credential strategy", "application/json", AIGatewayCredentialStrategyWriteRequest,
+       required: true},
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid strategy", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:start_chatgpt_login,
+    summary: "Start a ChatGPT device or browser-paste login",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Credential metadata", "application/json", AIGatewayChatGPTLoginStartRequest,
+       required: true},
+    responses: [
+      ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:poll_chatgpt_login,
+    summary: "Poll one ChatGPT device login once",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Login context", "application/json", AIGatewayChatGPTLoginPollRequest, required: true},
+    responses: [
+      ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:complete_chatgpt_browser_login,
+    summary: "Complete a ChatGPT browser-paste login",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Browser callback", "application/json", AIGatewayChatGPTBrowserLoginRequest,
+       required: true},
+    responses: [
+      ok: {"ChatGPT login", "application/json", AIGatewayChatGPTLoginResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Login failed", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:add_chatgpt_enterprise_credential,
+    summary: "Add a ChatGPT enterprise access token",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body:
+      {"Enterprise credential", "application/json", AIGatewayChatGPTEnterpriseCredentialRequest,
+       required: true},
+    responses: [
+      ok: {"AIGateway provider", "application/json", AIGatewayProviderResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid credential", "application/json", ErrorEnvelope}
+    ]
+  )
+
   operation(:delete_provider,
     summary: "Disable or delete one AIGateway provider",
     parameters: [provider_id: [in: :path, type: :string, required: true]],
@@ -83,6 +215,16 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     end
   end
 
+  def show(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "read"),
+         {:ok, provider} <- ProviderConfigs.get_provider(provider_id) do
+      json(conn, %{ai_gateway_provider: provider})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def put_provider(conn, params) do
     with {:ok, provider_id} <- provider_id_param(params),
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
@@ -99,6 +241,105 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
          {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
       json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def add_credential(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <-
+           ProviderConfigs.add_credential(provider_id, normalize_external_attrs(conn.body_params)) do
+      render_provider(conn, provider)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def put_credential(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         {:ok, credential_id} <- credential_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <-
+           ProviderConfigs.update_credential(
+             provider_id,
+             credential_id,
+             normalize_external_attrs(conn.body_params)
+           ) do
+      render_provider(conn, provider)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def delete_credential(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         {:ok, credential_id} <- credential_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <- ProviderConfigs.delete_credential(provider_id, credential_id) do
+      render_provider(conn, provider)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def put_credential_strategy(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         {:ok, strategy} <- body_param(conn.body_params, "strategy"),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <-
+           ProviderConfigs.update_credential_strategy(provider_id, strategy) do
+      render_provider(conn, provider)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def start_chatgpt_login(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, login} <-
+           ChatGPTAuth.start_login(provider_id, normalize_external_attrs(conn.body_params)) do
+      json(conn, login)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def poll_chatgpt_login(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         {:ok, login_context} <- body_param(conn.body_params, "login_context"),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, login} <- ChatGPTAuth.poll_login(provider_id, login_context) do
+      json(conn, login)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def complete_chatgpt_browser_login(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         {:ok, login_context} <- body_param(conn.body_params, "login_context"),
+         {:ok, callback_url} <- body_param(conn.body_params, "callback_url"),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, login} <-
+           ChatGPTAuth.complete_browser_login(provider_id, login_context, callback_url) do
+      json(conn, login)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def add_chatgpt_enterprise_credential(conn, params) do
+    with {:ok, provider_id} <- provider_id_param(params),
+         :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
+         {:ok, provider} <-
+           ChatGPTAuth.add_enterprise_credential(
+             provider_id,
+             normalize_external_attrs(conn.body_params)
+           ) do
+      render_provider(conn, provider)
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -144,6 +385,22 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     end
   end
 
+  defp credential_id_param(params) do
+    with {:ok, credential_id} <- fetch_param(params, "credential_id"),
+         credential_id when is_binary(credential_id) <- credential_id,
+         credential_id when credential_id != "" <- String.trim(credential_id) do
+      {:ok, credential_id}
+    else
+      _value -> {:error, {:missing, "credential_id"}}
+    end
+  end
+
+  defp body_param(params, key) when is_map(params) do
+    fetch_param(params, key)
+  end
+
+  defp body_param(_params, key), do: {:error, {:missing, key}}
+
   # Console params arrive with string keys from the raw request body, but with
   # atom keys once OpenAPISpex has cast the declared path parameters, so both
   # spellings of the same key are accepted.
@@ -161,6 +418,10 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   # (an attacker could otherwise exhaust the global atom table), so only these
   # known parameter names are allowed to become atoms.
   defp param_atom("provider_id"), do: :provider_id
+  defp param_atom("credential_id"), do: :credential_id
+  defp param_atom("strategy"), do: :strategy
+  defp param_atom("login_context"), do: :login_context
+  defp param_atom("callback_url"), do: :callback_url
 
   defp normalize_provider_id(value) when is_binary(value) do
     # Provider ids are treated as case- and whitespace-insensitive, so they are
@@ -181,8 +442,16 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     end)
   end
 
+  defp render_provider(conn, provider) do
+    json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
+  end
+
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: error(conn, 404, "not_found", "resource was not found")
+
+  defp error(conn, :credential_not_found),
+    do: error(conn, 404, "not_found", "credential was not found")
+
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
 
   defp error(conn, {:provider_in_use, references}) do

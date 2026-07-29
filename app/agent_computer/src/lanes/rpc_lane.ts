@@ -48,10 +48,6 @@ import {
   BackgroundAgentJobStatusUpdateRequestSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
-  CodexAccountAuthUpdateRequestSchema,
-  CodexAccountAuthUpdateResponseSchema,
-  CodexAccountResolveRequestSchema,
-  CodexAccountResolveResponseSchema,
   InstalledSkillReplaceRequestSchema,
   InstalledSkillReplaceResponseSchema,
   JSONPassthroughResponseSchema,
@@ -94,8 +90,6 @@ export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   appConfigureResolve: 'app_configure.resolve',
-  codexAccountResolve: 'codex.account.resolve',
-  codexAccountAuthUpdate: 'codex.account.auth.update',
   agentPluginList: 'agent_plugin.list',
   backgroundAgentJobCreate: 'background_agent_job.create',
   backgroundAgentJobGet: 'background_agent_job.get',
@@ -149,8 +143,6 @@ export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
-  [rpcMethods.codexAccountResolve]: { scope: 'turn', effect: 'read' },
-  [rpcMethods.codexAccountAuthUpdate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
@@ -203,14 +195,6 @@ export const rpcSchemas = {
   [rpcMethods.appConfigureResolve]: {
     request: AppConfigureResolveRequestSchema,
     response: AppConfigureResolveResponseSchema
-  },
-  [rpcMethods.codexAccountResolve]: {
-    request: CodexAccountResolveRequestSchema,
-    response: CodexAccountResolveResponseSchema
-  },
-  [rpcMethods.codexAccountAuthUpdate]: {
-    request: CodexAccountAuthUpdateRequestSchema,
-    response: CodexAccountAuthUpdateResponseSchema
   },
   [rpcMethods.agentPluginList]: {
     request: AgentPluginListRequestSchema,
@@ -579,7 +563,6 @@ export type {
   BackgroundAgentJobTurnUpsertResponse,
   BrainSnapshot,
   BrainSnapshotEntry,
-  CodexAccountResolveResponse,
   InstalledSkillObservation,
   InstalledSkillReplaceResponse,
   MemoryUpdateRequest,

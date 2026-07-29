@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.UniversalAIRequest
 
-  @openai_values ~w(none minimal low medium high xhigh)
+  @openai_values ~w(none minimal low medium high xhigh max ultra)
   @native_keys ~w(reasoning reasoning_effort output_config)
   @default_effort "high"
 

@@ -13,8 +13,11 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
+  alias Ankole.AIGateway.ProviderDefinition
+  alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
@@ -29,6 +32,13 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   )
 
   @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
+
+  # Stateful history replays as Responses items. Only these wires translate
+  # bare function_call/function_call_output items faithfully; the Anthropic
+  # wire turns a bare function_call into an empty user message (kernel
+  # api_resolver/anthropic.rs), so the upstream rejects the paired tool_result
+  # mid-conversation. Stateless (store=false) requests do not pass this gate.
+  @stateful_replay_api_resolvers [:openai_responses, :openai_chat_completions]
 
   @doc false
   @spec retrieve_response(String.t(), binary()) :: {:ok, %{body: map()}} | {:error, term()}
@@ -84,12 +94,19 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   end
 
   @doc false
-  @spec prepare_websocket_provider_request(String.t(), map()) ::
+  @spec prepare_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
-  def prepare_websocket_provider_request(subject_uid, request) do
+  def prepare_websocket_provider_request(subject_uid, request, opts \\ []) do
+    normalized_request = normalize_request_keys(request)
+    request_context = websocket_request_context(opts, normalized_request)
+
     with :ok <- validate_websocket_stateful_shape(request),
          {:ok, runtime} <-
-           Resolver.resolve_request_model(subject_uid, "llm", normalize_request_keys(request)),
+           Resolver.resolve_request_model(
+             subject_uid,
+             "llm",
+             Map.put(normalized_request, "__ankole_request_context", request_context)
+           ),
          {:ok, request_for_provider, run_attrs} <-
            provider_websocket_request(subject_uid, request, runtime),
          {:ok, %{spec: prepared_request}} <-
@@ -97,22 +114,30 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              subject_uid,
              runtime,
              request_for_provider,
-             stream?: true
+             stream?: true,
+             request_context: request_context
            ) do
       {:ok, prepared_request, run_attrs}
     end
   end
 
   @doc false
-  @spec prepare_and_start_websocket_provider_request(String.t(), map()) ::
+  @spec prepare_and_start_websocket_provider_request(String.t(), map(), keyword()) ::
           {:ok, UniversalAIRequest.t(), map() | nil} | {:error, term()}
-  def prepare_and_start_websocket_provider_request(subject_uid, request) do
+  def prepare_and_start_websocket_provider_request(subject_uid, request, opts \\ []) do
     request = normalize_request_keys(request)
+    request_context = websocket_request_context(opts, request)
+    resolver_request = Map.put(request, "__ankole_request_context", request_context)
 
     with :ok <- validate_websocket_stateful_shape(request),
-         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", request) do
+         {:ok, runtime} <- Resolver.resolve_request_model(subject_uid, "llm", resolver_request) do
       if request["store"] == true do
-        prepare_and_start_stateful_provider_request(subject_uid, request, runtime)
+        prepare_and_start_stateful_provider_request(
+          subject_uid,
+          request,
+          runtime,
+          request_context
+        )
       else
         with {:ok, request_for_provider, nil} <-
                provider_websocket_request(subject_uid, request, runtime),
@@ -121,7 +146,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  subject_uid,
                  runtime,
                  request_for_provider,
-                 stream?: true
+                 stream?: true,
+                 request_context: request_context
                ) do
           {:ok, prepared_request, nil}
         end
@@ -174,7 +200,12 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
-  defp prepare_and_start_stateful_provider_request(subject_uid, request, runtime) do
+  defp prepare_and_start_stateful_provider_request(
+         subject_uid,
+         request,
+         runtime,
+         request_context
+       ) do
     with {:ok, context} <-
            build_stateful_request_context(
              subject_uid,
@@ -200,7 +231,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  subject_uid,
                  runtime,
                  request_for_provider,
-                 stream?: true
+                 stream?: true,
+                 request_context: request_context
                ) do
           {:ok, prepared_request, response_stream_context(message)}
         end
@@ -216,11 +248,19 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     end
   end
 
+  defp websocket_request_context(opts, request) do
+    opts
+    |> Keyword.get(:request_context, %{"downstream_transport" => "websocket"})
+    |> Map.put("downstream_transport", "websocket")
+    |> RequestContext.prepare(request)
+  end
+
   defp build_stateful_request_context(subject_uid, request, runtime, compact_history) do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
-    with :ok <- validate_external_optional_response_id(previous_response_id),
+    with :ok <- ensure_stateful_replay_wire(runtime),
+         :ok <- validate_external_optional_response_id(previous_response_id),
          {:ok, conversation} <-
            resolve_stateful_request_conversation(
              subject_uid,
@@ -271,6 +311,19 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          recovered_call_ids: recovered_call_ids,
          compaction: compaction
        }}
+    end
+  end
+
+  defp ensure_stateful_replay_wire(runtime) do
+    provider_kind = Map.get(runtime, "provider_kind")
+
+    with {:ok, definition} <- Providers.fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(definition, :language_model) do
+      if capability.api_resolver in @stateful_replay_api_resolvers do
+        :ok
+      else
+        {:error, {:stateful_wire_unsupported, provider_kind, capability.api_resolver}}
+      end
     end
   end
 
@@ -653,7 +706,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
       "retryable" => Map.get(classification, :retryable, false)
     }
     |> put_safe_failure_fields(classification)
+    |> maybe_put_pool_retry_at(reason)
   end
+
+  defp maybe_put_pool_retry_at(details, {:credential_pool_exhausted, %{"retry_at" => retry_at}})
+       when is_binary(retry_at),
+       do: Map.put(details, "retry_at", retry_at)
+
+  defp maybe_put_pool_retry_at(details, _reason), do: details
 
   defp put_safe_failure_fields(details, classification) do
     classification
@@ -772,6 +832,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          "temperature" => Map.get(metadata, "temperature", 1),
          "reasoning" => Map.get(metadata, "reasoning", %{"effort" => nil, "summary" => nil}),
          "usage" => response_usage(Map.get(metadata, "usage")),
+         "tool_usage" => map_or_empty(Map.get(metadata, "tool_usage")),
          "provider_metadata" => map_or_empty(Map.get(metadata, "provider_metadata")),
          "tool_results" => list_or_empty(Map.get(metadata, "tool_results")),
          "stop_reason" => Map.get(metadata, "stop_reason"),

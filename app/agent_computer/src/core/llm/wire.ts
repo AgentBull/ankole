@@ -20,19 +20,12 @@ const PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS = 4_096
 
 export function buildResponseCreateParams(model: ModelConfig, options: CallModelOptions): ResponseCreateParams {
   const input = toResponseInput(options.messages)
-  const functionTools = options.tools
-    ? Object.values(options.tools)
-        .toSorted((left, right) => left.name.localeCompare(right.name))
-        .map(t => ({
-          type: 'function' as const,
-          name: t.name,
-          description: t.description,
-          parameters: zodToJSONSchema(t.parameters),
-          strict: false
-        }))
-    : undefined
+  const functionTools = options.tools ? functionToolSpecs(Object.values(options.tools)) : []
+  const hasDeferredTools = Object.values(options.tools ?? {}).some(tool => tool.deferLoading === true)
   const tools = [
-    ...(functionTools ?? []),
+    ...functionTools,
+    ...(hasDeferredTools ? [{ type: 'tool_search' as const, execution: 'server' as const }] : []),
+    ...(options.programmaticToolCalling ? [{ type: 'programmatic_tool_calling' as const }] : []),
     ...(options.hostedTools ?? []).map(() => ({
       type: 'image_generation' as const
     }))
@@ -43,7 +36,7 @@ export function buildResponseCreateParams(model: ModelConfig, options: CallModel
     model: model.selector,
     input,
     ...(options.instructions ? { instructions: options.instructions } : {}),
-    ...(tools.length ? { tools } : {}),
+    ...(tools.length ? { tools: tools as ResponseCreateParams['tools'] } : {}),
     ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
     ...(options.maxOutputTokens ? { max_output_tokens: options.maxOutputTokens } : {}),
     ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
@@ -92,7 +85,9 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
               type: 'function_call',
               call_id: tc.id,
               name: tc.name,
-              arguments: tc.arguments
+              arguments: tc.arguments,
+              ...(tc.namespace ? { namespace: tc.namespace } : {}),
+              ...(tc.caller ? { caller: tc.caller } : {})
             } as ResponseInputItem)
           }
         }
@@ -102,11 +97,46 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
         {
           type: 'function_call_output',
           call_id: msg.toolCallID,
-          output: msg.result
+          output: msg.result,
+          ...(msg.caller ? { caller: msg.caller } : {})
         } as ResponseInputItem
       ])
       .exhaustive()
   )
+}
+
+function functionToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[string][]): unknown[] {
+  const sorted = definitions.toSorted((left, right) => {
+    const leftKey = `${left.namespace ?? ''}\u0000${left.name}`
+    const rightKey = `${right.namespace ?? ''}\u0000${right.name}`
+    return leftKey.localeCompare(rightKey)
+  })
+  const rootTools = sorted.filter(tool => !tool.namespace).map(functionToolSpec)
+  const namespaced = Map.groupBy(
+    sorted.filter(tool => tool.namespace),
+    tool => tool.namespace!
+  )
+  const namespaceTools = [...namespaced.entries()].map(([name, tools]) => ({
+    type: 'namespace' as const,
+    name,
+    description: tools[0]?.namespaceDescription ?? `Tools from ${name}.`,
+    tools: tools.map(functionToolSpec)
+  }))
+
+  return [...rootTools, ...namespaceTools]
+}
+
+function functionToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {
+  return {
+    type: 'function' as const,
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.jsonSchema ?? zodToJSONSchema(tool.parameters),
+    strict: false,
+    ...(tool.deferLoading ? { defer_loading: true } : {}),
+    ...(tool.toolSearchText ? { __ankole_search_text: tool.toolSearchText } : {}),
+    ...(tool.allowedCallers?.length ? { allowed_callers: tool.allowedCallers } : {})
+  }
 }
 
 export function statefulResponseParams(

@@ -400,7 +400,9 @@ defmodule Ankole.E2E.Harness do
                provider_id: provider_id,
                provider_kind: "openrouter",
                base_url: "https://openrouter.ai/api/v1",
-               connection_options: %{"api_key" => openrouter_api_key}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => openrouter_api_key}]
+               }
              })
 
     for {profile, model} <- [
@@ -496,8 +498,8 @@ defmodule Ankole.E2E.Harness do
                # Provider upstream calls originate from host-side AIGateway, not
                # from the Docker worker, so localhost is correct here.
                base_url: "http://127.0.0.1:#{fake_llm_port}",
-               connection_options: %{
-                 "api_key" => api_key
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => api_key}]
                }
              })
   end

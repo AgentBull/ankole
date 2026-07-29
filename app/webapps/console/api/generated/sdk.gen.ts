@@ -124,18 +124,45 @@ import type {
   AnkoleWebAiGatewayFilesControllerShowData,
   AnkoleWebAiGatewayFilesControllerShowErrors,
   AnkoleWebAiGatewayFilesControllerShowResponses,
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData,
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerAddCredentialData,
+  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
+  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData,
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialData,
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
   AnkoleWebAiGatewayProviderControllerDeleteProviderData,
   AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
   AnkoleWebAiGatewayProviderControllerIndexData,
   AnkoleWebAiGatewayProviderControllerIndexErrors,
   AnkoleWebAiGatewayProviderControllerIndexResponses,
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginData,
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
   AnkoleWebAiGatewayProviderControllerProviderKindsData,
   AnkoleWebAiGatewayProviderControllerProviderKindsErrors,
   AnkoleWebAiGatewayProviderControllerProviderKindsResponses,
+  AnkoleWebAiGatewayProviderControllerPutCredentialData,
+  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
+  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData,
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
   AnkoleWebAiGatewayProviderControllerPutProviderData,
   AnkoleWebAiGatewayProviderControllerPutProviderErrors,
   AnkoleWebAiGatewayProviderControllerPutProviderResponses,
+  AnkoleWebAiGatewayProviderControllerShowData,
+  AnkoleWebAiGatewayProviderControllerShowErrors,
+  AnkoleWebAiGatewayProviderControllerShowResponses,
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginData,
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
   AnkoleWebAppConfigurationControllerDecryptData,
   AnkoleWebAppConfigurationControllerDecryptErrors,
   AnkoleWebAppConfigurationControllerDecryptResponses,
@@ -240,18 +267,6 @@ import type {
   AnkoleWebBrainControllerStatusData,
   AnkoleWebBrainControllerStatusErrors,
   AnkoleWebBrainControllerStatusResponses,
-  AnkoleWebCodexAccountControllerCreateData,
-  AnkoleWebCodexAccountControllerCreateErrors,
-  AnkoleWebCodexAccountControllerCreateResponses,
-  AnkoleWebCodexAccountControllerDeleteData,
-  AnkoleWebCodexAccountControllerDeleteErrors,
-  AnkoleWebCodexAccountControllerDeleteResponses,
-  AnkoleWebCodexAccountControllerIndexData,
-  AnkoleWebCodexAccountControllerIndexErrors,
-  AnkoleWebCodexAccountControllerIndexResponses,
-  AnkoleWebCodexAccountControllerUpdateData,
-  AnkoleWebCodexAccountControllerUpdateErrors,
-  AnkoleWebCodexAccountControllerUpdateResponses,
   AnkoleWebControlPlanePluginControllerIndexData,
   AnkoleWebControlPlanePluginControllerIndexErrors,
   AnkoleWebControlPlanePluginControllerIndexResponses,
@@ -426,6 +441,62 @@ export const ankoleWebAiGatewayFilesControllerContent = <ThrowOnError extends bo
     ],
     url: '/api/v1/ai-gateway/files/{file_id}/content',
     ...options
+  })
+
+/**
+ * Delete one credential-pool member
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerDeleteCredentialData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses,
+    AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
+    ...options
+  })
+
+/**
+ * Update one credential-pool member
+ */
+export const ankoleWebAiGatewayProviderControllerPutCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAiGatewayProviderControllerPutCredentialResponses,
+    AnkoleWebAiGatewayProviderControllerPutCredentialErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -842,6 +913,36 @@ export const ankoleWebBrainControllerRestoreAudit = <ThrowOnError extends boolea
     ],
     url: '/api/v1/brain/audit-log/{audit_id}/restorations',
     ...options
+  })
+
+/**
+ * Add one credential-pool member
+ */
+export const ankoleWebAiGatewayProviderControllerAddCredential = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerAddCredentialData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerAddCredentialResponses,
+    AnkoleWebAiGatewayProviderControllerAddCredentialErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -1336,6 +1437,36 @@ export const ankoleWebAiGatewayFilesControllerCreate = <ThrowOnError extends boo
   })
 
 /**
+ * Set the provider credential-pool selection strategy
+ */
+export const ankoleWebAiGatewayProviderControllerPutCredentialStrategy = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses,
+    AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/credential-pool/strategy',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * Disable or delete one AIGateway provider
  */
 export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
@@ -1348,6 +1479,32 @@ export const ankoleWebAiGatewayProviderControllerDeleteProvider = <ThrowOnError 
   (options.client ?? client).delete<
     AnkoleWebAiGatewayProviderControllerDeleteProviderResponses,
     AnkoleWebAiGatewayProviderControllerDeleteProviderErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}',
+    ...options
+  })
+
+/**
+ * Get one AIGateway provider and its credential-pool status
+ */
+export const ankoleWebAiGatewayProviderControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerShowResponses,
+  AnkoleWebAiGatewayProviderControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAiGatewayProviderControllerShowResponses,
+    AnkoleWebAiGatewayProviderControllerShowErrors,
     ThrowOnError
   >({
     security: [
@@ -1928,6 +2085,36 @@ export const ankoleWebAgentControllerUpdate = <ThrowOnError extends boolean = fa
       }
     ],
     url: '/api/v1/agents/{agent_uid}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Complete a ChatGPT browser-paste login
+ */
+export const ankoleWebAiGatewayProviderControllerCompleteChatgptBrowserLogin = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses,
+    AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -2557,62 +2744,6 @@ export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends 
   })
 
 /**
- * List Codex accounts
- */
-export const ankoleWebCodexAccountControllerIndex = <ThrowOnError extends boolean = false>(
-  options?: Options<AnkoleWebCodexAccountControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebCodexAccountControllerIndexResponses,
-  AnkoleWebCodexAccountControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options?.client ?? client).get<
-    AnkoleWebCodexAccountControllerIndexResponses,
-    AnkoleWebCodexAccountControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/codex-accounts',
-    ...options
-  })
-
-/**
- * Create a Codex account
- */
-export const ankoleWebCodexAccountControllerCreate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebCodexAccountControllerCreateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebCodexAccountControllerCreateResponses,
-  AnkoleWebCodexAccountControllerCreateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebCodexAccountControllerCreateResponses,
-    AnkoleWebCodexAccountControllerCreateErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/codex-accounts',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Search the web through AIGateway
  */
 export const ankoleWebAiGatewayControllerWebSearch = <ThrowOnError extends boolean = false>(
@@ -2783,62 +2914,6 @@ export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = 
   })
 
 /**
- * Delete a Codex account
- */
-export const ankoleWebCodexAccountControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebCodexAccountControllerDeleteData, ThrowOnError>
-): RequestResult<
-  AnkoleWebCodexAccountControllerDeleteResponses,
-  AnkoleWebCodexAccountControllerDeleteErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).delete<
-    AnkoleWebCodexAccountControllerDeleteResponses,
-    AnkoleWebCodexAccountControllerDeleteErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/codex-accounts/{account_id}',
-    ...options
-  })
-
-/**
- * Update a Codex account
- */
-export const ankoleWebCodexAccountControllerUpdate = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebCodexAccountControllerUpdateData, ThrowOnError>
-): RequestResult<
-  AnkoleWebCodexAccountControllerUpdateResponses,
-  AnkoleWebCodexAccountControllerUpdateErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebCodexAccountControllerUpdateResponses,
-    AnkoleWebCodexAccountControllerUpdateErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/codex-accounts/{account_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * List Brain entries for one owner
  */
 export const ankoleWebBrainControllerIndex = <ThrowOnError extends boolean = false>(
@@ -2858,6 +2933,38 @@ export const ankoleWebBrainControllerIndex = <ThrowOnError extends boolean = fal
     ],
     url: '/api/v1/brain/entries',
     ...options
+  })
+
+/**
+ * Add a ChatGPT enterprise access token
+ */
+export const ankoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredential = <
+  ThrowOnError extends boolean = false
+>(
+  options: Options<AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses,
+    AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -2923,6 +3030,36 @@ export const ankoleWebWorkerEnvControllerUpdate = <ThrowOnError extends boolean 
       }
     ],
     url: '/api/v1/worker-envs/{name}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Poll one ChatGPT device login once
+ */
+export const ankoleWebAiGatewayProviderControllerPollChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerPollChatgptLoginData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses,
+    AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/poll',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -3211,6 +3348,36 @@ export const ankoleWebWorkerEnvControllerIndexForAgent = <ThrowOnError extends b
     ],
     url: '/api/v1/agents/{agent_uid}/worker-envs',
     ...options
+  })
+
+/**
+ * Start a ChatGPT device or browser-paste login
+ */
+export const ankoleWebAiGatewayProviderControllerStartChatgptLogin = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAiGatewayProviderControllerStartChatgptLoginData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses,
+    AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

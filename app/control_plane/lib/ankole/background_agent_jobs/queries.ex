@@ -153,7 +153,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       owner_session_id: job.owner_session_id,
       source_actor_event_id: job.source_actor_event_id,
       source_tool_call_id: job.source_tool_call_id,
-      codex_account_id: job.codex_account_id,
       runtime_thread_id: job.runtime_thread_id,
       title: job.title,
       task: job.task,

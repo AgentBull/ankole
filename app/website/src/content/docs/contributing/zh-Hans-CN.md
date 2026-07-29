@@ -47,7 +47,7 @@ order: 321
 - 每次提交恰好加一个根 `CHANGELOG.md` 版本。
 - 该版本描述该提交中每一项保留的源码、测试、文档、配置、schema、migration、manifest、lockfile 和必需生成文件改动。
 - 一个版本不跨多次提交；一次提交不含多个版本。
-- 版本用 `YY.MM.N`，`N` 是从 `0` 开始的月度序号。
+- 版本使用无前导零的 `MAJOR.MINOR.PATCH`。功能层面的变动增加 `MINOR`，并将 `PATCH` 重置为 `0`。依赖升级、bug 修复、文档变动和其他不新增或改变产品能力的维护变动增加 `PATCH`。一次提交同时包含两类变动时，增加 `MINOR`。只有维护者明确决定时才改变 `MAJOR`。
 - 提交前立即从确切的暂存 diff 准备条目。
 
 changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。把它当作改动的一部分，不是事后的文书。

@@ -18,7 +18,7 @@ The ten profile slots are the biggest lever. Each one is a model choice, and mod
 | `primary` | the main reasoning model — most turns | the single biggest cost line |
 | `light` | high-volume, low-stakes paths | should be genuinely cheap |
 | `heavy` | hard synthesis | expensive; used rarely if `primary` is well-tuned |
-| Background Agent Jobs (`coding` internally) | every Background Agent Job | selects the model or subscription account for durable background work |
+| Background Agent Jobs (`coding` internally) | every Background Agent Job | selects the provider and model for durable background work |
 | `vision_fallback` | when `primary` cannot handle an image | only bound if the agent sees images |
 | `embedding`, `rerank` | memory and retrieval | priced per-call, usually small |
 | `web_search`, `web_fetch` | web tools | see Lever 3 |
@@ -29,11 +29,11 @@ Two moves save the most:
 - **Bind `light` to something genuinely cheap.** It exists for the high-volume path; a `light` that is nearly as expensive as `primary` defeats the slot.
 - **Turn `primary` down, not up, by default.** An agent that "feels expensive" is often a `primary` bound too heavy for the work it actually does. Move up only when quality demands it.
 
-Unbind a slot the agent does not use. `vision_fallback` and `image_generate` then cannot incur calls. Background Agent Jobs are different: if their profile is unset, they still run through AIGateway with the Agent's `heavy` profile as the fallback. Configure this profile when you need a different model or a named ChatGPT subscription account for Jobs.
+Unbind a slot the agent does not use. `vision_fallback` then cannot incur calls. An empty `image_generate` profile can still use native image generation when the main provider declares that capability. Background Agent Jobs are different: if their profile is unset, they still run through AIGateway with the Agent's `heavy` profile as the fallback. Configure this profile when Jobs need a different provider or model.
 
 ## Lever 2: reasoning effort
 
-For Codex-backed primary profiles, `model_reasoning_effort` is a seven-step dial: `minimal | low | medium | high | xhigh | max | ultra`. Lower effort is cheaper and faster; higher effort is better on hard problems and costs more. The default is `high`.
+For providers that support Codex reasoning effort, `model_reasoning_effort` is a seven-step dial: `minimal | low | medium | high | xhigh | max | ultra`. Lower effort is cheaper and faster; higher effort is better on hard problems and costs more. The default is `high`.
 
 This is a finer-grained lever than swapping the model. An agent whose `primary` is fine at `medium` but configured at `high` spends more for no visible gain. Set it on the `primary` profile to match the agent's actual work; raise it for the one agent that does hard synthesis, not for all of them.
 

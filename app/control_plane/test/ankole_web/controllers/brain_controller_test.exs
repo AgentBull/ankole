@@ -742,7 +742,9 @@ defmodule AnkoleWeb.BrainControllerTest do
                provider_id: provider_id,
                provider_kind: "openai",
                base_url: "http://127.0.0.1:9/v1",
-               connection_options: %{"api_key" => "sk-brain-controller-test"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-brain-controller-test"}]
+               }
              })
 
     assert {:ok, _profile} =

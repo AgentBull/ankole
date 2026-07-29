@@ -29,13 +29,22 @@ A running agent needs a model behind it. The operator wires that through AIGatew
 |---|---|---|
 | `GET` | `/ai-gateway/provider-kinds` | List the provider kinds this deployment instance can configure |
 | `GET` | `/ai-gateway/providers` | List configured providers |
+| `GET` | `/ai-gateway/providers/:provider_id` | Read one provider and its credential-pool status |
 | `PUT` | `/ai-gateway/providers/:provider_id` | Create or replace a provider |
 | `DELETE` | `/ai-gateway/providers/:provider_id` | Remove a provider |
+| `POST` | `/ai-gateway/providers/:provider_id/credentials` | Add a credential-pool member |
+| `PUT` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | Update or reauthenticate a pool member |
+| `DELETE` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | Remove a pool member |
+| `PUT` | `/ai-gateway/providers/:provider_id/credential-pool/strategy` | Set the pool selection strategy |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login` | Start one ChatGPT device or browser login |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/poll` | Poll one device login |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | Complete the browser-paste fallback |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | Add an Enterprise access token |
 | `GET` | `/agents/:agent_uid/model-profiles` | List an agent's model profiles |
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | Create or replace a profile |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | Remove a profile |
 
-Provider credentials live in the control plane, never in the agent's environment. A model profile binds an agent to a selector; the AIGateway resolves the selector to a provider at call time.
+Provider credentials live as encrypted pool members in the control plane, never in the agent's environment. A model profile binds an agent to a provider and model. AIGateway selects a healthy member inside that provider, and the projection returns only safe account facts, health, rate-limit data, and usage.
 
 ### Agents and their capabilities
 
@@ -100,18 +109,14 @@ An Agent Computer Worker can need environment variables such as API keys and tok
 
 Decryption is a separate, audited operation. Listing and reading return metadata, not the secret value. A worker receives its environment only when a turn starts; changes take effect on the next turn, not one already running.
 
-### Control Plane Plugins and Codex accounts
+### Control Plane Plugins
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/control-plane-plugins` | List Control Plane Plugins and their state |
 | `PUT` | `/control-plane-plugins` | Enable or disable plugins |
-| `GET` | `/codex-accounts` | List Codex accounts |
-| `POST` | `/codex-accounts` | Create a Codex account |
-| `PUT` | `/codex-accounts/:account_id` | Update an account |
-| `DELETE` | `/codex-accounts/:account_id` | Remove an account |
 
-Control Plane Plugins are the first-party extensions that change what the control plane itself does (a signals adapter, a Brain source connector). Codex accounts carry the execution account a Background Agent Job runs on.
+Control Plane Plugins are the first-party extensions that change what the control plane itself does, such as a signals adapter or a Brain source connector.
 
 ### Identity providers and AppConfiguration
 

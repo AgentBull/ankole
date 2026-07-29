@@ -11,6 +11,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   @soft_bytes 24 * 1_024
   @soft_elements 160
+
+  # Feishu rejects a CardKit card with more than five table components
+  # (`11310: card table number over limit`). Keep the first five tables native
+  # and render later table results as Markdown, so create, update, and recovery
+  # payloads preserve their data. The final budget check counts table tags again
+  # so a future renderer path cannot bypass this provider limit.
+  @max_tables 5
   @action_value_version "ankole.interactive_output.action.v1"
   @metadata_element_ids ~w(state receipts plan thought activity meta)
   @separator_id "separator"
@@ -294,9 +301,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp interaction_answer_element(_presentation), do: nil
 
   defp result_elements(%{"results" => results}) when is_list(results) do
-    results
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn {result, index} -> render_result(result, index) end)
+    {rendered, _table_count} =
+      results
+      |> Enum.with_index(1)
+      |> Enum.map_reduce(0, fn
+        {%{"kind" => "table"} = result, index}, table_count
+        when table_count >= @max_tables ->
+          {render_table_fallback(result, index), table_count}
+
+        {%{"kind" => "table"} = result, index}, table_count ->
+          {render_result(result, index), table_count + 1}
+
+        {result, index}, table_count ->
+          {render_result(result, index), table_count}
+      end)
+
+    List.flatten(rendered)
   end
 
   defp result_elements(_presentation), do: []
@@ -425,6 +445,34 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp render_result(_result, _index), do: []
+
+  defp render_table_fallback(result, index) do
+    content =
+      case result["rows"] do
+        [] ->
+          Enum.map_join(result["columns"], " · ", fn column ->
+            "**#{escape_markdown_text(column["label"])}**"
+          end)
+
+        rows ->
+          Enum.map_join(rows, "\n", fn row ->
+            cells =
+              Enum.map_join(result["columns"], " · ", fn column ->
+                label = escape_markdown_text(column["label"])
+                value = escape_markdown_text(row[column["key"]] || "")
+                "**#{label}**: #{value}"
+              end)
+
+            "- #{cells}"
+          end)
+      end
+
+    [
+      maybe_result_title(result, index),
+      %{"tag" => "markdown", "element_id" => result_id(index), "content" => content}
+    ]
+    |> Enum.reject(&is_nil/1)
+  end
 
   defp receipts_element(%{"receipts" => receipts}) when is_list(receipts) and receipts != [] do
     content =
@@ -908,7 +956,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp within_budget?(card) do
     byte_size(Ankole.JSON.encode!(card)) <= @soft_bytes and
-      count_elements(card) <= @soft_elements
+      count_elements(card) <= @soft_elements and
+      count_tag(card, "table") <= @max_tables
   end
 
   defp drop_optional_elements(card, group) do
@@ -981,6 +1030,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp count_elements(_value), do: 0
+
+  defp count_tag(value, tag) when is_list(value),
+    do: Enum.reduce(value, 0, &(count_tag(&1, tag) + &2))
+
+  defp count_tag(value, tag) when is_map(value) do
+    own = if value["tag"] == tag, do: 1, else: 0
+    own + Enum.reduce(Map.values(value), 0, &(count_tag(&1, tag) + &2))
+  end
+
+  defp count_tag(_value, _tag), do: 0
 
   defp index_elements(elements) do
     Map.new(elements, fn element -> {element["element_id"], element} end)

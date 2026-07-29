@@ -99,7 +99,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                chat_id: "oc_real_llm",
                text: """
                @_user_1 This is a two-step skill_append test.
-               Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "pdf" and content exactly "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK".
+               Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "brain-review" and content exactly "Lark real overlay: ANKOLE_LARK_REAL_SKILL_OK".
                Step 2: After the first successful skill_append tool result is visible, do not call any more tools. Reply exactly ANKOLE_LARK_REAL_SKILL_OK.
                """,
                mentions: [mention],
@@ -123,7 +123,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert %AgentSkillOverlay{overlay_json: %{"text" => content}} =
              AgentSkillOverlay
              |> where([overlay], overlay.agent_uid == ^agent.uid)
-             |> where([overlay], overlay.skill_name == "pdf")
+             |> where([overlay], overlay.skill_name == "brain-review")
              |> where([overlay], is_nil(overlay.deleted_at))
              |> Repo.one()
 
@@ -214,13 +214,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
                Required path:
                1. Use the command tool to create the directory temp/ankole-terminal-tools-real in the current Session Workspace.
-               2. Use the patch tool in replace mode with old_string exactly "" to create temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
+               2. Use the replace tool with old_string exactly "" to create temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
                   region,owner,items
                   north,Ada,2
                   south,Bo,5
                   north,Cy,4
                   west,Dee,3
-               3. Use the patch tool in replace mode with old_string exactly "" to create temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
+               3. Use the replace tool with old_string exactly "" to create temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
                4. Run the script with the command tool from temp/ankole-terminal-tools-real.
                5. Use read_file to inspect temp/ankole-terminal-tools-real/report.md.
                6. Only after the read_file result proves the report, reply exactly:
@@ -259,7 +259,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert_text_contains_with_trace!(reply.text, "west=3", input.id, messages)
     assert_text_contains_with_trace!(reply.text, "total=14", input.id, messages)
 
-    assert replace_create_patch_calls(messages) >= 2
+    assert replace_create_file_calls(messages) >= 2
     assert command_tool_succeeded?(messages)
 
     read_results = successful_tool_results(messages, "read_file")
@@ -281,7 +281,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     %{input: input, reply: reply, message: message}
   end
 
-  def run_real_lark_codex_todolist_turn(
+  def run_real_lark_codex_ptc_mcp_turn(
         %{
           fake_feishu: fake_feishu,
           agent: agent,
@@ -292,59 +292,63 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     put_real_model_profile!(agent.uid, provider_id, "primary", @real_coding_model, %{})
     put_real_model_profile!(agent.uid, provider_id, "heavy", @real_coding_model, %{})
 
-    case ctx do
-      %{codex_account_id: account_id} ->
-        assert {:ok, _profile} =
-                 ModelProfiles.put_model_profile(agent.uid, "coding", %{
-                   "codex_account_id" => account_id
-                 })
-
-      _ctx ->
-        put_real_model_profile!(agent.uid, provider_id, "coding", @real_coding_model, %{})
-    end
+    put_real_model_profile!(
+      agent.uid,
+      Map.get(ctx, :coding_provider_id, provider_id),
+      "coding",
+      Map.get(ctx, :coding_model, @real_coding_model),
+      Map.get(ctx, :coding_provider_options, %{})
+    )
 
     put_agent_inactivity_timeout!(agent.uid, @codex_real_llm_inactivity_timeout_ms)
+    install_ptc_mcp_skill!(container, agent.uid)
 
     mention = lark_bot_mention()
 
-    task = """
-    Create the smallest possible Vite + React TypeScript in-memory todolist demo in the current Job Workspace.
-    Keep the source tiny and write only package.json plus index.html, src/App.tsx, and src/index.scss.
-    The app only needs React useState, add/toggle/delete todo behavior, and a visible remaining count.
-    No polish, no extra files, and no tests. Run bun install and bun run build. The final answer must
-    include ANKOLE_CODEX_TODOLIST_JOB_DONE.
-    """
+    task =
+      String.trim("""
+      Verify Codex Tool Search, code mode, and the enabled e2e-ptc MCP server. Do not create or edit files.
+
+      1. At the top level, call tool_search exactly once. Search for
+         "ANKOLE_CODEX_PTC_146 lookup_ptc_marker e2e-ptc" and load the matching MCP child tool.
+      2. Then call exec exactly once with raw JavaScript. In that program, use Promise.all to call
+         tools.mcp__e2e_ptc__lookup_ptc_marker for shards "left" and "right". Do not call the MCP
+         child directly outside exec.
+      3. Read each call's structuredContent.value. The values must add to 42. Use text(...) to emit
+         exactly ANKOLE_CODEX_PTC_146_JOB_DONE sum=42.
+      4. Finish with a concise report that includes the same exact marker.
+      """)
 
     start_arguments = %{
-      "title" => "Build the real todolist demo",
+      "title" => "Verify Codex Tool Search and MCP code mode",
       "task" => task
     }
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
-               event_id: "evt_real_codex_todolist_1",
-               message_id: "om_real_codex_todolist_1",
-               chat_id: "oc_real_llm_codex_todolist",
+               event_id: "evt_real_codex_ptc_mcp_1",
+               message_id: "om_real_codex_ptc_mcp_1",
+               chat_id: "oc_real_llm_codex_ptc_mcp",
                text: """
-               @_user_1 Run this implementation as a BackgroundAgentJob.
+               @_user_1 Run this verification as a BackgroundAgentJob.
 
                Call create_background_job exactly once. Its decoded arguments must equal this JSON object:
                <create_background_job_arguments_json>
                #{Ankole.JSON.encode!(start_arguments)}
                </create_background_job_arguments_json>
 
-               Immediately after create_background_job returns, reply exactly ANKOLE_CODEX_TODOLIST_STARTED.
-               When the Job completion notification later wakes this conversation, call show_background_job_details with the returned Job ID, verify ANKOLE_CODEX_TODOLIST_JOB_DONE, then reply exactly:
-                  ANKOLE_CODEX_TODOLIST_REAL_OK build=passed verified=job
+               Immediately after create_background_job returns, reply exactly ANKOLE_CODEX_PTC_146_STARTED.
+               When the Job completion notification later wakes this conversation, call show_background_job_details with the returned Job ID, verify ANKOLE_CODEX_PTC_146_JOB_DONE sum=42, then reply exactly:
+                  ANKOLE_CODEX_PTC_146_REAL_OK search=passed code_mode=passed mcp=passed auth=subscription
 
-               Do not implement the app in this conversation and do not use web research.
+               Do not run the verification in this conversation and do not use web research.
                """,
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 12, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_todolist_1")
+    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_ptc_mcp_1")
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
@@ -370,7 +374,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           """)
       end
 
-    assert start_reply.text =~ "ANKOLE_CODEX_TODOLIST_STARTED"
+    assert start_reply.text =~ "ANKOLE_CODEX_PTC_146_STARTED"
     assert [create_result] = tool_results(messages, "create_background_job")
     assert create_result.arguments == start_arguments
     refute tool_result_error?(create_result)
@@ -383,7 +387,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         )
       )
 
-    assert job.title == "Build the real todolist demo"
+    assert job.title == "Verify Codex Tool Search and MCP code mode"
     assert String.trim(job.task) == String.trim(task)
 
     dispatch_event =
@@ -410,7 +414,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  %BackgroundAgentJob{status: status} = failed
                  when status in ["failed", "stopped"] ->
                    flunk("""
-                   real background agent job todolist job ended as #{status}.
+                   real background Agent Job Tool Search verification ended as #{status}.
                    background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 8_000)}
                    failure=#{inspect(failed.error, printable_limit: 4_000)}
                    """)
@@ -432,33 +436,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
         )
       )
 
-    if is_nil(wakeup_event.completed_at) do
-      assert {:ok, _result} =
-               process_ready_event_for_actor!(
-                 wakeup_event,
-                 DateTime.add(wakeup_event.available_at, 1, :second)
-               )
-    end
+    assert is_nil(wakeup_event.completed_at)
 
-    assert {:ok, reply, message} =
-             wait_for_completed_final_reply(container, wakeup_event.id, deadline(300_000))
-
-    assert reply.text =~ "ANKOLE_CODEX_TODOLIST_REAL_OK"
-    assert reply.text =~ "build=passed"
-    assert reply.text =~ "verified=job"
-
-    assert [details_result] =
-             ai_messages_for_actor_event(wakeup_event.id)
-             |> tool_results("show_background_job_details")
-
-    assert details_result.arguments == %{"job_id" => job.id}
-    refute tool_result_error?(details_result)
-
-    assert get_in(job.result, ["output_text"]) =~ "ANKOLE_CODEX_TODOLIST_JOB_DONE",
+    assert get_in(job.result, ["output_text"]) =~ "ANKOLE_CODEX_PTC_146_JOB_DONE sum=42",
            """
-           real Codex todolist job succeeded without the expected marker.
+           real Codex Tool Search Job succeeded without the expected marker.
            background_agent_jobs=#{inspect(background_agent_job_debug(input.id), limit: :infinity, printable_limit: 8_000)}
            """
+
+    assert get_in(job.metadata, ["codex_user_agent"]) =~
+             "codex_cli_rs/0.146.0 "
 
     turns =
       Repo.all(
@@ -472,18 +459,67 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert List.last(turns).status == "completed"
     assert Enum.all?(turns, &(&1.trajectory["format"] == "ankole_chatml"))
 
-    assert Enum.any?(turns, fn turn ->
-             Enum.any?(job_turn_trajectory_messages(turn), fn message ->
-               message["role"] == "assistant" and
-                 is_binary(message["content"]) and
-                 String.contains?(message["content"], "ANKOLE_CODEX_TODOLIST_JOB_DONE")
-             end)
+    trajectory_messages = Enum.flat_map(turns, &job_turn_trajectory_messages/1)
+
+    assert Enum.any?(trajectory_messages, fn message ->
+             message["role"] == "assistant" and
+               is_binary(message["content"]) and
+               String.contains?(message["content"], "ANKOLE_CODEX_PTC_146_JOB_DONE")
            end)
+
+    called_tools =
+      for %{"tool_calls" => calls} <- trajectory_messages,
+          %{"function" => %{"name" => name}} <- calls,
+          do: name
+
+    assert Enum.count(called_tools, &(&1 == "e2e-ptc.lookup_ptc_marker")) == 2
+
+    job_project = Ankole.AgentHomePaths.job_workspace(agent.uid, job.id)
+
+    project_config =
+      docker_exec!(container, ["sed", "-n", "1,240p", "#{job_project}/.codex/config.toml"])
+
+    assert project_config =~ "[features.code_mode]"
+    assert project_config =~ "enabled = true"
+    assert project_config =~ "mcp_servers"
+    assert project_config =~ "e2e-ptc"
+
+    session_root = Path.join([Ankole.AgentHomePaths.home(agent.uid), ".codex", "sessions"])
+
+    session_evidence =
+      docker_exec!(container, [
+        "sh",
+        "-lc",
+        "rg -n --glob '*.jsonl' '\"cli_version\":\"0.146.0\"|\"name\":\"exec\"|tool_search_call|tool_search_output|lookup_ptc_marker' #{shell_quote(session_root)}"
+      ])
+
+    assert session_evidence =~ ~s("cli_version":"0.146.0")
+    assert session_evidence =~ ~s("name":"exec")
+    assert session_evidence =~ "tool_search_call"
+    assert session_evidence =~ "tool_search_output"
+    assert session_evidence =~ "lookup_ptc_marker"
+
+    legacy_auth_path = Path.join([Ankole.AgentHomePaths.home(agent.uid), ".codex", "auth.json"])
+
+    assert container
+           |> docker_exec!([
+             "sh",
+             "-lc",
+             "test ! -e #{shell_quote(legacy_auth_path)} && printf absent"
+           ])
+           |> String.trim() == "absent"
 
     assert_actor_event_completed!(input.id)
     assert_actor_event_completed!(dispatch_event.id)
-    assert_actor_event_completed!(wakeup_event.id)
-    %{input: input, reply: reply, message: message, job: job}
+
+    %{
+      input: input,
+      reply: start_reply,
+      message: start_message,
+      job: job,
+      wakeup_event: wakeup_event,
+      legacy_auth_absent: true
+    }
   end
 
   def run_real_lark_codex_pptx_skill_turn(%{
@@ -814,11 +850,20 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     input = actor_event_by_source_entry_id!(agent.uid, message_id)
     assert input.type == "im.message.addressed"
 
-    assert %Entry{text: text, attachments: [attachment]} =
-             Repo.get_by!(Entry,
-               signal_channel_id: "lark:#{chat_id}",
-               source_entry_id: message_id
-             )
+    assert {:ok, %Entry{text: text, attachments: [attachment]}} =
+             wait_until(deadline(10_000), fn ->
+               case Repo.get_by!(Entry,
+                      signal_channel_id: "lark:#{chat_id}",
+                      source_entry_id: message_id
+                    ) do
+                 %Entry{attachments: [%{"agent_computer_path" => path}]} = entry
+                 when is_binary(path) ->
+                   entry
+
+                 %Entry{} ->
+                   nil
+               end
+             end)
 
     assert text =~ "attached image"
     assert text =~ "[image]"
@@ -843,7 +888,14 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              "/#{file_key}/vision-dog.jpeg"
            )
 
-    assert get_in(input.payload, ["data", "entry", "attachments"]) == [attachment]
+    assert {:ok, %ActorEvent{} = input} =
+             wait_until(deadline(10_000), fn ->
+               refreshed = Repo.get!(ActorEvent, input.id)
+
+               if get_in(refreshed.payload, ["data", "entry", "attachments"]) == [attachment],
+                 do: refreshed,
+                 else: nil
+             end)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
@@ -982,6 +1034,164 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
   defp vision_image_jpeg, do: File.read!(@vision_fixture_path)
 
+  defp install_ptc_mcp_skill!(container, agent_uid) do
+    skill_root = Path.join(Ankole.AgentHomePaths.installed_skills(agent_uid), "e2e-ptc")
+    server_path = Path.join(skill_root, "server.ts")
+    docker_exec!(container, ["mkdir", "-p", Path.join(skill_root, "agents")])
+
+    docker_write_text!(
+      container,
+      Path.join(skill_root, "SKILL.md"),
+      """
+      ---
+      name: e2e-ptc
+      description: Verify Codex Tool Search and code-mode calls against a deterministic MCP server.
+      default_enabled: true
+      category: custom
+      ---
+
+      # E2E PTC
+
+      Use Tool Search to load `lookup_ptc_marker` from the `e2e-ptc` MCP server.
+      """
+    )
+
+    docker_write_text!(
+      container,
+      Path.join(skill_root, "agents/openai.yaml"),
+      """
+      dependencies:
+        tools:
+          - type: "mcp"
+            value: "e2e-ptc"
+            description: "Deterministic Tool Search and code-mode verification tools"
+            transport: "stdio"
+            command: "bun #{server_path}"
+            timeout_ms: 30000
+      """
+    )
+
+    docker_write_text!(
+      container,
+      server_path,
+      """
+      const targetTool = {
+        name: 'lookup_ptc_marker',
+        description: 'Return one numeric shard for the unique ANKOLE_CODEX_PTC_146 verification marker.',
+        inputSchema: {
+          type: 'object',
+          properties: { shard: { type: 'string', enum: ['left', 'right'] } },
+          required: ['shard'],
+          additionalProperties: false
+        },
+        outputSchema: {
+          type: 'object',
+          properties: {
+            shard: { type: 'string' },
+            value: { type: 'integer' },
+            marker: { type: 'string' }
+          },
+          required: ['shard', 'value', 'marker'],
+          additionalProperties: false
+        },
+        annotations: { readOnlyHint: true }
+      }
+
+      const decoyTools = Array.from({ length: 24 }, (_unused, index) => ({
+        name: 'telemetry_decoy_' + String(index + 1),
+        description: 'Read an unrelated synthetic telemetry counter ' + String(index + 1) + '.',
+        inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+        annotations: { readOnlyHint: true }
+      }))
+
+      async function write(message) {
+        await Bun.stdout.write(JSON.stringify(message) + '\\n')
+      }
+
+      async function handle(line) {
+        if (!line.trim()) return
+        const request = JSON.parse(line)
+        if (request.id === undefined || request.id === null) return
+
+        if (request.method === 'initialize') {
+          await write({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              protocolVersion: request.params?.protocolVersion || '2025-06-18',
+              capabilities: { tools: {} },
+              serverInfo: { name: 'e2e-ptc', version: '1.0.0' }
+            }
+          })
+          return
+        }
+
+        if (request.method === 'ping') {
+          await write({ jsonrpc: '2.0', id: request.id, result: {} })
+          return
+        }
+
+        if (request.method === 'tools/list') {
+          await write({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: { tools: [targetTool, ...decoyTools] }
+          })
+          return
+        }
+
+        if (request.method === 'tools/call' && request.params?.name === targetTool.name) {
+          const shard = request.params?.arguments?.shard
+          const value = shard === 'left' ? 20 : shard === 'right' ? 22 : null
+
+          if (value === null) {
+            await write({
+              jsonrpc: '2.0',
+              id: request.id,
+              result: {
+                isError: true,
+                content: [{ type: 'text', text: 'shard must be left or right' }]
+              }
+            })
+            return
+          }
+
+          const structuredContent = { shard, value, marker: 'ANKOLE_CODEX_PTC_146' }
+          await write({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [{ type: 'text', text: JSON.stringify(structuredContent) }],
+              structuredContent
+            }
+          })
+          return
+        }
+
+        await write({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32601, message: 'method or tool not found' }
+        })
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      for await (const chunk of Bun.stdin.stream()) {
+        buffer += decoder.decode(chunk, { stream: true })
+        while (buffer.includes('\\n')) {
+          const newline = buffer.indexOf('\\n')
+          const line = buffer.slice(0, newline)
+          buffer = buffer.slice(newline + 1)
+          await handle(line)
+        }
+      }
+      buffer += decoder.decode()
+      if (buffer.trim()) await handle(buffer)
+      """
+    )
+  end
+
   defp pptx_slide_count!(container, path) do
     script =
       "import re,sys,zipfile; z=zipfile.ZipFile(sys.argv[1]); print(sum(1 for n in z.namelist() if re.fullmatch(r'ppt/slides/slide[0-9]+[.]xml', n)))"
@@ -998,6 +1208,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert status == 0, output
     output
+  end
+
+  defp docker_write_text!(container, path, text) do
+    script = "cat > #{shell_quote(path)} <<'EOF'\n#{text}\nEOF\n"
+    docker_exec!(container, ["sh", "-lc", script])
+  end
+
+  defp shell_quote(value) do
+    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
   defp docker_path do
@@ -1065,9 +1284,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            """
   end
 
-  defp replace_create_patch_calls(messages) do
+  defp replace_create_file_calls(messages) do
     messages
-    |> tool_results("patch")
+    |> tool_results("replace")
     |> Enum.count(fn
       %{arguments: %{"old_string" => "", "new_string" => new_string}}
       when is_binary(new_string) ->

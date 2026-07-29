@@ -13,7 +13,7 @@ This is not the same as a search of some web pages and a summary. The Job works 
 
 Complete [Quick start](../quickstart/) and confirm that the Agent can reply in your chat channel. Configure the `web_search` and `web_fetch` model profiles when the Agent must search public web pages.
 
-A Job can use an Ankole LLM Provider or a configured [ChatGPT subscription account](../codex-accounts/). Select the runtime in **Console → Agents → Background Agent Jobs**.
+A Job always uses AIGateway. To use ChatGPT subscription capacity, create a [ChatGPT subscription provider](../chatgpt-subscription-provider/) and select it in **Console → Agents → Background Agent Jobs**.
 
 The Job automatically receives every Skill that is enabled for the Agent and permitted in Background Agent Jobs. When your instance enables a data-source Skill, for example a financial data interface or an internal system connection, the Job uses that data before it searches the public web. You do not authorize the Job separately.
 

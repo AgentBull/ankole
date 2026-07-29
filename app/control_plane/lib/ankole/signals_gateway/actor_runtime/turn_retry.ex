@@ -252,49 +252,55 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
        do: {:ok, :not_supplement}
 
   defp merge_into_open_event(repo, event, entry, now, refresh?) do
-    deliveries = live_deliveries_for_event(repo, event)
+    entries = event_entries(event)
 
-    cond do
-      deliveries != [] and event_has_committed_outbox?(repo, event.id) ->
-        {:ok, {:next_turn, :external_side_effect_guard}}
+    if event_entry_content_current?(entries, entry) do
+      {:ok, :not_supplement}
+    else
+      deliveries = live_deliveries_for_event(repo, event)
 
-      deliveries != [] and
-          not AIGatewayLink.turn_replay_safe_in_tx(
-            repo,
-            %{agent_uid: event.agent_uid, session_id: event.session_id},
-            event.id
-          ) ->
-        {:ok, {:next_turn, :external_side_effect_guard}}
+      cond do
+        deliveries != [] and event_has_committed_outbox?(repo, event.id) ->
+          {:ok, {:next_turn, :external_side_effect_guard}}
 
-      true ->
-        entries = upsert_event_entry(event_entries(event), entry)
-        payload = supplement_payload(event.payload, entries, event.id, now)
+        deliveries != [] and
+            not AIGatewayLink.turn_replay_safe_in_tx(
+              repo,
+              %{agent_uid: event.agent_uid, session_id: event.session_id},
+              event.id
+            ) ->
+          {:ok, {:next_turn, :external_side_effect_guard}}
 
-        with {:ok, updated_event} <-
-               event
-               |> ActorEvent.changeset(%{
-                 payload: payload,
-                 source_entry_id: merged_entry_summary(entries)["source_entry_id"],
-                 available_at: supplement_available_at(entries, now)
-               })
-               |> repo.update(),
-             {:ok, retracted_message} <-
-               supersede_event_turn(repo, event, deliveries, now) do
-          reason =
-            if refresh? or deliveries == [],
-              do: :input_superseded_refresh,
-              else: :input_superseded
+        true ->
+          entries = upsert_event_entry(entries, entry)
+          payload = supplement_payload(event.payload, entries, event.id, now)
 
-          {:ok,
-           {:consumed,
-            %{
-              status: reason,
-              actor_event: updated_event,
-              ai_message: retracted_message,
-              retry_controls: retry_controls(deliveries, "input_superseded"),
-              input_superseded_actor_event_ids: if(deliveries == [], do: [], else: [event.id])
-            }}}
-        end
+          with {:ok, updated_event} <-
+                 event
+                 |> ActorEvent.changeset(%{
+                   payload: payload,
+                   source_entry_id: merged_entry_summary(entries)["source_entry_id"],
+                   available_at: supplement_available_at(entries, now)
+                 })
+                 |> repo.update(),
+               {:ok, retracted_message} <-
+                 supersede_event_turn(repo, event, deliveries, now) do
+            reason =
+              if refresh? or deliveries == [],
+                do: :input_superseded_refresh,
+                else: :input_superseded
+
+            {:ok,
+             {:consumed,
+              %{
+                status: reason,
+                actor_event: updated_event,
+                ai_message: retracted_message,
+                retry_controls: retry_controls(deliveries, "input_superseded"),
+                input_superseded_actor_event_ids: if(deliveries == [], do: [], else: [event.id])
+              }}}
+          end
+      end
     end
   end
 
@@ -402,6 +408,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
         |> Enum.map(& &1["source_entry_id"])
     })
   end
+
+  defp event_entry_content_current?(
+         entries,
+         %{"source_entry_id" => source_entry_id, "content_hash" => content_hash}
+       )
+       when is_binary(content_hash) do
+    Enum.any?(entries, fn entry ->
+      entry["source_entry_id"] == source_entry_id and entry["content_hash"] == content_hash
+    end)
+  end
+
+  defp event_entry_content_current?(_entries, _entry), do: false
 
   defp upsert_event_entry(entries, entry) do
     entries

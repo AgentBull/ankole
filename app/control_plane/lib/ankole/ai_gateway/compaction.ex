@@ -15,13 +15,13 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.CompactionPrompt
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.CompactionRetention
+  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.Schemas.Message
 
   @config_key "ai_gateway.compaction"
@@ -1106,7 +1106,7 @@ defmodule Ankole.AIGateway.Compaction do
 
     with {:ok, prepared_request} <-
            Providers.build_response_request(runtime, request, stream?: false),
-         {:ok, %{body: body}} <- UniversalAIRequest.request(prepared_request),
+         {:ok, %{body: body}} <- CredentialAttempts.request(prepared_request),
          {:ok, text} <- extract_summary_text(body) do
       {:ok,
        %{

@@ -32,6 +32,9 @@ pub mod runtime_fabric;
 #[cfg(any(test, feature = "napi", feature = "nif_dev", feature = "nif_prod"))]
 pub mod signals_gateway;
 
+#[cfg(feature = "program_runner")]
+pub mod program_runner;
+
 #[cfg(feature = "universal_ai_client")]
 pub mod universal_ai_client;
 

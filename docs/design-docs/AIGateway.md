@@ -1,20 +1,24 @@
 # AIGateway
 
-The control plane uses AIGateway for every model request. AIGateway stores model
-provider settings, selects a model, prepares requests, and records Responses.
-It also decides when one model request has ended.
+The control plane uses AIGateway for every model request. AIGateway stores
+provider rows and credentials, selects a model and one credential, prepares the
+request, and records Responses. It also owns provider retry and the end of one
+model request.
 
-AIGateway does not run the Agent's model loop and does not complete Actor work.
+AIGateway does not run the Agent model loop and does not complete Actor work.
 Agent Computer runs the loop. SignalsGateway completes the ActorEvent and sends
 the final reply to the external platform.
 
 ## What Runs in Each Process
 
-The Elixir control plane stores provider credentials and prepares requests. The
-Rust kernel sends those requests and handles their streaming protocols.
+The Elixir control plane owns provider configuration, credential encryption,
+credential selection, OAuth refresh, provider retry, and durable Response
+state. The Rust kernel performs one prepared HTTP, SSE, or WebSocket attempt and
+normalizes provider events.
 
-Workers receive an Agent-scoped AIGateway token.
-They never receive external AI provider credentials.
+Workers receive an Agent-scoped AIGateway token. They never receive external
+provider credentials, ChatGPT refresh tokens, or a generated Codex
+authentication file.
 
 Every stored AIGateway record belongs to one Principal through `subject_uid`.
 AIGateway stores ActorEvent metadata without interpreting it.
@@ -33,137 +37,204 @@ AIGateway supports these capability names:
 - `web_fetch`
 - `image_generate`
 
-The requested capability helps select the model. The same short model name can
-point to different providers for different kinds of work.
+Agent model profiles include `primary`, `light`, `heavy`, `coding`,
+`vision_fallback`, `embedding`, `rerank`, `web_search`, `web_fetch`, and
+`image_generate`. A caller can also select `provider_id/raw-model-id`
+directly. Every profile and direct selector points to one provider row. Neither
+form selects a member of its credential pool.
 
-Agent model profiles are:
+The `coding` profile is an ordinary AIGateway profile. It contains
+`provider_id`, `model`, and request-level `provider_options`. A ChatGPT
+subscription is an ordinary provider kind. There is no second Codex runtime
+mode and no account identifier in a Job.
 
-- `primary`
-- `light`
-- `heavy`
-- `coding`
-- `vision_fallback`
-- `embedding`
-- `rerank`
-- `web_search`
-- `web_fetch`
-- `image_generate`
-
-The runtime requires `primary`, `light`, and `heavy`. Other capabilities use
-defaults such as `embedding.default` and `web_fetch.default`.
-
-The Background Agent Jobs profile selects one of two Codex runtimes. Its
-persisted key and API name remain `coding` until that stored contract is
-migrated. It can select an AIGateway provider and model, or it can select a
-named ChatGPT subscription account. A subscription profile also contains the
-Codex model, the model reasoning effort, and Fast Mode. Fast Mode is off by
-default. When `coding` is absent, the existing `heavy` profile is its fallback.
-A Job cannot be created when neither profile is configured.
-
-A caller can select `provider_id/raw-model-id` directly. This skips the Agent
-profile but still requires an active provider.
+When `coding` is absent, `heavy` is its fallback. Job creation fails when
+neither profile is configured.
 
 ## Bind a Codex Job to Its Model Snapshot
 
 The control plane resolves the effective `coding` profile when it creates a
-Job. An AIGateway Job stores the real Codex model name, the exact
-`provider_id/raw-model-id` selector, all provider options, and the optional
-context length. It also stores the provider's parallel-tool-call capability. A
-retry uses this snapshot. A new or respawned Job resolves the current profile
-again.
+Job. The Job stores the real Codex model, the exact
+`provider_id/raw-model-id` selector, all provider options, the optional context
+length, and the provider parallel-tool-call capability. A retry uses this
+snapshot. A new or respawned Job resolves the current profile again.
 
-Agent Computer puts the real model name in the Job's Codex project configuration
-and selects the AIGateway provider in the Agent Codex Home. It sends the frozen
-selector, provider options, and parallel-tool-call capability in the
-`x-ankole-aigateway-model-binding` provider header. AIGateway replaces the
-Codex-facing model name with the selector before provider resolution and uses
-the stored provider options as request defaults. It sets `parallel_tool_calls`
-from the stored provider capability. An explicit Codex Responses Lite marker in
-the HTTP header or WebSocket client metadata keeps this value false. The
-`coding` profile name never enters Codex as a model name.
+Agent Computer puts the real model in the Job project configuration and selects
+the `ankole_aigateway` Codex provider. It sends the frozen binding in the
+`x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
+provider resolution. The `coding` profile name never enters Codex as a model.
 
-An official-subscription Job does not use this binding. Agent Computer loads its
-stored model settings and native `auth.json` credentials instead.
+The same path handles API-key providers and `chatgpt_subscription`. Agent
+Computer does not resolve, store, refresh, or write back provider
+authentication.
 
 ## Describe Each Provider in Code
 
-Provider modules use `Ankole.AIGateway.ProviderDSL`.
-Each module declares its identifier, settings, default endpoint, transport options, and supported capabilities.
+Provider modules use `Ankole.AIGateway.ProviderDSL`. Each module declares its
+identifier, settings, default endpoint, transport options, and capabilities.
+Each capability selects an upstream protocol, a Rust API resolver, and an
+Elixir prepare function.
 
-Each capability selects an upstream protocol, a Rust API resolver, and an Elixir
-function that creates a `UniversalAIRequest`.
+A setting has one scope:
 
-Each language-model capability can declare `supports_parallel_tool_calls`. It
-defaults to false. OpenAI, OpenRouter, Google AI Studio OpenAI, Azure OpenAI,
-and Claude declare it true. The generic `openai_compatible` provider keeps the
-default because its upstream is unknown.
+- `connection` settings belong to the provider row and are shared by all pool
+  members.
+- `credential` settings are encrypted in each pool member.
+- `request` settings belong to a model profile or one request.
 
-Built-in language-model providers are:
-
-- `openai`
-- `openai_compatible`
-- `openrouter`
-- `google_ai_studio_openai`
-- `claude`
-- `azure_openai`
-
-Built-in embedding providers are:
-
-- `openrouter`
-- `google_ai_studio_openai`
-- `jina`
-
-Built-in rerank providers are:
-
-- `openrouter`
-- `jina`
-
-Built-in web-search providers are:
-
-- `parallel`
-- `bright_data_serp`
-- `jina_search`
-- `agentbull_cloud`
-
-Built-in web-fetch providers are:
-
-- `parallel`
-- `jina_reader`
-
-`openrouter` provides image generation.
+A language-model capability can declare `supports_parallel_tool_calls` and
+`supports_native_image_generation`. Both declarations default to false.
 
 Trusted Plugins can add providers through `ai_gateway.provider`. A Plugin
-cannot replace AIGateway storage, authorization, profiles, or secret handling.
+cannot replace AIGateway storage, authorization, profiles, credential
+selection, or secret handling.
 
-## Configure Provider Instances
+## Configure Provider Rows and Credential Pools
 
-`ai_gateway_providers` stores operator-configured provider instances.
-
-Each row contains:
+`ai_gateway_providers` stores operator-configured provider rows. Each row
+contains:
 
 - `provider_id`
 - `provider_kind`
 - optional `base_url`
-- encrypted provider options
-- plain connection options
-- optional disable time
+- plain row-level `connection_options`
+- one encrypted `credential_pool`
+- optional `disabled_at`
 
 `provider_id` uses a lowercase slug. `provider_kind` uses lowercase snake case.
+The application checks each kind against built-in and active Plugin
+definitions.
 
-The database does not use an enum for provider kinds. The application checks
-each value against built-in and active Plugin definitions.
+The pool has one row-level strategy and an ordered list of entries. Each entry
+contains `id`, `label`, `source`, `priority`, optional `disabled_at`, and the
+encrypted fields declared for that provider kind. A single credential is a
+pool with one entry. There is no non-pool execution path.
 
-Provider definitions mark which settings contain secrets. The Console and API
-never return those values as plaintext.
+The four strategies are:
 
-AIGateway decrypts secrets only while it prepares a request or checks a
-connection.
+- `fill_first` selects the first usable entry by priority.
+- `round_robin` moves selection through the usable entries.
+- `least_used` selects the entry with the smallest process-local request count.
+- `random` selects one usable entry at random.
 
-Deleting a provider sets `disabled_at`. AIGateway refuses the operation while
-an active model profile still uses that provider.
+A stateful request uses its thread or cache key as an affinity key. Affinity
+wins over the configured strategy while that entry is usable. This keeps
+account-scoped provider caches stable.
 
-Connection settings can select HTTP versions, compression, and a proxy. The
-Rust client tries the selected transport options.
+Runtime health is process-local and has three states. `ok` entries can be
+selected. `exhausted` entries stay out of selection until their recovery time.
+`dead` entries stay out until an operator replaces or reauthenticates them.
+Disabled entries also stay out. PostgreSQL stores the credential facts, but it
+does not store these rebuildable health facts.
+
+An upstream reset header sets the recovery time when it is available. The
+fallback is five minutes for HTTP 401 and one hour for HTTP 429 or other
+retryable failures. A process restart can cause one additional probe.
+
+The selected credential ID stays in the private request context until success
+or failure. A failure that has no credential attribution does not change any
+entry. Such retries stop after one pool lap.
+
+For HTTP 429, HTTP 5xx, transport failures, and provider terminal events with
+the `server_is_overloaded` or `slow_down` code, the control plane marks the
+attributed entry exhausted, selects a different entry, prepares a new request,
+and retries. A terminal event can report an overload inside an HTTP 200 stream.
+AIGateway retries it only before it has emitted provider output. Delay uses
+exponential backoff with 0.9 to 1.1 jitter. A single-entry pool can retry that
+entry once. The kernel never selects a credential and never retries a provider
+request.
+
+When no entry is usable, AIGateway returns `credential_pool_exhausted`. It
+includes the earliest `retry_at` only when a current exhausted entry has a
+known future recovery time. Interactive requests receive HTTP 429. A
+Background Agent Job returns to `queued`, releases its Worker, and refunds its
+execution attempt only for quota exhaustion with that recovery time. An empty,
+disabled, or dead pool uses the ordinary Job retry budget instead of waiting
+forever. AIGateway does not fall back to a different provider.
+
+The Console shows each entry label, source, health, recovery time, request
+count, last selection time, and safe recent error facts. It can add, update,
+disable, enable, delete, or reauthenticate an entry. No API returns a
+credential value.
+
+Deleting a provider first sets `disabled_at`. AIGateway refuses this operation
+while an active model profile still uses the provider.
+
+## Use a ChatGPT Subscription Provider
+
+`chatgpt_subscription` uses the OpenAI Responses resolver and the default base
+URL `https://chatgpt.com/backend-api/codex`. One provider row can contain many
+ChatGPT accounts.
+
+An OAuth pool member contains access, refresh, and ID tokens plus the stored
+account ID, plan type, email, last refresh time, and optional FedRAMP flag. An
+Enterprise access-token member contains the access token and account ID and has
+no refresh flow.
+
+The Console starts device login through the control plane. It keeps the device
+login context and calls one poll endpoint at the server-supplied interval. The
+control plane exchanges the authorization code and writes the completed pool
+entry. If the device endpoint is unavailable, the Console shows the browser
+authorization URL and accepts the full localhost callback URL. Login state is
+not stored before completion.
+
+The control plane refreshes an OAuth credential during selection when its
+access token enters the last five minutes or its last refresh is eight days
+old. It locks the provider row while it exchanges and stores rotated tokens.
+Concurrent requests then use the stored result instead of consuming the same
+refresh token twice.
+
+Both Responses requests and the model-catalog connection check send
+`X-OpenAI-Fedramp: true` for a FedRAMP credential.
+
+A permanent refresh error marks the entry `dead`. A refresh rate limit or
+transport error keeps the credential and marks it temporarily exhausted. An
+upstream HTTP 401 causes one forced refresh. A second HTTP 401 marks an OAuth
+or Enterprise entry `dead` and selects another entry.
+
+ChatGPT requests always use `store=false` and request
+`reasoning.encrypted_content`. AIGateway stores and replays that encrypted
+reasoning content. It does not use the upstream compact endpoint or upstream
+response storage.
+
+The provider prepares the Codex protocol as follows:
+
+- It removes downstream-only and unsupported request fields, including caller
+  `metadata`, before dispatch. AIGateway still stores that metadata locally.
+- It converts standard string input to one user message because the Codex
+  endpoint accepts only an input-item list.
+- It supplies an empty `instructions` value when the client omits it.
+- It removes an orphan reasoning item ID when no encrypted reasoning content
+  can support replay.
+- It rejects input item IDs longer than 64 characters.
+- It removes `parallel_tool_calls` when no tool exists.
+- It derives `prompt_cache_key`, `Session_id`, and stateful credential affinity
+  from the same thread key. WebSocket requests also use `Conversation_id`.
+- It forwards only the declared Codex request headers.
+- It sends the required content, accept, beta, connection, originator, and user
+  agent headers.
+- It uses the account ID stored in the selected credential.
+- It supports both POST SSE and upstream WebSocket `response.create`. An
+  oversized WebSocket message maps to HTTP 413.
+
+The kernel returns only safe provider response headers to the control plane.
+It keeps the `x-codex-*` rate-limit family and `cf-mitigated`, which lets the
+pool use real recovery times and lets AIGateway diagnose a Cloudflare
+challenge. It does not return cookies, authorization, or other provider
+headers.
+
+Provider identity settings take priority over inbound Codex identity headers.
+Inbound headers take priority over the built-in Codex CLI defaults. Agent
+Computer sets `CODEX_INTERNAL_ORIGINATOR_OVERRIDE=codex_cli_rs` for each Codex
+Job process. Thus, Codex creates the Job identity with the Codex CLI prefix,
+while the app-server client name stays `ankole_agent_computer`. Enterprise
+access-token requests omit the subscription account and Codex identity headers.
+
+Responses Lite keeps its compact request and response shapes for ChatGPT. For
+other providers, AIGateway restores the normal Responses shape before provider
+preparation. Tool Search, deferred tool loading, programmatic tool calls, and
+compaction therefore use the same gateway path for a Codex Job and the main
+Agent.
 
 ## Runtime API
 
@@ -232,6 +303,13 @@ The retrieve endpoint does not return those identifiers.
 ## Store a Response and Continue It Later
 
 Stateful execution requires WebSocket `response.create` with `store=true`.
+
+Stateful history replays as Responses items. A stateful request must resolve to
+a provider wire that replays those items without loss: `openai_responses` or
+`openai_chat_completions`. AIGateway rejects other wires at turn start with
+`stateful_wire_unsupported` (status 422). Providers on other wires, such as the
+Anthropic wire, stay available for stateless requests. To move a conversation
+across wire families, start a new conversation.
 
 A visible leaf is the last Response currently available for continuation. A
 request chooses one of these ways to continue:
@@ -393,17 +471,29 @@ Stateless generated images expire after 30 days.
 Generated images linked to messages in PostgreSQL do not use that stateless
 expiry.
 
-The image-generation hosted tool resolves the `image_generate` model profile.
-OpenRouter is the current built-in provider for this capability.
-The endpoint catalog removes endpoints that cannot satisfy the request. All
-remaining endpoints stay eligible. OpenRouter owns routing and fallback
-between these endpoints.
+The execution owner depends on the model profile. When `image_generate` is
+configured, AIGateway runs the public `image_generation` tool as a hosted tool.
+The main provider sees only the hidden function used by the hosted executor.
+The image provider endpoint catalog removes endpoints that cannot satisfy the
+request. All remaining endpoints stay eligible.
+The public tool rejects `output_compression` unless `output_format` is `jpeg`
+or `webp`. This validation runs before hosted or native execution is selected.
+
+When `image_generate` is not configured, AIGateway leaves the declared tool in
+the provider request if the language-model capability declares native image
+generation. OpenAI and `chatgpt_subscription` declare this capability. If
+neither path is available, request preparation returns an explicit unsupported
+value error. AIGateway never adds an image tool that the caller did not
+declare.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
-An upstream failure keeps its provider HTTP status in safe public error details.
-The provider body and provider message stay private. This status lets the
-Worker classify a safe retry without copying provider routing into Ankole.
+Image persistence observes normalized image events from both execution paths.
+It stores the final image and accounts for native image usage. A hosted image
+attempt rotates only the image provider pool, while a main model attempt
+rotates only the main provider pool. Usage stays attributed to the credential
+that ran each attempt. An upstream failure keeps its provider HTTP status in
+safe public error details. The provider body and provider message stay private.
 
 ## Observe the Execution Path
 

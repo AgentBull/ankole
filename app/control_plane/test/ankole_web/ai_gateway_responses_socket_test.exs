@@ -46,7 +46,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       WebSockAdapter.upgrade(
         conn,
         AnkoleWeb.AIGatewayResponsesSocketTest.NativeResponsesWebSocketUpstream,
-        %{test_pid: opts[:test_pid]},
+        %{
+          test_pid: opts[:test_pid],
+          scenario: opts[:scenario] || :created,
+          counter: opts[:counter],
+          authorization: conn |> get_req_header("authorization") |> List.first()
+        },
         []
       )
     end
@@ -64,15 +69,18 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     @behaviour WebSock
 
     @impl true
-    def init(%{test_pid: test_pid}) do
-      {:ok, %{test_pid: test_pid}}
+    def init(%{test_pid: test_pid} = state) when is_pid(test_pid) do
+      {:ok, state}
     end
 
     @impl true
     def handle_in({payload, [opcode: :text]}, state) do
       send(state.test_pid, {:native_socket_upstream_request, Ankole.JSON.decode!(payload)})
 
-      {:push, {:text, Ankole.JSON.encode!(response_created())}, state}
+      case response_frames(state) do
+        [frame] -> {:push, frame, state}
+        frames -> {:push, frames, state}
+      end
     end
 
     def handle_in(_message, state), do: {:ok, state}
@@ -82,6 +90,26 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     @impl true
     def terminate(_reason, _state), do: :ok
+
+    defp response_frames(%{scenario: :overload_then_complete} = state) do
+      attempt = :atomics.add_get(state.counter, 1, 1)
+      send(state.test_pid, {:native_socket_upstream_attempt, attempt, state.authorization})
+
+      event = if attempt == 1, do: response_failed(), else: response_completed()
+      [{:text, Ankole.JSON.encode!(event)}]
+    end
+
+    defp response_frames(%{scenario: :output_then_overload} = state) do
+      attempt = :atomics.add_get(state.counter, 1, 1)
+      send(state.test_pid, {:native_socket_upstream_attempt, attempt, state.authorization})
+
+      [
+        {:text, Ankole.JSON.encode!(response_output())},
+        {:text, Ankole.JSON.encode!(response_failed(1))}
+      ]
+    end
+
+    defp response_frames(_state), do: [{:text, Ankole.JSON.encode!(response_created())}]
 
     defp response_created do
       %{
@@ -93,6 +121,53 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           "status" => "in_progress",
           "output" => [],
           "usage" => %{}
+        }
+      }
+    end
+
+    defp response_completed do
+      %{
+        "type" => "response.completed",
+        "sequence_number" => 0,
+        "response" => %{
+          "id" => "resp_native_socket_completed",
+          "object" => "response",
+          "status" => "completed",
+          "output" => [],
+          "usage" => %{}
+        }
+      }
+    end
+
+    defp response_output do
+      %{
+        "type" => "response.output_item.done",
+        "sequence_number" => 0,
+        "item" => %{
+          "id" => "msg_native_socket",
+          "type" => "message",
+          "role" => "assistant",
+          "status" => "completed",
+          "content" => [%{"type" => "output_text", "text" => "visible"}]
+        }
+      }
+    end
+
+    defp response_failed(sequence_number \\ 0) do
+      %{
+        "type" => "response.failed",
+        "sequence_number" => sequence_number,
+        "response" => %{
+          "id" => "resp_native_socket_failed",
+          "object" => "response",
+          "status" => "failed",
+          "error" => %{
+            "type" => "service_unavailable_error",
+            "code" => "server_is_overloaded",
+            "message" => "opaque provider text",
+            "param" => nil
+          },
+          "output" => []
         }
       }
     end
@@ -238,8 +313,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-implicit-admission-conflict",
                provider_kind: "openai",
                base_url: "https://api.openai.invalid/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -307,7 +384,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openrouter-hosted-validation",
                provider_kind: "openrouter",
                base_url: "https://openrouter.invalid/api/v1",
-               connection_options: %{"api_key" => "sk-test"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
     assert {:ok, _profile} =
@@ -365,8 +442,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-native-socket-codex-response-create",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -451,6 +530,102 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert active.ref == state.active_stream.ref
   end
 
+  test "Codex overload before provider output rotates credentials without exposing the failed attempt" do
+    %{principal: agent} = agent_fixture()
+    counter = :atomics.new(1, [])
+    provider_id = "openai-native-socket-overload-retry"
+    base_url = start_native_socket_upstream(:overload_then_complete, counter)
+
+    configure_native_socket_provider(agent.uid, provider_id, base_url)
+
+    request = %{
+      "type" => "response.create",
+      "model" => "primary",
+      "input" => [text_message("user", "hello")],
+      "store" => false
+    }
+
+    assert {:ok, %ResponseStream{ref: ref} = stream, _meta} =
+             AIGateway.open_websocket_stream(agent.uid, request,
+               receiver: self(),
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert :ok = AIGateway.read_response_stream(stream, 4)
+    assert_receive {:native_socket_upstream_attempt, 1, "Bearer sk-first"}
+    assert_receive {:native_socket_upstream_attempt, 2, "Bearer sk-second"}
+
+    assert_receive {:ai_gateway_response_stream, ^ref, :events, events,
+                    {:terminal, %{terminal_error: nil}}},
+                   5_000
+
+    assert [%{"type" => "response.completed"}] = events
+    refute Enum.any?(events, &(&1["type"] == "response.failed"))
+    refute inspect(events) =~ "opaque provider text"
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["last_error_code"] == "server_is_overloaded"
+    assert by_id["second"]["status"] == "ok"
+  end
+
+  test "Codex overload after provider output does not replay the request" do
+    %{principal: agent} = agent_fixture()
+    counter = :atomics.new(1, [])
+    provider_id = "openai-native-socket-overload-after-output"
+    base_url = start_native_socket_upstream(:output_then_overload, counter)
+
+    configure_native_socket_provider(agent.uid, provider_id, base_url)
+
+    request = %{
+      "type" => "response.create",
+      "model" => "primary",
+      "input" => [text_message("user", "hello")],
+      "store" => false
+    }
+
+    assert {:ok, %ResponseStream{ref: ref} = stream, _meta} =
+             AIGateway.open_websocket_stream(agent.uid, request,
+               receiver: self(),
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert :ok = AIGateway.read_response_stream(stream, 4)
+    assert_receive {:native_socket_upstream_attempt, 1, "Bearer sk-first"}
+
+    assert_receive {:ai_gateway_response_stream, ^ref, :events,
+                    [%{"type" => "response.output_item.done"}], :continue},
+                   5_000
+
+    assert_receive {:ai_gateway_response_stream, ^ref, :events,
+                    [
+                      %{
+                        "type" => "response.failed",
+                        "response" => %{
+                          "error" => %{
+                            "code" => "server_is_overloaded",
+                            "failure_kind" => "provider_response",
+                            "retryable" => true
+                          }
+                        }
+                      }
+                    ],
+                    {:terminal,
+                     %{
+                       terminal_error: %{
+                         "code" => "server_is_overloaded",
+                         "failure_kind" => "provider_response",
+                         "retryable" => true
+                       }
+                     }}},
+                   5_000
+
+    refute_receive {:native_socket_upstream_attempt, 2, _authorization}, 300
+  end
+
   test "response.create store true without previous_response_id or conversation creates a managed durable conversation" do
     %{principal: agent} = agent_fixture()
 
@@ -470,8 +645,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-native-socket-codex-store",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -532,8 +709,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-native-socket-history",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -617,8 +796,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-native-socket-same-connection-history",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -787,8 +968,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-native-socket-read-credit",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1735,8 +1918,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-overflow",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1800,8 +1985,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-conversation-without-actor-event",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1998,8 +2185,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-duplicate-actor-event",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -2112,8 +2301,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-invalid-conversation",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -2149,10 +2340,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
   test "stateful upstream socket-open 429 sends retryable error frame without completing actor event" do
     %{principal: agent} = agent_fixture()
+    test_pid = self()
+    reset_at = DateTime.utc_now(:second) |> DateTime.add(900)
 
     base_url =
       start_upstream_server(fn _request ->
+        send(test_pid, :socket_pool_attempt)
+
         {:json, 429,
+         [{"x-codex-primary-reset-at", Integer.to_string(DateTime.to_unix(reset_at))}],
          %{
            "error" => %{
              "code" => "rate_limited",
@@ -2167,8 +2363,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-upstream-429",
                provider_kind: "openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -2204,23 +2402,32 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                subject_type: "agent"
              })
 
+    assert_receive :socket_pool_attempt
+    assert_receive :socket_pool_attempt
+
     assert %{
              "type" => "error",
              "status" => 429,
+             "headers" => %{
+               "retry-after" => retry_after,
+               "x-codex-primary-reset-at" => reset_at_header
+             },
              "error" => %{
-               "code" => "upstream_response_failed",
+               "type" => "usage_limit_reached",
+               "code" => "credential_pool_exhausted",
                "message" => message,
-               "details_json" =>
-                 %{
-                   "stage" => "socket_open",
-                   "provider_status" => 429,
-                   "retryable" => true
-                 } = details
+               "resets_at" => resets_at,
+               "details_json" => %{"retry_at" => retry_at}
              }
            } = Ankole.JSON.decode!(pushed)
 
-    assert message == "Provider request failed with status 429."
-    refute Map.has_key?(details, "upstream_body")
+    assert resets_at == DateTime.to_unix(reset_at)
+    assert reset_at_header == Integer.to_string(resets_at)
+    assert {retry_after_seconds, ""} = Integer.parse(retry_after)
+    assert retry_after_seconds in 0..900
+    assert {:ok, parsed_retry_at, _offset} = DateTime.from_iso8601(retry_at)
+    assert DateTime.compare(parsed_retry_at, reset_at) == :eq
+    assert message =~ "All credentials in this provider pool are unavailable."
 
     [run] =
       Message
@@ -2232,11 +2439,12 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert run.status == "error"
 
     assert run.metadata["error"] == %{
-             "code" => "upstream_response_failed",
+             "code" => "credential_pool_exhausted",
              "failure_kind" => "provider_response",
-             "message" => "The upstream provider request failed.",
+             "message" => "All credentials in this provider pool are temporarily unavailable.",
              "provider_status" => 429,
              "retryable" => true,
+             "retry_at" => retry_at,
              "stage" => "socket_open"
            }
 
@@ -2264,8 +2472,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                provider_id: "openai-socket-upstream-large-503",
                provider_kind: "openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -2364,6 +2574,46 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       })
 
     {agent, conversation, actor_event, message}
+  end
+
+  defp start_native_socket_upstream(scenario, counter) do
+    server =
+      start_supervised!(
+        {Bandit,
+         plug:
+           {NativeResponsesWebSocketUpstreamPlug,
+            test_pid: self(), scenario: scenario, counter: counter},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    "http://127.0.0.1:#{port}/v1"
+  end
+
+  defp configure_native_socket_provider(agent_uid, provider_id, base_url) do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
+                 ]
+               },
+               connection_options: %{"upstream_transport" => "websocket"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent_uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-main"
+             })
+
+    :ok
   end
 
   defp actor_event_fixture(agent_uid, session_id, source_event_id) do

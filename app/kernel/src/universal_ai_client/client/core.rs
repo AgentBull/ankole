@@ -10,7 +10,9 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::error::CapacityError;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 
 pub use spec::{
     DownstreamKind, ModelRequestSpec, RawRequestSpec, APIResolverKind, StreamLimits,
@@ -142,7 +144,8 @@ pub(super) async fn run_model_request_once(spec: ModelRequestSpec) -> Result<Val
             format!("upstream returned HTTP status {}", response.status),
         )
         .provider_status(response.status)
-        .provider_body_excerpt(&response.body));
+        .provider_body_excerpt(&response.body)
+        .provider_headers(&response.headers));
     }
 
     let body = decode_response_body(&response.body)?;
@@ -154,7 +157,7 @@ pub(super) async fn run_model_request_once(spec: ModelRequestSpec) -> Result<Val
 
     Ok(json!({
         "status": response.status,
-        "headers": response.headers,
+        "headers": transport::codex_response_headers(&response.headers),
         "body": normalized_body,
         "raw_body_bytes": response.body.len(),
         "http_version": response.version,

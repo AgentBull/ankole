@@ -17,13 +17,21 @@ export interface MCPClientOperationOptions {
   timeoutMs: number
 }
 
-export type MCPListedTool = Pick<Tool, 'name' | 'description' | 'inputSchema' | 'outputSchema'>
+export type MCPListedTool = Pick<
+  Tool,
+  'name' | 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta'
+>
+
+export interface MCPServerCatalog {
+  instructions?: string
+  tools: MCPListedTool[]
+}
 
 /** Lists and validates one server's complete bounded tool catalog. */
-export async function listMCPServerTools(
+export async function listMCPServerCatalog(
   server: MCPServerConfig,
   options: MCPClientOperationOptions
-): Promise<MCPListedTool[]> {
+): Promise<MCPServerCatalog> {
   return await withEphemeralMCPClient(server, options, async (client, signal) => {
     const tools: MCPListedTool[] = []
     const names = new Set<string>()
@@ -37,7 +45,7 @@ export async function listMCPServerTools(
       )
 
       for (const tool of result.tools) {
-        if (names.has(tool.name)) throw new Error(`MCP server ${server.name} returned duplicate tool ${tool.name}`)
+        if (names.has(tool.name)) continue
         const schemaBytes = Buffer.byteLength(
           JSON.stringify({ inputSchema: tool.inputSchema, outputSchema: tool.outputSchema }),
           'utf8'
@@ -48,9 +56,12 @@ export async function listMCPServerTools(
         names.add(tool.name)
         tools.push({
           name: tool.name,
+          ...(tool.title ? { title: tool.title } : {}),
           ...(tool.description ? { description: tool.description } : {}),
           inputSchema: tool.inputSchema,
-          ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {})
+          ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
+          ...(tool.annotations ? { annotations: tool.annotations } : {}),
+          ...(tool._meta ? { _meta: tool._meta } : {})
         })
         if (tools.length > MAX_TOOLS_PER_SERVER) {
           throw new Error(`MCP server ${server.name} exceeds the ${MAX_TOOLS_PER_SERVER}-tool catalog limit`)
@@ -60,10 +71,15 @@ export async function listMCPServerTools(
       cursor = result.nextCursor
       if (!cursor) {
         const sorted = tools.sort((left, right) => compareCodePointStrings(left.name, right.name))
-        if (Buffer.byteLength(JSON.stringify(sorted), 'utf8') > MAX_CATALOG_BYTES) {
+        const instructions = client.getInstructions()
+        const catalog: MCPServerCatalog = {
+          ...(instructions !== undefined ? { instructions } : {}),
+          tools: sorted
+        }
+        if (Buffer.byteLength(JSON.stringify(catalog), 'utf8') > MAX_CATALOG_BYTES) {
           throw new Error(`MCP server ${server.name} exceeds the ${MAX_CATALOG_BYTES}-byte catalog limit`)
         }
-        return sorted
+        return catalog
       }
     }
 

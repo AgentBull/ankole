@@ -63,7 +63,7 @@ Console 将对应的模型档案显示为**后台 Agent 任务**。它在数据�
 
 - **Computer 工具**（shell、read-file、patch）随每个 Worker 提供，普通对话可以直接使用。
 - **Jupyter live kernel** 是 `default_enabled` skill，所以你通过 [Agent Library](../agent-library/) 控制它，方式和控制[浏览器](../browser-automation/) skill 一样。为不该跑迭代 Python 的 agent 收窄它。
-- **CodexRunner** 执行每个后台 Agent 任务。如果后台任务需要使用不同的模型或指定的 ChatGPT 订阅账号，请配置“后台 Agent 任务”档案；留空时，控制面会使用该 Agent 的 AIGateway 回退配置。
+- **CodexRunner** 执行每个后台 Agent 任务，所有模型调用都通过 AIGateway。后台任务需要不同 Provider 或模型时，配置“后台 Agent 任务”档案；留空时，控制面使用该 Agent 的 `heavy` 档案。
 
 ## 下一步
 

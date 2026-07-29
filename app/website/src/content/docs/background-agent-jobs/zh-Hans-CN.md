@@ -59,11 +59,13 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 - **`claim_attempt_in_tx`**——为一次新的执行尝试 claim 一个任务。
 - **`claim_continuation_in_tx`**——在一次暂停之后 claim 一个任务以续接。
 
-两者都按固定顺序拿 agent 的槽锁、再在 `FOR UPDATE` 下拿任务行、再拿 Codex account 槽——所以同一个 agent 上并发的 dispatcher 每次都以同样的方式分出胜负。一次重试尝试若超出预算，就落入 `failed`；一个被取消的任务落入 `stopped`。两次尝试之间的重试延迟限定在 30 秒，所以一个短暂失败的任务不会把 provider 打爆。
+两者都按固定顺序拿 agent 的槽锁，再在 `FOR UPDATE` 下拿任务行。同一个 agent 上并发的 dispatcher 因此每次都以同样的方式分出胜负。一次重试尝试若超出预算，就落入 `failed`；一个被取消的任务落入 `stopped`。两次尝试之间的重试延迟限定在 30 秒，所以一个短暂失败的任务不会把 Provider 打爆。
+
+AIGateway 配额耗尽且池有已知恢复时间时，这属于派发延迟，不是执行失败。生命周期会把任务放回 `queued`，退还尚未开始的 attempt，释放 Worker，并按该恢复时间安排下一次派发。这个等待不消耗五次执行预算。空池、全禁用池或全失效池没有恢复时间，所以走普通的有界任务重试路径。
 
 ## 派发与 agent 的插件
 
-一个任务保留一个可选的工作空间模板，但每一次执行用的是 agent *当前* 启用的 Agent Plugins 和兼容 Skills——不是 spawn 时冻结的快照。派发路径（`BackgroundAgentJobDispatch.process`）从 actor 事件解析出任务，交给回合运行时，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。任务跑在一个 Codex account 上（`codex_account_id`，默认 `aigateway`），account 槽是 claim 的一部分，所以任务不会超出 account 的并发。
+一个任务保留一个可选的工作空间模板，但每一次执行用的是 agent *当前* 启用的 Agent Plugins 和兼容 Skills——不是 spawn 时冻结的快照。派发路径（`BackgroundAgentJobDispatch.process`）从 actor 事件解析出任务，交给回合运行时，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用任务创建时保存的 Provider 绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理；任务没有账号字段或账号并发槽。
 
 任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION、持久 Brain 上下文、执行事实，以及收尾的 Job Guidance 一节，其正文来自共享模板 `app/library/templates/AGENT_JOB.md`。该模板承载对每个任务生效的部署级执行指导；当前内容向模型说明回合成本模型与子 agent 协调的长阻塞等待契约。续接既有线程的任务保留原有 `AGENTS.md`。
 

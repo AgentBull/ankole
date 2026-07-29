@@ -83,6 +83,9 @@ export type TurnModelRef = {
   provider_id: string
   model: string
   provider_kind?: string
+  provider_options?: JSONObject
+  supports_parallel_tool_calls?: boolean
+  context_length?: number
   input_modalities?: string[]
   max_completion_tokens?: number
   vision_fallback_model_ref?: TurnModelRef | null
@@ -211,6 +214,10 @@ function turnModelRefFromProto(modelRef: TurnModelRefMessage): TurnModelRef {
     provider_id: modelRef.providerId,
     model: modelRef.model,
     ...(modelRef.providerKind ? { provider_kind: modelRef.providerKind } : {}),
+    provider_options:
+      jsonObjectFromBytes(modelRef.providerOptionsJson, 'turn_start.model_ref.provider_options_json') ?? {},
+    supports_parallel_tool_calls: modelRef.supportsParallelToolCalls,
+    ...(modelRef.contextLength !== undefined ? { context_length: modelRef.contextLength } : {}),
     ...(modelRef.inputModalities.length > 0 ? { input_modalities: modelRef.inputModalities } : {}),
     ...(modelRef.maxCompletionTokens !== undefined ? { max_completion_tokens: modelRef.maxCompletionTokens } : {}),
     ...(modelRef.visionFallbackModelRef

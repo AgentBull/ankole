@@ -45,11 +45,11 @@ Ask me here before you expand the scope or use a paid data source.
 
 State whether the Job needs a repository, document set, or installed tool. The Agent selects a suitable workspace. You do not need to enter a workspace template ID or call a Job API.
 
-## Select the runtime
+## Select the model provider
 
-A Job uses the Agent's configured LLM Provider by default. Configure this profile only when a Job must use a ChatGPT subscription account.
+Every Job uses AIGateway. When the Job is created, Ankole saves the effective **Background Agent Jobs** model profile. If that profile is empty, the Agent's `heavy` profile is the fallback.
 
-First add the account as described in [ChatGPT subscription accounts](../codex-accounts/). Then open **Agents** in the Console, find **Background Agent Jobs** in the Agent's model profiles, and select the account, model, reasoning effort, and Fast Mode.
+To use a ChatGPT subscription, first create a [ChatGPT subscription provider](../chatgpt-subscription-provider/). Then open **Agents** in the Console, find **Background Agent Jobs** in the Agent's model profiles, and select that provider, an entitled model, the reasoning effort, and Fast Mode. The provider's credential pool selects and rotates accounts. The Job does not select an account.
 
 ## Inspect Jobs in the Console
 
@@ -77,7 +77,7 @@ If you only need to correct the goal, first tell the Agent in the original conve
 ## Common problems
 
 - **The Job remains `queued`:** confirm that at least one Worker is ready and that other Jobs are not using all available capacity.
-- **It fails as soon as it starts:** check the Agent's Background Agent Job runtime and confirm that its LLM Provider or ChatGPT subscription account is available.
+- **It fails as soon as it starts:** check the saved Background Agent Jobs model profile and the selected provider's credential-pool status.
 - **It is `waiting_on_user`, but no question arrived:** check the signal routing rule and Channel Provider for the original conversation.
 - **It succeeded but did not return to chat:** first confirm that it was not asked to stay silent. If it was not, open the Job and confirm that it has a result, then check the original conversation's routing rule.
-- **An old Job ignores a runtime change:** the runtime is fixed when the Job is created. A profile change affects only new Jobs.
+- **An old Job ignores a model-profile change:** the provider binding is fixed when the Job is created. A profile change affects only new Jobs.

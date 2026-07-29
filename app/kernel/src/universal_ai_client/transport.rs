@@ -45,6 +45,32 @@ pub struct HTTPResponse {
     pub body: Vec<u8>,
 }
 
+pub fn codex_response_headers(headers: &[(String, String)]) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter(|(name, _value)| safe_provider_header(name))
+        .cloned()
+        .collect()
+}
+
+fn codex_header_map(headers: &HeaderMap) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter(|(name, _value)| safe_provider_header(name.as_str()))
+        .map(|(name, value)| {
+            (
+                name.as_str().to_string(),
+                value.to_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn safe_provider_header(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("x-codex-") || name == "cf-mitigated"
+}
+
 pub async fn open_http_stream(spec: &StreamSpec) -> Result<HTTPStream, StreamError> {
     open_http_stream_for_upstream(&spec.upstream).await
 }
@@ -298,7 +324,9 @@ fn client_for(upstream: &UpstreamSpec, mode: ClientMode) -> Result<reqwest::Clie
     Ok(client)
 }
 
-pub async fn open_websocket(spec: &StreamSpec) -> Result<(UpstreamWebSocket, u16), StreamError> {
+pub async fn open_websocket(
+    spec: &StreamSpec,
+) -> Result<(UpstreamWebSocket, u16, Vec<(String, String)>), StreamError> {
     ensure_rustls_crypto_provider()?;
 
     let mut request = spec
@@ -340,13 +368,18 @@ pub async fn open_websocket(spec: &StreamSpec) -> Result<(UpstreamWebSocket, u16
     })?
     .map_err(websocket_connect_error)?;
 
-    Ok((websocket, response.status().as_u16()))
+    Ok((
+        websocket,
+        response.status().as_u16(),
+        codex_header_map(response.headers()),
+    ))
 }
 
 fn websocket_connect_error(reason: WebSocketError) -> StreamError {
     match reason {
         WebSocketError::Http(response) => {
             let status = response.status().as_u16();
+            let headers = codex_header_map(response.headers());
 
             StreamError::new(
                 "websocket_status_rejected",
@@ -354,6 +387,7 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
                 format!("upstream WebSocket returned status {status}"),
             )
             .provider_status(status)
+            .provider_headers(&headers)
         }
         reason => StreamError::new(
             "websocket_connect_failed",
@@ -653,6 +687,8 @@ mod tests {
     fn websocket_http_rejection_keeps_provider_status_without_body() {
         let response = tokio_tungstenite::tungstenite::http::Response::builder()
             .status(429)
+            .header("x-codex-primary-reset-at", "1785319200")
+            .header("authorization", "Bearer private")
             .body(Some(b"provider secret".to_vec()))
             .expect("HTTP response should build");
 
@@ -662,7 +698,33 @@ mod tests {
         assert_eq!(error.stage, "connect");
         assert_eq!(error.provider_status, Some(429));
         assert_eq!(error.provider_body_excerpt, None);
+        assert_eq!(
+            error.provider_headers,
+            vec![(
+                "x-codex-primary-reset-at".to_string(),
+                "1785319200".to_string()
+            )]
+        );
         assert!(!error.message.contains("provider secret"));
+    }
+
+    #[test]
+    fn codex_response_headers_exclude_unrelated_and_secret_headers() {
+        let headers = vec![
+            ("X-Codex-Primary-Used-Percent".to_string(), "42".to_string()),
+            ("cf-mitigated".to_string(), "challenge".to_string()),
+            ("content-type".to_string(), "application/json".to_string()),
+            ("authorization".to_string(), "Bearer private".to_string()),
+            ("set-cookie".to_string(), "private=value".to_string()),
+        ];
+
+        assert_eq!(
+            codex_response_headers(&headers),
+            vec![
+                ("X-Codex-Primary-Used-Percent".to_string(), "42".to_string()),
+                ("cf-mitigated".to_string(), "challenge".to_string())
+            ]
+        );
     }
 
     #[test]

@@ -88,7 +88,7 @@ defmodule Ankole.Repo.Migrations.RenameSubagentDelegationsToBackgroundAgentJobs 
   end
 
   def down do
-    raise "BackgroundAgentJob naming migration cannot be downgraded after the v26.07.7 runtime cutover"
+    raise "BackgroundAgentJob naming migration cannot be downgraded after the v0.7.0 runtime cutover"
   end
 
   @doc false

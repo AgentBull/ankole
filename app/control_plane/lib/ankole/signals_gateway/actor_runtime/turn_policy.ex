@@ -5,6 +5,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.ProviderDefinition
+  alias Ankole.AIGateway.Providers
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
 
   @spec build_turn_start_spec(map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -71,8 +73,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
       "provider_id" => runtime_profile["provider_id"],
       "provider_kind" => runtime_profile["provider_kind"],
       "model" => runtime_profile["model"],
-      "input_modalities" => input_modalities_for_runtime_profile(runtime_profile)
+      "input_modalities" => input_modalities_for_runtime_profile(runtime_profile),
+      "provider_options" => Map.get(runtime_profile, "provider_options", %{}),
+      "supports_parallel_tool_calls" => supports_parallel_tool_calls?(runtime_profile)
     }
+    |> maybe_put("context_length", Map.get(runtime_profile, "context_length"))
     |> maybe_put(
       "max_completion_tokens",
       max_completion_tokens_for_runtime_profile(runtime_profile)
@@ -160,4 +165,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp supports_parallel_tool_calls?(%{"provider_kind" => provider_kind}) do
+    with {:ok, provider} <- Providers.fetch(provider_kind),
+         {:ok, capability} <- ProviderDefinition.capability(provider, :language_model) do
+      capability.supports_parallel_tool_calls?
+    else
+      _error -> false
+    end
+  end
+
+  defp supports_parallel_tool_calls?(_runtime_profile), do: false
 end

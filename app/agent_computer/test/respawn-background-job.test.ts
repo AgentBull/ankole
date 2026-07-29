@@ -114,7 +114,6 @@ function sourceResponse(overrides: { status?: string } = {}) {
     ownerSessionId: 'session-1',
     status: overrides.status ?? 'failed',
     runtimeThreadId: 'thread-1',
-    codexAccountId: 'aigateway',
     title: 'Report',
     task: 'Write the report.',
     attempts: 1,

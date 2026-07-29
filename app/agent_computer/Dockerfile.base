@@ -1,15 +1,28 @@
 # syntax=docker/dockerfile:1.7
 
+ARG MYSQL_VERSION=9.7.2
+# Oracle does not publish arm64 MySQL client packages for Debian 13. Use the
+# digest-pinned official image as the source, and copy only the client executable.
+FROM mysql:${MYSQL_VERSION}@sha256:257388edf9c84dbc04c763625446d5f3fa6ed60d1b0873bc552c614ba0a7ab4e AS mysql-client-source
+
 FROM oven/bun:1.3.14
 
 WORKDIR /repo
 
+ARG AWS_CLI_VERSION=2.36.10
+ARG CLICKHOUSE_VERSION=26.7.1.1315
 ARG DEBIAN_FRONTEND=noninteractive
 ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
-ARG RUST_TOOLCHAIN=1.96.1
-ARG CODEX_VERSION=0.145.0
-ARG OFFICECLI_VERSION=v1.0.142
+ARG KUBECTL_VERSION=v1.36.3
+ARG MYSQL_VERSION
+ARG POSTGRESQL_CLIENT_COMMON_VERSION=293.pgdg13+1
+ARG POSTGRESQL_CLIENT_VERSION=18.4
+ARG POSTGRESQL_MAJOR=18
+ARG POSTGRESQL_PACKAGE_VERSION=18.4-1.pgdg13+1
+ARG RUST_TOOLCHAIN=1.97.1
+ARG CODEX_VERSION=0.146.0
+ARG OFFICECLI_VERSION=v1.0.143
 ARG TYPST_VERSION=v0.15.1
 ARG TARGETARCH
 
@@ -172,86 +185,40 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && cp /usr/local/bin/python /usr/local/bin/python3 \
   && chmod +x /usr/local/bin/python /usr/local/bin/python3
 
-ARG PLEX_SANS_SC_REF=%40ibm%2Fplex-sans-sc%401.1.0
-ARG PLEX_MONO_SC_COMMIT=2e832144509b0bd3d933a045b411ff5f2bc9616f
-ARG CHILL_JINSHU_SONG_VERSION=GBv2.0
-ARG FLUENT_EMOJI_COMMIT=b7fc5ad4ceb3c7d665087040073d4b64490af96f
-ARG OTF2TTF_VERSION=0.2
-ARG FONTTOOLS_VERSION=4.63.0
+ARG ANKOLE_FONTS_VERSION=v1-d3cec8d9a5f35613
+ARG ANKOLE_FONTS_MANIFEST_SHA256=46ae2a33ba50258ef68d0d882c30f06356b09fe862d8acb655fceb4682ba5002
 
-# The three text families are IBM Plex Sans SC (sans), IBMPlexMonoSCHalf (mono),
-# and ChillJinshuSong (serif); Fluent Emoji Color carries emoji. Sans and mono
-# install Light 300, Regular 400, Medium 500, SemiBold 600, and Bold 700, because
-# 600 is the visual identity's heading and emphasis weight. The serif release has
-# no SemiBold, so it installs the other four, and a 600 request in serif text
-# resolves to Bold rather than a synthetic face. Every installed face is
-# TrueType, because an OpenType/CFF face has caused reader compatibility
-# problems, so the serif OTF release is converted during the build. Debian
-# packages none of these, so pin upstream files.
+# The public font release contains IBM Plex Sans SC, IBMPlexMonoSCHalf,
+# ChillJinshuSong, and Fluent Emoji Color. Sans and mono include weights 300,
+# 400, 500, 600, and 700. The serif family has no weight 600, so it includes
+# weights 300, 400, 500, and 700. The release workflow converts the serif CFF
+# files to validated TrueType files. Pin both the release and its manifest.
 RUN set -eux; \
+  font_assets_dir=/tmp/ankole-fonts; \
+  font_assets_url="https://github.com/AgentBull/ankole-fonts/releases/download/${ANKOLE_FONTS_VERSION}"; \
+  mkdir -p "${font_assets_dir}"; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "${font_assets_url}/SHA256SUMS" -o "${font_assets_dir}/SHA256SUMS"; \
+  printf '%s  %s\n' "${ANKOLE_FONTS_MANIFEST_SHA256}" "${font_assets_dir}/SHA256SUMS" \
+    | sha256sum -c -; \
+  while read -r _checksum file; do \
+    curl -fsSL --retry 5 --retry-all-errors \
+      "${font_assets_url}/${file}" -o "${font_assets_dir}/${file}"; \
+  done < "${font_assets_dir}/SHA256SUMS"; \
+  (cd "${font_assets_dir}" && sha256sum -c SHA256SUMS); \
   plex_sc_dir=/usr/share/fonts/truetype/ibm-plex-sans-sc; \
-  plex_sc_base="https://raw.githubusercontent.com/IBM/plex/${PLEX_SANS_SC_REF}/packages/plex-sans-sc/fonts/complete/ttf/hinted"; \
-  mkdir -p "${plex_sc_dir}"; \
-  printf '%s\n' \
-    'd626327fe664ee2b360055d007c98954a73fa1f642b477e041d9158c4fec5b52  IBMPlexSansSC-Light.ttf' \
-    '012e587c5a78d25f456057614b880fc7450b748c352573d8052245df2a71158a  IBMPlexSansSC-Regular.ttf' \
-    '6e6a084fd3f43c2c6f6d662cbc4c7b09987bafd928c43e91c8e8f68c6ae01e31  IBMPlexSansSC-Medium.ttf' \
-    '76706e94340ac068ec2d398dc2f387946c815a3610f35c41cc93a8f8097d6c6b  IBMPlexSansSC-SemiBold.ttf' \
-    '3e94ef1df394eae336cc1bc98f2160b58e2cab186f47d820e4c808aef1f4e28f  IBMPlexSansSC-Bold.ttf' \
-    '91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360  license.txt' \
-    > /tmp/plex-sans-sc.sha256; \
-  while read -r _checksum file; do \
-    curl -fsSL --retry 5 --retry-all-errors "${plex_sc_base}/${file}" -o "${plex_sc_dir}/${file}"; \
-  done < /tmp/plex-sans-sc.sha256; \
-  (cd "${plex_sc_dir}" && sha256sum -c /tmp/plex-sans-sc.sha256); \
   plex_mono_dir=/usr/share/fonts/truetype/ibm-plex-mono-sc; \
-  plex_mono_base="https://raw.githubusercontent.com/WuLaNaLashi/IBM-Plex-Mono-SC/${PLEX_MONO_SC_COMMIT}"; \
-  mkdir -p "${plex_mono_dir}"; \
-  printf '%s\n' \
-    'b5a65141cfddcb8588fb529fdcb2bb745c965eb681a4c10454a7d2420ba153e6  half_merged/IBMPlexMonoSCHalf-Light.ttf' \
-    '5787a22435e2df2df2750cba1ccfabd13f8928fe8508bd160a52cd766cb98178  half_merged/IBMPlexMonoSCHalf-Regular.ttf' \
-    'e9841b143dc35f2236568a24406c715d541fb70dccb52147e27c2ad00e6a98d4  half_merged/IBMPlexMonoSCHalf-Medium.ttf' \
-    '3ac880c94746a35c73b687200c398ed152d10e46af49610b63809b55f4c230f3  half_merged/IBMPlexMonoSCHalf-SemiBold.ttf' \
-    '687a51a66e6541604df2b3637801f9bb24d740aca8fd52fe0f2fca4ac1a9f14a  half_merged/IBMPlexMonoSCHalf-Bold.ttf' \
-    '91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360  license.txt' \
-    > /tmp/plex-mono-sc.sha256; \
-  while read -r _checksum file; do \
-    curl -fsSL --retry 5 --retry-all-errors "${plex_mono_base}/${file}" -o "${plex_mono_dir}/$(basename "${file}")"; \
-  done < /tmp/plex-mono-sc.sha256; \
-  (cd "${plex_mono_dir}" && sed 's#half_merged/##' /tmp/plex-mono-sc.sha256 | sha256sum -c -); \
   chill_dir=/usr/share/fonts/truetype/chill-jinshu-song; \
-  mkdir -p "${chill_dir}" /tmp/chill-otf; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "https://github.com/Warren2060/ChillJinshuSong/releases/download/${CHILL_JINSHU_SONG_VERSION}/ChillJinshuSong_v2.0.zip" \
-    -o /tmp/chill.zip; \
-  echo 'a5a066c1fdf47b275f17b17473f63800564f55da510206f775fdfd94ddb9fe5f  /tmp/chill.zip' | sha256sum -c -; \
-  curl -fsSL --retry 5 --retry-all-errors \
-    "https://raw.githubusercontent.com/Warren2060/ChillJinshuSong/master/LICENSE" -o "${chill_dir}/LICENSE"; \
-  echo "027f6f68aa3c651a771d3368e7d1620acaeadfd5d00d23da44332565bc151869  ${chill_dir}/LICENSE" | sha256sum -c -; \
-  unzip -j -q /tmp/chill.zip \
-    '*/otf/ChillJinshuSongLight.otf' \
-    '*/otf/ChillJinshuSongRegular.otf' \
-    '*/otf/ChillJinshuSongMedium.otf' \
-    '*/otf/ChillJinshuSongBold.otf' \
-    -d /tmp/chill-otf; \
-  python3 -m venv /tmp/otf2ttf-venv; \
-  /tmp/otf2ttf-venv/bin/pip install --quiet --no-cache-dir \
-    "otf2ttf==${OTF2TTF_VERSION}" "fonttools==${FONTTOOLS_VERSION}"; \
-  for otf in /tmp/chill-otf/*.otf; do \
-    /tmp/otf2ttf-venv/bin/otf2ttf -o "${chill_dir}/$(basename "${otf%.otf}").ttf" "${otf}"; \
-  done; \
-  test "$(ls -1 "${chill_dir}"/*.ttf | wc -l)" = 4; \
   emoji_dir=/usr/share/fonts/truetype/fluent-emoji-color; \
-  emoji_base="https://raw.githubusercontent.com/tetunori/fluent-emoji-webfont/${FLUENT_EMOJI_COMMIT}"; \
-  mkdir -p "${emoji_dir}"; \
-  curl -fsSL --retry 5 --retry-all-errors "${emoji_base}/dist/FluentEmojiColor.ttf" \
-    -o "${emoji_dir}/FluentEmojiColor.ttf"; \
-  curl -fsSL --retry 5 --retry-all-errors "${emoji_base}/LICENSE" -o "${emoji_dir}/LICENSE"; \
-  printf '%s\n' \
-    '6292f3ff969d800d55486e01b293248ccd9ee71a17e4f9770b4abea13d9cad25  FluentEmojiColor.ttf' \
-    'fb1246b39d87fbea480a9bca5ed27483fd13b95ee400de3b4277414132f847ee  LICENSE' \
-    > /tmp/fluent-emoji.sha256; \
-  (cd "${emoji_dir}" && sha256sum -c /tmp/fluent-emoji.sha256); \
+  mkdir -p "${plex_sc_dir}" "${plex_mono_dir}" "${chill_dir}" "${emoji_dir}"; \
+  install -m 0644 "${font_assets_dir}"/IBMPlexSansSC-*.ttf "${plex_sc_dir}/"; \
+  install -m 0644 "${font_assets_dir}/LICENSE-IBM-Plex-Sans-SC.txt" "${plex_sc_dir}/license.txt"; \
+  install -m 0644 "${font_assets_dir}"/IBMPlexMonoSCHalf-*.ttf "${plex_mono_dir}/"; \
+  install -m 0644 "${font_assets_dir}/LICENSE-IBM-Plex-Mono-SC.txt" "${plex_mono_dir}/license.txt"; \
+  install -m 0644 "${font_assets_dir}"/ChillJinshuSong*.ttf "${chill_dir}/"; \
+  install -m 0644 "${font_assets_dir}/LICENSE-ChillJinshuSong.txt" "${chill_dir}/LICENSE"; \
+  install -m 0644 "${font_assets_dir}/FluentEmojiColor.ttf" "${emoji_dir}/"; \
+  install -m 0644 "${font_assets_dir}/LICENSE-Fluent-Emoji-Color.txt" "${emoji_dir}/LICENSE"; \
   printf '%s\n' \
     '<?xml version="1.0"?>' \
     '<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">' \
@@ -273,8 +240,106 @@ RUN set -eux; \
   fc-match 'IBM Plex Sans' | grep -F 'IBM Plex Sans SC'; \
   fc-match 'IBM Plex Mono' | grep -F 'IBMPlexMonoSCHalf'; \
   fc-match 'ChillJinshuSong' | grep -F 'ChillJinshuSong'; \
-  rm -rf /tmp/plex-sans-sc.sha256 /tmp/plex-mono-sc.sha256 /tmp/fluent-emoji.sha256 \
-    /tmp/chill.zip /tmp/chill-otf /tmp/otf2ttf-venv
+  rm -rf "${font_assets_dir}"
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) kubectl_arch=amd64 ;; \
+    arm64|aarch64) kubectl_arch=arm64 ;; \
+    *) echo "Unsupported kubectl architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  kubectl_base_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}"; \
+  curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl" -o /tmp/kubectl; \
+  curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl.sha256" -o /tmp/kubectl.sha256; \
+  printf '%s  %s\n' "$(cat /tmp/kubectl.sha256)" /tmp/kubectl | sha256sum -c -; \
+  install -m 0755 /tmp/kubectl /usr/local/bin/kubectl; \
+  test "$(kubectl version --client -o json | jq -r '.clientVersion.gitVersion')" = "${KUBECTL_VERSION}"; \
+  rm -f /tmp/kubectl /tmp/kubectl.sha256
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) \
+      aws_arch=x86_64; \
+      aws_sha256=f6bf7f19f584a1b32b50217f357f2a5877204cf6f703fec8036cd774932383dd ;; \
+    arm64|aarch64) \
+      aws_arch=aarch64; \
+      aws_sha256=8435364a5a09004a644340131c720e081823023f9c69d5fd15f9bc650fb662fc ;; \
+    *) echo "Unsupported AWS CLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  aws_asset="awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip"; \
+  curl -fsSL --retry 5 --retry-all-errors "https://awscli.amazonaws.com/${aws_asset}" \
+    -o /tmp/awscliv2.zip; \
+  printf '%s  %s\n' "${aws_sha256}" /tmp/awscliv2.zip | sha256sum -c -; \
+  unzip -q /tmp/awscliv2.zip -d /tmp; \
+  /tmp/aws/install --install-dir /usr/local/aws-cli --bin-dir /usr/local/bin; \
+  aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
+  rm -rf /tmp/aws /tmp/awscliv2.zip
+
+COPY --from=mysql-client-source /usr/bin/mysql /usr/local/bin/mysql
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) \
+      package_arch=amd64; \
+      clickhouse_client_sha256=5f021b023591f48f0582a83a96832ad20686c512f53d5a2c510c3a64db8f08c4; \
+      clickhouse_common_sha256=b1d03559c94d5d26209465290c04f1ec04a58f6d64d4f2ce00a6f0ad093c8b18; \
+      libpq_sha256=2f06798a11648e09deeef9e38ec3da942b11681965efb8e07f1137fe0d44db7c; \
+      postgresql_client_sha256=9c8e66b5a2ace8fa507290555c91559e3b740d2464b9645aba96632acef2b810 ;; \
+    arm64|aarch64) \
+      package_arch=arm64; \
+      clickhouse_client_sha256=ae07092cc46e60674ddcb945129eb897b4c82930e26b76af7fa172ca7901111a; \
+      clickhouse_common_sha256=f93dffd6353b436ddeae6bec09e70c3466b11d96357bec66a9f10f785a713b07; \
+      libpq_sha256=fe77ee455e25c66102aacd23ef0d5598ca2ab7394f8449d4ded5e826cb8eee4b; \
+      postgresql_client_sha256=d1575e3193c2678e16a0cb9a8a00b8f899522a26d55803c262fff9a5643d28f5 ;; \
+    *) echo "Unsupported database client architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  clickhouse_base_url=https://packages.clickhouse.com/deb/pool/main/c/clickhouse; \
+  clickhouse_client="clickhouse-client_${CLICKHOUSE_VERSION}_${package_arch}.deb"; \
+  clickhouse_common="clickhouse-common-static_${CLICKHOUSE_VERSION}_${package_arch}.deb"; \
+  curl -fsSL --retry 5 --retry-all-errors "${clickhouse_base_url}/${clickhouse_client}" \
+    -o "/tmp/${clickhouse_client}"; \
+  curl -fsSL --retry 5 --retry-all-errors "${clickhouse_base_url}/${clickhouse_common}" \
+    -o "/tmp/${clickhouse_common}"; \
+  printf '%s  %s\n' \
+    "${clickhouse_client_sha256}" "/tmp/${clickhouse_client}" \
+    "${clickhouse_common_sha256}" "/tmp/${clickhouse_common}" \
+    | sha256sum -c -; \
+  postgresql_base_url=https://apt.postgresql.org/pub/repos/apt; \
+  libpq_package="libpq5_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
+  postgresql_client="postgresql-client-${POSTGRESQL_MAJOR}_${POSTGRESQL_PACKAGE_VERSION}_${package_arch}.deb"; \
+  postgresql_client_common="postgresql-client-common_${POSTGRESQL_CLIENT_COMMON_VERSION}_all.deb"; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "${postgresql_base_url}/pool/main/p/postgresql-${POSTGRESQL_MAJOR}/${libpq_package}" \
+    -o "/tmp/${libpq_package}"; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "${postgresql_base_url}/pool/main/p/postgresql-${POSTGRESQL_MAJOR}/${postgresql_client}" \
+    -o "/tmp/${postgresql_client}"; \
+  curl -fsSL --retry 5 --retry-all-errors \
+    "${postgresql_base_url}/pool/main/p/postgresql-common/${postgresql_client_common}" \
+    -o "/tmp/${postgresql_client_common}"; \
+  printf '%s  %s\n' \
+    "${libpq_sha256}" "/tmp/${libpq_package}" \
+    "${postgresql_client_sha256}" "/tmp/${postgresql_client}" \
+    '70da21264140dfb34680cfec52973c7f10b5c8e3c78699a52b04e870b3dee71b' "/tmp/${postgresql_client_common}" \
+    | sha256sum -c -; \
+  apt-get -o Acquire::Retries=5 update; \
+  apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
+    groff \
+    libncurses6 \
+    "/tmp/${clickhouse_client}" \
+    "/tmp/${clickhouse_common}" \
+    "/tmp/${libpq_package}" \
+    "/tmp/${postgresql_client}" \
+    "/tmp/${postgresql_client_common}"; \
+  clickhouse-client --version | grep -qF "ClickHouse client version ${CLICKHOUSE_VERSION}"; \
+  mysql --version | grep -qF "Ver ${MYSQL_VERSION} "; \
+  psql --version | grep -qF "psql (PostgreSQL) ${POSTGRESQL_CLIENT_VERSION}"; \
+  ! command -v clickhouse-server; \
+  ! command -v mysqld; \
+  ! command -v postgres; \
+  ! dpkg-query -W -f='${db:Status-Abbrev}' clickhouse-server 2>/dev/null | grep -q '^ii'; \
+  ! dpkg-query -W -f='${db:Status-Abbrev}' "postgresql-${POSTGRESQL_MAJOR}" 2>/dev/null | grep -q '^ii'; \
+  rm -rf /var/lib/apt/lists/* /tmp/*.deb
 
 RUN rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node \
   && ! command -v node \

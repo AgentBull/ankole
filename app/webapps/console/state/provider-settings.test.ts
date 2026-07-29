@@ -3,13 +3,20 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   AiGatewayProviderSetting as AIGatewayProviderSetting
 } from '../api/generated/types.gen'
-import { buildSettingOptions, connectionSettings, humanizeKey, requestSettings } from '../pages/provider-settings'
+import {
+  buildSettingOptions,
+  connectionSettings,
+  credentialSettings,
+  humanizeKey,
+  requestSettings
+} from '../pages/provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
   return {
     capabilities: ['llm'],
     capability_specs: [],
-    connection_options: ['api_key', 'app_referer', 'app_title', 'headers'],
+    connection_options: ['app_referer', 'app_title', 'headers'],
+    credential_options: ['api_key'],
     default_base_url: 'https://api.example.test/v1',
     label: { default: providerKind },
     provider_kind: providerKind,
@@ -24,7 +31,7 @@ function providerKind(providerKind: string): AIGatewayProviderKindItem {
     ],
     settings: [
       providerSetting('base_url', { advanced: providerKind === 'openrouter' }),
-      providerSetting('api_key', { encrypted: true }),
+      providerSetting('api_key', { encrypted: true, required: true, scope: 'credential' }),
       providerSetting('app_referer', { advanced: providerKind === 'openrouter' }),
       providerSetting('app_title', { advanced: providerKind === 'openrouter' }),
       providerSetting('headers', { type: 'map', advanced: true }),
@@ -64,11 +71,11 @@ describe('provider settings', () => {
 
     expect(connectionSettings(kind).map(setting => setting.key)).toEqual([
       'base_url',
-      'api_key',
       'app_referer',
       'app_title',
       'headers'
     ])
+    expect(credentialSettings(kind).map(setting => setting.key)).toEqual(['api_key'])
   })
 
   test('projects only request-scoped DSL settings for model profiles', () => {

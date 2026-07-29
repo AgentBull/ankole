@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   @moduledoc """
-  Operator-configured AIGateway provider endpoint and encrypted option row.
+  Operator-configured AIGateway provider endpoint and inline credential pool.
   """
 
   use Ecto.Schema
@@ -20,7 +20,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     field(:provider_id, :string)
     field(:provider_kind, :string)
     field(:base_url, :string)
-    field(:encrypted_options, :map, default: %{})
+    field(:credential_pool, :map, default: %{"strategy" => "fill_first", "entries" => []})
     field(:connection_options, :map, default: %{})
     field(:disabled_at, :utc_datetime_usec)
 
@@ -41,20 +41,20 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       :provider_id,
       :provider_kind,
       :base_url,
-      :encrypted_options,
+      :credential_pool,
       :connection_options,
       :disabled_at
     ])
     |> normalize_blank([:provider_id, :provider_kind, :base_url])
     |> normalize_lower([:provider_id, :provider_kind])
-    |> validate_required([:provider_id, :provider_kind, :connection_options, :encrypted_options])
+    |> validate_required([:provider_id, :provider_kind, :connection_options, :credential_pool])
     |> validate_format(:provider_id, @slug_format)
     |> validate_format(:provider_kind, @provider_kind_format)
     |> validate_base_url()
     |> validate_provider_kind()
     |> validate_connection_options()
     |> JSONPayload.validate_map(:connection_options, allow_datetime: false)
-    |> JSONPayload.validate_map(:encrypted_options, allow_datetime: false)
+    |> JSONPayload.validate_map(:credential_pool, allow_datetime: false)
     |> unique_constraint(:provider_id, name: :ai_gateway_providers_provider_id_index)
     |> check_constraint(:provider_id, name: :ai_gateway_providers_provider_id_format)
     |> check_constraint(:provider_kind, name: :ai_gateway_providers_provider_kind_format)
@@ -62,8 +62,8 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     |> check_constraint(:connection_options,
       name: :ai_gateway_providers_connection_options_object
     )
-    |> check_constraint(:encrypted_options,
-      name: :ai_gateway_providers_encrypted_options_object
+    |> check_constraint(:credential_pool,
+      name: :ai_gateway_providers_credential_pool_object
     )
   end
 

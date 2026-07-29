@@ -69,10 +69,6 @@ defmodule AnkoleWeb.APISpec do
           description: "Principal groups, memberships, and permission grants"
         },
         %Tag{
-          name: "Codex Accounts",
-          description: "Operator-managed ChatGPT subscription accounts used by Background Agent Jobs"
-        },
-        %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
         },

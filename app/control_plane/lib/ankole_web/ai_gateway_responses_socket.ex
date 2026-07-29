@@ -160,7 +160,29 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
+      {:error, {:stateful_wire_unsupported, provider_kind, api_resolver}} ->
+        event =
+          error_event(
+            422,
+            "stateful_wire_unsupported",
+            "Stateful conversations replay history as Responses items. Provider " <>
+              "'#{provider_kind}' uses the '#{api_resolver}' wire, which cannot replay " <>
+              "that history. Select a provider on the openai_responses or " <>
+              "openai_chat_completions wire, or use this provider for stateless requests.",
+            "model"
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, {:credential_pool_exhausted, details}} when is_map(details) ->
+        event = credential_pool_exhausted_event(details)
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
       {:error, {:upstream_response_failed, status, body}} ->
+        event = upstream_response_failed_event(status, body)
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, {:upstream_response_failed, status, body, _headers}} ->
         event = upstream_response_failed_event(status, body)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
@@ -318,7 +340,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   def terminate(_reason, _state), do: :ok
 
   defp open_active_stream(state, request) do
-    case safe_open_websocket_stream(state.subject_uid, request) do
+    case safe_open_websocket_stream(
+           state.subject_uid,
+           request,
+           Map.get(state, :request_context, %{})
+         ) do
       {:ok, stream, _meta} ->
         case AIGateway.read_response_stream(stream, 1) do
           :ok ->
@@ -342,8 +368,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     end
   end
 
-  defp safe_open_websocket_stream(subject_uid, request) do
-    AIGateway.open_websocket_stream(subject_uid, request)
+  defp safe_open_websocket_stream(subject_uid, request, request_context) do
+    AIGateway.open_websocket_stream(subject_uid, request, request_context: request_context)
   rescue
     error ->
       {:error, {:exception, error.__struct__, Exception.message(error)}}
@@ -562,6 +588,25 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     }
   end
 
+  defp credential_pool_exhausted_event(details) do
+    retry_at = pool_retry_at(details)
+
+    %{
+      "type" => "error",
+      "sequence_number" => 0,
+      "status" => 429,
+      "headers" => pool_retry_headers(retry_at),
+      "error" =>
+        %{
+          "type" => "usage_limit_reached",
+          "code" => "credential_pool_exhausted",
+          "message" => pool_exhausted_message(retry_at),
+          "details_json" => public_pool_exhausted_details(retry_at)
+        }
+        |> maybe_put_resets_at(retry_at)
+    }
+  end
+
   defp maybe_put_error_details(error, nil), do: error
   defp maybe_put_error_details(error, details), do: Map.put(error, "details_json", details)
 
@@ -659,4 +704,41 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       end
     end)
   end
+
+  defp pool_retry_at(%{"retry_at" => retry_at}) when is_binary(retry_at) do
+    case DateTime.from_iso8601(retry_at) do
+      {:ok, parsed, _offset} -> parsed
+      _error -> nil
+    end
+  end
+
+  defp pool_retry_at(_details), do: nil
+
+  defp pool_retry_headers(%DateTime{} = retry_at) do
+    retry_after = max(DateTime.diff(retry_at, DateTime.utc_now(), :second), 0)
+
+    %{
+      "retry-after" => Integer.to_string(retry_after),
+      "x-codex-primary-reset-at" => Integer.to_string(DateTime.to_unix(retry_at))
+    }
+  end
+
+  defp pool_retry_headers(nil), do: %{}
+
+  defp pool_exhausted_message(%DateTime{} = retry_at),
+    do:
+      "All credentials in this provider pool are unavailable. retry_at=#{DateTime.to_iso8601(retry_at)}"
+
+  defp pool_exhausted_message(nil),
+    do: "All credentials in this provider pool are unavailable. Try again later."
+
+  defp public_pool_exhausted_details(%DateTime{} = retry_at),
+    do: %{"retry_at" => DateTime.to_iso8601(retry_at)}
+
+  defp public_pool_exhausted_details(nil), do: %{}
+
+  defp maybe_put_resets_at(error, %DateTime{} = retry_at),
+    do: Map.put(error, "resets_at", DateTime.to_unix(retry_at))
+
+  defp maybe_put_resets_at(error, nil), do: error
 end

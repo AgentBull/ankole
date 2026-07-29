@@ -443,7 +443,6 @@ The registry currently contains these method families:
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.
 - Background Agent Job lifecycle and trajectory.
-- Codex account resolution and authentication writeback.
 - Brain memory operations.
 - Schedule operations.
 - Installed Skill observations.

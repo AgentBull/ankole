@@ -160,7 +160,6 @@ defmodule Ankole.Brain.RuntimeTest do
         workspace_owner_job_id: job_id,
         title: "Brain inheritance",
         task: "Verify inherited Brain snapshot",
-        codex_account_id: "aigateway",
         reply_route: %{"signal_channel_id" => channel_id},
         attempts: 1,
         status: "running",

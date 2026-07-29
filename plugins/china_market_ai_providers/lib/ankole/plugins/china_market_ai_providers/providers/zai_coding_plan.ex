@@ -20,7 +20,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     label(%{"default" => "Z.AI Coding Plan", "zh-Hans-CN" => "Z.AI Coding Plan"})
     base_url(@global_base_url, advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:china_server, type: :boolean, default: false)
     setting(:user_agent, default: @default_user_agent, advanced: true)
     setting(:headers, type: :map, advanced: true)

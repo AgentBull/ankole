@@ -12,7 +12,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
     label(%{"default" => "Alibaba Cloud DashScope CN", "zh-Hans-CN" => "阿里云百炼中国区"})
     base_url("https://dashscope.aliyuncs.com/compatible-mode/v1", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

@@ -5,6 +5,38 @@ export type ClientOptions = {
 }
 
 /**
+ * AIGatewayCredentialPoolEntry
+ */
+export type AiGatewayCredentialPoolEntry = {
+  account_id?: string | null
+  auth_type?: string | null
+  credential_present: boolean
+  disabled_at: string | null
+  email?: string | null
+  id: string
+  label: string
+  last_error_code?: string | null
+  last_error_message?: string | null
+  last_error_reason?: string | null
+  last_refresh?: string | null
+  last_selected_at: string | null
+  plan_type?: string | null
+  priority: number
+  provider_status?: number | null
+  rate_limits: {
+    [key: string]: unknown
+  }
+  reauth_required?: boolean
+  request_count: number
+  retry_at?: string | null
+  source: string
+  status: 'ok' | 'exhausted' | 'dead' | 'disabled'
+  usage: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * AgentLibraryDocumentItem
  */
 export type AgentLibraryDocumentItem = {
@@ -31,6 +63,16 @@ export type BrainEntryRelation = {
   source_name?: string | null
   target_entry_id: string
   target_name?: string | null
+}
+
+/**
+ * AIGatewayChatGPTBrowserLoginRequest
+ */
+export type AiGatewayChatGptBrowserLoginRequest = {
+  callback_url: string
+  login_context: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -74,6 +116,13 @@ export type PrincipalGroupUpdateRequest = {
   computed_condition?: string | null
   description?: string | null
   display_name?: string | null
+}
+
+/**
+ * AIGatewayCredentialStrategyWriteRequest
+ */
+export type AiGatewayCredentialStrategyWriteRequest = {
+  strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
 }
 
 /**
@@ -339,8 +388,8 @@ export type AiGatewayProviderItem = {
   connection_options: {
     [key: string]: unknown
   }
+  credential_pool: AiGatewayCredentialPool
   disabled_at?: string | null
-  encrypted_options: AiGatewayProviderEncryptedOptionsProjection
   id: string
   provider_id: string
   provider_kind: string
@@ -355,6 +404,20 @@ export type AiGatewayProviderItem = {
 export type BrainAuditLogResponse = {
   audit_log: Array<BrainAuditLog>
   next_cursor?: string | null
+}
+
+/**
+ * AIGatewayChatGPTEnterpriseCredentialRequest
+ */
+export type AiGatewayChatGptEnterpriseCredentialRequest = {
+  access_token: string
+  account_id: string
+  email?: string
+  fedramp?: boolean
+  id?: string
+  label?: string
+  plan_type?: string
+  priority?: number
 }
 
 /**
@@ -491,11 +554,11 @@ export type PrincipalGroupResponse = {
 }
 
 /**
- * AIGatewayProviderEncryptedOptionProjection
+ * AIGatewayCredentialPool
  */
-export type AiGatewayProviderEncryptedOptionProjection = {
-  masked?: string | null
-  present: boolean
+export type AiGatewayCredentialPool = {
+  entries: Array<AiGatewayCredentialPoolEntry>
+  strategy: 'fill_first' | 'round_robin' | 'least_used' | 'random'
 }
 
 /**
@@ -540,7 +603,7 @@ export type AiGatewayProviderSetting = {
   key: string
   options: Array<string>
   required: boolean
-  scope: 'connection' | 'request'
+  scope: 'connection' | 'credential' | 'request'
   type: 'boolean' | 'float' | 'integer' | 'map' | 'select' | 'string'
 }
 
@@ -565,7 +628,6 @@ export type BackgroundAgentJobListResponse = {
 export type BackgroundAgentJobItem = {
   agent_uid: string
   attempts: number
-  codex_account_id: string
   completed_at?: string | null
   duration_seconds: number
   error: {
@@ -763,6 +825,17 @@ export type BackgroundAgentJobTurnToolUsage = {
 }
 
 /**
+ * AIGatewayCredentialWriteRequest
+ */
+export type AiGatewayCredentialWriteRequest = {
+  disabled_at?: string | null
+  id?: string
+  label?: string
+  priority?: number
+  [key: string]: unknown
+}
+
+/**
  * ScheduleEventListResponse
  */
 export type ScheduleEventListResponse = {
@@ -862,17 +935,19 @@ export type AgentItem = {
 }
 
 /**
+ * AIGatewayChatGPTLoginPollRequest
+ */
+export type AiGatewayChatGptLoginPollRequest = {
+  login_context: {
+    [key: string]: unknown
+  }
+}
+
+/**
  * AgentSessionListResponse
  */
 export type AgentSessionListResponse = {
   sessions: Array<AgentSession>
-}
-
-/**
- * CodexAccountResponse
- */
-export type CodexAccountResponse = {
-  codex_account: CodexAccountItem
 }
 
 /**
@@ -971,11 +1046,8 @@ export type ScheduleCronScheduleListResponse = {
  * ModelProfileWriteRequest
  */
 export type ModelProfileWriteRequest = {
-  codex_account_id?: string
   context_length?: number
-  fast_mode?: boolean
   model?: string
-  model_reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
   provider_id?: string
   provider_options?: {
     [key: string]: unknown
@@ -1042,14 +1114,6 @@ export type BrainEntryOperationsResponse = {
 }
 
 /**
- * CodexAccountUpdateRequest
- */
-export type CodexAccountUpdateRequest = {
-  auth_json?: string | null
-  name: string
-}
-
-/**
  * AgentLibraryDocuments
  */
 export type AgentLibraryDocuments = {
@@ -1080,6 +1144,13 @@ export type BrainSourceCaptureResponse = {
 export type OAuthErrorResponse = {
   error: string
   error_description: string
+}
+
+/**
+ * AIGatewayChatGPTLoginResponse
+ */
+export type AiGatewayChatGptLoginResponse = {
+  [key: string]: unknown
 }
 
 /**
@@ -1117,6 +1188,15 @@ export type BrainDreamingRun = {
 }
 
 /**
+ * AIGatewayChatGPTLoginStartRequest
+ */
+export type AiGatewayChatGptLoginStartRequest = {
+  id?: string
+  label?: string
+  priority?: number
+}
+
+/**
  * ControlPlanePluginWriteRequest
  */
 export type ControlPlanePluginWriteRequest = {
@@ -1133,6 +1213,7 @@ export type AiGatewayProviderKindItem = {
     [key: string]: unknown
   }>
   connection_options: Array<string>
+  credential_options: Array<string>
   default_base_url: string | null
   label: {
     [key: string]: string
@@ -1154,17 +1235,6 @@ export type ScheduleEventResponse = {
  */
 export type IdentityProviderSyncRunResponse = {
   sync_run: IdentityProviderSyncRunItem
-}
-
-/**
- * CodexAccountItem
- */
-export type CodexAccountItem = {
-  account_id: string
-  auth_hash: string
-  inserted_at: string
-  name: string
-  updated_at: string
 }
 
 /**
@@ -1276,13 +1346,6 @@ export type AgentCreateRequest = {
   }
   role: string
   uid: string
-}
-
-/**
- * CodexAccountListResponse
- */
-export type CodexAccountListResponse = {
-  codex_accounts: Array<CodexAccountItem>
 }
 
 /**
@@ -1455,6 +1518,9 @@ export type WorkerFileUploadRequest = {
 export type AiGatewayProviderWriteRequest = {
   base_url?: string | null
   connection_options?: {
+    [key: string]: unknown
+  }
+  credential_pool?: {
     [key: string]: unknown
   }
   provider_id?: string
@@ -1669,21 +1735,6 @@ export type BrainDreamingFitnessRun = {
   survived_block_writes: number
 }
 
-/**
- * CodexAccountCreateRequest
- */
-export type CodexAccountCreateRequest = {
-  auth_json: string
-  name: string
-}
-
-/**
- * AIGatewayProviderEncryptedOptionsProjection
- */
-export type AiGatewayProviderEncryptedOptionsProjection = {
-  [key: string]: AiGatewayProviderEncryptedOptionProjection
-}
-
 export type AnkoleWebAiGatewayFilesControllerContentData = {
   body?: never
   path: {
@@ -1720,6 +1771,89 @@ export type AnkoleWebAiGatewayFilesControllerContentResponses = {
 
 export type AnkoleWebAiGatewayFilesControllerContentResponse =
   AnkoleWebAiGatewayFilesControllerContentResponses[keyof AnkoleWebAiGatewayFilesControllerContentResponses]
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialData = {
+  body?: never
+  path: {
+    provider_id: string
+    credential_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialError =
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerDeleteCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteCredentialResponses]
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialData = {
+  /**
+   * Credential
+   */
+  body: AiGatewayCredentialWriteRequest
+  path: {
+    provider_id: string
+    credential_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid credential
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialError =
+  AnkoleWebAiGatewayProviderControllerPutCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerPutCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialResponses]
 
 export type AnkoleWebWorkerFileControllerDownloadData = {
   body?: never
@@ -2349,6 +2483,46 @@ export type AnkoleWebBrainControllerRestoreAuditResponses = {
 
 export type AnkoleWebBrainControllerRestoreAuditResponse =
   AnkoleWebBrainControllerRestoreAuditResponses[keyof AnkoleWebBrainControllerRestoreAuditResponses]
+
+export type AnkoleWebAiGatewayProviderControllerAddCredentialData = {
+  /**
+   * Credential
+   */
+  body: AiGatewayCredentialWriteRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/credentials'
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddCredentialErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid credential
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddCredentialError =
+  AnkoleWebAiGatewayProviderControllerAddCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerAddCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerAddCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerAddCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddCredentialResponses]
 
 export type AnkoleWebScheduleControllerIndexCronData = {
   body?: never
@@ -3133,6 +3307,46 @@ export type AnkoleWebAiGatewayFilesControllerCreateResponses = {
 export type AnkoleWebAiGatewayFilesControllerCreateResponse =
   AnkoleWebAiGatewayFilesControllerCreateResponses[keyof AnkoleWebAiGatewayFilesControllerCreateResponses]
 
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyData = {
+  /**
+   * Credential strategy
+   */
+  body: AiGatewayCredentialStrategyWriteRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/credential-pool/strategy'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid strategy
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyError =
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponse =
+  AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses[keyof AnkoleWebAiGatewayProviderControllerPutCredentialStrategyResponses]
+
 export type AnkoleWebAiGatewayProviderControllerDeleteProviderData = {
   body?: never
   path: {
@@ -3173,6 +3387,43 @@ export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerDeleteProviderResponse =
   AnkoleWebAiGatewayProviderControllerDeleteProviderResponses[keyof AnkoleWebAiGatewayProviderControllerDeleteProviderResponses]
+
+export type AnkoleWebAiGatewayProviderControllerShowData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}'
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowError =
+  AnkoleWebAiGatewayProviderControllerShowErrors[keyof AnkoleWebAiGatewayProviderControllerShowErrors]
+
+export type AnkoleWebAiGatewayProviderControllerShowResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerShowResponse =
+  AnkoleWebAiGatewayProviderControllerShowResponses[keyof AnkoleWebAiGatewayProviderControllerShowResponses]
 
 export type AnkoleWebAiGatewayProviderControllerPutProviderData = {
   /**
@@ -4028,6 +4279,46 @@ export type AnkoleWebAgentControllerUpdateResponses = {
 
 export type AnkoleWebAgentControllerUpdateResponse =
   AnkoleWebAgentControllerUpdateResponses[keyof AnkoleWebAgentControllerUpdateResponses]
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginData = {
+  /**
+   * Browser callback
+   */
+  body: AiGatewayChatGptBrowserLoginRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback'
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Login failed
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginError =
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponse =
+  AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses[keyof AnkoleWebAiGatewayProviderControllerCompleteChatgptBrowserLoginResponses]
 
 export type AnkoleWebAiGatewayControllerCompactResponseData = {
   /**
@@ -4915,67 +5206,6 @@ export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
 export type AnkoleWebScheduleControllerCancelCheckbackResponse =
   AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
 
-export type AnkoleWebCodexAccountControllerIndexData = {
-  body?: never
-  path?: never
-  query?: never
-  url: '/api/v1/codex-accounts'
-}
-
-export type AnkoleWebCodexAccountControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebCodexAccountControllerIndexError =
-  AnkoleWebCodexAccountControllerIndexErrors[keyof AnkoleWebCodexAccountControllerIndexErrors]
-
-export type AnkoleWebCodexAccountControllerIndexResponses = {
-  /**
-   * Codex accounts
-   */
-  200: CodexAccountListResponse
-}
-
-export type AnkoleWebCodexAccountControllerIndexResponse =
-  AnkoleWebCodexAccountControllerIndexResponses[keyof AnkoleWebCodexAccountControllerIndexResponses]
-
-export type AnkoleWebCodexAccountControllerCreateData = {
-  /**
-   * Codex account
-   */
-  body: CodexAccountCreateRequest
-  path?: never
-  query?: never
-  url: '/api/v1/codex-accounts'
-}
-
-export type AnkoleWebCodexAccountControllerCreateErrors = {
-  /**
-   * Invalid Codex account
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebCodexAccountControllerCreateError =
-  AnkoleWebCodexAccountControllerCreateErrors[keyof AnkoleWebCodexAccountControllerCreateErrors]
-
-export type AnkoleWebCodexAccountControllerCreateResponses = {
-  /**
-   * Codex account
-   */
-  200: CodexAccountResponse
-}
-
-export type AnkoleWebCodexAccountControllerCreateResponse =
-  AnkoleWebCodexAccountControllerCreateResponses[keyof AnkoleWebCodexAccountControllerCreateResponses]
-
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
    * Web search request
@@ -5219,75 +5449,6 @@ export type AnkoleWebPrincipalControllerShowResponses = {
 export type AnkoleWebPrincipalControllerShowResponse =
   AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
 
-export type AnkoleWebCodexAccountControllerDeleteData = {
-  body?: never
-  path: {
-    account_id: string
-  }
-  query?: never
-  url: '/api/v1/codex-accounts/{account_id}'
-}
-
-export type AnkoleWebCodexAccountControllerDeleteErrors = {
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Codex account in use
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebCodexAccountControllerDeleteError =
-  AnkoleWebCodexAccountControllerDeleteErrors[keyof AnkoleWebCodexAccountControllerDeleteErrors]
-
-export type AnkoleWebCodexAccountControllerDeleteResponses = {
-  /**
-   * Codex account
-   */
-  200: CodexAccountResponse
-}
-
-export type AnkoleWebCodexAccountControllerDeleteResponse =
-  AnkoleWebCodexAccountControllerDeleteResponses[keyof AnkoleWebCodexAccountControllerDeleteResponses]
-
-export type AnkoleWebCodexAccountControllerUpdateData = {
-  /**
-   * Codex account
-   */
-  body: CodexAccountUpdateRequest
-  path: {
-    account_id: string
-  }
-  query?: never
-  url: '/api/v1/codex-accounts/{account_id}'
-}
-
-export type AnkoleWebCodexAccountControllerUpdateErrors = {
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid Codex account
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebCodexAccountControllerUpdateError =
-  AnkoleWebCodexAccountControllerUpdateErrors[keyof AnkoleWebCodexAccountControllerUpdateErrors]
-
-export type AnkoleWebCodexAccountControllerUpdateResponses = {
-  /**
-   * Codex account
-   */
-  200: CodexAccountResponse
-}
-
-export type AnkoleWebCodexAccountControllerUpdateResponse =
-  AnkoleWebCodexAccountControllerUpdateResponses[keyof AnkoleWebCodexAccountControllerUpdateResponses]
-
 export type AnkoleWebBrainControllerIndexData = {
   body?: never
   path?: never
@@ -5340,6 +5501,46 @@ export type AnkoleWebBrainControllerIndexResponses = {
 
 export type AnkoleWebBrainControllerIndexResponse =
   AnkoleWebBrainControllerIndexResponses[keyof AnkoleWebBrainControllerIndexResponses]
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialData = {
+  /**
+   * Enterprise credential
+   */
+  body: AiGatewayChatGptEnterpriseCredentialRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials'
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid credential
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialError =
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialErrors]
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses = {
+  /**
+   * AIGateway provider
+   */
+  200: AiGatewayProviderResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponse =
+  AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddChatgptEnterpriseCredentialResponses]
 
 export type AnkoleWebWorkerEnvControllerDeleteData = {
   body?: never
@@ -5462,6 +5663,46 @@ export type AnkoleWebWorkerEnvControllerUpdateResponses = {
 
 export type AnkoleWebWorkerEnvControllerUpdateResponse =
   AnkoleWebWorkerEnvControllerUpdateResponses[keyof AnkoleWebWorkerEnvControllerUpdateResponses]
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginData = {
+  /**
+   * Login context
+   */
+  body: AiGatewayChatGptLoginPollRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/poll'
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Login failed
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginError =
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponse =
+  AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerPollChatgptLoginResponses]
 
 export type AnkoleWebAuthControllerDeleteSessionData = {
   body?: never
@@ -5838,6 +6079,46 @@ export type AnkoleWebWorkerEnvControllerIndexForAgentResponses = {
 
 export type AnkoleWebWorkerEnvControllerIndexForAgentResponse =
   AnkoleWebWorkerEnvControllerIndexForAgentResponses[keyof AnkoleWebWorkerEnvControllerIndexForAgentResponses]
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginData = {
+  /**
+   * Credential metadata
+   */
+  body: AiGatewayChatGptLoginStartRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login'
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Login failed
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginError =
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginErrors]
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses = {
+  /**
+   * ChatGPT login
+   */
+  200: AiGatewayChatGptLoginResponse
+}
+
+export type AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponse =
+  AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses[keyof AnkoleWebAiGatewayProviderControllerStartChatgptLoginResponses]
 
 export type AnkoleWebAiGatewayConversationControllerMessagesData = {
   body?: never

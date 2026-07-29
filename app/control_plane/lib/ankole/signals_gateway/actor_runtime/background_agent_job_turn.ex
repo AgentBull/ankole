@@ -19,6 +19,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobTurn do
     Keyword.merge(opts,
       kind: "background_agent_job",
       conversation: :none,
+      profile: "coding",
       request_context: Map.merge(base_context, context)
     )
   end

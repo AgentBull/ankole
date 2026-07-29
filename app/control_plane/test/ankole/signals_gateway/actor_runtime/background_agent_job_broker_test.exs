@@ -1,9 +1,7 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
-  alias Ankole.AIAgent.CodexAccounts
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
 
@@ -377,116 +375,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     end
   end
 
-  test "job turn resolves its frozen Codex account and writes back refreshed auth" do
-    %{principal: agent} = agent_fixture()
-    binding_fixture(agent.uid, "bot", :ignore)
-    account_id = "account-rpc"
-    initial_auth = auth_json(account_id, "initial-token")
-
-    assert {:ok, account} =
-             CodexAccounts.create_account(%{
-               "name" => "RPC account",
-               "auth_json" => initial_auth
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               "codex_account_id" => account.account_id,
-               "model" => "gpt-5.6-sol",
-               "model_reasoning_effort" => "max",
-               "fast_mode" => true
-             })
-
-    route = unique_route()
-    parent_turn = start_parent_turn!(agent.uid, route)
-
-    assert {:ok, created} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "background-agent-job-create-codex-account",
-                 "background_agent_job.create",
-                 %FabricProto.BackgroundAgentJobCreateRequest{
-                   source_tool_call_id: "tool-codex-account",
-                   title: "Use the subscription account",
-                   task: "Complete the delegated coding task."
-                 },
-                 turn: parent_turn
-               ),
-               route
-             )
-
-    job_id = job_payload(created).job_id
-    job = BackgroundAgentJobs.get_job_for_agent(domain_job_id!(job_id), agent.uid)
-    assert job.codex_account_id == account_id
-
-    assert job.metadata["codex_subscription"] == %{
-             "model" => "gpt-5.6-sol",
-             "model_reasoning_effort" => "max",
-             "fast_mode" => true
-           }
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               "codex_account_id" => account.account_id,
-               "model" => "gpt-5.6-terra",
-               "model_reasoning_effort" => "ultra",
-               "fast_mode" => false
-             })
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)},
-               now: DateTime.add(job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, dispatch_envelope}, 200
-    job_turn = turn_start_payload!(dispatch_envelope).turn
-
-    assert {:ok, resolved} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "codex-account-resolve",
-                 "codex.account.resolve",
-                 %FabricProto.CodexAccountResolveRequest{job_id: job_id},
-                 turn: job_turn
-               ),
-               route
-             )
-
-    resolved_payload = rpc_response_payload!(resolved, FabricProto.CodexAccountResolveResponse)
-    assert resolved_payload.account_id == account_id
-    assert resolved_payload.auth_json == initial_auth
-    assert resolved_payload.auth_hash == NativeKernel.generic_hash(initial_auth)
-    assert resolved_payload.model == "gpt-5.6-sol"
-    assert resolved_payload.model_reasoning_effort == "max"
-    assert resolved_payload.fast_mode
-
-    refreshed_auth = auth_json(account_id, "refreshed-token")
-
-    assert {:ok, updated} =
-             RPCLane.handle_request(
-               rpc_request(
-                 "codex-account-update",
-                 "codex.account.auth.update",
-                 %FabricProto.CodexAccountAuthUpdateRequest{
-                   job_id: job_id,
-                   auth_json: refreshed_auth
-                 },
-                 turn: job_turn
-               ),
-               route
-             )
-
-    updated_payload = rpc_response_payload!(updated, FabricProto.CodexAccountAuthUpdateResponse)
-    assert updated_payload.account_id == account_id
-
-    assert {:ok, %{auth_json: ^refreshed_auth, auth_hash: refreshed_hash}} =
-             CodexAccounts.resolve_auth(account_id)
-
-    assert refreshed_hash == NativeKernel.generic_hash(refreshed_auth)
-  end
-
   test "Deep Research turns use the shared Turn trajectory" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore)
@@ -729,17 +617,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
       error_json: Torque.encode!(%{}),
       started_at: now
     }
-  end
-
-  defp auth_json(account_id, access_token) do
-    Ankole.JSON.encode!(%{
-      "tokens" => %{
-        "access_token" => access_token,
-        "account_id" => account_id,
-        "id_token" => "id-token",
-        "refresh_token" => "refresh-token"
-      }
-    })
   end
 
   defp job_payload(envelope) do

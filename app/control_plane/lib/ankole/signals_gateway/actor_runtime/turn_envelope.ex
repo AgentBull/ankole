@@ -128,6 +128,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
       model: map_get(model_ref, :model) || "",
       input_modalities: map_get(model_ref, :input_modalities) || [],
       max_completion_tokens: positive_integer(map_get(model_ref, :max_completion_tokens)),
+      provider_options_json: json_bytes_or_empty(map_get(model_ref, :provider_options) || %{}),
+      supports_parallel_tool_calls: map_get(model_ref, :supports_parallel_tool_calls) == true,
+      context_length: positive_integer(map_get(model_ref, :context_length)),
       vision_fallback_model_ref:
         case map_get(model_ref, :vision_fallback_model_ref) do
           %{} = fallback -> normalize_turn_model_ref(fallback)

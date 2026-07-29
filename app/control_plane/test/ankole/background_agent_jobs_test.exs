@@ -188,7 +188,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.aggregate(ActorEvent, :count) == 1
   end
 
-  test "AIGateway Jobs freeze the resolved coding model and every provider option" do
+  test "Jobs do not persist AIGateway credentials or a second model-profile copy" do
     %{principal: agent} = background_agent_fixture()
     assert {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "coding")
 
@@ -214,21 +214,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
     }
 
     assert {:ok, %{job: job}} = BackgroundAgentJobs.create_with_dispatch(attrs)
-    assert job.codex_account_id == "aigateway"
-
-    assert job.metadata["codex_aigateway"] == %{
-             "context_length" => 262_144,
-             "model" => "gpt-5.6-sol",
-             "provider_options" => %{
-               "reasoningEffort" => "xhigh",
-               "strictJSONSchema" => true,
-               "textVerbosity" => "low"
-             },
-             "selector" => "#{profile["provider_id"]}/openai/gpt-5.6-sol",
-             "supports_parallel_tool_calls" => true
-           }
-
+    refute Map.has_key?(job.metadata, "codex_aigateway")
     refute Map.has_key?(job.metadata, "codex_subscription")
+    refute Map.has_key?(job.metadata, "codex_account_id")
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "coding", %{
@@ -239,7 +227,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: replayed}} = BackgroundAgentJobs.create_with_dispatch(attrs)
     assert replayed.id == job.id
-    assert replayed.metadata["codex_aigateway"] == job.metadata["codex_aigateway"]
+    assert replayed.metadata == job.metadata
 
     assert {:ok, %{job: next_job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -248,12 +236,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
                  "title" => "Freeze the next model"
              })
 
-    assert next_job.metadata["codex_aigateway"] == %{
-             "model" => "kimi-k2.7-code",
-             "provider_options" => %{"reasoningEffort" => "medium"},
-             "selector" => "#{profile["provider_id"]}/moonshotai/kimi-k2.7-code",
-             "supports_parallel_tool_calls" => true
-           }
+    refute Map.has_key?(next_job.metadata, "codex_aigateway")
+    refute Map.has_key?(next_job.metadata, "codex_subscription")
   end
 
   test "Job creation rejects an Agent without a coding model or heavy fallback" do

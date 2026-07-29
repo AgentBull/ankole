@@ -20,8 +20,12 @@ export interface ToolCall {
   id: string
   type: 'function'
   name: string
+  namespace?: string
   arguments: string
+  caller?: ToolCaller
 }
+
+export type ToolCaller = { type: 'direct' } | { type: 'program'; caller_id: string }
 
 export interface UserMessage {
   role: 'user'
@@ -42,6 +46,7 @@ export interface ToolResultMessage {
   role: 'tool'
   toolCallID: string
   result: string
+  caller?: ToolCaller
 }
 
 export type Message = UserMessage | AssistantMessage | ToolResultMessage
@@ -91,6 +96,12 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
   name: string
   description?: string
   parameters: TSchema
+  jsonSchema?: Record<string, unknown>
+  namespace?: string
+  namespaceDescription?: string
+  deferLoading?: boolean
+  toolSearchText?: string
+  allowedCallers?: Array<'direct' | 'programmatic'>
   execute?: (args: z.infer<TSchema>, opts: { toolCallID: string }) => Promise<unknown> | unknown
 }
 
@@ -103,6 +114,7 @@ export interface CallModelOptions {
   messages: Message[]
   tools?: ToolSet
   hostedTools?: HostedTool[]
+  programmaticToolCalling?: boolean
   maxOutputTokens?: number
   temperature?: number
   text?: ResponseCreateParams['text']

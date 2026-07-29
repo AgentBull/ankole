@@ -379,7 +379,6 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
       className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
       <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
       <Fact label={t('console.background_agent_jobs.agent')} value={job.agent_uid} mono />
-      <Fact label={t('console.background_agent_jobs.codex_account')} value={job.codex_account_id} mono />
       <Fact
         label={t('console.background_agent_jobs.workspace_template')}
         value={job.workspace_template_id ?? '—'}
@@ -665,7 +664,7 @@ function PlanStep({ step }: { step: BackgroundAgentJobTurnPlanStep }) {
   )
 }
 
-/** Official Codex accounting, aligned so the thread total and the last call compare at a glance. */
+/** Codex usage accounting, aligned so the thread total and the last call compare at a glance. */
 function TokenUsage({ usage }: { usage: NonNullable<BackgroundAgentJobTurn['usage']> }) {
   const rows = [
     { key: 'thread', breakdown: usage.thread_total },

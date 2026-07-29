@@ -78,7 +78,7 @@ defmodule Ankole.Brain.EmbeddingsTest do
     configure_embedding_model!(model_agent, fn
       %{path: "v1/embeddings", body: %{"input" => input}} ->
         if String.contains?(input, "FAIL_VECTOR") do
-          {:json, 500, %{"error" => %{"message" => "embedding failed"}}}
+          {:json, 400, %{"error" => %{"message" => "embedding failed"}}}
         else
           embedding_response([0.8, 0.2])
         end
@@ -182,7 +182,7 @@ defmodule Ankole.Brain.EmbeddingsTest do
             embedding_response([0.6, 0.4])
 
           {:finish_embedding, :failure} ->
-            {:json, 500, %{"error" => %{"message" => "stale failure"}}}
+            {:json, 400, %{"error" => %{"message" => "stale failure"}}}
         end
 
       request ->
@@ -372,7 +372,9 @@ defmodule Ankole.Brain.EmbeddingsTest do
                provider_id: provider_id,
                provider_kind: "openrouter",
                base_url: "#{base_url}/v1",
-               connection_options: %{"api_key" => "sk-brain-embedding-test"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-brain-embedding-test"}]
+               }
              })
 
     assert {:ok, _profile} =

@@ -60,6 +60,67 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert error.code == "invalid_value"
   end
 
+  test "uses native image execution only when the hosted profile is absent and the provider declares it" do
+    %{principal: agent} = agent_fixture()
+    request = %{"tools" => [%{"type" => "image_generation", "output_format" => "png"}]}
+
+    assert {:ok, nil} =
+             ImageGeneration.prepare(agent.uid, request,
+               main_runtime: %{"provider_kind" => "openai"}
+             )
+
+    assert {:error, error} =
+             ImageGeneration.prepare(agent.uid, request,
+               main_runtime: %{"provider_kind" => "openrouter"}
+             )
+
+    assert error.param == "tools[0].type"
+    assert error.code == "unsupported_value"
+    assert error.message =~ "image_generate model profile"
+    assert error.message =~ "native image generation"
+  end
+
+  test "requires JPEG or WebP when image output compression is set" do
+    %{principal: agent} = agent_fixture()
+
+    for tool <- [
+          %{"type" => "image_generation", "output_compression" => 80},
+          %{
+            "type" => "image_generation",
+            "output_compression" => 80,
+            "output_format" => "png"
+          }
+        ] do
+      assert {:error, error} =
+               ImageGeneration.prepare(agent.uid, %{"tools" => [tool]},
+                 main_runtime: %{"provider_kind" => "openai"}
+               )
+
+      assert error.param == "tools[0].output_compression"
+      assert error.code == "invalid_value"
+
+      assert error.message ==
+               "output_compression requires output_format to be 'jpeg' or 'webp'."
+    end
+
+    for output_format <- ["jpeg", "webp"] do
+      assert {:ok, nil} =
+               ImageGeneration.prepare(
+                 agent.uid,
+                 %{
+                   "tools" => [
+                     %{
+                       "type" => "image_generation",
+                       "output_compression" => 80,
+                       "output_format" => output_format
+                     }
+                   ]
+                 },
+                 main_runtime: %{"provider_kind" => "openai"}
+               )
+    end
+  end
+
   @tag timeout: 30_000
   test "official OpenAI SDK crosses the real Files, Responses, SSE, and WebSocket gateway" do
     %{principal: agent} = agent_fixture()
@@ -217,8 +278,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "api_key" => "sk-hosted-test",
                  "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               },
+               credential_pool: %{
+                 "entries" => [%{"label" => "Hosted test", "api_key" => "sk-hosted-test"}]
                }
              })
 
@@ -307,6 +370,238 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert Enum.any?(second_main["messages"], fn message ->
              message["role"] == "tool" and message["tool_call_id"] == "call_private_image"
            end)
+  end
+
+  test "non-stream hosted image failure rotates only the image credential in the control plane" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(&hosted_pool_retry_response(&1, test_pid, false))
+
+    provider_id =
+      configure_openrouter_profiles(agent.uid, base_url, "pool-non-stream", pooled_entries())
+
+    assert {:ok, %{body: response}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "Generate an image after rotating the limited account.",
+                 "tools" => [%{"type" => "image_generation"}],
+                 "tool_choice" => %{"type" => "image_generation"}
+               },
+               credential_retry_sleep: fn delay -> send(test_pid, {:image_retry_delay, delay}) end,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert [%{"type" => "image_generation_call", "result" => @png_base64}, _message] =
+             response["output"]
+
+    assert_receive {:hosted_image_attempt, "Bearer sk-image-first"}
+    assert_receive {:image_retry_delay, 250}
+    assert_receive {:hosted_image_attempt, "Bearer sk-image-second"}
+    refute_receive {:hosted_image_attempt, _authorization}
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["provider_status"] == 429
+    assert by_id["second"]["status"] == "ok"
+    refute get_in(by_id["first"], ["usage", "image_gen"])
+    assert get_in(by_id["second"], ["usage", "image_gen", "total_tokens"]) == 3
+  end
+
+  test "stream hosted image failure rotates before public image progress and keeps one lifecycle" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(&hosted_pool_retry_response(&1, test_pid, true))
+
+    provider_id =
+      configure_openrouter_profiles(agent.uid, base_url, "pool-stream", pooled_entries())
+
+    assert {:ok, stream, _meta} =
+             AIGateway.open_sse_stream(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "Generate a streamed image after rotating the limited account.",
+                 "tools" => [%{"type" => "image_generation", "partial_images" => 1}],
+                 "tool_choice" => %{"type" => "image_generation"}
+               },
+               credential_retry_sleep: fn delay -> send(test_pid, {:image_retry_delay, delay}) end,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    events = collect_response_events(stream, [])
+    types = Enum.map(events, & &1["type"])
+
+    assert Enum.count(types, &(&1 == "response.created")) == 1
+    assert Enum.count(types, &(&1 == "response.in_progress")) == 1
+    assert Enum.count(types, &(&1 == "response.image_generation_call.in_progress")) == 1
+    assert Enum.count(types, &(&1 == "response.image_generation_call.partial_image")) == 1
+    assert Enum.count(types, &(&1 == "response.completed")) == 1
+
+    response_ids =
+      events
+      |> Enum.flat_map(fn event ->
+        [get_in(event, ["response", "id"]), event["response_id"]]
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    assert [_one_response_id] = response_ids
+    assert_receive {:hosted_image_attempt, "Bearer sk-image-first"}
+    assert_receive {:image_retry_delay, 250}
+    assert_receive {:hosted_image_attempt, "Bearer sk-image-second"}
+    refute_receive {:hosted_image_attempt, _authorization}
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["second"]["status"] == "ok"
+    refute get_in(by_id["first"], ["usage", "image_gen"])
+    assert get_in(by_id["second"], ["usage", "image_gen", "total_tokens"]) == 3
+  end
+
+  test "hosted composition rotates a failing main provider without touching the image pool" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        case {request.method, request.path} do
+          {:get, "api/v1/models"} ->
+            {:json, 200, %{"data" => []}}
+
+          {:get, "api/v1/images/models"} ->
+            {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+
+          {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
+            {:json, 200,
+             %{
+               "endpoints" => [
+                 %{
+                   "provider_slug" => "openai",
+                   "provider_tag" => "openai/gpt-image-2:openai",
+                   "supports_streaming" => false,
+                   "allowed_passthrough_parameters" => [],
+                   "supported_parameters" => %{}
+                 }
+               ]
+             }}
+
+          {:post, "api/v1/chat/completions"} ->
+            authorization = request.headers["authorization"]
+            send(test_pid, {:main_pool_attempt, authorization})
+
+            case authorization do
+              "Bearer sk-main-first" ->
+                {:json, 429,
+                 %{
+                   "error" => %{
+                     "code" => "rate_limited",
+                     "message" => "first main account is limited"
+                   }
+                 }}
+
+              "Bearer sk-main-second" ->
+                main_model_response(request.body)
+            end
+
+          {:post, "api/v1/images"} ->
+            authorization = request.headers["authorization"]
+            send(test_pid, {:image_pool_attempt, authorization})
+            image_upstream_response(request.body)
+        end
+      end)
+
+    main_provider_id = "openrouter-hosted-main-#{System.unique_integer([:positive])}"
+    image_provider_id = "openrouter-hosted-image-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: main_provider_id,
+               provider_kind: "openrouter",
+               base_url: "#{base_url}/api/v1",
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               },
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "main-first", "label" => "Main first", "api_key" => "sk-main-first"},
+                   %{
+                     "id" => "main-second",
+                     "label" => "Main second",
+                     "api_key" => "sk-main-second"
+                   }
+                 ]
+               }
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: image_provider_id,
+               provider_kind: "openrouter",
+               base_url: "#{base_url}/api/v1",
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               },
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "image-only", "label" => "Image only", "api_key" => "sk-image-only"}
+                 ]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: main_provider_id,
+               model: "test/main-model"
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", %{
+               provider_id: image_provider_id,
+               model: "openai/gpt-image-2"
+             })
+
+    assert {:ok, %{body: response}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "Generate an image after rotating the main account.",
+                 "tools" => [%{"type" => "image_generation"}],
+                 "tool_choice" => %{"type" => "image_generation"}
+               },
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert [%{"type" => "image_generation_call", "result" => @png_base64}, _message] =
+             response["output"]
+
+    assert_receive {:main_pool_attempt, "Bearer sk-main-first"}
+    assert_receive {:main_pool_attempt, "Bearer sk-main-second"}
+    assert_receive {:image_pool_attempt, "Bearer sk-image-only"}
+    assert_receive {:main_pool_attempt, "Bearer sk-main-second"}
+    refute_receive {:main_pool_attempt, _authorization}
+    refute_receive {:image_pool_attempt, _authorization}
+
+    assert {:ok, main_projection} = ProviderConfigs.get_provider(main_provider_id)
+    main_by_id = Map.new(main_projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert main_by_id["main-first"]["status"] == "exhausted"
+    assert main_by_id["main-first"]["provider_status"] == 429
+    assert main_by_id["main-second"]["status"] == "ok"
+
+    assert {:ok, image_projection} = ProviderConfigs.get_provider(image_provider_id)
+    [image_entry] = image_projection["credential_pool"]["entries"]
+    assert image_entry["id"] == "image-only"
+    assert image_entry["status"] == "ok"
+    assert get_in(image_entry, ["usage", "image_gen", "total_tokens"]) == 3
   end
 
   test "streams official partial-image events and persists before output_item.done" do
@@ -497,6 +792,9 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                "tools" => [%{"type" => "image_generation"}],
                "tool_choice" => %{"type" => "image_generation"}
              })
+
+    assert %{telemetry_spec: %{hosted_tools: %{image_generation: %{}}}} =
+             :sys.get_state(stream.pid)
 
     events = collect_response_events(stream, [])
 
@@ -741,7 +1039,12 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
      }}
   end
 
-  defp configure_openrouter_profiles(agent_uid, base_url, suffix) do
+  defp configure_openrouter_profiles(
+         agent_uid,
+         base_url,
+         suffix,
+         entries \\ [%{"label" => "Hosted test", "api_key" => "sk-hosted-test"}]
+       ) do
     provider_id =
       "openrouter-hosted-#{suffix}-#{System.unique_integer([:positive])}"
 
@@ -751,8 +1054,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                provider_kind: "openrouter",
                base_url: "#{base_url}/api/v1",
                connection_options: %{
-                 "api_key" => "sk-hosted-test",
                  "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               },
+               credential_pool: %{
+                 "entries" => entries
                }
              })
 
@@ -769,6 +1074,79 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              })
 
     provider_id
+  end
+
+  defp pooled_entries do
+    [
+      %{
+        "id" => "first",
+        "label" => "First image credential",
+        "api_key" => "sk-image-first"
+      },
+      %{
+        "id" => "second",
+        "label" => "Second image credential",
+        "api_key" => "sk-image-second"
+      }
+    ]
+  end
+
+  defp hosted_pool_retry_response(request, test_pid, stream?) do
+    case {request.method, request.path} do
+      {:get, "api/v1/models"} ->
+        {:json, 200, %{"data" => []}}
+
+      {:get, "api/v1/images/models"} ->
+        {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+
+      {:get, "api/v1/images/models/openai/gpt-image-2/endpoints"} ->
+        {:json, 200,
+         %{
+           "endpoints" => [
+             %{
+               "provider_slug" => "openai",
+               "provider_tag" => "openai/gpt-image-2:openai",
+               "supports_streaming" => stream?,
+               "allowed_passthrough_parameters" => [],
+               "supported_parameters" => %{}
+             }
+           ]
+         }}
+
+      {:post, "api/v1/chat/completions"} ->
+        main_model_response(request.body)
+
+      {:post, "api/v1/images"} ->
+        authorization = request.headers["authorization"]
+        send(test_pid, {:hosted_image_attempt, authorization})
+
+        case authorization do
+          "Bearer sk-image-first" ->
+            reset_at = DateTime.utc_now(:second) |> DateTime.add(600) |> DateTime.to_unix()
+
+            {:json, 429, [{"x-codex-primary-reset-at", Integer.to_string(reset_at)}],
+             %{"error" => %{"code" => "rate_limited", "message" => "first image account limited"}}}
+
+          "Bearer sk-image-second" when stream? ->
+            {:sse, 200,
+             [
+               %{
+                 "type" => "image_generation.partial_image",
+                 "partial_image_index" => 0,
+                 "b64_json" => @png_base64
+               },
+               %{
+                 "type" => "image_generation.completed",
+                 "b64_json" => @png_base64,
+                 "media_type" => "image/png",
+                 "usage" => %{"input_tokens" => 2, "output_tokens" => 1, "total_tokens" => 3}
+               }
+             ]}
+
+          "Bearer sk-image-second" ->
+            image_upstream_response(request)
+        end
+    end
   end
 
   defp collect_response_events(stream, acc) do

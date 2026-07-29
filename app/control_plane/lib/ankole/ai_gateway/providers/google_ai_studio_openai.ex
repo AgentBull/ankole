@@ -23,7 +23,7 @@ defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
 
     base_url("https://generativelanguage.googleapis.com/v1beta/openai", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

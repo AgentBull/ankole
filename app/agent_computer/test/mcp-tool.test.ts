@@ -54,7 +54,7 @@ describe('main-agent native MCP tool', () => {
     expect(servers[0]?.generation).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('discovers an internal BullX Skill declaration and exposes the native MCP tool', async () => {
+  it('discovers an internal BullX Skill declaration without opening the server', async () => {
     const roots = skillRoots()
     const internalSkillsRoot = join(dirname(roots.builtinSkillsRoot), 'internal')
     writeHTTPMetadata(
@@ -86,13 +86,6 @@ describe('main-agent native MCP tool', () => {
         sourceSkills: ['bullx-financial-data']
       })
     ])
-
-    const tools = await createMCPTools({
-      enabledSkills: [enabledBullXSkill],
-      skillRoots: skillRootsWithInternal,
-      workerEnv: { BULLX_FINANCIAL_DATA_MCP_API_KEY: 'test-token' }
-    })
-    expect(tools.map(tool => tool.name)).toEqual(['mcp'])
   })
 
   it('selects the model timeout before the server timeout and the 360-second default', () => {
@@ -151,106 +144,248 @@ describe('main-agent native MCP tool', () => {
     expect(servers.map(server => server.name)).toEqual([privateUseBMP, supplementary])
   })
 
-  it('lists only names and descriptions, describes one schema, and calls one allowlisted tool with bearer auth', async () => {
+  it('materializes deferred namespace children and calls one selected MCP tool with bearer auth', async () => {
     const requests: FakeRequest[] = []
     const fake = startHTTPMCPServer(requests, { leakAuthorizationInCallKey: true })
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'finance', 'finance-data', `${fake.url}/mcp`, 'MCP_TOKEN')
     writeHTTPMetadata(roots.builtinSkillsRoot, 'disabled', 'disabled-data', `${fake.url}/disabled`)
 
-    const [tool] = await createMCPTools({
+    const tools = await createMCPTools({
       enabledSkills: [enabledSkill('finance')],
       skillRoots: roots,
       workerEnv: { MCP_TOKEN: 'top-secret-token' }
     })
-    expect(tool?.name).toBe('mcp')
-
-    const listed = await tool!.execute('list', { action: 'list' })
-    const listJSON = resultJSON(listed)
-    expect(listJSON).toEqual({
-      servers: [
-        {
-          name: 'finance-data',
-          description: 'Shared fake server'
-        }
-      ]
-    })
-    expect(requests).toEqual([])
-    expect(JSON.stringify(listJSON)).not.toContain(fake.url)
-    expect(JSON.stringify(listJSON)).not.toContain('top-secret-token')
-
-    const discovered = await tool!.execute('list-server', { action: 'list', server: 'finance-data' })
-    expect(resultJSON(discovered)).toEqual({
-      servers: [
-        {
-          name: 'finance-data',
-          description: 'Shared fake server',
-          tools: [
-            { name: 'echo', description: 'Echo one value.' },
-            { name: 'large', description: 'Return a large result.' },
-            { name: 'slow', description: 'Return after a delay.' }
-          ]
-        }
-      ]
-    })
+    expect(tools.map(tool => tool.name)).toEqual(['echo', 'large', 'slow'])
+    expect(tools.every(tool => tool.namespace === 'mcp__finance_data')).toBe(true)
+    expect(tools.every(tool => tool.namespaceDescription === 'Shared fake server')).toBe(true)
+    expect(tools.every(tool => tool.deferLoading === true)).toBe(true)
+    expect(
+      JSON.stringify(tools.map(tool => ({ description: tool.description, schema: tool.jsonSchema })))
+    ).not.toContain('top-secret-token')
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(1)
 
-    const described = await tool!.execute('describe', {
-      action: 'describe',
-      server: 'finance-data',
-      tool: 'echo'
+    const echo = tools.find(tool => tool.name === 'echo')
+    expect(echo?.jsonSchema).toEqual({
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: ['value']
     })
-    expect(resultJSON(described)).toEqual({
-      server: 'finance-data',
-      tool: {
-        name: 'echo',
-        description: 'Echo one value.',
-        input_schema: {
-          type: 'object',
-          properties: { value: { type: 'string' } },
-          required: ['value']
-        }
-      }
-    })
+    expect(echo?.isReadOnly).toBe(true)
+    expect(echo?.isDestructive).toBe(false)
 
-    expect(resultJSON(await tool!.execute('list-cached', { action: 'list' }))).toEqual({
-      servers: [
-        {
-          name: 'finance-data',
-          description: 'Shared fake server',
-          tools: [
-            { name: 'echo', description: 'Echo one value.' },
-            { name: 'large', description: 'Return a large result.' },
-            { name: 'slow', description: 'Return after a delay.' }
-          ]
-        }
-      ]
-    })
-
-    const called = await tool!.execute('call', {
-      action: 'call',
-      server: 'finance-data',
-      tool: 'echo',
-      arguments: { value: 'hello' }
-    })
+    const called = await echo!.execute('call', { value: 'hello' })
     expect(resultJSON(called)).toMatchObject({
-      server: 'finance-data',
-      tool: 'echo',
-      result: { content: [{ type: 'text', text: 'hello' }] }
+      content: [{ type: 'text', text: 'hello' }]
     })
     expect(textOf(called)).toContain('[REDACTED]')
     expect(textOf(called)).not.toContain('top-secret-token')
     expect(requests.filter(request => request.method === 'tools/call').map(request => request.tool)).toEqual(['echo'])
     expect(requests.every(request => request.authorization === 'Bearer top-secret-token')).toBe(true)
+  })
 
-    await expect(
-      tool!.execute('disabled', {
-        action: 'call',
-        server: 'disabled-data',
-        tool: 'echo',
-        arguments: {}
-      })
-    ).rejects.toThrow('not allowlisted')
+  it('matches Codex 0.146 model visibility, canonical names, raw routing, and search metadata', async () => {
+    const requests: FakeRequest[] = []
+    const fake = startHTTPMCPServer(requests, {
+      instructions: 'Use the market data catalog.',
+      tools: [
+        {
+          name: 'tool.two-three',
+          title: 'Market Quote',
+          description: 'Fetch one quote.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              security_id: {
+                const: '600519',
+                description: 'Security identifier.',
+                format: 'stock-code',
+                examples: ['600519']
+              },
+              tags: { type: 'array' },
+              options: { required: ['market'] }
+            },
+            required: ['security_id'],
+            examples: [{ security_id: '600519' }],
+            $defs: { unused: { type: 'string' } }
+          }
+        },
+        {
+          name: 'hidden-tool',
+          description: 'Only the MCP application UI can use this.',
+          inputSchema: { type: 'object', properties: {} },
+          _meta: { ui: { visibility: ['app'] } }
+        },
+        {
+          name: 'model-tool',
+          description: 'The model can use this.',
+          inputSchema: { type: 'object', properties: {} },
+          _meta: { ui: { visibility: ['app', 'model'] } }
+        },
+        {
+          name: 'tool.two-three',
+          description: 'Duplicate raw identity that Codex skips.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'market', 'server.one', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('market')], skillRoots: roots })
+
+    expect(tools.map(tool => `${tool.namespace}.${tool.name}`)).toEqual([
+      'mcp__server_one.model_tool',
+      'mcp__server_one.tool_two_three'
+    ])
+    expect(tools.every(tool => tool.namespaceDescription === 'Use the market data catalog.')).toBe(true)
+    expect(tools.every(tool => JSON.stringify(tool.allowedCallers) === '["direct","programmatic"]')).toBe(true)
+
+    const quote = tools.find(tool => tool.name === 'tool_two_three')
+    expect(quote?.description).toBe('Fetch one quote.')
+    expect(quote?.jsonSchema).toEqual({
+      type: 'object',
+      properties: {
+        options: {
+          type: 'object',
+          properties: {},
+          required: ['market']
+        },
+        security_id: {
+          type: 'string',
+          description: 'Security identifier.',
+          enum: ['600519']
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' }
+        }
+      },
+      required: ['security_id']
+    })
+    expect(quote?.toolSearchText).toContain('tool.two-three')
+    expect(quote?.toolSearchText).toContain('tool_two_three')
+    expect(quote?.toolSearchText).toContain('Market Quote')
+    expect(quote?.toolSearchText).toContain('server.one')
+    expect(quote?.toolSearchText).toContain('Use the market data catalog.')
+    expect(quote?.toolSearchText).toContain('security_id')
+
+    await quote!.execute('raw-route', { security_id: '600519' })
+    expect(requests.filter(request => request.method === 'tools/call').map(request => request.tool)).toEqual([
+      'tool.two-three'
+    ])
+  })
+
+  it('uses Codex 0.146 collision hashes and keeps every complete model name within 64 bytes', async () => {
+    const firstRequests: FakeRequest[] = []
+    const secondRequests: FakeRequest[] = []
+    const first = startHTTPMCPServer(firstRequests, {
+      tools: [
+        {
+          name: 'tool-name',
+          description: 'First colliding tool.',
+          inputSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'tool_name',
+          description: 'Second colliding tool.',
+          inputSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'extremely_lengthy_function_name_that_absolutely_surpasses_all_reasonable_limits',
+          description: 'Long tool.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const second = startHTTPMCPServer(secondRequests, {
+      tools: [
+        {
+          name: 'lookup',
+          description: 'Lookup from the second server.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'first', 'basic-server', `${first.url}/mcp`)
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'second', 'basic_server', `${second.url}/mcp`)
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('first'), enabledSkill('second')],
+      skillRoots: roots
+    })
+    const completeNames = tools.map(tool => `${tool.namespace}__${tool.name}`)
+
+    expect(new Set(completeNames).size).toBe(completeNames.length)
+    expect(completeNames.every(name => /^[A-Za-z0-9_-]+$/.test(name))).toBe(true)
+    expect(completeNames.every(name => Buffer.byteLength(name, 'utf8') <= 64)).toBe(true)
+    expect(tools.map(tool => tool.namespace).every(name => /^mcp__basic_server_[a-f0-9]{12}$/.test(name!))).toBe(true)
+    expect(
+      tools
+        .filter(tool => tool.description.includes('colliding'))
+        .map(tool => tool.name)
+        .every(name => /^tool_name_[a-f0-9]{12}$/.test(name))
+    ).toBe(true)
+
+    for (const tool of tools) await tool.execute(`call-${tool.name}`, {})
+    expect(firstRequests.filter(request => request.method === 'tools/call').map(request => request.tool)).toEqual([
+      'extremely_lengthy_function_name_that_absolutely_surpasses_all_reasonable_limits',
+      'tool-name',
+      'tool_name'
+    ])
+    expect(secondRequests.filter(request => request.method === 'tools/call').map(request => request.tool)).toEqual([
+      'lookup'
+    ])
+  })
+
+  it('applies Codex enabled_tools allowlist before disabled_tools denylist using raw MCP names', async () => {
+    const fake = startHTTPMCPServer([], {
+      tools: [
+        {
+          name: 'allowed-raw',
+          description: 'Allowed.',
+          inputSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'denied-raw',
+          description: 'Denied.',
+          inputSchema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'not-enabled',
+          description: 'Not enabled.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const roots = skillRoots()
+    writeMetadata(
+      roots.builtinSkillsRoot,
+      'filtered',
+      [
+        'dependencies:',
+        '  tools:',
+        '    - type: "mcp"',
+        '      value: "filtered-server"',
+        '      transport: "streamable_http"',
+        `      url: ${JSON.stringify(`${fake.url}/mcp`)}`,
+        '      enabled_tools: ["allowed-raw", "denied-raw"]',
+        '      disabled_tools: ["denied-raw"]'
+      ].join('\n')
+    )
+
+    const servers = await loadEnabledSkillMCPServers({
+      enabledSkills: [enabledSkill('filtered')],
+      skillRoots: roots
+    })
+    expect(servers[0]).toMatchObject({
+      enabledTools: ['allowed-raw', 'denied-raw'],
+      disabledTools: ['denied-raw']
+    })
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('filtered')], skillRoots: roots })
+    expect(tools.map(tool => tool.name)).toEqual(['allowed_raw'])
   })
 
   it('keeps prototype-shaped result keys as inert JSON data', () => {
@@ -272,23 +407,20 @@ describe('main-agent native MCP tool', () => {
     const fake = startHTTPMCPServer(requests, { leakAuthorizationInCatalog: true })
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'leaky', 'leaky-server', `${fake.url}/mcp`, 'MCP_TOKEN')
-    const [tool] = await createMCPTools({
-      enabledSkills: [enabledSkill('leaky')],
-      skillRoots: roots,
-      workerEnv: { MCP_TOKEN: 'catalog-secret' }
-    })
+    const create = () =>
+      createMCPTools({
+        enabledSkills: [enabledSkill('leaky')],
+        skillRoots: roots,
+        workerEnv: { MCP_TOKEN: 'catalog-secret' }
+      })
 
-    const failure = await tool!
-      .execute('leaky-list', { action: 'list', server: 'leaky-server' })
-      .catch(error => error as Error)
+    const failure = await create().catch(error => error as Error)
     expect(failure).toBeInstanceOf(Error)
     if (!(failure instanceof Error)) throw new Error('expected a rejected MCP catalog')
     expect(failure.message).toContain('MCP catalog contained WorkerEnv data and was rejected')
     expect(failure.message).not.toContain('catalog-secret')
 
-    await expect(tool!.execute('leaky-list-again', { action: 'list', server: 'leaky-server' })).rejects.toThrow(
-      'MCP catalog contained WorkerEnv data and was rejected'
-    )
+    await expect(create()).rejects.toThrow('MCP catalog contained WorkerEnv data and was rejected')
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(2)
   })
 
@@ -303,22 +435,15 @@ describe('main-agent native MCP tool', () => {
       skillRoots: roots,
       workerEnv: { MCP_TOKEN: 'credential-one' }
     }
-    const [first] = await createMCPTools(options)
-    await first!.execute('describe-first', { action: 'describe', server: 'cached-server', tool: 'echo' })
+    await createMCPTools(options)
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(1)
 
-    const [sameIdentity] = await createMCPTools(options)
-    await sameIdentity!.execute('describe-second', { action: 'describe', server: 'cached-server', tool: 'echo' })
+    await createMCPTools(options)
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(1)
 
-    const [newCredential] = await createMCPTools({
+    await createMCPTools({
       ...options,
       workerEnv: { MCP_TOKEN: 'credential-two' }
-    })
-    await newCredential!.execute('describe-new-credential', {
-      action: 'describe',
-      server: 'cached-server',
-      tool: 'echo'
     })
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(2)
 
@@ -330,14 +455,9 @@ describe('main-agent native MCP tool', () => {
       'MCP_TOKEN',
       'Refreshed fake server'
     )
-    const [newGeneration] = await createMCPTools({
+    await createMCPTools({
       ...options,
       workerEnv: { MCP_TOKEN: 'credential-two' }
-    })
-    await newGeneration!.execute('describe-new-generation', {
-      action: 'describe',
-      server: 'cached-server',
-      tool: 'echo'
     })
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(3)
   })
@@ -347,43 +467,22 @@ describe('main-agent native MCP tool', () => {
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'bounded', 'bounded-server', `${fake.url}/mcp`)
 
-    const [tool] = await createMCPTools({ enabledSkills: [enabledSkill('bounded')], skillRoots: roots })
-    const large = await tool!.execute('large', {
-      action: 'call',
-      server: 'bounded-server',
-      tool: 'large'
-    })
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('bounded')], skillRoots: roots })
+    const largeTool = tools.find(tool => tool.name === 'large')
+    const slowTool = tools.find(tool => tool.name === 'slow')
+    const large = await largeTool!.execute('large', {})
     const largeText = textOf(large)
     expect(utf8ByteLength(largeText)).toBeLessThanOrEqual(64 * 1024)
     expect(largeText).toContain('...[truncated]')
 
-    await expect(
-      tool!.execute('timeout', {
-        action: 'call',
-        server: 'bounded-server',
-        tool: 'slow',
-        arguments: { delay_ms: 500 },
-        timeout_ms: 100
-      })
-    ).rejects.toThrow(/timed out|abort/i)
-
     const controller = new AbortController()
     setTimeout(() => controller.abort(new Error('caller stopped MCP')), 20)
-    await expect(
-      tool!.execute(
-        'abort',
-        {
-          action: 'call',
-          server: 'bounded-server',
-          tool: 'slow',
-          arguments: { delay_ms: 500 }
-        },
-        controller.signal
-      )
-    ).rejects.toThrow(/caller stopped MCP|abort/i)
+    const aborted = await slowTool!.execute('abort', { delay_ms: 500 }, controller.signal)
+    expect(resultJSON(aborted)).toMatchObject({ isError: true })
+    expect(textOf(aborted)).toMatch(/caller stopped MCP|abort/i)
   })
 
-  it('uses a Skill timeout unless the model requests a wider legal timeout', async () => {
+  it('uses the Skill timeout for direct namespace child calls', async () => {
     const fake = startHTTPMCPServer([])
     const roots = skillRoots()
     writeHTTPMetadata(
@@ -396,24 +495,11 @@ describe('main-agent native MCP tool', () => {
       100
     )
 
-    const [tool] = await createMCPTools({ enabledSkills: [enabledSkill('slow-server')], skillRoots: roots })
-    await expect(
-      tool!.execute('server-timeout', {
-        action: 'call',
-        server: 'slow-server',
-        tool: 'slow',
-        arguments: { delay_ms: 250 }
-      })
-    ).rejects.toThrow(/timed out|abort/i)
-
-    const result = await tool!.execute('model-timeout', {
-      action: 'call',
-      server: 'slow-server',
-      tool: 'slow',
-      arguments: { delay_ms: 250 },
-      timeout_ms: 500
-    })
-    expect(resultJSON(result)).toMatchObject({ server: 'slow-server', tool: 'slow' })
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('slow-server')], skillRoots: roots })
+    const slow = tools.find(tool => tool.name === 'slow')
+    const timedOut = await slow!.execute('server-timeout', { delay_ms: 250 })
+    expect(resultJSON(timedOut)).toMatchObject({ isError: true })
+    expect(textOf(timedOut)).toMatch(/timed out|abort/i)
   })
 
   it('passes WorkerEnv to stdio, discards noisy stderr, and closes each ephemeral child', async () => {
@@ -435,7 +521,7 @@ describe('main-agent native MCP tool', () => {
       ].join('\n')
     )
 
-    const [tool] = await createMCPTools({
+    const tools = await createMCPTools({
       enabledSkills: [enabledSkill('stdio-skill')],
       skillRoots: roots,
       workerEnv: {
@@ -444,11 +530,8 @@ describe('main-agent native MCP tool', () => {
         MCP_STDIO_NOISY_STDERR: 'enabled-noisy-stderr-7f3a'
       }
     })
-    await tool!.execute('stdio-describe', {
-      action: 'describe',
-      server: 'stdio-server',
-      tool: 'stdio_echo'
-    })
+    const tool = tools.find(tool => tool.name === 'stdio_echo')
+    await tool!.execute('stdio-call', { value: 'hello' })
 
     await waitFor(() => existsSync(marker))
     expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ closed: true, worker_env_seen: true })
@@ -458,7 +541,6 @@ describe('main-agent native MCP tool', () => {
     const fake = startHTTPMCPServer([])
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'missing-token', 'missing-token-server', `${fake.url}/mcp`, 'MCP_TOKEN')
-    const [tool] = await createMCPTools({ enabledSkills: [enabledSkill('missing-token')], skillRoots: roots })
     let added = 0
     let removed = 0
     const signal = {
@@ -473,7 +555,11 @@ describe('main-agent native MCP tool', () => {
     } as unknown as AbortSignal
 
     await expect(
-      tool!.execute('missing-token', { action: 'list', server: 'missing-token-server' }, signal)
+      createMCPTools({
+        enabledSkills: [enabledSkill('missing-token')],
+        skillRoots: roots,
+        abortSignal: signal
+      })
     ).rejects.toThrow('requires WorkerEnv variable MCP_TOKEN')
     expect({ added, removed }).toEqual({ added: 1, removed: 1 })
   })
@@ -488,10 +574,13 @@ interface FakeRequest {
 interface FakeMCPServerOptions {
   leakAuthorizationInCallKey?: boolean
   leakAuthorizationInCatalog?: boolean
+  instructions?: string
+  tools?: Array<Record<string, unknown>>
 }
 
 function startHTTPMCPServer(requests: FakeRequest[], options: FakeMCPServerOptions = {}): { url: string } {
   const server = Bun.serve({
+    hostname: '127.0.0.1',
     port: 0,
     async fetch(request) {
       if (request.method === 'GET') return new Response(null, { status: 405 })
@@ -511,13 +600,14 @@ function startHTTPMCPServer(requests: FakeRequest[], options: FakeMCPServerOptio
         return jsonRPCResult(message.id, {
           protocolVersion: message.params?.protocolVersion ?? '2025-06-18',
           capabilities: { tools: {} },
-          serverInfo: { name: 'ankole-test-http', version: '1.0.0' }
+          serverInfo: { name: 'ankole-test-http', version: '1.0.0' },
+          instructions: options.instructions ?? 'Shared fake server'
         })
       }
       if (message.method === 'tools/list') {
         const credential = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
         return jsonRPCResult(message.id, {
-          tools: [
+          tools: options.tools ?? [
             {
               name: 'echo',
               description: 'Echo one value.',
@@ -527,7 +617,8 @@ function startHTTPMCPServer(requests: FakeRequest[], options: FakeMCPServerOptio
                   ? { [credential]: { type: 'string' } }
                   : { value: { type: 'string' } },
                 required: ['value']
-              }
+              },
+              annotations: { readOnlyHint: true }
             },
             {
               name: 'large',

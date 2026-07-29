@@ -13,7 +13,7 @@ Deep Research 适合文献梳理、竞品研究、多来源事实核查，也适
 
 先完成[快速开始](../quickstart/)，并确认 Agent 可以在聊天渠道中正常回复。需要搜索公开网页时，还要为 Agent 配置 `web_search` 和 `web_fetch` 模型档案。
 
-后台任务可以使用 Ankole 的 LLM Provider，也可以使用已经添加的 [ChatGPT 订阅账号](../codex-accounts/)。运行方式在 **Console → 智能体 → 后台 Agent 任务** 中设置。
+后台任务始终通过 AIGateway 运行。要使用 ChatGPT 订阅额度，先创建一个 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)，再到 **Console → 智能体 → 后台 Agent 任务** 中选择它。
 
 任务会自动获得该 Agent 当前启用、且允许在后台任务中运行的全部 Skills。实例启用了数据源类 Skill 时（例如财经数据接口或内部系统连接），任务会优先使用这些数据源，其次才是公网搜索。你不需要为任务单独授权一次。
 

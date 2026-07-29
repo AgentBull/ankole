@@ -105,7 +105,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(VolcengineArk,
                model: "doubao-seed-1-6",
-               connection_options: %{"api_key" => "ark-key"},
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "ark-key"}]},
                provider_options: %{"reasoningEffort" => "medium"},
                request: %{"input" => "hello"},
                stream?: true
@@ -136,7 +136,9 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(AlibabaCN,
                model: "qwen-plus",
-               connection_options: %{"api_key" => "dashscope-key"},
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "dashscope-key"}]
+               },
                provider_options: dashscope_options,
                request: %{"input" => "hello"}
              )
@@ -164,8 +166,10 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(XiaomiMiMo,
                model: "mimo-v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "mimo-key"}]
+               },
                connection_options: %{
-                 "api_key" => "mimo-key",
                  "xiaomi_mimo_billing_plan" => "token_plan"
                },
                provider_options: %{"thinking" => %{"type" => "enabled"}},
@@ -186,7 +190,7 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(ZaiCodingPlan,
                model: "glm-4.7",
-               connection_options: %{"api_key" => "zai-key"},
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "zai-key"}]},
                provider_options: %{"thinking" => %{"type" => "disabled"}},
                request: %{"input" => "hello"},
                stream?: true
@@ -212,7 +216,10 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(ZaiCodingPlan,
                model: "glm-4.7",
-               connection_options: %{"api_key" => "zai-key", "china_server" => true},
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "zai-key"}]
+               },
+               connection_options: %{"china_server" => true},
                provider_options: %{"thinking" => %{"type" => "enabled"}},
                request: %{"input" => "hello"}
              )
@@ -227,8 +234,10 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
     assert {:ok, spec} =
              prepared_spec(ZaiCodingPlan,
                model: "glm-4.7",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "zai-key"}]
+               },
                connection_options: %{
-                 "api_key" => "zai-key",
                  "user_agent" => "AnkoleProviderSmoke/1.0"
                },
                provider_options: %{"thinking" => %{"type" => "disabled"}},
@@ -240,11 +249,24 @@ defmodule Ankole.AIGateway.ChinaMarketAIProvidersTest do
 
   defp prepared_spec(module, opts) do
     definition = module.provider_definition()
+    credential_keys = Providers.credential_option_keys(definition)
+
+    credential =
+      opts
+      |> Keyword.get(:credential_pool, %{})
+      |> Map.get("entries", [])
+      |> List.first()
+      |> case do
+        entry when is_map(entry) -> Map.take(entry, credential_keys)
+        _entry -> %{}
+      end
 
     runtime = %{
       "provider_kind" => definition.provider_kind,
       "model" => Keyword.fetch!(opts, :model),
-      "connection_options" => Keyword.get(opts, :connection_options, %{}),
+      "connection_options" =>
+        Keyword.get(opts, :connection_options, %{})
+        |> Map.merge(credential),
       "provider_options" => Keyword.get(opts, :provider_options, %{})
     }
 

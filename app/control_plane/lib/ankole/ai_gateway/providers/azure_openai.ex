@@ -12,13 +12,19 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   provider "azure_openai" do
     label(%{"default" => "Azure OpenAI", "zh-Hans-CN" => "Azure OpenAI"})
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:endpoint_kind, default: "chat_completions")
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
     setting(:api_version, default: "2025-04-01-preview", advanced: true)
     setting(:deployment)
-    setting(:auth_scheme, default: "api_key")
+
+    setting(:auth_scheme,
+      type: :select,
+      default: "api_key",
+      options: ~w(api_key bearer auth_token),
+      scope: :credential
+    )
 
     setting(:reasoningEffort,
       type: :select,

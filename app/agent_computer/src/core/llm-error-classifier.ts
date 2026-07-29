@@ -89,6 +89,7 @@ export function classifyLLMError(error: unknown): LLMErrorClassification {
       'timedout',
       'etimedout',
       'aborterror',
+      'aigateway_websocket_',
       'und_err_socket',
       'upstream_read_failed',
       'upstream_stream_closed',

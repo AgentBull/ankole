@@ -17,6 +17,7 @@ import { compareCodePointStrings } from './ordering'
 
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_DEPENDENCIES_PER_SKILL = 64
+const MAX_FILTERED_TOOLS_PER_SERVER = 256
 export const DEFAULT_MCP_TIMEOUT_MS = 360_000
 export const MINIMUM_MCP_TIMEOUT_MS = 100
 const ServerName = z
@@ -30,6 +31,7 @@ const ServerName = z
 const Description = z.string().trim().min(1).max(1024)
 const EnvironmentVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
 const TimeoutMilliseconds = z.number().int().min(MINIMUM_MCP_TIMEOUT_MS).max(Number.MAX_SAFE_INTEGER)
+const ToolFilter = z.array(z.string().min(1).max(1024)).max(MAX_FILTERED_TOOLS_PER_SERVER)
 const HTTPURL = z
   .string()
   .url()
@@ -44,7 +46,9 @@ const StreamableHTTPDependency = z
     url: HTTPURL,
     command: z.never().optional(),
     bearer_token_env_var: EnvironmentVariableName.optional(),
-    timeout_ms: TimeoutMilliseconds.optional()
+    timeout_ms: TimeoutMilliseconds.optional(),
+    enabled_tools: ToolFilter.optional(),
+    disabled_tools: ToolFilter.optional()
   })
   .strict()
 
@@ -57,7 +61,9 @@ const StdioDependency = z
     command: z.string().trim().min(1).max(1024),
     url: z.never().optional(),
     bearer_token_env_var: z.never().optional(),
-    timeout_ms: TimeoutMilliseconds.optional()
+    timeout_ms: TimeoutMilliseconds.optional(),
+    enabled_tools: ToolFilter.optional(),
+    disabled_tools: ToolFilter.optional()
   })
   .strict()
 
@@ -79,6 +85,8 @@ interface MCPServerBase {
   name: string
   description?: string
   timeoutMs?: number
+  enabledTools?: string[]
+  disabledTools?: string[]
   sourceSkills: string[]
   /** Hash of the actual enabled Skill metadata files contributing this declaration. */
   generation: string
@@ -211,6 +219,8 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
       url: dependency.url,
       ...(dependency.bearer_token_env_var ? { bearerTokenEnvVar: dependency.bearer_token_env_var } : {}),
       ...(dependency.timeout_ms !== undefined ? { timeoutMs: dependency.timeout_ms } : {}),
+      ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
+      ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),
       sourceSkills: [skillName],
       generation: ''
     }
@@ -222,6 +232,8 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
     transport: dependency.transport,
     command: dependency.command,
     ...(dependency.timeout_ms !== undefined ? { timeoutMs: dependency.timeout_ms } : {}),
+    ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
+    ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),
     sourceSkills: [skillName],
     generation: ''
   }
@@ -237,16 +249,24 @@ export function mcpServerConnectionIdentity(server: MCPServerConfig): string {
           transport: server.transport,
           url: server.url,
           bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
-          timeoutMs: server.timeoutMs ?? null
+          timeoutMs: server.timeoutMs ?? null,
+          enabledTools: normalizedToolFilter(server.enabledTools),
+          disabledTools: normalizedToolFilter(server.disabledTools)
         }
       : {
           name: server.name,
           description: server.description ?? null,
           transport: server.transport,
           command: server.command,
-          timeoutMs: server.timeoutMs ?? null
+          timeoutMs: server.timeoutMs ?? null,
+          enabledTools: normalizedToolFilter(server.enabledTools),
+          disabledTools: normalizedToolFilter(server.disabledTools)
         }
   )
+}
+
+function normalizedToolFilter(tools: string[] | undefined): string[] | null {
+  return tools ? [...new Set(tools)].sort(compareCodePointStrings) : null
 }
 
 function serverConnectionIdentity(server: MCPServerConfig): string {

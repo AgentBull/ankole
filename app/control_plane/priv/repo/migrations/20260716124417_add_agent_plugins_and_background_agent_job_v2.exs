@@ -121,7 +121,7 @@ defmodule Ankole.Repo.Migrations.AddAgentPluginsAndBackgroundAgentJobV2 do
   end
 
   def down do
-    raise "BackgroundAgentJob V2 cannot be downgraded after the v26.07.7 runtime cutover"
+    raise "BackgroundAgentJob V2 cannot be downgraded after the v0.7.0 runtime cutover"
   end
 
   @doc false

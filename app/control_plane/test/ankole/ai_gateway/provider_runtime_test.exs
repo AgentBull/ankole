@@ -16,6 +16,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIAgent.Library
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ProviderConfigs.Crypto
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ProviderRuntime
   alias Ankole.AIAgent.ModelProfiles
@@ -104,8 +105,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         provider_id: "bad-provider-kind",
         provider_kind: "openai-compatible",
         base_url: "https://compatible.test/v1",
-        connection_options: %{"api_key" => "sk-test"},
-        encrypted_options: %{}
+        credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
       })
 
     refute changeset.valid?
@@ -121,15 +121,18 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
                provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-test",
                  "headers" => %{"Authorization" => "Bearer provider-managed"}
                }
              })
 
     refute Map.has_key?(provider.connection_options, "api_key")
-    assert is_binary(provider.encrypted_options["api_key"])
-    refute provider.encrypted_options["api_key"] == "sk-test"
+    [stored_credential] = provider.credential_pool["entries"]
+    assert is_binary(stored_credential["encrypted_credential"])
+    refute stored_credential["encrypted_credential"] == "sk-test"
     assert {:ok, connection} = ProviderConfigs.runtime_connection(provider)
     refute Map.has_key?(connection, "transport")
     assert connection["api_key"] == "sk-test"
@@ -137,9 +140,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, projection} = ProviderConfigs.get_provider("openrouter-main")
 
-    assert projection["encrypted_options"] == %{
-             "api_key" => %{"present" => true, "masked" => "********"}
-           }
+    assert [%{"credential_present" => true, "status" => "ok"}] =
+             projection["credential_pool"]["entries"]
 
     refute Map.has_key?(projection["connection_options"], "api_key")
     refute inspect(projection) =~ "sk-test"
@@ -149,7 +151,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "compatible-main",
                provider_kind: "openai_compatible",
                base_url: "https://compatible.test/v1",
-               connection_options: %{"api_key" => "sk-test"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
     assert {:ok, compatible_connection} = ProviderConfigs.runtime_connection(compatible_provider)
@@ -160,8 +162,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "compatible-http2",
                provider_kind: "openai_compatible",
                base_url: "https://compatible.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-test",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })
@@ -179,7 +183,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "json-secret-provider",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => json_secret}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => json_secret}]
+               }
              })
 
     assert {:ok, json_secret_connection} =
@@ -189,12 +195,163 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, json_secret_projection} = ProviderConfigs.get_provider("json-secret-provider")
 
-    assert json_secret_projection["encrypted_options"] == %{
-             "api_key" => %{"present" => true, "masked" => "********"}
-           }
+    assert [%{"credential_present" => true}] =
+             json_secret_projection["credential_pool"]["entries"]
 
     refute inspect(json_secret_projection) =~ "ak-test"
     refute inspect(json_secret_projection) =~ "sk-test"
+  end
+
+  test "a provider with optional credentials gets one anonymous pool member" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "agentbull-anonymous",
+               provider_kind: "agentbull_cloud",
+               base_url: "https://search.example.test"
+             })
+
+    assert [stored] = provider.credential_pool["entries"]
+    assert stored["source"] == "provider_default"
+    assert is_binary(stored["encrypted_credential"])
+
+    assert {:ok, connection} = ProviderConfigs.runtime_connection(provider)
+    assert connection["base_url"] == "https://search.example.test"
+    refute Map.has_key?(connection, "api_key")
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("agentbull-anonymous")
+
+    assert [%{"credential_present" => true, "status" => "ok"}] =
+             projection["credential_pool"]["entries"]
+  end
+
+  test "credential writes validate required fields and select values before encryption" do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-credential-validation",
+               provider_kind: "chatgpt_subscription"
+             })
+
+    assert {:error, {:credential_options, {:required, "access_token"}}} =
+             ProviderConfigs.add_credential("chatgpt-credential-validation", %{
+               "id" => "missing-token",
+               "auth_type" => "oauth"
+             })
+
+    assert {:error,
+            {:credential_options,
+             {:invalid_value, "auth_type", "cookie", ["oauth", "enterprise_access_token"]}}} =
+             ProviderConfigs.add_credential("chatgpt-credential-validation", %{
+               "id" => "invalid-auth-type",
+               "access_token" => "secret",
+               "auth_type" => "cookie"
+             })
+
+    assert {:error, {:credential_options, {:required, "account_id"}}} =
+             ProviderConfigs.add_credential("chatgpt-credential-validation", %{
+               "id" => "enterprise-without-account",
+               "access_token" => "secret",
+               "auth_type" => "enterprise_access_token"
+             })
+
+    assert {:error, {:credential_options, {:required, "refresh_token"}}} =
+             ProviderConfigs.add_credential("chatgpt-credential-validation", %{
+               "id" => "oauth-without-refresh",
+               "access_token" => "secret",
+               "account_id" => "account-1",
+               "id_token" => "id-token",
+               "auth_type" => "oauth"
+             })
+
+    assert {:error, {:credential_options, {:required, "id_token"}}} =
+             ProviderConfigs.add_credential("chatgpt-credential-validation", %{
+               "id" => "oauth-without-id-token",
+               "access_token" => "secret",
+               "account_id" => "account-1",
+               "refresh_token" => "refresh-token",
+               "auth_type" => "oauth"
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-credential-validation",
+               provider_kind: "claude",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "claude-valid",
+                     "api_key" => "secret",
+                     "auth_mode" => "auth_token"
+                   }
+                 ]
+               }
+             })
+
+    assert {:error,
+            {:credential_options,
+             {:invalid_value, "auth_mode", "cookie", ["api_key", "auth_token", "oauth"]}}} =
+             ProviderConfigs.update_credential(
+               "claude-credential-validation",
+               "claude-valid",
+               %{"auth_mode" => "cookie"}
+             )
+  end
+
+  test "metadata updates cannot clear a persisted reauthentication requirement" do
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-dead-credential",
+               provider_kind: "claude",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "dead-entry",
+                     "api_key" => "stale-secret",
+                     "auth_mode" => "oauth"
+                   }
+                 ]
+               }
+             })
+
+    [entry] = provider.credential_pool["entries"]
+
+    dead_entry =
+      entry
+      |> Map.put("reauth_required", true)
+      |> Map.put("migration_error", "legacy_secret_invalid")
+
+    provider =
+      provider
+      |> Provider.changeset(%{
+        credential_pool: %{
+          "strategy" => "fill_first",
+          "entries" => [dead_entry]
+        }
+      })
+      |> Repo.update!()
+
+    assert {:ok, updated} =
+             ProviderConfigs.update_credential(
+               provider.provider_id,
+               "dead-entry",
+               %{"label" => "Renamed"}
+             )
+
+    assert [updated_entry] = updated.credential_pool["entries"]
+    assert updated_entry["label"] == "Renamed"
+    assert updated_entry["reauth_required"] == true
+    assert updated_entry["migration_error"] == "legacy_secret_invalid"
+
+    assert {:ok, %{"api_key" => "stale-secret", "auth_mode" => "oauth"}} =
+             Crypto.unseal(
+               updated_entry["encrypted_credential"],
+               updated.id,
+               "credential:dead-entry"
+             )
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider.provider_id)
+
+    assert [%{"status" => "dead", "reauth_required" => true}] =
+             projection["credential_pool"]["entries"]
   end
 
   test "provider helper runtime context reuses the decrypted runtime connection" do
@@ -204,8 +361,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-helper-context",
                provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-helper"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-helper",
                  "headers" => %{"X-Route" => "helper"},
                  "transport" => %{"http_versions" => ["h1"]}
                }
@@ -237,8 +396,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_id: "openrouter-main",
                provider_kind: "openrouter",
                base_url: "https://openrouter.ai/api/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-test",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["gzip"],
@@ -275,7 +436,15 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "claude-oauth",
                provider_kind: "claude",
-               connection_options: %{"api_key" => "anthropic-token", "auth_mode" => "auth_token"}
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "Default",
+                     "api_key" => "anthropic-token",
+                     "auth_mode" => "auth_token"
+                   }
+                 ]
+               }
              })
 
     http_client = fn request ->
@@ -290,14 +459,53 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderRuntime.live_check_provider("claude-oauth", http_client: http_client)
   end
 
+  test "ChatGPT live_check preserves account, identity, and FedRAMP headers" do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-fedramp-live",
+               provider_kind: "chatgpt_subscription",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "FedRAMP",
+                     "access_token" => "chatgpt-access",
+                     "refresh_token" => "chatgpt-refresh",
+                     "id_token" => "chatgpt-id",
+                     "account_id" => "account-fedramp",
+                     "auth_type" => "oauth",
+                     "fedramp" => true
+                   }
+                 ]
+               }
+             })
+
+    http_client = fn request ->
+      assert request.url ==
+               "https://chatgpt.com/backend-api/codex/models?client_version=0.146.0"
+
+      assert {"Authorization", "Bearer chatgpt-access"} in request.headers
+      assert {"ChatGPT-Account-ID", "account-fedramp"} in request.headers
+      assert {"Originator", "codex_cli_rs"} in request.headers
+      assert {"X-OpenAI-Fedramp", "true"} in request.headers
+      {:ok, %{"status" => 200, "body" => %{"models" => []}}}
+    end
+
+    assert {:ok, %{"provider_kind" => "chatgpt_subscription", "status" => "ok"}} =
+             ProviderRuntime.live_check_provider("chatgpt-fedramp-live",
+               http_client: http_client
+             )
+  end
+
   test "provider live_check uses Azure OpenAI catalog path and auth scheme" do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "azure-live",
                provider_kind: "azure_openai",
                base_url: "https://ankole-test.openai.azure.com",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "azure-key"}]
+               },
                connection_options: %{
-                 "api_key" => "azure-key",
                  "api_version" => "2025-04-01-preview"
                }
              })
@@ -336,9 +544,9 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:error,
             {:provider_live_check_failed,
              %{
+               "body" => "%{\"error\" => \"missing key\"}",
                "http_status" => 401,
-               "reason" => "upstream_error",
-               "body" => "%{\"error\" => \"missing key\"}"
+               "reason" => "upstream_error"
              }}} =
              ProviderRuntime.live_check_provider("openrouter-no-key", http_client: http_client)
   end
@@ -350,49 +558,57 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-test"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "claude-main",
                provider_kind: "claude",
-               connection_options: %{"api_key" => "sk-ant"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-ant"}]}
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "jina-main",
                provider_kind: "jina",
-               connection_options: %{"api_key" => "jina-key"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "jina-key"}]}
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "parallel-main",
                provider_kind: "parallel",
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "jina-search-main",
                provider_kind: "jina_search",
-               connection_options: %{"api_key" => "jina-search-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "jina-search-key"}]
+               }
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "jina-reader-main",
                provider_kind: "jina_reader",
-               connection_options: %{"api_key" => "jina-reader-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "jina-reader-key"}]
+               }
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-vision",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-openai"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
              })
 
     assert {:ok, %{profile: profile}} =
@@ -511,14 +727,16 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-main",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-main"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-main"}]}
              })
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-vision",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-vision"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-vision"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -559,7 +777,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-turn-hosted-tools",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-test"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
     assert {:ok, _profile} =
@@ -627,7 +845,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-agent-policy",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-main"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-main"}]}
              })
 
     assert {:ok, _profile} =
@@ -679,7 +897,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-test"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "sk-test"}]}
              })
 
     assert {:error, {:provider_options, {:unknown_keys, ["thinking"]}}} =
@@ -703,10 +921,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_options: %{"reasoningEffort" => "medium"}
              })
 
-    assert {:error,
-            {:provider_options,
-             {:invalid_value, "reasoningEffort", "max",
-              ["none", "minimal", "low", "medium", "high", "xhigh"]}}} =
+    assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-main",
                model: "z-ai/glm-5.2",

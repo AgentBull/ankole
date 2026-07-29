@@ -7,15 +7,24 @@ order: 22
 
 需要制作配图、概念图或视觉草稿时，可以为 Agent 启用图像生成。配置完成后，用户仍在原来的聊天窗口里提出要求，Agent 会把生成的图片作为附件发回。若所选模型支持参考图，还可以让 Agent 在原图上继续修改。
 
-## 启用图像生成
+## 选择执行路径
 
-1. 先在 Console 的 **LLM Provider** 页面添加支持图像生成的 Provider。
-2. 打开**智能体**，选择需要生成图片的 Agent。
+公共 `image_generation` 工具有两条执行路径：
+
+- **Hosted 路径：**配置 Agent 的 `image_generate` 档案。AIGateway 使用该档案的独立 Provider 和模型执行工具，再把结果交回主模型。
+- **原生路径：**不配置 `image_generate`，并让主 Provider 声明支持原生图像生成。OpenAI 和 ChatGPT 订阅支持这条路径。AIGateway 会把公共工具透传给该 Provider。
+
+因此，`image_generate` 是路由开关，不是能力开关。若该档案为空，且主 Provider 没有声明原生图像生成，AIGateway 会返回明确的配置错误。
+
+使用 Hosted 路径：
+
+1. 在 Console 的 **LLM Provider** 页面添加支持目标图像模型的 Provider。
+2. 打开**智能体**，选择目标 Agent。
 3. 在模型档案中找到 `image_generate`。
-4. 选择支持图像生成的 Provider 和模型，然后保存。
+4. 选择图像 Provider 和模型，然后保存。
 5. 回到聊天渠道，向 Agent 发出一条明确的图像请求。
 
-`image_generate` 是可选配置。没有图片需求的 Agent 不必设置；未配置时，Agent 仍可正常完成文字、文件和其他工作。
+主模型 token 用量记在主 Provider 的凭据上；图像 token 用量记在实际生成图像的凭据上，即使中途发生过池轮换也不会串账。
 
 ## 把要求写成一份视觉说明
 
@@ -55,7 +64,7 @@ order: 22
 
 ## 没有生成图片时
 
-- **Agent 只回复了文字**：确认该 Agent 已保存 `image_generate` 模型档案。
+- **Agent 只回复了文字**：确认客户端或 Agent 暴露了 `image_generation` 工具；再确认已经配置 `image_generate`，或主 Provider 支持原生图像生成。
 - **找不到可选模型**：当前 LLM Provider 没有提供图像生成模型，请添加支持该能力的 Provider。
 - **要求不受支持**：换用能力匹配的模型，或删去该模型不支持的尺寸、格式、透明背景、参考图或编辑要求。
 - **图片生成了，但内容不符合要求**：这通常不是配置问题。回到同一会话，明确指出要修改和保持不变的部分。

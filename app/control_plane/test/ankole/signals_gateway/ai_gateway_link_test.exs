@@ -544,7 +544,6 @@ defmodule Ankole.SignalsGateway.AIGatewayLinkTest do
       source_tool_call_id: "create-#{Ecto.UUID.generate()}",
       workspace_owner_job_id: job_id,
       runtime_thread_id: "thread-#{Ecto.UUID.generate()}",
-      codex_account_id: "aigateway",
       title: "Waiting Job",
       task: "Wait for input.",
       reply_route: %{"binding_name" => "test"},

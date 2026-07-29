@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Providers.Parallel do
     label(%{"default" => "Parallel", "zh-Hans-CN" => "Parallel"})
     base_url("https://api.parallel.ai", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

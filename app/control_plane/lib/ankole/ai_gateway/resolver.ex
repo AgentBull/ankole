@@ -88,6 +88,8 @@ defmodule Ankole.AIGateway.Resolver do
   # selectors and explicit `provider/model` selectors must leave this module with
   # the same shape, otherwise provider preparation will drift by selector path.
   defp build_runtime(subject_uid, capability, selector, binding, request) do
+    request_context = Map.get(request, "__ankole_request_context", %{})
+
     with {:ok, provider_id} <- binding_text(binding, "provider_id"),
          {:ok, model} <- binding_text(binding, "model"),
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
@@ -95,7 +97,12 @@ defmodule Ankole.AIGateway.Resolver do
          :ok <- Providers.ensure_capability_supported(provider_kind, capability),
          {:ok, provider_options} <-
            provider_options(provider.provider_kind, binding_provider_options(binding), request),
-         {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider) do
+         {:ok, selected} <-
+           ProviderConfigs.resolve_credential(
+             provider,
+             affinity_key: Map.get(request_context, "affinity_key")
+           ),
+         {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider, selected) do
       runtime =
         %{
           "subject_uid" => subject_uid,
@@ -105,7 +112,11 @@ defmodule Ankole.AIGateway.Resolver do
           "provider_kind" => provider.provider_kind,
           "model" => model,
           "connection_options" => connection_options,
+          "credential_id" => selected["id"],
+          "credential_entry" => selected["entry"],
+          "credential_available_count" => selected["available_count"],
           "provider_options" => provider_options,
+          "request_context" => request_context,
           "provider_metadata" => provider_metadata(provider_kind),
           "provider" => provider
         }
@@ -114,6 +125,35 @@ defmodule Ankole.AIGateway.Resolver do
        runtime
        |> maybe_put_profile(binding)
        |> maybe_put_context_length(binding)}
+    end
+  end
+
+  @doc false
+  @spec reselect_credential(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def reselect_credential(runtime, opts \\ []) when is_map(runtime) do
+    request_context = Map.get(runtime, "request_context", %{})
+    excluded = Keyword.get(opts, :exclude, [])
+
+    affinity_key =
+      if Keyword.get(opts, :ignore_affinity, false),
+        do: nil,
+        else: Map.get(request_context, "affinity_key")
+
+    with {:ok, provider} <-
+           ProviderConfigs.fetch_active_provider(Map.fetch!(runtime, "provider_id")),
+         {:ok, selected} <-
+           ProviderConfigs.resolve_credential(provider,
+             affinity_key: affinity_key,
+             exclude: excluded
+           ),
+         {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider, selected) do
+      {:ok,
+       runtime
+       |> Map.put("provider", provider)
+       |> Map.put("connection_options", connection_options)
+       |> Map.put("credential_id", selected["id"])
+       |> Map.put("credential_entry", selected["entry"])
+       |> Map.put("credential_available_count", selected["available_count"])}
     end
   end
 

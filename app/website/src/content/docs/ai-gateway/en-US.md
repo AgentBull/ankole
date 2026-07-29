@@ -83,6 +83,12 @@ Compaction is the one tool that trades a long stored history for a shorter one w
 
 AIGateway resolves a model selector to a real provider binding before any upstream call. The selector is what the caller sees — for example `main`, or an explicit provider-owned name — and the resolution depends on the subject: an agent's selectors come from its configured model bindings, while an admin sees the explicit provider entries. `GET /models` lists what the current subject can resolve, with optional OpenRouter-style filters (`q`, `context`, `min_price`, `max_price`, `sort`, modality filters).
 
+Each provider row owns a credential pool. Provider kind, base URL, headers, settings, and capability declarations are shared by all members. A model profile points to the row and never names a pool member. AIGateway selects a healthy member by the configured `fill_first`, `round_robin`, `least_used`, or `random` strategy. The Console translates these strategy names for the selected UI language, while the API and stored values stay unchanged. A stateful thread stays on the same member when possible.
+
+An attributed `429`, `5xx`, or transport failure cools down only the credential that made the request. AIGateway selects another member, rebuilds the provider request, and performs a bounded retry with exponential backoff and jitter. The Rust kernel performs one transport attempt at a time. AIGateway does not switch to another provider when the pool is empty.
+
+`chatgpt_subscription` is an ordinary provider kind. Its OAuth credentials stay in the control plane, where token refresh runs under a row lock. The Agent Computer and external callers never receive those tokens.
+
 Resolution can fail in two ways the caller should handle:
 
 - `422 unknown_model_selector` — the selector is not bound for this subject.
@@ -96,13 +102,20 @@ Errors use an OpenAI-compatible envelope. The body is `{"error": {"code", "messa
 
 - `400` — the request body failed validation: missing `model`, missing `input`, an invalid `limit` or `top_n`, a stateful field over HTTP, a malformed compaction input. The `code` names the field.
 - `401` — the bearer token is missing or unverifiable.
+- `429` — the selected provider's credential pool is exhausted. The error code is `credential_pool_exhausted`; `retry_at` is present when AIGateway knows the earliest recovery time.
 - `404` — a stored response, conversation, agent, or file was not found for this subject.
 - `422` — the request is well-formed but the control plane cannot serve it: unknown selector, unconfigured binding, unsupported capability, disabled provider.
 - `502` / `504` — the upstream provider failed. `502` covers transport and invalid-response failures (`upstream_transport_failed`, `invalid_upstream_response`, `ai_gateway_request_failed`); `504` is `upstream_timeout`. A client `4xx` from the provider is passed through at its own status.
 
 When an upstream returns an `error.message`, AIGateway forwards that message; otherwise it reports the upstream HTTP status plainly.
 
-## Web tools, files, and the non-LLM capabilities
+## Image generation
+
+`image_generation` is a public Responses tool with two execution paths. When the subject has an `image_generate` profile, AIGateway runs the tool with that separate provider and model. Without the profile, AIGateway passes the tool to the main provider only when its capability declares native image generation. If neither path exists, request preparation fails instead of simulating the tool.
+
+Both paths use the same public stream events and generated-image persistence. Model usage and image usage stay attributed to the credential that produced each part.
+
+## Web tools, files, and the other capabilities
 
 The same subject and token drive the adjacent capabilities. `POST /web_search` takes a `query` (length-bounded) and returns provider-backed results; `POST /web_fetch` takes one to five public HTTPS URLs and returns page content. `POST /embeddings` accepts text, token arrays, or input blocks; `POST /rerank` reranks a non-empty document array and takes a positive integer `top_n`. `GET /web_tools` tells the caller which of these the current subject can actually use.
 

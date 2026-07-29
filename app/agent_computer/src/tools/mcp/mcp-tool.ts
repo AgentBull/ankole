@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
@@ -5,51 +6,19 @@ import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import type { SkillFileRoots } from '../../skills/effective-skill'
 import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { injectableWorkerEnv } from '../computer/env'
-import { callMCPServerTool, type MCPListedTool } from './client'
-import { peekMCPServerCatalog, resolveMCPServerCatalog } from './catalog-cache'
-import {
-  DEFAULT_MCP_TIMEOUT_MS,
-  MINIMUM_MCP_TIMEOUT_MS,
-  loadEnabledSkillMCPServers,
-  type MCPServerConfig
-} from './config'
+import { callMCPServerTool, type MCPListedTool, type MCPServerCatalog } from './client'
+import { resolveMCPServerCatalog } from './catalog-cache'
+import { DEFAULT_MCP_TIMEOUT_MS, loadEnabledSkillMCPServers, type MCPServerConfig } from './config'
+import { codexMCPInputSchema } from './json-schema'
+import { compareCodePointStrings } from './ordering'
 
-const MAX_DESCRIPTION_BYTES = 512
-const MAX_SCHEMA_BYTES = 64 * 1024
 const MAX_RESULT_BYTES = 64 * 1024
 const MAX_ERROR_BYTES = 2 * 1024
 const MAX_VALUE_DEPTH = 12
 const MAX_ARRAY_ENTRIES = 128
 const MAX_OBJECT_ENTRIES = 256
 const MAX_STRING_BYTES = 16 * 1024
-
-const MCPParams = z
-  .object({
-    action: z.enum(['list', 'describe', 'call']),
-    server: z.string().min(1).max(1024).optional(),
-    tool: z.string().min(1).max(1024).optional(),
-    arguments: z.record(z.string(), z.unknown()).optional(),
-    timeout_ms: z.number().int().min(MINIMUM_MCP_TIMEOUT_MS).max(Number.MAX_SAFE_INTEGER).optional()
-  })
-  .strict()
-  .superRefine((params, context) => {
-    if (params.action === 'list') {
-      if (params.tool || params.arguments) {
-        context.addIssue({ code: 'custom', message: 'list does not accept tool or arguments' })
-      }
-      return
-    }
-
-    if (!params.server) {
-      context.addIssue({ code: 'custom', path: ['server'], message: `${params.action} requires server` })
-    }
-    if (!params.tool) context.addIssue({ code: 'custom', path: ['tool'], message: `${params.action} requires tool` })
-    if (params.action === 'describe' && params.arguments) {
-      context.addIssue({ code: 'custom', path: ['arguments'], message: 'describe does not accept arguments' })
-    }
-  })
-
-type MCPParams = z.output<typeof MCPParams>
+const MCPArguments = z.record(z.string(), z.unknown())
 
 export interface CreateMCPToolsOptions {
   enabledSkills: Array<RuntimeSkillSummary | string>
@@ -59,92 +28,78 @@ export interface CreateMCPToolsOptions {
   abortSignal?: AbortSignal
 }
 
-/** Creates the main agent's single allowlisted MCP model tool, when configured. */
+/**
+ * Exposes enabled MCP catalogs as deferred Responses namespace functions.
+ *
+ * Catalog discovery stays in the worker. AIGateway receives the official
+ * namespace and `defer_loading` shapes, searches them, and returns only the
+ * selected child functions to the model.
+ */
 export async function createMCPTools(options: CreateMCPToolsOptions): Promise<AgentTool[]> {
   const servers = await loadEnabledSkillMCPServers({
     enabledSkills: options.enabledSkills,
     skillRoots: options.skillRoots,
     turn: options.turn
   })
-  return servers.length > 0 ? [createMCPTool(servers, options)] : []
+  const catalogs = await Promise.all(
+    servers.map(async server => ({
+      server,
+      catalog: await resolveMCPServerCatalog(server, {
+        workerEnv: options.workerEnv,
+        signal: options.abortSignal,
+        timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
+      })
+    }))
+  )
+
+  return projectMCPTools(catalogs).map(projected => createMCPTool(projected, options))
 }
 
-function createMCPTool(servers: MCPServerConfig[], options: CreateMCPToolsOptions): AgentTool<typeof MCPParams> {
-  const serverByName = new Map(servers.map(server => [server.name, server]))
+interface ProjectedMCPTool {
+  server: MCPServerConfig
+  tool: MCPListedTool
+  name: string
+  namespace: string
+  namespaceDescription: string
+  searchText: string
+  jsonSchema: Record<string, unknown>
+}
+
+function createMCPTool(projected: ProjectedMCPTool, options: CreateMCPToolsOptions): AgentTool<typeof MCPArguments> {
+  const { server, tool } = projected
+  const readOnly = tool.annotations?.readOnlyHint === true
   const secretValues = injectableWorkerEnv(options.workerEnv)
     .map(([, value]) => value)
     .filter(Boolean)
     .sort((left, right) => right.length - left.length)
 
   return {
-    name: 'mcp',
-    description:
-      'Use MCP capabilities declared by enabled inline Skills. list without server returns allowlisted server names plus any tool summaries already in the bounded worker catalog cache, without opening connections; list with one server lazily discovers only that server and returns bounded tool names/descriptions; describe returns the schema for exactly one selected tool; call invokes exactly one selected tool. Use the Skill routing instructions to select a server, then discover or describe only what is needed.',
-    schema: MCPParams,
-    executionMode: 'sequential',
-    isReadOnly: false,
-    isDestructive: true,
-    describeActivity: params =>
-      params.action === 'list'
-        ? '查看 MCP 能力'
-        : params.action === 'describe'
-          ? `查看 MCP 工具：${boundedLabel(params.server, params.tool)}`
-          : `调用 MCP：${boundedLabel(params.server, params.tool)}`,
-    async execute(_toolCallID, params, signal): Promise<AgentToolResult<unknown>> {
-      const operationSignal = signal ?? options.abortSignal
-
+    name: projected.name,
+    description: tool.description ?? '',
+    schema: MCPArguments,
+    jsonSchema: projected.jsonSchema,
+    namespace: projected.namespace,
+    namespaceDescription: projected.namespaceDescription,
+    deferLoading: true,
+    toolSearchText: projected.searchText,
+    allowedCallers: ['direct', 'programmatic'],
+    executionMode: readOnly ? 'parallel' : 'sequential',
+    isReadOnly: readOnly,
+    isDestructive: !readOnly,
+    describeActivity: () => `调用 MCP：${boundedLabel(server.name, tool.name)}`,
+    async execute(_toolCallID, args, signal): Promise<AgentToolResult<unknown>> {
       try {
-        if (params.action === 'list') {
-          const selectedServer = params.server ? requiredServer(serverByName, params.server) : undefined
-          const listedServers = await Promise.all(
-            (selectedServer ? [selectedServer] : servers).map(async server => {
-              const tools = selectedServer
-                ? await resolveMCPServerCatalog(server, {
-                    workerEnv: options.workerEnv,
-                    signal: operationSignal,
-                    timeoutMs: resolveMCPTimeoutMs(params.timeout_ms, server.timeoutMs)
-                  })
-                : peekMCPServerCatalog(server, options.workerEnv)
-              return listedServer(server, tools)
-            })
-          )
-          return modelResult({ servers: listedServers })
-        }
-
-        const server = requiredServer(serverByName, params.server!)
-        const timeoutMs = resolveMCPTimeoutMs(params.timeout_ms, server.timeoutMs)
-        const tools = await resolveMCPServerCatalog(server, {
+        const result = await callMCPServerTool(server, tool.name, args, {
           workerEnv: options.workerEnv,
-          signal: operationSignal,
-          timeoutMs
+          signal: signal ?? options.abortSignal,
+          timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
         })
-        const tool = requiredTool(server, tools, params.tool!)
-
-        if (params.action === 'describe') {
-          assertBoundedSchema(server.name, tool)
-          return modelResult({
-            server: server.name,
-            tool: {
-              name: tool.name,
-              ...(tool.description ? { description: boundedDescription(tool.description) } : {}),
-              input_schema: tool.inputSchema,
-              ...(tool.outputSchema ? { output_schema: tool.outputSchema } : {})
-            }
-          })
-        }
-
-        const result = await callMCPServerTool(server, tool.name, params.arguments ?? {}, {
-          workerEnv: options.workerEnv,
-          signal: operationSignal,
-          timeoutMs
-        })
-        return modelResult({
-          server: server.name,
-          tool: tool.name,
-          result: boundedMCPResultValue(result, secretValues)
-        })
+        return modelResult(boundedMCPResultValue(result, secretValues))
       } catch (error) {
-        throw new Error(boundedError(error, secretValues))
+        return modelResult({
+          content: [{ type: 'text', text: boundedError(error, secretValues) }],
+          isError: true
+        })
       }
     }
   }
@@ -154,23 +109,191 @@ export function resolveMCPTimeoutMs(requestedTimeoutMs?: number, serverTimeoutMs
   return requestedTimeoutMs ?? serverTimeoutMs ?? DEFAULT_MCP_TIMEOUT_MS
 }
 
-function requiredServer(servers: Map<string, MCPServerConfig>, name: string): MCPServerConfig {
-  const server = servers.get(name)
-  if (!server) throw new Error(`MCP server is not allowlisted by an enabled inline Skill: ${name}`)
-  return server
+interface MCPToolCandidate {
+  server: MCPServerConfig
+  catalog: MCPServerCatalog
+  tool: MCPListedTool
+  rawNamespaceIdentity: string
+  rawToolIdentity: string
+  namespace: string
+  name: string
 }
 
-function requiredTool(server: MCPServerConfig, tools: MCPListedTool[], name: string): MCPListedTool {
-  const tool = tools.find(candidate => candidate.name === name)
-  if (!tool) throw new Error(`MCP tool is not exposed by allowlisted server ${server.name}: ${name}`)
-  return tool
-}
+function projectMCPTools(catalogs: Array<{ server: MCPServerConfig; catalog: MCPServerCatalog }>): ProjectedMCPTool[] {
+  const seenRawNames = new Set<string>()
+  const candidates: MCPToolCandidate[] = []
 
-function assertBoundedSchema(serverName: string, tool: MCPListedTool): void {
-  const serialized = JSON.stringify({ inputSchema: tool.inputSchema, outputSchema: tool.outputSchema })
-  if (utf8ByteLength(serialized) > MAX_SCHEMA_BYTES) {
-    throw new Error(`MCP schema exceeds ${MAX_SCHEMA_BYTES} bytes for ${serverName}/${tool.name}`)
+  for (const { server, catalog } of catalogs) {
+    for (const tool of catalog.tools) {
+      if (!toolAllowed(server, tool.name)) continue
+      const rawNamespaceIdentity = `${server.name}\0${server.name}\0`
+      const rawToolIdentity = `${rawNamespaceIdentity}\0${tool.name}\0${tool.name}`
+      if (seenRawNames.has(rawToolIdentity)) continue
+      seenRawNames.add(rawToolIdentity)
+      const sanitizedNamespace = sanitizeResponsesToolName(server.name)
+      candidates.push({
+        server,
+        catalog,
+        tool,
+        rawNamespaceIdentity,
+        rawToolIdentity,
+        namespace: sanitizedNamespace.startsWith('mcp__') ? sanitizedNamespace : `mcp__${sanitizedNamespace}`,
+        name: sanitizeResponsesToolName(tool.name)
+      })
+    }
   }
+
+  const namespaceIdentities = new Map<string, Set<string>>()
+  for (const candidate of candidates) {
+    const identities = namespaceIdentities.get(candidate.namespace) ?? new Set<string>()
+    identities.add(candidate.rawNamespaceIdentity)
+    namespaceIdentities.set(candidate.namespace, identities)
+  }
+  for (const candidate of candidates) {
+    if ((namespaceIdentities.get(candidate.namespace)?.size ?? 0) > 1) {
+      candidate.namespace = appendNamespaceHashSuffix(candidate.namespace, candidate.rawNamespaceIdentity)
+    }
+  }
+
+  const toolIdentities = new Map<string, Set<string>>()
+  for (const candidate of candidates) {
+    const key = `${candidate.namespace}\0${candidate.name}`
+    const identities = toolIdentities.get(key) ?? new Set<string>()
+    identities.add(candidate.rawToolIdentity)
+    toolIdentities.set(key, identities)
+  }
+  for (const candidate of candidates) {
+    if ((toolIdentities.get(`${candidate.namespace}\0${candidate.name}`)?.size ?? 0) > 1) {
+      candidate.name = appendHashSuffix(candidate.name, candidate.rawToolIdentity)
+    }
+  }
+
+  candidates.sort((left, right) => compareCodePointStrings(left.rawToolIdentity, right.rawToolIdentity))
+  const usedNames = new Set<string>()
+
+  return candidates.flatMap(candidate => {
+    ;[candidate.namespace, candidate.name] = uniqueCallableParts(
+      candidate.namespace,
+      candidate.name,
+      candidate.rawToolIdentity,
+      usedNames
+    )
+    if (!toolIsModelVisible(candidate.tool)) return []
+
+    const namespaceDescription = candidate.catalog.instructions?.trim() ?? ''
+    const jsonSchema = codexMCPInputSchema(candidate.tool.inputSchema)
+    if (!jsonSchema) return []
+    return [
+      {
+        server: candidate.server,
+        tool: candidate.tool,
+        name: candidate.name,
+        namespace: candidate.namespace,
+        namespaceDescription,
+        searchText: mcpSearchText(candidate, namespaceDescription),
+        jsonSchema
+      }
+    ]
+  })
+}
+
+function toolAllowed(server: MCPServerConfig, rawToolName: string): boolean {
+  if (server.enabledTools && !server.enabledTools.includes(rawToolName)) return false
+  return !server.disabledTools?.includes(rawToolName)
+}
+
+function toolIsModelVisible(tool: MCPListedTool): boolean {
+  const visibility = nestedValue(tool._meta, 'ui', 'visibility')
+  if (!Array.isArray(visibility)) return true
+  return visibility.some(target => target === 'model')
+}
+
+function nestedValue(value: unknown, first: string, second: string): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const nested = (value as Record<string, unknown>)[first]
+  if (!nested || typeof nested !== 'object' || Array.isArray(nested)) return undefined
+  return (nested as Record<string, unknown>)[second]
+}
+
+function mcpSearchText(candidate: MCPToolCandidate, namespaceDescription: string): string {
+  const properties = candidate.tool.inputSchema.properties
+  const propertyNames =
+    properties && typeof properties === 'object' && !Array.isArray(properties)
+      ? Object.keys(properties).sort(compareCodePointStrings)
+      : []
+
+  return [
+    `${candidate.namespace}${candidate.name}`,
+    `${candidate.namespace}__${candidate.name}`,
+    candidate.name,
+    candidate.tool.name,
+    candidate.server.name,
+    candidate.tool.title,
+    candidate.tool.description,
+    namespaceDescription,
+    ...propertyNames
+  ]
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(' ')
+}
+
+function sanitizeResponsesToolName(value: string): string {
+  let sanitized = ''
+  for (const character of value) {
+    sanitized += /^[A-Za-z0-9_]$/.test(character) ? character : '_'
+  }
+  return sanitized || '_'
+}
+
+const MAX_TOOL_NAME_LENGTH = 64
+const CALLABLE_NAME_HASH_LENGTH = 12
+const TOOL_NAME_DELIMITER_LENGTH = 2
+
+function hashSuffix(rawIdentity: string): string {
+  return `_${createHash('sha1').update(rawIdentity).digest('hex').slice(0, CALLABLE_NAME_HASH_LENGTH)}`
+}
+
+function appendHashSuffix(value: string, rawIdentity: string): string {
+  return `${value}${hashSuffix(rawIdentity)}`
+}
+
+function appendNamespaceHashSuffix(namespace: string, rawIdentity: string): string {
+  return namespace.endsWith('__')
+    ? `${namespace.slice(0, -2)}${hashSuffix(rawIdentity)}__`
+    : appendHashSuffix(namespace, rawIdentity)
+}
+
+function uniqueCallableParts(
+  namespace: string,
+  name: string,
+  rawIdentity: string,
+  usedNames: Set<string>
+): [string, string] {
+  const modelName = `${namespace}${name}`
+  if (modelName.length + TOOL_NAME_DELIMITER_LENGTH <= MAX_TOOL_NAME_LENGTH && !usedNames.has(modelName)) {
+    usedNames.add(modelName)
+    return [namespace, name]
+  }
+
+  for (let attempt = 0; ; attempt += 1) {
+    const hashInput = attempt === 0 ? rawIdentity : `${rawIdentity}\0${attempt}`
+    const parts = fitCallablePartsWithHash(namespace, name, hashInput)
+    const candidateName = `${parts[0]}${parts[1]}`
+    if (usedNames.has(candidateName)) continue
+    usedNames.add(candidateName)
+    return parts
+  }
+}
+
+function fitCallablePartsWithHash(namespace: string, name: string, rawIdentity: string): [string, string] {
+  const suffix = hashSuffix(rawIdentity)
+  const maxToolLength = Math.max(MAX_TOOL_NAME_LENGTH - namespace.length - TOOL_NAME_DELIMITER_LENGTH, 0)
+  if (maxToolLength >= suffix.length) {
+    return [namespace, `${name.slice(0, maxToolLength - suffix.length)}${suffix}`]
+  }
+
+  const maxNamespaceLength = Math.max(MAX_TOOL_NAME_LENGTH - suffix.length - TOOL_NAME_DELIMITER_LENGTH, 0)
+  return [namespace.slice(0, maxNamespaceLength), suffix]
 }
 
 function modelResult(details: unknown): AgentToolResult<unknown> {
@@ -210,10 +333,6 @@ export function boundedMCPResultValue(value: unknown, secrets: string[], depth =
   return boundedString(String(value), MAX_STRING_BYTES)
 }
 
-function boundedDescription(value: string): string {
-  return boundedString(sanitizeBinaryOutput(value), MAX_DESCRIPTION_BYTES)
-}
-
 function boundedString(value: string, maxBytes: number): string {
   if (utf8ByteLength(value) <= maxBytes) return value
   const suffix = '...[truncated]'
@@ -231,21 +350,6 @@ function redactSecrets(value: string, secrets: string[]): string {
   return redacted
 }
 
-function boundedLabel(server: string | undefined, tool: string | undefined): string {
-  return boundedString(`${server ?? '?'} / ${tool ?? '?'}`, 160)
-}
-
-function listedServer(server: MCPServerConfig, tools?: MCPListedTool[]) {
-  return {
-    name: server.name,
-    ...(server.description ? { description: boundedDescription(server.description) } : {}),
-    ...(tools
-      ? {
-          tools: tools.map(tool => ({
-            name: tool.name,
-            ...(tool.description ? { description: boundedDescription(tool.description) } : {})
-          }))
-        }
-      : {})
-  }
+function boundedLabel(server: string, tool: string): string {
+  return boundedString(`${server} / ${tool}`, 160)
 }

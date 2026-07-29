@@ -2,16 +2,18 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @moduledoc """
   CRUD and projection service for operator-configured AIGateway providers.
 
-  A provider row holds a provider kind, an endpoint override, plain connection
-  options, and encrypted provider options. Plaintext encrypted options only
-  leave through provider request construction and the live-check path; every
-  console/API shape goes through `projection/1`, which masks encrypted values.
+  A provider row holds shared endpoint settings and an inline encrypted
+  credential pool. Plaintext credential fields only leave through provider
+  request construction and the live-check path. Every Console/API shape goes
+  through `projection/1`.
   """
 
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
 
+  alias Ankole.AIGateway.ChatGPTAuth
+  alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs.Crypto
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
@@ -115,17 +117,30 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec update_provider(String.t(), map()) :: provider_result()
   def update_provider(provider_id, attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with %Provider{} = provider <- lock_provider(repo, provider_id),
-           {:ok, attrs} <- provider_attrs_for_write(attrs, provider) do
-        provider
-        |> Provider.changeset(attrs)
-        |> repo.update()
-      else
-        nil -> {:error, :not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    credential_pool_changed? =
+      Map.has_key?(attrs, "credential_pool") or Map.has_key?(attrs, :credential_pool)
+
+    result =
+      Repo.transact(fn repo ->
+        with %Provider{} = provider <- lock_provider(repo, provider_id),
+             {:ok, attrs} <- provider_attrs_for_write(attrs, provider) do
+          provider
+          |> Provider.changeset(attrs)
+          |> repo.update()
+        else
+          nil -> {:error, :not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+
+    case result do
+      {:ok, %Provider{} = provider} when credential_pool_changed? ->
+        clear_pool_health(provider)
+        result
+
+      _result ->
+        result
+    end
   end
 
   @doc """
@@ -173,27 +188,71 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Returns decrypted encrypted options for runtime request dispatch or live-checks.
-  """
-  @spec plaintext_encrypted_options(Provider.t()) :: {:ok, map()} | {:error, term()}
-  def plaintext_encrypted_options(%Provider{id: id, encrypted_options: encrypted_options})
-      when is_binary(id) and is_map(encrypted_options) do
-    Enum.reduce_while(encrypted_options, {:ok, %{}}, fn
-      {key, ciphertext}, {:ok, acc} when is_binary(key) and is_binary(ciphertext) ->
-        case Crypto.unseal(ciphertext, id, key) do
-          {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
-          {:error, reason} -> {:halt, {:error, {:encrypted_option_decrypt_failed, key, reason}}}
-        end
+  Selects, decrypts, and refreshes one provider credential.
 
-      {key, _ciphertext}, {:ok, _acc} ->
-        {:halt, {:error, {:invalid_encrypted_option, key}}}
-    end)
+  The request context can include `affinity_key` and an `exclude` list. The
+  selected credential id is returned with the plaintext fields so asynchronous
+  failure handling never has to guess which entry failed. A permanent or
+  temporary OAuth refresh failure updates that entry's health and selects the
+  next usable entry before this function returns.
+  """
+  @spec resolve_credential(Provider.t(), map() | keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_credential(%Provider{} = provider, ctx \\ %{}) do
+    pool = credential_pool(provider)
+    entries = Map.get(pool, "entries", [])
+    strategy = Map.get(pool, "strategy", "fill_first")
+    affinity_key = context_value(ctx, :affinity_key)
+    excluded = context_value(ctx, :exclude) || []
+
+    resolve_credential(provider, entries, strategy, affinity_key, excluded)
   end
 
-  def plaintext_encrypted_options(%Provider{}), do: {:ok, %{}}
+  defp resolve_credential(provider, entries, strategy, affinity_key, excluded) do
+    with {:ok, selection} <-
+           CredentialPool.select(provider.id, entries, strategy,
+             affinity_key: affinity_key,
+             exclude: excluded
+           ),
+         {:ok, credential} <- decrypt_credential(provider, selection.entry) do
+      selected = %{
+        "id" => selection.credential_id,
+        "label" => Map.get(selection.entry, "label"),
+        "credential" => credential,
+        "entry" => selection.entry,
+        "available_count" => selection.available_count
+      }
+
+      case ChatGPTAuth.ensure_fresh(provider, selected) do
+        {:ok, selected} ->
+          {:ok, selected}
+
+        {:error, {:chatgpt_refresh_permanent, _reason}} ->
+          resolve_credential(
+            provider,
+            entries,
+            strategy,
+            affinity_key,
+            [selection.credential_id | excluded]
+          )
+
+        {:error, {:chatgpt_refresh_transient, _status, _headers, _reason}} ->
+          resolve_credential(
+            provider,
+            entries,
+            strategy,
+            affinity_key,
+            [selection.credential_id | excluded]
+          )
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
 
   @doc """
-  Returns a runtime-safe connection config for one provider.
+  Returns a runtime-safe connection config with one selected credential.
 
   The provider row may omit `base_url` and `transport` when the provider
   implementation has safe defaults. The returned map is the single shape used by
@@ -201,19 +260,214 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec runtime_connection(Provider.t()) :: {:ok, map()} | {:error, term()}
   def runtime_connection(%Provider{} = provider) do
+    with {:ok, selected} <- resolve_credential(provider, %{}) do
+      runtime_connection(provider, selected)
+    end
+  end
+
+  @spec runtime_connection(Provider.t(), map()) :: {:ok, map()} | {:error, term()}
+  def runtime_connection(%Provider{} = provider, %{"credential" => credential})
+      when is_map(credential) do
     with {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
          {:ok, options} <-
            Providers.normalize_connection_options(
              provider.provider_kind,
              provider.connection_options || %{}
            ),
-         {:ok, encrypted_options} <- plaintext_encrypted_options(provider),
          {:ok, base_url} <- runtime_base_url(provider, provider_kind) do
       {:ok,
        options
-       |> Map.merge(encrypted_options)
+       |> Map.merge(credential)
        |> Map.put("base_url", base_url)}
     end
+  end
+
+  @doc """
+  Adds one credential to a provider pool.
+
+  The caller supplies plaintext credential fields only for this write. The
+  returned provider struct still contains ciphertext, and callers must use
+  `projection/1` before returning it through an API.
+  """
+  @spec add_credential(String.t(), map()) :: provider_result()
+  def add_credential(provider_id, attrs) when is_binary(provider_id) and is_map(attrs) do
+    result =
+      Repo.transact(fn repo ->
+        with %Provider{} = provider <- lock_provider(repo, provider_id),
+             {:ok, pool, credential_id} <- append_credential(provider, attrs),
+             {:ok, provider} <-
+               provider
+               |> Provider.changeset(%{credential_pool: pool})
+               |> repo.update() do
+          {:ok, {provider, credential_id}}
+        else
+          nil -> {:error, :not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+
+    case result do
+      {:ok, {%Provider{} = provider, credential_id}} ->
+        :ok = CredentialPool.mark_ok(provider.id, credential_id)
+        {:ok, provider}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Replaces the supplied fields of one pool credential.
+
+  Omitted credential fields are preserved. A credential id cannot change.
+  """
+  @spec update_credential(String.t(), String.t(), map()) :: provider_result()
+  def update_credential(provider_id, credential_id, attrs)
+      when is_binary(provider_id) and is_binary(credential_id) and is_map(attrs) do
+    attrs = normalize_external_attrs(attrs)
+    credential_replaced? = credential_replaced?(attrs)
+
+    result =
+      Repo.transact(fn repo ->
+        with %Provider{} = provider <- lock_provider(repo, provider_id),
+             {:ok, pool} <- replace_credential(provider, credential_id, attrs),
+             {:ok, provider} <-
+               provider
+               |> Provider.changeset(%{credential_pool: pool})
+               |> repo.update() do
+          {:ok, provider}
+        else
+          nil -> {:error, :not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+
+    with {:ok, %Provider{} = provider} <- result do
+      if credential_replaced? do
+        :ok = CredentialPool.mark_ok(provider.id, credential_id)
+      end
+
+      result
+    end
+  end
+
+  @doc """
+  Deletes one credential from a provider pool.
+  """
+  @spec delete_credential(String.t(), String.t()) :: provider_result()
+  def delete_credential(provider_id, credential_id)
+      when is_binary(provider_id) and is_binary(credential_id) do
+    result =
+      Repo.transact(fn repo ->
+        with %Provider{} = provider <- lock_provider(repo, provider_id),
+             {:ok, pool} <- drop_credential(provider, credential_id),
+             {:ok, provider} <-
+               provider
+               |> Provider.changeset(%{credential_pool: pool})
+               |> repo.update() do
+          {:ok, provider}
+        else
+          nil -> {:error, :not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+
+    with {:ok, %Provider{} = provider} <- result do
+      :ok = CredentialPool.mark_dead(provider.id, credential_id, %{reason: "deleted"})
+      result
+    end
+  end
+
+  @doc """
+  Changes the selection strategy without replacing credential entries.
+  """
+  @spec update_credential_strategy(String.t(), String.t()) :: provider_result()
+  def update_credential_strategy(provider_id, strategy)
+      when is_binary(provider_id) and is_binary(strategy) do
+    Repo.transact(fn repo ->
+      with true <- strategy in ~w(fill_first round_robin least_used random),
+           %Provider{} = provider <- lock_provider(repo, provider_id),
+           pool <- Map.put(credential_pool(provider), "strategy", strategy) do
+        provider
+        |> Provider.changeset(%{credential_pool: pool})
+        |> repo.update()
+      else
+        false -> {:error, :invalid_credential_pool_strategy}
+        nil -> {:error, :not_found}
+      end
+    end)
+  end
+
+  @doc """
+  Runs an atomic read-modify-write for one credential.
+
+  The callback runs after the provider row is locked and receives the latest
+  plaintext credential. It can return `{:ok, credential}` to replace the
+  encrypted value, `{:ok, :unchanged}` to keep it, or an error tuple. This is
+  used for rotating refresh tokens, where releasing the row lock between the
+  upstream exchange and the database write could consume the same refresh
+  token twice. The write does not clear derived health because a concurrent
+  provider response can contain a newer quota observation.
+  """
+  @spec update_credential_under_lock(
+          String.t(),
+          String.t(),
+          (Provider.t(), map() -> {:ok, map()} | {:ok, :unchanged} | {:error, term()})
+        ) :: {:ok, map()} | {:error, term()}
+  def update_credential_under_lock(provider_id, credential_id, callback)
+      when is_binary(provider_id) and is_binary(credential_id) and is_function(callback, 2) do
+    result =
+      Repo.transact(fn repo ->
+        with %Provider{} = provider <- lock_provider(repo, provider_id),
+             {:ok, entry} <- fetch_credential_entry(provider, credential_id),
+             {:ok, credential} <- decrypt_credential(provider, entry) do
+          case callback.(provider, credential) do
+            {:ok, :unchanged} ->
+              {:ok,
+               %{
+                 "provider" => provider,
+                 "id" => credential_id,
+                 "entry" => entry,
+                 "credential" => credential
+               }}
+
+            {:ok, updated_credential} when is_map(updated_credential) ->
+              with {:ok, ciphertext} <-
+                     Crypto.seal(
+                       updated_credential,
+                       provider.id,
+                       "credential:#{credential_id}"
+                     ),
+                   {:ok, provider} <-
+                     persist_credential_ciphertext(
+                       repo,
+                       provider,
+                       credential_id,
+                       ciphertext
+                     ),
+                   {:ok, entry} <- fetch_credential_entry(provider, credential_id) do
+                {:ok,
+                 %{
+                   "provider" => provider,
+                   "id" => credential_id,
+                   "entry" => entry,
+                   "credential" => updated_credential
+                 }}
+              end
+
+            {:error, _reason} = error ->
+              error
+
+            _value ->
+              {:error, :invalid_credential_update}
+          end
+        else
+          nil -> {:error, :not_found}
+          {:error, _reason} = error -> error
+        end
+      end)
+
+    result
   end
 
   @doc """
@@ -227,21 +481,21 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       "provider_kind" => provider.provider_kind,
       "base_url" => provider.base_url,
       "connection_options" => provider.connection_options || %{},
-      "encrypted_options" => encrypted_options_projection(provider),
+      "credential_pool" => credential_pool_projection(provider),
       "disabled_at" => provider.disabled_at && DateTime.to_iso8601(provider.disabled_at),
       "provider_metadata" => provider_metadata(provider.provider_kind)
     }
   end
 
-  # Write normalization happens before the changeset because encrypted option
-  # handling depends on per-provider setting metadata.
+  # Write normalization happens before the changeset because credential sealing
+  # depends on per-provider setting metadata.
   defp provider_attrs_for_write(attrs, %Provider{} = provider) do
     attrs = normalize_external_attrs(attrs)
 
     with :ok <- reject_credential_field(attrs),
          {:ok, attrs} <- reject_provider_id_change(attrs, provider),
          {:ok, attrs} <- normalize_connection_options(attrs, provider),
-         {:ok, attrs} <- apply_encrypted_options(attrs, provider) do
+         {:ok, attrs} <- apply_credential_pool(attrs, provider) do
       {:ok, attrs}
     end
   end
@@ -253,9 +507,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end)
   end
 
-  # The old singular `credential` field is intentionally rejected. Credentials
-  # are now ordinary provider options with encrypted storage metadata, so keeping
-  # the old field would create two semantic centers for the same data.
+  # A top-level singular credential would create a second execution path beside
+  # the pool, so it is rejected.
   defp reject_credential_field(attrs) do
     case Map.has_key?(attrs, "credential") do
       true -> {:error, :credential_field_removed}
@@ -278,26 +531,29 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
-  # Only options declared as encrypted connection settings are sealed. Other
-  # options remain in `connection_options`, which lets providers define arbitrary
-  # JSON-compatible configuration without a hardcoded credential mode system.
-  defp apply_encrypted_options(attrs, %Provider{id: row_id} = provider) when is_binary(row_id) do
+  defp apply_credential_pool(attrs, %Provider{id: row_id} = provider) when is_binary(row_id) do
     provider_kind = Map.get(attrs, "provider_kind") || provider_kind(provider)
-    options = Map.get(attrs, "connection_options", %{})
 
-    with {:ok, encrypted_keys} <- encrypted_option_keys(provider_kind),
-         {:ok, encrypted_options} <-
-           seal_encrypted_options(provider, row_id, options, encrypted_keys) do
-      plain_options = Map.drop(options, encrypted_keys)
-
-      {:ok,
-       attrs
-       |> Map.put("connection_options", plain_options)
-       |> Map.put("encrypted_options", encrypted_options)}
+    if Map.has_key?(attrs, "credential_pool") do
+      with {:ok, credential_keys} <- credential_option_keys(provider_kind),
+           {:ok, pool} <-
+             normalize_and_seal_pool(
+               Map.get(attrs, "credential_pool"),
+               credential_pool(provider),
+               row_id,
+               credential_keys,
+               provider_kind
+             ) do
+        {:ok, Map.put(attrs, "credential_pool", pool)}
+      end
+    else
+      with {:ok, pool} <- default_credential_pool(provider_kind, provider, row_id) do
+        {:ok, Map.put(attrs, "credential_pool", pool)}
+      end
     end
   end
 
-  defp apply_encrypted_options(_attrs, _provider), do: {:error, :invalid_provider_id}
+  defp apply_credential_pool(_attrs, _provider), do: {:error, :invalid_provider_id}
 
   defp normalize_connection_options(attrs, provider) do
     provider_kind = Map.get(attrs, "provider_kind") || provider_kind(provider)
@@ -309,39 +565,388 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
-  defp encrypted_option_keys(provider_kind) do
+  defp credential_option_keys(provider_kind) do
     with {:ok, definition} <- Providers.fetch(provider_kind) do
-      keys =
-        definition.settings
-        |> Enum.filter(&(&1.encrypted? and &1.scope == :connection))
-        |> Enum.map(&Atom.to_string(&1.key))
-
-      {:ok, keys}
+      {:ok, Providers.credential_option_keys(definition)}
     end
   end
 
-  # Omitted encrypted options are preserved during updates. Operators can clear
-  # a stored secret explicitly with nil or an empty string, which avoids forcing
-  # every edit form to resend secret values.
-  defp seal_encrypted_options(provider, row_id, options, encrypted_keys) do
-    Enum.reduce_while(encrypted_keys, {:ok, encrypted_options(provider)}, fn key, {:ok, acc} ->
-      cond do
-        not Map.has_key?(options, key) ->
-          {:cont, {:ok, acc}}
+  defp default_credential_pool(provider_kind, provider, row_id) do
+    pool = credential_pool(provider)
 
-        encrypted_option_clear?(Map.get(options, key)) ->
-          {:cont, {:ok, Map.delete(acc, key)}}
+    with [] <- Map.get(pool, "entries", []),
+         {:ok, definition} <- Providers.fetch(provider_kind),
+         false <- Providers.credential_required?(definition),
+         credential_id <- Ankole.Ecto.UUIDv7.autogenerate(),
+         {:ok, ciphertext} <- Crypto.seal(%{}, row_id, "credential:#{credential_id}") do
+      {:ok,
+       Map.put(pool, "entries", [
+         %{
+           "id" => credential_id,
+           "label" => "Default",
+           "priority" => 0,
+           "source" => "provider_default",
+           "disabled_at" => nil,
+           "encrypted_credential" => ciphertext
+         }
+       ])}
+    else
+      [_entry | _entries] -> {:ok, pool}
+      true -> {:ok, pool}
+      {:error, _reason} = error -> error
+    end
+  end
 
-        true ->
-          case Crypto.seal(Map.fetch!(options, key), row_id, key) do
-            {:ok, encrypted} -> {:cont, {:ok, Map.put(acc, key, encrypted)}}
-            {:error, reason} -> {:halt, {:error, {:encrypted_option_seal_failed, key, reason}}}
-          end
-      end
+  defp normalize_and_seal_pool(pool, existing_pool, row_id, credential_keys, provider_kind)
+       when is_map(pool) and is_list(credential_keys) do
+    pool = normalize_external_attrs(pool)
+    strategy = Map.get(pool, "strategy", Map.get(existing_pool, "strategy", "fill_first"))
+    entries = Map.get(pool, "entries", [])
+
+    with true <- strategy in ~w(fill_first round_robin least_used random),
+         true <- is_list(entries),
+         {:ok, entries} <-
+           seal_credential_entries(
+             entries,
+             Map.get(existing_pool, "entries", []),
+             row_id,
+             credential_keys,
+             provider_kind
+           ) do
+      {:ok, %{"strategy" => strategy, "entries" => entries}}
+    else
+      false -> {:error, :invalid_credential_pool}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_and_seal_pool(
+         _pool,
+         _existing_pool,
+         _row_id,
+         _credential_keys,
+         _provider_kind
+       ),
+       do: {:error, :invalid_credential_pool}
+
+  defp append_credential(%Provider{} = provider, attrs) do
+    pool = credential_pool(provider)
+    entries = Map.get(pool, "entries", [])
+    attrs = normalize_external_attrs(attrs)
+
+    with {:ok, credential_keys} <- credential_option_keys(provider.provider_kind),
+         id <- normalized_credential_id(Map.get(attrs, "id")),
+         false <- Enum.any?(entries, &(Map.get(&1, "id") == id)),
+         {:ok, entry} <-
+           seal_credential_entry(
+             Map.put(attrs, "id", id),
+             nil,
+             provider.id,
+             id,
+             credential_keys,
+             provider.provider_kind,
+             credential_replaced?(attrs)
+           ) do
+      {:ok, Map.put(pool, "entries", entries ++ [entry]), id}
+    else
+      true -> {:error, :duplicate_credential_id}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp replace_credential(%Provider{} = provider, credential_id, attrs) do
+    attrs = normalize_external_attrs(attrs)
+    credential_replaced? = credential_replaced?(attrs)
+
+    with false <-
+           Map.has_key?(attrs, "id") and
+             normalized_credential_id(Map.get(attrs, "id")) != credential_id,
+         {:ok, existing} <- fetch_credential_entry(provider, credential_id),
+         {:ok, credential_keys} <- credential_option_keys(provider.provider_kind),
+         {:ok, credential} <-
+           credential_for_replace(provider, existing, attrs, credential_keys),
+         entry_attrs <-
+           existing
+           |> Map.take(~w(id label priority disabled_at source))
+           |> maybe_clear_invalid_disabled_at(existing, attrs)
+           |> Map.merge(credential)
+           |> Map.merge(Map.delete(attrs, "id"))
+           |> Map.put("id", credential_id),
+         {:ok, entry} <-
+           seal_credential_entry(
+             entry_attrs,
+             existing,
+             provider.id,
+             credential_id,
+             credential_keys,
+             provider.provider_kind,
+             credential_replaced?
+           ) do
+      {:ok, replace_pool_entry(credential_pool(provider), credential_id, entry)}
+    else
+      true -> {:error, :credential_id_immutable}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp credential_for_replace(provider, existing, attrs, credential_keys) do
+    case decrypt_credential(provider, existing) do
+      {:ok, credential} ->
+        {:ok, credential}
+
+      {:error, _reason} = error ->
+        if Enum.any?(credential_keys, &Map.has_key?(attrs, &1)) do
+          {:ok, %{}}
+        else
+          error
+        end
+    end
+  end
+
+  defp maybe_clear_invalid_disabled_at(base, %{"reauth_required" => true}, attrs) do
+    if Map.has_key?(attrs, "disabled_at"), do: base, else: Map.put(base, "disabled_at", nil)
+  end
+
+  defp maybe_clear_invalid_disabled_at(base, _existing, _attrs), do: base
+
+  defp drop_credential(%Provider{} = provider, credential_id) do
+    pool = credential_pool(provider)
+    entries = Map.get(pool, "entries", [])
+
+    case Enum.split_with(entries, &(Map.get(&1, "id") == credential_id)) do
+      {[], _rest} -> {:error, :credential_not_found}
+      {[_entry], rest} -> {:ok, Map.put(pool, "entries", rest)}
+    end
+  end
+
+  defp fetch_credential_entry(%Provider{} = provider, credential_id) do
+    provider
+    |> credential_pool()
+    |> Map.get("entries", [])
+    |> Enum.find(&(Map.get(&1, "id") == credential_id))
+    |> case do
+      %{} = entry -> {:ok, entry}
+      nil -> {:error, :credential_not_found}
+    end
+  end
+
+  defp persist_credential_ciphertext(repo, provider, credential_id, ciphertext) do
+    with {:ok, entry} <- fetch_credential_entry(provider, credential_id) do
+      updated = Map.put(entry, "encrypted_credential", ciphertext)
+      pool = replace_pool_entry(credential_pool(provider), credential_id, updated)
+
+      provider
+      |> Provider.changeset(%{credential_pool: pool})
+      |> repo.update()
+    end
+  end
+
+  defp replace_pool_entry(pool, credential_id, replacement) do
+    Map.update!(pool, "entries", fn entries ->
+      Enum.map(entries, fn
+        %{"id" => ^credential_id} -> replacement
+        entry -> entry
+      end)
     end)
   end
 
-  defp encrypted_option_clear?(value), do: value in [nil, ""]
+  defp clear_pool_health(%Provider{} = provider) do
+    provider
+    |> credential_pool()
+    |> Map.get("entries", [])
+    |> Enum.each(fn entry ->
+      CredentialPool.mark_ok(provider.id, Map.fetch!(entry, "id"))
+    end)
+  end
+
+  defp seal_credential_entries(
+         entries,
+         existing_entries,
+         row_id,
+         credential_keys,
+         provider_kind
+       ) do
+    existing_by_id = Map.new(existing_entries, &{Map.get(&1, "id"), &1})
+
+    entries
+    |> Enum.reduce_while({:ok, [], MapSet.new()}, fn raw_entry, {:ok, acc, seen} ->
+      with true <- is_map(raw_entry),
+           entry <- normalize_external_attrs(raw_entry),
+           id <- normalized_credential_id(Map.get(entry, "id")),
+           false <- MapSet.member?(seen, id),
+           {:ok, stored_entry} <-
+             seal_credential_entry(
+               entry,
+               Map.get(existing_by_id, id),
+               row_id,
+               id,
+               credential_keys,
+               provider_kind,
+               credential_replaced?(entry)
+             ) do
+        {:cont, {:ok, [stored_entry | acc], MapSet.put(seen, id)}}
+      else
+        false -> {:halt, {:error, :invalid_credential_entry}}
+        true -> {:halt, {:error, :duplicate_credential_id}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, entries, _seen} -> {:ok, Enum.reverse(entries)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp seal_credential_entry(
+         entry,
+         existing,
+         row_id,
+         id,
+         credential_keys,
+         provider_kind,
+         credential_replaced?
+       ) do
+    allowed =
+      MapSet.new(
+        ~w(id label priority disabled_at source reauth_required migration_error) ++
+          credential_keys
+      )
+
+    unknown_keys =
+      entry
+      |> Map.keys()
+      |> Enum.reject(&MapSet.member?(allowed, &1))
+
+    credential =
+      entry
+      |> Map.take(credential_keys)
+      |> Map.reject(fn {_key, value} -> value in [nil, ""] end)
+
+    with [] <- unknown_keys,
+         {:ok, credential} <- normalize_credential_for_seal(provider_kind, credential),
+         {:ok, ciphertext} <-
+           credential_ciphertext(credential, existing, row_id, id),
+         {:ok, label} <- normalize_credential_label(Map.get(entry, "label"), existing, id),
+         {:ok, priority} <- normalize_credential_priority(Map.get(entry, "priority"), existing),
+         {:ok, source} <- normalize_credential_source(Map.get(entry, "source"), existing),
+         {:ok, disabled_at} <-
+           normalize_disabled_at(Map.get(entry, "disabled_at"), entry, existing) do
+      stored =
+        %{
+          "id" => id,
+          "label" => label,
+          "priority" => priority,
+          "source" => source,
+          "disabled_at" => disabled_at,
+          "encrypted_credential" => ciphertext
+        }
+        |> maybe_preserve_reauth_metadata(entry, existing, credential_replaced?)
+
+      {:ok, stored}
+    else
+      [_key | _keys] -> {:error, {:credential_entry_unknown_keys, Enum.sort(unknown_keys)}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp normalize_credential_for_seal(_provider_kind, credential)
+       when map_size(credential) == 0,
+       do: {:ok, credential}
+
+  defp normalize_credential_for_seal(provider_kind, credential),
+    do: Providers.normalize_credential_options(provider_kind, credential)
+
+  defp credential_ciphertext(credential, _existing, row_id, id) when map_size(credential) > 0 do
+    Crypto.seal(credential, row_id, "credential:#{id}")
+  end
+
+  defp credential_ciphertext(_credential, %{"encrypted_credential" => ciphertext}, _row_id, _id)
+       when is_binary(ciphertext),
+       do: {:ok, ciphertext}
+
+  defp credential_ciphertext(_credential, %{"reauth_required" => true}, _row_id, _id),
+    do: {:ok, nil}
+
+  defp credential_ciphertext(_credential, _existing, _row_id, _id),
+    do: {:error, :credential_fields_required}
+
+  defp normalized_credential_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> Ankole.Ecto.UUIDv7.autogenerate()
+      id -> id
+    end
+  end
+
+  defp normalized_credential_id(_value), do: Ankole.Ecto.UUIDv7.autogenerate()
+
+  defp normalize_credential_label(value, _existing, _id)
+       when is_binary(value) and value != "",
+       do: {:ok, String.trim(value)}
+
+  defp normalize_credential_label(_value, %{"label" => label}, _id) when is_binary(label),
+    do: {:ok, label}
+
+  defp normalize_credential_label(_value, _existing, id), do: {:ok, id}
+
+  defp normalize_credential_priority(value, _existing) when is_integer(value), do: {:ok, value}
+
+  defp normalize_credential_priority(_value, %{"priority" => value}) when is_integer(value),
+    do: {:ok, value}
+
+  defp normalize_credential_priority(_value, _existing), do: {:ok, 0}
+
+  defp normalize_credential_source(value, _existing)
+       when is_binary(value) and value != "",
+       do: {:ok, String.trim(value)}
+
+  defp normalize_credential_source(_value, %{"source" => source})
+       when is_binary(source) and source != "",
+       do: {:ok, source}
+
+  defp normalize_credential_source(_value, _existing), do: {:ok, "manual"}
+
+  defp maybe_preserve_reauth_metadata(stored, entry, existing, credential_replaced?) do
+    reauth_required =
+      Map.get(entry, "reauth_required", Map.get(existing || %{}, "reauth_required"))
+
+    if reauth_required == true and not credential_replaced? do
+      stored
+      |> Map.put("reauth_required", true)
+      |> maybe_put_text(
+        "migration_error",
+        Map.get(entry, "migration_error", Map.get(existing || %{}, "migration_error"))
+      )
+    else
+      stored
+    end
+  end
+
+  defp credential_replaced?(entry) do
+    Enum.any?(entry, fn
+      {key, value} ->
+        key not in ~w(id label priority disabled_at source reauth_required migration_error) and
+          value not in [nil, ""]
+    end)
+  end
+
+  defp maybe_put_text(map, key, value) when is_binary(value) and value != "",
+    do: Map.put(map, key, value)
+
+  defp maybe_put_text(map, _key, _value), do: map
+
+  defp normalize_disabled_at(value, entry, _existing)
+       when is_binary(value) and is_map_key(entry, "disabled_at") do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, DateTime.to_iso8601(datetime)}
+      _error -> {:error, :invalid_credential_disabled_at}
+    end
+  end
+
+  defp normalize_disabled_at(nil, entry, _existing) when is_map_key(entry, "disabled_at"),
+    do: {:ok, nil}
+
+  defp normalize_disabled_at(_value, _entry, %{"disabled_at" => value}), do: {:ok, value}
+  defp normalize_disabled_at(_value, _entry, _existing), do: {:ok, nil}
 
   defp runtime_base_url(%Provider{base_url: base_url}, _provider_kind)
        when is_binary(base_url) and base_url != "",
@@ -400,20 +1005,92 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   defp connection_options(_provider), do: %{}
 
-  defp encrypted_options(%Provider{encrypted_options: options}) when is_map(options),
-    do: options
-
-  defp encrypted_options(_provider), do: %{}
-
-  # API projections expose presence only. The actual plaintext is only read for
-  # runtime request preparation and live provider checks.
-  defp encrypted_options_projection(%Provider{} = provider) do
-    provider
-    |> encrypted_options()
-    |> Map.new(fn {key, value} ->
-      {key, %{"present" => is_binary(value), "masked" => encrypted_option_mask(value)}}
-    end)
+  defp credential_pool(%Provider{credential_pool: pool}) when is_map(pool) do
+    %{
+      "strategy" => Map.get(pool, "strategy", "fill_first"),
+      "entries" => Map.get(pool, "entries", [])
+    }
   end
+
+  defp credential_pool(_provider), do: %{"strategy" => "fill_first", "entries" => []}
+
+  defp decrypt_credential(%Provider{id: row_id}, %{
+         "id" => credential_id,
+         "encrypted_credential" => ciphertext
+       })
+       when is_binary(row_id) and is_binary(credential_id) and is_binary(ciphertext) do
+    case Crypto.unseal(ciphertext, row_id, "credential:#{credential_id}") do
+      {:ok, %{} = credential} ->
+        {:ok, credential}
+
+      {:ok, _value} ->
+        {:error, {:invalid_credential_payload, credential_id}}
+
+      {:error, reason} ->
+        {:error, {:credential_decrypt_failed, credential_id, reason}}
+    end
+  end
+
+  defp decrypt_credential(_provider, entry),
+    do: {:error, {:invalid_credential_entry, Map.get(entry, "id")}}
+
+  # API projections expose pool metadata, selected health, and a small set of
+  # account facts. Token and API-key fields never leave this module.
+  defp credential_pool_projection(%Provider{} = provider) do
+    pool = credential_pool(provider)
+    entries = Map.get(pool, "entries", [])
+    statuses = CredentialPool.statuses(provider.id, entries)
+
+    %{
+      "strategy" => Map.get(pool, "strategy", "fill_first"),
+      "entries" =>
+        Enum.map(entries, fn entry ->
+          credential_id = Map.get(entry, "id")
+          status = Map.get(statuses, credential_id, %{"status" => "dead"})
+
+          account_projection =
+            case decrypt_credential(provider, entry) do
+              {:ok, credential} ->
+                Map.take(credential, [
+                  "account_id",
+                  "plan_type",
+                  "email",
+                  "last_refresh",
+                  "auth_type"
+                ])
+
+              {:error, _reason} ->
+                %{"reauth_required" => true}
+            end
+
+          entry
+          |> Map.take([
+            "id",
+            "label",
+            "priority",
+            "source",
+            "disabled_at",
+            "reauth_required"
+          ])
+          |> Map.put("credential_present", is_binary(Map.get(entry, "encrypted_credential")))
+          |> Map.merge(account_projection)
+          |> Map.merge(projected_status(entry, status))
+        end)
+    }
+  end
+
+  defp projected_status(%{"reauth_required" => true}, _status),
+    do: %{"status" => "dead", "reauth_required" => true}
+
+  defp projected_status(_entry, status), do: status
+
+  defp context_value(ctx, key) when is_list(ctx), do: Keyword.get(ctx, key)
+
+  defp context_value(ctx, key) when is_map(ctx) do
+    Map.get(ctx, key) || Map.get(ctx, Atom.to_string(key))
+  end
+
+  defp context_value(_ctx, _key), do: nil
 
   # Provider metadata is attached to configured rows so Console can render the
   # accepted options and capabilities without querying the registry separately.
@@ -432,9 +1109,6 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         %{}
     end
   end
-
-  defp encrypted_option_mask(value) when is_binary(value), do: "********"
-  defp encrypted_option_mask(_value), do: nil
 
   defp normalize_id(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
   defp normalize_id(value), do: value

@@ -14,13 +14,22 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   import Ankole.E2E.Scenarios.RealLLM
 
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIAgent.CodexAccounts
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.BackgroundAgentJobs
+  alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
+  alias Ankole.E2E.WaitHelpers
+  alias Ankole.Repo
+  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+
+  import Ecto.Query
 
   # Models are deliberately hardcoded (no env overrides): the suite gates a
   # known-good provider/model matrix, not arbitrary local configurations.
   @embedding_model "perplexity/pplx-embed-v1-0.6b"
   @rerank_model "cohere/rerank-4-fast"
+  @chatgpt_coding_model "gpt-5.6-sol"
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000
@@ -116,33 +125,118 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   @tag timeout: 1_800_000
   @tag ownership_timeout: 1_800_000
   @tag :real_llm
-  @tag :codex_subscription_real_llm
-  test "real ChatGPT subscription account completes the Codex Job" do
-    auth_json = File.read!(Path.expand("~/.codex/auth.json"))
-    %{"tokens" => %{"account_id" => account_id}} = Ankole.JSON.decode!(auth_json)
+  @tag :codex_subscription_main_real_llm
+  test "real ChatGPT subscription drives the main Agent tool loop" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    provider_id = create_chatgpt_subscription_provider!()
 
-    assert {:ok, account} =
-             CodexAccounts.create_account(%{
-               "name" => "Real subscription #{String.slice(account_id, 0, 8)}",
-               "auth_json" => auth_json
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(ctx.agent.uid, "primary", %{
+               provider_id: provider_id,
+               model: @chatgpt_coding_model,
+               provider_options: %{"reasoningEffort" => "high"}
              })
 
-    ctx =
-      start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
-      |> Map.put(:codex_account_id, account.account_id)
-
-    result = run_real_lark_codex_todolist_turn(ctx)
+    result = run_real_lark_skill_tool_loop(ctx)
 
     assert_lark_final_reply(
       ctx.fake_feishu,
       result.reply,
-      "ANKOLE_CODEX_TODOLIST_REAL_OK",
+      "ANKOLE_LARK_REAL_SKILL_OK",
       :reply,
-      "om_real_codex_todolist_1"
+      "om_real_skill_1"
+    )
+  end
+
+  @tag timeout: 1_800_000
+  @tag ownership_timeout: 1_800_000
+  @tag :real_llm
+  @tag :codex_subscription_real_llm
+  test "real ChatGPT subscription runs Codex Tool Search and MCP code mode" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    provider_id = create_chatgpt_subscription_provider!()
+
+    ctx =
+      Map.merge(ctx, %{
+        coding_provider_id: provider_id,
+        coding_model: @chatgpt_coding_model,
+        coding_provider_options: %{"reasoningEffort" => "high"}
+      })
+
+    result = run_real_lark_codex_ptc_mcp_turn(ctx)
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      result.reply,
+      "ANKOLE_CODEX_PTC_146_STARTED",
+      :reply,
+      "om_real_codex_ptc_mcp_1"
     )
 
-    assert {:ok, resolved} = CodexAccounts.resolve_auth(account.account_id)
-    assert resolved.auth_hash == Ankole.Kernel.generic_hash(resolved.auth_json)
+    assert result.legacy_auth_absent
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    assert [entry] = projection["credential_pool"]["entries"]
+    assert entry["credential_present"]
+    assert entry["account_id"]
+    refute Map.has_key?(entry, "access_token")
+    refute Map.has_key?(entry, "refresh_token")
+    refute Map.has_key?(entry, "id_token")
+  end
+
+  @tag timeout: 1_800_000
+  @tag ownership_timeout: 1_800_000
+  @tag :real_llm
+  @tag :codex_subscription_background_direct_real_llm
+  test "real ChatGPT subscription completes a directly dispatched Background Agent Job" do
+    ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
+    provider_id = create_chatgpt_subscription_provider!()
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(ctx.agent.uid, "coding", %{
+               provider_id: provider_id,
+               model: @chatgpt_coding_model,
+               provider_options: %{"reasoningEffort" => "high"}
+             })
+
+    owner_session_id = "codex-background-direct-real"
+
+    assert {:ok, owner_conversation} =
+             Ankole.AIGateway.Conversations.ensure_conversation(ctx.agent.uid, owner_session_id,
+               metadata: %{"brain" => %{"visibility" => "self"}}
+             )
+
+    marker = "ANKOLE_CODEX_BACKGROUND_DIRECT_REAL_OK"
+
+    assert {:ok, %{job: job, dispatch_event: dispatch_event}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => ctx.agent.uid,
+               "owner_session_id" => owner_session_id,
+               "source_tool_call_id" => "codex-background-direct-real",
+               "title" => "Verify the direct Codex subscription path",
+               "task" => "Do not call tools. Reply exactly #{marker}.",
+               "metadata" => %{"brain_owner_conversation_id" => owner_conversation.id},
+               "reply_route" => %{
+                 "binding_name" => ctx.primary_binding.name,
+                 "signal_channel_id" => "oc_codex_background_direct_real",
+                 "provider_thread_id" => "",
+                 "source_entry_id" => "om_codex_background_direct_real"
+               }
+             })
+
+    completed =
+      wait_for_direct_background_job!(
+        job.id,
+        dispatch_event.id,
+        WaitHelpers.deadline(600_000)
+      )
+
+    assert get_in(completed.result, ["output_text"]) =~ marker
+    assert get_in(completed.metadata, ["codex_user_agent"]) =~ "codex_cli_rs/0.146.0 "
+
+    legacy_auth_path =
+      Path.join([ctx.container.agents_root, ctx.agent.uid, ".codex", "auth.json"])
+
+    refute File.exists?(legacy_auth_path)
   end
 
   @tag timeout: 600_000
@@ -222,6 +316,73 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     assert Enum.all?(results, &is_number(&1["relevance_score"]))
   end
 
+  defp create_chatgpt_subscription_provider! do
+    provider_id = "chatgpt-subscription-real-#{Ecto.UUID.generate()}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "chatgpt_subscription",
+               credential_pool: %{
+                 "entries" => [chatgpt_subscription_credential!()]
+               }
+             })
+
+    provider_id
+  end
+
+  defp wait_for_direct_background_job!(job_id, dispatch_event_id, deadline) do
+    case WaitHelpers.wait_until(deadline, fn ->
+           case Repo.get!(BackgroundAgentJob, job_id) do
+             %BackgroundAgentJob{status: "succeeded"} = job ->
+               job
+
+             %BackgroundAgentJob{status: status} = job when status in ["failed", "stopped"] ->
+               flunk("""
+               direct real Codex Background Agent Job ended as #{status}.
+               error=#{inspect(job.error, printable_limit: 4_000)}
+               """)
+
+             %BackgroundAgentJob{} ->
+               maybe_dispatch_direct_job_event(dispatch_event_id)
+               nil
+           end
+         end) do
+      {:ok, %BackgroundAgentJob{} = job} ->
+        job
+
+      :timeout ->
+        job = Repo.get!(BackgroundAgentJob, job_id)
+
+        flunk("""
+        direct real Codex Background Agent Job timed out.
+        status=#{job.status}
+        error=#{inspect(job.error, printable_limit: 4_000)}
+        """)
+    end
+  end
+
+  defp maybe_dispatch_direct_job_event(dispatch_event_id) do
+    event = Repo.get!(ActorEvent, dispatch_event_id)
+
+    live_delivery? =
+      Repo.exists?(
+        from(delivery in ActorEventDelivery,
+          where: delivery.actor_event_id == ^dispatch_event_id,
+          where: delivery.state in ^ActorEventDelivery.live_states()
+        )
+      )
+
+    now = DateTime.utc_now(:microsecond)
+
+    if is_nil(event.completed_at) and not live_delivery? and
+         DateTime.compare(event.available_at, now) != :gt do
+      assert {:ok, _result} = process_ready_event_for_actor!(event, now)
+    end
+
+    :ok
+  end
+
   defp assert_vision_false_reply!(text) do
     normalized = String.downcase(text || "")
 
@@ -230,5 +391,27 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
 
     refute Regex.match?(~r/\btrue\b/, normalized),
            "expected vision reply not to say true, got: #{inspect(text)}"
+  end
+
+  defp chatgpt_subscription_credential! do
+    auth_json =
+      System.get_env("ANKOLE_CHATGPT_AUTH_JSON") ||
+        raise "ANKOLE_CHATGPT_AUTH_JSON is required for the ChatGPT subscription real LLM test"
+
+    auth = Ankole.JSON.decode!(auth_json)
+    tokens = Map.fetch!(auth, "tokens")
+
+    %{
+      "id" => "real-subscription",
+      "label" => "Real ChatGPT subscription",
+      "source" => "real_e2e_fixture",
+      "access_token" => Map.fetch!(tokens, "access_token"),
+      "refresh_token" => Map.fetch!(tokens, "refresh_token"),
+      "id_token" => Map.fetch!(tokens, "id_token"),
+      "account_id" => Map.fetch!(tokens, "account_id"),
+      "last_refresh" => Map.get(auth, "last_refresh"),
+      "auth_type" => "oauth"
+    }
+    |> Map.reject(fn {_key, value} -> is_nil(value) end)
   end
 end

@@ -8,6 +8,7 @@ defmodule Ankole.AIGateway do
   """
 
   alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
@@ -50,7 +51,12 @@ defmodule Ankole.AIGateway do
 
     with :ok <- reject_http_stateful_fields(request),
          {:ok, %{runtime: runtime, spec: prepared_request}} <-
-           ResponsesPreparation.prepare(subject_uid, request, stream?: false),
+           ResponsesPreparation.prepare(
+             subject_uid,
+             request,
+             Keyword.put(opts, :stream?, false)
+           ),
+         :ok <- reject_non_streaming_tool_loop(prepared_request),
          {:ok, upstream_response} <-
            execute_response_request(runtime, prepared_request, opts) do
       persist_response(subject_uid, runtime, prepared_request, upstream_response)
@@ -59,16 +65,87 @@ defmodule Ankole.AIGateway do
 
   def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
+  # Tool search and deferred loading need the streaming loop owner; the plain
+  # HTTP path cannot run continuation rounds or rewrite stream items.
+  defp reject_non_streaming_tool_loop(%{tool_loop: %{}}),
+    do: {:error, :tool_search_requires_streaming}
+
+  defp reject_non_streaming_tool_loop(_prepared_request), do: :ok
+
   defp execute_response_request(runtime, prepared_request, opts) do
+    {hosted_attempt, prepared_request} =
+      ImageGeneration.pop_credential_attempt(prepared_request)
+
+    do_execute_response_request(runtime, prepared_request, hosted_attempt, opts)
+  end
+
+  defp do_execute_response_request(runtime, prepared_request, hosted_attempt, opts) do
     case execute_prepared_request(runtime, prepared_request, opts) do
+      {:error, {:credential_pool_exhausted, _details} = exhausted} ->
+        {:error, exhausted}
+
+      {:error, reason}
+      when is_map(hosted_attempt) ->
+        retry_hosted_response_request(
+          runtime,
+          prepared_request,
+          hosted_attempt,
+          reason,
+          opts
+        )
+
       {:error, reason} when is_map_key(prepared_request, :hosted_tools) ->
-        error = ImageGeneration.normalize_execution_error(reason)
-        HostedToolTelemetry.emit_failure(prepared_request, error)
-        {:error, error}
+        normalize_hosted_execution_error(prepared_request, reason)
+
+      {:ok, upstream_response} = result when is_map(hosted_attempt) ->
+        :ok = ImageGeneration.record_credential_usage(hosted_attempt, upstream_response)
+        result
 
       result ->
         result
     end
+  end
+
+  defp retry_hosted_response_request(
+         runtime,
+         prepared_request,
+         hosted_attempt,
+         reason,
+         opts
+       ) do
+    cond do
+      ImageGeneration.credential_failure?(reason) ->
+        case ImageGeneration.retry_credential_attempt(
+               prepared_request,
+               hosted_attempt,
+               reason,
+               opts
+             ) do
+          {:ok, next_request, next_attempt} ->
+            {^next_attempt, next_request} =
+              ImageGeneration.pop_credential_attempt(next_request)
+
+            do_execute_response_request(runtime, next_request, next_attempt, opts)
+
+          {:error, {:credential_pool_exhausted, _details} = exhausted} ->
+            {:error, exhausted}
+
+          {:error, final_reason} ->
+            normalize_hosted_execution_error(prepared_request, final_reason)
+        end
+
+      ImageGeneration.hosted_execution_failure?(reason) ->
+        normalize_hosted_execution_error(prepared_request, reason)
+
+      true ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_hosted_execution_error(prepared_request, reason) do
+    error = ImageGeneration.normalize_execution_error(reason)
+    HostedToolTelemetry.emit_failure(prepared_request, error)
+    {:error, error}
   end
 
   defp persist_response(subject_uid, runtime, prepared_request, upstream_response) do
@@ -264,7 +341,11 @@ defmodule Ankole.AIGateway do
 
     with :ok <- reject_http_stateful_fields(request),
          {:ok, %{spec: prepared_request}} <-
-           ResponsesPreparation.prepare(subject_uid, request, stream?: true),
+           ResponsesPreparation.prepare(
+             subject_uid,
+             request,
+             Keyword.put(opts, :stream?, true)
+           ),
          {:ok, stream, meta} <-
            ResponseStream.open(subject_uid, request, prepared_request, opts) do
       {:ok, stream, meta}
@@ -283,7 +364,7 @@ defmodule Ankole.AIGateway do
 
   def open_websocket_stream(subject_uid, request, opts) when is_map(request) do
     with {:ok, prepared_request, stateful_context} <-
-           prepare_websocket_stream_request(subject_uid, request) do
+           prepare_websocket_stream_request(subject_uid, request, opts) do
       result =
         ResponseStream.open(
           subject_uid,
@@ -317,8 +398,8 @@ defmodule Ankole.AIGateway do
 
   def prepare_websocket_request(_subject_uid, _request), do: {:error, :invalid_request_body}
 
-  defp prepare_websocket_stream_request(subject_uid, request) do
-    StatefulLifecycle.prepare_and_start_websocket_provider_request(subject_uid, request)
+  defp prepare_websocket_stream_request(subject_uid, request, opts) do
+    StatefulLifecycle.prepare_and_start_websocket_provider_request(subject_uid, request, opts)
   end
 
   defp prepare_websocket_provider_request(subject_uid, request) do
@@ -337,7 +418,7 @@ defmodule Ankole.AIGateway do
   defp execute_prepared_request(runtime, prepared_request, opts) do
     started_at = System.monotonic_time()
 
-    case UniversalAIRequest.request(prepared_request, opts) do
+    case CredentialAttempts.request(prepared_request, opts) do
       {:error, reason} = error ->
         log_request_failure(runtime, prepared_request, reason, started_at)
         error
@@ -392,12 +473,15 @@ defmodule Ankole.AIGateway do
   defp execute_web_fetch(%{"provider_kind" => "jina_reader"} = runtime, request, opts) do
     request
     |> Map.fetch!("urls")
-    |> Enum.reduce_while({:ok, []}, fn url, {:ok, results} ->
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {url, index}, {:ok, results} ->
       single_url_request = Map.put(request, "urls", [url])
 
-      with {:ok, prepared_request} <-
-             Providers.build_web_fetch_request(runtime, single_url_request),
-           {:ok, upstream_response} <- execute_prepared_request(runtime, prepared_request, opts) do
+      with {:ok, request_runtime} <- web_fetch_runtime(runtime, index),
+           {:ok, prepared_request} <-
+             Providers.build_web_fetch_request(request_runtime, single_url_request),
+           {:ok, upstream_response} <-
+             execute_prepared_request(request_runtime, prepared_request, opts) do
         {:cont, {:ok, results ++ web_fetch_results(Map.fetch!(upstream_response, :body))}}
       else
         {:error, _reason} = error -> {:halt, error}
@@ -418,6 +502,9 @@ defmodule Ankole.AIGateway do
       {:ok, Map.fetch!(upstream_response, :body)}
     end
   end
+
+  defp web_fetch_runtime(runtime, 0), do: {:ok, runtime}
+  defp web_fetch_runtime(runtime, _index), do: Resolver.reselect_credential(runtime)
 
   defp web_fetch_results(%{"results" => results}) when is_list(results), do: results
   defp web_fetch_results(_body), do: []

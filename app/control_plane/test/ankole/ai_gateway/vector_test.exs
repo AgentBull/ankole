@@ -34,8 +34,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "openrouter-vector",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -136,8 +138,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "jina-rerank-no-documents",
                provider_kind: "jina",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
+               },
                connection_options: %{
-                 "api_key" => "jina-key",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -205,8 +209,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "jina-embeddings-base64",
                provider_kind: "jina",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
+               },
                connection_options: %{
-                 "api_key" => "jina-key",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -264,8 +270,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "openrouter-vector-upstream-error",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -321,8 +329,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "openrouter-vector-body-error",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -382,8 +392,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "openrouter-invalid-vector",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -439,8 +451,10 @@ defmodule Ankole.AIGateway.VectorTest do
                provider_id: "openai-llm-only",
                provider_kind: "openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]

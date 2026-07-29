@@ -7,8 +7,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.ProviderDefinition
-  alias Ankole.AIGateway.Providers
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -20,9 +18,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
 
   @legacy_workspace_path_pattern ~r{/workspace(?:/|$)}u
-  @codex_aigateway_metadata_key "codex_aigateway"
-  @codex_subscription_metadata_key "codex_subscription"
-
   @supported_create_fields ~w(
     agent_uid
     metadata
@@ -86,11 +81,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_new_job(attrs, agent_uid, now) do
     with :ok <- reject_caller_local_task_paths(Attrs.text(attrs, "task")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, coding_runtime} <- coding_runtime(agent_uid) do
+         {:ok, _coding_runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding") do
       attrs
       |> Map.put("reply_route", reply_route)
-      |> Map.put("codex_account_id", coding_runtime.codex_account_id)
-      |> put_codex_runtime_metadata(coding_runtime)
       |> create_new_job(agent_uid, now)
     end
   end
@@ -126,14 +119,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_respawn(source_job_id, attrs, agent_uid, now) do
     with :ok <- reject_caller_local_task_paths(Map.get(attrs, "message")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, coding_runtime} <- coding_runtime(agent_uid),
+         {:ok, _coding_runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding"),
          {:ok, metadata} <- job_metadata(attrs, false) do
       attrs =
         attrs
         |> Map.put("reply_route", reply_route)
-        |> Map.put("codex_account_id", coding_runtime.codex_account_id)
         |> Map.put("metadata", metadata)
-        |> put_codex_runtime_metadata(coding_runtime)
 
       persist_respawn(source_job_id, attrs, now)
     end
@@ -141,9 +132,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp persist_job(attrs, now) do
     Repo.transact(fn repo ->
-      with :ok <- lock_start_idempotency(repo, attrs),
-           :ok <- lock_agent_codex_account(repo, attrs["agent_uid"]),
-           {:ok, attrs} <- pin_live_codex_account(repo, attrs) do
+      with :ok <- lock_start_idempotency(repo, attrs) do
         case find_existing_job(repo, attrs) do
           {:ok, job} ->
             existing_job_result(repo, job)
@@ -168,9 +157,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
             existing_job_result(repo, job)
 
           {:error, :background_agent_job_not_found} ->
-            with :ok <- lock_agent_codex_account(repo, attrs["agent_uid"]),
-                 {:ok, attrs} <- pin_live_codex_account(repo, attrs),
-                 {:ok, source_job} <- lock_respawn_source(repo, source_job_id, attrs["agent_uid"]),
+            with {:ok, source_job} <-
+                   lock_respawn_source(repo, source_job_id, attrs["agent_uid"]),
                  :ok <- validate_respawn_source(source_job),
                  :ok <- ensure_no_successor(repo, source_job),
                  attrs <- respawn_job_attrs(attrs, source_job, now),
@@ -238,53 +226,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     |> Map.put("error", %{})
   end
 
-  defp lock_agent_codex_account(repo, agent_uid) do
-    case SQL.query(
-           repo,
-           "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-           [agent_uid, "agent-codex-account"]
-         ) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp pin_live_codex_account(repo, attrs) do
-    prefix = BackgroundAgentJobs.job_session_prefix()
-
-    account_ids =
-      ActorEventDelivery
-      |> join(:inner, [delivery], job in Job,
-        on:
-          job.agent_uid == delivery.agent_uid and
-            fragment("? = ? || (?::text)", delivery.session_id, ^prefix, job.id)
-      )
-      |> where([delivery, _job], delivery.agent_uid == ^attrs["agent_uid"])
-      |> where([delivery, _job], delivery.state in ^ActorEventDelivery.live_states())
-      |> select([_delivery, job], job.codex_account_id)
-      |> distinct(true)
-      |> repo.all()
-
-    case account_ids do
-      [] ->
-        {:ok, attrs}
-
-      [account_id] ->
-        case same_codex_runtime_mode?(account_id, attrs["codex_account_id"]) do
-          true -> {:ok, Map.put(attrs, "codex_account_id", account_id)}
-          false -> {:error, :agent_codex_account_overlap}
-        end
-
-      _overlap ->
-        {:error, :agent_codex_account_overlap}
-    end
-  end
-
-  defp same_codex_runtime_mode?("aigateway", "aigateway"), do: true
-  defp same_codex_runtime_mode?("aigateway", _selected_account_id), do: false
-  defp same_codex_runtime_mode?(_live_account_id, "aigateway"), do: false
-  defp same_codex_runtime_mode?(_live_account_id, _selected_account_id), do: true
-
   defp existing_job_result(repo, %Job{} = job) do
     case find_dispatch_event(repo, job) do
       %ActorEvent{} = dispatch_event ->
@@ -294,103 +235,6 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
         {:error, :background_agent_job_dispatch_event_not_found}
     end
   end
-
-  defp coding_runtime(agent_uid) do
-    case ModelProfiles.get_model_profile(agent_uid, "coding") do
-      {:ok, %{"codex_account_id" => account_id} = profile} ->
-        with {:ok, config} <-
-               profile
-               |> Map.drop(["codex_account_id", "profile"])
-               |> ModelProfiles.codex_subscription_config() do
-          {:ok,
-           %{
-             aigateway_config: nil,
-             codex_account_id: account_id,
-             subscription_config: config
-           }}
-        end
-
-      {:ok, %{"provider_id" => _provider_id}} ->
-        with {:ok, runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding"),
-             {:ok, config} <- codex_aigateway_config(runtime) do
-          {:ok,
-           %{
-             aigateway_config: config,
-             codex_account_id: "aigateway",
-             subscription_config: nil
-           }}
-        end
-
-      {:error, :model_profile_not_configured} ->
-        {:error, :model_profile_not_configured}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp codex_aigateway_config(runtime) when is_map(runtime) do
-    with provider_id when is_binary(provider_id) <- Map.get(runtime, "provider_id"),
-         provider_kind when is_binary(provider_kind) <- Map.get(runtime, "provider_kind"),
-         model when is_binary(model) <- Map.get(runtime, "model"),
-         provider_options when is_map(provider_options) <-
-           Map.get(runtime, "provider_options", %{}),
-         {:ok, provider} <- Providers.fetch(provider_kind),
-         {:ok, language_model} <-
-           ProviderDefinition.capability(provider, :language_model) do
-      config = %{
-        "model" => codex_model(provider_kind, model),
-        "provider_options" => provider_options,
-        "selector" => provider_id <> "/" <> model,
-        "supports_parallel_tool_calls" => language_model.supports_parallel_tool_calls?
-      }
-
-      {:ok, maybe_put_context_length(config, Map.get(runtime, "context_length"))}
-    else
-      _value -> {:error, :invalid_codex_aigateway_runtime}
-    end
-  end
-
-  defp codex_model("openrouter", model) do
-    case String.split(model, "/", parts: 2) do
-      [_author, model] when model != "" -> model
-      _parts -> model
-    end
-  end
-
-  defp codex_model(_provider_kind, model), do: model
-
-  defp maybe_put_context_length(config, context_length)
-       when is_integer(context_length) and context_length > 0,
-       do: Map.put(config, "context_length", context_length)
-
-  defp maybe_put_context_length(config, _context_length), do: config
-
-  defp put_codex_runtime_metadata(attrs, runtime) do
-    case Map.get(attrs, "metadata", %{}) do
-      metadata when is_map(metadata) ->
-        metadata =
-          metadata
-          |> Map.delete(@codex_aigateway_metadata_key)
-          |> Map.delete(@codex_subscription_metadata_key)
-          |> maybe_put_runtime_metadata(
-            @codex_aigateway_metadata_key,
-            runtime.aigateway_config
-          )
-          |> maybe_put_runtime_metadata(
-            @codex_subscription_metadata_key,
-            runtime.subscription_config
-          )
-
-        Map.put(attrs, "metadata", metadata)
-
-      _value ->
-        attrs
-    end
-  end
-
-  defp maybe_put_runtime_metadata(metadata, _key, nil), do: metadata
-  defp maybe_put_runtime_metadata(metadata, key, value), do: Map.put(metadata, key, value)
 
   @spec defer_actor_event(ActorEvent.t(), DateTime.t()) ::
           {:ok, ActorEvent.t()} | {:error, term()}

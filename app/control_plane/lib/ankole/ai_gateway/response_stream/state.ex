@@ -6,6 +6,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   alias Ankole.AIGateway.ImageStreamPersistence
   alias Ankole.AIGateway.MaxToolCalls
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIGateway.ToolSearch.StreamLoop
   alias Ankole.Logging
 
   @terminal_event_types ~w(response.completed response.failed response.incomplete)
@@ -14,6 +15,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
             stateful: nil,
             image_persistence: nil,
             max_tool_calls: nil,
+            tool_loop: nil,
             public_items: [],
             durable_items: [],
             provider_response_id: nil,
@@ -29,7 +31,10 @@ defmodule Ankole.AIGateway.ResponseStream.State do
           required(:terminal_error) => map() | nil,
           required(:public_items) => [map()]
         }
-  @type status :: :continue | {:terminal, outcome(), :keep_upstream | :cancel_upstream}
+  @type status ::
+          :continue
+          | {:terminal, outcome(), :keep_upstream | :cancel_upstream}
+          | {:round, map()}
 
   @spec new(String.t(), map(), map(), keyword()) :: t()
   def new(subject_uid, request, meta, opts \\ []) do
@@ -44,7 +49,8 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         MaxToolCalls.new(
           Map.get(request, "max_tool_calls"),
           Map.get(meta, "api_resolver") || Map.get(meta, :api_resolver)
-        )
+        ),
+      tool_loop: StreamLoop.new(Keyword.get(opts, :tool_loop))
     }
   end
 
@@ -84,10 +90,16 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   def fail(%__MODULE__{} = state, _reason, opts) do
     code = Keyword.get(opts, :code, "provider_stream_error")
     retryable? = Keyword.get(opts, :retryable, false)
+    message = Keyword.get(opts, :message, safe_error_message(code))
+    details = Keyword.get(opts, :details)
+    provider_status = Keyword.get(opts, :provider_status)
 
     commit_stateful_error(state.stateful, state.durable_items,
       code: code,
-      retryable: retryable?
+      retryable: retryable?,
+      message: message,
+      details: details,
+      provider_status: provider_status
     )
 
     response = %{
@@ -97,9 +109,11 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       "error" =>
         %{
           "code" => code,
-          "message" => safe_error_message(code)
+          "message" => message
         }
-        |> maybe_put_retryable(retryable?),
+        |> maybe_put_retryable(retryable?)
+        |> maybe_put_metadata("provider_status", provider_status)
+        |> maybe_put_metadata("details_json", details),
       "output" => []
     }
 
@@ -128,6 +142,38 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     }
   end
 
+  @doc """
+  Appends loop-produced items before the first provider round of a program
+  resume, returning their public events.
+  """
+  @spec append_pre_round_items(t(), [map()]) :: {t(), [map()]}
+  def append_pre_round_items(%__MODULE__{tool_loop: %StreamLoop{}} = state, items),
+    do: append_loop_items(state, items)
+
+  @doc """
+  Finalizes a response that answers the client without any provider call: a
+  resumed program paused again, so the response carries only its nested calls.
+  """
+  @spec respond_without_provider(t(), [map()]) :: {t(), [map()], status()}
+  def respond_without_provider(%__MODULE__{tool_loop: %StreamLoop{}} = state, items) do
+    {state, item_events} = append_loop_items(state, items)
+
+    event = %{
+      "type" => "response.completed",
+      "response" => %{
+        "id" => nil,
+        "object" => "response",
+        "status" => "completed",
+        "output" => state.public_items
+      }
+    }
+
+    {state, terminal_events, status} =
+      finalize_terminal(state, event, StreamLoop.next_sequence(state.tool_loop), :keep_upstream)
+
+    {state, item_events ++ terminal_events, status}
+  end
+
   defp observe_public_events(state, events, fallback_sequence) do
     Enum.reduce_while(events, {state, [], :continue}, fn event,
                                                          {state, public_events, :continue} ->
@@ -136,12 +182,26 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
       case status do
         :continue -> {:cont, result}
+        {:round, _continuation_request} -> {:halt, result}
         {:terminal, _outcome, _upstream_action} -> {:halt, result}
       end
     end)
   end
 
-  defp observe_public_event(state, event, fallback_sequence) do
+  defp observe_public_event(%{tool_loop: %StreamLoop{}} = state, event, fallback_sequence) do
+    case StreamLoop.observe(state.tool_loop, event) do
+      {:suppress, tool_loop} ->
+        {%{state | tool_loop: tool_loop}, [], :continue}
+
+      {:emit, event, tool_loop} ->
+        observe_planned_public_event(%{state | tool_loop: tool_loop}, event, fallback_sequence)
+    end
+  end
+
+  defp observe_public_event(state, event, fallback_sequence),
+    do: observe_planned_public_event(state, event, fallback_sequence)
+
+  defp observe_planned_public_event(state, event, fallback_sequence) do
     sequence = public_sequence_number(event, fallback_sequence)
 
     state =
@@ -151,7 +211,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       |> observe_max_tool_calls(event)
 
     if event["type"] in @terminal_event_types do
-      finalize_terminal(state, event, sequence, :keep_upstream)
+      observe_terminal_event(state, event, sequence)
     else
       state = remember_non_terminal_event(state, event, sequence)
       public_event = rewrite_response_id(event, state)
@@ -170,6 +230,104 @@ defmodule Ankole.AIGateway.ResponseStream.State do
         {state, [public_event], :continue}
       end
     end
+  end
+
+  defp observe_terminal_event(%{tool_loop: %StreamLoop{}} = state, event, _sequence) do
+    response = Map.get(event, "response", %{})
+
+    case StreamLoop.intercept_terminal(state.tool_loop, event["type"], response) do
+      {:round, continuation_request, round_items, tool_loop} ->
+        {state, round_events} =
+          append_loop_items(%{state | tool_loop: tool_loop}, round_items)
+
+        {state, round_events, {:round, continuation_request}}
+
+      {:finalize, output_items, extra_items, tool_loop} ->
+        {state, extra_events} =
+          append_loop_items(%{state | tool_loop: tool_loop}, extra_items)
+
+        response = Map.put(response, "output", output_items ++ extra_items)
+
+        event =
+          event
+          |> Map.put("response", response)
+          |> finalize_loop_terminal_event(state.tool_loop)
+
+        {state, terminal_events, status} =
+          finalize_terminal(
+            state,
+            event,
+            StreamLoop.next_sequence(state.tool_loop),
+            :keep_upstream
+          )
+
+        {state, extra_events ++ terminal_events, status}
+    end
+  end
+
+  defp observe_terminal_event(state, event, sequence),
+    do: finalize_terminal(state, event, sequence, :keep_upstream)
+
+  # Appends loop-produced items (search outputs) as public output items with
+  # their own `response.output_item.done` events.
+  defp append_loop_items(state, []), do: {state, []}
+
+  defp append_loop_items(state, items) do
+    Enum.reduce(items, {state, []}, fn item, {state, events} ->
+      tool_loop = StreamLoop.bump(state.tool_loop)
+
+      event =
+        %{
+          "type" => "response.output_item.done",
+          "item" => item,
+          "sequence_number" => tool_loop.sequence
+        }
+        |> rewrite_response_id(state)
+
+      state = %{
+        state
+        | tool_loop: tool_loop,
+          sequence_number: tool_loop.sequence,
+          public_items: state.public_items ++ [item],
+          durable_items: state.durable_items ++ [ImageStreamPersistence.storage_item(item)]
+      }
+
+      {state, events ++ [event]}
+    end)
+  end
+
+  # A terminal that still carries unanswered search calls after the round
+  # budget cannot honestly complete; it becomes an explicit incomplete.
+  defp finalize_loop_terminal_event(%{"type" => "response.completed"} = event, tool_loop) do
+    response = Map.get(event, "response", %{})
+    output = Map.get(response, "output") || []
+
+    if StreamLoop.round_budget_exhausted?(tool_loop) and
+         Enum.any?(output, &(Map.get(&1, "type") == "tool_search_call")) do
+      response =
+        response
+        |> Map.put("status", "incomplete")
+        |> Map.put("incomplete_details", %{"reason" => "tool_search_rounds_exhausted"})
+
+      event
+      |> Map.put("type", "response.incomplete")
+      |> Map.put("response", response)
+      |> put_loop_usage(tool_loop)
+    else
+      put_loop_usage(event, tool_loop)
+    end
+  end
+
+  defp finalize_loop_terminal_event(event, tool_loop), do: put_loop_usage(event, tool_loop)
+
+  defp put_loop_usage(event, tool_loop) do
+    response =
+      event
+      |> Map.get("response", %{})
+      |> maybe_put_metadata("usage", StreamLoop.accumulated_usage(tool_loop))
+      |> maybe_put_metadata("tool_usage", StreamLoop.accumulated_tool_usage(tool_loop))
+
+    Map.put(event, "response", response)
   end
 
   defp remember_non_terminal_event(state, %{"type" => "response.output_text.delta"} = event, seq) do
@@ -219,7 +377,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp finalize_terminal(state, event, sequence, upstream_action) do
     response = Map.get(event, "response", %{})
     terminal_items = response |> Map.get("output", []) |> map_items()
-    public_items = terminal_items_or_accumulated(state.public_items, terminal_items)
+    public_items = terminal_public_items(state, terminal_items)
     durable_items = ImageStreamPersistence.storage_items(public_items)
     response = Map.put(response, "output", public_items)
     terminal_error = terminal_error(event["type"], response)
@@ -395,6 +553,16 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp map_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
   defp map_items(_items), do: []
 
+  # A multi-round public response accumulated items from every provider round;
+  # the final provider terminal only carries the last round.
+  defp terminal_public_items(%{tool_loop: %StreamLoop{rounds: rounds}} = state, terminal_items)
+       when rounds > 0 do
+    state.public_items ++ Enum.reject(terminal_items, &(&1 in state.public_items))
+  end
+
+  defp terminal_public_items(state, terminal_items),
+    do: terminal_items_or_accumulated(state.public_items, terminal_items)
+
   defp terminal_items_or_accumulated(accumulated, []), do: accumulated
   defp terminal_items_or_accumulated(_accumulated, terminal_items), do: terminal_items
 
@@ -416,6 +584,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   defp terminal_response_metadata(_state, _event_type, %{} = response) do
     %{}
     |> maybe_put_metadata("usage", response["usage"])
+    |> maybe_put_metadata("tool_usage", response["tool_usage"])
     |> maybe_put_metadata("provider_model", response["model"])
     |> maybe_put_metadata("provider_metadata", provider_response_metadata(response))
     |> maybe_put_metadata("stop_reason", response_stop_reason(response))
@@ -521,14 +690,17 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp commit_stateful_error(%{message_id: message_id}, partial_content, opts) do
     code = Keyword.get(opts, :code, "response_stream_cleanup_error")
+    message = Keyword.get(opts, :message, safe_error_message(code))
 
     error_details =
       %{
         "code" => code,
-        "message" => safe_error_message(code),
+        "message" => message,
         "stage" => "response_stream_cleanup"
       }
       |> maybe_put_retryable(Keyword.get(opts, :retryable, false))
+      |> maybe_put_metadata("provider_status", Keyword.get(opts, :provider_status))
+      |> maybe_put_metadata("details_json", Keyword.get(opts, :details))
 
     case StatefulResponses.commit_error(message_id, partial_content, error_details) do
       {:ok, _message_or_terminal} ->
@@ -579,6 +751,13 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     event
     |> rewrite_nested_response_id(new_id)
     |> rewrite_top_level_response_id(new_id)
+  end
+
+  defp rewrite_response_id(event, %{provider_response_id: response_id})
+       when is_binary(response_id) do
+    event
+    |> rewrite_nested_response_id(response_id)
+    |> rewrite_top_level_response_id(response_id)
   end
 
   defp rewrite_response_id(event, _state), do: event

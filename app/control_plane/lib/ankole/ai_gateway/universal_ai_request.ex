@@ -583,10 +583,19 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   # Controllers still speak the older AIGateway error vocabulary. This function
   # maps structured native errors back to that shape while preserving provider
   # status and body excerpts for callers that already handle them.
+  defp normalize_error_reason(%{"stage" => stage} = error)
+       when stage in ["hosted_responses", "image_generation"],
+       do: {:universal_ai_request_failed, error}
+
   defp normalize_error_reason(%{"code" => code, "provider_status" => status} = error)
        when code in ["provider_status_rejected", "websocket_status_rejected"] and
               is_integer(status) do
-    {:upstream_response_failed, status, decoded_provider_excerpt(error)}
+    body = decoded_provider_excerpt(error)
+
+    case decoded_provider_headers(error) do
+      [] -> {:upstream_response_failed, status, body}
+      headers -> {:upstream_response_failed, status, body, headers}
+    end
   end
 
   defp normalize_error_reason(
@@ -622,4 +631,14 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   end
 
   defp decoded_provider_excerpt(_error), do: %{}
+
+  defp decoded_provider_headers(%{"provider_headers" => headers}) when is_list(headers) do
+    Enum.flat_map(headers, fn
+      [name, value] when is_binary(name) and is_binary(value) -> [{name, value}]
+      {name, value} when is_binary(name) and is_binary(value) -> [{name, value}]
+      _entry -> []
+    end)
+  end
+
+  defp decoded_provider_headers(_error), do: []
 end

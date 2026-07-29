@@ -4,17 +4,19 @@ defmodule Ankole.AIGateway.ReasoningEffortTest do
   alias Ankole.AIGateway.ReasoningEffort
 
   test "normalizes OpenAI reasoning effort values and defaults to high" do
-    assert ReasoningEffort.values() == ~w(none minimal low medium high xhigh)
+    assert ReasoningEffort.values() == ~w(none minimal low medium high xhigh max ultra)
     assert ReasoningEffort.normalize(nil) == {:ok, "high"}
     assert ReasoningEffort.normalize(:minimal) == {:ok, "minimal"}
     assert ReasoningEffort.normalize(" XHIGH ") == {:ok, "xhigh"}
+    assert ReasoningEffort.normalize("MAX") == {:ok, "max"}
+    assert ReasoningEffort.normalize(:ultra) == {:ok, "ultra"}
   end
 
   test "rejects values outside the OpenAI public contract" do
-    assert {:error, {:reasoning_effort, {:invalid, "max", allowed}}} =
-             ReasoningEffort.normalize("max")
+    assert {:error, {:reasoning_effort, {:invalid, "extreme", allowed}}} =
+             ReasoningEffort.normalize("extreme")
 
-    assert allowed == ~w(none minimal low medium high xhigh)
+    assert allowed == ~w(none minimal low medium high xhigh max ultra)
   end
 
   test "maps provider-specific subsets without inventing a global alias model" do

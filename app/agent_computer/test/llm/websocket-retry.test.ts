@@ -228,6 +228,71 @@ describe('@ankole/agent-computer llm helpers: AIGateway WebSocket retry and over
     expect(sentPayloads[1]!.previous_response_id).toBeUndefined()
   })
 
+  it('retries a structured AIGateway WebSocket stale error in the agent loop', async () => {
+    const sentPayloads: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            sentPayloads.push(JSON.parse(data) as JSONObject)
+
+            if (sentPayloads.length === 1) {
+              return [
+                {
+                  type: 'error',
+                  error: {
+                    code: 'aigateway_websocket_event_stale',
+                    message: 'AIGateway response stream stale after output progress',
+                    details_json: {
+                      stage: 'event_stale',
+                      retryable: true,
+                      local_retryable: true
+                    }
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_stale_retry',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'retried after stale stream' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 1,
+      messages: [{ role: 'user', content: 'retry a stale response stream' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000020',
+        conversationID: '20202020-2020-2020-2020-202020202020'
+      }
+    })
+
+    expect(final.message.content).toEqual([{ type: 'text', text: 'retried after stale stream' }])
+    expect(sentPayloads).toHaveLength(2)
+  })
+
   it('retries retryable terminal response.failed results in the agent loop', async () => {
     const sentPayloads: JSONObject[] = []
     const logs: Array<{ level: 'info' | 'warning'; event: string; fields?: JSONObject }> = []

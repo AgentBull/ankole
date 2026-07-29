@@ -20,6 +20,7 @@ export type {
   StopReason,
   TextContent,
   ToolCall,
+  ToolCaller,
   ToolDefinition,
   ToolResultMessage,
   ToolSet,

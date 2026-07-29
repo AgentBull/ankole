@@ -62,6 +62,9 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration.Error do
   @spec normalize_execution(term()) :: OpenAIError.t()
   def normalize_execution(%OpenAIError{} = error), do: error
 
+  def normalize_execution({:upstream_response_failed, status, body, _headers}),
+    do: normalize_execution({:upstream_response_failed, status, body})
+
   def normalize_execution({:upstream_response_failed, 429, _body}), do: rate_limit()
 
   def normalize_execution({:upstream_response_failed, status, body})

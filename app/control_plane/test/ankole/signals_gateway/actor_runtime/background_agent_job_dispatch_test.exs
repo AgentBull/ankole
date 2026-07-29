@@ -1,9 +1,8 @@
 defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
   use Ankole.SignalsGateway.ActorRuntimeCase
 
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIAgent.CodexAccounts
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
@@ -20,6 +19,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert {:ok, _worker} = admit_worker(route)
 
     job = create_job!(agent.uid, "dispatch")
+
+    assert {:ok, heavy_profile} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: heavy_profile["provider_id"],
+               model: "openai/gpt-5.4-nano",
+               provider_options: %{"reasoningEffort" => "medium"}
+             })
+
     actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
     now = DateTime.add(job.queued_at, 1, :second)
 
@@ -32,12 +41,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert_receive {:actor_lane, envelope}, 200
     turn_start = turn_start_payload!(envelope)
     assert turn_start.turn.actor.session_id == actor_key.session_id
-    refute Map.has_key?(turn_start, "model_ref")
+    assert turn_start.model_ref.profile == "coding"
+    assert turn_start.model_ref.provider_id == heavy_profile["provider_id"]
+    assert turn_start.model_ref.provider_kind == "openrouter"
+    assert turn_start.model_ref.model == "openai/gpt-5.4-nano"
+
+    assert turn_start.model_ref.provider_options_json ==
+             Ankole.JSON.encode!(%{"reasoningEffort" => "medium"})
+
     assert is_binary(Ankole.Kernel.RuntimeFabric.encode_envelope(envelope))
     assert decoded_request_context(turn_start)["turn_mode"] == "background_agent_job"
     assert decoded_request_context(turn_start)["job_id"] == job.id
     assert decoded_request_context(turn_start)["owner_session_id"] == job.owner_session_id
     assert decoded_request_context(turn_start)["attempts"] == 1
+
+    assert get_in(decoded_request_context(turn_start), ["model_ref", "model"]) ==
+             "openai/gpt-5.4-nano"
 
     refute Repo.get_by(Conversation,
              subject_uid: agent.uid,
@@ -701,31 +720,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert persisted.started_at == nil
   end
 
-  test "subscription accounts serialize Codex execution across agents" do
+  test "credential sharing does not impose a local Job concurrency slot" do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     route = unique_route()
     :ok = Broker.register_local_worker(route, self())
     on_exit(fn -> Broker.unregister_local_worker(route) end)
     assert {:ok, _worker} = admit_worker(route)
-
-    auth_json =
-      Ankole.JSON.encode!(%{
-        "tokens" => %{"account_id" => "subscription-serial", "access_token" => "token"}
-      })
-
-    assert {:ok, account} =
-             CodexAccounts.create_account(%{
-               "name" => "Serial subscription",
-               "auth_json" => auth_json
-             })
-
-    for agent <- [first_agent, second_agent] do
-      assert {:ok, _result} =
-               ModelProfiles.put_model_profile(agent.uid, "coding", %{
-                 "codex_account_id" => account.account_id
-               })
-    end
 
     first = create_job!(first_agent.uid, "subscription-first")
     second = create_job!(second_agent.uid, "subscription-second")
@@ -748,165 +749,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert_receive {:actor_lane, first_envelope}, 200
 
-    assert {:ok, %{status: :waiting_for_worker, reason: :codex_account_capacity}} =
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
              ReadyEventProcessor.process_ready_event_for_actor(second_key,
                now: DateTime.add(second.queued_at, 1, :second),
                lease_seconds: @long_lease_seconds
              )
 
-    queued = BackgroundAgentJobs.get_job_for_agent(second.id, second_agent.uid)
-    assert queued.status == "queued"
-    assert queued.attempts == 0
-
-    assert {:ok, turn_ref} =
-             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(
-               turn_start_payload!(first_envelope).turn
-             )
-
-    assert {:ok, %{job: stopped}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(
-               first.id,
-               first_agent.uid,
-               %{"status" => "stopped"}
-             )
-
-    assert stopped.status == "stopped"
-
-    assert {:ok, %{status: :waiting_for_worker, reason: :codex_account_capacity}} =
-             ReadyEventProcessor.process_ready_event_for_actor(second_key,
-               now: DateTime.add(second.queued_at, 31, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert {:ok, %{job: acknowledged}} =
-             BackgroundAgentJobs.commit_status_with_wakeup(
-               first.id,
-               first_agent.uid,
-               %{"status" => "stopped"},
-               turn_ref: turn_ref,
-               worker_route: route
-             )
-
-    assert acknowledged.status == "stopped"
-
-    assert {:ok, %{status: :noop_completed}} =
-             ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(
-                 turn_start_payload!(first_envelope).turn,
-                 "background_agent_job_stopped"
-               )
-             )
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(second_key,
-               now: DateTime.add(second.queued_at, 62, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, _second_envelope}, 200
+    assert_receive {:actor_lane, second_envelope}, 200
+    assert turn_start_payload!(first_envelope).turn.actor.agent_uid == first_agent.uid
+    assert turn_start_payload!(second_envelope).turn.actor.agent_uid == second_agent.uid
+    assert BackgroundAgentJobs.get_job_for_agent(first.id, first_agent.uid).attempts == 1
     assert BackgroundAgentJobs.get_job_for_agent(second.id, second_agent.uid).attempts == 1
-  end
-
-  test "overlapping Jobs for one Agent keep the account selected by its live delivery" do
-    %{principal: agent} = agent_fixture()
-    route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
-
-    create_account = fn name, account_id ->
-      auth_json =
-        Ankole.JSON.encode!(%{
-          "tokens" => %{"account_id" => account_id, "access_token" => "token"}
-        })
-
-      assert {:ok, account} =
-               CodexAccounts.create_account(%{"name" => name, "auth_json" => auth_json})
-
-      account
-    end
-
-    first_account = create_account.("Agent overlap first", "agent-overlap-first")
-    second_account = create_account.("Agent overlap second", "agent-overlap-second")
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               "codex_account_id" => first_account.account_id
-             })
-
-    first_job = create_job!(agent.uid, "account-overlap-first")
-
-    first_key = %{
-      agent_uid: agent.uid,
-      session_id: BackgroundAgentJobs.job_session_id(first_job.id)
-    }
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(first_key,
-               now: DateTime.add(first_job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, _first_envelope}, 200
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               "codex_account_id" => second_account.account_id
-             })
-
-    second_job = create_job!(agent.uid, "account-overlap-second")
-    assert second_job.codex_account_id == first_account.account_id
-  end
-
-  test "an Agent cannot switch between AIGateway and official auth while a Job is live" do
-    %{principal: agent} = agent_fixture()
-    route = unique_route()
-    :ok = Broker.register_local_worker(route, self())
-    on_exit(fn -> Broker.unregister_local_worker(route) end)
-    assert {:ok, _worker} = admit_worker(route)
-
-    first_job = create_job!(agent.uid, "runtime-mode-overlap-first")
-
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
-             ReadyEventProcessor.process_ready_event_for_actor(
-               %{
-                 agent_uid: agent.uid,
-                 session_id: BackgroundAgentJobs.job_session_id(first_job.id)
-               },
-               now: DateTime.add(first_job.queued_at, 1, :second),
-               lease_seconds: @long_lease_seconds
-             )
-
-    assert_receive {:actor_lane, _first_envelope}, 200
-
-    auth_json =
-      Ankole.JSON.encode!(%{
-        "tokens" => %{"account_id" => "runtime-mode-overlap", "access_token" => "token"}
-      })
-
-    assert {:ok, account} =
-             CodexAccounts.create_account(%{
-               "name" => "Runtime mode overlap",
-               "auth_json" => auth_json
-             })
-
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "coding", %{
-               "codex_account_id" => account.account_id
-             })
-
-    assert {:error, :agent_codex_account_overlap} =
-             BackgroundAgentJobs.create_with_dispatch(%{
-               "agent_uid" => agent.uid,
-               "owner_session_id" => "owner-runtime-mode-overlap",
-               "source_tool_call_id" => "tool-runtime-mode-overlap",
-               "title" => "Do not mix Codex auth modes",
-               "task" => "This Job must wait until the current mode is idle.",
-               "reply_route" => %{
-                 "binding_name" => "bot",
-                 "signal_channel_id" => "chat-runtime-mode-overlap"
-               }
-             })
   end
 
   test "worker placement applies the configurable job-only capacity" do
@@ -1158,6 +1011,119 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
              session_id: fourth_actor_key.session_id,
              status: "assigned"
            )
+  end
+
+  test "credential pool exhaustion returns the Job attempt and waits for the earliest recovery" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "credential-pool-exhausted")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    ready_at = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: ready_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_ref = turn_start_payload!(envelope).turn
+    failure_time = DateTime.add(ready_at, 1, :second)
+    pool_retry_at = DateTime.add(failure_time, 3_300, :second)
+
+    assert {:ok,
+            %{
+              status: :background_agent_job_requeued,
+              retry_available_at: ^pool_retry_at,
+              background_agent_job_requeue: %{
+                kind: :credential_pool_requeued,
+                job: requeued
+              }
+            }} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool exhausted.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(pool_retry_at)
+                 }
+               ),
+               now: failure_time
+             )
+
+    assert requeued.status == "queued"
+    assert requeued.attempts == 0
+    assert requeued.started_at == nil
+
+    persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
+    assert persisted_event.input_state == "open"
+    assert persisted_event.available_at == pool_retry_at
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: pool_retry_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, retry_envelope}, 200
+    assert decoded_request_context(turn_start_payload!(retry_envelope))["attempts"] == 1
+    assert BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid).attempts == 1
+  end
+
+  test "an unavailable pool without a recovery time consumes the normal Job retry budget" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+
+    job = create_job!(agent.uid, "credential-pool-terminal")
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    ready_at = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: ready_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, envelope}, 200
+    turn_ref = turn_start_payload!(envelope).turn
+    failure_time = DateTime.add(ready_at, 1, :second)
+    expected_retry_at = DateTime.add(failure_time, 60, :second)
+
+    assert {:ok, result} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 turn_ref,
+                 "worker_turn_failed",
+                 "AIGateway credential pool has no usable credentials.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true
+                 }
+               ),
+               now: failure_time
+             )
+
+    assert result.status == :turn_failed
+    assert result.retry_available_at == expected_retry_at
+    refute Map.has_key?(result, :turn_error_compensation)
+
+    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert persisted.status == "running"
+    assert persisted.attempts == 1
+
+    persisted_event = Repo.get!(Ankole.SignalsGateway.ActorEvent, turn_ref.actor_event_id)
+    assert persisted_event.input_state == "open"
+    assert persisted_event.available_at == expected_retry_at
   end
 
   test "retryable Turn persistence failures exhaust job attempts with a parent wakeup" do

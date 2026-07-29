@@ -2,7 +2,7 @@ defmodule Ankole.Repo.Migrations.ReplaceSubagentEventsWithTurns do
   use Ecto.Migration
 
   def up do
-    # v26.07.7 Subagent runtime state is not an upgrade contract. Discard the
+    # v0.7.0 Subagent runtime state is not an upgrade contract. Discard the
     # old aggregate instead of carrying invalid history into BackgroundAgentJob.
     Enum.each(legacy_runtime_purge_sqls(), &execute/1)
 
@@ -116,7 +116,7 @@ defmodule Ankole.Repo.Migrations.ReplaceSubagentEventsWithTurns do
   end
 
   def down do
-    raise "BackgroundAgentJob cutover cannot be downgraded: v26.07.7 Subagent runtime state is intentionally discarded"
+    raise "BackgroundAgentJob cutover cannot be downgraded: v0.7.0 Subagent runtime state is intentionally discarded"
   end
 
   @doc false

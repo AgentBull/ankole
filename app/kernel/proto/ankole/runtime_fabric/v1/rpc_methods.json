@@ -89,20 +89,6 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse"
   },
   {
-    "method": "codex.account.auth.update",
-    "scope": "turn",
-    "effect": "write",
-    "request_type": "ankole.runtime_fabric.v1.CodexAccountAuthUpdateRequest",
-    "response_type": "ankole.runtime_fabric.v1.CodexAccountAuthUpdateResponse"
-  },
-  {
-    "method": "codex.account.resolve",
-    "scope": "turn",
-    "effect": "read",
-    "request_type": "ankole.runtime_fabric.v1.CodexAccountResolveRequest",
-    "response_type": "ankole.runtime_fabric.v1.CodexAccountResolveResponse"
-  },
-  {
     "method": "memory_browse",
     "scope": "turn",
     "effect": "read",

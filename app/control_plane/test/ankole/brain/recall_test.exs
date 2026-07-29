@@ -782,7 +782,9 @@ defmodule Ankole.Brain.RecallTest do
                provider_id: provider_id,
                provider_kind: "openrouter",
                base_url: "#{base_url}/v1",
-               connection_options: %{"api_key" => "sk-brain-recall-test"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-brain-recall-test"}]
+               }
              })
 
     assert {:ok, _profile} =

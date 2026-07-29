@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import {
-  DEFAULT_CODEX_MODEL_REASONING_EFFORT,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-  ModelProfilesModel,
-  PROFILE_NAMES
-} from './model-profiles-model'
+import { ModelProfilesModel, PROFILE_NAMES } from './model-profiles-model'
 
 describe('ModelProfilesModel', () => {
   test('exposes and initializes every provider-backed profile', () => {
@@ -58,10 +53,6 @@ describe('ModelProfilesModel', () => {
 
     model.clear('light')
     expect(model.snapshot('light')).toEqual({
-      codexAccountID: '',
-      codexModel: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-      codexModelReasoningEffort: DEFAULT_CODEX_MODEL_REASONING_EFFORT,
-      codexFastMode: false,
       providerID: '',
       model: '',
       contextLength: '',
@@ -71,25 +62,23 @@ describe('ModelProfilesModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('tracks the official subscription Codex settings as one coding draft', () => {
+  test('tracks a ChatGPT subscription provider as an ordinary coding profile', () => {
     const model = new ModelProfilesModel()
     model.initialize('agent:alpha', {
       coding: {
-        codexAccountID: 'account-1',
-        codexModel: 'gpt-5.6-sol',
-        codexModelReasoningEffort: 'max',
-        codexFastMode: true
+        providerID: 'chatgpt-subscription',
+        model: 'gpt-5.6-sol',
+        providerOptions: { reasoningEffort: 'max', serviceTier: 'priority' }
       }
     })
 
     expect(model.snapshot('coding')).toMatchObject({
-      codexAccountID: 'account-1',
-      codexModel: 'gpt-5.6-sol',
-      codexModelReasoningEffort: 'max',
-      codexFastMode: true
+      providerID: 'chatgpt-subscription',
+      model: 'gpt-5.6-sol',
+      providerOptions: { reasoningEffort: 'max', serviceTier: 'priority' }
     })
 
-    model.update('coding', { codexFastMode: false })
+    model.update('coding', { providerOptions: { reasoningEffort: 'high' } })
     expect(model.profiles.coding.dirty.value).toBeTrue()
     model[Symbol.dispose]()
   })

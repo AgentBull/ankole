@@ -45,11 +45,14 @@ dependencies:
 `streamable_http` or `stdio`.
 
 An HTTP entry requires an HTTP or HTTPS `url`. It can also set
-`bearer_token_env_var` and `timeout_ms`. The bearer field names an environment
-variable; it never contains the secret.
+`bearer_token_env_var`, `timeout_ms`, `enabled_tools`, and `disabled_tools`.
+The bearer field names an environment variable; it never contains the secret.
 
-A stdio entry requires a `command` and can set `timeout_ms`. It cannot define a
-URL or bearer variable.
+A stdio entry requires a `command` and can set `timeout_ms`, `enabled_tools`,
+and `disabled_tools`. It cannot define a URL or bearer variable.
+
+Tool filters contain raw MCP tool names. `enabled_tools` is an allowlist.
+`disabled_tools` is a denylist and wins when one raw name occurs in both lists.
 
 The timeout must be an integer of at least 100 milliseconds.
 Ankole does not set a maximum timeout below the JavaScript safe integer limit.
@@ -79,33 +82,85 @@ not guess which Skill should win.
 
 ## Use MCP from the Main Agent
 
-Agent Computer adds one `mcp` tool when at least one server is available. The
-tool supports `list`, `describe`, and `call`.
+Agent Computer reads each enabled server catalog and gives AIGateway one
+Responses namespace for each server. The namespace contains the real MCP tools.
+Each child function has `defer_loading: true`, so its schema is not in the
+model context until Tool Search selects it.
 
-### List
+AIGateway owns search for the main Agent. It uses the official `tool_search`
+surface, searches the deferred child functions, returns the matching namespace
+children in `tool_search_output`, and maps the selected namespaced function
+call back to the exact server and raw tool. Agent Computer validates the
+arguments as a JSON object before it opens a new connection and invokes the raw
+tool. The MCP server owns validation against its declared input schema, as it
+does when Codex calls it directly.
 
-`list` without a server returns allowed server names and descriptions without
-opening a connection. It includes cached tool summaries when available.
+The main Agent also declares the official `programmatic_tool_calling` tool by
+default. Every model-visible MCP child permits both `direct` and
+`programmatic` callers, as Codex 0.146 does in code mode. `readOnlyHint` controls
+parallel execution only. It does not control whether a program can call the
+tool.
 
-`list` with a server connects only to that server, reads its tool catalog, and
-caches the result.
+The `mcp` `list`, `describe`, and `call` meta-tool does not exist. The model
+sees the official namespace, Tool Search, and child function items.
 
-Neither form reveals URLs, commands, credentials, or schemas.
+## Match the Codex 0.146 MCP Surface
 
-### Describe
+The same MCP registration and server response must expose the same
+model-visible tool set in the main Agent and in Codex 0.146. This includes each
+namespace, child name, description, input schema, visibility decision, filter
+decision, collision result, and call failure shape. Search ownership can differ
+because it does not change this contract.
 
-`describe` requires one server and one tool.
-It returns the selected tool description and schemas.
-It rejects a tool outside the validated server catalog.
+Agent Computer keeps raw server and tool names for filters and calls. It
+projects model names with the Codex 0.146 rules:
 
-### Call
+- Replace each character other than an ASCII letter, digit, or underscore with
+  an underscore.
+- Prefix a server namespace with `mcp__`.
+- Ignore a repeated raw tool identity.
+- Add the Codex 12-hex SHA-1 suffix when sanitized identities collide.
+- Keep the complete flattened name, `namespace__child`, at 64 characters or
+  fewer. Shorten with the same hash suffix when needed.
 
-`call` requires one server and one tool.
-It invokes only the selected tool.
-It accepts an optional argument object and request timeout.
+The worker uses the MCP initialize instructions as the namespace description.
+It lowers the MCP input schema with the Codex rules. These rules replace
+`const` with `enum`, supply missing object properties and array items, remove
+unreachable definitions and unsupported fields, and compact schemas larger
+than the Codex limit. It omits a tool when the schema cannot be lowered.
 
-The tool rejects a disabled server.
-It also rejects a tool outside the validated catalog.
+An absent or non-array `_meta.ui.visibility` value makes a tool visible. An
+array value must contain `model`. Agent Computer applies `enabled_tools` first
+and `disabled_tools` second against raw names.
+
+Main-Agent Tool Search returns at most eight results by default. Its bilingual
+BM25 corpus contains the flattened canonical name, canonical child name, raw
+tool name, raw server name, tool title, tool description, MCP initialize
+instructions, and root input-schema property names. AIGateway removes the
+private corpus field before it sends or returns a public tool spec.
+
+MCP calls return the bounded MCP `content`, `structuredContent`, and `isError`
+shape to the model. A connection, transport, or protocol failure becomes an MCP
+error result instead of changing the public function-call protocol.
+
+## Use MCP from a Background Agent Job
+
+Job preparation writes the same selected MCP declarations into Codex
+configuration. Codex 0.146 uses its native Tool Search implementation to load
+the deferred MCP child functions. It exposes the selected child as a namespaced
+function call and invokes it through the official Codex MCP client.
+
+AIGateway serves a full Codex model card with `supports_search_tool: true`.
+This setting enables Codex Tool Search without adding an Ankole MCP meta-tool.
+Agent Computer also enables Codex native code mode, so a Job can call selected
+MCP tools from isolated JavaScript. Codex code mode is a client-side mechanism,
+not the Responses API `programmatic_tool_calling` wire type.
+
+Codex owns the Job-side projection. Agent Computer mirrors that pinned
+projection for the main Agent instead of sharing its implementation. A
+differential integration test registers one real stdio fixture in both paths,
+runs Codex 0.146 Tool Search, and compares the loaded tool specs with the main
+Agent catalog.
 
 ## Limit and Cache Tool Catalogs
 
@@ -138,11 +193,8 @@ HTTP transport can read a bearer token from WorkerEnv. Stdio transport runs the
 declared command through `/bin/sh -lc` with the safe SDK environment and allowed
 WorkerEnv values.
 
-The main Agent selects the timeout in this order:
-
-1. The model request `timeout_ms` value.
-2. The server `timeout_ms` value.
-3. The 360-second default.
+The main Agent uses the server `timeout_ms` value. It uses the 360-second
+default when the declaration has no timeout.
 
 The caller abort signal covers connection, discovery, and tool calls.
 
@@ -185,9 +237,9 @@ refreshes the credential.
 
 ## Write Clear Skill Instructions
 
-Name the server and the tools that handle common requests. If tool selection is
-uncertain, call `list` for one server. Call `describe` only when the arguments
-remain unclear. Then call the selected tool.
+Name the server and the tools that handle common requests. Explain when the
+Agent must search for a less common tool. Do not tell the Agent to call the old
+`mcp` meta-tool.
 
 Explain data freshness, warnings, partial results, and provider behavior in the
 Skill.

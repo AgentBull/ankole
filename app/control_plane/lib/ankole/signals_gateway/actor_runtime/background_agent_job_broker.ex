@@ -418,7 +418,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       source_tool_call_id: job.source_tool_call_id || "",
       status: job.status,
       runtime_thread_id: job.runtime_thread_id || "",
-      codex_account_id: job.codex_account_id,
       title: job.title,
       task: job.task,
       reply_route_json: encode_optional_json(job.reply_route),

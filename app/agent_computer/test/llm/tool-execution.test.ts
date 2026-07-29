@@ -7,7 +7,7 @@ import { createModel } from '../../src/core/llm'
 import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
-  it('keeps a turn-declared hosted image tool beside local function tools on the Responses wire', async () => {
+  it('keeps a hosted image tool beside local tools and the default PTC declaration', async () => {
     const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -65,7 +65,8 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     expect(sentPayloads).toHaveLength(1)
     expect(sentPayloads[0]!.tools).toEqual([
-      expect.objectContaining({ type: 'function', name: 'lookup' }),
+      expect.objectContaining({ type: 'function', name: 'lookup', allowed_callers: ['direct'] }),
+      { type: 'programmatic_tool_calling' },
       { type: 'image_generation' }
     ])
   })

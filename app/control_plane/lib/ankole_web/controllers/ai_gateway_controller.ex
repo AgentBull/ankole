@@ -10,8 +10,10 @@ defmodule AnkoleWeb.AIGatewayController do
 
   alias Ankole.AIGateway
   alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.AIGateway.CodexModels
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.RequestContext
   alias OpenAPISpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
@@ -31,14 +33,15 @@ defmodule AnkoleWeb.AIGatewayController do
   def responses(conn, _params) do
     request = conn.body_params || %{}
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
+    request_context = RequestContext.from_headers(conn.req_headers, "http")
 
     with {:ok, request} <- bind_codex_request(conn, request) do
       case AIGateway.stream_requested?(request) do
         true ->
-          stream_response(conn, subject_uid, request)
+          stream_response(conn, subject_uid, request, request_context)
 
         false ->
-          case AIGateway.create_response(subject_uid, request) do
+          case AIGateway.create_response(subject_uid, request, request_context: request_context) do
             {:ok, %{body: body}} -> json(conn, body)
             {:error, reason} -> error(conn, reason)
           end
@@ -254,12 +257,18 @@ defmodule AnkoleWeb.AIGatewayController do
     subject_uid = conn.assigns.current_ai_gateway_subject_uid
     subject_type = conn.assigns.current_ai_gateway_subject_type
 
-    {:ok, body} = AIGateway.list_models(subject_uid, subject_type, params)
+    {:ok, body} =
+      if CodexModels.codex_manifest_request?(params) do
+        CodexModels.manifest(subject_uid, subject_type)
+      else
+        AIGateway.list_models(subject_uid, subject_type, params)
+      end
+
     json(conn, body)
   end
 
-  defp stream_response(conn, subject_uid, request) do
-    case AIGateway.open_sse_stream(subject_uid, request) do
+  defp stream_response(conn, subject_uid, request, request_context) do
+    case AIGateway.open_sse_stream(subject_uid, request, request_context: request_context) do
       {:ok, stream, _meta} ->
         conn =
           conn
@@ -340,6 +349,24 @@ defmodule AnkoleWeb.AIGatewayController do
     conn
     |> put_status(error.status)
     |> json(OpenAIError.envelope(error))
+  end
+
+  defp error(conn, {:credential_pool_exhausted, details}) when is_map(details) do
+    retry_at = pool_retry_at(details)
+
+    conn
+    |> put_pool_retry_headers(retry_at)
+    |> put_status(429)
+    |> json(%{
+      error:
+        %{
+          type: "usage_limit_reached",
+          code: "credential_pool_exhausted",
+          message: pool_exhausted_message(retry_at),
+          details_json: public_pool_exhausted_details(retry_at)
+        }
+        |> maybe_put_resets_at(retry_at)
+    })
   end
 
   defp error(conn, reason) do
@@ -423,6 +450,10 @@ defmodule AnkoleWeb.AIGatewayController do
       {upstream_public_status(status), "upstream_response_failed",
        upstream_error_message(status, body)}
 
+  defp error_tuple({:upstream_response_failed, status, body, _headers})
+       when is_integer(status),
+       do: error_tuple({:upstream_response_failed, status, body})
+
   defp error_tuple({:invalid_upstream_response, status, _body}) when is_integer(status),
     do: {502, "invalid_upstream_response", "upstream provider returned an invalid response"}
 
@@ -456,4 +487,40 @@ defmodule AnkoleWeb.AIGatewayController do
 
   defp upstream_error_message(status, _body),
     do: "upstream provider returned HTTP #{status}"
+
+  defp pool_retry_at(%{"retry_at" => retry_at}) when is_binary(retry_at) do
+    case DateTime.from_iso8601(retry_at) do
+      {:ok, parsed, _offset} -> parsed
+      _error -> nil
+    end
+  end
+
+  defp pool_retry_at(_details), do: nil
+
+  defp put_pool_retry_headers(conn, %DateTime{} = retry_at) do
+    retry_after = max(DateTime.diff(retry_at, DateTime.utc_now(), :second), 0)
+
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(retry_after))
+    |> put_resp_header("x-codex-primary-reset-at", Integer.to_string(DateTime.to_unix(retry_at)))
+  end
+
+  defp put_pool_retry_headers(conn, nil), do: conn
+
+  defp pool_exhausted_message(%DateTime{} = retry_at),
+    do:
+      "All credentials in this provider pool are unavailable. retry_at=#{DateTime.to_iso8601(retry_at)}"
+
+  defp pool_exhausted_message(nil),
+    do: "All credentials in this provider pool are unavailable. Try again later."
+
+  defp public_pool_exhausted_details(%DateTime{} = retry_at),
+    do: %{retry_at: DateTime.to_iso8601(retry_at)}
+
+  defp public_pool_exhausted_details(nil), do: %{}
+
+  defp maybe_put_resets_at(error, %DateTime{} = retry_at),
+    do: Map.put(error, :resets_at, DateTime.to_unix(retry_at))
+
+  defp maybe_put_resets_at(error, nil), do: error
 end

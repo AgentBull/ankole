@@ -10,8 +10,6 @@ import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
 
 function aigatewayRuntime(): CodexRuntimeConfig {
   return {
-    mode: 'aigateway',
-    accountID: 'aigateway',
     aiGatewayKey: create(AIGatewayAPIKeyResponseSchema, {}),
     modelProfile: {
       model: 'gpt-5.6-sol',
@@ -20,20 +18,6 @@ function aigatewayRuntime(): CodexRuntimeConfig {
       supportsParallelToolCalls: true,
       modelReasoningEffort: 'xhigh'
     }
-  }
-}
-
-function officialRuntime(input: {
-  model: string
-  modelReasoningEffort: 'max' | 'ultra'
-  fastMode: boolean
-}): CodexRuntimeConfig {
-  return {
-    mode: 'official_subscription',
-    accountID: 'account-1',
-    authJSON: '{}',
-    authHash: 'hash',
-    modelProfile: input
   }
 }
 
@@ -47,6 +31,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       [
         'model = "plugin-model"',
         'model_reasoning_effort = "medium"',
+        'service_tier = "priority"',
         'web_search = "live"',
         '',
         '[features.multi_agent_v2]',
@@ -69,7 +54,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
             transport: 'streamable_http',
             url: 'https://mcp.example.test/rpc',
             bearerTokenEnvVar: 'REMOTE_DATA_TOKEN',
-            timeoutMs: 480_000
+            timeoutMs: 480_000,
+            enabledTools: ['quote', 'news'],
+            disabledTools: ['news']
           },
           {
             name: 'local-data',
@@ -85,10 +72,12 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(materialized).toEqual({ path: configPath })
       expect(config.model).toBe('gpt-5.6-sol')
       expect(config.model_provider).toBeUndefined()
+      expect(config.service_tier).toBeUndefined()
       expect(config.model_reasoning_effort).toBe('xhigh')
       expect(config.web_search).toBe('disabled')
       expect(config.features.memories).toBe(false)
       expect(config.features.plugins).toBe(true)
+      expect(config.features.code_mode).toEqual({ enabled: true })
       expect(config.features.multi_agent_v2).toEqual({
         enabled: true,
         hide_spawn_agent_metadata: true,
@@ -104,7 +93,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
         'remote-data': {
           url: 'https://mcp.example.test/rpc',
           bearer_token_env_var: 'REMOTE_DATA_TOKEN',
-          tool_timeout_sec: 480
+          tool_timeout_sec: 480,
+          enabled_tools: ['quote', 'news'],
+          disabled_tools: ['news']
         }
       })
       expect(readFileSync(configPath, 'utf8')).not.toContain('secret-value')
@@ -126,48 +117,6 @@ describe('@ankole/agent-computer Codex job project config', () => {
           mcpServers: []
         })
       ).toThrow('invalid Codex project config')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('writes the official subscription model profile and controls priority service', () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-codex-project-config-subscription-'))
-    const configPath = join(root, '.codex', 'config.toml')
-    mkdirSync(join(root, '.codex'), { recursive: true })
-    writeFileSync(configPath, 'model = "template-model"\nservice_tier = "priority"\n')
-
-    try {
-      materializeCodexJobProjectConfig({
-        projectRoot: root,
-        pluginsEnabled: false,
-        mcpServers: [],
-        runtimeConfig: officialRuntime({
-          model: 'gpt-5.6-sol',
-          modelReasoningEffort: 'max',
-          fastMode: false
-        })
-      })
-      let config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
-      expect(config.model).toBe('gpt-5.6-sol')
-      expect(config.model_reasoning_effort).toBe('max')
-      expect(config.model_provider).toBeUndefined()
-      expect(config.service_tier).toBeUndefined()
-
-      materializeCodexJobProjectConfig({
-        projectRoot: root,
-        pluginsEnabled: false,
-        mcpServers: [],
-        runtimeConfig: officialRuntime({
-          model: 'gpt-5.6-terra',
-          modelReasoningEffort: 'ultra',
-          fastMode: true
-        })
-      })
-      config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
-      expect(config.model).toBe('gpt-5.6-terra')
-      expect(config.model_reasoning_effort).toBe('ultra')
-      expect(config.service_tier).toBe('priority')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

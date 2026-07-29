@@ -61,7 +61,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     field(:continued_from_job_id, :integer)
     field(:workspace_owner_job_id, :integer)
     field(:runtime_thread_id, :string)
-    field(:codex_account_id, :string, default: "aigateway")
     field(:title, :string)
     field(:task, :string)
     field(:reply_route, :map, default: %{})
@@ -93,7 +92,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :continued_from_job_id,
       :workspace_owner_job_id,
       :runtime_thread_id,
-      :codex_account_id,
       :title,
       :task,
       :reply_route,
@@ -114,7 +112,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :continued_from_job_id,
       :workspace_owner_job_id,
       :runtime_thread_id,
-      :codex_account_id,
       :title,
       :workspace_template_id,
       :status
@@ -123,7 +120,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :agent_uid,
       :owner_session_id,
       :workspace_owner_job_id,
-      :codex_account_id,
       :reply_route,
       :attempts,
       :status,

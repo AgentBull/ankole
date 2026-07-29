@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Providers.JinaReader do
     label(%{"default" => "Jina Reader", "zh-Hans-CN" => "Jina Reader"})
     base_url("https://r.jina.ai", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

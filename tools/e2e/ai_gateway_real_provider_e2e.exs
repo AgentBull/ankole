@@ -61,6 +61,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
+  alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
   alias AnkoleWeb.AIGatewayTokens
@@ -105,6 +106,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     Environment:
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter LLM, embedding, and rerank
+      OPEN_ROUTER_API_KEY2                        Optional second OpenRouter pool credential
       AIGATEWAY_E2E_IMAGE_PATH                    Optional local PNG, JPEG, or WebP input
       JINA_API_KEY                                Jina embeddings and rerank
       GOOGLE_AI_STUDIO_API_KEY                    Google AI Studio OpenAI-compatible API
@@ -188,9 +190,20 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp credentials_for!(providers) do
-    Map.new(providers, fn provider ->
-      {provider, required_env(credential_env_names(provider), provider)}
-    end)
+    credentials =
+      Map.new(providers, fn provider ->
+        {provider, required_env(credential_env_names(provider), provider)}
+      end)
+
+    if :openrouter in providers do
+      Map.put(
+        credentials,
+        :openrouter_secondary,
+        optional_env(["OPEN_ROUTER_API_KEY2", "OPENROUTER_API_KEY2"])
+      )
+    else
+      credentials
+    end
   end
 
   defp credential_env_names(:openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
@@ -206,17 +219,30 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     providers
     |> Enum.reduce(%{suffix: suffix}, fn
-      :openrouter, setup -> setup_openrouter(setup, credentials.openrouter)
-      :jina, setup -> setup_jina(setup, credentials.jina)
-      :google, setup -> setup_google(setup, credentials.google)
-      :alibaba_cn, setup -> setup_alibaba_cn(setup, credentials.alibaba_cn)
-      :volcengine_ark, setup -> setup_volcengine_ark(setup, credentials.volcengine_ark)
-      :xiaomi_mimo, setup -> setup_xiaomi_mimo(setup, credentials.xiaomi_mimo)
-      :zai_coding_plan, setup -> setup_zai_coding_plan(setup, credentials.zai_coding_plan)
+      :openrouter, setup ->
+        setup_openrouter(setup, credentials.openrouter, credentials.openrouter_secondary)
+
+      :jina, setup ->
+        setup_jina(setup, credentials.jina)
+
+      :google, setup ->
+        setup_google(setup, credentials.google)
+
+      :alibaba_cn, setup ->
+        setup_alibaba_cn(setup, credentials.alibaba_cn)
+
+      :volcengine_ark, setup ->
+        setup_volcengine_ark(setup, credentials.volcengine_ark)
+
+      :xiaomi_mimo, setup ->
+        setup_xiaomi_mimo(setup, credentials.xiaomi_mimo)
+
+      :zai_coding_plan, setup ->
+        setup_zai_coding_plan(setup, credentials.zai_coding_plan)
     end)
   end
 
-  defp setup_openrouter(%{suffix: suffix} = setup, credential) do
+  defp setup_openrouter(%{suffix: suffix} = setup, credential, secondary_credential) do
     provider_id = "e2e-openrouter-#{suffix}"
     llm_model = @openrouter_llm_model
     embedding_model = @openrouter_embedding_model
@@ -226,7 +252,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       provider_id: provider_id,
       provider_kind: "openrouter",
       base_url: "https://openrouter.ai/api/v1",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent =
@@ -266,6 +292,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     setup
     |> Map.put(:openrouter_provider, provider_id)
     |> Map.put(:openrouter_agent, agent)
+    |> Map.put(:openrouter_primary_credential, credential)
+    |> Map.put(:openrouter_secondary_credential, secondary_credential)
     |> Map.put(:openrouter_llm_model, llm_model)
     |> Map.put(:openrouter_vision_model, @openrouter_vision_model)
     |> Map.put(:openrouter_gemini_image_model, @openrouter_gemini_image_model)
@@ -286,16 +314,16 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       # providers. This live smoke row pins Jina to HTTP/1 because Jina's edge
       # has historically been more predictable over HTTP/1.1 for this probe.
       connection_options: %{
-        "api_key" => credential,
         "transport" => %{"http_versions" => ["h1"], "compression" => ["zstd", "br", "gzip"]}
-      }
+      },
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     create_provider!(%{
       provider_id: search_provider_id,
       provider_kind: "jina_search",
       base_url: "https://s.jina.ai",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent =
@@ -332,7 +360,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       provider_id: provider_id,
       provider_kind: "google_ai_studio_openai",
       base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent = create_agent!("e2e-google-agent-#{suffix}", %{})
@@ -351,7 +379,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "alibaba_cn",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent = create_agent!("e2e-alibaba-cn-agent-#{suffix}", %{})
@@ -370,7 +398,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "volcengine_ark",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent = create_agent!("e2e-volcengine-ark-agent-#{suffix}", %{})
@@ -389,7 +417,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "xiaomi_mimo",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent = create_agent!("e2e-xiaomi-mimo-agent-#{suffix}", %{})
@@ -408,7 +436,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "zai_coding_plan",
-      connection_options: %{"api_key" => credential}
+      credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => credential}]}
     })
 
     agent = create_agent!("e2e-zai-coding-plan-agent-#{suffix}", %{})
@@ -425,6 +453,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     %{
       openrouter_provider: "fake-openrouter",
       openrouter_agent: %{uid: "fake-openrouter-agent"},
+      openrouter_primary_credential: "fake-openrouter-primary",
+      openrouter_secondary_credential: "fake-openrouter-secondary",
       openrouter_llm_model: "fake-openrouter-model",
       openrouter_vision_model: "fake-openrouter-vision-model",
       openrouter_gemini_image_model: "fake-openrouter-gemini-image-model",
@@ -460,6 +490,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
          %{
            openrouter_agent: agent,
            openrouter_provider: provider,
+           openrouter_primary_credential: primary_credential,
+           openrouter_secondary_credential: secondary_credential,
            openrouter_llm_model: llm_model,
            openrouter_vision_model: _vision_model,
            openrouter_gemini_image_model: gemini_image_model,
@@ -469,7 +501,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
          },
          image
        ) do
-    [
+    openrouter_cases = [
       {"openrouter.models_http_agent_catalog", fn -> case_models_http(agent) end},
       {"openrouter.llm_alias_direct_text", fn -> case_llm_direct(agent, "primary") end},
       {"openrouter.llm_explicit_direct_text",
@@ -500,7 +532,6 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
            "partial_images" => 1,
            "quality" => "high",
            "background" => "opaque",
-           "output_compression" => 80,
            "moderation" => "low"
          })
        end},
@@ -531,6 +562,22 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        end}
       | cases
     ]
+
+    if is_binary(secondary_credential) and secondary_credential != "" do
+      [
+        {"openrouter.credential_pool_exhaustion_switch",
+         fn ->
+           case_openrouter_credential_pool(
+             primary_credential,
+             secondary_credential,
+             llm_model
+           )
+         end}
+        | openrouter_cases
+      ]
+    else
+      openrouter_cases
+    end
   end
 
   defp add_openrouter_cases(cases, _setup, _image), do: cases
@@ -1199,6 +1246,76 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     summarize_concurrent_results(run_concurrent!(jobs))
   end
 
+  defp case_openrouter_credential_pool(primary_credential, secondary_credential, llm_model) do
+    suffix = unique_suffix()
+    provider_id = "e2e-openrouter-pool-#{suffix}"
+
+    provider =
+      create_provider!(%{
+        provider_id: provider_id,
+        provider_kind: "openrouter",
+        base_url: "https://openrouter.ai/api/v1",
+        credential_pool: %{
+          "strategy" => "fill_first",
+          "entries" => [
+            %{
+              "id" => "primary-real",
+              "label" => "Primary",
+              "api_key" => primary_credential
+            },
+            %{
+              "id" => "secondary-real",
+              "label" => "Secondary",
+              "api_key" => secondary_credential
+            }
+          ]
+        }
+      })
+
+    :ok =
+      CredentialPool.mark_exhausted(
+        provider.id,
+        "primary-real",
+        429,
+        %{},
+        %{"code" => "e2e_cooldown"}
+      )
+
+    agent = create_agent!("e2e-openrouter-pool-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: llm_model
+    })
+
+    {:ok, response} =
+      AIGateway.create_response(agent.uid, %{
+        "model" => "primary",
+        "input" => "Say hello in one short sentence.",
+        "max_output_tokens" => 512,
+        "temperature" => 0
+      })
+
+    response_summary = summarize_llm_response(response.body)
+
+    {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+
+    require!(by_id["primary-real"]["status"] == "exhausted", "primary status mismatch")
+    require!(by_id["primary-real"]["request_count"] == 0, "primary request count mismatch")
+    require!(by_id["secondary-real"]["status"] == "ok", "secondary status mismatch")
+    require!(by_id["secondary-real"]["request_count"] == 1, "secondary request count mismatch")
+
+    %{
+      model: response_summary.model,
+      output_chars: response_summary.output_chars,
+      primary_request_count: by_id["primary-real"]["request_count"],
+      primary_status: by_id["primary-real"]["status"],
+      secondary_request_count: by_id["secondary-real"]["request_count"],
+      secondary_status: by_id["secondary-real"]["status"]
+    }
+  end
+
   defp case_openrouter_chaos_mixed(provider, llm_model, embedding_model, rerank_model, image) do
     suffix = unique_suffix()
     agent = create_agent!("e2e-openrouter-chaos-#{suffix}", %{})
@@ -1562,6 +1679,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       end
     end) ||
       raise "missing #{provider} credential; set #{Enum.join(names, " or ")} or use --providers=available"
+  end
+
+  defp optional_env(names) do
+    Enum.find_value(names, fn name ->
+      case System.get_env(name) do
+        value when is_binary(value) and value != "" -> value
+        _value -> nil
+      end
+    end)
   end
 
   defp require!(true, _message), do: :ok

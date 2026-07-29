@@ -109,11 +109,17 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       const tools = toolByName
         ? Object.fromEntries(
             Array.from(toolByName.values()).map(t => [
-              t.name,
+              toolIdentity(t.namespace, t.name),
               {
                 name: t.name,
                 description: t.description,
                 parameters: t.schema,
+                ...(t.jsonSchema ? { jsonSchema: t.jsonSchema } : {}),
+                ...(t.namespace ? { namespace: t.namespace } : {}),
+                ...(t.namespaceDescription !== undefined ? { namespaceDescription: t.namespaceDescription } : {}),
+                ...(t.deferLoading ? { deferLoading: true } : {}),
+                ...(t.toolSearchText ? { toolSearchText: t.toolSearchText } : {}),
+                allowedCallers: programmaticCallers(t),
                 execute: async (args: unknown, opts: { toolCallID: string }) => {
                   return t.execute(opts.toolCallID, args as never, config.abortSignal)
                 }
@@ -138,6 +144,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
               messages: pendingMessages,
               tools: tools as never,
               hostedTools: config.hostedTools,
+              programmaticToolCalling: true,
               maxOutputTokens: config.maxTokens,
               temperature: config.temperature,
               text: config.text
@@ -304,14 +311,24 @@ function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
   const byName = new Map<string, AgentTool>()
 
   for (const tool of tools) {
-    if (byName.has(tool.name)) {
-      throw new Error(`duplicate tool name: ${tool.name}`)
+    const identity = toolIdentity(tool.namespace, tool.name)
+    if (byName.has(identity)) {
+      throw new Error(`duplicate tool name: ${identity}`)
     }
 
-    byName.set(tool.name, tool)
+    byName.set(identity, tool)
   }
 
   return byName
+}
+
+function toolIdentity(namespace: string | undefined, name: string): string {
+  return namespace ? `${namespace}.${name}` : name
+}
+
+function programmaticCallers(tool: AgentTool): Array<'direct' | 'programmatic'> {
+  if (tool.allowedCallers) return tool.allowedCallers
+  return tool.isReadOnly === true && tool.isDestructive !== true ? ['direct', 'programmatic'] : ['direct']
 }
 
 /**
@@ -444,7 +461,7 @@ function canExecuteToolCallsInParallel(toolCalls: ToolCall[], toolByName: Map<st
  * Checks the execution policy for one model-requested tool call.
  */
 function canExecuteToolCallInParallel(toolCall: ToolCall, toolByName: Map<string, AgentTool> | undefined): boolean {
-  const tool = toolByName?.get(toolCall.name)
+  const tool = toolByName?.get(toolIdentity(toolCall.namespace, toolCall.name))
   return tool?.executionMode === 'parallel' && tool.isReadOnly === true && tool.isDestructive !== true
 }
 
@@ -461,7 +478,7 @@ async function executeToolCall(
   config: AgentLoopConfig,
   emitPresentationEvent: PresentationEmitter
 ): Promise<ExecutedToolCall> {
-  const tool = toolByName?.get(toolCall.name)
+  const tool = toolByName?.get(toolIdentity(toolCall.namespace, toolCall.name))
 
   if (!tool) {
     const message = `Unknown tool: ${toolCall.name}`
@@ -476,7 +493,8 @@ async function executeToolCall(
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
-        result: wrapUntrustedToolOutput(formatToolError(message))
+        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
       followUpMessages: [],
       completeActorEventIDs: [],
@@ -506,7 +524,8 @@ async function executeToolCall(
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
-        result: wrapUntrustedToolOutput(formatToolError(message))
+        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
       followUpMessages: [],
       completeActorEventIDs: [],
@@ -597,7 +616,8 @@ async function executeToolCall(
     resultMsg: {
       role: 'tool',
       toolCallID: toolCall.id,
-      result: wrapUntrustedToolOutput(resultText || safeJSONStringify(toolResult.details))
+      result: toolOutputForCaller(resultText || safeJSONStringify(toolResult.details), toolCall.caller),
+      ...(toolCall.caller ? { caller: toolCall.caller } : {})
     },
     followUpMessages,
     completeActorEventIDs: toolResult.completeActorEventIDs ?? [],
@@ -729,6 +749,12 @@ function formatToolError(message: string): string {
 function wrapUntrustedToolOutput(text: string): string {
   const nonce = randomBytes(8).toString('hex')
   return `<ankole_untrusted_tool_output nonce="${nonce}">\n${text}\n</ankole_untrusted_tool_output nonce="${nonce}">`
+}
+
+function toolOutputForCaller(text: string, caller: ToolCall['caller']): string {
+  // AIGateway removes nested program outputs from the model transcript and
+  // sends them only to the isolated program runtime. Keep the value decodable.
+  return caller?.type === 'program' ? text : wrapUntrustedToolOutput(text)
 }
 
 function repeatedToolFailureNudges(results: ExecutedToolCall[], state: RepeatedToolFailureState): UserMessage[] {

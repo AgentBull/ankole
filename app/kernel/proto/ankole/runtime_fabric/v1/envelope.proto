@@ -149,6 +149,10 @@ message TurnModelRef {
   // Provider model output-token ceiling for the worker-side defensive clamp.
   // Absent means the control plane has no limit metadata for this model.
   optional uint32 max_completion_tokens = 7;
+  // Request-scoped provider settings from the resolved profile.
+  bytes provider_options_json = 8;
+  bool supports_parallel_tool_calls = 9;
+  optional uint32 context_length = 10;
 }
 
 message MailboxUpdated {

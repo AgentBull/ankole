@@ -47,7 +47,7 @@ This is the rule that gates every commit, and the one most contributions get wro
 - Every commit adds exactly one root `CHANGELOG.md` version.
 - That version describes every retained source, test, doc, config, schema, migration, manifest, lockfile, and required generated-file change in that commit.
 - One version must not span multiple commits; one commit must not contain multiple versions.
-- Versions use `YY.MM.N`, where `N` is the monthly sequence starting at `0`.
+- Versions use `MAJOR.MINOR.PATCH`, with no leading zeroes. Increment `MINOR` and reset `PATCH` to `0` for a feature-level change. Increment `PATCH` for a dependency upgrade, bug fix, documentation change, or other maintenance change that does not add or change a product capability. Use the minor increment when one commit contains both types. Change `MAJOR` only after an explicit maintainer decision.
 - Prepare the entry from the exact staged diff immediately before committing.
 
 The changelog is the *sole* changelog and version unit — there is no separate release notes file. Treat it as part of the change, not as paperwork afterward.

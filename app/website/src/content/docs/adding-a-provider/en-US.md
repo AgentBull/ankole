@@ -21,12 +21,13 @@ defmodule Ankole.AIGateway.Providers.MyProvider do
     label(%{"default" => "My Provider"})
     base_url("https://api.example.com/v1")
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
 
     language_model do
       upstream(:sse)
       api_resolver(:openai_responses)
       prepare(:prepare_language_model)
+      supports_parallel_tool_calls()
     end
   end
 
@@ -58,7 +59,7 @@ The registry resolves a provider by `provider_kind`, looks up the capability for
 A `Setting` declares one operator or request option:
 
 ```elixir
-setting(:api_key, encrypted: true)
+setting(:api_key, encrypted: true, scope: :credential)
 setting(:organization, advanced: true)
 setting(:reasoningEffort, type: :select, default: "high",
        options: ["minimal", "low", "medium", "high", "xhigh"], scope: :request)
@@ -71,11 +72,13 @@ setting(:reasoningEffort, type: :select, default: "high",
 | `default` | the default value |
 | `options` | for `:select`, the allowed values |
 | `required?` | whether the operator must supply it |
-| `encrypted?` | storage metadata — the value is encrypted at rest; provider code reads the decrypted value |
+| `encrypted?` | storage metadata for a credential value that is encrypted at rest |
 | `advanced?` | presentation metadata for Console forms; does not change validation or runtime |
-| `scope` | `:connection` (per-provider) or `:request` (per-model-profile) |
+| `scope` | `:credential` (per pool member), `:connection` (per provider row), or `:request` (per model profile) |
 
-`encrypted?` is storage metadata only. Provider code reads the decrypted value from the same settings map; there is no separate credential abstraction. `advanced?` is presentation only — it hides the field behind an "advanced" toggle in the Console; it does not affect validation or behavior.
+Every provider row has a credential pool, including the one-member case. The resolver selects one healthy member and decrypts its `:credential` settings before it calls the prepare function. Connection settings such as endpoint and custom headers stay shared by the full row. Request settings come from the model profile. The prepare function reads all three scopes from the resolved settings map and does not implement pool selection.
+
+`advanced?` is presentation only. It hides the field behind an advanced toggle in the Console and does not change validation or behavior.
 
 ## Capabilities
 
@@ -86,6 +89,8 @@ language_model do
   upstream(:sse)
   api_resolver(:openai_responses)
   prepare(:prepare_language_model)
+  supports_parallel_tool_calls()
+  supports_native_image_generation()
 end
 ```
 
@@ -96,6 +101,8 @@ end
 | `api_resolver` | the Rust-side resolver atom (e.g. `:openai_responses`) that owns encoding and transport |
 | `prepare` | the Elixir function that builds the prepared request |
 | `timeout_ms` | optional per-capability timeout |
+| `supports_parallel_tool_calls?` | whether the provider accepts parallel tool calls |
+| `supports_native_image_generation?` | whether an LLM can execute the public image tool without a hosted `image_generate` profile |
 
 The six capability kinds map to the external names the runtime uses: `language_model` → `"llm"`, `embedding_model` → `"embedding"`, `rerank_model` → `"rerank"`, and the three web/image kinds are unchanged. A provider that serves only LLMs declares only `language_model`; a provider that serves LLMs and embeddings declares both.
 
@@ -112,7 +119,7 @@ def prepare_language_model(%PrepareContext{} = context) do
 end
 ```
 
-This is where provider differences live — URL construction, auth headers, body shaping, the quirks of a specific upstream API. The prepare function is the provider's actual work; the DSL declaration is just how that work is discovered and routed.
+This is where provider differences live — URL construction, auth headers, body shaping, and the rules of a specific upstream API. The prepare function is the provider's actual work; the DSL declaration is how that work is discovered and routed. Credential retry remains outside this function: the control plane can select another member, rebuild the request, and ask the kernel to perform one new transport attempt.
 
 ## Register the provider
 

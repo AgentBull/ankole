@@ -2,6 +2,9 @@ import type { JsonObject as JSONObject } from '@pleisto/active-support'
 
 export type CodexRecoveryFailure = 'transient' | 'context_overflow' | 'unknown_session' | 'terminal'
 export type CodexRecoveryStage = 'resume' | 'turn'
+export type CodexCredentialPoolExhaustion = Readonly<{
+  retryAt?: string
+}>
 
 export type CodexRecoveryState = Readonly<{
   transientRetries: number
@@ -99,6 +102,41 @@ export function classifyCodexRecoveryFailure(error: JSONObject): CodexRecoveryFa
   return 'terminal'
 }
 
+/**
+ * Finds the AIGateway credential-pool terminal that Codex projects through its
+ * own error vocabulary.
+ *
+ * Every Codex provider request in this runtime targets AIGateway. A terminal
+ * 429 therefore means that the control plane already tried one bounded pool
+ * lap, not that this worker should start another local retry loop.
+ */
+export function codexCredentialPoolExhaustion(error: JSONObject): CodexCredentialPoolExhaustion | undefined {
+  const message = `${stringValue(error.message) ?? ''} ${stringValue(error.additionalDetails) ?? ''}`
+  const normalizedMessage = message.toLowerCase()
+  const info = error.codexErrorInfo
+  const infoName =
+    typeof info === 'string'
+      ? info
+      : info && typeof info === 'object' && !Array.isArray(info)
+        ? Object.keys(info)[0]
+        : undefined
+  const status = codexErrorHTTPStatus(info)
+
+  if (
+    status !== 429 &&
+    infoName !== 'usageLimitExceeded' &&
+    infoName !== 'usage_limit_exceeded' &&
+    !normalizedMessage.includes('credential_pool_exhausted') &&
+    !normalizedMessage.includes('credential pool exhausted') &&
+    !normalizedMessage.includes('credential pool is exhausted')
+  ) {
+    return undefined
+  }
+
+  const retryAt = retryAtFromMessage(message)
+  return retryAt ? { retryAt } : {}
+}
+
 function boundedTransition(
   state: CodexRecoveryState,
   counter: keyof CodexRecoveryState,
@@ -115,4 +153,72 @@ function transition(action: CodexRecoveryTransition['action'], nextState: CodexR
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined
+}
+
+function codexErrorHTTPStatus(info: unknown): number | undefined {
+  if (!info || typeof info !== 'object' || Array.isArray(info)) return undefined
+  const variant = Object.values(info)[0]
+  if (!variant || typeof variant !== 'object' || Array.isArray(variant)) return undefined
+  const value = variant as Record<string, unknown>
+  const status = value.httpStatusCode ?? value.http_status_code
+  return typeof status === 'number' && Number.isInteger(status) ? status : undefined
+}
+
+function retryAtFromMessage(message: string): string | undefined {
+  const machineTimestamp =
+    message.match(/retry_at(?:["'\s:=]+)(\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2}))/i)?.[1] ??
+    message.match(/retry at (\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2}))/i)?.[1]
+  if (machineTimestamp) return validISOTimestamp(machineTimestamp)
+
+  const dated = message.match(
+    /try again at ([A-Z][a-z]{2}) (\d{1,2})(?:st|nd|rd|th), (\d{4}) (\d{1,2}):(\d{2}) (AM|PM)/i
+  )
+  if (dated) {
+    const [, monthName, dayText, yearText, hourText, minuteText, meridiem] = dated
+    const month = monthIndex(monthName!)
+    if (month !== undefined) {
+      const date = new Date(
+        Number(yearText),
+        month,
+        Number(dayText),
+        hour24(Number(hourText), meridiem!),
+        Number(minuteText),
+        0,
+        0
+      )
+      if (!Number.isNaN(date.getTime())) return date.toISOString()
+    }
+  }
+
+  const sameDay = message.match(/try again at (\d{1,2}):(\d{2}) (AM|PM)/i)
+  if (!sameDay) return undefined
+  const now = new Date()
+  const date = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+    hour24(Number(sameDay[1]), sameDay[3]!),
+    Number(sameDay[2]),
+    0,
+    0
+  )
+  if (date.getTime() < now.getTime() - 60_000) date.setDate(date.getDate() + 1)
+  return date.toISOString()
+}
+
+function validISOTimestamp(value: string): string | undefined {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
+function monthIndex(name: string): number | undefined {
+  const index = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'].indexOf(
+    name.toLowerCase()
+  )
+  return index >= 0 ? index : undefined
+}
+
+function hour24(hour: number, meridiem: string): number {
+  const normalized = hour % 12
+  return meridiem.toUpperCase() === 'PM' ? normalized + 12 : normalized
 }

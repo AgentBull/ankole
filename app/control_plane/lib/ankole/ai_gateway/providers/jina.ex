@@ -11,7 +11,7 @@ defmodule Ankole.AIGateway.Providers.Jina do
     label(%{"default" => "Jina Embedding & Rerank", "zh-Hans-CN" => "Jina 嵌入与重排"})
     base_url("https://api.jina.ai/v1", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

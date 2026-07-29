@@ -115,7 +115,7 @@ The Elixir control plane:
 - changes Job state and counts attempts
 - dispatches, steers, stops, and completes Jobs
 - checks the optional workspace template
-- selects the Agent's Codex runtime and snapshots its model settings
+- resolves the Agent's current `coding` Model Profile for each worker Turn
 - selects workers and checks turn fences
 - notifies the originating conversation
 
@@ -155,27 +155,18 @@ It stores these request fields:
 - `title`
 - `task`
 
-It stores these execution fields:
-
-- `codex_account_id`
-- `runtime_thread_id`
+It stores `runtime_thread_id` as its execution identity.
 
 It stores one optional `workspace_template_id`.
-It also stores status, attempts, timestamps, result, error, and selected runtime
-details.
+It also stores status, attempts, timestamps, result, error, and metadata.
 
-The selected runtime details include a creation-time snapshot of the effective
-Background Agent Jobs Model Profile. Its persisted key and API name remain
-`coding` until that stored contract is migrated. For AIGateway, the snapshot
-contains the Codex model name, the exact provider and model selector, all
-provider options, the optional context length, and the provider's
-parallel-tool-call capability. For an official subscription, it contains the
-Codex model, reasoning effort, and Fast Mode.
-
-A new Job and a respawned Job each resolve the Model Profile that is active when
-the control plane creates that Job. The existing `heavy` fallback applies when
-`coding` is absent. Creation fails when neither profile is configured. A retry
-or an idempotent replay of the same Job uses its stored snapshot.
+A Job does not store a second copy of its Model Profile or provider
+credentials. A new or respawned Job verifies that the effective `coding` Model
+Profile exists before it stores the request. The existing `heavy` fallback
+applies when `coding` is absent. Each worker Turn then resolves the current
+profile and sends its model, provider selector, provider options, context
+length, and parallel-tool-call capability in `model_ref`. This lets an
+operator repair a queued or retried Job by changing the Agent profile.
 
 Each execution and resume reads the Agent's current enabled Skills. Skills with
 an absent `ankole-runtime` value, `any`, or `background_job` are available.
@@ -243,6 +234,12 @@ The runner marks the exact Job path as trusted for that process.
 Agent-level configuration contains stable worker and provider defaults. Job
 configuration contains model, reasoning, Plugin, MCP, and safety choices.
 
+Agent Computer enables Codex native code mode for each Job. Code mode gives a
+Job one isolated JavaScript executor that can call eligible local tools,
+including namespaced MCP tools. It is the Codex client-side programmatic
+calling path. It is not the Responses API `programmatic_tool_calling` wire
+type, which Codex 0.146 does not consume.
+
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
 reasoning effort. The runner never sends `coding` to Codex. It attaches the
@@ -251,13 +248,6 @@ stored parallel-tool-call capability to each AIGateway request. AIGateway
 applies that binding before it resolves the provider. It sets
 `parallel_tool_calls` from the provider capability unless Codex marks the
 request as Responses Lite.
-
-For an official subscription, the runner writes `model` and
-`model_reasoning_effort` from the Job snapshot. It writes
-`service_tier = "priority"` only when Fast Mode is on. It removes
-`service_tier` when Fast Mode is off. Agent Computer writes native Codex
-authentication into the Agent Codex Home. Credential refresh uses
-compare-and-swap when it writes an updated credential.
 
 NFS makes the same files visible to several workers. It does not lock an Agent
 or coordinate SQLite. Worker placement keeps one Agent's live work on one ready
@@ -385,13 +375,9 @@ The dispatch event targets this actor session:
 Every stored Job Session ID uses the `job:` prefix. Repeating the same start
 request returns the original Job and event.
 
-Live Jobs for one Agent use the same Codex runtime mode. Official-subscription
-Jobs keep their existing account pin. Ankole rejects a switch between
-AIGateway and an official subscription until the Agent has no live Job
-delivery.
-
-This keeps the shared Codex state on the selected worker. It does not add a
-filesystem lock.
+Each Job Turn uses the Agent's current AIGateway provider binding. Jobs for one
+Agent can use different provider rows without changing the shared Codex Home
+or adding a filesystem lock.
 
 ## Respawn a Terminal Job Once
 

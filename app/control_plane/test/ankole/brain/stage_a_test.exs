@@ -476,7 +476,9 @@ defmodule Ankole.Brain.StageATest do
                provider_id: provider_id,
                provider_kind: "openrouter",
                base_url: "#{base_url}/v1",
-               connection_options: %{"api_key" => "sk-brain-test"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-brain-test"}]
+               }
              })
 
     assert {:ok, _profile} =

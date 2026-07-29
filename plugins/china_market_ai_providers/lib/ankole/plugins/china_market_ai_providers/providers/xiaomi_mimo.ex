@@ -16,9 +16,16 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
     label(%{"default" => "Xiaomi MiMo", "zh-Hans-CN" => "小米 MiMo"})
     base_url(@pay_as_you_go_base_url, advanced: true)
 
-    setting(:api_key, encrypted: true)
-    setting(:access_token, encrypted: true)
-    setting(:auth_mode, default: "api_key")
+    setting(:api_key, encrypted: true, scope: :credential)
+    setting(:access_token, encrypted: true, scope: :credential)
+
+    setting(:auth_mode,
+      type: :select,
+      default: "api_key",
+      options: ~w(api_key auth_token oauth),
+      scope: :credential
+    )
+
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
     setting(:anthropic_version, default: @anthropic_version)

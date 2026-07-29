@@ -309,6 +309,72 @@ mod tests {
         }
     }
 
+    #[test]
+    fn websocket_message_too_big_close_maps_to_provider_status_413() {
+        let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+
+        thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut websocket = accept(socket).unwrap();
+            websocket
+                .send(Message::Close(Some(
+                    tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                        code: CloseCode::Size,
+                        reason: "message too big".into(),
+                    },
+                )))
+                .unwrap();
+        });
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let sink: EventSink = Arc::new(move |event| {
+            event_tx.send(event).unwrap();
+        });
+
+        let spec = format!(
+            r#"{{
+              "api_resolver": "openai_responses",
+              "upstream": {{
+                "kind": "websocket_text",
+                "method": "GET",
+                "url": "ws://{address}/v1/responses",
+                "headers": [],
+                "timeout": {{"connect_ms": 1000, "first_byte_ms": 1000, "idle_ms": 1000}},
+                "transport": {{"http_versions": ["h1"], "compression": []}}
+              }},
+              "downstream": "websocket_text",
+              "response_context": {{"model": "gpt-test", "request": {{}}}}
+            }}"#
+        );
+
+        let handle = start_stream(&spec, sink).unwrap();
+
+        match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
+            StreamEvent::Ready(meta) => assert_eq!(meta["upstream_kind"], "websocket_text"),
+            event => panic!("expected ready event, got {event:?}"),
+        }
+
+        handle.read(2).unwrap();
+        let error_event = chunk_event(&event_rx);
+        let failed_event = chunk_event(&event_rx);
+
+        assert_eq!(error_event["type"], "error");
+        assert_eq!(
+            error_event["error"]["code"],
+            "websocket_message_too_large"
+        );
+        assert_eq!(failed_event["type"], "response.failed");
+
+        match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
+            StreamEvent::Error(error) => {
+                assert_eq!(error["code"], "websocket_message_too_large");
+                assert_eq!(error["provider_status"], 413);
+            }
+            event => panic!("expected terminal error event, got {event:?}"),
+        }
+    }
+
     fn chunk_event(event_rx: &mpsc::Receiver<StreamEvent>) -> Value {
         match event_rx.recv_timeout(Duration::from_secs(1)).unwrap() {
             StreamEvent::Chunk {

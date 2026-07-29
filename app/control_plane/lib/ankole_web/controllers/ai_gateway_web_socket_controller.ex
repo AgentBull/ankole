@@ -6,6 +6,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
   use AnkoleWeb, :controller
 
   alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.AIGateway.RequestContext
 
   def responses(conn, _params) do
     with :ok <- WebSockAdapter.UpgradeValidation.validate_upgrade(conn),
@@ -13,7 +14,8 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
       socket_state =
         %{
           subject_uid: conn.assigns.current_ai_gateway_subject_uid,
-          subject_type: conn.assigns.current_ai_gateway_subject_type
+          subject_type: conn.assigns.current_ai_gateway_subject_type,
+          request_context: RequestContext.from_headers(conn.req_headers, "websocket")
         }
         |> maybe_put_model_binding(binding)
 

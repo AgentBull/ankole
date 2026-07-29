@@ -141,31 +141,6 @@ message AgentPluginListResponse {
   repeated AgentPluginCatalogEntry agent_plugins = 1;
 }
 
-// ===== codex account =====
-
-message CodexAccountResolveRequest {
-  string job_id = 1;
-}
-
-message CodexAccountResolveResponse {
-  string account_id = 1;
-  // Opaque codex auth.json contents; already a JSON string on both ends.
-  string auth_json = 2;
-  string auth_hash = 3;
-  string model = 4;
-  string model_reasoning_effort = 5;
-  bool fast_mode = 6;
-}
-
-message CodexAccountAuthUpdateRequest {
-  string job_id = 1;
-  string auth_json = 2;
-}
-
-message CodexAccountAuthUpdateResponse {
-  string account_id = 1;
-}
-
 // ===== background_agent_job =====
 
 message BackgroundAgentJobCreateRequest {
@@ -279,7 +254,8 @@ message BackgroundAgentJobResponse {
   string source_tool_call_id = 5;
   string status = 6;
   string runtime_thread_id = 7;
-  string codex_account_id = 8;
+  reserved 8;
+  reserved "codex_account_id";
   string title = 9;
   string task = 10;
   bytes reply_route_json = 13;

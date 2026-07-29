@@ -1,6 +1,32 @@
 # Changelog
 
-## Version 26.07.49 (2026-07-28)
+## Version 0.50.0 (2026-07-29)
+
+- Switch Ankole releases to Semantic Versioning. The pending release is now `0.50.0`, and each historical `26.07.N` entry is now `0.N.0`. A feature-level commit increments `MINOR` and resets `PATCH` to `0`; a dependency upgrade, bug fix, documentation change, or other maintenance commit increments `PATCH`; and `MAJOR` changes only after an explicit maintainer decision. Update the runtime image version check and historical migration references to use the new format.
+
+- Add checksum-pinned `kubectl` 1.36.3, AWS CLI 2.36.10, ClickHouse client 26.7.1.1315, MySQL client 9.7.2, and PostgreSQL client 18.4 to both Agent Computer base-image architectures. Take the MySQL executable from the digest-pinned official multi-architecture image because Oracle's Debian 13 client repository does not publish arm64 packages. Install only the ClickHouse and PostgreSQL client packages, copy only the MySQL client executable, and fail the image build if a database server entry point or package is present.
+
+- Move the base-image font build to the public `AgentBull/ankole-fonts` release pipeline. Its weekly workflow resolves the current IBM Plex Sans SC package, IBM Plex Mono SC and Fluent Emoji source commits, and latest ChillJinshuSong release; a content-derived tag prevents work when these sources are unchanged, while a 45-day empty commit prevents GitHub from disabling the public schedule after 60 inactive days. A changed source downloads and validates all faces, converts CFF serif files to reproducible TrueType files, and publishes the fonts, licenses, source manifest, and checksums. The base image now pins one release and its checksum-manifest digest, downloads the published files, verifies every asset, and keeps the existing fontconfig aliases without installing conversion tools or processing the 246 MB upstream archive.
+
+- Implement the official OpenAI `tool_search` and `defer_loading` semantics inside AIGateway for every downstream provider. Request planning strips `defer_loading` tools from the provider payload, unions tools already loaded through replayed `tool_search_output` items, and synthesizes one plain `tool_search` function whose description carries the searchable names within a fixed budget, so upstream providers only ever see ordinary function tools. `execution: "client"` follows the codex wire samples: the model call becomes a public `tool_search_call` item with a string `call_id` and the caller answers on its next request. `execution: "server"` searches the request-declared catalog inside the gateway with BM25 over Latin word tokens and Han bigrams, loads the matching subset, and continues the same public response through a provider continuation round; one public response renumbers events across rounds, sums usage, and reports an explicit `tool_search_rounds_exhausted` incomplete when a model keeps searching past the round budget. The non-streaming HTTP path rejects these requests because it has no loop owner. Production traces motivated the change: one Codex MCP catalog held 74 tools at about 15,700 resident tokens per request. Cover planning, both execution modes, rounds, mixed pending client calls, the round budget, and Chinese-query recall in unit tests, plus a two-turn real-provider test that discovers, loads, and calls a deferred tool end to end.
+
+- Implement the official Programmatic Tool Calling surface with a deterministic native runner. Tools that list `"programmatic"` in `allowed_callers` join one synthesized `program` function; programmatic-only tools leave the model-visible array. The kernel gains a `program_runner` crate feature: one DirtyCpu NIF call runs one program in a fresh bare `deno_core` isolate with per-tool async bindings, `text`/`image` output ops, frozen `Math.random` and `Date.now`, a heap limit, and a watchdog that terminates runaway programs. Pause and resume use replay with memoization, so no isolate outlives one request: an unanswered tool call stalls the event loop, the stalled batch becomes caller-tagged nested `function_call` items, and the next request replays the program with the recorded answers — a resumed program that completes hands its `program_output` to the model in a pre-provider round, and one that pauses again answers the client without any provider call. Nested caller items feed the replay memo and never reach the provider; fingerprint validation fails a resume loudly when bindings changed between requests. Cover the runner in Rust and Elixir unit tests and the full pause/resume cycle in stream tests plus a real-provider test that runs a program with two parallel nested calls across two turns.
+
+- Upgrade the Agent Computer image and contract fixtures to Codex 0.146.0, and regenerate the exact app-server TypeScript bindings from that release. Serve the Codex models manifest from AIGateway and switch the Codex job provider to command auth. `GET /models` with the `client_version` query Codex always sends now returns full model cards that reproduce the pinned codex fallback card (`model_info_from_slug`, rust-v0.146.0) with the unchanged vendored base instructions, and set `supports_search_tool` so Codex defers its first-party MCP tools behind its native client-side Tool Search. The generated job provider config replaces `env_key` with an `auth.command` that prints the same sandbox environment variable, because Codex refreshes the models manifest only for command-auth providers; the token caches for the sandbox lifetime. Cover the manifest shape against the Codex serde golden fields and the generated TOML auth table in the config tests.
+
+- Replace the Main Agent's model-facing MCP list, describe, and call meta-tools with deferred MCP namespaces. Agent Computer keeps raw identities for routing and applies the Codex 0.146 projection contract: exact raw allow/deny filters, model visibility, duplicate handling, sanitized namespaces and child names, deterministic 12-hex collision suffixes, a 64-character complete callable-name limit, initialize instructions as the namespace description, and Codex-compatible schema lowering. Main-Agent BM25 returns eight results by default and indexes canonical and raw names, title, description, server, instructions, and root schema fields. Every visible MCP child permits direct and programmatic calls; `readOnlyHint` controls parallel scheduling only. The Main Agent enables Programmatic Tool Calling by default, and AIGateway flattens namespace calls only at the provider boundary before it restores the public namespace form once for streaming and terminal output. Add a real Codex 0.146 differential test that registers one stdio server in both runtimes and compares the exact Tool Search output with the Main Agent catalog, plus wire, parsing, execution, MCP, stateful-loop, and stream regressions.
+
+- Enable Codex native code mode in every Background Agent Job project, including the safety override, so AIGateway-backed Jobs can combine top-level Tool Search with programmatic MCP calls. Keep the distinction explicit in the design documents: native Codex code mode supplies the Job's programmatic orchestration, while the Main Agent uses the official Responses Programmatic Tool Calling item contract. Add a real ChatGPT subscription scenario that verifies no local `auth.json` exists, checks the Job user-agent and native session both report Codex 0.146.0, checks Codex Tool Search and one `exec` with two MCP child calls in the native session JSONL, confirms the Job result and completion notification, and verifies that the Console projection exposes account metadata without any token. Classify every worker-owned `aigateway_websocket_*` failure as a retryable transport error before the existing `local_retryable` hint decides whether the Worker or durable actor-event redelivery owns that retry; this keeps a real provider stream stall from terminating the parent Turn before it creates the Job.
+
+- Reject stateful Responses requests whose provider wire cannot replay stored history. Stateful history is journaled as Responses items, and the Anthropic wire translation turns a bare `function_call` item into an empty user message, so a continued conversation with tool history failed upstream in the middle of a turn. The stateful request path now resolves the provider's language-model `api_resolver` and admits only `openai_responses` and `openai_chat_completions`; the Responses WebSocket reports other wires as `stateful_wire_unsupported` (status 422) at turn start, before any conversation or provider work. Stateless requests keep every wire, so compaction summarizer, vision-fallback, and Codex pass-through calls are unchanged. Record the wire contract in the AIGateway design document and cover the Claude rejection plus the stateless allowance in the dispatch tests.
+
+- Replace the separate ChatGPT subscription runtime with AIGateway v2 credential pools. Every provider row now holds encrypted credential entries and one of four selection strategies; AIGateway owns affinity, per-entry health and usage, bounded same-provider retries, upstream recovery times, and exact failure attribution. Add `chatgpt_subscription` as an ordinary Responses provider with device and browser OAuth, row-locked rotating-token refresh, Enterprise access tokens, Codex request identity and Responses Lite rules, SSE and WebSocket upstreams, FedRAMP headers, Cloudflare challenge diagnosis, and native image execution when no hosted image profile exists. Background Job Codex processes set the official internal Originator override to `codex_cli_rs`, and explicit provider identity settings take priority over inbound headers and built-in defaults. OAuth metadata uses the exact nested Codex account and plan claims and discards speculative aliases. The kernel still performs one transport attempt and returns only the safe `x-codex-*` and `cf-mitigated` headers; oversized WebSocket messages map to 413. A flag-day migration preserves old subscription credentials, rewrites coding profiles and live Jobs, maps Fast Mode to the priority service tier, and removes `CodexAccounts`, account RPCs and slots, Job account fields, Worker `auth.json` distribution and writeback, and the old Console account APIs. The Console, OpenAPI client, public documentation, and provider APIs now manage pool members and ChatGPT login. Normalize the public Responses string input to one Codex user-message item before subscription dispatch, because the Codex endpoint accepts only an input-item list. Strip caller metadata and other unsupported fields before ChatGPT Codex dispatch while AIGateway retains the metadata locally. Resolve the current `coding` Model Profile for every non-conversation Job Turn and carry its `model_ref` without recreating the removed Job-local profile copy or an AIGateway conversation. Expose the `max` and `ultra` reasoning effort values used by the confirmed models through the shared provider setting contract. Treat Codex `response.failed` events with the `server_is_overloaded` or `slow_down` code as the same retryable provider overload as an HTTP 5xx response. Rotate credentials only before provider output; after output, preserve the terminal failure and never replay the request. Reject image `output_compression` unless `output_format` is `jpeg` or `webp`, before either hosted or native execution. Add unit, migration, controller, runtime, Worker, kernel, and opt-in real-provider coverage for pool selection and exhaustion, including a two-credential OpenRouter switch, OAuth single-flight refresh, protocol transforms, retries, usage, images, and Codex Job routing. Add separate real-Worker subscription probes for the main Agent tool loop and the Background Agent Job Codex path. Keep the real Worker skill-overlay probe on the inline `brain-review` Skill instead of the background-job-only `pdf` Skill, and make its terminal-file probe use the real `replace` contract instead of a nonexistent `patch` replace mode. Make the real image path wait for both Entry materialization and the ActorEvent supplement. If a Feishu download crosses the four-second hard cap, refresh the still-open ActorEvent before finalized-batch dedup can discard the completed local path. Treat a repeated final attachment state with the same content hash as a no-op, so provider redelivery cannot postpone a ready ActorEvent.
+
+- Localize all four credential-pool strategy names in the Console list, editor, and save confirmation without changing their API values. Document the translated labels, stable values, and selection behavior in both website languages.
+
+- Enforce Feishu's five-table-per-card limit in the pure CardKit renderer. The first five typed table results keep native table components, later tables use bounded Markdown rows that preserve every label and value, and the final budget check independently rejects any future renderer path that exceeds the provider limit. Record provider error `11310` and the fallback rationale at the owning limit, and cover creation and incremental six-table boundaries so a small card cannot pass the byte and element budgets and then fail at Feishu with `table number over limit`.
+
+## Version 0.49.0 (2026-07-28)
 
 - Wait out an upstream outage instead of failing a Background Agent Job inside it. A retryable worker Turn failure on a Job session now waits on a fixed ladder from one minute to two hours between execution attempts, so the five-attempt budget spans roughly 3.7 hours; the previous 5–120-second exponential backoff let a production Job burn all attempts inside one 47-minute provider outage and fail. Ordinary actor events keep the short backoff because a user waits on them. Cover the ladder in the Job dispatch exhaustion test and record the wait contract in the Background Agent Job design document.
 
@@ -22,11 +48,11 @@
 
 - Compact AIGateway conversation history earlier and stop accepting a cut-off compaction summary silently. The default automatic-compaction cap drops from 120,000 to 100,000 tokens: production traces showed the cost of a long conversation grows with the tokens carried on every later request, and the 80,000–120,000 trigger range costs almost the same while a later trigger costs clearly more. The summarizer call now sets low reasoning effort explicitly, because the previous request let a high-effort model spend its reasoning inside the fixed 4,096-token output cap and two of nine production summaries ended exactly at that cap, truncated. The output reservation now scales with the summarizer's own context window up to 8,192 tokens, so a small-window summarizer keeps enough input render budget for the existing tighter context-error retry. When a provider reports the summary as length-truncated, the call retries once with a doubled reservation and falls back to the truncated text only when the retry itself fails; the checkpoint's summarizer metadata records the `truncated` flag. Update the dispatch tests for the new default cap, the reasoning effort, and the output reservation.
 
-## Version 26.07.48 (2026-07-28)
+## Version 0.48.0 (2026-07-28)
 
 - Serialize shared Codex Home setup for overlapping Background Agent Jobs from one Agent. Plugin installation, hook trust, and Skill configuration now finish for one Job before the next Job changes the same Plugin cache, while Jobs for different Agents and all post-setup execution remain concurrent. A stopped queued Job returns its Worker turn slot after finalization without waiting for active setup, but its skipped queue position keeps later Jobs behind that setup. Add regression coverage for same-Home serialization, cross-Agent concurrency, lock release after failure, prompt queued cancellation, and preserved queue order, and document the process-local queue's worker-placement boundary.
 
-## Version 26.07.47 (2026-07-27)
+## Version 0.47.0 (2026-07-27)
 
 - Keep the Agent Computer worker registry UNLOGGED and make heartbeat recovery complete. Worker heartbeats now carry runtime, version, capacity, available slots, and active-turn load; the kernel validates that snapshot, and the control plane rebuilds a missing authenticated worker row without weakening route or incarnation fences or hydrating the scheduler on every heartbeat. Update the RuntimeFabric contract and generated TypeScript codec, and add protocol, admission, and real Docker chaos coverage that deletes a live worker row and verifies that the same process recreates it on its next heartbeat without a restart.
 
@@ -44,7 +70,7 @@
 
 - Remove Schedule surfaces that had no user behavior: `stagger_ms`, `failure_policy`, and the `CronSchedule.failed` state. Keep `ScheduledEvent.failed` for a concrete terminal occurrence. Update the Schedule design document, protocol descriptors, generated clients, planner, schemas, projections, Console model, and regression coverage for same-slot replacement, active resume, rule round trips, terminal failure, concurrent fire and update, manual replay, deleted-name reuse, release reconciliation, timezone changes, and Checkback replacement.
 
-## Version 26.07.46 (2026-07-26)
+## Version 0.46.0 (2026-07-26)
 
 - Rebuild the Architecture guide as MDX and replace its unrendered Mermaid source block with one responsive, accessible architecture diagram. Use the current website homepage as the product source of truth, then connect that positioning to the real runtime: one logical control plane, one or more Agent Computer Workers, SignalsGateway, Actor Runtime, Brain and Dreaming, Background Agent Jobs, AIGateway, Principal/AuthZ, plugins, PostgreSQL, Agent Home, RuntimeFabric, and all three deployment forms. Render a linked SVG system map on wide screens and an equivalent semantic flow on narrow screens.
 
@@ -92,7 +118,7 @@
 
 - Reduce the user documentation to pages that own a real operator task. Merge ambient group participation into Signal routing rules; merge cron operations into Schedules; merge Codex integration into Background Agent Jobs; merge embedding, rerank, Brain review, and source learning into Long-term memory; merge Worker file operations into File management; and merge Control Plane Plugin operations into Agent Library. Simplify Image generation. Remove the superseded operator pages and the API-shaped pages for Console operations, Provider and model overviews, sessions, model catalogs, Provider routing, conversation history, and Identity Providers. Move Git, Jupyter, browser, and PDF walkthroughs to Guides, and move code execution, MCP use, task clarification, audit trails, and AIGateway API use to the developer guide. Rewrite every remaining User guide around Console actions and observable outcomes, including Agents, Codex accounts, image reading, AppConfigure, Principals and permission groups, Workers, logs, and Web tools. Repair incoming links and keep Principals and permission groups as one standalone Console guide.
 
-## Version 26.07.45 (2026-07-26)
+## Version 0.45.0 (2026-07-26)
 
 - Take the Agent's own reply out of the channel when the message that asked for it is recalled. A recall already erased the answer from the Agent conversation, but the card it had posted stayed in the chat — and a recall that arrives mid-turn deletes the Actor event, which holds the only record of the cards that turn opened, so nothing could clean them afterwards. Both paths now commit `delete` outbox intents for every entry that turn put in the channel: the mid-turn retraction builds them before it deletes the event row, and the lifecycle path builds them only when the removal actually deleted the answer from history, so a recall that leaves the answer in the conversation leaves it in the chat too. The live preview stops in both paths, because a preview that keeps editing a card the outbox is deleting only races it, and it no longer warns when it cannot checkpoint a retracted event — there is no state left to keep. `ReplyDeletion` now owns the intent building that `/retry` had private, so both callers delete a whole card chain rather than the first card the outbox happened to record.
 
@@ -223,7 +249,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Tell the `create-deep-research` Skill to pass a stated length as an approximate target. A human who asks for a 3-page report means about 3 pages, but the `task` text reaches the Job verbatim, so the Job read the number as a hard limit and spent effort on the page count instead of the research. The Skill now records such a length as approximate unless the human asks for an exact value.
 
-## Version 26.07.44 (2026-07-26)
+## Version 0.44.0 (2026-07-26)
 
 - Bound the first Stage A window of a channel that has no cursor. Stage A summarized the full retained history of such a channel, and that history grows with the delay between the first ingested entry and the first dreaming run, so an Installation that enabled dreaming late paid one model call for each window of accumulated messages before it reached the present. The new `brain.dreaming` setting `episode_cold_start_lookback_days` reads back at most five days by default, and the value `null` keeps the previous behaviour. A stored configuration that predates the setting also reads as `null`, because AppConfigure replaces the default with the stored map and does not merge the two. Stage A reads this setting from the global scope, like every other `episode_` setting, because it works on a channel and selects a processor Agent for each run.
 
@@ -237,7 +263,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Anchor the Stage A low-volume channel test to the current time. It measured its messages from a fixed calendar date that had drifted 25 days into the past, so the new boundary, and not the protected tail that the test names, would decide its result.
 
-## Version 26.07.43 (2026-07-25)
+## Version 0.43.0 (2026-07-25)
 
 - Add a Console surface for the per-Agent Skill overlays that hold skill experience. Dreaming and the Agent's own `skill_append` already wrote these rows, but no Console surface could read them, correct a wrong note, or remove one. The Agent Library Skill cards now read, replace, and delete the overlay of one Agent for both standalone and Agent Plugin Skills, a new read-only Brain surface lists every overlay of one Agent and links back to that editor, and the Brain dreaming result shows the Skill update count that the run already reported. The Console REST API adds the matching read, replace, and delete operations under `library-skill-overlays`.
 
@@ -255,7 +281,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Let an identity-provider adapter declare a `credential_check` capability, and run it in the setup login step before the browser leaves the Installation. DingTalk resolves the app before anything else in a login request and then reports an unknown app without naming a field, so a wrong `Client ID` or `Client Secret` ended the setup flow on a provider error page. The DingTalk adapter answers the check with an app-token request, which separates a rejected credential, reported next to the fields, from an app that DingTalk knows but does not accept for browser login. Adapters that declare no check keep the previous behaviour.
 
-## Version 26.07.42 (2026-07-24)
+## Version 0.42.0 (2026-07-24)
 
 - Fix AIGateway automatic compaction usage accounting. Treat each provider usage value as a cumulative snapshot and use the newest snapshot in the visible Response history instead of adding snapshots from earlier Responses. Cover the 15-row production shape where the snapshot sum is `158,977` tokens but the newest snapshot is `23,763` tokens.
 
@@ -277,17 +303,17 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Stop enabling the `github` Agent Plugin for every Agent by default, and ship internal Agent Plugins in the internal control-plane image.
 
-## Version 26.07.41 (2026-07-24)
+## Version 0.41.0 (2026-07-24)
 
 - Remove the Agent Home path policy from the generic Computer file tools. `read_file`, `replace`, and `patch` now perform byte-preserving reads and writes inside the existing Bubblewrap filesystem view, so its current read-only and read-write mounts are the only filesystem access policy. Remove the duplicate command working-directory boundary check while keeping Bubblewrap's current rule unchanged.
 
 - Keep domain-owned path contracts for reply attachments, Skill resources, retained learning sources, Job artifact handoff, and worker file transfer. Cover direct Skill reads, Worker-share edits, read-only system paths, relative paths, and Codex BackgroundAgentJob access to the built-in Skill mount; document that Computer tools do not add a second path policy.
 
-## Version 26.07.40 (2026-07-23)
+## Version 0.40.0 (2026-07-23)
 
 - Remove the CodexRunner `codex_no_progress` termination policy. Cumulative usage notifications do not prove completed model calls or a dead thread, and a child-thread count must not fail the lead BackgroundAgentJob. Keep historical error records readable, let existing explicit terminal, protocol, worker-loss, and operator controls own termination, and cover a lead Turn that completes after repeated child usage updates.
 
-## Version 26.07.39 (2026-07-23)
+## Version 0.39.0 (2026-07-23)
 
 - Repair Feishu CardKit crash and deployment recovery. Startup now rebuilds an open provider checkpoint in its original message from durable semantic and terminal-outbox state, uses whole-message PATCH edits for the recovered page, and returns later rollover pages to normal incremental CardKit without inferring the provider's old element topology.
 
@@ -295,7 +321,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Show each clarification option on its own button instead of the generic selection label. Align the real-provider CardKit edit probe with Feishu's PATCH contract, document the recovery lifecycle, and cover same-message recovery, completed-turn recovery, rollover, terminal handoff, and choice labels.
 
-## Version 26.07.38 (2026-07-23)
+## Version 0.38.0 (2026-07-23)
 
 - Resume group replies after the Brain visibility migration. A retry can now end a legacy `public` group conversation and start the declared `shared` or `channel` conversation for the same IM group without carrying its stale Brain snapshot. Keep the existing `shared` to `channel` rollover and cover both transitions.
 
@@ -305,7 +331,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Stop reply-preview handlers created by ActorRuntime tests before their SQL sandbox owner exits, so durable preview processes do not retain checked-in database connections or leak rows into later tests. Remove stale imports and variables from the affected runtime tests.
 
-## Version 26.07.37 (2026-07-23)
+## Version 0.37.0 (2026-07-23)
 
 - Make the rendered Browser fallback return readable content after the main document commits, even when a page never reaches `DOMContentLoaded`. Per-URL failures now carry a Browser error code and retryable state, and Agent Computer logs a bounded, redacted warning with the backend kind, failure stage, and URL index without exposing URLs, CDP endpoints, headers, credentials, or error details. Install the Chromium system libraries in the Agent Computer image, verify that the packaged executable can run, and cover remote-CDP ownership, secret redaction, and the commit-before-load path with real Browser tests.
 
@@ -323,15 +349,15 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Update Turbo from `2.10.5` to `2.10.6` with all platform packages in `bun.lock`, and apply the formatter-only block cleanup to Memory source-marker scrubbing without changing its behavior.
 
-## Version 26.07.36 (2026-07-23)
+## Version 0.36.0 (2026-07-23)
 
 - After the RuntimeFabric workflow verifies the immutable image pair, publish the control-plane and Agent Computer manifests through the `main-latest` channel. This lets a manually started internal deployment use the most recent successful OSS pair without rebuilding OSS images or selecting a Git SHA.
 
-## Version 26.07.35 (2026-07-23)
+## Version 0.35.0 (2026-07-23)
 
 - Restore the RuntimeFabric image builds after the workspace and Playwright packaging changes: include the OpenAPI client generator workspace in the control-plane dependency and source layers, and accept the platform-specific `headless_shell` and `chrome-headless-shell` executable names when the Agent Computer image installs Playwright. This lets both control-plane architectures generate Console clients and lets linux/amd64 package its browser runtime without changing the linux/arm64 path.
 
-## Version 26.07.34 (2026-07-18)
+## Version 0.34.0 (2026-07-18)
 
 - Replace the model-visible `/workspace` abstraction with the direct `/agents/<agent-key>` Agent Home contract across Agent Computer, RuntimeFabric, adapters, browser artifacts, attachments, source learning, E2E fixtures, Console file roots, and documentation. Session IDs now use shared Base64URL path vectors, BackgroundAgentJobs use direct `jobs/<job-id>` workspaces and project `.codex/config.toml`, selected Skills project into real `.ankole/skills` paths, and the removed `workspace_mounts` field is rejected while its legacy database column remains empty for one rollback-safe stage.
 
@@ -343,12 +369,12 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Pin the integrated Codex CLI in both Agent Computer images and their runtime contract fixtures to `0.144.6`; retain the checked-in experimental app-server TypeScript bindings after confirming the new binary generates byte-identical protocol output.
 
-## Version 26.07.33 (2026-07-18)
+## Version 0.33.0 (2026-07-18)
 
 - Reject BackgroundAgentJobs whose self-contained task still names caller-local `/workspace/user-files` or `/workspace/temp` paths before durable acceptance. File-dependent work must expose durable inputs through `workspace_mounts`, use the isolated `/workspace/workspaces/<mount-id>` path, and recreate temporary intermediates inside the Job, so a cheap model cannot enqueue work that is unreachable by construction.
 - Keep `bun dev` shutdown quiet and complete on constrained Unix hosts that reject process-group signals with `EPERM`: process-group termination remains the preferred cleanup path, but devkit now falls back to signaling the managed direct child handle instead of letting the signal handler print an uncaught stack trace while the remaining cleanup continues.
 
-## Version 26.07.32 (2026-07-18)
+## Version 0.32.0 (2026-07-18)
 
 - Let databases that ran the unreleased destructive BackgroundAgentJob migration drafts upgrade in place when PostgreSQL can prove that no legacy Job was ever accepted: the compatibility guard now checks both surviving Job rows and durable Job actor events, materializes an empty immutable archive only when both evidence sources are empty, and keeps fail-closed backup recovery for every database with possible deleted history. This preserves unrelated local Agent, provider, Signal binding, channel, and worker history without rebuilding the application database.
 - Align the cross-process lifecycle E2E with SignalsGateway's durable poison-event contract: a non-retryable malformed model stream now proves that the ActorEvent dead-letters, the localized failure notice commits through the durable outbox, and the notice becomes visible on the provider instead of retaining the obsolete silent-failure assertion.
@@ -358,7 +384,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Stop BackgroundAgentJobs from spending unbounded model calls on malformed tool output: CodexRunner now fails one thread with `codex_no_progress` after five consecutive completed model calls produce no observable item, plan, diff, or tool request, while genuine long-running tools, child activity, and other semantic progress reset the per-thread streak without imposing a total Job timeout.
 - Make Phoenix-managed Vite restart and shutdown finish even when live HMR connections keep the graceful close pending: config reload, stdin closure, or `SIGTERM` now retains Vite's normal cleanup window and then forces the watcher child to exit after two seconds, allowing Phoenix to restart it instead of leaving port 3035 closed behind a still-running process.
 
-## Version 26.07.31 (2026-07-18)
+## Version 0.31.0 (2026-07-18)
 
 - Replace the independent control-plane and Agent Computer image publishers with one RuntimeFabric release workflow that builds both runtimes from the same 40-character Git revision, publishes immutable multi-architecture manifests, verifies their protocol/revision/architecture metadata before release, pins the Agent Computer base image by digest, and records the resolved pair as a machine-readable artifact. Move pair validation and publish sequencing into the devkit, retain the release metadata in both images, and update the internal Forgejo workflow and Helm chart to consume only a verified digest-pinned pair through an explicit control-plane-first, worker-second rollout; single-sided deploys and legacy tag-only installs now fail closed.
 
@@ -384,35 +410,35 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Restore executable repository gates after the TypeScript 7 transition: package type checks use the available `tsc`, the compiler-API devkit pins TypeScript 6.0.3 locally, lint and formatting violations are removed, Protobuf generation is checked byte-for-byte, and expanded Rust, Elixir, Bun, migration, RuntimeFabric pair, Browser, MCP, Console, lifecycle, chaos-recovery, and real Feishu regression coverage protects the repaired contracts.
 
-## Version 26.07.30 (2026-07-18)
+## Version 0.30.0 (2026-07-18)
 
 - Restore the control-plane image dependency-install layer after Agent Computer began depending on the `@ankole/browser` workspace: copy `app/ankole-browser/package.json` beside the other workspace manifests before `bun install`, so Bun can resolve the committed `workspace:*` dependency without pulling browser source into the control-plane build.
 
-## Version 26.07.29 (2026-07-18)
+## Version 0.29.0 (2026-07-18)
 
 - Migrate RuntimeFabric RPC business payloads from hand-maintained JSON contracts to generated Protobuf messages. `rpc.proto` now declares one request/response message per method (37 methods) beside the envelope; `RPCRequest.payload_json` becomes `bytes payload` carrying the method message selected through the committed `rpc_methods.json` registry, which now also pins fully qualified request/response type names on both parity tests. The turn fence, worker_agent subject, and request correlation move onto the `RPCRequest` frame (`turn`, `agent_uid`, `request_id`), so payload messages carry no identity echoes and the control plane authorizes before decoding; brokers receive decoded structs plus a `%{route, request_id}` ctx (schedule provenance and job stop/steer keep their persisted `request_id`). Deliberately free-form documents (schedule specs, reply routes, Job trajectories/results/metadata, overlay and skill metadata) stay `bytes *_json` fields, and the model-facing `memory_*`/`schedule.*` responses share `JSONPassthroughResponse`. The Bun worker replaces ~800 lines of hand-written payload types, the `payload_json` DTO layer, response-payload `code` sniffing, and `decodeBackgroundAgentJobResponse` with a `rpcSchemas` registry over generated codecs (decode is validation); the Elixir `RPCLane` becomes the single codec boundary and `TurnRef` drops its `from_wire`/`from_request`/`to_wire` map paths for `from_proto`. Field reconciliation folds real drift into the contract: `set_name`/`set_type`/`initial_body` memory operations the wire silently carried are now declared, while dead payload (`memory` `actor_event` echo beyond `actor_event_id`, `job_id`/`job_scope`, `AppConfigureResolution.scope`, response `request_id`/identity echoes, spoofable create-request identity fields) is deleted. The kernel keeps RPC payloads opaque (envelope-level validation only); TS codegen covers `rpc.proto` in the sidecar fingerprint and `--check`; the RuntimeFabric design doc's RPC Lane section and both lane moduledocs document the new registry and the four-step process for adding a method, and `.gitattributes` marks the regenerated `rpc_methods.json` as linguist-generated.
 
 - Remove the four stale real-LLM e2e reads of the deleted `%BackgroundAgentJobs.Schemas.Job{}.agent_plugins` projection: keep one Deep Research assertion on the persisted `agent_plugin_ids`, delete its two duplicate outer assertions, and make the Office/PPTX scenario assert the same durable selection while its real artifact execution continues to prove plugin-skill resolution. This restores warnings-as-errors compilation without recreating the removed resolved-plugin field on the Job schema.
 
-## Version 26.07.27 (2026-07-18)
+## Version 0.27.0 (2026-07-18)
 
 - Make queued group-chat intervention latest-scene-wins at the worker boundary: finalized `im.message.may_intervene` events now carry a bounded channel-scene fingerprint plus `as_of` and a 5-minute expiry; ActorRuntime takes the actor-session lock, coalesces same-channel ambient backlog in one transaction, normally completes stale/policy-disabled/expired events without dead-lettering, and rechecks the surviving snapshot in the same transaction that creates its worker delivery fence. Exact provider redelivery is excluded from the fingerprint while new, edited, removed, or mirrored outbound entries invalidate it, and the ambient recognizer now uses actual execution time instead of the older CloudEvents observation timestamp. Focused Control Plane and Agent Computer tests cover bulk supersession, expiry, policy change, redelivery stability, and timezone-aware execution time.
 
-## Version 26.07.26 (2026-07-18)
+## Version 0.26.0 (2026-07-18)
 
 - Document the WebSocket design rationale in the `FeishuOpenAPI.WS.Client` moduledoc: the GenServer connection/reconnect plumbing is `Mint.WebSocket`'s deliberate process-less contract rather than accidental complexity; off-the-shelf reconnect layers (WebSockex, Fresh, Slipstream) cannot be used as-is because the protocol requires fresh endpoint discovery on every connect with server-supplied reconnect tuning; and the skeleton intentionally mirrors `DingTalkOpenAPI.Stream.Client` with no shared abstraction extracted because only the Mint plumbing overlaps.
 
-## Version 26.07.25 (2026-07-18)
+## Version 0.25.0 (2026-07-18)
 
 - Remove the reward-hacking string-match tests that pinned prompt, tool-description, and UI-label copy — the kind an agent writes to make wording "tested" when only a real model can verify the behavior. Delete the pure-copy `schedule-tools` case that asserted only six cron-description fragments, strip the ten `description.toContain(<copy>)` lines welded onto otherwise-behavioral schedule and background-job tool tests, drop the exact-Chinese `describeActivity` label pins across the schedule, background-job, memory, web, and clarify tool suites, and delete the summarizer-prompt phrase pin in `responses_dispatch_test.exs`. Prompt and description copy is prompt-engineering that must reword freely; these assertions guarded wording, not contracts.
 - Loosen, rather than delete, the `skill-tools` activity test that hid a real leak-check: it now asserts the activity label contains the skill name and does not contain the passed `filePath` or `content`, replacing the exact `'加载 Skill：openai-docs'` pin that conflated the leak guarantee with copy. The `todo` tool's `describeActivity` null-contract assertion, the prompt-cache-stability and compaction tests that inject test-owned data and check its flow, structural section-order and epoch markers, and every internal-identifier leak-refutation are kept — they verify behavior and contracts, not wording.
 
-## Version 26.07.24 (2026-07-18)
+## Version 0.24.0 (2026-07-18)
 
 - Add a repo-wide subtraction discipline to `AGENTS.md`: optimize for the smallest explicit set of concepts rather than raw line removal, investigate confusion before rewriting, make removal of superseded code and knowledge part of replacements within the authorized ownership surface, retain old forms only for evidenced dependencies or staged migrations with a removal condition, and preserve comments or prose only when they carry non-local rationale, invariants, hazards, or operational constraints.
 - State Ankole's New Jersey/Unix design priority explicitly as simplicity, correctness, consistency, then completeness: implementation simplicity outranks interface uniformity, supported behavior must remain observably correct, expensive uncommon cases should be rejected or excluded rather than approximated, and completeness earns complexity only when evidence makes it part of the product guarantee.
 
-## Version 26.07.23 (2026-07-18)
+## Version 0.23.0 (2026-07-18)
 
 - Subtract low-yield automated tests so the fast suites stay a first-principles baseline under the real-human-e2e launch gate. Delete the cosmetic and tautological cases: `version_test.exs` and the SPA version-exposure test (display facts with no load-bearing caller), `uuid_v7_test.exs` (the kernel package already pins `gen_uuid_v7` bridge output), the temporal-decay test that re-derived the exponential formula it was checking (the half-life anchor and clamping edges remain and now also pin `apply/3`), the i18n MF2 plural case that exercised the Localize library rather than the wrapper contract, the worker `rpcTimeoutMs` constant restatement (the constant is no longer exported), the worker turn-context injected-short-circuit test whose injected branch has no production caller, and the two devkit golden-string display tests for the activation-code line and pretty-log format.
 - Remove the per-controller `openapi.json` path-presence tests from thirteen console controller suites: path and operation metadata drift is enforced downstream by console client generation plus the frontend type check, and the OpenAPI document render keeps two richer anchors — the AppConfigure suite (console REST and SPA auth routes, plus the unversioned-path guard) and the Brain suite (schema enums and bearer-auth ordering). Per-surface 401 tests are all retained.
@@ -420,46 +446,46 @@ there, so the frame no longer animates and the replay begins with the first mess
 
 - Make Brain's Stage B source revalidation a non-locking point-in-time read: remove its `FOR SHARE` lock on SignalsGateway message mirrors so provider edits and deletes never wait on Brain, retain the existing `content_hash` change/missing degradation, document later withdrawal/dreaming/review convergence in both Brain designs, and add a real concurrent-writer regression test.
 
-## Version 26.07.21 (2026-07-18)
+## Version 0.21.0 (2026-07-18)
 
 - Collapse the worker's per-method turn RPC plumbing into the one generic requester it already had: `throwingRPCRequester` now generates `<method>-<uuid>` request ids (the control plane treats ids as opaque correlation tokens) and throws a typed `RPCRejectedError` carrying the rejection frame, `assertRPCResponse` throws the same class, and the turn options carry a single required `rpc: RPCRequester` plus the cached `requestAIGatewayAPIKey` instead of seventeen one-method Requester aliases projected through twenty per-method lambdas in `main.ts`. The twenty-three hand-rolled `request_id` template sites and the per-call-site `assertRPCResponse` ceremony across turns, codex-runner, installed-skill sync, and the schedule/memory/skill/background-agent-job tools are deleted, and the Memory/Schedule/overlay requester payloads become `Omit<…, 'request_id'>`.
 - Make always-provided turn capabilities required so a wiring omission is a compile error instead of a silent degradation: the six-way background-agent-job absence check, `resolveWorkerEnv`'s silent empty environment, the schedule/memory/skill tool no-op degradation branches, the rendered-fetch AppConfigure default, the installed-skill sync skip, and the source-learning runtime throw are all deleted, and `builtinSkillsRoot`/`agentInstalledSkillsRoot` become required beside the genuinely optional `internalSkillsRoot`. The Codex job projection now always includes the Brain memory tools, matching what production wiring always provided.
 - Preserve rejection semantics at the two sites that branched on RPC error values: the BackgroundAgentJob turn recorder maps a thrown `RPCRejectedError` to its non-retryable persistence-rejected error while still retrying transport failures three times, and the Codex auth writeback keeps its bounded retry loop over the generic requester.
 - Move strict `BackgroundAgentJobResponse` decoding from the Codex runner into the adjacent RuntimeFabric RPC contract, so required fields, statuses, mounts, and capability selections have one worker-side owner. Preserve the complete Codex app-server JSON-RPC error frame in `CodexAppServerRPCError`, including structured `data`, so thread-resume recovery classifies `codexErrorInfo` before falling back to message matching instead of discarding protocol facts at the transport boundary.
-- Extend the 26.07.12 rendered-fallback dedup to the whole web-tools recipe: `createTurnWebTools` in `rendered_fetch_runtime_config.ts` is the single construction of web tools with the rendered fallback, parameterized by the AIGateway client and abort signal, used by both the text turn loop and the Codex job projection, while job-scoped memory re-scoping stays at the codex call site. Tests fake the single requester or the narrow per-tool seam instead of hand-building the wide options bag, and tests asserting the now-unrepresentable absence states are removed.
+- Extend the 0.12.0 rendered-fallback dedup to the whole web-tools recipe: `createTurnWebTools` in `rendered_fetch_runtime_config.ts` is the single construction of web tools with the rendered fallback, parameterized by the AIGateway client and abort signal, used by both the text turn loop and the Codex job projection, while job-scoped memory re-scoping stays at the codex call site. Tests fake the single requester or the narrow per-tool seam instead of hand-building the wide options bag, and tests asserting the now-unrepresentable absence states are removed.
 
-## Version 26.07.20 (2026-07-18)
+## Version 0.20.0 (2026-07-18)
 
 - Close the ankole-browser wire command vocabulary in the protocol schema: `BrowserCommandSchema` is now a strict discriminated union of all 33 page, control, and internal lease/lifecycle commands with per-command argument schemas, shared sub-enum schemas (get properties, find kinds and actions, is predicates, tab and dialog actions, scroll directions, wait load states, lifecycle verbs), and structural `batch` nesting limited to page commands plus `status`; the daemon ingress now validates every request through `parseBrowserRequest`, which keeps the established error strings (`unsupported browser command: X`, `batch cannot contain X`, `<field> must be a non-empty string`) while closing the socket-peer gaps where an unknown `scroll` direction was silently accepted as a no-op and unvalidated `wait --load`/`find role` values reached Playwright raw.
 - Derive both command endpoints from that single declaration: the CLI parser constructs typed commands, reads its enum tables from the protocol schemas (`wait --load` now validates at parse time), splits into `parseBatchItem` plus a `parseBrowserCommand` wrapper so batchability is a type, and hoists `eval --stdin` to a CLI-level parse kind so the stdin placeholder never crosses the wire; the executor switches on the typed union with exhaustiveness guards, `SnapshotOptions` aliases the wire snapshot args, and the hand-rolled `stringArg`/`numberArg`/`arrayOfStrings` extractors, the session actor's batch string denylist and ad-hoc batch item validator, and the duplicated per-command enum lists are deleted. Unit suites pin the closed vocabulary, per-command argument dependencies, and batch structural limits.
 
-## Version 26.07.19 (2026-07-18)
+## Version 0.19.0 (2026-07-18)
 
 - Stop probing AIGateway's metadata storage layout from SignalsGateway: `AIGatewayLink.complete_responses_by_actor_event/2` now resolves each completed Actor Event's turn from its worker-declared completion anchor (`ActorEvent.final_response_id`, ADR-0005) through `AIGateway.list_response_chain/3` and `get_conversation/2`, and the mid-turn `current_response` lookup filters conversation responses through the public `AIGateway.response_metadata/1` accessor — deleting both raw `request_metadata → actor_event_id` jsonb fragments along with the cross-conversation dedupe workaround the flat metadata scan needed. The four test-side `#>>'{request_metadata,actor_event_id}'` queries (dispatch, transport, and the two actor-runtime case-template wait helpers) become accessor-based lookups with their exactly-one semantics preserved, and the Stage B dreaming fixture now chains seeded responses via `previous_message_id` and stamps `final_response_id`/`turn_outcome` on the event, matching what production turn completion always persists. `transport_test.exs` is also brought back to canonical `mix format` output.
 
-## Version 26.07.18 (2026-07-17)
+## Version 0.18.0 (2026-07-17)
 
 - Move the identity-provider directory write side into the control plane: the new `Ankole.IdentityProviders.Directory` owns directory-group ensure/disable with their external bindings (persisted group naming and the `active`/`disabled` binding lifecycle decided once), group-member replacement with skipped-unknown logging, member resolution, and the subject-upsert-plus-membership-sync pair behind one `:group_external_ids` option replacing the per-adapter `:usergroup_ids`/`:group_ids` spellings. The Slack, Lark, DingTalk, Microsoft 365, and Google Workspace identity adapters keep provider normalization, their own sync loops, and their event policies, with persisted group names, binding metadata shapes, and membership semantics unchanged — except Lark and DingTalk department renames now refresh the Principal group display name on re-sync, matching the other three adapters instead of updating only binding metadata.
 
-## Version 26.07.17 (2026-07-17)
+## Version 0.17.0 (2026-07-17)
 
 - Give the BackgroundAgentJob session identity one owner: `Ankole.BackgroundAgentJobs` now defines `job_session_id/1`, `parse_job_session_id/1`, the guard-safe `is_job_session_id/1`, and `job_session_prefix/0` as the only definition of the persisted `"job:" <> job_id` format, documenting it as a frozen public contract (PostgreSQL session and conversation keys, the Console API session schema, and operator-typed session ids). The 31 inline spellings across BackgroundAgentJobs internals, the SignalsGateway actor runtime, Brain's runtime context, AIGateway console/link queries, and CodexAccounts — interpolated builds, function-head and case matches, `starts_with?` checks, pinned equality matches, two SQL `'job:' || id` fragments, and the conversation-key exclusion filter — now call in, with Brain resolving turn kinds through the owner parser instead of re-parsing the prefix; control-plane and e2e tests build fixture session ids through the owner, and a golden round-trip suite pins the wire format so a prefix change fails tests instead of shipping a silent data migration.
 
 - Consolidate Agent Computer lexical path containment into one boundary primitive while preserving the distinct `/workspace` model-path and RuntimeFabric file-address grammars; derive the worker `FileRoot` type, parser membership, and physical resolver from one registry; make bubblewrap reject host working directories outside its mounted workspace; harden worker-process file reads, writes, moves, lists, retained sources, and image paths against symlinks that resolve outside their declared physical roots while retaining the intentional per-session `user-files` projection; and make file-lane MOVE overwrite rely on the filesystem's atomic rename instead of recursively deleting the target before a rename that may fail.
 
-## Version 26.07.15 (2026-07-17)
+## Version 0.15.0 (2026-07-17)
 
 - Make `AgentTool.describeActivity` the required owner of every model tool's user-facing activity semantics: move the remaining Memory, web, schedule, clarification, and BackgroundAgentJob labels into their tool definitions, reuse the Memory labels for completed lookup projections, require test tools to choose an explicit label or `null`, and delete Agent Loop's tool-name table while retaining the generic best-effort fallback when description generation fails.
 
-## Version 26.07.14 (2026-07-17)
+## Version 0.14.0 (2026-07-17)
 
 - Collapse the two hand-maintained BackgroundAgentJob wire field lists into one owner-side base projection: `Ankole.BackgroundAgentJobs` now exposes `rpc_projection/1` and `rpc_summary/1` beside `console_projection/1`, all derived in `Queries` from a single shared field list (the RPC view drops nil values and renames `id` to `job_id` per the `background_agent_job` tool contract; the Console view keeps every key and adds `duration_seconds` plus audit timestamps), leaving the RuntimeFabric broker with only turn-fence authorization and `request_id`/`execution`/`attempt_history`/`result_ref` envelope assembly; the console controller test now also pins the list, detail, and cancel responses against the closed OpenAPI schemas with `OpenApiSpex.TestAssertions.assert_schema`, so Console projection drift fails tests instead of shipping silently.
 
-## Version 26.07.13 (2026-07-17)
+## Version 0.13.0 (2026-07-17)
 
 - Collapse the five per-adapter `map_helpers.ex` copies (Lark, DingTalk, Microsoft 365, Slack, Google Workspace) into the host-owned `Ankole.Plugins.MapHelpers`, carrying the union surface of the copies with unchanged semantics — given-key-first lookup with existing-atom fallback (false values preserved), strict map/list/text coercions, nil/empty-dropping put and compact helpers, and error-halting `collect_results` — rewire every adapter alias and import to the shared module, add the previously missing unit suite locking those decode semantics, and update the DingTalk porting notes; provider-specialized `markdown.ex`/`emoji.ex` stay per-adapter, and `Ankole.SignalsGateway.Utils` keeps its separate atom-key-first convention for host-internal maps.
 
-## Version 26.07.12 (2026-07-17)
+## Version 0.12.0 (2026-07-17)
 
 - Require a successful tool-use terminal before Agent Computer can execute a function call: provider EOF and false-complete partial calls remain audit-only, retryable upstream closes reissue from the last stable Response anchor, every other failed terminal throws instead of becoming an answer, and argument fragments never cross the execution gate.
 - Reconcile durable tool results against executable calls on their explicit anchor, deduplicate identical outputs, quarantine orphans/conflicts/name mismatches/partial-call outputs in idempotent error rows, and filter those legacy anomalies from the provider projection without rewriting their raw PostgreSQL audit history.
@@ -471,7 +497,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Delete the orphaned SubagentDelegations-era retention, config, and workspace-cleanup modules with their policy test (zero callers, a removed schema, and the retired `agent_computer.deep_research` key now owned by the deep-research Agent Plugin), and align the e2e fakes with the two-skill dispatch and replace/patch tool split: `skill_view_all` issues the two long-running-skill views and `CHAOS_PATCH` exercises the strict `replace` tool.
 - Extract the duplicated rendered `web_fetch` fallback wiring into `BrowserRuntime.renderedWebFetchFallback` and a `renderedFetchBrowserSettings` config projection, so the main turn and the Codex job derive one identical fallback — full worker env into the browser, a single SSRF-filter value across both enforcement layers, and the idle-TTL mapping written once — instead of hand-copying the closure at each call site.
 
-## Version 26.07.11 (2026-07-17)
+## Version 0.11.0 (2026-07-17)
 
 - Add the `dingtalk_openapi` client library (Stream-mode long connection with opaque-echo ping, post-dispatch acks, and reconnect backoff that only resets once the WebSocket is established; dual-domain REST with per-domain token injection and error classification; coalescing app-token manager; OAuth authorization-code login, contacts, robot messaging, and card instances; English and zh-Hans READMEs) plus the first-party `dingtalk-adapter` plugin, wiring DingTalk as both a SignalsGateway chat adapter and a Principals identity/login provider over one shared Stream connection; register the `libs/dingtalk_openapi` path dependency and give `dingtalk_contact_event` the event-triggered directory-sync dedup window.
 - Trim the DingTalk capability face to the platform's real surface: group messages reach the robot only when it is @-mentioned or DMed, so `addressed_only` is the sole supported group message mode (`observe_all`/`may_intervene` cannot exist on DingTalk and are not offered); inbound `entry_receive` + `action_event`, and outbound `post_entry` (Markdown text split byte-losslessly with display-time code-fence closure, plus a single attachment gated by the documented `sampleFile` extension list before any worker read), `delete_entry` (recall by `processQueryKey`), and `card` (a template-hosted instance keyed by the outbox idempotency key, posting the fallback text when no template is configured) — with no anchored reply, edit, reaction, divider, or reconciliation. Inbound attachments are materialized from short-lived `downloadCode` URLs before ingress; a voice message keeps its mirror text empty and carries the platform ASR transcript on the attachment descriptor; a leading @-token is stripped only when the at-list attributes it to the bot alone; and the enterprise `senderStaffId` is the canonical platform subject shared by chat and login (a message without one is fail-closed).
@@ -480,12 +506,12 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Disable the platform subjects named by a DingTalk `user_leave_org` contact event directly (host directory sync only upserts and would leave departed Principals active), falling back to a full sync when a disable is guard-refused; directory sync keeps department ids in the provider's own integer shape for API calls.
 - Cover the adapter with unit suites for outbox operation mapping and error classification (per-user flow control, disbanded groups, extension gating, card fallback), the identity login chain and directory sync against a stubbed provider, contact-event handling including departure disable, AI-card lifecycle behaviors (sealed-page immutability, tail-slice terminal writes, degrade-once ledger, `isError`, protocol-carrying actions), and Markdown lossless splitting with fence display closure; add the `fake_dingtalk` e2e support server with the `dingtalk_transport_e2e_test.exs` suite wired into `mix e2e.gate` (main-flow and lifecycle suites remain).
 
-## Version 26.07.10 (2026-07-17)
+## Version 0.10.0 (2026-07-17)
 
 - Add a console `/schedules` page: pick an agent and session, then manage recurring cron schedules (create, edit, pause, resume, run-now, delete, run history) and pending checkbacks (list, cancel) over the existing `ScheduleController` console API; regenerate the OpenAPI document and TypeScript client so the SPA uses typed generated SDK functions.
 - Add `GET /api/v1/agents/:agent_uid/sessions` and the `AgentSessionController` + `AgentSession`/`AgentSessionListResponse` OpenAPI schemas so the console can offer a session picker; sessions are an opaque actor key, so the read-only query unions distinct `(agent_uid, session_id)` keys from `actor_cron_schedules`, `actor_scheduled_events`, and `background_agent_jobs`, enriching job sessions with their title and status, and the editor falls back to a manual session-id entry when no session has durable activity yet.
 
-## Version 26.07.9 (2026-07-16)
+## Version 0.9.0 (2026-07-16)
 
 - Replace Subagent Delegation with the installation-owned `BackgroundAgentJob` domain and exact `background_agent_job` model tool across PostgreSQL, RuntimeFabric RPC, actor sessions and events, Phoenix/OpenAPI, Console, prompts, tests, and documentation; the unreleased V2 migration requires zero non-terminal Jobs and rebuilds old Job data without compatibility aliases.
 - Give every BackgroundAgentJob a small durable execution contract: owner Agent and conversation, task text, optional model and reasoning settings, selected Agent Plugin IDs and standalone Skill names, explicit workspace mounts, and a private Job project plus exclusive Codex home that survives retries and resumes the same runtime thread.
@@ -505,7 +531,7 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Make `bun run dev` the real lifecycle owner: run devkit without an intermediate Bun wrapper, isolate its Phoenix and Docker children from the terminal signal group, terminate their owned process groups, and synchronously remove only the label-and-name-matched managed worker so Ctrl-C leaves no Beam, Vite, container, or listener residue.
 - Keep a malformed or truncated model function call replayable by retaining its raw durable history while normalizing only provider-bound arguments to `{}`, preserving the `call_id`/output pair so OpenRouter or OpenAI continuation cannot poison every later turn in the conversation.
 
-## Version 26.07.8 (2026-07-15)
+## Version 0.8.0 (2026-07-15)
 
 - Rename the `jina` provider's display label from "Jina AI" to "Jina Embedding & Rerank" ("Jina 嵌入与重排"), so the provider list states which capabilities it serves next to Jina Reader (web fetch) and Jina Search (web search); the provider kind id is unchanged.
 - Resolve Console provider kind labels through the shared `localizedText` helper against the active locale, replacing the hardcoded `en`/`en-US` lookups no provider emits, so zh-Hans-CN sessions see the Chinese provider labels.
@@ -563,12 +589,12 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Delete locally-overfit test cases and assertions across the Elixir, TypeScript, and Rust suites — removal-remnant string pins, cross-runtime source greps, Phoenix scaffold error-view tests, an Ecto-delegation UUID roundtrip, fixture-echo provider-settings placement tests, a duplicate 90-iteration stateful-loop case, and exact prose or order pins on tool lists, activity copy, receipts, compaction framing, and Vite dev scaffolding — keeping contract-shaped assertions such as set membership, semantic containment, revision monotonicity, and decoded decision keys in their place.
 - Keep one malformed worker RPC from disconnecting the shared RuntimeFabric worker pool by rejecting PostgreSQL-incompatible NUL bytes before JSONB writes, converting handler crashes into scoped RPC errors, releasing native ROUTER resources when their Broker owner dies, and retrying transient bind conflicts until the transport recovers.
 
-## Version 26.07.7 (2026-07-15)
+## Version 0.7.0 (2026-07-15)
 
 - Query one selected MCP tool schema directly instead of streaming and filtering a server-wide catalog, preventing large BullX schema output from being truncated into invalid JSON or polluting agent trajectories.
 - Route BullX “latest N as of a cutoff” requests to latest-daily-bars with its exact parameter shape, keeping them distinct from explicit start-to-end historical ranges.
 
-## Version 26.07.6 (2026-07-15)
+## Version 0.6.0 (2026-07-15)
 
 - Make `/retry` a true regeneration by retracting the completed visible Response suffix while preserving its audit rows, then continuing from the predecessor.
 - End clarification turns immediately after durably recording a nonblank schema-validated question, preserve degraded Brain-search completeness instead of presenting partial emptiness as absence, and move tool-specific operating rules into tool descriptions and schemas.
@@ -581,26 +607,26 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Drain in-flight CardKit preview mutations before terminal outbox handoff so a provider-committed update cannot race a stale checkpoint into a duplicate final reply.
 - Fall back to an agent owner's `embedding` ModelProfile when Brain has no global dreaming model owner, and resolve pending knowledge blocks per owner so indexing and queries use the same model route.
 
-## Version 26.07.5 (2026-07-14)
+## Version 0.5.0 (2026-07-14)
 
 - Align Auth, Setup, and Console around a Carbon-inspired shell, page header, resource table, and dedicated editor hierarchy while retaining the Ankole UI kit and magenta brand.
 - Split Brain into Entries, Audit, and Dreaming task surfaces with focused filters, structured audit diffs, and explicit run ownership.
 - Clarify editor save boundaries, add typed setting controls and read-only identifiers, and improve responsive, empty, error, keyboard, and sensitive-value states across operator workflows.
 - Restore the light Console navigation by making its desktop rail and mobile drawer follow the shared surface tokens, then apply one persisted light/dark theme across Auth, Setup, Console, overlays, and notifications.
-## Version 26.07.4 (2026-07-14)
+## Version 0.4.0 (2026-07-14)
 
 - Prevent `/new` and `/stop` from resurrecting retryable turns when a worker failure supersedes the live delivery just before cancellation.
 - Keep stopped CardKit replies with no partial answer metadata-only instead of fabricating an empty body, while preserving the working stream anchor and plain-text fallback.
 - Degrade a failed remote Markdown image to its link after one transport attempt so optional image resolution cannot hold a durable final reply through implicit retries.
 
-## Version 26.07.3 (2026-07-14)
+## Version 0.3.0 (2026-07-14)
 
 - Reframe the root README architecture maps around product-facing entry points, AIGateway's external and agent-facing stateless/stateful surfaces, Brain long-term memory, durable Subagent Delegation, and the semantic-state/artifact split.
 - Run migrations and worker-auth bootstrap through release-owned commands instead of encoding application lifecycle and module ownership in Helm.
 - Deliver Lark AI replies as streaming CardKit cards with Markdown, compact collapsible progress metadata, interactive clarification, attachments, and ordered long-answer rollover.
 - Preserve terminal plans and receipts across preview/outbox races, recover consumed CardKit mutations after process loss, and fall back to new text messages for provider edit or page-binding limits without dropping undelivered results.
 
-## Version 26.07.2 (2026-07-14)
+## Version 0.2.0 (2026-07-14)
 
 - Prevent short AI replies from racing their transient preview identity before durable final delivery.
 - Round runtime-event deadlines up to the next millisecond so an early timer cannot strand due work until the periodic sweep.
@@ -646,6 +672,6 @@ there, so the frame no longer animates and the replay begins with the first mess
 - Treat deletion of a conservatively checkpointed but provider-absent CardKit element as idempotent cleanup, isolating it from terminal answer, status, and action mutations.
 - Add an end-to-end local test environment guide covering devkit setup, activation, Feishu/Lark onboarding, Console routing, and Codex-assisted verification.
 
-## Version 26.07.1 (2027-07-13)
+## Version 0.1.0 (2027-07-13)
 
 - First preview release of Ankole.

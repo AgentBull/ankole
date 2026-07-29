@@ -334,7 +334,17 @@ pub(super) async fn run_hosted_stream(
                 .await;
         }
         Err(error) => {
+            let pool_retryable = hosted_pool_retryable(&error);
             let error = redact_hosted_error(error);
+
+            if pool_retryable && no_public_hosted_progress(&streamed_output) {
+                let metadata = hosted_failure_metadata(&hosted, &error, Some(&streamed_output));
+                delivery
+                    .finish_native_error_with_metadata(error, Some(metadata))
+                    .await;
+                return;
+            }
+
             let mut failure_events = Vec::new();
 
             if let Some((output_index, id)) = streamed_output.active_image.take() {
@@ -375,6 +385,28 @@ pub(super) async fn run_hosted_stream(
                 .await;
         }
     }
+}
+
+fn no_public_hosted_progress(output: &StreamedHostedOutput) -> bool {
+    output.items.is_empty() && output.active_image.is_none() && output.partial_images == 0
+}
+
+fn hosted_pool_retryable(error: &StreamError) -> bool {
+    matches!(error.provider_status, Some(401 | 429 | 500..=599))
+        || matches!(
+            error.code.as_str(),
+            "connect_timeout"
+                | "first_byte_timeout"
+                | "idle_timeout"
+                | "request_timeout"
+                | "total_timeout"
+                | "transport_error"
+                | "response_body_read_failed"
+                | "upstream_connect_failed"
+                | "upstream_read_failed"
+                | "websocket_connect_failed"
+                | "websocket_read_failed"
+        )
 }
 
 fn hosted_failure_metadata(
@@ -590,6 +622,7 @@ async fn execute_hosted(
     let mut provider_cost = 0.0f64;
     let mut visible_output = Vec::new();
     let mut aggregate_usage = empty_usage();
+    let mut aggregate_image_usage = empty_usage();
 
     let (wrapper, final_body) = loop {
         main_model_rounds = main_model_rounds.saturating_add(1);
@@ -670,6 +703,7 @@ async fn execute_hosted(
                         metrics,
                     } => {
                         add_usage(&mut aggregate_usage, &usage);
+                        add_usage(&mut aggregate_image_usage, &usage);
                         successful_image_calls = successful_image_calls.saturating_add(1);
                         image_latency_ms = image_latency_ms.saturating_add(metrics.latency_ms);
                         input_bytes = input_bytes.saturating_add(metrics.input_bytes);
@@ -740,6 +774,7 @@ async fn execute_hosted(
         "incomplete_details": final_body.get("incomplete_details").cloned().unwrap_or(Value::Null),
         "output": visible_output,
         "usage": aggregate_usage,
+        "tool_usage": {"image_gen": aggregate_image_usage},
         "error": final_body.get("error").cloned().unwrap_or(Value::Null)
     });
 
@@ -1204,15 +1239,6 @@ async fn execute_hidden_call(
     }
 
     let id = format!("ig_{}", UUID::now_v7());
-    send_hosted_progress(
-        progress,
-        HostedProgress::ImageStarted {
-            id: id.clone(),
-            output_index,
-        },
-    )
-    .await?;
-
     let started_at = Instant::now();
     let input_bytes = if action == "edit" {
         selected_reference_bytes(image_spec, &selected_ids)
@@ -1415,6 +1441,14 @@ async fn call_image(
         })?
         .to_string();
     validate_image_base64(&result, max_decoded_image_bytes(image_spec))?;
+    send_hosted_progress(
+        progress,
+        HostedProgress::ImageStarted {
+            id: public_id.to_string(),
+            output_index,
+        },
+    )
+    .await?;
 
     Ok(ImageResult {
         result,
@@ -1485,8 +1519,18 @@ async fn call_streaming_image(
             format!("image provider returned HTTP status {}", response.status),
         )
         .provider_status(response.status)
-        .provider_body_excerpt(&excerpt));
+        .provider_body_excerpt(&excerpt)
+        .provider_headers(&response.headers));
     }
+
+    send_hosted_progress(
+        call.progress,
+        HostedProgress::ImageStarted {
+            id: call.public_id.to_string(),
+            output_index: call.output_index,
+        },
+    )
+    .await?;
 
     let max_event_bytes = spec.limits.max_response_bytes;
     let mut parser = super::wire::SSEParser::new(max_event_bytes);

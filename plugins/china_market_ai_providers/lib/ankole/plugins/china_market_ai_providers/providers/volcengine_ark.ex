@@ -66,7 +66,7 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
     label(%{"default" => "Volcengine Ark", "zh-Hans-CN" => "火山引擎 Ark"})
     base_url("https://ark.cn-beijing.volces.com/api/v3", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:headers, type: :map, advanced: true)
     setting(:query_params, type: :map, advanced: true)
 

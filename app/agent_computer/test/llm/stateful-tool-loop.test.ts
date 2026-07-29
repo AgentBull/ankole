@@ -105,6 +105,121 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(sentPayloads[1]!.input).toHaveLength(1)
   })
 
+  it('executes a programmatic namespaced tool call and preserves its caller on the result', async () => {
+    const sentPayloads: JSONObject[] = []
+    const executedParams: JSONObject[] = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_program_result')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
+              throw new Error('a terminating programmatic tool result must not trigger another model call')
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_program_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'function_call',
+                      id: 'fc_program',
+                      call_id: 'call_program',
+                      namespace: 'mcp__finance',
+                      name: 'stock_price',
+                      arguments: '{"symbol":"600519"}',
+                      caller: { type: 'program', caller_id: 'prog_1' }
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'find the stock price with a program' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000013',
+        conversationID: '13131313-1313-1313-1313-131313131313'
+      },
+      tools: [
+        {
+          name: 'stock_price',
+          namespace: 'mcp__finance',
+          namespaceDescription: 'Financial market data',
+          deferLoading: true,
+          description: 'Get a stock price',
+          schema: z.object({ symbol: z.string() }),
+          executionMode: 'parallel',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => '测试行情查询',
+          execute: async (_toolCallID, params) => {
+            executedParams.push(params as JSONObject)
+            return {
+              content: [{ type: 'text', text: '{"price":123.45}' }],
+              details: { ok: true },
+              terminate: true
+            }
+          }
+        }
+      ]
+    })
+
+    expect(final.responseID).toBe('resp_program_result')
+    expect(executedParams).toEqual([{ symbol: '600519' }])
+    expect(sentPayloads).toHaveLength(2)
+    expect(sentPayloads[0]!.tools).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'namespace',
+          name: 'mcp__finance',
+          tools: [
+            expect.objectContaining({
+              type: 'function',
+              name: 'stock_price',
+              defer_loading: true,
+              allowed_callers: ['direct', 'programmatic']
+            })
+          ]
+        }),
+        expect.objectContaining({ type: 'tool_search' }),
+        { type: 'programmatic_tool_calling' }
+      ])
+    )
+    expect(sentPayloads[1]).toMatchObject({
+      type: 'response.tool_results.record',
+      previous_response_id: 'resp_program_call',
+      input: [
+        {
+          type: 'function_call_output',
+          call_id: 'call_program',
+          caller: { type: 'program', caller_id: 'prog_1' }
+        }
+      ]
+    })
+    expect(((sentPayloads[1]!.input as JSONObject[])[0] as JSONObject).output).toBe('{"price":123.45}')
+  })
+
   it('anchors stateful tool-loop continuations without replaying local transcript', async () => {
     const sentPayloads: JSONObject[] = []
     const sockets: FakeResponseSocket[] = []

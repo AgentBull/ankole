@@ -45,20 +45,23 @@ function handleMessage(message: JSONRPCRequest): void {
     send(message.id, {
       protocolVersion: '2025-06-18',
       capabilities: { tools: {} },
-      serverInfo: { name: 'ankole-test-stdio', version: '1.0.0' }
+      serverInfo: { name: 'ankole-test-stdio', version: '1.0.0' },
+      ...(parityFixtureEnabled() ? { instructions: 'Use the parity market data catalog.' } : {})
     })
     return
   }
 
   if (message.method === 'tools/list') {
     send(message.id, {
-      tools: [
-        {
-          name: 'stdio_echo',
-          description: 'Echo through the local stdio fake server.',
-          inputSchema: { type: 'object', properties: { text: { type: 'string' } } }
-        }
-      ]
+      tools: parityFixtureEnabled()
+        ? parityTools()
+        : [
+            {
+              name: 'stdio_echo',
+              description: 'Echo through the local stdio fake server.',
+              inputSchema: { type: 'object', properties: { text: { type: 'string' } } }
+            }
+          ]
     })
     return
   }
@@ -75,4 +78,77 @@ function handleMessage(message: JSONRPCRequest): void {
 
 function send(id: string | number, result: unknown): void {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`)
+}
+
+function parityFixtureEnabled(): boolean {
+  return process.env.MCP_PARITY_FIXTURE === 'codex-0.146'
+}
+
+function parityTools(): Array<Record<string, unknown>> {
+  return [
+    {
+      name: 'tool.two-three',
+      title: 'Market Quote',
+      description: 'Fetch one quote.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          security_id: {
+            const: '600519',
+            description: 'Security identifier.',
+            format: 'stock-code',
+            examples: ['600519']
+          },
+          tags: { type: 'array' },
+          options: { required: ['market'] }
+        },
+        required: ['security_id'],
+        examples: [{ security_id: '600519' }],
+        $defs: { unused: { type: 'string' } }
+      },
+      annotations: { readOnlyHint: true }
+    },
+    {
+      name: 'hidden-tool',
+      description: 'Only the MCP application UI can use this.',
+      inputSchema: { type: 'object', properties: {} },
+      _meta: { ui: { visibility: ['app'] } }
+    },
+    {
+      name: 'model-tool',
+      description: 'The model can use this.',
+      inputSchema: { type: 'object', properties: {} },
+      _meta: { ui: { visibility: ['app', 'model'] } }
+    },
+    {
+      name: 'tool.two-three',
+      description: 'Duplicate raw identity that Codex skips.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'tool-name',
+      description: 'First colliding tool.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'tool_name',
+      description: 'Second colliding tool.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'extremely_lengthy_function_name_that_absolutely_surpasses_all_reasonable_limits',
+      description: 'Long tool.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'denied-raw',
+      description: 'Disabled by raw MCP name.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    {
+      name: 'not-enabled',
+      description: 'Not present in the allowlist.',
+      inputSchema: { type: 'object', properties: {} }
+    }
+  ]
 }

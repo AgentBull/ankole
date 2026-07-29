@@ -834,6 +834,69 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     refute Enum.any?(elements, &(&1["tag"] == "table"))
   end
 
+  test "more than five table results preserve overflow data without exceeding CardKit limits" do
+    terminal =
+      Enum.reduce(1..6, ReplyPresentation.new(), fn index, presentation ->
+        ReplyPresentation.apply_event(presentation, "result.table", %{
+          "operation_id" => "table-#{index}",
+          "revision" => index,
+          "title" => "表格 #{index}",
+          "columns" => [
+            %{"key" => "symbol", "label" => "Symbol"},
+            %{"key" => "price", "label" => "Price"}
+          ],
+          "rows" => [%{"symbol" => "SYM#{index}", "price" => index}]
+        })
+      end)
+      |> ReplyPresentation.terminal("completed", "六张表的结论")
+
+    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    assert Enum.count(elements, &(&1["tag"] == "table")) == 5
+
+    assert Enum.find(elements, &(&1["element_id"] == "result6")) == %{
+             "tag" => "markdown",
+             "element_id" => "result6",
+             "content" => "- **Symbol**: SYM6 · **Price**: 6"
+           }
+  end
+
+  test "an incremental sixth table uses Markdown instead of adding a provider table" do
+    previous =
+      Enum.reduce(1..5, ReplyPresentation.new(), fn index, presentation ->
+        ReplyPresentation.apply_event(presentation, "result.table", %{
+          "operation_id" => "table-#{index}",
+          "revision" => index,
+          "columns" => [%{"key" => "value", "label" => "Value"}],
+          "rows" => [%{"value" => index}]
+        })
+      end)
+
+    current =
+      ReplyPresentation.apply_event(previous, "result.table", %{
+        "operation_id" => "table-6",
+        "revision" => 6,
+        "columns" => [%{"key" => "value", "label" => "Value"}],
+        "rows" => [%{"value" => 6}]
+      })
+
+    assert {:ok, actions} = Renderer.batch_actions(previous, current, mode: :working)
+
+    added_elements =
+      actions
+      |> Enum.filter(&(&1["action"] == "add_elements"))
+      |> Enum.flat_map(&(get_in(&1, ["params", "elements"]) || []))
+
+    assert Enum.find(added_elements, &(&1["element_id"] == "result6")) == %{
+             "tag" => "markdown",
+             "element_id" => "result6",
+             "content" => "- **Value**: 6"
+           }
+
+    refute Enum.any?(added_elements, &(&1["tag"] == "table"))
+  end
+
   defp element_index(elements, id) do
     Enum.find_index(elements, &(&1["element_id"] == id))
   end

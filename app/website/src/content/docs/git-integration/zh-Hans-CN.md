@@ -28,7 +28,7 @@ agent 克隆进工作空间（`/agents/<key>/jobs/<job-id>/` 或 `sessions/<id>/
 
 - **Git 凭证。** 在 **Console → 环境变量** 中把 SSH key 或 PAT 保存为加密变量，例如 `GIT_SSH_KEY` 或 `GIT_TOKEN`。新值从 Agent 的下一个回合开始生效。配置方法见[环境变量](../worker-env/)。
 - **repo 从 worker 可达。** worker 需要能访问 git 主机的网络。私有网络里确认 worker 能到达 git 服务器。
-- **按需配置后台 Agent 任务。** 默认配置已经可以运行任务。只有在后台任务需要不同模型或指定的 ChatGPT 订阅账号时，才需要单独配置“后台 Agent 任务”档案。
+- **按需配置后台 Agent 任务。** 默认回退配置已经可以运行任务。只有后台任务需要不同 Provider 或模型时，才单独配置“后台 Agent 任务”档案。
 
 ## 工作空间
 

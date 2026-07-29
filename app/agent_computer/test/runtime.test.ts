@@ -125,6 +125,27 @@ describe('@ankole/agent-computer runtime', () => {
     })
   })
 
+  it('preserves the credential-pool recovery deadline in turn-error details', () => {
+    const details = turnFailureDetails({
+      code: 'credential_pool_exhausted',
+      retryable: true,
+      status: 429,
+      retryAt: '2026-07-29T08:15:00.000Z',
+      details: { retry_at: '2026-07-29T08:15:00.000Z' }
+    })
+
+    expect(details).toMatchObject({
+      error_code: 'credential_pool_exhausted',
+      retryable: true,
+      retry_at: '2026-07-29T08:15:00.000Z',
+      aigateway: {
+        code: 'credential_pool_exhausted',
+        status: 429,
+        details_json: { retry_at: '2026-07-29T08:15:00.000Z' }
+      }
+    })
+  })
+
   it('emits worker progress as an ephemeral progress-lane keepalive', () => {
     const turn = actorTurnRef()
     const envelope = workerProgressEnvelope(turn, 'checkpoint', 'turn in progress', 'turn-start-1', {

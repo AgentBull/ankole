@@ -16,7 +16,9 @@ defmodule Ankole.AIGateway.ImageModelCatalogTest do
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-image-test"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-image-test"}]
+               }
              })
 
     runtime = %{

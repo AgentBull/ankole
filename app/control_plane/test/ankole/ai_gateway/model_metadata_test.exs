@@ -14,7 +14,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-metadata-source",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-openai"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
              })
 
     assert {:ok, openai_metadata} = ModelMetadata.model_metadata(openai, "gpt-4o-mini")
@@ -24,7 +26,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "claude-metadata-source",
                provider_kind: "claude",
-               connection_options: %{"api_key" => "sk-anthropic"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-anthropic"}]
+               }
              })
 
     assert {:ok, claude_metadata} = ModelMetadata.model_metadata(claude, "claude-sonnet-4-6")
@@ -41,7 +45,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "xiaomi-metadata-source",
                provider_kind: "xiaomi_mimo",
-               connection_options: %{"api_key" => "mimo-key"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "mimo-key"}]}
              })
 
     assert {:ok, xiaomi_metadata} = ModelMetadata.model_metadata(xiaomi, "mimo-v2.5")
@@ -51,7 +55,7 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "volcengine-metadata-source",
                provider_kind: "volcengine_ark",
-               connection_options: %{"api_key" => "ark-key"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "ark-key"}]}
              })
 
     assert {:ok, doubao_metadata} =
@@ -66,7 +70,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-metadata-source",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     http_client = fn request ->
@@ -87,7 +93,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
                provider_id: "compatible-metadata-source",
                provider_kind: "openai_compatible",
                base_url: "https://compatible.test/v1",
-               connection_options: %{"api_key" => "sk-compatible"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               }
              })
 
     assert {:ok, []} = ModelMetadata.list_provider_model_metadata(provider)
@@ -105,7 +113,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-llmdb-metadata",
                provider_kind: "openai",
-               connection_options: %{"api_key" => "sk-openai"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
              })
 
     assert {:ok, metadata} = ModelMetadata.model_metadata(provider, "gpt-4o-mini")
@@ -125,7 +135,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-cache-source",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     http_client = fn request ->
@@ -188,7 +200,9 @@ defmodule Ankole.AIGateway.ModelMetadataTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-stale-source",
                provider_kind: "openrouter",
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     success_client = fn request ->

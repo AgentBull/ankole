@@ -2,6 +2,48 @@
   "components": {
     "responses": {},
     "schemas": {
+      "AIGatewayCredentialPoolEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": { "nullable": true, "type": "string" },
+          "auth_type": { "nullable": true, "type": "string" },
+          "credential_present": { "type": "boolean" },
+          "disabled_at": { "nullable": true, "type": "string" },
+          "email": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "last_error_code": { "nullable": true, "type": "string" },
+          "last_error_message": { "nullable": true, "type": "string" },
+          "last_error_reason": { "nullable": true, "type": "string" },
+          "last_refresh": { "nullable": true, "type": "string" },
+          "last_selected_at": { "nullable": true, "type": "string" },
+          "plan_type": { "nullable": true, "type": "string" },
+          "priority": { "type": "integer" },
+          "provider_status": { "nullable": true, "type": "integer" },
+          "rate_limits": { "additionalProperties": true, "type": "object" },
+          "reauth_required": { "type": "boolean" },
+          "request_count": { "type": "integer" },
+          "retry_at": { "nullable": true, "type": "string" },
+          "source": { "type": "string" },
+          "status": { "enum": ["ok", "exhausted", "dead", "disabled"], "type": "string" },
+          "usage": { "additionalProperties": true, "type": "object" }
+        },
+        "required": [
+          "id",
+          "label",
+          "source",
+          "priority",
+          "disabled_at",
+          "credential_present",
+          "status",
+          "request_count",
+          "rate_limits",
+          "usage",
+          "last_selected_at"
+        ],
+        "title": "AIGatewayCredentialPoolEntry",
+        "type": "object"
+      },
       "AgentLibraryDocumentItem": {
         "additionalProperties": false,
         "properties": {
@@ -35,6 +77,16 @@
         },
         "required": ["id", "source_entry_id", "predicate", "target_entry_id", "inserted_at"],
         "title": "BrainEntryRelation",
+        "type": "object"
+      },
+      "AIGatewayChatGPTBrowserLoginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "callback_url": { "type": "string" },
+          "login_context": { "additionalProperties": true, "type": "object" }
+        },
+        "required": ["login_context", "callback_url"],
+        "title": "AIGatewayChatGPTBrowserLoginRequest",
         "type": "object"
       },
       "WorkerFileListData": {
@@ -81,6 +133,15 @@
           "display_name": { "nullable": true, "type": "string" }
         },
         "title": "PrincipalGroupUpdateRequest",
+        "type": "object"
+      },
+      "AIGatewayCredentialStrategyWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "strategy": { "enum": ["fill_first", "round_robin", "least_used", "random"], "type": "string" }
+        },
+        "required": ["strategy"],
+        "title": "AIGatewayCredentialStrategyWriteRequest",
         "type": "object"
       },
       "BrainEntryOperationsRequest": {
@@ -425,8 +486,8 @@
         "properties": {
           "base_url": { "nullable": true, "type": "string" },
           "connection_options": { "additionalProperties": true, "type": "object" },
+          "credential_pool": { "$ref": "#/components/schemas/AIGatewayCredentialPool" },
           "disabled_at": { "nullable": true, "type": "string" },
-          "encrypted_options": { "$ref": "#/components/schemas/AIGatewayProviderEncryptedOptionsProjection" },
           "id": { "type": "string" },
           "provider_id": { "type": "string" },
           "provider_kind": { "type": "string" },
@@ -437,7 +498,7 @@
           "provider_id",
           "provider_kind",
           "connection_options",
-          "encrypted_options",
+          "credential_pool",
           "provider_metadata"
         ],
         "title": "AIGatewayProviderItem",
@@ -451,6 +512,22 @@
         },
         "required": ["audit_log"],
         "title": "BrainAuditLogResponse",
+        "type": "object"
+      },
+      "AIGatewayChatGPTEnterpriseCredentialRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "access_token": { "type": "string" },
+          "account_id": { "type": "string" },
+          "email": { "type": "string" },
+          "fedramp": { "type": "boolean" },
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "plan_type": { "type": "string" },
+          "priority": { "type": "integer" }
+        },
+        "required": ["access_token", "account_id"],
+        "title": "AIGatewayChatGPTEnterpriseCredentialRequest",
         "type": "object"
       },
       "PrincipalItem": {
@@ -618,11 +695,14 @@
         "title": "PrincipalGroupResponse",
         "type": "object"
       },
-      "AIGatewayProviderEncryptedOptionProjection": {
+      "AIGatewayCredentialPool": {
         "additionalProperties": false,
-        "properties": { "masked": { "nullable": true, "type": "string" }, "present": { "type": "boolean" } },
-        "required": ["present"],
-        "title": "AIGatewayProviderEncryptedOptionProjection",
+        "properties": {
+          "entries": { "items": { "$ref": "#/components/schemas/AIGatewayCredentialPoolEntry" }, "type": "array" },
+          "strategy": { "enum": ["fill_first", "round_robin", "least_used", "random"], "type": "string" }
+        },
+        "required": ["strategy", "entries"],
+        "title": "AIGatewayCredentialPool",
         "type": "object"
       },
       "BrainAuditLog": {
@@ -662,7 +742,7 @@
           "key": { "type": "string" },
           "options": { "items": { "type": "string" }, "type": "array" },
           "required": { "type": "boolean" },
-          "scope": { "enum": ["connection", "request"], "type": "string" },
+          "scope": { "enum": ["connection", "credential", "request"], "type": "string" },
           "type": { "enum": ["boolean", "float", "integer", "map", "select", "string"], "type": "string" }
         },
         "required": ["key", "type", "default", "options", "required", "encrypted", "advanced", "scope"],
@@ -691,7 +771,6 @@
         "properties": {
           "agent_uid": { "type": "string" },
           "attempts": { "type": "integer" },
-          "codex_account_id": { "type": "string" },
           "completed_at": { "nullable": true, "type": "string" },
           "duration_seconds": { "type": "integer" },
           "error": { "additionalProperties": true, "type": "object" },
@@ -721,7 +800,6 @@
           "agent_uid",
           "owner_session_id",
           "source_tool_call_id",
-          "codex_account_id",
           "title",
           "task",
           "status",
@@ -951,6 +1029,17 @@
         "title": "BackgroundAgentJobTurnToolUsage",
         "type": "object"
       },
+      "AIGatewayCredentialWriteRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "disabled_at": { "nullable": true, "type": "string" },
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "priority": { "type": "integer" }
+        },
+        "title": "AIGatewayCredentialWriteRequest",
+        "type": "object"
+      },
       "ScheduleEventListResponse": {
         "additionalProperties": false,
         "properties": { "schedule_events": { "items": { "$ref": "#/components/schemas/JSONValue" }, "type": "array" } },
@@ -1068,18 +1157,18 @@
         "title": "AgentItem",
         "type": "object"
       },
+      "AIGatewayChatGPTLoginPollRequest": {
+        "additionalProperties": false,
+        "properties": { "login_context": { "additionalProperties": true, "type": "object" } },
+        "required": ["login_context"],
+        "title": "AIGatewayChatGPTLoginPollRequest",
+        "type": "object"
+      },
       "AgentSessionListResponse": {
         "additionalProperties": false,
         "properties": { "sessions": { "items": { "$ref": "#/components/schemas/AgentSession" }, "type": "array" } },
         "required": ["sessions"],
         "title": "AgentSessionListResponse",
-        "type": "object"
-      },
-      "CodexAccountResponse": {
-        "additionalProperties": false,
-        "properties": { "codex_account": { "$ref": "#/components/schemas/CodexAccountItem" } },
-        "required": ["codex_account"],
-        "title": "CodexAccountResponse",
         "type": "object"
       },
       "SignalBindingListResponse": {
@@ -1210,14 +1299,8 @@
       "ModelProfileWriteRequest": {
         "additionalProperties": false,
         "properties": {
-          "codex_account_id": { "type": "string" },
           "context_length": { "minimum": 1, "type": "integer" },
-          "fast_mode": { "type": "boolean" },
           "model": { "type": "string" },
-          "model_reasoning_effort": {
-            "enum": ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"],
-            "type": "string"
-          },
           "provider_id": { "type": "string" },
           "provider_options": { "additionalProperties": true, "type": "object" }
         },
@@ -1300,13 +1383,6 @@
         "title": "BrainEntryOperationsResponse",
         "type": "object"
       },
-      "CodexAccountUpdateRequest": {
-        "additionalProperties": false,
-        "properties": { "auth_json": { "nullable": true, "type": "string" }, "name": { "type": "string" } },
-        "required": ["name"],
-        "title": "CodexAccountUpdateRequest",
-        "type": "object"
-      },
       "AgentLibraryDocuments": {
         "additionalProperties": false,
         "properties": {
@@ -1343,6 +1419,11 @@
         "properties": { "error": { "type": "string" }, "error_description": { "type": "string" } },
         "required": ["error", "error_description"],
         "title": "OAuthErrorResponse",
+        "type": "object"
+      },
+      "AIGatewayChatGPTLoginResponse": {
+        "additionalProperties": true,
+        "title": "AIGatewayChatGPTLoginResponse",
         "type": "object"
       },
       "PrincipalGroupMemberListResponse": {
@@ -1384,6 +1465,12 @@
         "title": "BrainDreamingRun",
         "type": "object"
       },
+      "AIGatewayChatGPTLoginStartRequest": {
+        "additionalProperties": false,
+        "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "priority": { "type": "integer" } },
+        "title": "AIGatewayChatGPTLoginStartRequest",
+        "type": "object"
+      },
       "ControlPlanePluginWriteRequest": {
         "additionalProperties": false,
         "properties": { "enabled": { "type": "boolean" }, "id": { "type": "string" } },
@@ -1397,6 +1484,7 @@
           "capabilities": { "items": { "type": "string" }, "type": "array" },
           "capability_specs": { "items": { "additionalProperties": true, "type": "object" }, "type": "array" },
           "connection_options": { "items": { "type": "string" }, "type": "array" },
+          "credential_options": { "items": { "type": "string" }, "type": "array" },
           "default_base_url": { "nullable": true, "type": "string" },
           "label": { "additionalProperties": { "type": "string" }, "type": "object" },
           "provider_kind": { "type": "string" },
@@ -1411,6 +1499,7 @@
           "settings",
           "capability_specs",
           "connection_options",
+          "credential_options",
           "runtime_provider_options"
         ],
         "title": "AIGatewayProviderKindItem",
@@ -1428,19 +1517,6 @@
         "properties": { "sync_run": { "$ref": "#/components/schemas/IdentityProviderSyncRunItem" } },
         "required": ["sync_run"],
         "title": "IdentityProviderSyncRunResponse",
-        "type": "object"
-      },
-      "CodexAccountItem": {
-        "additionalProperties": false,
-        "properties": {
-          "account_id": { "type": "string" },
-          "auth_hash": { "type": "string" },
-          "inserted_at": { "type": "string" },
-          "name": { "type": "string" },
-          "updated_at": { "type": "string" }
-        },
-        "required": ["account_id", "name", "auth_hash", "inserted_at", "updated_at"],
-        "title": "CodexAccountItem",
         "type": "object"
       },
       "BrainSourceEntry": {
@@ -1577,15 +1653,6 @@
         },
         "required": ["uid", "role"],
         "title": "AgentCreateRequest",
-        "type": "object"
-      },
-      "CodexAccountListResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "codex_accounts": { "items": { "$ref": "#/components/schemas/CodexAccountItem" }, "type": "array" }
-        },
-        "required": ["codex_accounts"],
-        "title": "CodexAccountListResponse",
         "type": "object"
       },
       "BackgroundAgentJobTurnUsage": {
@@ -1782,6 +1849,7 @@
         "properties": {
           "base_url": { "nullable": true, "type": "string" },
           "connection_options": { "additionalProperties": true, "type": "object" },
+          "credential_pool": { "additionalProperties": true, "type": "object" },
           "provider_id": { "type": "string" },
           "provider_kind": { "type": "string" }
         },
@@ -2056,18 +2124,6 @@
         ],
         "title": "BrainDreamingFitnessRun",
         "type": "object"
-      },
-      "CodexAccountCreateRequest": {
-        "additionalProperties": false,
-        "properties": { "auth_json": { "type": "string" }, "name": { "type": "string" } },
-        "required": ["name", "auth_json"],
-        "title": "CodexAccountCreateRequest",
-        "type": "object"
-      },
-      "AIGatewayProviderEncryptedOptionsProjection": {
-        "additionalProperties": { "$ref": "#/components/schemas/AIGatewayProviderEncryptedOptionProjection" },
-        "title": "AIGatewayProviderEncryptedOptionsProjection",
-        "type": "object"
       }
     },
     "securitySchemes": {
@@ -2102,6 +2158,81 @@
         "security": [{ "aiGatewayBearer": [] }, { "consoleBearer": [] }],
         "summary": "Download AIGateway vision file content",
         "tags": ["AIGateway Files"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/credentials/{credential_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_credential",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "credential_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Delete one credential-pool member",
+        "tags": ["AIGateway"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_credential",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "credential_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayCredentialWriteRequest" } }
+          },
+          "description": "Credential",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid credential"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update one credential-pool member",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/agent-computer-workers/{worker_id}/files/content": {
@@ -2711,6 +2842,45 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Restore the state captured by one Brain audit record",
         "tags": ["Brain"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/credentials": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.add_credential",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayCredentialWriteRequest" } }
+          },
+          "description": "Credential",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid credential"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Add one credential-pool member",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
@@ -3470,6 +3640,45 @@
         "tags": ["AIGateway Files"]
       }
     },
+    "/api/v1/ai-gateway/providers/{provider_id}/credential-pool/strategy": {
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_credential_strategy",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayCredentialStrategyWriteRequest" } }
+          },
+          "description": "Credential strategy",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid strategy"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Set the provider credential-pool selection strategy",
+        "tags": ["AIGateway"]
+      }
+    },
     "/api/v1/ai-gateway/providers/{provider_id}": {
       "delete": {
         "callbacks": {},
@@ -3503,6 +3712,36 @@
         },
         "security": [{ "consoleBearer": [] }],
         "summary": "Disable or delete one AIGateway provider",
+        "tags": ["AIGateway"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Get one AIGateway provider and its credential-pool status",
         "tags": ["AIGateway"]
       },
       "put": {
@@ -4281,6 +4520,45 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Update one agent",
         "tags": ["Agents"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/browser-callback": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.complete_chatgpt_browser_login",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTBrowserLoginRequest" } }
+          },
+          "description": "Browser callback",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTLoginResponse" } }
+            },
+            "description": "ChatGPT login"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Login failed"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Complete a ChatGPT browser-paste login",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/ai-gateway/responses/compact": {
@@ -5100,55 +5378,6 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/v1/codex-accounts": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.CodexAccountController.index",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountListResponse" } }
-            },
-            "description": "Codex accounts"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List Codex accounts",
-        "tags": ["Codex Accounts"]
-      },
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.CodexAccountController.create",
-        "parameters": [],
-        "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountCreateRequest" } } },
-          "description": "Codex account",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountResponse" } } },
-            "description": "Codex account"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid Codex account"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Create a Codex account",
-        "tags": ["Codex Accounts"]
-      }
-    },
     "/api/v1/ai-gateway/web_search": {
       "post": {
         "callbacks": {},
@@ -5358,61 +5587,6 @@
         "tags": ["Principals"]
       }
     },
-    "/api/v1/codex-accounts/{account_id}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.CodexAccountController.delete",
-        "parameters": [
-          { "description": "", "in": "path", "name": "account_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountResponse" } } },
-            "description": "Codex account"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Codex account in use"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Delete a Codex account",
-        "tags": ["Codex Accounts"]
-      },
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.CodexAccountController.update",
-        "parameters": [
-          { "description": "", "in": "path", "name": "account_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountUpdateRequest" } } },
-          "description": "Codex account",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodexAccountResponse" } } },
-            "description": "Codex account"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid Codex account"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Update a Codex account",
-        "tags": ["Codex Accounts"]
-      }
-    },
     "/api/v1/brain/entries": {
       "get": {
         "callbacks": {},
@@ -5472,6 +5646,47 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List Brain entries for one owner",
         "tags": ["Brain"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/chatgpt-enterprise-credentials": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.add_chatgpt_enterprise_credential",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTEnterpriseCredentialRequest" }
+            }
+          },
+          "description": "Enterprise credential",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayProviderResponse" } }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid credential"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Add a ChatGPT enterprise access token",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/worker-envs/{name}": {
@@ -5571,6 +5786,45 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Store one installation-wide worker shell variable",
         "tags": ["WorkerEnv"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login/poll": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.poll_chatgpt_login",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTLoginPollRequest" } }
+          },
+          "description": "Login context",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTLoginResponse" } }
+            },
+            "description": "ChatGPT login"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Login failed"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Poll one ChatGPT device login once",
+        "tags": ["AIGateway"]
       }
     },
     "/.internal-apis/session": {
@@ -5891,6 +6145,45 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List effective worker shell variables for one agent",
         "tags": ["WorkerEnv"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}/chatgpt-login": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.start_chatgpt_login",
+        "parameters": [
+          { "description": "", "in": "path", "name": "provider_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTLoginStartRequest" } }
+          },
+          "description": "Credential metadata",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AIGatewayChatGPTLoginResponse" } }
+            },
+            "description": "ChatGPT login"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Login failed"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Start a ChatGPT device or browser-paste login",
+        "tags": ["AIGateway"]
       }
     },
     "/api/v1/ai-gateway/conversations/{conversation_id}/messages": {
@@ -6631,10 +6924,6 @@
     { "description": "Operator-managed agent principals", "name": "Agents" },
     { "description": "Active accountable subjects available to operator surfaces", "name": "Principals" },
     { "description": "Principal groups, memberships, and permission grants", "name": "AuthZ" },
-    {
-      "description": "Operator-managed ChatGPT subscription accounts used by Background Agent Jobs",
-      "name": "Codex Accounts"
-    },
     { "description": "Operator-managed LLM provider and agent model profile configuration", "name": "LLM Runtime" },
     {
       "description": "Operator-managed identity-provider configuration and directory sync",

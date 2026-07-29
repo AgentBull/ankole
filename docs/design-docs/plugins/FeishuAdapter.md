@@ -108,7 +108,12 @@ file.
 
 The pending observation time is the attachment settle anchor. A slow download
 does not move the 1,200 millisecond quiet window. SignalsGateway can wait up to
-four seconds for materialization before it releases pending work.
+four seconds for materialization before it releases pending work. If the final
+observation arrives after this limit, SignalsGateway replaces the pending entry
+in the open ActorEvent. It retries a replay-safe started turn, or routes the
+attachment to a new turn after an external side effect. A provider redelivery
+with the same content hash is a no-op. It does not create a duplicate ActorEvent
+or postpone an ActorEvent that is already ready.
 
 If a message with a structured mention has no attachment but refers to a recent
 file or image, the adapter can reuse up to three attachments from the same
@@ -170,8 +175,10 @@ The card is shared in a group, so every member who can see the card can also see
 the submitted answer. A superseded card removes the controls without showing an
 answer.
 
-The renderer aims to stay below 24 KiB and 160 elements. It splits Markdown into
-source pages of about 12 KiB without changing the stored Markdown.
+The renderer aims to stay below 24 KiB and 160 elements. It emits at most five
+native table components per card, and renders later table results as Markdown
+rows without discarding their labels or values. It splits Markdown into source
+pages of about 12 KiB without changing the stored Markdown.
 
 Only the final open card can show temporary thought, progress, or actions.
 Closed cards do not change. If later output would change a closed card, the

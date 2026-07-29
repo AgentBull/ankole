@@ -91,7 +91,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).toMatchObject({
-        codex_user_agent: 'codex-cli 0.145.0',
+        codex_user_agent: 'codex-cli 0.146.0',
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
         projected_tool_names: [
@@ -368,6 +368,30 @@ describe('@ankole/agent-computer Codex job runner', () => {
         code: 'codex_job_transient',
         retryable: true
       })
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('hands an exhausted AIGateway credential pool back without a local Codex retry', async () => {
+    const fixture = prepareFixture('must not run', {
+      turnError: {
+        codexErrorInfo: 'usageLimitExceeded',
+        message: 'AIGateway credential pool exhausted. retry_at=2026-07-29T08:15:00Z'
+      }
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      await expect(runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))).rejects.toMatchObject({
+        code: 'credential_pool_exhausted',
+        retryable: true,
+        status: 429,
+        retryAt: '2026-07-29T08:15:00.000Z',
+        details: { retry_at: '2026-07-29T08:15:00.000Z' }
+      })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running'])
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
     } finally {
       fixture.cleanup()
     }
@@ -734,9 +758,6 @@ function options(
           return create(AgentPluginListResponseSchema, { agentPlugins: [] })
         case rpcMethods.skillsOverlayResolve:
           return create(SkillOverlayResponseSchema, { skillName: (payload as { skillName: string }).skillName })
-        case rpcMethods.codexAccountResolve:
-        case rpcMethods.codexAccountAuthUpdate:
-          throw new Error('official Codex account is not used by this fixture')
         default:
           throw new Error(`unexpected RPC method: ${String(method)}`)
       }
@@ -750,21 +771,13 @@ function response(): BackgroundAgentJobResponse {
     agentUid: 'agent-1',
     ownerSessionId: 'parent-session',
     status: 'queued',
-    codexAccountId: 'aigateway',
     title: 'Prepare launch brief',
     task: 'Write and verify the launch brief.',
     replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),
     attempts: 1,
     workspaceTemplateId: '',
     workspaceOwnerJobId: jobID,
-    metadataJson: jsonBytes({
-      codex_aigateway: {
-        model: 'gpt-5.6-sol',
-        selector: 'openrouter/openai/gpt-5.6-sol',
-        provider_options: { reasoningEffort: 'xhigh' },
-        supports_parallel_tool_calls: true
-      }
-    })
+    metadataJson: jsonBytes({})
   })
 }
 
@@ -783,6 +796,14 @@ function turnStart(): TurnStart {
       type: 'background_agent_job.dispatch',
       source_event_id: 'background-agent-job-dispatch-1',
       payload_json: { data: { job_id: Number(jobID), owner_session_id: 'parent-session', attempts: 1 } }
+    },
+    model_ref: {
+      profile: 'coding',
+      provider_id: 'openrouter',
+      provider_kind: 'openrouter',
+      model: 'openai/gpt-5.6-sol',
+      provider_options: { reasoningEffort: 'xhigh' },
+      supports_parallel_tool_calls: true
     },
     request_context: {
       turn_mode: 'background_agent_job',
@@ -806,6 +827,7 @@ function messageTurnStart(): TurnStart {
       source_event_id: 'background-job-message-1',
       payload_json: { data: { command: { argsText: 'The audience is operators.' } } }
     },
+    model_ref: base.model_ref,
     request_context: { ...base.request_context, attempts: 2 }
   }
 }
@@ -863,7 +885,7 @@ function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodex
     `#!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 if (process.argv.includes('--version')) {
-  console.log('codex-cli 0.145.0')
+  console.log('codex-cli 0.146.0')
   process.exit(0)
 }
 writeFileSync('browser-env.json', JSON.stringify({
@@ -899,7 +921,7 @@ function handle(message) {
   }
   if (message.method === 'initialize') {
     writeFileSync(process.env.CODEX_HOME + '/initialize-started.txt', 'started')
-    const response = { id: message.id, result: { userAgent: 'codex-cli 0.145.0' } }
+    const response = { id: message.id, result: { userAgent: 'codex-cli 0.146.0' } }
     if (initializeDelayMs) return setTimeout(() => write(response), initializeDelayMs)
     return write(response)
   }

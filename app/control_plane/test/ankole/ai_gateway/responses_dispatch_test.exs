@@ -5,14 +5,23 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   alias Ankole.AIGateway.Compaction
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.CredentialAttempts
+  alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Ecto.UUIDv7
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
+
+  setup do
+    :ok = CredentialPool.reset_for_test()
+    :ok
+  end
 
   test "responses dispatch rejects stateful HTTP fields before provider dispatch" do
     %{principal: agent} = agent_fixture()
@@ -54,8 +63,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-responses-main",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -99,6 +110,568 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert model_ref["provider_id"] == "openai-responses-main"
   end
 
+  test "native image generation passes through, persists non-stream bytes, and accounts usage" do
+    %{principal: agent} = agent_fixture()
+    image_id = "ig_#{UUIDv7.autogenerate()}"
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200, [{"x-codex-primary-used-percent", "18"}],
+         %{
+           "id" => "resp_native_image",
+           "object" => "response",
+           "status" => "completed",
+           "model" => "gpt-5.6-sol",
+           "output" => [native_image_item(image_id)],
+           "usage" => %{"input_tokens" => 11, "output_tokens" => 4, "total_tokens" => 15},
+           "tool_usage" => %{
+             "image_gen" => %{"input_tokens" => 7, "output_tokens" => 2, "total_tokens" => 9}
+           }
+         }}
+      end)
+
+    provider_id = create_native_image_provider!(agent, base_url, "non-stream")
+
+    assert {:ok, %{body: response}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Generate a small image.",
+               "tools" => [%{"type" => "image_generation", "output_format" => "png"}],
+               "tool_choice" => %{"type" => "image_generation"}
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == [%{"type" => "image_generation", "output_format" => "png"}]
+    assert request.body["tool_choice"] == %{"type" => "image_generation"}
+    assert get_in(response, ["output", Access.at(0), "result"]) == native_png_base64()
+    assert get_in(response, ["tool_usage", "image_gen", "total_tokens"]) == 9
+
+    assert {:ok, artifact} =
+             Artifacts.get_generated_image(agent.uid, image_id, payload?: true)
+
+    assert artifact.payload == Base.decode64!(native_png_base64())
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    [entry] = projection["credential_pool"]["entries"]
+    assert entry["rate_limits"]["x-codex-primary-used-percent"] == "18"
+    assert get_in(entry, ["usage", "model", "total_tokens"]) == 15
+    assert get_in(entry, ["usage", "image_gen", "total_tokens"]) == 9
+  end
+
+  test "native image stream persists bytes before completion and keeps separate tool usage" do
+    %{principal: agent} = agent_fixture()
+    image_id = "ig_#{UUIDv7.autogenerate()}"
+    image_item = native_image_item(image_id)
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         [
+           %{
+             "type" => "response.created",
+             "sequence_number" => 0,
+             "response" => %{
+               "id" => "resp_native_image_stream",
+               "object" => "response",
+               "status" => "in_progress",
+               "output" => []
+             }
+           },
+           %{
+             "type" => "response.image_generation_call.completed",
+             "sequence_number" => 1,
+             "item_id" => image_id,
+             "output_index" => 0
+           },
+           %{
+             "type" => "response.output_item.done",
+             "sequence_number" => 2,
+             "output_index" => 0,
+             "item" => image_item
+           },
+           %{
+             "type" => "response.completed",
+             "sequence_number" => 3,
+             "response" => %{
+               "id" => "resp_native_image_stream",
+               "object" => "response",
+               "status" => "completed",
+               "model" => "gpt-5.6-sol",
+               "output" => [image_item],
+               "usage" => %{"input_tokens" => 13, "output_tokens" => 5, "total_tokens" => 18},
+               "tool_usage" => %{
+                 "image_gen" => %{
+                   "input_tokens" => 8,
+                   "output_tokens" => 3,
+                   "total_tokens" => 11
+                 }
+               }
+             }
+           }
+         ]}
+      end)
+
+    provider_id = create_native_image_provider!(agent, base_url, "stream")
+
+    assert {:ok, events} =
+             open_sse_events(agent.uid, %{
+               "model" => "primary",
+               "input" => "Generate a streamed image.",
+               "tools" => [%{"type" => "image_generation", "output_format" => "png"}]
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == [%{"type" => "image_generation", "output_format" => "png"}]
+
+    completed_index =
+      Enum.find_index(events, &(&1["type"] == "response.image_generation_call.completed"))
+
+    done_index = Enum.find_index(events, &(&1["type"] == "response.output_item.done"))
+    terminal_index = Enum.find_index(events, &(&1["type"] == "response.completed"))
+    assert completed_index < done_index
+    assert done_index < terminal_index
+
+    terminal = Enum.at(events, terminal_index)
+    assert get_in(terminal, ["response", "tool_usage", "image_gen", "total_tokens"]) == 11
+
+    assert {:ok, artifact} =
+             Artifacts.get_generated_image(agent.uid, image_id, payload?: true)
+
+    assert artifact.payload == Base.decode64!(native_png_base64())
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    [entry] = projection["credential_pool"]["entries"]
+    assert get_in(entry, ["usage", "model", "total_tokens"]) == 18
+    assert get_in(entry, ["usage", "image_gen", "total_tokens"]) == 11
+  end
+
+  test "a retryable provider failure is attributed to its credential and rotates within the row" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+    reset_at = DateTime.utc_now(:second) |> DateTime.add(600)
+
+    base_url =
+      start_upstream_server(fn request ->
+        authorization = request.headers["authorization"]
+        send(test_pid, {:pool_attempt, authorization})
+
+        case authorization do
+          "Bearer sk-first" ->
+            {:json, 429,
+             [{"x-codex-primary-reset-at", Integer.to_string(DateTime.to_unix(reset_at))}],
+             %{"error" => %{"code" => "rate_limited", "message" => "first key is limited"}}}
+
+          "Bearer sk-second" ->
+            {:json, 200,
+             %{
+               "id" => "resp_pool_rotation",
+               "object" => "response",
+               "status" => "completed",
+               "output" => [],
+               "usage" => %{}
+             }}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-pool-rotation",
+               provider_kind: "openai",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
+                 ]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"]}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-pool-rotation",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, %{body: %{"id" => "resp_pool_rotation"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello"
+             })
+
+    assert_receive {:pool_attempt, "Bearer sk-first"}
+    assert_receive {:pool_attempt, "Bearer sk-second"}
+    refute_receive {:pool_attempt, _authorization}
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("openai-pool-rotation")
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["provider_status"] == 429
+    assert by_id["first"]["last_error_code"] == "rate_limited"
+    assert by_id["second"]["status"] == "ok"
+    assert by_id["first"]["request_count"] == 1
+    assert by_id["second"]["request_count"] == 1
+  end
+
+  test "5xx rotation uses exponential backoff before each new credential" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        authorization = request.headers["authorization"]
+        send(test_pid, {:pool_attempt, authorization})
+
+        case authorization do
+          "Bearer sk-third" ->
+            {:json, 200,
+             %{
+               "id" => "resp_pool_backoff",
+               "object" => "response",
+               "status" => "completed",
+               "output" => [],
+               "usage" => %{}
+             }}
+
+          _credential ->
+            {:json, 503,
+             %{"error" => %{"code" => "provider_unavailable", "message" => "try another key"}}}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-pool-backoff",
+               provider_kind: "openai",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"},
+                   %{"id" => "third", "label" => "Third", "api_key" => "sk-third"}
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-pool-backoff",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, %{body: %{"id" => "resp_pool_backoff"}}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello"},
+               credential_retry_base_ms: 100,
+               credential_retry_jitter: & &1,
+               credential_retry_sleep: fn milliseconds ->
+                 send(test_pid, {:credential_retry_delay, milliseconds})
+               end
+             )
+
+    assert_receive {:pool_attempt, "Bearer sk-first"}
+    assert_receive {:credential_retry_delay, 100}
+    assert_receive {:pool_attempt, "Bearer sk-second"}
+    assert_receive {:credential_retry_delay, 200}
+    assert_receive {:pool_attempt, "Bearer sk-third"}
+    refute_receive {:pool_attempt, _authorization}
+
+    assert {:ok, projection} = ProviderConfigs.get_provider("openai-pool-backoff")
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["provider_status"] == 503
+    assert by_id["second"]["status"] == "exhausted"
+    assert by_id["second"]["provider_status"] == 503
+    assert by_id["third"]["status"] == "ok"
+  end
+
+  test "ChatGPT Cloudflare challenges preserve the safe header and fail with operator guidance" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 403, [{"cf-mitigated", "challenge"}],
+         %{"error" => %{"code" => "forbidden", "message" => "challenge"}}}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-cloudflare-challenge",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "enterprise",
+                     "label" => "Enterprise",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "chatgpt-cloudflare-challenge",
+               model: "gpt-5.6-sol"
+             })
+
+    assert {:error,
+            {:universal_ai_request_failed,
+             %{
+               "code" => "chatgpt_cloudflare_challenge",
+               "provider_status" => 403,
+               "provider_headers" => [{"cf-mitigated", "challenge"}],
+               "retryable" => false
+             } = error}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello"
+             })
+
+    assert error["message"] =~ "originator and User-Agent"
+    assert_receive {:gateway_request, request}
+    assert request.path == "responses"
+    refute_receive {:gateway_request, _request}
+
+    assert {:ok, projection} =
+             ProviderConfigs.get_provider("chatgpt-cloudflare-challenge")
+
+    assert [entry] = projection["credential_pool"]["entries"]
+    assert entry["status"] == "ok"
+  end
+
+  test "Jina multi-URL fetch does not reuse a credential cooled by an earlier URL" do
+    %{principal: agent} = agent_fixture()
+    reset_at = DateTime.utc_now(:second) |> DateTime.add(600) |> DateTime.to_unix()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        case request.headers["authorization"] do
+          "Bearer first-key" ->
+            {:json, 429, [{"x-codex-primary-reset-at", Integer.to_string(reset_at)}],
+             %{"error" => %{"code" => "rate_limit"}}}
+
+          "Bearer second-key" ->
+            {:json, 200,
+             %{
+               "data" => %{
+                 "url" => request.body["url"],
+                 "title" => "Fetched",
+                 "content" => request.body["url"]
+               }
+             }}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "jina-reader-pool",
+               provider_kind: "jina_reader",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "first-key"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "second-key"}
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, %{body: %{"success" => true, "results" => results}}} =
+             AIGateway.create_web_fetch(
+               agent.uid,
+               %{
+                 "model" => "jina-reader-pool/default",
+                 "urls" => ["https://example.com/one", "https://example.com/two"]
+               },
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert Enum.map(results, & &1["url"]) == [
+             "https://example.com/one",
+             "https://example.com/two"
+           ]
+
+    assert_receive {:gateway_request, %{headers: %{"authorization" => "Bearer first-key"}}}
+    assert_receive {:gateway_request, %{headers: %{"authorization" => "Bearer second-key"}}}
+    assert_receive {:gateway_request, %{headers: %{"authorization" => "Bearer second-key"}}}
+    refute_receive {:gateway_request, _request}, 100
+  end
+
+  test "a single-entry pool retries once and then preserves a non-quota failure" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(test_pid, {:single_pool_attempt, request.headers["authorization"]})
+
+        {:json, 503,
+         %{"error" => %{"code" => "provider_unavailable", "message" => "still unavailable"}}}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-single-retry",
+               provider_kind: "openai",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"id" => "only", "label" => "Only", "api_key" => "sk-only"}]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-single-retry",
+               model: "gpt-5.5"
+             })
+
+    assert {:error,
+            {:upstream_response_failed, 503,
+             %{
+               "error" => %{
+                 "code" => "provider_unavailable",
+                 "message" => "still unavailable"
+               }
+             }}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello"},
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: & &1
+             )
+
+    assert_receive {:single_pool_attempt, "Bearer sk-only"}
+    assert_receive {:single_pool_attempt, "Bearer sk-only"}
+    refute_receive {:single_pool_attempt, _authorization}
+  end
+
+  test "one usable credential retries once and preserves a non-quota failure" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_upstream_server(fn request ->
+        send(test_pid, {:single_usable_attempt, request.headers["authorization"]})
+
+        {:json, 503,
+         %{"error" => %{"code" => "provider_unavailable", "message" => "still unavailable"}}}
+      end)
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-single-usable-retry",
+               provider_kind: "openai",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "dead", "label" => "Dead", "api_key" => "sk-dead"},
+                   %{"id" => "only", "label" => "Only usable", "api_key" => "sk-only"}
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    :ok = CredentialPool.mark_dead(provider.id, "dead")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-single-usable-retry",
+               model: "gpt-5.5"
+             })
+
+    assert {:error,
+            {:upstream_response_failed, 503,
+             %{
+               "error" => %{
+                 "code" => "provider_unavailable",
+                 "message" => "still unavailable"
+               }
+             }}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello"},
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: & &1
+             )
+
+    assert_receive {:single_usable_attempt, "Bearer sk-only"}
+    assert_receive {:single_usable_attempt, "Bearer sk-only"}
+    refute_receive {:single_usable_attempt, _authorization}
+  end
+
+  test "unattributed failures mark no credential and stop after one pool lap" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-unattributed-retry",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
+                 ]
+               }
+             })
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "openai-unattributed-retry/gpt-5.5"
+             })
+
+    context = %{
+      runtime: Map.delete(runtime, "credential_id"),
+      build: fn _runtime, _request -> {:ok, %{}} end,
+      request: %{},
+      attempt_number: 0,
+      attempted_ids: MapSet.new(),
+      single_retry_used?: false,
+      refresh_used?: false
+    }
+
+    reason =
+      {:upstream_response_failed, 503, %{"error" => %{"code" => "provider_unavailable"}}, %{}}
+
+    retry_opts = [
+      credential_retry_base_ms: 0,
+      credential_retry_jitter: &Function.identity/1
+    ]
+
+    assert {:ok, first_retry, %{}} =
+             CredentialAttempts.retry_spec(context, %{}, reason, retry_opts)
+
+    first_retry = update_in(first_retry.runtime, &Map.delete(&1, "credential_id"))
+
+    assert {:ok, second_retry, %{}} =
+             CredentialAttempts.retry_spec(first_retry, %{}, reason, retry_opts)
+
+    second_retry = update_in(second_retry.runtime, &Map.delete(&1, "credential_id"))
+
+    assert {:error, ^reason} =
+             CredentialAttempts.retry_spec(second_retry, %{}, reason, retry_opts)
+
+    statuses =
+      CredentialPool.statuses(
+        provider.id,
+        provider.credential_pool["entries"]
+      )
+
+    assert statuses["first"]["status"] == "ok"
+    assert statuses["second"]["status"] == "ok"
+  end
+
   test "OpenRouter chat requests forward the prompt cache key" do
     %{principal: agent} = agent_fixture()
 
@@ -126,8 +699,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-cache-key",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{"http_versions" => ["h1"]}
                }
              })
@@ -186,8 +761,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-codex-encrypted",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{"http_versions" => ["h1"]}
                }
              })
@@ -262,8 +839,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-encrypted-tool",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{"http_versions" => ["h1"]}
                }
              })
@@ -391,8 +970,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-auto-conversation",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -452,6 +1033,41 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            }
   end
 
+  test "websocket stateful requests reject wires that cannot replay Responses history" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-stateful-gate",
+               provider_kind: "claude",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-claude"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "claude-stateful-gate",
+               model: "claude-opus-4-6"
+             })
+
+    assert {:error, {:stateful_wire_unsupported, "claude", :anthropic_messages}} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "store" => true
+             })
+
+    # The same selector stays usable for stateless requests.
+    assert {:ok, _request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello"
+             })
+
+    refute_receive {:gateway_request, _request}
+  end
+
   test "websocket stateful previous_response_id expands history without provider state fields" do
     %{principal: agent} = agent_fixture()
 
@@ -460,8 +1076,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-previous-websocket",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -601,8 +1219,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-interrupted-tool",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -669,8 +1289,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-orphan-projection",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -742,8 +1364,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-malformed-call-projection",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -813,8 +1437,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-instructions",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -889,8 +1515,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-conversation-anchor",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1052,8 +1680,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-stateful-compaction-anchor",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1170,8 +1800,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-memory-nudge-empty-continuation",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1243,8 +1875,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-auto-compaction",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
@@ -1392,8 +2026,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-auto-compaction-tool-tail",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
@@ -1641,8 +2277,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-overflow-disabled",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1696,8 +2334,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-production-usage-shape",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1829,8 +2469,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-truncation-stable-tail",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1898,8 +2540,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-truncation-checkpoint",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -1973,8 +2617,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-truncation-auto",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -2095,8 +2741,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-truncation-tool-output",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
@@ -2186,8 +2834,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-truncation-summarizer-fail",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
@@ -2263,8 +2913,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-explicit-options",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2312,8 +2964,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-profile-options-override",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2362,8 +3016,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-explicit-invalid-options",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2401,8 +3057,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-upstream-error",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2417,18 +3075,20 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert {:error,
-            {:upstream_response_failed, 429,
+            {:credential_pool_exhausted,
              %{
-               "error" => %{
-                 "code" => "rate_limited",
-                 "message" => "provider rate limit",
-                 "type" => "too_many_requests"
-               }
+               "retry_at" => retry_at,
+               "statuses" => statuses
              }}} =
              AIGateway.create_response(agent.uid, %{"model" => "primary", "input" => "hello"})
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
+    assert_receive {:gateway_request, retry_request}
+    assert retry_request.path == "chat/completions"
+    refute_receive {:gateway_request, _request}
+    assert is_binary(retry_at)
+    assert [%{"provider_status" => 429, "status" => "exhausted"}] = Map.values(statuses)
   end
 
   test "stream provider failures log bounded request shape and provider classification" do
@@ -2452,8 +3112,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-stream-diagnostics",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2568,8 +3230,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-invalid-upstream-body",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2603,8 +3267,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-json-schema",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2678,8 +3344,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-multimodal-dispatch",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2740,8 +3408,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-default-url",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2782,8 +3452,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-native-stream",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2828,8 +3500,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-native-concurrent",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2896,8 +3570,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openrouter-native-chaos",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -2962,8 +3638,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-upstream-websocket",
                provider_kind: "openai",
                base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket"
                }
              })
@@ -3026,8 +3704,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "google-ai-studio-openai",
                provider_kind: "google_ai_studio_openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "gemini-key"}]
+               },
                connection_options: %{
-                 "api_key" => "gemini-key",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -3094,8 +3774,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "google-ai-studio-reasoning",
                provider_kind: "google_ai_studio_openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "gemini-key"}]
+               },
                connection_options: %{
-                 "api_key" => "gemini-key",
                  "transport" => %{"http_versions" => ["h1"]}
                }
              })
@@ -3125,7 +3807,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-compatible-no-url",
                provider_kind: "openai_compatible",
-               connection_options: %{"api_key" => "compatible-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "compatible-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -3147,8 +3831,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "openai-compatible-http1",
                provider_kind: "openai_compatible",
                base_url: http1_base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "compatible-key"}]
+               },
                connection_options: %{
-                 "api_key" => "compatible-key",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -3194,8 +3880,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "claude-stream",
                provider_kind: "claude",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "anthropic-key"}]
+               },
                connection_options: %{
-                 "api_key" => "anthropic-key",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -3254,9 +3942,16 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "claude-openrouter-compatible",
                provider_kind: "claude",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "Default",
+                     "api_key" => "sk-openrouter",
+                     "auth_mode" => "auth_token"
+                   }
+                 ]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
-                 "auth_mode" => "auth_token",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -3317,8 +4012,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "azure-openai-deployment",
                provider_kind: "azure_openai",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "azure-key"}]
+               },
                connection_options: %{
-                 "api_key" => "azure-key",
                  "api_version" => "2025-04-01-preview",
                  "deployment" => "gpt-deployment",
                  "transport" => %{
@@ -3352,8 +4049,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "azure-openai-path-base",
                provider_kind: "azure_openai",
                base_url: "#{base_url}/openai",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "Bearer prefixed-token"}]
+               },
                connection_options: %{
-                 "api_key" => "Bearer prefixed-token",
                  "api_version" => "2025-04-01-preview",
                  "deployment" => "gpt-deployment",
                  "transport" => %{
@@ -3386,10 +4085,17 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: "azure-openai-v1",
                provider_kind: "azure_openai",
                base_url: "#{base_url}/openai/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "Default",
+                     "api_key" => "Bearer entra-token",
+                     "auth_scheme" => "bearer"
+                   }
+                 ]
+               },
                connection_options: %{
-                 "api_key" => "Bearer entra-token",
                  "endpoint_kind" => "responses",
-                 "auth_scheme" => "bearer",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -3427,6 +4133,52 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end)
   end
 
+  defp create_native_image_provider!(agent, base_url, suffix) do
+    provider_id =
+      "openai-native-image-#{suffix}-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "native-image",
+                     "label" => "Native image",
+                     "api_key" => "sk-native-image"
+                   }
+                 ]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-5.6-sol"
+             })
+
+    provider_id
+  end
+
+  defp native_image_item(image_id) do
+    %{
+      "id" => image_id,
+      "type" => "image_generation_call",
+      "status" => "completed",
+      "result" => native_png_base64(),
+      "revised_prompt" => "A tiny native image"
+    }
+  end
+
+  defp native_png_base64 do
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+  end
+
   defp response_summary(text) do
     %{
       "id" => "resp_summary_#{System.unique_integer([:positive])}",
@@ -3454,8 +4206,10 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                provider_id: provider_id,
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }

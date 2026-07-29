@@ -166,7 +166,7 @@ defmodule Ankole.Ecto.BackgroundAgentJobV2MigrationTest do
     error = assert_raise RuntimeError, fn -> @migration.down() end
 
     assert error.message =~ "cannot be downgraded"
-    assert error.message =~ "v26.07.7 runtime cutover"
+    assert error.message =~ "v0.7.0 runtime cutover"
   end
 
   test "legacy raw-event tables do not survive the cutover" do

@@ -21,6 +21,7 @@ defmodule Ankole.AIGateway.PrepareContext do
     :provider_options,
     :settings,
     :model,
+    :request_context,
     :stream?
   ]
   defstruct [
@@ -31,6 +32,7 @@ defmodule Ankole.AIGateway.PrepareContext do
     :provider_options,
     :settings,
     :model,
+    :request_context,
     :stream?
   ]
 
@@ -39,7 +41,7 @@ defmodule Ankole.AIGateway.PrepareContext do
 
   `runtime` is the resolved model binding, `request` is the normalized public
   request body, and `settings` merges provider defaults with operator/runtime
-  connection options.
+  connection and selected credential options.
   """
   @type t :: %__MODULE__{
           provider: ProviderDefinition.t(),
@@ -49,6 +51,7 @@ defmodule Ankole.AIGateway.PrepareContext do
           provider_options: map(),
           settings: map(),
           model: String.t() | nil,
+          request_context: map(),
           stream?: boolean()
         }
 
@@ -75,6 +78,7 @@ defmodule Ankole.AIGateway.PrepareContext do
          provider_options: provider_options(runtime),
          settings: settings(provider, runtime),
          model: runtime["model"],
+         request_context: Map.get(runtime, "request_context", %{}),
          stream?: stream?
        }}
     end

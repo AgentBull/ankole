@@ -216,6 +216,28 @@ defmodule Ankole.AIGateway.FailureDiagnosticsTest do
     refute Map.has_key?(classification, :provider_event?)
   end
 
+  test "classifies Codex overload aliases as retryable provider failures" do
+    for code <- ["server_is_overloaded", "slow_down"] do
+      assert %{
+               failure_kind: :provider_response,
+               error_code: ^code,
+               provider_error_code: ^code,
+               provider_error_type: "service_unavailable_error",
+               retryable: true
+             } =
+               FailureDiagnostics.classify(
+                 {:provider_event_failed,
+                  %{
+                    "error" => %{
+                      "type" => "service_unavailable_error",
+                      "code" => code,
+                      "message" => "opaque provider text"
+                    }
+                  }}
+               )
+    end
+  end
+
   test "logs a provider rate-limit code as warning without parsing its message" do
     log =
       capture_log(

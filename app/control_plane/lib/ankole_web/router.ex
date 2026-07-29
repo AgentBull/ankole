@@ -245,13 +245,42 @@ defmodule AnkoleWeb.Router do
 
     get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
     get "/ai-gateway/providers", AIGatewayProviderController, :index
+    get "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :show
     put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
     delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
 
-    get "/codex-accounts", CodexAccountController, :index
-    post "/codex-accounts", CodexAccountController, :create
-    put "/codex-accounts/:account_id", CodexAccountController, :update
-    delete "/codex-accounts/:account_id", CodexAccountController, :delete
+    post "/ai-gateway/providers/:provider_id/credentials",
+         AIGatewayProviderController,
+         :add_credential
+
+    put "/ai-gateway/providers/:provider_id/credentials/:credential_id",
+        AIGatewayProviderController,
+        :put_credential
+
+    delete "/ai-gateway/providers/:provider_id/credentials/:credential_id",
+           AIGatewayProviderController,
+           :delete_credential
+
+    put "/ai-gateway/providers/:provider_id/credential-pool/strategy",
+        AIGatewayProviderController,
+        :put_credential_strategy
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login",
+         AIGatewayProviderController,
+         :start_chatgpt_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login/poll",
+         AIGatewayProviderController,
+         :poll_chatgpt_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback",
+         AIGatewayProviderController,
+         :complete_chatgpt_browser_login
+
+    post "/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials",
+         AIGatewayProviderController,
+         :add_chatgpt_enterprise_credential
+
     get "/agents/:agent_uid/model-profiles", AgentController, :index_model_profiles
 
     get "/identity-provider-adapters", IdentityProviderController, :adapters

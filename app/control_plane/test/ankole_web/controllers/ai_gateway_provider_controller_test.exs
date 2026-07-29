@@ -1,10 +1,14 @@
 defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
+  import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ChatGPTAuth
+  alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
@@ -47,6 +51,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     openrouter_settings = Map.new(openrouter["settings"], &{&1["key"], &1})
 
     assert openrouter_settings["api_key"]["advanced"] == false
+    assert openrouter_settings["api_key"]["scope"] == "credential"
     assert openrouter_settings["base_url"]["advanced"] == true
     assert openrouter_settings["headers"]["advanced"] == true
     assert openrouter_settings["query_params"]["advanced"] == true
@@ -57,7 +62,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
              "key" => "reasoningEffort",
              "type" => "select",
              "default" => "high",
-             "options" => ~w(none minimal low medium high xhigh),
+             "options" => ~w(none minimal low medium high xhigh max ultra),
              "required" => false,
              "encrypted" => false,
              "advanced" => false,
@@ -88,15 +93,24 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> recycle_api()
       |> put(~p"/api/v1/ai-gateway/providers/openrouter-main", %{
         "provider_kind" => "openrouter",
-        "connection_options" => %{"api_key" => "sk-test"}
+        "credential_pool" => %{
+          "entries" => [%{"label" => "Primary key", "api_key" => "sk-test"}]
+        }
       })
 
     assert %{
              "ai_gateway_provider" => %{
                "provider_id" => "openrouter-main",
                "provider_kind" => "openrouter",
-               "encrypted_options" => %{
-                 "api_key" => %{"present" => true, "masked" => "********"}
+               "credential_pool" => %{
+                 "strategy" => "fill_first",
+                 "entries" => [
+                   %{
+                     "label" => "Primary key",
+                     "credential_present" => true,
+                     "status" => "ok"
+                   }
+                 ]
                }
              }
            } = json_response(conn, 200)
@@ -177,7 +191,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> bearer_conn()
       |> put(~p"/api/v1/ai-gateway/providers/openrouter-unused", %{
         "provider_kind" => "openrouter",
-        "connection_options" => %{"api_key" => "sk-test"}
+        "credential_pool" => %{
+          "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+        }
       })
 
     assert %{"ai_gateway_provider" => %{"disabled_at" => nil}} = json_response(conn, 200)
@@ -216,7 +232,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> bearer_conn()
       |> put(~p"/api/v1/ai-gateway/providers/#{provider_id}", %{
         "provider_kind" => "openrouter",
-        "connection_options" => %{"api_key" => "sk-test"}
+        "credential_pool" => %{
+          "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+        }
       })
 
     assert %{"ai_gateway_provider" => %{"provider_id" => ^provider_id}} =
@@ -314,75 +332,417 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
            } = json_response(conn, 200)
   end
 
-  test "admin manages named Codex accounts and assigns one through the coding model profile", %{
-    conn: conn
-  } do
+  test "admin manages a ChatGPT credential pool and assigns its provider to coding", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     conn = bearer_conn(conn)
-    auth_json = codex_auth_json("chatgpt-account-1", "initial-token")
 
     conn =
-      post(conn, ~p"/api/v1/codex-accounts", %{
-        "name" => "Primary ChatGPT",
-        "auth_json" => auth_json
+      put(conn, ~p"/api/v1/ai-gateway/providers/chatgpt-main", %{
+        "provider_kind" => "chatgpt_subscription"
       })
 
     assert %{
-             "codex_account" => %{
-               "account_id" => "chatgpt-account-1",
-               "name" => "Primary ChatGPT",
-               "auth_hash" => auth_hash
+             "ai_gateway_provider" => %{
+               "provider_id" => "chatgpt-main",
+               "provider_kind" => "chatgpt_subscription",
+               "credential_pool" => %{"entries" => []}
              }
            } = json_response(conn, 200)
 
-    assert is_binary(auth_hash)
-    refute conn.resp_body =~ "initial-token"
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials", %{
+        "id" => "enterprise-1",
+        "label" => "Primary ChatGPT",
+        "access_token" => "enterprise-secret",
+        "account_id" => "chatgpt-account-1",
+        "plan_type" => "enterprise"
+      })
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "strategy" => "fill_first",
+                 "entries" => [
+                   %{
+                     "id" => "enterprise-1",
+                     "label" => "Primary ChatGPT",
+                     "account_id" => "chatgpt-account-1",
+                     "plan_type" => "enterprise",
+                     "auth_type" => "enterprise_access_token",
+                     "credential_present" => true,
+                     "status" => "ok"
+                   }
+                 ]
+               }
+             }
+           } = json_response(conn, 200)
+
+    refute conn.resp_body =~ "enterprise-secret"
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-main/chatgpt-enterprise-credentials", %{
+        "id" => "enterprise-2",
+        "label" => "Backup ChatGPT",
+        "access_token" => "backup-secret",
+        "account_id" => "chatgpt-account-2"
+      })
+
+    assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => entries}}} =
+             json_response(conn, 200)
+
+    assert Enum.map(entries, & &1["id"]) == ["enterprise-1", "enterprise-2"]
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/ai-gateway/providers/chatgpt-main/credential-pool/strategy", %{
+        "strategy" => "round_robin"
+      })
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{"strategy" => "round_robin"}
+             }
+           } = json_response(conn, 200)
 
     conn =
       conn
       |> recycle_api()
       |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/coding", %{
-        "codex_account_id" => "chatgpt-account-1",
+        "provider_id" => "chatgpt-main",
         "model" => "gpt-5.6-sol",
-        "model_reasoning_effort" => "max",
-        "fast_mode" => true
+        "provider_options" => %{
+          "reasoningEffort" => "max",
+          "serviceTier" => "priority"
+        }
       })
 
     assert %{
              "model_profile" => %{
                "profile" => "coding",
                "configured" => true,
-               "codex_account_id" => "chatgpt-account-1",
+               "provider_id" => "chatgpt-main",
                "model" => "gpt-5.6-sol",
-               "model_reasoning_effort" => "max",
-               "fast_mode" => true
+               "provider_options" => %{
+                 "reasoningEffort" => "max",
+                 "serviceTier" => "priority"
+               }
              }
            } = json_response(conn, 200)
 
     conn =
       conn
       |> recycle_api()
-      |> put(~p"/api/v1/codex-accounts/chatgpt-account-1", %{
-        "name" => "Primary subscription",
-        "auth_json" => codex_auth_json("chatgpt-account-1", "refreshed-token")
+      |> get(~p"/api/v1/ai-gateway/providers/chatgpt-main")
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "provider_id" => "chatgpt-main",
+               "credential_pool" => %{"strategy" => "round_robin", "entries" => entries}
+             }
+           } = json_response(conn, 200)
+
+    assert length(entries) == 2
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/ai-gateway/providers/chatgpt-main/credentials/enterprise-2")
+
+    assert %{"ai_gateway_provider" => %{"credential_pool" => %{"entries" => [remaining]}}} =
+             json_response(conn, 200)
+
+    assert remaining["id"] == "enterprise-1"
+  end
+
+  test "admin adds, updates, disables, and enables a generic pool credential", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/ai-gateway/providers/openrouter-pool-admin", %{
+        "provider_kind" => "openrouter",
+        "credential_pool" => %{"entries" => []}
       })
 
     assert %{
-             "codex_account" => %{
-               "name" => "Primary subscription",
-               "auth_hash" => refreshed_hash
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{"entries" => []}
              }
            } = json_response(conn, 200)
-
-    refute refreshed_hash == auth_hash
-    refute conn.resp_body =~ "refreshed-token"
 
     conn =
       conn
       |> recycle_api()
-      |> delete(~p"/api/v1/codex-accounts/chatgpt-account-1")
+      |> post(~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials", %{
+        "id" => "key-1",
+        "label" => "Primary",
+        "priority" => 2,
+        "api_key" => "sk-original"
+      })
 
-    assert %{"error" => %{"code" => "codex_account_in_use"}} = json_response(conn, 422)
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "id" => "key-1",
+                     "label" => "Primary",
+                     "source" => "manual",
+                     "priority" => 2,
+                     "disabled_at" => nil,
+                     "credential_present" => true,
+                     "status" => "ok",
+                     "request_count" => 0,
+                     "last_selected_at" => nil
+                   }
+                 ]
+               }
+             }
+           } = json_response(conn, 200)
+
+    refute conn.resp_body =~ "sk-original"
+
+    disabled_at = DateTime.utc_now(:second) |> DateTime.to_iso8601()
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(
+        ~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+        %{"label" => "Primary renamed", "disabled_at" => disabled_at}
+      )
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "label" => "Primary renamed",
+                     "disabled_at" => ^disabled_at,
+                     "credential_present" => true,
+                     "status" => "disabled"
+                   }
+                 ]
+               }
+             }
+           } = json_response(conn, 200)
+
+    refute conn.resp_body =~ "sk-original"
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(
+        ~p"/api/v1/ai-gateway/providers/openrouter-pool-admin/credentials/key-1",
+        %{"disabled_at" => nil}
+      )
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "disabled_at" => nil,
+                     "credential_present" => true,
+                     "status" => "ok"
+                   }
+                 ]
+               }
+             }
+           } = json_response(conn, 200)
+
+    assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-pool-admin")
+    assert {:ok, %{"api_key" => "sk-original"}} = ProviderConfigs.runtime_connection(provider)
+  end
+
+  test "credential metadata updates do not clear dead health", %{conn: conn} do
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/ai-gateway/providers/openrouter-dead-update", %{
+        "provider_kind" => "openrouter",
+        "credential_pool" => %{
+          "entries" => [
+            %{"id" => "dead-key", "label" => "Original", "api_key" => "sk-original"}
+          ]
+        }
+      })
+
+    assert %{"ai_gateway_provider" => %{"provider_id" => "openrouter-dead-update"}} =
+             json_response(conn, 200)
+
+    assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-dead-update")
+    :ok = CredentialPool.mark_dead(provider.id, "dead-key", %{"code" => "token_revoked"})
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(
+        ~p"/api/v1/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+        %{"label" => "Renamed"}
+      )
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [%{"label" => "Renamed", "status" => "dead"}]
+               }
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> put(
+        ~p"/api/v1/ai-gateway/providers/openrouter-dead-update/credentials/dead-key",
+        %{"api_key" => "sk-reauthenticated"}
+      )
+
+    assert %{
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{"entries" => [%{"status" => "ok"}]}
+             }
+           } = json_response(conn, 200)
+
+    assert {:ok, provider} = ProviderConfigs.fetch_provider("openrouter-dead-update")
+
+    assert {:ok, %{"api_key" => "sk-reauthenticated"}} =
+             ProviderConfigs.runtime_connection(provider)
+  end
+
+  test "ChatGPT device login completes through the Console API without exposing tokens", %{
+    conn: conn
+  } do
+    test_pid = self()
+    verifier = String.duplicate("v", 64)
+    challenge = :crypto.hash(:sha256, verifier) |> Base.url_encode64(padding: false)
+
+    id_token =
+      jwt(%{
+        "email" => "operator@example.com",
+        "https://api.openai.com/auth" => %{
+          "chatgpt_account_id" => "account-device",
+          "chatgpt_plan_type" => "pro"
+        }
+      })
+
+    issuer =
+      start_upstream_server(fn request ->
+        send(test_pid, {:chatgpt_auth_request, request})
+
+        case request.path do
+          "api/accounts/deviceauth/usercode" ->
+            {:json, 200,
+             %{
+               "device_auth_id" => "device-auth-1",
+               "user_code" => "ABCD-EFGH",
+               "interval" => 1
+             }}
+
+          "api/accounts/deviceauth/token" ->
+            {:json, 200,
+             %{
+               "authorization_code" => "authorization-code",
+               "code_challenge" => challenge,
+               "code_verifier" => verifier
+             }}
+
+          "oauth/token" ->
+            {:json, 200,
+             %{
+               "access_token" => "access-secret",
+               "refresh_token" => "refresh-secret",
+               "id_token" => id_token
+             }}
+        end
+      end)
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/ai-gateway/providers/chatgpt-device", %{
+        "provider_kind" => "chatgpt_subscription",
+        "connection_options" => %{"auth_issuer" => issuer}
+      })
+
+    assert %{"ai_gateway_provider" => %{"provider_id" => "chatgpt-device"}} =
+             json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-device/chatgpt-login", %{
+        "id" => "device-credential",
+        "label" => "Device account",
+        "priority" => 3
+      })
+
+    assert %{
+             "mode" => "device",
+             "user_code" => "ABCD-EFGH",
+             "interval" => 1,
+             "login_context" => login_context
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/ai-gateway/providers/chatgpt-device/chatgpt-login/poll", %{
+        "login_context" => login_context
+      })
+
+    assert %{
+             "status" => "complete",
+             "ai_gateway_provider" => %{
+               "credential_pool" => %{
+                 "entries" => [
+                   %{
+                     "id" => "device-credential",
+                     "label" => "Device account",
+                     "source" => "device_oauth",
+                     "priority" => 3,
+                     "account_id" => "account-device",
+                     "plan_type" => "pro",
+                     "email" => "operator@example.com",
+                     "auth_type" => "oauth",
+                     "credential_present" => true,
+                     "status" => "ok"
+                   }
+                 ]
+               }
+             }
+           } = json_response(conn, 200)
+
+    refute conn.resp_body =~ "access-secret"
+    refute conn.resp_body =~ "refresh-secret"
+    refute conn.resp_body =~ id_token
+
+    assert_receive {:chatgpt_auth_request,
+                    %{path: "api/accounts/deviceauth/usercode", body: user_code_body}}
+
+    assert user_code_body == %{"client_id" => ChatGPTAuth.client_id()}
+
+    assert_receive {:chatgpt_auth_request,
+                    %{path: "api/accounts/deviceauth/token", body: poll_body}}
+
+    assert poll_body == %{
+             "device_auth_id" => "device-auth-1",
+             "user_code" => "ABCD-EFGH"
+           }
+
+    assert_receive {:chatgpt_auth_request, %{path: "oauth/token", body: exchange_body}}
+
+    assert exchange_body == %{
+             "client_id" => ChatGPTAuth.client_id(),
+             "code" => "authorization-code",
+             "code_verifier" => verifier,
+             "grant_type" => "authorization_code",
+             "redirect_uri" => "#{issuer}/deviceauth/callback"
+           }
   end
 
   defp bearer_conn(conn) do
@@ -422,21 +782,15 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     })
   end
 
-  defp codex_auth_json(account_id, access_token) do
-    Ankole.JSON.encode!(%{
-      "tokens" => %{
-        "access_token" => access_token,
-        "account_id" => account_id,
-        "id_token" => "id-token",
-        "refresh_token" => "refresh-token"
-      }
-    })
-  end
-
   defp allow_cache_database_access do
     case GenServer.whereis(Cache) do
       nil -> :ok
       pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
     end
+  end
+
+  defp jwt(claims) do
+    payload = claims |> Ankole.JSON.encode!() |> Base.url_encode64(padding: false)
+    "e30.#{payload}.signature"
   end
 end

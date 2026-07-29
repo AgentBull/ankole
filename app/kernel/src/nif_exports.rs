@@ -124,6 +124,18 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
+/// Runs one PTC program to completion or to its next pending tool-call batch.
+///
+/// DirtyCpu because one call owns a V8 isolate for up to the program timeout;
+/// the JSON boundary keeps the NIF layer free of program semantics.
+#[cfg(feature = "program_runner")]
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn program_run_nif(request: Term<'_>) -> NIFResult<String> {
+    let request = decode_string(request, "request")?;
+
+    crate::program_runner::run_json(&request).map_err(error_message)
+}
+
 /// Authorizes one exact action on one concrete resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_authorize_nif(snapshot: Term<'_>) -> NIFResult<String> {

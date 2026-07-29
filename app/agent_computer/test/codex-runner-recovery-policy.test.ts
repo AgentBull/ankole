@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   classifyCodexRecoveryFailure,
+  codexCredentialPoolExhaustion,
   initialCodexRecoveryState,
   transitionCodexRecovery,
   type CodexRecoveryState
@@ -86,5 +87,27 @@ describe('@ankole/agent-computer Codex recovery policy', () => {
     expect(classifyCodexRecoveryFailure({ code: -32001, message: 'request failed' })).toBe('transient')
     expect(classifyCodexRecoveryFailure({ message: 'No rollout found for thread abc' })).toBe('unknown_session')
     expect(classifyCodexRecoveryFailure({ message: 'permission denied' })).toBe('terminal')
+  })
+
+  it('recognizes the AIGateway pool terminal through Codex 429 projections', () => {
+    expect(
+      codexCredentialPoolExhaustion({
+        codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 429 } },
+        message: 'exceeded retry limit'
+      })
+    ).toEqual({})
+
+    expect(
+      codexCredentialPoolExhaustion({
+        message: 'AIGateway credential pool exhausted. retry_at=2026-07-29T08:15:00Z'
+      })
+    ).toEqual({ retryAt: '2026-07-29T08:15:00.000Z' })
+
+    expect(
+      codexCredentialPoolExhaustion({
+        codexErrorInfo: { responseTooManyFailedAttempts: { httpStatusCode: 503 } },
+        message: 'provider unavailable'
+      })
+    ).toBeUndefined()
   })
 })

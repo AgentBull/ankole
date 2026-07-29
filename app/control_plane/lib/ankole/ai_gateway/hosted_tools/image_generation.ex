@@ -2,12 +2,14 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   @moduledoc """
   Public Responses `image_generation` tool validation and private executor spec.
 
-  The public tool never reaches the main provider. This module resolves its
-  separate OpenRouter capability, validates a definitive endpoint, and prepares
-  the private request consumed by Kernel HostedResponsesExecutor.
+  A provider that declares native image generation receives the public tool in
+  its main request. Otherwise this module resolves the separate image provider,
+  validates a definitive endpoint, and prepares the private request consumed by
+  Kernel HostedResponsesExecutor.
   """
 
   alias Ankole.AIGateway.Artifacts
+  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration.Error
   alias Ankole.AIGateway.ImageModelCatalog
   alias Ankole.AIGateway.ImageStreamPersistence
@@ -55,18 +57,98 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   @spec normalize_execution_error(term()) :: OpenAIError.t()
   defdelegate normalize_execution_error(reason), to: Error, as: :normalize_execution
 
+  @doc false
+  @spec pop_credential_attempt(map()) :: {map() | nil, map()}
+  def pop_credential_attempt(spec) when is_map(spec),
+    do: Map.pop(spec, :hosted_credential_attempt)
+
+  @doc false
+  @spec retry_credential_attempt(map(), map(), term(), keyword()) ::
+          {:ok, map(), map()} | {:error, term()}
+  def retry_credential_attempt(outer_spec, %{context: context, spec: image_spec}, reason, opts)
+      when is_map(outer_spec) and is_map(context) and is_map(image_spec) do
+    with {:ok, next_context, next_image_spec} <-
+           CredentialAttempts.retry_spec(context, image_spec, reason, opts) do
+      next_attempt = %{context: next_context, spec: next_image_spec}
+      {:ok, pin_credential_attempt(outer_spec, next_attempt), next_attempt}
+    end
+  end
+
+  def retry_credential_attempt(_outer_spec, _attempt, reason, _opts), do: {:error, reason}
+
+  @doc false
+  @spec credential_failure?(term()) :: boolean()
+  def credential_failure?(reason), do: failure_stage(reason) == "image_generation"
+
+  @doc false
+  @spec hosted_execution_failure?(term()) :: boolean()
+  def hosted_execution_failure?(reason), do: failure_stage(reason) == "hosted_responses"
+
+  @doc false
+  @spec record_credential_usage(map() | nil, map()) :: :ok
+  def record_credential_usage(%{context: context}, response_or_event)
+      when is_map(context) and is_map(response_or_event) do
+    case hosted_image_usage(response_or_event) do
+      %{} = usage ->
+        CredentialAttempts.record_usage(context, %{
+          "tool_usage" => %{"image_gen" => usage}
+        })
+
+      _missing ->
+        :ok
+    end
+  end
+
+  def record_credential_usage(_attempt, _response_or_event), do: :ok
+
+  @doc false
+  @spec pin_main_attempt_context(map() | nil, map()) :: map() | nil
+  def pin_main_attempt_context(context, attempt) do
+    CredentialAttempts.map_build(context, &pin_credential_attempt(&1, attempt))
+  end
+
   defp prepare_declared_tool(subject_uid, request, tool, tool_index, opts) do
     param_prefix = "tools[#{tool_index}]"
     catalog_opts = Keyword.put(opts, :tool_index, tool_index)
 
-    with :ok <- validate_tool(tool, param_prefix),
-         {:ok, references} <- Artifacts.resolve_references(subject_uid, request),
+    with :ok <- validate_tool(tool, param_prefix) do
+      case Resolver.resolve_request_model(subject_uid, "image_generate", %{
+             "model" => "image_generate.default"
+           }) do
+        {:ok, runtime} ->
+          prepare_hosted_tool(
+            subject_uid,
+            request,
+            tool,
+            tool_index,
+            param_prefix,
+            runtime,
+            catalog_opts,
+            opts
+          )
+
+        {:error, :model_profile_not_configured} ->
+          prepare_native_tool(tool_index, opts)
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp prepare_hosted_tool(
+         subject_uid,
+         request,
+         tool,
+         tool_index,
+         param_prefix,
+         runtime,
+         catalog_opts,
+         opts
+       ) do
+    with {:ok, references} <- Artifacts.resolve_references(subject_uid, request),
          input_references = Enum.reject(references, &mask_reference?/1),
          :ok <- validate_action_references(tool, input_references, param_prefix),
-         {:ok, runtime} <-
-           Resolver.resolve_request_model(subject_uid, "image_generate", %{
-             "model" => "image_generate.default"
-           }),
          requested_model = Map.get(tool, "model", runtime["model"]),
          {:ok, selection} <-
            ImageModelCatalog.select_endpoint(
@@ -84,6 +166,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
            Providers.build_image_generate_request(runtime, image_request,
              stream?: image_request["stream"]
            ),
+         {credential_attempt, prepared_request} <- CredentialAttempts.pop(prepared_request),
          prepared_request <-
            Map.update(
              prepared_request,
@@ -107,8 +190,60 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
            "max_decoded_image_bytes" => Artifacts.max_image_bytes(),
            "max_reference_bytes" => 100 * 1024 * 1024,
            "max_response_bytes" => @max_response_bytes
-         }
+         },
+         credential_attempt: credential_attempt
        }}
+    end
+  end
+
+  defp pin_credential_attempt(outer_spec, attempt) do
+    mapper = &put_credential_attempt(&1, attempt)
+
+    outer_spec
+    |> put_credential_attempt(attempt)
+    |> CredentialAttempts.map_attached_build(mapper)
+  end
+
+  defp put_credential_attempt(
+         %{hosted_tools: %{image_generation: image_generation} = hosted_tools} = outer_spec,
+         %{spec: image_spec} = attempt
+       ) do
+    image_generation = Map.put(image_generation, "prepared_request", image_spec)
+
+    outer_spec
+    |> Map.put(:hosted_tools, Map.put(hosted_tools, :image_generation, image_generation))
+    |> Map.put(:hosted_credential_attempt, attempt)
+  end
+
+  defp put_credential_attempt(outer_spec, _attempt), do: outer_spec
+
+  defp hosted_image_usage(%{body: %{} = body}), do: hosted_image_usage(body)
+  defp hosted_image_usage(%{"body" => %{} = body}), do: hosted_image_usage(body)
+  defp hosted_image_usage(%{"response" => %{} = response}), do: hosted_image_usage(response)
+
+  defp hosted_image_usage(%{"tool_usage" => %{"image_gen" => %{} = usage}}),
+    do: usage
+
+  defp hosted_image_usage(_response_or_event), do: nil
+
+  defp failure_stage({:universal_ai_request_failed, %{} = error}),
+    do: Map.get(error, "stage") || Map.get(error, :stage)
+
+  defp failure_stage(%{} = error),
+    do: Map.get(error, "stage") || Map.get(error, :stage)
+
+  defp failure_stage(_reason), do: nil
+
+  defp prepare_native_tool(tool_index, opts) do
+    if Providers.supports_native_image_generation?(Keyword.get(opts, :main_runtime)) do
+      {:ok, nil}
+    else
+      {:error,
+       OpenAIError.invalid(
+         "tools[#{tool_index}].type",
+         "unsupported_value",
+         "image_generation requires either an image_generate model profile or a language-model provider that supports native image generation."
+       )}
     end
   end
 
@@ -152,6 +287,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     with :ok <- reject_unknown_fields(tool, param_prefix),
          :ok <- validate_enums(tool, param_prefix),
          :ok <- validate_optional_integer(tool, "output_compression", 0..100, param_prefix),
+         :ok <- validate_output_compression_format(tool, param_prefix),
          :ok <- validate_optional_integer(tool, "partial_images", 0..3, param_prefix),
          :ok <- validate_optional_model(tool, param_prefix),
          :ok <- validate_optional_size(tool, param_prefix),
@@ -218,6 +354,27 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
         end
     end
   end
+
+  defp validate_output_compression_format(
+         %{"output_compression" => _compression, "output_format" => format},
+         _param_prefix
+       )
+       when format in ["jpeg", "webp"],
+       do: :ok
+
+  defp validate_output_compression_format(
+         %{"output_compression" => _compression},
+         param_prefix
+       ) do
+    {:error,
+     OpenAIError.invalid(
+       "#{param_prefix}.output_compression",
+       "invalid_value",
+       "output_compression requires output_format to be 'jpeg' or 'webp'."
+     )}
+  end
+
+  defp validate_output_compression_format(_tool, _param_prefix), do: :ok
 
   defp validate_optional_model(tool, param_prefix) do
     case Map.fetch(tool, "model") do

@@ -28,7 +28,7 @@ During a normal conversation, the Agent uses the foreground shell and file tools
 
 - **Git credentials.** In **Console → Environment variables**, store the SSH key or PAT as an encrypted variable such as `GIT_SSH_KEY` or `GIT_TOKEN`. The new value is available from the Agent's next turn. See [Environment variables](../worker-env/).
 - **The repo accessible from the worker.** The worker needs network access to the git host. In a private network, confirm the worker can reach the git server.
-- **A Background Agent Job runtime, when needed.** The default configuration is enough to start. Configure the Background Agent Jobs profile only when Jobs need a different model or a named ChatGPT subscription account.
+- **A Background Agent Jobs model profile, when needed.** The default fallback is enough to start. Configure this profile only when Jobs need a different provider or model.
 
 ## The workspace
 

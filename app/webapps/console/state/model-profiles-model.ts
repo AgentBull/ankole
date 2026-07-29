@@ -14,16 +14,7 @@ export const PROFILE_NAMES = [
 ] as const
 export type ProfileName = (typeof PROFILE_NAMES)[number]
 
-export const CODEX_MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
-export const DEFAULT_CODEX_SUBSCRIPTION_MODEL = 'gpt-5.6-sol'
-export const DEFAULT_CODEX_MODEL_REASONING_EFFORT = 'high'
-export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]
-
 export type ProfileDraft = {
-  codexAccountID: string
-  codexModel: string
-  codexModelReasoningEffort: CodexModelReasoningEffort
-  codexFastMode: boolean
   providerID: string
   model: string
   contextLength: string
@@ -44,10 +35,6 @@ export type ModelProfilePersistenceResult = {
 
 export function emptyProfileDraft(): ProfileDraft {
   return {
-    codexAccountID: '',
-    codexModel: DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-    codexModelReasoningEffort: DEFAULT_CODEX_MODEL_REASONING_EFFORT,
-    codexFastMode: false,
     providerID: '',
     model: '',
     contextLength: '',
@@ -75,10 +62,6 @@ export const ModelProfilesModel = createModel(() => {
   function read(name: ProfileName): ProfileDraft {
     const profile = profiles[name]
     return {
-      codexAccountID: profile.codexAccountID.value,
-      codexModel: profile.codexModel.value,
-      codexModelReasoningEffort: profile.codexModelReasoningEffort.value,
-      codexFastMode: profile.codexFastMode.value,
       providerID: profile.providerID.value,
       model: profile.model.value,
       contextLength: profile.contextLength.value,
@@ -153,10 +136,6 @@ function createProfileSignals() {
   const initial = emptyProfileDraft()
   return {
     source: signal(initial),
-    codexAccountID: signal(initial.codexAccountID),
-    codexModel: signal(initial.codexModel),
-    codexModelReasoningEffort: signal(initial.codexModelReasoningEffort),
-    codexFastMode: signal(initial.codexFastMode),
     providerID: signal(initial.providerID),
     model: signal(initial.model),
     contextLength: signal(initial.contextLength),
@@ -172,10 +151,6 @@ function normalizedProfileDraft(input: ProfileDraftInput): ProfileDraft {
 }
 
 function writeProfileDraft(profile: ReturnType<typeof createProfileSignals>, draft: ProfileDraft) {
-  profile.codexAccountID.value = draft.codexAccountID
-  profile.codexModel.value = draft.codexModel
-  profile.codexModelReasoningEffort.value = draft.codexModelReasoningEffort
-  profile.codexFastMode.value = draft.codexFastMode
   profile.providerID.value = draft.providerID
   profile.model.value = draft.model
   profile.contextLength.value = draft.contextLength
@@ -185,10 +160,6 @@ function writeProfileDraft(profile: ReturnType<typeof createProfileSignals>, dra
 
 function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
   return (
-    left.codexAccountID === right.codexAccountID &&
-    left.codexModel === right.codexModel &&
-    left.codexModelReasoningEffort === right.codexModelReasoningEffort &&
-    left.codexFastMode === right.codexFastMode &&
     left.providerID === right.providerID &&
     left.model === right.model &&
     left.contextLength === right.contextLength &&

@@ -623,7 +623,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                    worker_id: "worker-protocol-v1",
                    incarnation_id: "incarnation-protocol-v1",
                    runtime: "bun",
-                   version: "26.07.7"
+                   version: "0.7.0"
                  },
                  %{authenticated?: true, transport_route: route},
                  1

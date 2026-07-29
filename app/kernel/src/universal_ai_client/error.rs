@@ -33,6 +33,8 @@ pub struct StreamError {
     pub provider_status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_body_excerpt: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub provider_headers: Vec<(String, String)>,
 }
 
 impl StreamError {
@@ -47,6 +49,7 @@ impl StreamError {
             message: message.into(),
             provider_status: None,
             provider_body_excerpt: None,
+            provider_headers: Vec::new(),
         }
     }
 
@@ -59,6 +62,11 @@ impl StreamError {
         let bytes = body.as_ref();
         let limit = bytes.len().min(PROVIDER_BODY_EXCERPT_LIMIT);
         self.provider_body_excerpt = Some(String::from_utf8_lossy(&bytes[..limit]).to_string());
+        self
+    }
+
+    pub fn provider_headers(mut self, headers: &[(String, String)]) -> Self {
+        self.provider_headers = super::transport::codex_response_headers(headers);
         self
     }
 
@@ -104,6 +112,10 @@ impl StreamError {
                 "provider_body_excerpt".to_string(),
                 Value::String(excerpt.clone()),
             );
+        }
+
+        if !self.provider_headers.is_empty() {
+            details.insert("provider_headers".to_string(), json!(self.provider_headers));
         }
 
         details

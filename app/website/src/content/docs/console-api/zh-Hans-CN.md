@@ -31,13 +31,22 @@ order: 203
 |---|---|---|
 | `GET` | `/ai-gateway/provider-kinds` | 列出本实例可以配置的 Provider 类型 |
 | `GET` | `/ai-gateway/providers` | 列出已配置的 provider |
+| `GET` | `/ai-gateway/providers/:provider_id` | 读取一个 Provider 及其凭据池状态 |
 | `PUT` | `/ai-gateway/providers/:provider_id` | 创建或替换一个 provider |
 | `DELETE` | `/ai-gateway/providers/:provider_id` | 移除一个 provider |
+| `POST` | `/ai-gateway/providers/:provider_id/credentials` | 添加一个凭据池成员 |
+| `PUT` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 更新或重新认证池成员 |
+| `DELETE` | `/ai-gateway/providers/:provider_id/credentials/:credential_id` | 删除池成员 |
+| `PUT` | `/ai-gateway/providers/:provider_id/credential-pool/strategy` | 设置凭据池选择策略 |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login` | 开始一次 ChatGPT 设备码或浏览器登录 |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/poll` | 轮询一次设备码登录 |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-login/browser-callback` | 完成浏览器粘贴回退 |
+| `POST` | `/ai-gateway/providers/:provider_id/chatgpt-enterprise-credentials` | 添加 Enterprise access token |
 | `GET` | `/agents/:agent_uid/model-profiles` | 列出一个 agent 的 model profile |
 | `PUT` | `/agents/:agent_uid/model-profiles/:profile` | 创建或替换一个 profile |
 | `DELETE` | `/agents/:agent_uid/model-profiles/:profile` | 移除一个 profile |
 
-provider 凭证住在控制面里，绝不放在 agent 的环境里。一个 model profile 把一个 agent 绑到一个选择符上；AIGateway 在调用时把这个选择符解析到 provider。
+Provider 凭证以加密池成员的形式保存在控制面，绝不放进 Agent 环境。model profile 把 Agent 绑定到一个 Provider 和模型；AIGateway 在该 Provider 内选择健康成员。API 投影只返回安全的账号事实、健康状态、限额数据和用量。
 
 ### agent 及其能力
 
@@ -102,18 +111,14 @@ Agent Computer Worker 运行时可能需要 API key、token 等环境变量。Co
 
 解密是一项独立的、受审计的操作。列出和读取返回的是元数据，不是 secret 值。worker 只在一个回合开始时收到它的环境；改动在下一个回合生效，不在一个已经在跑的回合上生效。
 
-### Control Plane Plugin 与 Codex account
+### Control Plane Plugin
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | `GET` | `/control-plane-plugins` | 列出 Control Plane Plugin 及其状态 |
 | `PUT` | `/control-plane-plugins` | 启用或禁用 plugin |
-| `GET` | `/codex-accounts` | 列出 Codex account |
-| `POST` | `/codex-accounts` | 创建一个 Codex account |
-| `PUT` | `/codex-accounts/:account_id` | 更新一个 account |
-| `DELETE` | `/codex-accounts/:account_id` | 移除一个 account |
 
-Control Plane Plugin 是那些改变控制面自身行为的第一方扩展（一个 signals adapter、一个 Brain source connector）。Codex account 带着后台 Agent 任务执行时所用的账户。
+Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 signals adapter 或 Brain source connector。
 
 ### 身份源提供商与 AppConfiguration
 

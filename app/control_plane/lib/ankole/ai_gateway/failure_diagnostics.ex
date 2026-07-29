@@ -18,7 +18,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     websocket_read_failed websocket_send_failed
   )
   @legacy_provider_status_codes ~w(invalid_upstream_response upstream_response_failed)
-  @retryable_provider_codes ~w(rate_limit rate_limited rate_limit_exceeded too_many_requests)
+  @retryable_provider_codes ~w(
+    rate_limit rate_limited rate_limit_exceeded server_is_overloaded slow_down too_many_requests
+  )
   @warning_codes ~w(response_stream_cancelled stream_consumer_terminated)
 
   @spec classify(term()) :: map()
@@ -59,6 +61,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
 
   def public_message(%{error_code: "provider_stream_aborted"}),
     do: "AIGateway provider stream was aborted before a terminal response."
+
+  def public_message(%{error_code: "credential_pool_exhausted"}),
+    do: "All credentials in this provider pool are temporarily unavailable."
 
   def public_message(%{error_code: code})
       when code in ["provider_stream_error", "response_stream_cleanup_error"],
@@ -136,6 +141,9 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     |> Map.merge(provider_error_fields(body))
   end
 
+  defp reason_fields({:upstream_response_failed, status, body, _headers}),
+    do: reason_fields({:upstream_response_failed, status, body})
+
   defp reason_fields({:invalid_upstream_response, status, body}) do
     %{
       error_code: "invalid_upstream_response",
@@ -151,6 +159,14 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
     |> move_http_status_to_provider_status()
     |> Map.merge(provider_error_fields(reason))
     |> Map.put(:provider_event?, true)
+  end
+
+  defp reason_fields({:credential_pool_exhausted, _details}) do
+    %{
+      error_code: "credential_pool_exhausted",
+      provider_status: 429,
+      retryable: true
+    }
   end
 
   defp reason_fields({tag, details}) when is_atom(tag) do

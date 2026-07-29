@@ -63,7 +63,7 @@ The operator surface is narrow:
 
 - **Computer tools** (shell, read-file, patch) ship with every Worker. They are available during normal conversation turns.
 - **Jupyter live kernel** is a `default_enabled` skill, so you control it through the [Agent Library](../agent-library/) the same way you control the [browser](../browser-automation/) skill. Narrow it for an agent that should not run iterative Python.
-- **CodexRunner** runs every Background Agent Job. Configure the Background Agent Jobs profile when Jobs need a different model or a named ChatGPT subscription account. If it is unset, the control plane uses the Agent's AIGateway fallback.
+- **CodexRunner** runs every Background Agent Job. Every model call goes through AIGateway. Configure the Background Agent Jobs profile when Jobs need a different provider or model. If it is unset, the control plane uses the Agent's `heavy` profile.
 
 ## Next steps
 

@@ -42,6 +42,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
         :rate_limit ->
           conn
+          |> put_resp_header(
+            "x-codex-primary-reset-at",
+            Integer.to_string(opts[:reset_at_unix])
+          )
           |> put_resp_content_type("application/json")
           |> send_resp(
             429,
@@ -110,7 +114,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: provider_id,
                provider_kind: "openrouter",
                base_url: base_url,
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     binding =
@@ -450,8 +456,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "openai-models",
                provider_kind: "openai",
-               connection_options: %{
-                 "api_key" => "sk-openai"
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                }
              })
 
@@ -481,13 +487,53 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert Map.has_key?(primary, "top_provider")
   end
 
+  test "Codex models manifest includes the runtime slug and its responses-lite switch", %{
+    conn: conn
+  } do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-models",
+               provider_kind: "chatgpt_subscription",
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "label" => "Default",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "coding", %{
+               provider_id: "chatgpt-models",
+               model: "gpt-5.6-sol"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get(~p"/api/v1/ai-gateway/models", %{"client_version" => "0.146.0"})
+
+    assert %{"models" => models} = json_response(conn, 200)
+    assert runtime = Enum.find(models, &(&1["slug"] == "gpt-5.6-sol"))
+    assert runtime["supports_search_tool"]
+    assert runtime["use_responses_lite"]
+  end
+
   test "models endpoint includes non-LLM selectors by default", %{conn: conn} do
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "openai-models-all-capabilities",
                provider_kind: "openai",
-               connection_options: %{
-                 "api_key" => "sk-openai"
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                }
              })
 
@@ -495,8 +541,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "jina-models-all-capabilities",
                provider_kind: "jina",
-               connection_options: %{
-                 "api_key" => "jina-key"
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "jina-key"}]
                }
              })
 
@@ -571,7 +617,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "parallel-web-main",
                provider_kind: "parallel",
                base_url: base_url,
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -651,7 +699,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "parallel-web-private-url",
                provider_kind: "parallel",
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -713,7 +763,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "parallel-web-intranet",
                provider_kind: "parallel",
                base_url: base_url,
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -750,7 +802,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "parallel-web-metadata-url",
                provider_kind: "parallel",
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -803,7 +857,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "jina-search-web-main",
                provider_kind: "jina_search",
                base_url: base_url,
-               connection_options: %{"api_key" => "jina-key"}
+               credential_pool: %{"entries" => [%{"label" => "Default", "api_key" => "jina-key"}]}
              })
 
     assert {:ok, _profile} =
@@ -937,8 +991,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-invalid-controller-body",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -972,7 +1028,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     refute response(conn, 502) =~ "private-upstream-body"
   end
 
-  test "web_search reports upstream transport failures as bad gateway", %{conn: conn} do
+  test "web_search preserves transport failure after an anonymous pool retry", %{
+    conn: conn
+  } do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -1010,7 +1068,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              ProviderConfigs.create_provider(%{
                provider_id: "parallel-web-invalid-request",
                provider_kind: "parallel",
-               connection_options: %{"api_key" => "parallel-key"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "parallel-key"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -1054,7 +1114,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                ProviderConfigs.create_provider(%{
                  provider_id: provider_id,
                  provider_kind: "openai",
-                 connection_options: %{"api_key" => "sk-openai"}
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+                 }
                })
     end
 
@@ -1104,8 +1166,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-admin-access",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1145,8 +1209,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openai-sse-main",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1384,8 +1450,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openai-native-controller-sse",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1427,11 +1495,14 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     conn: conn
   } do
     %{principal: agent} = agent_fixture()
+    reset_at = DateTime.utc_now(:second) |> DateTime.add(600)
 
     server =
       start_supervised!(
         {Bandit,
-         plug: {NativeResponsesUpstreamPlug, test_pid: self(), mode: :rate_limit},
+         plug:
+           {NativeResponsesUpstreamPlug,
+            test_pid: self(), mode: :rate_limit, reset_at_unix: DateTime.to_unix(reset_at)},
          scheme: :http,
          ip: {127, 0, 0, 1},
          port: 0}
@@ -1444,8 +1515,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openai-native-controller-pre-ready-error",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1473,11 +1546,28 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert_receive {:native_controller_upstream_request, upstream_request}
     assert upstream_request["stream"] == true
+    assert_receive {:native_controller_upstream_request, retried_request}
+    assert retried_request == upstream_request
 
-    assert %{"error" => %{"code" => "upstream_response_failed", "message" => message}} =
+    assert %{
+             "error" => %{
+               "type" => "usage_limit_reached",
+               "code" => "credential_pool_exhausted",
+               "message" => message,
+               "resets_at" => resets_at,
+               "details_json" => %{"retry_at" => retry_at}
+             }
+           } =
              json_response(conn, 429)
 
-    assert message == "native upstream rate limit"
+    assert resets_at == DateTime.to_unix(reset_at)
+    assert {:ok, parsed_retry_at, _offset} = DateTime.from_iso8601(retry_at)
+    assert DateTime.compare(parsed_retry_at, reset_at) == :eq
+    assert message =~ "All credentials in this provider pool are unavailable."
+    assert get_resp_header(conn, "x-codex-primary-reset-at") == [Integer.to_string(resets_at)]
+    assert [retry_after] = get_resp_header(conn, "retry-after")
+    assert {seconds, ""} = Integer.parse(retry_after)
+    assert seconds in 0..600
     assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
     refute response(conn, 429) =~ "data: [DONE]"
   end
@@ -1501,8 +1591,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openai-sse-error",
                provider_kind: "openai",
                base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1560,8 +1652,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openai-json-main",
                provider_kind: "openai",
                base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openai",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1612,8 +1706,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-openresponses-compliance",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1813,8 +1909,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-standalone-compact",
                provider_kind: "openrouter",
                base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               },
                connection_options: %{
-                 "api_key" => "sk-openrouter",
                  "transport" => %{
                    "http_versions" => ["h1"],
                    "compression" => ["zstd", "br", "gzip"]
@@ -1958,7 +2056,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-compact-boundary",
                provider_kind: "openrouter",
                base_url: base_url,
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -2049,7 +2149,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-compact-foreign-state",
                provider_kind: "openrouter",
                base_url: base_url,
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     assert {:ok, _profile} =
@@ -2160,7 +2262,9 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
                provider_id: "openrouter-stateful-compact",
                provider_kind: "openrouter",
                base_url: base_url,
-               connection_options: %{"api_key" => "sk-openrouter"}
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
              })
 
     assert {:ok, _profile} =

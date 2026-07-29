@@ -7,13 +7,15 @@ order: 119
 
 A model call travels through three stages before it reaches a provider: the resolver turns a selector into a provider runtime map, the provider module builds a prepared request, and the kernel's `UniversalAIClient` executes it. This page documents the path, against the real code in `ai_gateway/resolver.ex`, `providers.ex`, and `universal_ai_request.ex`. It builds on [AIGateway](../ai-gateway/) and [Adding a provider](../adding-a-provider/).
 
-The decisive property, stated up front: the resolver, the provider module, and the kernel each own one stage, and none crosses into another. The resolver owns selector-to-runtime resolution; the provider module owns request preparation; the kernel owns the wire. A failure surfaces as the error from the stage that caught it, and the caller sees which stage failed.
+The resolver, the provider module, and the kernel each own one stage. The resolver owns selector, credential-pool selection, and OAuth refresh. The provider module owns request preparation. The kernel owns one wire attempt. A control-plane attempt owner can select another credential and rebuild the request, but the kernel never selects credentials or retries by itself.
 
 ## Stage 1: resolution (Resolver)
 
 `Ankole.AIGateway.Resolver` turns the `model` field of a request into a concrete provider runtime map. The resolver is where a subject-visible selector — `primary`, `light`, `embedding.default`, or an explicit `provider_id/model` — becomes a provider id, a provider kind, an upstream model name, and the resolved runtime settings.
 
-LLM aliases (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) resolve through the agent's model profiles. `coding` is the persisted and API alias for the user-facing Background Agent Jobs profile. Embedding and rerank accept `default`, explicit default bindings (`embedding.default`), or explicit selectors. Provider modules never see the selector or the subject — they receive the resolved runtime map only. The resolver is the sole point where subject identity and model profiles are consulted.
+LLM aliases (`primary`, `light`, `heavy`, `coding`, `vision_fallback`) resolve through the agent's model profiles. `coding` is the persisted and API alias for the user-facing Background Agent Jobs profile. Embedding and rerank accept `default`, explicit default bindings (`embedding.default`), or explicit selectors. The resolver is the sole point where subject identity and model profiles are consulted.
+
+After it resolves the provider row, the resolver selects one usable credential. Thread affinity wins before the row's `fill_first`, `round_robin`, `least_used`, or `random` strategy. The runtime map carries the exact credential ID to every later failure path. For a ChatGPT subscription OAuth member, the resolver refreshes a near-expiry or stale token under the provider-row lock. A permanent refresh failure marks that member `dead`; a temporary failure marks it `exhausted`; both select the next usable member.
 
 Resolution can fail before any provider is contacted:
 
@@ -21,6 +23,8 @@ Resolution can fail before any provider is contacted:
 - `422 model_binding_not_configured` — the capability and name are bound but the provider row is incomplete.
 
 These errors identify a missing model profile, an unavailable Provider, or an incomplete Provider configuration.
+
+An unavailable credential pool is different. It returns `credential_pool_exhausted` with the safe status of each current member. It includes `retry_at` only when a current exhausted member has a known future recovery time.
 
 ## Stage 2: preparation (Provider module + Providers)
 
@@ -35,13 +39,13 @@ build_web_fetch_request(runtime, request)   # :web_fetch
 build_image_generate_request(runtime, request) # :image_generate
 ```
 
-Each delegates to `build_prepared_request/4`, which looks up the capability on the provider's `ProviderDefinition`, verifies the provider supports it (`supports_capability?/2`), and calls the capability's `prepare` function — the normal Elixir function that builds a `UniversalAIRequest` struct from the resolved settings and the request.
+Each delegates to `build_prepared_request/4`, which looks up the capability on the provider's `ProviderDefinition`, verifies the provider supports it (`supports_capability?/2`), and calls the capability's `prepare` function — the normal Elixir function that builds a `UniversalAIRequest` struct from the resolved settings and the request. The prepared request keeps a control-plane-only rebuild context with the selected credential ID. That context is removed before the request crosses the native boundary.
 
 This is the stage where provider differences live: URL construction, auth headers, body shaping, the quirks of a specific upstream API. The prepared request is a `UniversalAIRequest` — a struct with a path, an `api_resolver` atom, headers, and provider options — not an HTTP call.
 
 ## Stage 3: execution (UniversalAIRequest → kernel)
 
-`UniversalAIRequest` is a thin execution adapter from AIGateway to the kernel's `UniversalAIClient`. Its moduledoc: "Provider modules prepare the UniversalAIClient spec. This module only executes it and preserves the HTTP/SSE ready boundary expected by Phoenix callers."
+`UniversalAIRequest` is a thin execution adapter from AIGateway to the kernel's `UniversalAIClient`. Provider modules prepare the request specification; the adapter executes it and preserves the HTTP/SSE-ready boundary expected by Phoenix callers.
 
 The execution hands the prepared request to the Rust kernel, which:
 
@@ -51,7 +55,11 @@ The execution hands the prepared request to the Rust kernel, which:
 - receives the response stream,
 - normalizes it into the downstream chunk format.
 
-This is the stage the [Kernel](../kernel/) page documents: the `universal_ai_client` module in Rust, with its transport, demand credit, and cancellation. The provider module does not participate in execution; it handed off a prepared request and the kernel owns the wire from there.
+The kernel returns a restricted response-header set on success and failure. It includes the `x-codex-*` rate-limit family and `cf-mitigated`, but excludes credentials, cookies, and other provider headers. The control plane uses this set for cooldown, rate-limit projection, and Cloudflare challenge diagnosis.
+
+`CredentialAttempts` wraps each kernel attempt. An attributed `429`, `5xx`, or transport failure marks only the credential that made that attempt, selects another healthy member, rebuilds authorization and provider headers, waits with exponential backoff and jitter, and asks the kernel for one new attempt. A single usable member gets one same-credential retry. A failure without a credential ID marks no member and stops after one pool lap. When every member is unavailable, the attempt owner returns `credential_pool_exhausted`; it does not switch to another provider.
+
+This is the stage the [Kernel](../kernel/) page documents: the `universal_ai_client` module in Rust, with its transport, demand credit, and cancellation. The provider module does not participate in execution.
 
 ## How a failure surfaces
 
@@ -60,6 +68,7 @@ Each stage produces a distinct class of error:
 | Stage | Failure shape | What it means |
 |---|---|---|
 | Resolution | `422 unknown_model_selector` / `model_binding_not_configured` | the selector or binding is wrong — configuration, not transient |
+| Credential pool | `429 credential_pool_exhausted` | all members are disabled, dead, or cooling down; wait until `retry_at` when present, otherwise repair the pool |
 | Preparation | `422 unsupported_capability` / provider-specific validation | the provider does not serve this capability, or the request options are invalid |
 | Execution | `502 upstream_response_failed` / `504 upstream_timeout` | the provider returned an error or timed out — may be transient |
 

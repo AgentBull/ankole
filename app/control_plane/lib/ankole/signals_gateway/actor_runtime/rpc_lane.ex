@@ -36,7 +36,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
-  alias Ankole.SignalsGateway.ActorRuntime.CodexAccountBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker
@@ -58,11 +57,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
        FabricProto.AgentConversationContextRequest},
     "app_configure.resolve" =>
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
-    "codex.account.resolve" =>
-      {CodexAccountBroker, :handle_resolve, :turn_read, FabricProto.CodexAccountResolveRequest},
-    "codex.account.auth.update" =>
-      {CodexAccountBroker, :handle_update_auth, :turn_write,
-       FabricProto.CodexAccountAuthUpdateRequest},
     "agent_plugin.list" =>
       {AgentPluginBroker, :handle_list, :turn_read, FabricProto.AgentPluginListRequest},
     "background_agent_job.create" =>

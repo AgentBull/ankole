@@ -23,8 +23,16 @@ defmodule Ankole.AIGateway.Providers.Claude do
     label(%{"default" => "Claude", "zh-Hans-CN" => "Claude"})
     base_url("https://api.anthropic.com", advanced: true)
 
-    setting(:api_key, encrypted: true)
-    setting(:auth_mode, default: "api_key", advanced: true)
+    setting(:api_key, encrypted: true, scope: :credential)
+
+    setting(:auth_mode,
+      type: :select,
+      default: "api_key",
+      options: ~w(api_key auth_token oauth),
+      scope: :credential,
+      advanced: true
+    )
+
     setting(:headers, type: :map, advanced: true)
     setting(:anthropic_version, default: @anthropic_version, advanced: true)
     setting(:anthropic_beta, advanced: true)

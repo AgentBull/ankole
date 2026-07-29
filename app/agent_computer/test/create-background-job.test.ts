@@ -105,7 +105,6 @@ function response() {
     agentUid: 'agent-1',
     ownerSessionId: 'session-1',
     status: 'queued',
-    codexAccountId: 'aigateway',
     title: 'Research',
     task: 'Write the report.',
     replyRouteJson: jsonBytes({ binding_name: 'lark', signal_channel_id: 'chat-1' }),

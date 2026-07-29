@@ -111,9 +111,32 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
       case mirrored_outside_open_batch?(repo, fact, batch) do
         true ->
-          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now) do
+          with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
+               source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+               {:ok, supplement} <-
+                 maybe_apply_live_attachment_supplement(
+                   batch,
+                   repo,
+                   fact,
+                   source_entry,
+                   now
+                 ),
+               {:ok, result} <-
+                 route_finalized_duplicate_or_attachment_supplement(
+                   supplement,
+                   batch,
+                   repo,
+                   binding,
+                   channel,
+                   fact,
+                   source_entry,
+                   policy,
+                   type,
+                   now
+                 ) do
             {:ok,
-             %{status: :duplicate, inbound_batch: batch, signal_channel: channel}
+             result
+             |> Map.put(:signal_channel, channel)
              |> maybe_put_result(:signal_entry, mirror_entry)}
           end
 
@@ -206,6 +229,47 @@ defmodule Ankole.SignalsGateway.InboundBatches do
          now
        ) do
     TurnRetry.refresh_attachment_supplement_in_tx(repo, fact, source_entry, now)
+  end
+
+  defp route_finalized_duplicate_or_attachment_supplement(
+         :not_supplement,
+         batch,
+         _repo,
+         _binding,
+         _channel,
+         _fact,
+         _source_entry,
+         _policy,
+         _type,
+         _now
+       ) do
+    {:ok, %{status: :duplicate, inbound_batch: batch}}
+  end
+
+  defp route_finalized_duplicate_or_attachment_supplement(
+         supplement,
+         batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         source_entry,
+         policy,
+         type,
+         now
+       ) do
+    route_after_live_attachment_supplement(
+      supplement,
+      batch,
+      repo,
+      binding,
+      channel,
+      fact,
+      source_entry,
+      policy,
+      type,
+      now
+    )
   end
 
   defp route_after_live_attachment_supplement(

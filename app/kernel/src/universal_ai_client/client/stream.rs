@@ -40,8 +40,13 @@ async fn run_http_stream(
         };
 
     if !(200..300).contains(&http_stream.0.status) {
-        let error =
-            provider_status_error(&spec, http_stream.0.status, &mut http_stream.0.body).await;
+        let error = provider_status_error(
+            &spec,
+            http_stream.0.status,
+            &http_stream.0.headers,
+            &mut http_stream.0.body,
+        )
+        .await;
         sink(StreamEvent::Error(error.to_json()));
         return;
     }
@@ -59,7 +64,7 @@ async fn run_http_stream(
 
     sink(StreamEvent::Ready(json!({
         "status": http_stream.0.status,
-        "headers": http_stream.0.headers,
+        "headers": transport::codex_response_headers(&http_stream.0.headers),
         "upstream_kind": spec.upstream.kind.as_str(),
         "downstream_kind": spec.downstream.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
@@ -322,16 +327,33 @@ async fn run_websocket_stream(
 ) {
     let opened =
         wait_for_open_websocket(&spec, command_rx, sink.clone(), aborted_sent.clone()).await;
-    let (mut websocket, command_rx) = match opened {
+    let (mut websocket, response_headers, command_rx) = match opened {
         WebSocketOpenResult::Opened {
             websocket,
+            headers,
             command_rx,
-        } => (websocket, command_rx),
+        } => (websocket, headers, command_rx),
         WebSocketOpenResult::Finished => return,
     };
 
     let websocket_initial_messages = websocket_initial_messages(&spec);
     for payload in &websocket_initial_messages {
+        if payload.len() > spec.limits.max_websocket_text_bytes {
+            sink(StreamEvent::Error(
+                StreamError::new(
+                    "websocket_message_too_large",
+                    "connect",
+                    format!(
+                        "initial WebSocket text payload exceeded {} bytes",
+                        spec.limits.max_websocket_text_bytes
+                    ),
+                )
+                .provider_status(413)
+                .to_json(),
+            ));
+            return;
+        }
+
         if let Err(reason) = websocket.send(Message::text(payload.clone())).await {
             sink(StreamEvent::Error(
                 StreamError::new(
@@ -358,7 +380,7 @@ async fn run_websocket_stream(
 
     sink(StreamEvent::Ready(json!({
         "status": 101,
-        "headers": [],
+        "headers": response_headers,
         "upstream_kind": spec.upstream.kind.as_str(),
         "downstream_kind": spec.downstream.as_str(),
         "api_resolver": spec.api_resolver.as_str(),
@@ -384,7 +406,8 @@ async fn run_websocket_stream(
                             "upstream WebSocket text payload exceeded {} bytes",
                             spec.limits.max_websocket_text_bytes
                         ),
-                    );
+                    )
+                    .provider_status(413);
                     finish_after_ready_error(delivery, &mut resolver, error).await;
                     return;
                 }
@@ -424,6 +447,16 @@ async fn run_websocket_stream(
                     }
                 }
             }
+            Ok(Some(Ok(Message::Close(Some(frame))))) if frame.code == CloseCode::Size => {
+                let error = StreamError::new(
+                    "websocket_message_too_large",
+                    "wire",
+                    "upstream WebSocket closed because a message was too large",
+                )
+                .provider_status(413);
+                finish_after_ready_error(delivery, &mut resolver, error).await;
+                return;
+            }
             Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
                 match resolver.finish() {
                     Ok(events) => delivery.push_events(events),
@@ -450,7 +483,7 @@ async fn run_websocket_stream(
             }
             Ok(Some(Ok(Message::Frame(_)))) => {}
             Ok(Some(Err(reason))) => {
-                let error = StreamError::new("websocket_read_failed", "read", reason.to_string());
+                let error = websocket_read_error(reason);
                 finish_after_ready_error(delivery, &mut resolver, error).await;
                 return;
             }
@@ -461,6 +494,20 @@ async fn run_websocket_stream(
                 return;
             }
         }
+    }
+}
+
+fn websocket_read_error(reason: WebSocketError) -> StreamError {
+    match reason {
+        WebSocketError::Capacity(CapacityError::MessageTooLong { size, max_size }) => {
+            StreamError::new(
+                "websocket_message_too_large",
+                "wire",
+                format!("upstream WebSocket message exceeded {max_size} bytes ({size} bytes)"),
+            )
+            .provider_status(413)
+        }
+        reason => StreamError::new("websocket_read_failed", "read", reason.to_string()),
     }
 }
 
@@ -505,6 +552,7 @@ async fn wait_for_open_http(
 enum WebSocketOpenResult {
     Opened {
         websocket: Box<transport::UpstreamWebSocket>,
+        headers: Vec<(String, String)>,
         command_rx: mpsc::Receiver<StreamCommand>,
     },
     Finished,
@@ -523,15 +571,22 @@ async fn wait_for_open_websocket(
         tokio::select! {
             result = &mut open => {
                 return match result {
-                    Ok((websocket, 101)) => {
-                        WebSocketOpenResult::Opened { websocket: Box::new(websocket), command_rx }
+                    Ok((websocket, 101, headers)) => {
+                        WebSocketOpenResult::Opened {
+                            websocket: Box::new(websocket),
+                            headers,
+                            command_rx
+                        }
                     }
-                    Ok((_websocket, status)) => {
+                    Ok((_websocket, status, headers)) => {
                         sink(StreamEvent::Error(StreamError::new(
                             "websocket_status_rejected",
                             "connect",
                             format!("upstream WebSocket returned status {status}"),
-                        ).provider_status(status).to_json()));
+                        )
+                        .provider_status(status)
+                        .provider_headers(&headers)
+                        .to_json()));
                         WebSocketOpenResult::Finished
                     }
                     Err(error) => {
@@ -748,6 +803,20 @@ impl Delivery {
         }
     }
 
+    async fn finish_native_error_with_metadata(
+        mut self,
+        error: StreamError,
+        metadata: Option<Value>,
+    ) {
+        if self.flush_pending_blocking().await {
+            let mut error_json = error.to_json();
+            if let Some(metadata) = metadata {
+                error_json["hosted_tool_metadata"] = metadata;
+            }
+            (self.sink)(StreamEvent::Error(error_json));
+        }
+    }
+
     fn handle_command(&mut self, command: Option<StreamCommand>) -> bool {
         match command {
             Some(StreamCommand::Demand(count)) => {
@@ -864,6 +933,7 @@ fn eventstream_provider_error(message: &wire::EventStreamMessage) -> StreamError
 async fn provider_status_error(
     spec: &StreamSpec,
     status: u16,
+    headers: &[(String, String)],
     body: &mut futures_util::stream::BoxStream<'static, Result<bytes::Bytes, reqwest::Error>>,
 ) -> StreamError {
     let mut excerpt = Vec::new();
@@ -885,4 +955,5 @@ async fn provider_status_error(
     )
     .provider_status(status)
     .provider_body_excerpt(excerpt)
+    .provider_headers(headers)
 }

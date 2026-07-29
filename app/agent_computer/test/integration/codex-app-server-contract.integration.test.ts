@@ -40,7 +40,7 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
     ])
 
     expect(exitCode).toBe(0)
-    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.145.0')
+    expect(`${stdout}${stderr}`.trim()).toBe('codex-cli 0.146.0')
   })
 
   it('can execute the Codex Linux sandbox inside the worker container', async () => {
@@ -431,8 +431,6 @@ test ! -e ./AGENTS.override.md
     }
     const runtimeFiles = await materializeCodexJobRuntimeFiles(runtimeInput)
     const runtimeConfig: CodexRuntimeConfig = {
-      mode: 'aigateway',
-      accountID: 'aigateway',
       modelProfile: {
         model: 'gpt-5.6-sol',
         selector: 'openrouter/openai/gpt-5.6-sol',
@@ -502,7 +500,8 @@ test ! -e ./AGENTS.override.md
       })
 
       try {
-        await realClient.initialize()
+        const initializeResponse = await realClient.initialize()
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.146.0 ')
         await realClient.request('skills/extraRoots/set', { extraRoots: [runtimeFiles.skillsRoot] })
         const response = (await realClient.request('skills/list', {
           cwds: [realSandbox.codexCwd],

@@ -9,10 +9,12 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ImageStreamPersistence
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
 
@@ -426,6 +428,22 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
 
   test "data URLs are validated and counted without downloading external URLs" do
     agent = agent_fixture()
+    provider_id = "openrouter-image-validation-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Validation", "api_key" => "sk-validation"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.principal.uid, "image_generate", %{
+               provider_id: provider_id,
+               model: "openai/gpt-image-2"
+             })
 
     request = %{
       "input" => [
@@ -548,7 +566,11 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
         "id" => "provider_response",
         "object" => "response",
         "status" => "completed",
-        "output" => [image_item]
+        "output" => [image_item],
+        "usage" => %{"input_tokens" => 12, "output_tokens" => 3, "total_tokens" => 15},
+        "tool_usage" => %{
+          "image_gen" => %{"input_tokens" => 7, "output_tokens" => 2, "total_tokens" => 9}
+        }
       }
     }
 
@@ -560,11 +582,13 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
 
     persisted_message = Repo.get!(Message, message.id)
     assert [%{"result" => nil}] = persisted_message.content
+    assert get_in(persisted_message.metadata, ["tool_usage", "image_gen", "total_tokens"]) == 9
 
     assert {:ok, %{body: response}} =
              StatefulLifecycle.retrieve_response(agent.principal.uid, "resp_#{message.id}")
 
     assert [%{"id" => ^image_id, "result" => @png_base64}] = response["output"]
+    assert get_in(response, ["tool_usage", "image_gen", "total_tokens"]) == 9
   end
 
   test "stateful retrieve keeps a prior image call in input and the new image in output" do

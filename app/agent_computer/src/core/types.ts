@@ -32,6 +32,7 @@ export type {
   ImageContent,
   ContentPart,
   ToolCall,
+  ToolCaller,
   StatefulResponseContext
 } from './llm'
 
@@ -179,6 +180,17 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   name: string
   description: string
   schema: TParameters
+  /** Optional raw JSON Schema used when a tool comes from an external catalog. */
+  jsonSchema?: Record<string, unknown>
+  /** Groups this tool under one Responses namespace. */
+  namespace?: string
+  namespaceDescription?: string
+  /** Hides the schema until Tool Search loads this tool. */
+  deferLoading?: boolean
+  /** Search corpus supplied by the owning external catalog. */
+  toolSearchText?: string
+  /** Responses callers that may invoke this tool. */
+  allowedCallers?: Array<'direct' | 'programmatic'>
   executionMode?: AgentToolExecutionMode
   isReadOnly?: boolean
   isDestructive?: boolean

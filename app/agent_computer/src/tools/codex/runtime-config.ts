@@ -1,28 +1,11 @@
-import {
-  rpcMethods,
-  type AIGatewayAPIKeyResponse,
-  type BackgroundAgentJobResponse,
-  type RPCRequester
-} from '../../lanes/rpc_lane'
-import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
+import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../../core/turns/turn_options'
-import type { ActorTurnRef } from '../../lanes/actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-
-type CodexRuntimeRequesters = {
-  requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
-  rpc: RPCRequester
-}
 
 export const CODEX_MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 
 export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]
-
-export type CodexSubscriptionModelProfile = {
-  model: string
-  modelReasoningEffort: CodexModelReasoningEffort
-  fastMode: boolean
-}
 
 export type CodexAIGatewayModelProfile = {
   model: string
@@ -30,111 +13,59 @@ export type CodexAIGatewayModelProfile = {
   providerOptions: JSONObject
   supportsParallelToolCalls: boolean
   modelReasoningEffort?: CodexModelReasoningEffort
+  contextLength?: number
 }
 
-export type CodexRuntimeConfig =
-  | {
-      mode: 'aigateway'
-      accountID: 'aigateway'
-      aiGatewayKey: AIGatewayAPIKeyResponse
-      modelProfile: CodexAIGatewayModelProfile
-    }
-  | {
-      mode: 'official_subscription'
-      accountID: string
-      authJSON: string
-      authHash: string
-      modelProfile: CodexSubscriptionModelProfile
-    }
+export type CodexRuntimeConfig = {
+  aiGatewayKey: AIGatewayAPIKeyResponse
+  modelProfile: CodexAIGatewayModelProfile
+}
 
 export async function resolveCodexRuntimeConfig(input: {
-  turn: ActorTurnRef
-  job: BackgroundAgentJobResponse
-  requesters: CodexRuntimeRequesters
+  turnStart: TurnStart
+  agentUID: string
+  requestAIGatewayAPIKey: AIGatewayAPIKeyRequester
 }): Promise<CodexRuntimeConfig> {
-  if (input.job.codexAccountId === 'aigateway') {
-    return {
-      mode: 'aigateway',
-      accountID: 'aigateway',
-      aiGatewayKey: await resolveAIGatewayKey(input.job.agentUid, input.requesters),
-      modelProfile: aigatewayModelProfile(input.job)
-    }
-  }
-
-  const response = await input.requesters.rpc(
-    rpcMethods.codexAccountResolve,
-    { jobId: input.job.jobId },
-    { turn: input.turn }
-  )
-  if (response.accountId !== input.job.codexAccountId) {
-    throw new Error('Codex account resolve returned a different account')
-  }
   return {
-    mode: 'official_subscription',
-    accountID: response.accountId,
-    authJSON: response.authJson,
-    authHash: response.authHash,
-    modelProfile: {
-      model: requiredModel(response.model),
-      modelReasoningEffort: modelReasoningEffort(response.modelReasoningEffort),
-      fastMode: response.fastMode
-    }
+    aiGatewayKey: await input.requestAIGatewayAPIKey(input.agentUID),
+    modelProfile: modelProfile(input.turnStart)
   }
 }
 
-function requiredModel(value: string): string {
-  const model = value.trim()
-  if (!model) throw new Error('Codex account resolve returned an empty model')
-  return model
-}
+function modelProfile(turnStart: TurnStart): CodexAIGatewayModelProfile {
+  const modelRef = turnStart.model_ref
+  if (!modelRef) throw new Error('Background Agent Job turn is missing its coding model_ref')
+  if (modelRef.profile !== 'coding') {
+    throw new Error('Background Agent Job turn did not resolve the coding model profile')
+  }
 
-function aigatewayModelProfile(job: BackgroundAgentJobResponse): CodexAIGatewayModelProfile {
-  const metadata = jsonObjectFromBytes(job.metadataJson, 'background_agent_job.metadata_json') ?? {}
-  const snapshot = jsonObject(metadata.codex_aigateway, 'background_agent_job.metadata.codex_aigateway')
-  const providerOptions = jsonObject(
-    snapshot.provider_options,
-    'background_agent_job.metadata.codex_aigateway.provider_options'
-  )
+  const providerID = requiredText(modelRef.provider_id, 'provider_id')
+  const upstreamModel = requiredText(modelRef.model, 'model')
+  const providerOptions = modelRef.provider_options ?? {}
   const effort = optionalModelReasoningEffort(providerOptions.reasoningEffort)
+  const contextLength = positiveInteger(modelRef.context_length)
 
   return {
-    model: requiredSnapshotText(snapshot.model, 'model'),
-    selector: requiredSnapshotText(snapshot.selector, 'selector'),
+    model: codexModel(modelRef.provider_kind, upstreamModel),
+    selector: providerID === 'ai_gateway' ? upstreamModel : `${providerID}/${upstreamModel}`,
     providerOptions,
-    supportsParallelToolCalls: requiredSnapshotBoolean(
-      snapshot.supports_parallel_tool_calls,
-      'supports_parallel_tool_calls'
-    ),
-    ...(effort ? { modelReasoningEffort: effort } : {})
+    supportsParallelToolCalls: modelRef.supports_parallel_tool_calls === true,
+    ...(effort ? { modelReasoningEffort: effort } : {}),
+    ...(contextLength ? { contextLength } : {})
   }
 }
 
-function jsonObject(value: unknown, field: string): JSONObject {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${field} must be a JSON object`)
-  }
-  return value as JSONObject
-}
-
-function requiredSnapshotText(value: unknown, field: string): string {
+function requiredText(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`background_agent_job.metadata.codex_aigateway.${field} must be a non-empty string`)
+    throw new Error(`Background Agent Job coding model_ref.${field} must be a non-empty string`)
   }
   return value.trim()
 }
 
-function requiredSnapshotBoolean(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') {
-    throw new Error(`background_agent_job.metadata.codex_aigateway.${field} must be a boolean`)
-  }
-  return value
-}
-
-function modelReasoningEffort(value: string): CodexModelReasoningEffort {
-  if (CODEX_MODEL_REASONING_EFFORTS.includes(value as CodexModelReasoningEffort)) {
-    return value as CodexModelReasoningEffort
-  }
-  throw new Error(`Codex account resolve returned an invalid model reasoning effort: ${value}`)
+function codexModel(providerKind: string | undefined, model: string): string {
+  if (providerKind !== 'openrouter') return model
+  const separator = model.indexOf('/')
+  return separator >= 0 && separator < model.length - 1 ? model.slice(separator + 1) : model
 }
 
 function optionalModelReasoningEffort(value: unknown): CodexModelReasoningEffort | undefined {
@@ -143,9 +74,6 @@ function optionalModelReasoningEffort(value: unknown): CodexModelReasoningEffort
     : undefined
 }
 
-async function resolveAIGatewayKey(
-  agentUID: string,
-  requesters: CodexRuntimeRequesters
-): Promise<AIGatewayAPIKeyResponse> {
-  return await requesters.requestAIGatewayAPIKey(agentUID)
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined
 }

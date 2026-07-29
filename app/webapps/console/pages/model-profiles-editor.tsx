@@ -6,16 +6,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
   CreatableCombobox,
-  Field,
-  FieldDescription,
-  FieldLabel,
   Input,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Switch,
   toast
 } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
@@ -33,18 +29,13 @@ import type {
   AgentItem,
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
-  CodexAccountItem,
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
 import { LabeledField } from '../console-form'
 import {
-  CODEX_MODEL_REASONING_EFFORTS,
-  DEFAULT_CODEX_MODEL_REASONING_EFFORT,
-  DEFAULT_CODEX_SUBSCRIPTION_MODEL,
   ModelProfilesModel,
   PROFILE_NAMES,
-  type CodexModelReasoningEffort,
   type ModelProfileSubmission,
   type ProfileDraft,
   type ProfileName
@@ -77,8 +68,7 @@ export function ModelProfilesEditor({
   profiles,
   providers,
   providerKinds,
-  modelCatalog,
-  codexAccounts
+  modelCatalog
 }: {
   agent: AgentItem
   error: unknown
@@ -88,7 +78,6 @@ export function ModelProfilesEditor({
   providers: AIGatewayProviderItem[]
   providerKinds: AIGatewayProviderKindItem[]
   modelCatalog: unknown
-  codexAccounts: CodexAccountItem[]
 }) {
   useSignals()
   const { t } = useTranslation()
@@ -176,23 +165,6 @@ export function ModelProfilesEditor({
 
   const submit = (profile: ProfileName) => {
     const draft = model.snapshot(profile)
-    if (profile === 'coding' && draft.codexAccountID) {
-      const codexModel = draft.codexModel.trim()
-      if (!codexModel) {
-        updateDraft(profile, { error: t('common.field_required', { field: t('console.models.model') }) })
-        return
-      }
-      updateDraft(profile, { error: undefined })
-      const submission = model.submission(profile)
-      persistProfile(profile, submission, {
-        codex_account_id: submission.draft.codexAccountID,
-        model: codexModel,
-        model_reasoning_effort: submission.draft.codexModelReasoningEffort,
-        fast_mode: submission.draft.codexFastMode
-      })
-      return
-    }
-
     const selectedProvider = providers.find(provider => provider.provider_id === draft.providerID)
     const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
     if (!selectedProvider || !selectedKind) {
@@ -239,11 +211,7 @@ export function ModelProfilesEditor({
           const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
           const configurableModel = profileUsesConfigurableModel(profile)
           const modelOptions = configurableModel ? modelOptionsForProfile(modelCatalog, providerID, profile) : []
-          const configured = Boolean(
-            (draft.codexAccountID.value && draft.codexModel.value.trim()) ||
-            (draft.providerID.value && (!configurableModel || draft.model.value))
-          )
-          const subscriptionCoding = profile === 'coding' && Boolean(draft.codexAccountID.value)
+          const configured = Boolean(draft.providerID.value && (!configurableModel || draft.model.value))
           const renderOptionSetting = (setting: ProviderSetting) => (
             <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
               <ProviderSettingField
@@ -292,179 +260,95 @@ export function ModelProfilesEditor({
                 <p className="text-xs leading-5 text-muted-foreground">{t('console.models.vision_fallback_hint')}</p>
               ) : null}
               {draft.error.value ? <ErrorBlock error={draft.error.value} /> : null}
-              {profile === 'coding' ? (
-                <LabeledField
-                  label={t('console.models.coding_runtime')}
-                  description={t('console.models.coding_runtime_hint')}>
-                  <Select
-                    value={draft.codexAccountID.value || 'aigateway'}
-                    onValueChange={value =>
-                      updateDraft(profile, {
-                        codexAccountID: String(value) === 'aigateway' ? '' : String(value),
-                        error: undefined
-                      })
-                    }>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="aigateway">{t('console.models.aigateway')}</SelectItem>
-                      {codexAccounts.map(account => (
-                        <SelectItem key={account.account_id} value={account.account_id}>
-                          {account.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </LabeledField>
-              ) : null}
-              {subscriptionCoding ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <LabeledField
-                    htmlFor="coding-subscription-model"
-                    label={t('console.models.model')}
-                    description={t('console.models.codex_model_hint')}>
-                    <Input
-                      id="coding-subscription-model"
-                      spellCheck={false}
-                      value={draft.codexModel.value}
-                      onChange={event => updateDraft(profile, { codexModel: event.target.value, error: undefined })}
-                    />
-                  </LabeledField>
-                  <LabeledField
-                    htmlFor="coding-subscription-reasoning"
-                    label={t('console.models.model_reasoning_effort')}
-                    description={t('console.models.model_reasoning_effort_hint')}>
+              <>
+                <div
+                  className={
+                    configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]' : 'grid gap-4'
+                  }>
+                  <LabeledField label={t('console.models.provider')}>
                     <Select
-                      value={draft.codexModelReasoningEffort.value}
-                      onValueChange={value =>
-                        updateDraft(profile, {
-                          codexModelReasoningEffort: String(value) as CodexModelReasoningEffort,
-                          error: undefined
-                        })
-                      }>
-                      <SelectTrigger id="coding-subscription-reasoning" className="w-full">
-                        <SelectValue />
+                      value={draft.providerID.value}
+                      onValueChange={value => {
+                        const nextProviderID = String(value)
+                        updateDraft(
+                          profile,
+                          nextProviderID === draft.providerID.value
+                            ? { providerID: nextProviderID }
+                            : {
+                                providerID: nextProviderID,
+                                ...(configurableModel ? { model: '', contextLength: '' } : {}),
+                                providerOptions: {},
+                                error: undefined
+                              }
+                        )
+                      }}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t('console.models.provider_placeholder')} />
                       </SelectTrigger>
                       <SelectContent>
-                        {CODEX_MODEL_REASONING_EFFORTS.map(effort => (
-                          <SelectItem key={effort} value={effort}>
-                            {effort}
+                        {profileProviders.map(provider => (
+                          <SelectItem key={provider.provider_id} value={provider.provider_id}>
+                            {provider.provider_id}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </LabeledField>
-                  <Field
-                    orientation="horizontal"
-                    className="items-center justify-between border border-border bg-muted/30 p-4 md:col-span-2">
-                    <div className="grid gap-1 pr-4">
-                      <FieldLabel htmlFor="coding-subscription-fast-mode">{t('console.models.fast_mode')}</FieldLabel>
-                      <FieldDescription id="coding-subscription-fast-mode-hint">
-                        {t('console.models.fast_mode_hint')}
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="coding-subscription-fast-mode"
-                      aria-describedby="coding-subscription-fast-mode-hint"
-                      checked={draft.codexFastMode.value}
-                      onCheckedChange={checked =>
-                        updateDraft(profile, { codexFastMode: checked === true, error: undefined })
-                      }
-                    />
-                  </Field>
+                  {configurableModel ? (
+                    <>
+                      <LabeledField label={t('console.models.model')}>
+                        <CreatableCombobox
+                          options={modelOptions}
+                          placeholder={t('console.models.model_placeholder')}
+                          emptyLabel={t('console.models.model_empty')}
+                          createLabel={value => t('console.models.model_use', { model: value })}
+                          value={draft.model.value}
+                          onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
+                        />
+                      </LabeledField>
+                      <LabeledField label={t('console.models.context')}>
+                        <Input
+                          inputMode="numeric"
+                          value={draft.contextLength.value}
+                          onChange={event => updateDraft(profile, { contextLength: event.target.value })}
+                        />
+                      </LabeledField>
+                    </>
+                  ) : null}
                 </div>
-              ) : (
-                <>
-                  <div
-                    className={
-                      configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]' : 'grid gap-4'
-                    }>
-                    <LabeledField label={t('console.models.provider')}>
-                      <Select
-                        value={draft.providerID.value}
-                        onValueChange={value => {
-                          const nextProviderID = String(value)
-                          updateDraft(
-                            profile,
-                            nextProviderID === draft.providerID.value
-                              ? { providerID: nextProviderID }
-                              : {
-                                  providerID: nextProviderID,
-                                  ...(configurableModel ? { model: '', contextLength: '' } : {}),
-                                  providerOptions: {},
-                                  error: undefined
-                                }
-                          )
-                        }}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder={t('console.models.provider_placeholder')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {profileProviders.map(provider => (
-                            <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                              {provider.provider_id}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </LabeledField>
-                    {configurableModel ? (
-                      <>
-                        <LabeledField label={t('console.models.model')}>
-                          <CreatableCombobox
-                            options={modelOptions}
-                            placeholder={t('console.models.model_placeholder')}
-                            emptyLabel={t('console.models.model_empty')}
-                            createLabel={value => t('console.models.model_use', { model: value })}
-                            value={draft.model.value}
-                            onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
-                          />
-                        </LabeledField>
-                        <LabeledField label={t('console.models.context')}>
-                          <Input
-                            inputMode="numeric"
-                            value={draft.contextLength.value}
-                            onChange={event => updateDraft(profile, { contextLength: event.target.value })}
-                          />
-                        </LabeledField>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="grid gap-3">
-                    <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
-                    {!providerID ? (
-                      <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
-                    ) : !selectedKind ? (
-                      <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-                    ) : optionSettings.length === 0 ? (
-                      <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
-                    ) : (
-                      <>
-                        {basicOptionSettings.length > 0 ? (
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            {basicOptionSettings.map(renderOptionSetting)}
-                          </div>
-                        ) : null}
-                        {advancedOptionSettings.length > 0 ? (
-                          <Collapsible className="grid gap-4" defaultOpen={false}>
-                            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
-                              <span>{t('common.advanced_settings')}</span>
-                              <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {advancedOptionSettings.length}
-                                <RiArrowDownSLine className="size-4" aria-hidden />
-                              </span>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                              {advancedOptionSettings.map(renderOptionSetting)}
-                            </CollapsibleContent>
-                          </Collapsible>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
+                <div className="grid gap-3">
+                  <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
+                  {!providerID ? (
+                    <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
+                  ) : !selectedKind ? (
+                    <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                  ) : optionSettings.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
+                  ) : (
+                    <>
+                      {basicOptionSettings.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          {basicOptionSettings.map(renderOptionSetting)}
+                        </div>
+                      ) : null}
+                      {advancedOptionSettings.length > 0 ? (
+                        <Collapsible className="grid gap-4" defaultOpen={false}>
+                          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
+                            <span>{t('common.advanced_settings')}</span>
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {advancedOptionSettings.length}
+                              <RiArrowDownSLine className="size-4" aria-hidden />
+                            </span>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            {advancedOptionSettings.map(renderOptionSetting)}
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </>
             </div>
           )
         })}
@@ -474,27 +358,12 @@ export function ModelProfilesEditor({
 }
 
 function draftFromProfile(profile: JSONObject): ProfileDraft {
-  const codexAccountID = asString(profile.codex_account_id)
   return {
-    codexAccountID,
-    codexModel: codexAccountID
-      ? asString(profile.model) || DEFAULT_CODEX_SUBSCRIPTION_MODEL
-      : DEFAULT_CODEX_SUBSCRIPTION_MODEL,
-    codexModelReasoningEffort: codexAccountID
-      ? asCodexModelReasoningEffort(profile.model_reasoning_effort)
-      : DEFAULT_CODEX_MODEL_REASONING_EFFORT,
-    codexFastMode: Boolean(codexAccountID) && profile.fast_mode === true,
     providerID: asString(profile.provider_id),
-    model: codexAccountID ? '' : asString(profile.model),
+    model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
     providerOptions: recordValue(profile.provider_options) ?? {}
   }
-}
-
-function asCodexModelReasoningEffort(value: unknown): CodexModelReasoningEffort {
-  return CODEX_MODEL_REASONING_EFFORTS.includes(value as CodexModelReasoningEffort)
-    ? (value as CodexModelReasoningEffort)
-    : DEFAULT_CODEX_MODEL_REASONING_EFFORT
 }
 
 function asString(value: unknown): string {

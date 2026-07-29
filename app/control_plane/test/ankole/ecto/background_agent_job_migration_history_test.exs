@@ -18,8 +18,8 @@ defmodule Ankole.Ecto.BackgroundAgentJobMigrationHistoryTest do
     )
   end
 
-  test "v26.07.7 runtime state is discarded without touching unrelated actor state" do
-    create_v26_07_7_runtime_fixture!()
+  test "v0.7.0 runtime state is discarded without touching unrelated actor state" do
+    create_v0_7_0_runtime_fixture!()
 
     Enum.each(@migration.legacy_runtime_purge_sqls(), &Repo.query!/1)
 
@@ -49,7 +49,7 @@ defmodule Ankole.Ecto.BackgroundAgentJobMigrationHistoryTest do
     assert_raise RuntimeError, ~r/intentionally discarded/, fn -> @migration.down() end
   end
 
-  defp create_v26_07_7_runtime_fixture! do
+  defp create_v0_7_0_runtime_fixture! do
     schema = "background_agent_job_cutover_#{System.unique_integer([:positive])}"
 
     Repo.query!("CREATE SCHEMA #{schema}")

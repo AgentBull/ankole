@@ -1,8 +1,7 @@
 import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
-import type { AiGatewayProviderItem as AIGatewayProviderItem } from '../api/generated/types.gen'
 import { JSONField, LabeledField, SecretInput } from '../console-form'
-import { encryptedOptionState, humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
+import { humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
 
 const UNSET_BOOLEAN = '__unset__'
 const UNSET_SELECT = '__unset_select__'
@@ -10,12 +9,12 @@ const UNSET_SELECT = '__unset_select__'
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */
 export function ProviderSettingField({
   onChange,
-  provider,
+  secretPresent,
   setting,
   value
 }: {
   onChange: (value: string) => void
-  provider?: AIGatewayProviderItem
+  secretPresent?: boolean
   setting: ProviderSetting
   value: unknown
 }) {
@@ -25,12 +24,11 @@ export function ProviderSettingField({
   const defaultDraft = settingDraftValue(setting.default)
 
   if (setting.encrypted) {
-    const state = encryptedOptionState(provider, setting.key)
-    const description = state?.present
-      ? t('console.providers.secret_keep', { masked: state.masked ?? '••••' })
+    const description = secretPresent
+      ? t('console.providers.secret_keep', { masked: '••••' })
       : t('console.providers.secret_hint')
     return (
-      <LabeledField label={label} description={description} required={setting.required && !state?.present}>
+      <LabeledField label={label} description={description} required={setting.required && !secretPresent}>
         <SecretInput placeholder="sk-..." value={draft} onChange={event => onChange(event.target.value)} />
       </LabeledField>
     )

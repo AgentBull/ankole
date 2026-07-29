@@ -13,7 +13,7 @@ defmodule Ankole.AIGateway.Providers.BrightDataSERP do
     label(%{"default" => "Bright Data SERP", "zh-Hans-CN" => "Bright Data SERP"})
     base_url("https://api.brightdata.com", advanced: true)
 
-    setting(:api_key, encrypted: true)
+    setting(:api_key, encrypted: true, scope: :credential)
     setting(:zone, required: true)
     setting(:country)
     setting(:language)

@@ -1852,6 +1852,79 @@ defmodule Ankole.SignalsGatewayIngressTest do
                |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
     end
 
+    test "materialization after the batch hard cap refreshes the open actor event" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      observed_at = DateTime.to_iso8601(@base_time)
+
+      pending =
+        group_entry(%{
+          explicit: true,
+          source_event_id: "evt-slow-image",
+          source_entry_id: "msg-slow-image",
+          text: "inspect this image",
+          attachments: [
+            %{
+              provider_ref: "lark:image:slow-image",
+              source_message_id: "msg-slow-image",
+              resource_type: "image"
+            }
+          ],
+          metadata: %{
+            "attachment_materialization" => %{
+              "state" => "pending",
+              "observed_at" => observed_at
+            }
+          }
+        })
+
+      assert {:ok, %{inbound_batch: pending_batch}} =
+               Ingress.emit_entry(agent.uid, "bot", pending, now: @base_time)
+
+      assert {:ok, [%{actor_event: pending_event}]} =
+               finalize_due_inbound_batch_events(now: pending_batch.available_at)
+
+      materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
+      materialized_path = "/agents/#{agent.uid}/user-files/inbox/slow-image.png"
+
+      materialized =
+        pending
+        |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+        |> put_in(
+          [:attachments, Access.at(0), :agent_computer_path],
+          materialized_path
+        )
+
+      assert {:ok,
+              %{
+                status: :input_superseded_refresh,
+                actor_event: refreshed_event
+              }} =
+               Ingress.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+
+      assert refreshed_event.id == pending_event.id
+      assert refreshed_event.available_at == materialized_at
+      assert Repo.aggregate(ActorEvent, :count) == 1
+      assert Repo.aggregate(InboundBatch, :count) == 1
+
+      assert [
+               %{
+                 "agent_computer_path" => ^materialized_path,
+                 "provider_ref" => "lark:image:slow-image"
+               }
+             ] =
+               get_in(refreshed_event.payload, ["data", "entry", "attachments"])
+               |> Enum.map(&Map.take(&1, ["agent_computer_path", "provider_ref"]))
+
+      redelivered_at = DateTime.add(materialized_at, 1, :second)
+
+      assert {:ok, %{status: :duplicate}} =
+               Ingress.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
+
+      assert Repo.get!(ActorEvent, refreshed_event.id).available_at == materialized_at
+    end
+
     test "single addressed message over the normal text budget is not split" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

@@ -68,7 +68,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                  provider_id: provider_id,
                  provider_kind: "openai",
                  base_url: "#{base_url}/v1",
-                 connection_options: %{"api_key" => "sk-compress"}
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-compress"}]
+                 }
                })
 
       assert {:ok, _profile} =
@@ -195,7 +197,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                  provider_id: provider_id,
                  provider_kind: "openai",
                  base_url: "#{base_url}/v1",
-                 connection_options: %{"api_key" => "sk-compress"}
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-compress"}]
+                 }
                })
 
       assert {:ok, _profile} =
@@ -338,7 +342,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
                  provider_id: provider_id,
                  provider_kind: "openai",
                  base_url: "#{base_url}/v1",
-                 connection_options: %{"api_key" => "sk-compress"}
+                 credential_pool: %{
+                   "entries" => [%{"label" => "Default", "api_key" => "sk-compress"}]
+                 }
                })
 
       assert {:ok, _profile} =
