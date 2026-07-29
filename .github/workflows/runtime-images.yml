@@ -43,10 +43,28 @@ jobs:
       control_plane_exists: ${{ steps.inspect.outputs.control_plane_exists }}
       worker_exists: ${{ steps.inspect.outputs.worker_exists }}
       protocol_version: ${{ steps.protocol.outputs.value }}
+      release_version: ${{ steps.version.outputs.value }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Read Ankole release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_version="$(
+            bun tools/devkit/src/changelog-release.ts \
+              extract CHANGELOG.md "${RUNNER_TEMP}/release-notes.md"
+          )"
+          echo "value=${release_version}" >> "${GITHUB_OUTPUT}"
 
       - name: Read RuntimeFabric protocol version
         id: protocol
@@ -208,20 +226,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Read Ankole version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          changelog_version="$(awk '$1 == "##" && $2 == "Version" { print $3; exit }' CHANGELOG.md)"
-          if [[ ! "${changelog_version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Could not read the latest Ankole version from CHANGELOG.md" >&2
-            exit 1
-          fi
-
-          echo "value=v${changelog_version}" >> "${GITHUB_OUTPUT}"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -240,7 +244,7 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           build-args: |
-            ANKOLE_VERSION=${{ steps.version.outputs.value }}
+            ANKOLE_VERSION=v${{ needs.inspect_existing.outputs.release_version }}
             ANKOLE_RELEASE_REVISION=${{ env.RELEASE_REVISION }}
             ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=${{ needs.inspect_existing.outputs.protocol_version }}
             ANKOLE_AGENT_COMPUTER_IMAGE=${{ env.WORKER_IMAGE }}:${{ env.RELEASE_REVISION }}
@@ -248,7 +252,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ env.RELEASE_REVISION }}
-            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+            org.opencontainers.image.version=v${{ needs.inspect_existing.outputs.release_version }}
             io.ankole.runtime-fabric.protocol-version=${{ needs.inspect_existing.outputs.protocol_version }}
           cache-from: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }}
           cache-to: type=registry,ref=${{ env.CONTROL_PLANE_IMAGE }}:buildcache-${{ matrix.arch }},mode=max
@@ -452,3 +456,148 @@ jobs:
 
           docker buildx imagetools inspect "${CONTROL_PLANE_IMAGE}:${LATEST_TAG}"
           docker buildx imagetools inspect "${WORKER_IMAGE}:${LATEST_TAG}"
+
+  publish_release:
+    name: Publish versioned RuntimeFabric images and GitHub Release
+    needs:
+      - inspect_existing
+      - verify_pair
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: ${{ needs.inspect_existing.outputs.release_version }}
+      RELEASE_TAG: v${{ needs.inspect_existing.outputs.release_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract and verify release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          extracted_version="$(
+            bun tools/devkit/src/changelog-release.ts \
+              extract CHANGELOG.md "${RUNNER_TEMP}/release-notes.md"
+          )"
+          if [[ "${extracted_version}" != "${RELEASE_VERSION}" ]]; then
+            echo "The release version changed after image inspection" >&2
+            exit 1
+          fi
+
+      - name: Reject conflicting Git tag or Release
+        id: existing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_exists=false
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha' 2>/dev/null || true)"
+          if [[ -n "${tag_sha}" ]]; then
+            tag_exists=true
+            if [[ "${tag_sha}" != "${GITHUB_SHA}" ]]; then
+              echo "Git tag ${RELEASE_TAG} already points to ${tag_sha}, not ${GITHUB_SHA}" >&2
+              exit 1
+            fi
+          fi
+
+          release_exists=false
+          if gh release view "${RELEASE_TAG}" --json body,isDraft,isPrerelease,name > "${RUNNER_TEMP}/existing-release.json" 2>/dev/null; then
+            release_exists=true
+            existing_body="$(jq -r '.body' "${RUNNER_TEMP}/existing-release.json")"
+            expected_body="$(<"${RUNNER_TEMP}/release-notes.md")"
+            if [[ "${existing_body}" != "${expected_body}" ]]; then
+              echo "GitHub Release ${RELEASE_TAG} does not match CHANGELOG.md" >&2
+              exit 1
+            fi
+            if [[ "$(jq -r '.name' "${RUNNER_TEMP}/existing-release.json")" != "Version ${RELEASE_VERSION}" ]]; then
+              echo "GitHub Release ${RELEASE_TAG} has an unexpected title" >&2
+              exit 1
+            fi
+            if [[ "$(jq -r '.isDraft or .isPrerelease' "${RUNNER_TEMP}/existing-release.json")" != "false" ]]; then
+              echo "GitHub Release ${RELEASE_TAG} must be a published stable release" >&2
+              exit 1
+            fi
+          fi
+
+          echo "tag_exists=${tag_exists}" >> "${GITHUB_OUTPUT}"
+          echo "release_exists=${release_exists}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish immutable version image tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publish_version_tag() {
+            local image="$1"
+            local source_ref="${image}:${RELEASE_REVISION}"
+            local target_ref="${image}:${RELEASE_VERSION}"
+            local source_metadata source_digest target_metadata target_digest
+
+            source_metadata="$(docker buildx imagetools inspect "${source_ref}" --format '{{json .}}')"
+            source_digest="$(jq -r '.manifest.digest // empty' <<<"${source_metadata}")"
+            if [[ ! "${source_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Image ${source_ref} has no multi-platform digest" >&2
+              exit 1
+            fi
+
+            if target_metadata="$(docker buildx imagetools inspect "${target_ref}" --format '{{json .}}' 2>/dev/null)"; then
+              target_digest="$(jq -r '.manifest.digest // empty' <<<"${target_metadata}")"
+              if [[ "${target_digest}" != "${source_digest}" ]]; then
+                echo "Image tag ${target_ref} already points to ${target_digest}, not ${source_digest}" >&2
+                exit 1
+              fi
+              echo "Reusing immutable image tag ${target_ref}"
+            else
+              docker buildx imagetools create \
+                --tag "${target_ref}" \
+                "${image}@${source_digest}"
+            fi
+
+            target_metadata="$(docker buildx imagetools inspect "${target_ref}" --format '{{json .}}')"
+            target_digest="$(jq -r '.manifest.digest // empty' <<<"${target_metadata}")"
+            if [[ "${target_digest}" != "${source_digest}" ]]; then
+              echo "Image tag ${target_ref} did not resolve to ${source_digest}" >&2
+              exit 1
+            fi
+          }
+
+          publish_version_tag "${CONTROL_PLANE_IMAGE}"
+          publish_version_tag "${WORKER_IMAGE}"
+
+      - name: Create GitHub Release
+        if: ${{ steps.existing.outputs.release_exists != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag_option=(--target "${GITHUB_SHA}")
+          if [[ "${{ steps.existing.outputs.tag_exists }}" == "true" ]]; then
+            tag_option=(--verify-tag)
+          fi
+
+          gh release create "${RELEASE_TAG}" \
+            "${tag_option[@]}" \
+            --title "Version ${RELEASE_VERSION}" \
+            --notes-file "${RUNNER_TEMP}/release-notes.md" \
+            --latest

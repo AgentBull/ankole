@@ -1,4 +1,4 @@
-# Ankole - 自分の OKR を持つ AI 同僚のためのオープン AgentOS
+# Ankole — オープンソースの AI Workforce OS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -7,53 +7,59 @@
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md)
 
-[他と違うところ](#ankole-が他と違うところ) · [プロダクト形態](#プロダクト形態) · [Actor Runtime](#actor-runtime) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
+[違い](#agent-の能力から自律的な労働力へ) · [業務機能](#ankole-に任せられる業務機能) · [Actor Runtime](#actor-runtime) · [アーキテクチャ](#アーキテクチャ) · [現状](#現状) · [開発](#開発)
 
-**Ankole は、自分の AI 同僚チームを自社サーバー上に組成するための、セルフホスト可能な AgentOS です。** 受け取るのは指示ではなく目標です。チームのチャンネルで仕事を引き受け、自ら分解し、実行し、納品し、結果で評価されます。
+**AI Agent を、業務機能を自律的に遂行し、成果で評価される労働力に変えます。**
 
-AI の仕事を個人用チャット欄から出し、仕事が実際に起きている場所へ置きます。チャンネル、リポジトリ、スケジュール、ダッシュボード、社内システム、長期プロジェクトの文脈がその場所です。Ankole agent は、自分の identity、memory、permission、tool、workspace、responsibility boundary を持ち、**進行中の work を所有**でき、一回限りのメッセージへの回答にとどまりません。
+多くの AI 製品は、model、assistant、または copilot を人に渡します。次の手順の判断、context の受け渡し、tool の実行、失敗への対応、納品は、依然として人の仕事です。
 
-[Claude Tag](https://claude.com/product/tag) は分かりやすい公開参照です。Slack thread で AI を tag し、共有文脈を読ませ、組織の tools を使わせ、channel context を記憶し、時間のかかる work を follow up させる。Ankole はその pattern をより open で広い形にします。**Slack だけでも、Claude だけでも、1 つの agent だけでも、vendor-owned context でもありません。**
+Ankole は実行 loop を Agent に渡します。業務機能、成果指標、権限、tools、context を定義すると、Agent が計画して実行し、承認や例外の境界で確認し、検査と採点ができる成果を納品します。
 
-Ankole が向いているのは、答えだけでなく責任者が必要な仕事です。Ankole が担えるポストには三つの共通点があります。完全にリモートで完結すること、成果物が明確であること、そして事後に数値で判定できることです。
+Ankole はオープンソースで、セルフホストできます。Identity、context、credential、artifact、監査記録、実行は、すべて自分が管理する infrastructure に残ります。
 
-## Ankole が他と違うところ
+これは **Service as Software** です。Software は人が service を提供するための道具にとどまらず、service を直接実行します。Ankole は、高付加価値の knowledge work に必要な runtime を提供します。
 
-アシスタントが答える問いは「それは私をどう助けるか」。同僚が答える問いは「この仕事は既定で誰の担当か」。Ankole が変えるのはモデルの大きさではなく、agent の組織内での位置です。
+## Agent の能力から自律的な労働力へ
 
-- **それはチャンネルに属し、連れてきた個人には属さない。** 記憶は仕事の場に帰属し、権限はチャンネル単位で与えられ、行動は全員に見え、結論はチームの共有事実になります — そのすべてが vendor のテナントではなく、自分のサーバー上にあります。
-- **ポストは責任の枠であり、スキルの束ではない。** できることと担うことは別で、skill を積むことと責任を負うことも別です。Ankole が提供するのは、能力をポストに変える層 — 固有の identity、組織としての授権、監査証跡、エスカレーション経路、評価指標です。
-- **仕事のループの内側に住み、一部分に手を伸ばすだけではない。** 現場を見て、軽重を判断し、約束し、前に進め、結果を追い、例外を処理し、組織に説明する。SaaS は結果を記録し、RPA は動作を実行し、チャットボットは冒頭の問答を扱う — Ankole の agent はループ全体を担います。
-- **秩序を記録するだけでなく、秩序を生成する。** チャンネルで自然言語のまま生まれた約束、リスク、基準、締切を、その場で追跡可能・実行可能・退役可能な組織の現実に変えます。
-- **日々のループは既定でそれが担い、人は要所で介入する。** 承認、例外、問責の場面には人間がいます。成果物、判断、commit 済みの操作は durable ledger に残り、産出は「事後に採点できる」ことを前提に設計されています。
+Copilot は、人が仕事を終えるまでの効率を上げますが、実行 loop は人が持ち続けます。Ankole は既定の担当を変えます。Agent が、定義された業務機能の中で観察し、判断し、実行し、追跡し、納品します。
 
-生成された秩序を保つのは memory です。多くの agent の記憶は追記のみのログで、古い基準と新しい規則が対等に並び、時系列も上書き関係もありません。Ankole の記憶は裁定します。新しい規則が座を引き継ぎ、古い基準は有効期間ごと退役する。同種の訂正は一本にまとまる。矛盾する結論は時刻・出所・確信度で順位がつく。予測した事柄は、結果が出たら突き合わせる。すべては一つの目的、モデルの予測と実際の観測との差を縮めることに従います。
+- **Chat persona ではなく、業務機能。** 各 Agent は、継続的な責任、納品物、業務 context、成果指標を持ちます。Identity は人を模倣するためではなく、権限と履歴を保持するためにあります。
+- **活動量ではなく、成果。** 収益、risk、順位、承認率、単位 cost、または事前に定義した別の成果指標で仕事を評価します。
+- **次の手順の提案ではなく、実行 loop。** Agent が計画、tool の使用、follow-up、recovery、納品を担います。人が各手順を操作する必要はありません。
+- **境界のある権限。** Identity、AuthZ、監査記録、承認点、escalation path が、Agent にできることと、人の判断が必要な時点を定めます。
+- **一回の request ではなく、長時間の仕事。** Session は数時間または数日動き、新しい情報を受け取り、失敗から復旧し、次の行動に必要な context を保持します。
 
-## Ankole が加えるもの
+自律的な仕事には、正しい現在の context が必要です。Ankole は、すべての古い message を同じ事実として扱わず、規則、判断、修正、成果を時刻と出所と共に記録します。
 
-- **長時間の仕事は background で走る。** Background job、スケジュール、あとで確認。数時間走る仕事も、終われば agent が元のチャンネルに戻って報告し、途中で失敗した工程は明示して再試行します。
-- **その部屋がすでに知っていること。** 決まりごと、誰が何を好むか、前回その案が通らなかった理由 — 誰も agent に伝えようと思わなかった情報が、チャンネルの共有記憶になります。
-- **世界モデルを作る記憶。** Brain は会話を精選された知識へ蒸留し、帰納も演繹も行い、古くなった項目を退役させ、外界の変化を直接取り込みます。誰かがチャンネルで話題にする必要はありません。
-- **Deep Research と playbook。** Fan-out 検索、多層検証、対立仮説の検討によって、引用付きのレポートを出します。うまく回った種類の仕事は playbook として固定され、次回はそれに従います。
-- **本物のブラウザを使える。** Runtime が実際の Chromium session を保持し、agent は `ankole-browser` 経由で操作します。描画後のページの読み取り、クリック、入力、スクリーンショット、再現可能な Playwright script、そして工程をまたぐログイン状態の維持。
-- **自己進化する skill。** Agent は学んだことを overlay の提案として書き、人間が承認すると次の session から適用されます。黙って自分を書き換えることはありません。
-- **複数の agent、一つのプライベートデプロイインスタンス。** それぞれが固有の mission、権限、tools、memory、対外 identity を持ちます。主 agent は境界の明確な仕事を job agent に渡し、自身は待ち続けません。
-- **企業 identity と IM への接続。** Lark、Slack、DingTalk、Teams、Google Workspace は一等の adapter で、identity は既存の IdP から来ます。IM、webhook、スケジュール、社内システムはすべて正規化された signal input として届きます。
+Brain は古い規則を退役させ、同種の修正を統合し、矛盾を裁定し、過去の予測を後の実績と比較します。各実行は、より正確な業務認識から始まります。
 
-## プロダクト形態
+## 自律的な労働力を支えるもの
 
-Ankole が担えるポストは、完全にリモートで完結し、成果物が明確で、事後に数値で判定できます。六つの業界からの例であり、網羅的な一覧ではありません。
+- **長い Job は background で動く。** 数時間動き、元の channel に戻り、失敗した手順を報告して再試行できます。Main Agent を待たせません。
+- **共有 context が working memory になる。** 誰も Agent に直接話していなくても、規則、選好、却下された案を memory に取り込めます。
+- **Memory は変化する世界を扱う。** Brain は知識を整理し、古い項目を退役させ、証拠から推論し、外部の変化を直接受け取ります。
+- **Deep Research が playbook になる。** Fan-out retrieval、段階的な検証、競合仮説の分析で、出典付き report を作ります。成功した方法は次回を導きます。
+- **実際の browser で実際の仕事をする。** Agent は page を読み、click、type、capture、Playwright script の実行、login session の維持ができます。
+- **Skill は人の管理下で改善する。** Agent が更新を提案し、人が承認した後に、次の session から適用します。
+- **1 つでも複数でも実行できる。** 各 Agent は独自の業務機能、権限、tools、memory、対外 identity を持てます。Multi-agent execution は任意です。
+- **企業 identity と業務 channel を直接つなぐ。** Lark、Slack、DingTalk、Teams、Google Workspace、webhook、schedule、社内 system が同じ signal boundary から入ります。
 
-| ポスト | 成果物 | 評価指標 |
+## Ankole に任せられる業務機能
+
+Ankole は、digital に完結し、検査できる成果物を出し、明確な成果指標を持つ仕事に適します。指標には ROI、risk-adjusted return、順位の変化、承認率、または別の business outcome を使えます。
+
+| 業務機能 | 納品物 | 成果指標 |
 |---|---|---|
-| セカンダリー市場アナリスト | 個別銘柄・セクター分析、シナリオ、エントリー条件 | 事後検証での的中率と超過収益 |
-| クラウドコスト最適化エンジニア | コスト按分、適正化案、移行経路 | 業務量あたりのクラウド支出 |
-| スマートコントラクト監査 | 再現可能な PoC 付き監査報告 | 重大脆弱性の見逃し件数 |
-| 薬事申請担当 | 申請資料一式と照会事項への回答 | 一発承認率と照会回数 |
-| 特許エンジニア | 先行技術調査、発明提案書、請求項ドラフト | 登録率と拒絶後の不服審判 |
-| 越境 EC 運用アナリスト | 広告・在庫の週次レポート、選品リスト | TACoS と欠品日数 |
+| Performance marketing | Campaign 計画、入札、creative、予算調整 | Incremental ROAS と顧客獲得 cost |
+| 業界調査と trading | 調査、仮説、portfolio action、review | 超過収益、Sharpe ratio、最大 drawdown |
+| SEO | Keyword 計画、content brief、on-page 変更 | 検索順位の変化と有効な organic traffic |
+| 薬事申請 | 申請資料一式と照会事項への回答 | 一発承認率と照会回数 |
+| 特許申請 | 先行技術調査、請求項 draft、拒絶理由への応答 | 登録率と office-action 回数 |
+| Smart contract audit | 再現可能な PoC 付き監査 report | 重大な見逃しと false-positive 率 |
 
-共通する形は「この質問に答える」ではなく、**「このポストを守り、手元の context を活かし、結果で応える」**です。
+単位は Agent 数ではなく、業務機能です。1 つの Agent が狭い機能を担うことも、複数の Agent が実行を分担することもできます。Multi-agent coordination は実装方法であり、製品価値ではありません。
+
+共通する contract は、**業務機能を定義し、境界のある権限を与え、Agent に仕事を任せ、成果を評価すること**です。
 
 ## Actor Runtime
 
@@ -69,7 +75,7 @@ Runtime は 5 つの technical bets に基づきます。
 
 ユーザーと運用者にとっての約束は単純です。Agent は数時間から数日働き続け、実行中に新しい input を受け取り、独立して fail し、context を保ったまま recover し、side effect を説明可能にします。Runtime の詳しい考え方は [なぜ OTP はより良いマルチエージェント・オーケストレーションのランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) にまとめています。
 
-これが Ankole の技術的な賭けです。Actor model は long-lived work identity と lifecycle を支え、OTP は failure semantics を支え、ZeroMQ は live activation を支え、Agent Computer は local execution を支えます。Ankole は chatbot backend というより、AI work のための distributed operating system に近いものです。
+これが Ankole の技術的な賭けです。Actor model は long-lived work identity と lifecycle を支え、OTP は failure semantics を支え、ZeroMQ は live activation を支え、Agent Computer は local execution を支えます。これにより、Ankole は chatbot backend ではなく AI Workforce OS として動作します。
 
 ## アーキテクチャ
 
@@ -128,7 +134,7 @@ flowchart TB
 
 ## 現状
 
-Ankole は、完全なセルフホスト可能な AgentOS であり、production で稼働しています。Control plane、Agent Computer、kernel、運用 console が end to end で動きます。
+Ankole は、完全にセルフホストできる AI Workforce OS であり、production で稼働しています。Control plane、Agent Computer、kernel、運用 console が end to end で動きます。
 
 - **多数の model provider。** OpenAI、Azure OpenAI、Claude、Google AI Studio、OpenRouter、その他の OpenAI-compatible endpoint が第一級で、compaction、stateful conversation、reasoning-effort 制御、provider ごとの usage 取り扱いを伴います。
 - **本物の IM 連携。** Lark/Feishu と Slack は第一級 provider として統合され、lifecycle、transport、main flow、real-LLM の end-to-end までカバーします。

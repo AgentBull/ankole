@@ -36,6 +36,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @orphaned_generating_grace_seconds 300
   @history_chain_max_depth 10_000
   @public_chain_max_depth 500
+  @tool_call_output_types %{
+    "function_call" => "function_call_output",
+    "custom_tool_call" => "custom_tool_call_output"
+  }
 
   # ───────────────────────────────────────────────────────────────
   # Public API
@@ -51,7 +55,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
       - `conversation_id` (required) — the ai_gateway_conversations.id
       - `previous_response_id` (optional) — "resp_{uuid}" decoded to a
         raw UUID pointing at the anchor message
-      - `request_items` (optional) — initial content items (input/function_call_output)
+      - `request_items` (optional) — initial content items, including tool outputs
       - `metadata` (optional) — extra metadata merged into the row
 
   Returns `{:ok, %Message{}}` or `{:error, changeset}`.
@@ -192,7 +196,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   This closes the worker crash window after a tool side effect has happened but
   before the next `response.create` continuation reaches AIGateway. The returned
   row becomes the next `previous_response_id`; the following provider call can
-  replay the durable `function_call_output` items from the normal message chain.
+  replay the durable client tool output items from the normal message chain.
   """
   @spec record_tool_results(map()) ::
           {:ok, Message.t()}
@@ -594,12 +598,12 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp reconcile_tool_result_items(%Message{} = anchor, request_items) do
     with {:ok, deduplicated_items} <- deduplicate_tool_result_items(request_items) do
-      output_items = Enum.filter(deduplicated_items, &function_call_output_item?/1)
+      output_items = Enum.filter(deduplicated_items, &tool_call_output_item?/1)
       output_call_ids = Enum.map(output_items, &Map.get(&1, "call_id"))
 
       invalid_call_ids = Enum.filter(output_call_ids, &(not is_binary(&1) or &1 == ""))
-      anchor_calls = function_calls_by_id(anchor.content)
-      executable_call_ids = executable_function_call_ids(anchor_calls)
+      anchor_calls = tool_calls_by_id(anchor.content)
+      executable_call_ids = executable_tool_call_ids(anchor_calls)
 
       orphan_call_ids =
         output_call_ids
@@ -615,6 +619,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
         )
         |> Enum.uniq()
 
+      mismatched_output_types = mismatched_tool_result_types(output_items, anchor_calls)
       mismatched_tool_names = mismatched_tool_result_names(output_items, anchor_calls)
 
       cond do
@@ -622,14 +627,18 @@ defmodule Ankole.AIGateway.StatefulResponses do
           {:quarantine, "invalid_call_id", %{"invalid_call_id_count" => length(invalid_call_ids)}}
 
         orphan_call_ids != [] ->
-          {:quarantine, "orphan_function_call_output", %{"orphan_call_ids" => orphan_call_ids}}
+          {:quarantine, "orphan_tool_call_output", %{"orphan_call_ids" => orphan_call_ids}}
 
         non_executable_call_ids != [] ->
-          {:quarantine, "non_executable_function_call_output",
+          {:quarantine, "non_executable_tool_call_output",
            %{"non_executable_call_ids" => non_executable_call_ids}}
 
+        mismatched_output_types != [] ->
+          {:quarantine, "tool_call_output_type_mismatch",
+           %{"type_mismatches" => mismatched_output_types}}
+
         mismatched_tool_names != [] ->
-          {:quarantine, "function_call_output_name_mismatch",
+          {:quarantine, "tool_call_output_name_mismatch",
            %{"name_mismatches" => mismatched_tool_names}}
 
         true ->
@@ -641,8 +650,9 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp deduplicate_tool_result_items(request_items) do
     request_items
     |> Enum.reduce_while({[], %{}}, fn
-      %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
-      when is_binary(call_id) and call_id != "" ->
+      %{"type" => type, "call_id" => call_id} = item, {acc, seen}
+      when type in ["function_call_output", "custom_tool_call_output"] and
+             is_binary(call_id) and call_id != "" ->
         case Map.fetch(seen, call_id) do
           :error ->
             {:cont, {[item | acc], Map.put(seen, call_id, item)}}
@@ -652,7 +662,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
           {:ok, _different_item} ->
             {:halt,
-             {:quarantine, "conflicting_duplicate_function_call_output",
+             {:quarantine, "conflicting_duplicate_tool_call_output",
               %{"conflicting_call_ids" => [call_id]}}}
         end
 
@@ -665,10 +675,11 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp function_calls_by_id(items) when is_list(items) do
+  defp tool_calls_by_id(items) when is_list(items) do
     Map.new(items, fn
-      %{"type" => "function_call", "call_id" => call_id} = item
-      when is_binary(call_id) and call_id != "" ->
+      %{"type" => type, "call_id" => call_id} = item
+      when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
+             call_id != "" ->
         {call_id, item}
 
       _item ->
@@ -677,12 +688,12 @@ defmodule Ankole.AIGateway.StatefulResponses do
     |> Map.delete(nil)
   end
 
-  defp function_calls_by_id(_items), do: %{}
+  defp tool_calls_by_id(_items), do: %{}
 
-  defp executable_function_call_ids(anchor_calls) do
+  defp executable_tool_call_ids(anchor_calls) do
     Enum.reduce(anchor_calls, MapSet.new(), fn
       {call_id, call}, acc ->
-        if executable_function_call?(call) do
+        if executable_tool_call?(call) do
           MapSet.put(acc, call_id)
         else
           acc
@@ -690,10 +701,33 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end)
   end
 
-  defp executable_function_call?(call) do
+  defp executable_tool_call?(%{"type" => "function_call"} = call) do
     Map.get(call, "status") in [nil, "completed"] and
       is_binary(Map.get(call, "name")) and Map.get(call, "name") != "" and
       is_binary(Map.get(call, "arguments"))
+  end
+
+  defp executable_tool_call?(%{"type" => "custom_tool_call"} = call) do
+    Map.get(call, "status") in [nil, "completed"] and
+      is_binary(Map.get(call, "name")) and Map.get(call, "name") != "" and
+      is_binary(Map.get(call, "input"))
+  end
+
+  defp executable_tool_call?(_call), do: false
+
+  defp mismatched_tool_result_types(output_items, anchor_calls) do
+    Enum.flat_map(output_items, fn item ->
+      call_id = Map.get(item, "call_id")
+      call_type = get_in(anchor_calls, [call_id, "type"])
+      expected = Map.get(@tool_call_output_types, call_type)
+      received = Map.get(item, "type")
+
+      if is_binary(expected) and received != expected do
+        [%{"call_id" => call_id, "expected" => expected, "received" => received}]
+      else
+        []
+      end
+    end)
   end
 
   defp mismatched_tool_result_names(output_items, anchor_calls) do
@@ -811,7 +845,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   defp tool_results_metadata(request_items) do
     request_items
-    |> Enum.filter(&function_call_output_item?/1)
+    |> Enum.filter(&tool_call_output_item?/1)
     |> Enum.map(fn item ->
       item
       |> Map.take(["call_id", "output"])
@@ -820,12 +854,15 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end)
   end
 
-  defp function_call_output_item?(%{"type" => "function_call_output"}), do: true
-  defp function_call_output_item?(_item), do: false
+  defp tool_call_output_item?(%{"type" => type})
+       when type in ["function_call_output", "custom_tool_call_output"],
+       do: true
+
+  defp tool_call_output_item?(_item), do: false
 
   defp publish_tool_result_events(%Message{} = message, request_items) do
     request_items
-    |> Enum.filter(&function_call_output_item?/1)
+    |> Enum.filter(&tool_call_output_item?/1)
     |> Enum.each(fn item ->
       Events.publish(
         message,
@@ -847,7 +884,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp maybe_publish_tool_result_events(false, _message, _request_items), do: :ok
 
   defp validate_tool_result_items(request_items) when is_list(request_items) do
-    case Enum.any?(request_items, &function_call_output_item?/1) do
+    case Enum.any?(request_items, &tool_call_output_item?/1) do
       true -> :ok
       false -> {:error, :invalid_tool_results}
     end
@@ -1956,7 +1993,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
 
   # Terminal provider items append to the request-side items saved when the
   # generating row was created. Replacing content would erase user input and
-  # function_call_output from the durable Responses history.
+  # client tool output from the durable Responses history.
   defp durable_terminal_content(%Message{content: existing_content}, terminal_items)
        when is_list(existing_content) and is_list(terminal_items),
        do: existing_content ++ terminal_items

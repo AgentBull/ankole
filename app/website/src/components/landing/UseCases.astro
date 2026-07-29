@@ -12,18 +12,17 @@ interface Props {
 const { lang } = Astro.props
 
 /*
- * These are senior, remote, artifact-producing seats, and each carries the number that
- * settles it. The third column is the argument: a seat nobody can grade is not a seat,
- * it is a chat window. Six examples across six industries, not a catalogue.
+ * Each function produces inspectable work and has an outcome measure.
+ * The third column separates autonomous labor from an open-ended chat.
  */
-const seats = ['research', 'cloud', 'audit', 'regulatory', 'patent', 'marketplace'].map(key => ({
+const functions = ['marketing', 'research', 'seo', 'regulatory', 'patent', 'audit'].map(key => ({
 	title: t(lang, `usecases.${key}.title`),
 	deliverable: t(lang, `usecases.${key}.deliverable`),
 	metric: t(lang, `usecases.${key}.metric`)
 }))
 
 const columns = {
-	seat: t(lang, 'usecases.col.seat'),
+	function: t(lang, 'usecases.col.function'),
 	deliverable: t(lang, 'usecases.col.deliverable'),
 	metric: t(lang, 'usecases.col.metric')
 }
@@ -47,21 +46,23 @@ const ROW = 'gap-x-8 gap-y-1 sm:grid sm:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr
 				'hidden border-b border-border pb-3 font-mono text-[11px] tracking-[0.12em] text-fg-quaternary uppercase sm:grid'
 			]}
 		>
-			<span>{columns.seat}</span>
+			<span>{columns.function}</span>
 			<span>{columns.deliverable}</span>
 			<span>{columns.metric}</span>
 		</div>
 
 		<ol class="list-none border-t border-border p-0 sm:border-t-0">
 			{
-				seats.map((seat, index) => (
+				functions.map((businessFunction, index) => (
 					<li class="record border-b border-border">
 						<Reveal step={index} class={`${ROW} py-6`}>
-							<h3 class="text-base font-semibold text-foreground">{seat.title}</h3>
-							<p class="record-quiet mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">{seat.deliverable}</p>
-							{/* The metric is the payload, so it is the only coloured thing in the row. */}
+							<h3 class="text-base font-semibold text-foreground">{businessFunction.title}</h3>
+							<p class="record-quiet mt-1 text-sm leading-6 text-muted-foreground sm:mt-0">
+								{businessFunction.deliverable}
+							</p>
+							{/* The outcome measure is the payload, so it is the only coloured item in the row. */}
 							<p class="mt-1 text-sm leading-6 text-brand-60 sm:mt-0 dark:text-brand-40">
-								{seat.metric}
+								{businessFunction.metric}
 							</p>
 						</Reveal>
 					</li>

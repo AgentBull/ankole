@@ -1,25 +1,27 @@
 ---
 title: Introduction
-description: What Ankole is, how it differs from an assistant, and the parts you will meet in a private deployment instance.
+description: What Ankole is, how autonomous labor differs from a copilot, and the parts in a private deployment instance.
 section: Getting started
 order: 1
 ---
 
-**Ankole is a self-hosted AgentOS for building your own AI colleagues.** They take an objective, not a script: they pick up a job in your team's channel, break it down, run it, deliver it, and you judge them on the result.
+**Ankole is the open-source AI Workforce OS. It turns AI agents into autonomous labor that performs business functions and is measured by outcomes.**
 
-The difference is easiest to see in a scene. Two colleagues in a research channel settle a rule between themselves — cyclicals use a seven-year percentile, not three — and nobody addresses the agent. Three days later a third person asks it for a valuation pass on the metals names, and the report comes back on the seven-year window. An assistant living in a private chat box cannot do this. It was never in the room.
+Give an Agent an investment research function, authority boundaries, tools, and performance measures. It maintains hypotheses, produces reports, tracks calls, and compares them with later outcomes.
 
-## How it differs from an assistant
+A copilot waits for the next prompt because the person owns the work. An Ankole Agent owns the next action within its function and returns to people at approval, exception, and accountability boundaries.
 
-The difference is position, not ability. An assistant answers "how does it help me"; a colleague answers "who owns this work by default". In use, that shows up in five places.
+## How autonomous labor differs from a copilot
 
-- **It belongs to the channel, not to whoever brought it.** Its memory belongs to the venue, its permissions are granted per channel, its actions are visible to everyone, and its conclusions become the team's shared facts — all of it on your own servers, not in a vendor's tenant.
-- **A seat is a slot of responsibility, not a bundle of skills.** Being able to do the job is not the same as owning it, and loading skills is not the same as carrying responsibility. Ankole supplies the layer that turns ability into a seat: its own identity, organizational authorization, an audit trail, escalation paths, and a metric to answer to.
-- **It lives inside the loop of work, not reaching into one segment.** See the scene, weigh what matters, commit, push, track the result, handle the exception, answer to the organization. SaaS records the outcome, RPA performs the motions, chatbots handle the opening question — an Ankole agent owns the loop.
-- **It does not just record order — it generates it.** When commitments, risks, standards, and deadlines form in natural language in the channel, it turns them into tracked, executable, retirable organizational reality on the spot. The valuation rule in the opening scene entered the ledger exactly that way, and nobody instructed it.
-- **The daily loop is its by default; people step in at the edges.** Humans stay present for approvals, exceptions, and accountability. Deliverables, decisions, and committed actions sit in a durable ledger, and its output is built to be scored afterwards.
+- **A business function, not a chat persona.** Each Agent has ongoing responsibility, expected deliverables, operating context, and a result measure.
+- **Outcomes, not activity.** Work is scored by the number that matters to the business, such as return, risk, ranking, approval rate, or cost per unit.
+- **An execution loop, not next-step suggestions.** The Agent plans, uses tools, follows up, recovers from failure, and delivers.
+- **Authority with boundaries.** Identity, AuthZ, approvals, audit records, and escalation paths define what the Agent can do.
+- **Long-running work, not one request.** Sessions can run for hours or days, receive new input, recover after failure, and retain operating context.
 
-The generated order is only as good as the memory that holds it. Most agents keep an append-only log in which an old rule and its replacement are equals, with no timeline and nothing superseding anything. Ankole's memory adjudicates — a new rule takes the seat and the old one retires with the period it governed, contradictions are ranked by time, source, and confidence, and a prediction is checked against how things actually went.
+Autonomous work depends on current context. Ankole records rules, decisions, corrections, and outcomes with time and source, instead of treating every old message as equally true.
+
+Brain retires stale rules, resolves conflicts, and compares predictions with later results. Each run starts from a more accurate operating picture.
 
 ## The parts of a deployment instance
 
@@ -38,13 +40,21 @@ These words recur throughout the rest of the docs, so here they are once.
 
 An Agent can also use [Deep Research](../deep-research-job/) for long, multi-source research and [browser automation](../browser-automation/) to work with real web pages.
 
-## Seats it can hold
+## Business functions it can perform
 
-Remote from end to end, a named deliverable, and a number that settles it afterwards — a task with those three properties is a seat. An equity research analyst is graded on hit rate once the call is scored, a cloud cost engineer on spend per unit of work, a regulatory affairs specialist on first-pass approval rate and rounds of questions. The common shape is not "answer this question." It is **hold this seat, use the context you have, and answer for the result.**
+Ankole fits work that can be done digitally, produces inspectable deliverables, and has a declared outcome measure.
+
+Examples include performance marketing measured by incremental ROAS, trading measured by risk-adjusted return, SEO measured by ranking movement, and patent prosecution measured by grant rate.
+
+The unit is a business function, not an Agent count. Multi-agent coordination is an implementation choice, not the product promise.
+
+The common contract is: **define the function, grant bounded authority, let the Agent work, and score the outcome.**
 
 ## Current status
 
-Ankole is a complete, self-hostable AgentOS running in production, and still early. The control plane, Agent Computer Worker, kernel, and operator console work end to end. The public APIs carry no compatibility contract yet, so expect breaking changes between releases until they do.
+Ankole is a complete, self-hostable AI Workforce OS running in production, and it is still early. The control plane, Agent Computer Worker, kernel, and operator console work end to end.
+
+The public APIs do not have a compatibility contract yet. Expect breaking changes between releases until they do.
 
 ## Next steps
 

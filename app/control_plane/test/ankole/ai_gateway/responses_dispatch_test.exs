@@ -1211,7 +1211,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                ]
   end
 
-  test "automatic stateful continuation closes tool calls interrupted before durable output" do
+  test "automatic stateful continuation closes client tool calls interrupted before durable output" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -1233,52 +1233,64 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                model: "gpt-5.5"
              })
 
-    {:ok, conversation} =
-      StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-tool")
+    cases = [
+      {"function",
+       %{
+         "type" => "function_call",
+         "call_id" => "call_interrupted_function",
+         "name" => "command",
+         "arguments" => Ankole.JSON.encode!(%{"command" => "sleep 40"})
+       }, "function_call_output"},
+      {"custom",
+       %{
+         "type" => "custom_tool_call",
+         "call_id" => "call_interrupted_custom",
+         "name" => "apply_patch",
+         "input" => "*** Begin Patch\n*** Add File: report.md\n+pending\n*** End Patch\n"
+       }, "custom_tool_call_output"}
+    ]
 
-    original_input = [text_message("user", "run the long command")]
+    for {label, tool_call, expected_output_type} <- cases do
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-tool-#{label}")
 
-    {:ok, call_response} =
-      start_stateful_message(
-        agent.uid,
-        conversation,
-        "dispatch-interrupted-tool-call",
-        original_input
-      )
+      original_input = [text_message("user", "run the interrupted #{label} tool")]
 
-    function_call = %{
-      "type" => "function_call",
-      "call_id" => "call_interrupted",
-      "name" => "command",
-      "arguments" => Ankole.JSON.encode!(%{"command" => "sleep 40"})
-    }
+      {:ok, call_response} =
+        start_stateful_message(
+          agent.uid,
+          conversation,
+          "dispatch-interrupted-tool-call-#{label}",
+          original_input
+        )
 
-    {:ok, call_response} = StatefulResponses.commit_complete(call_response, [function_call])
-    retry_input = [text_message("user", "run the long command")]
+      {:ok, call_response} = StatefulResponses.commit_complete(call_response, [tool_call])
+      retry_input = [text_message("user", "run the interrupted #{label} tool")]
 
-    assert {:ok, prepared, run_attrs} =
-             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => retry_input,
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "interrupted-tool-retry"}
-             })
+      assert {:ok, prepared, run_attrs} =
+               StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+                 "model" => "primary",
+                 "input" => retry_input,
+                 "store" => true,
+                 "conversation" => "conv_#{conversation.id}",
+                 "metadata" => %{"actor_event_id" => "interrupted-tool-retry-#{label}"}
+               })
 
-    [recovered_output | persisted_retry_input] = run_attrs.request_items
+      [recovered_output | persisted_retry_input] = run_attrs.request_items
 
-    assert recovered_output["type"] == "function_call_output"
-    assert recovered_output["call_id"] == "call_interrupted"
-    assert recovered_output["output"] =~ "tool_execution_interrupted"
-    assert persisted_retry_input == retry_input
+      assert recovered_output["type"] == expected_output_type
+      assert recovered_output["call_id"] == tool_call["call_id"]
+      assert recovered_output["output"] =~ "tool_execution_interrupted"
+      assert persisted_retry_input == retry_input
 
-    assert run_attrs.metadata["recovered_interrupted_tool_call_ids"] == [
-             "call_interrupted"
-           ]
+      assert run_attrs.metadata["recovered_interrupted_tool_call_ids"] == [
+               tool_call["call_id"]
+             ]
 
-    assert prepared.response_context.request["input"] ==
-             Enum.map(call_response.content, &Map.delete(&1, "id")) ++
-               [recovered_output] ++ retry_input
+      assert prepared.response_context.request["input"] ==
+               Enum.map(call_response.content, &Map.delete(&1, "id")) ++
+                 [recovered_output] ++ retry_input
+    end
   end
 
   test "provider projection drops legacy orphan outputs while preserving the raw row" do
@@ -1989,7 +2001,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Enum.drop(artifact.content["output"], 3) == m3.content
   end
 
-  test "websocket stateful auto-compaction keeps function calls with protected tool results" do
+  test "websocket stateful auto-compaction keeps client tool calls with protected results" do
     %{principal: agent} = agent_fixture()
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 2)
@@ -2054,30 +2066,41 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, m1} = StatefulResponses.commit_complete(m1, [], camel_usage(160_000))
 
-    function_call = [
+    tool_calls = [
       %{
         "type" => "function_call",
         "call_id" => "call_keep_with_tail",
         "name" => "web_search",
         "arguments" => "{}"
+      },
+      %{
+        "type" => "custom_tool_call",
+        "call_id" => "call_custom_keep_with_tail",
+        "name" => "apply_patch",
+        "input" => "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n"
       }
     ]
 
     {:ok, m2} =
-      start_linked_stateful_message(agent.uid, conversation, m1, "compact-tool-b", function_call)
+      start_linked_stateful_message(agent.uid, conversation, m1, "compact-tool-b", tool_calls)
 
     {:ok, m2} = StatefulResponses.commit_complete(m2, [], camel_usage(160_000))
 
-    tool_result = [
+    tool_results = [
       %{
         "type" => "function_call_output",
         "call_id" => "call_keep_with_tail",
         "output" => "search result"
+      },
+      %{
+        "type" => "custom_tool_call_output",
+        "call_id" => "call_custom_keep_with_tail",
+        "output" => "Done!"
       }
     ]
 
     {:ok, m3} =
-      start_linked_stateful_message(agent.uid, conversation, m2, "compact-tool-c", tool_result)
+      start_linked_stateful_message(agent.uid, conversation, m2, "compact-tool-c", tool_results)
 
     {:ok, m3} = StatefulResponses.commit_complete(m3, [], camel_usage(320_004))
 
@@ -2108,7 +2131,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       Regex.run(~r/<conversation>\n(.*?)\n<\/conversation>/s, summarizer_input)
 
     refute conversation_section =~ "call_keep_with_tail"
+    refute conversation_section =~ "call_custom_keep_with_tail"
     refute conversation_section =~ "search result"
+    refute conversation_section =~ "Done!"
 
     provider_request = request.response_context.request
     [user_orig_1, compaction_item | rest] = provider_request["input"]
@@ -2119,7 +2144,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert compaction_item["encrypted_content"] ==
              "## Active Task\nOnly the first row was compressed."
 
-    assert rest == function_call ++ tool_result ++ m4.content ++ current_input
+    assert rest == tool_calls ++ tool_results ++ m4.content ++ current_input
 
     [compaction] =
       Repo.all(Message)
@@ -2133,7 +2158,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert get_in(artifact.content, ["summary", "text"]) ==
              "## Active Task\nOnly the first row was compressed."
 
-    assert Enum.drop(artifact.content["output"], 2) == function_call ++ tool_result ++ m4.content
+    assert Enum.drop(artifact.content["output"], 2) == tool_calls ++ tool_results ++ m4.content
   end
 
   test "websocket stateful auto-compaction renders reasoning summaries without encrypted content" do
@@ -3143,6 +3168,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
             :input_item_count,
             :tool_count,
             :function_call_output_count,
+            :custom_tool_call_output_count,
             :input_image_count,
             :inline_image_chars,
             :error_code,
@@ -3180,6 +3206,18 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                            %{"type" => "input_image", "image_url" => image_data_url}
                          ]
                        },
+                       %{
+                         "type" => "custom_tool_call",
+                         "call_id" => "call_patch",
+                         "name" => "apply_patch",
+                         "input" =>
+                           "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n"
+                       },
+                       %{
+                         "type" => "custom_tool_call_output",
+                         "call_id" => "call_patch",
+                         "output" => "Done!"
+                       },
                        %{"role" => "user", "content" => "private prompt"}
                      ],
                      "tools" => [
@@ -3187,6 +3225,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                          "type" => "function",
                          "name" => "view_image",
                          "parameters" => %{"type" => "object"}
+                       },
+                       %{
+                         "type" => "custom",
+                         "name" => "apply_patch",
+                         "description" => "Apply one patch.",
+                         "format" => %{"type" => "text"}
                        }
                      ]
                    })
@@ -3199,14 +3243,29 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert get_in(request.body, ["messages", Access.at(1), "content"]) ==
              "[Image output is attached in the next user message.]"
 
+    assert Enum.any?(request.body["tools"], fn tool ->
+             get_in(tool, ["function", "name"]) == "apply_patch" and
+               get_in(tool, ["function", "parameters", "required"]) == ["input"]
+           end)
+
+    assert Enum.any?(request.body["messages"], fn message ->
+             get_in(message, ["tool_calls", Access.at(0), "function", "name"]) == "apply_patch"
+           end)
+
+    assert Enum.any?(request.body["messages"], fn message ->
+             message["role"] == "tool" and message["tool_call_id"] == "call_patch" and
+               message["content"] == "Done!"
+           end)
+
     assert log =~ "event=ai_gateway.response_failed"
     assert log =~ "actor_event_id=actor-event-diagnostics"
     assert log =~ "model=openai/gpt-5.5"
     assert log =~ "api_resolver=openai_chat_completions"
     assert log =~ "upstream_host=127.0.0.1"
-    assert log =~ "input_item_count=3"
-    assert log =~ "tool_count=1"
+    assert log =~ "input_item_count=5"
+    assert log =~ "tool_count=2"
     assert log =~ "function_call_output_count=1"
+    assert log =~ "custom_tool_call_output_count=1"
     assert log =~ "input_image_count=1"
     assert log =~ "inline_image_chars=#{byte_size(image_data_url)}"
     assert log =~ "error_code=upstream_response_failed"

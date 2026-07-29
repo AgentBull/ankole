@@ -17,9 +17,9 @@ const GENERATE_KEY_CONTEXT: &str = "[extra=generateKey()]";
 pub fn aead_encrypt(plaintext: &[u8], key: &str) -> KernelResult<String> {
     let key = parse_hex_32(key, "key")?;
     let nonce = rand::random::<[u8; AEAD_NONCE_LEN]>();
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = XChaCha20Poly1305::new(&Key::from(key));
     let ciphertext = cipher
-        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .encrypt(&XNonce::from(nonce), plaintext)
         .map_err(|error| KernelError::new(format!("encryption failed: {error}")))?;
 
     Ok(format!(
@@ -39,10 +39,10 @@ pub fn aead_decrypt(ciphertext: &str, key: &str) -> KernelResult<Vec<u8>> {
     let key = parse_hex_32(key, "key")?;
     let (nonce, ciphertext) = split_aead_ciphertext(ciphertext)?;
     let nonce = parse_nonce(&nonce)?;
-    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let cipher = XChaCha20Poly1305::new(&Key::from(key));
 
     cipher
-        .decrypt(XNonce::from_slice(&nonce), ciphertext.as_slice())
+        .decrypt(&XNonce::from(nonce), ciphertext.as_slice())
         .map_err(|error| KernelError::new(format!("decryption failed: {error}")))
 }
 

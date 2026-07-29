@@ -1,0 +1,88 @@
+import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+import { currentChangelogRelease } from './changelog-release'
+
+describe('changelog release metadata', () => {
+  test('extracts the newest version section without changing its Markdown', () => {
+    const source = `# Changelog
+
+## Version 0.48.0 (2026-07-30)
+
+- Publish the verified image pair.
+
+- Keep the full release note.
+
+## Version 0.47.0 (2026-07-29)
+
+- Previous release.
+`
+
+    expect(currentChangelogRelease(source)).toEqual({
+      version: '0.48.0',
+      date: '2026-07-30',
+      notes: '- Publish the verified image pair.\n\n- Keep the full release note.\n'
+    })
+  })
+
+  test('rejects a malformed newest heading, invalid date, or empty notes', () => {
+    expect(() =>
+      currentChangelogRelease(`# Changelog
+
+## Version 00.48.0 (2026-07-30)
+
+- Invalid version.
+`)
+    ).toThrow(/first level-two/)
+
+    expect(() =>
+      currentChangelogRelease(`# Changelog
+
+## Version 0.48.0 (2026-02-30)
+
+- Invalid date.
+`)
+    ).toThrow(/invalid date/)
+
+    expect(() =>
+      currentChangelogRelease(`# Changelog
+
+## Version 0.48.0 (2026-07-30)
+
+## Version 0.47.0 (2026-07-29)
+
+- Previous release.
+`)
+    ).toThrow(/has no release notes/)
+  })
+
+  test('writes the exact release notes through the workflow CLI', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-changelog-release-'))
+    const changelog = join(root, 'CHANGELOG.md')
+    const notes = join(root, 'output', 'release-notes.md')
+    const entrypoint = fileURLToPath(new URL('./changelog-release.ts', import.meta.url))
+
+    try {
+      writeFileSync(
+        changelog,
+        `# Changelog
+
+## Version 1.2.3 (2026-07-30)
+
+- Release body.
+`
+      )
+
+      const result = Bun.spawnSync([process.execPath, entrypoint, 'extract', changelog, notes])
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.toString()).toBe('1.2.3\n')
+      expect(await Bun.file(notes).text()).toBe('- Release body.\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

@@ -36,6 +36,10 @@ defmodule Ankole.AIGateway.Compaction do
   @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
+  @tool_call_output_types %{
+    "function_call" => "function_call_output",
+    "custom_tool_call" => "custom_tool_call_output"
+  }
 
   @type result :: %{
           history: [Message.t()],
@@ -885,11 +889,11 @@ defmodule Ankole.AIGateway.Compaction do
     prefix_call_ids =
       prefix
       |> messages_to_items()
-      |> item_call_ids("function_call")
+      |> tool_call_ids()
 
     tail_output_call_ids =
       (messages_to_items(tail_messages) ++ input_items(current_input))
-      |> item_call_ids("function_call_output")
+      |> tool_call_output_ids()
 
     MapSet.intersection(prefix_call_ids, tail_output_call_ids)
   end
@@ -907,7 +911,7 @@ defmodule Ankole.AIGateway.Compaction do
     call_ids =
       message
       |> message_items()
-      |> item_call_ids("function_call")
+      |> tool_call_ids()
 
     if MapSet.disjoint?(call_ids, split_call_ids) do
       drop_until_split_tool_call(rest, split_call_ids)
@@ -1389,7 +1393,13 @@ defmodule Ankole.AIGateway.Compaction do
        do: true
 
   defp text_compactable_item?(%{"type" => type})
-       when type in ["function_call", "function_call_output", "reasoning"],
+       when type in [
+              "function_call",
+              "function_call_output",
+              "custom_tool_call",
+              "custom_tool_call_output",
+              "reasoning"
+            ],
        do: true
 
   defp text_compactable_item?(_item), do: false
@@ -1430,15 +1440,32 @@ defmodule Ankole.AIGateway.Compaction do
     end)
   end
 
+  defp tool_call_ids(items) do
+    MapSet.union(
+      item_call_ids(items, "function_call"),
+      item_call_ids(items, "custom_tool_call")
+    )
+  end
+
+  defp tool_call_output_ids(items) do
+    MapSet.union(
+      item_call_ids(items, "function_call_output"),
+      item_call_ids(items, "custom_tool_call_output")
+    )
+  end
+
   defp tool_call_prefix_valid?(items) when is_list(items) do
     items
-    |> Enum.reduce_while(MapSet.new(), fn
-      %{"type" => "function_call", "call_id" => call_id}, seen when is_binary(call_id) ->
-        {:cont, MapSet.put(seen, call_id)}
+    |> Enum.reduce_while(%{}, fn
+      %{"type" => type, "call_id" => call_id}, seen
+      when type in ["function_call", "custom_tool_call"] and is_binary(call_id) ->
+        {:cont, Map.put(seen, call_id, Map.fetch!(@tool_call_output_types, type))}
 
-      %{"type" => "function_call_output", "call_id" => call_id}, seen
-      when is_binary(call_id) ->
-        if MapSet.member?(seen, call_id), do: {:cont, seen}, else: {:halt, :orphaned_tool_output}
+      %{"type" => type, "call_id" => call_id}, seen
+      when type in ["function_call_output", "custom_tool_call_output"] and is_binary(call_id) ->
+        if Map.get(seen, call_id) == type,
+          do: {:cont, seen},
+          else: {:halt, :orphaned_tool_output}
 
       _item, seen ->
         {:cont, seen}

@@ -1039,6 +1039,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       input_item_count: item_count(Map.get(request, "input")),
       tool_count: item_count(Map.get(request, "tools")),
       function_call_output_count: function_call_output_count(Map.get(request, "input")),
+      custom_tool_call_output_count: custom_tool_call_output_count(Map.get(request, "input")),
       input_image_count: input_image_count,
       inline_image_chars: inline_image_chars
     }
@@ -1079,6 +1080,15 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   defp function_call_output_count(_input), do: 0
+
+  defp custom_tool_call_output_count(input) when is_list(input) do
+    Enum.count(input, fn
+      %{} = item -> map_value(item, "type") == "custom_tool_call_output"
+      _item -> false
+    end)
+  end
+
+  defp custom_tool_call_output_count(_input), do: 0
 
   defp encoded_size(value) do
     case Ankole.JSON.encode(value) do

@@ -95,7 +95,7 @@ defmodule Ankole.MixProject do
       {:postgrex, ">= 0.22.2"},
       {:pgvector, "~> 0.4.0"},
       {:phoenix_html, "~> 4.3"},
-      {:phoenix_live_reload, "~> 1.6.2", only: :dev},
+      {:phoenix_live_reload, "~> 1.7.0", only: :dev},
       {:telemetry_metrics, "~> 1.1"},
       {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 0.50"},

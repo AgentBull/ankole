@@ -24,7 +24,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       tool('memory_health_check', z.object({}), () => 'healthy memory'),
       tool('browser_navigate', z.object({ url: z.string() }), () => 'page snapshot'),
       imageTool('browser_screenshot'),
-      ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'patch', 'reply_attachment'].map(name =>
+      ...['browser_run', 'command', 'interactive_terminal', 'read_file', 'apply_patch', 'reply_attachment'].map(name =>
         tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
       ),
       tool(

@@ -15,15 +15,16 @@ The Agent runs shell commands through the command tool, backed by `app/agent_com
 
 What this means in practice: a shell command can read and write files under the agent's workspace, run installed tools, and start subprocesses the worker image provides. It cannot reach another agent's workspace, and it cannot reach control-plane state. The sandbox is the boundary.
 
-## File read, patch, and apply-patch
+## File reads and apply_patch
 
-Alongside the shell, the computer tools give the agent structured file primitives, each with its own tool in `app/agent_computer/src/tools/computer/`:
+Alongside the shell, the computer tools give the Agent two file primitives:
 
 - **Read a file** — `read-file-tool.ts`, for inspecting a file's contents directly rather than shelling out to `cat`.
-- **Patch a file** — `patch-tool.ts`, for applying a targeted edit to an existing file.
-- **apply-patch from the CLI** — `apply-patch-cli.ts`, the apply-patch workflow the agent uses for larger, structured changes.
+- **Edit files** — `apply-patch-tool.ts`, a freeform `apply_patch` tool that uses the same grammar as the pinned Codex release.
 
-These primitives exist because a free-form shell edit is brittle — the model can drift on whitespace, repeat a block, or miss a closing brace. The patch tools take a structured edit description, so a failed edit fails cleanly instead of corrupting the file. For a one-line read or a quick `grep`, the shell is fine; for a real edit, the patch tools are the safer path.
+The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary. Ankole does not keep a separate patch parser.
+
+This shared path keeps normal conversations and Background Agent Jobs on one edit protocol. A patch that does not match fails in the native tool and returns that failure to the model. For a quick search, the shell is fine. Use `apply_patch` for file edits.
 
 ## The /agents filesystem
 
@@ -61,7 +62,7 @@ Console calls the corresponding model profile **Background Agent Jobs**. Its sto
 
 The operator surface is narrow:
 
-- **Computer tools** (shell, read-file, patch) ship with every Worker. They are available during normal conversation turns.
+- **Computer tools** (`command`, `read_file`, and `apply_patch`) ship with every Worker. They are available during normal conversation turns.
 - **Jupyter live kernel** is a `default_enabled` skill, so you control it through the [Agent Library](../agent-library/) the same way you control the [browser](../browser-automation/) skill. Narrow it for an agent that should not run iterative Python.
 - **CodexRunner** runs every Background Agent Job. Every model call goes through AIGateway. Configure the Background Agent Jobs profile when Jobs need a different provider or model. If it is unset, the control plane uses the Agent's `heavy` profile.
 

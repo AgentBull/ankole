@@ -220,6 +220,115 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(((sentPayloads[1]!.input as JSONObject[])[0] as JSONObject).output).toBe('{"price":123.45}')
   })
 
+  it('executes a custom apply_patch call with raw input and records the matching output type', async () => {
+    const sentPayloads: JSONObject[] = []
+    const executedInputs: string[] = []
+    const patch = '*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n'
+    const grammar = 'start: "*** Begin Patch" LF "*** End Patch" LF?\n%import common.LF'
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_apply_patch_result')]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_apply_patch_call',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'custom_tool_call',
+                      id: 'ctc_apply_patch',
+                      call_id: 'call_apply_patch',
+                      status: 'completed',
+                      name: 'apply_patch',
+                      input: patch
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'create the report' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000022',
+        conversationID: '22222222-2222-2222-2222-222222222222'
+      },
+      tools: [
+        {
+          name: 'apply_patch',
+          description: 'Apply one patch.',
+          schema: z.string(),
+          inputFormat: {
+            type: 'grammar',
+            syntax: 'lark',
+            definition: grammar
+          },
+          executionMode: 'sequential',
+          isReadOnly: false,
+          isDestructive: true,
+          describeActivity: () => '测试更新文件',
+          execute: async (_toolCallID, input) => {
+            executedInputs.push(input as string)
+            return {
+              content: [{ type: 'text', text: 'Done!' }],
+              details: { ok: true },
+              terminate: true
+            }
+          }
+        }
+      ]
+    })
+
+    expect(final.responseID).toBe('resp_apply_patch_result')
+    expect(executedInputs).toEqual([patch])
+    expect(sentPayloads).toHaveLength(2)
+    expect(sentPayloads[0]!.tools).toEqual([
+      {
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply one patch.',
+        format: {
+          type: 'grammar',
+          syntax: 'lark',
+          definition: grammar
+        },
+        allowed_callers: ['direct']
+      },
+      { type: 'programmatic_tool_calling' }
+    ])
+    expect(sentPayloads[1]).toMatchObject({
+      type: 'response.tool_results.record',
+      previous_response_id: 'resp_apply_patch_call',
+      input: [
+        {
+          type: 'custom_tool_call_output',
+          call_id: 'call_apply_patch'
+        }
+      ]
+    })
+    expect(((sentPayloads[1]!.input as JSONObject[])[0] as JSONObject).output).toContain('Done!')
+  })
+
   it('anchors stateful tool-loop continuations without replaying local transcript', async () => {
     const sentPayloads: JSONObject[] = []
     const sockets: FakeResponseSocket[] = []

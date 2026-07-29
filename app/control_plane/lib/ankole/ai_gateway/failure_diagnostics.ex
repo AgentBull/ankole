@@ -47,6 +47,12 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   end
 
   @spec public_message(map()) :: String.t()
+  def public_message(%{error_code: "partial_tool_call_incomplete"}),
+    do: "The provider response ended with an incomplete client tool call."
+
+  def public_message(%{error_code: "partial_tool_call_completed"}),
+    do: "The provider response completed with an incomplete client tool call."
+
   def public_message(%{error_code: "partial_function_call_incomplete"}),
     do: "The provider response ended with an incomplete function call."
 

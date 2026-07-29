@@ -96,7 +96,6 @@ export function ResourceListPage({
   toolbar?: ReactNode
 }) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const hasError = Boolean(error)
   // A search box over a list that has nothing in it is a dead control: it can
   // only ever return the same empty state. It stays while a filter is active,

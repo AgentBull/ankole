@@ -442,11 +442,11 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     reason = incomplete_response_reason(response) || "unknown"
 
     cond do
-      response_has_incomplete_function_call?(response) ->
+      response_has_incomplete_tool_call?(response) ->
         %{
           "type" => "response.incomplete",
-          "code" => "partial_function_call_incomplete",
-          "message" => safe_error_message("partial_function_call_incomplete"),
+          "code" => "partial_tool_call_incomplete",
+          "message" => safe_error_message("partial_tool_call_incomplete"),
           "status" => Map.get(response, "status", "incomplete"),
           "incomplete_details" => Map.get(response, "incomplete_details"),
           "reason" => reason,
@@ -470,13 +470,13 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   end
 
   defp terminal_error("response.completed", %{"output" => output}) when is_list(output) do
-    if Enum.any?(output, &incomplete_function_call_item?/1) do
+    if Enum.any?(output, &incomplete_tool_call_item?/1) do
       %{
         "type" => "response.completed",
-        "code" => "partial_function_call_completed",
-        "message" => safe_error_message("partial_function_call_completed"),
+        "code" => "partial_tool_call_completed",
+        "message" => safe_error_message("partial_tool_call_completed"),
         "reason" =>
-          "provider marked the response completed while a function call remained incomplete",
+          "provider marked the response completed while a client tool call remained incomplete",
         "retryable" => false
       }
     end
@@ -490,10 +490,10 @@ defmodule Ankole.AIGateway.ResponseStream.State do
 
   defp public_terminal_response(_type, response, _error), do: response
 
-  defp response_has_incomplete_function_call?(%{"output" => output}) when is_list(output),
-    do: Enum.any?(output, &incomplete_function_call_item?/1)
+  defp response_has_incomplete_tool_call?(%{"output" => output}) when is_list(output),
+    do: Enum.any?(output, &incomplete_tool_call_item?/1)
 
-  defp response_has_incomplete_function_call?(_response), do: false
+  defp response_has_incomplete_tool_call?(_response), do: false
 
   defp intentional_incomplete_response?(response) do
     incomplete_response_reason(response) == "max_output_tokens" or
@@ -514,7 +514,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     ]
   end
 
-  defp incomplete_function_call_item?(%{"type" => "function_call"} = item) do
+  defp incomplete_tool_call_item?(%{"type" => "function_call"} = item) do
     status = Map.get(item, "status")
 
     status not in [nil, "completed"] or
@@ -523,7 +523,16 @@ defmodule Ankole.AIGateway.ResponseStream.State do
       not is_binary(Map.get(item, "arguments"))
   end
 
-  defp incomplete_function_call_item?(_item), do: false
+  defp incomplete_tool_call_item?(%{"type" => "custom_tool_call"} = item) do
+    status = Map.get(item, "status")
+
+    status not in [nil, "completed"] or
+      not non_empty_binary?(Map.get(item, "call_id")) or
+      not non_empty_binary?(Map.get(item, "name")) or
+      not is_binary(Map.get(item, "input"))
+  end
+
+  defp incomplete_tool_call_item?(_item), do: false
 
   defp non_empty_binary?(value), do: is_binary(value) and value != ""
 
@@ -621,15 +630,18 @@ defmodule Ankole.AIGateway.ResponseStream.State do
     do: "error"
 
   defp response_stop_reason(%{"output" => output}) when is_list(output) do
-    if Enum.any?(output, &completed_function_call_item?/1), do: "tool_use", else: "stop"
+    if Enum.any?(output, &completed_tool_call_item?/1), do: "tool_use", else: "stop"
   end
 
   defp response_stop_reason(_response), do: "stop"
 
-  defp completed_function_call_item?(%{"type" => "function_call"} = item),
-    do: not incomplete_function_call_item?(item)
+  defp completed_tool_call_item?(%{"type" => "function_call"} = item),
+    do: not incomplete_tool_call_item?(item)
 
-  defp completed_function_call_item?(_item), do: false
+  defp completed_tool_call_item?(%{"type" => "custom_tool_call"} = item),
+    do: not incomplete_tool_call_item?(item)
+
+  defp completed_tool_call_item?(_item), do: false
 
   defp commit_stateful_terminal(nil, _items, _terminal_error, _terminal_metadata), do: :ok
 

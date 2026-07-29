@@ -581,6 +581,8 @@ If `CHANGELOG.md` is already modified, append the new summary to the latest pend
 
 Write one outcome-focused bullet. Describe user-visible behavior or the preserved system guarantee rather than listing files.
 
+On a `main` push that builds runtime images, the verified control-plane and Worker images receive the newest `MAJOR.MINOR.PATCH` tag. The workflow creates the matching immutable `vMAJOR.MINOR.PATCH` GitHub Release from that exact changelog section. A version cannot be reused for another commit, image digest, or release body.
+
 ## Submit a pull request
 
 1. Fork the repository and create a focused branch from `main`.

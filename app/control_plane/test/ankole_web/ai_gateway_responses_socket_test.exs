@@ -1379,11 +1379,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     active = active_stream(ref, message, actor_event)
 
     partial_call = %{
-      "type" => "function_call",
+      "type" => "custom_tool_call",
       "status" => "incomplete",
       "call_id" => "call_partial",
-      "name" => "patch",
-      "arguments" => "{\"path\":\"/tmp/repor"
+      "name" => "apply_patch",
+      "input" => "*** Begin Patch\n*** Add File: repor"
     }
 
     chunk = %{
@@ -1409,7 +1409,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
     assert stored.content == message.content ++ [partial_call]
-    assert stored.metadata["error"]["code"] == "partial_function_call_incomplete"
+    assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "upstream_stream_closed"
     assert stored.metadata["error"]["retryable"] == true
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
@@ -1445,7 +1445,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
-    assert stored.metadata["error"]["code"] == "partial_function_call_incomplete"
+    assert stored.metadata["error"]["code"] == "partial_tool_call_incomplete"
     assert stored.metadata["error"]["reason"] == "max_output_tokens"
     assert stored.metadata["error"]["retryable"] == false
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
@@ -1483,7 +1483,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stored = Repo.get!(Message, message.id)
     assert stored.status == "error"
     assert stored.content == message.content ++ [partial_call]
-    assert stored.metadata["error"]["code"] == "partial_function_call_completed"
+    assert stored.metadata["error"]["code"] == "partial_tool_call_completed"
     assert stored.metadata["stop_reason"] == "stop"
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
   end
@@ -2164,7 +2164,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                "code" => "tool_results_quarantined",
                "param" => "input",
                "details_json" => %{
-                 "reason" => "orphan_function_call_output",
+                 "reason" => "orphan_tool_call_output",
                  "orphan_call_ids" => ["call_socket_orphan"],
                  "quarantine_response_id" => quarantine_response_id,
                  "quarantine_status" => "error"

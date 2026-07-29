@@ -1,8 +1,8 @@
 import type { AgentTool } from '../../core'
+import { createApplyPatchTool } from './apply-patch-tool'
 import { createCommandTool } from './command-tool'
 import { createContainerComputer } from './computer'
 import type { ComputerToolContext } from './context'
-import { createPatchTool, createReplaceTool } from './patch-tool'
 import { createReadFileTool } from './read-file-tool'
 import { createReplyAttachmentTool } from './reply-attachment-tool'
 
@@ -31,8 +31,7 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
   return [
     createCommandTool(context),
     createReadFileTool(context),
-    createReplaceTool(context),
-    createPatchTool(context),
+    createApplyPatchTool(context),
     createReplyAttachmentTool(context)
   ]
 }

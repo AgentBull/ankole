@@ -336,6 +336,94 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
     end
 
+    test "writes a custom tool output after its matching custom call" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-custom-tool-journal"
+        )
+
+      {:ok, anchor} = start_run(agent, conversation, "event-custom-tool-journal-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "custom_tool_call",
+            "call_id" => "call_apply_patch",
+            "name" => "apply_patch",
+            "input" => "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n"
+          }
+        ])
+
+      output = %{
+        "type" => "custom_tool_call_output",
+        "call_id" => "call_apply_patch",
+        "output" => "Done!"
+      }
+
+      assert {:ok, journal} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [output]
+               })
+
+      assert journal.status == "complete"
+      assert journal.content == [output]
+
+      assert journal.metadata["tool_results"] == [
+               %{"call_id" => "call_apply_patch", "output" => "Done!"}
+             ]
+    end
+
+    test "quarantines an output type that does not match its custom call" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-custom-tool-mismatch"
+        )
+
+      {:ok, anchor} = start_run(agent, conversation, "event-custom-tool-mismatch-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "custom_tool_call",
+            "call_id" => "call_apply_patch_mismatch",
+            "name" => "apply_patch",
+            "input" => "*** Begin Patch\n*** Delete File: stale.md\n*** End Patch\n"
+          }
+        ])
+
+      assert {:error,
+              {:tool_results_quarantined,
+               %{
+                 "reason" => "tool_call_output_type_mismatch",
+                 "type_mismatches" => [
+                   %{
+                     "call_id" => "call_apply_patch_mismatch",
+                     "expected" => "custom_tool_call_output",
+                     "received" => "function_call_output"
+                   }
+                 ]
+               }}} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [
+                   %{
+                     "type" => "function_call_output",
+                     "call_id" => "call_apply_patch_mismatch",
+                     "output" => "must not become canonical"
+                   }
+                 ]
+               })
+    end
+
     test "quarantines orphan outputs as raw error rows outside canonical history" do
       agent = agent_fixture()
 
@@ -364,7 +452,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert {:error,
               {:tool_results_quarantined,
                %{
-                 "reason" => "orphan_function_call_output",
+                 "reason" => "orphan_tool_call_output",
                  "orphan_call_ids" => ["call_orphan"],
                  "quarantine_response_id" => quarantine_response_id,
                  "quarantine_status" => "error"
@@ -378,7 +466,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert quarantined.content == [orphan]
 
       assert quarantined.metadata["tool_result_quarantine"]["reason"] ==
-               "orphan_function_call_output"
+               "orphan_tool_call_output"
 
       assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
       assert Enum.map(StatefulResponses.expand_history(conversation.id), & &1.id) == [anchor.id]
@@ -410,7 +498,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert {:error,
               {:tool_results_quarantined,
                %{
-                 "reason" => "non_executable_function_call_output",
+                 "reason" => "non_executable_tool_call_output",
                  "non_executable_call_ids" => ["call_incomplete"]
                }}} =
                StatefulResponses.record_tool_results(%{

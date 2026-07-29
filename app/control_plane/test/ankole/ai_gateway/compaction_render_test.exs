@@ -40,6 +40,29 @@ defmodule Ankole.AIGateway.CompactionRenderTest do
     refute rendered =~ call_id
   end
 
+  test "renders custom calls and outputs with one local alias" do
+    call_id = "019f0000-0000-7000-8000-000000000002"
+
+    rendered =
+      CompactionRender.render_items([
+        %{
+          "type" => "custom_tool_call",
+          "name" => "apply_patch",
+          "call_id" => call_id,
+          "input" => "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n"
+        },
+        %{
+          "type" => "custom_tool_call_output",
+          "call_id" => call_id,
+          "output" => "Done!"
+        }
+      ])
+
+    assert rendered =~ "custom_tool_call apply_patch call_ref=call_1"
+    assert rendered =~ "custom_tool_call_output call_ref=call_1"
+    refute rendered =~ call_id
+  end
+
   test "global budget elides oldest eligible items while preserving users and latest items" do
     items =
       for index <- 1..20 do

@@ -244,6 +244,46 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     ])
   })
 
+  it('declares a freeform custom tool with its grammar unchanged', () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary'
+    })
+    const definition = 'start: "*** Begin Patch" LF "*** End Patch" LF?\n%import common.LF'
+
+    const request = buildResponseCreateParams(model, {
+      messages: [{ role: 'user', content: 'edit one file' }],
+      tools: {
+        applyPatch: {
+          name: 'apply_patch',
+          description: 'Apply one patch.',
+          parameters: z.string(),
+          inputFormat: {
+            type: 'grammar',
+            syntax: 'lark',
+            definition
+          },
+          allowedCallers: ['direct']
+        }
+      }
+    })
+
+    expect(request.tools).toEqual([
+      {
+        type: 'custom',
+        name: 'apply_patch',
+        description: 'Apply one patch.',
+        format: {
+          type: 'grammar',
+          syntax: 'lark',
+          definition
+        },
+        allowed_callers: ['direct']
+      }
+    ])
+  })
+
   it('round-trips namespace and program caller on function calls and outputs', () => {
     const caller = { type: 'program' as const, caller_id: 'prog_1' }
     const input = toResponseInput([
@@ -283,6 +323,44 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         call_id: 'call_1',
         output: '{"price":1700}',
         caller
+      }
+    ])
+  })
+
+  it('round-trips custom calls and outputs without a JSON wrapper', () => {
+    const patch = '*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n'
+    const input = toResponseInput([
+      {
+        role: 'assistant',
+        content: [],
+        toolCalls: [
+          {
+            id: 'call_patch',
+            type: 'custom',
+            name: 'apply_patch',
+            arguments: patch
+          }
+        ]
+      },
+      {
+        role: 'tool',
+        toolCallID: 'call_patch',
+        toolCallType: 'custom',
+        result: 'Done!'
+      }
+    ])
+
+    expect(input).toEqual([
+      {
+        type: 'custom_tool_call',
+        call_id: 'call_patch',
+        name: 'apply_patch',
+        input: patch
+      },
+      {
+        type: 'custom_tool_call_output',
+        call_id: 'call_patch',
+        output: 'Done!'
       }
     ])
   })
@@ -1042,7 +1120,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
     expect(result.hasToolCalls).toBe(false)
-    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete function call')
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
   it('treats an unkeyed function-call fragment as a malformed terminal instead of dropping it', async () => {
@@ -1086,7 +1164,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(result.message.stopReason).toBe('error')
     expect(result.message.toolCalls).toBeUndefined()
     expect(result.hasToolCalls).toBe(false)
-    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete function call')
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
   })
 
   it('maps content_filter response.incomplete terminals to an error assistant message', async () => {

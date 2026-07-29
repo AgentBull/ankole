@@ -35,6 +35,7 @@ function applyRuntimeConfig(config: TomlTable, runtime: CodexRuntimeConfig): voi
   const profile = runtime.modelProfile
 
   config.model = profile.model
+  delete config.model_catalog_json
   if (profile.modelReasoningEffort) config.model_reasoning_effort = profile.modelReasoningEffort
   else delete config.model_reasoning_effort
 

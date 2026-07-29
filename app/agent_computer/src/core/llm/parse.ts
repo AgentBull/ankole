@@ -1,11 +1,12 @@
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import type {
+  ResponseCustomToolCall,
   ResponseFunctionToolCall,
   ResponseOutputItem,
   ResponseOutputMessage,
   Response as OpenAIResponse
 } from 'openai/resources/responses/responses'
-import type { AssistantMessage, ModelCallResult, ModelUsage, StopReason } from './types'
+import type { AssistantMessage, ModelCallResult, ModelUsage, ResponseToolCall, StopReason } from './types'
 
 export class AIGatewayWebSocketError extends Error {
   readonly code?: string
@@ -37,10 +38,10 @@ export function parseOutputItems(
   terminalStatus?: StopReason,
   textFallback = '',
   errorMessage?: string,
-  fallbackFunctionCalls: ResponseFunctionToolCall[] = []
+  fallbackToolCalls: ResponseToolCall[] = []
 ): ModelCallResult {
-  const observedFunctionCalls: ResponseFunctionToolCall[] = [...fallbackFunctionCalls]
-  const seenFunctionCallIDs = new Set(observedFunctionCalls.map(responseFunctionCallKey).filter(Boolean))
+  const observedToolCalls: ResponseToolCall[] = [...fallbackToolCalls]
+  const seenToolCallIDs = new Set(observedToolCalls.map(responseToolCallKey).filter(Boolean))
   const textParts: string[] = []
 
   for (const item of output) {
@@ -54,40 +55,40 @@ export function parseOutputItems(
       continue
     }
 
-    if (item.type === 'function_call') {
-      const call = item as ResponseFunctionToolCall
-      const id = responseFunctionCallKey(call)
+    if (item.type === 'function_call' || item.type === 'custom_tool_call') {
+      const call = item as ResponseToolCall
+      const id = responseToolCallKey(call)
       if (!id) {
         // Preserve unkeyed fragments long enough for the structural terminal
         // check below to turn the response into an error. Silently dropping
         // one here could make a malformed provider terminal look successful.
-        observedFunctionCalls.push(call)
-      } else if (!seenFunctionCallIDs.has(id)) {
-        observedFunctionCalls.push(call)
-        seenFunctionCallIDs.add(id)
+        observedToolCalls.push(call)
+      } else if (!seenToolCallIDs.has(id)) {
+        observedToolCalls.push(call)
+        seenToolCallIDs.add(id)
       }
     }
   }
 
-  const incompleteFunctionCall = observedFunctionCalls.some(call => !completedFunctionCall(call))
-  const effectiveTerminalStatus = incompleteFunctionCall ? 'error' : terminalStatus
-  const functionCalls = effectiveTerminalStatus === undefined ? observedFunctionCalls.filter(completedFunctionCall) : []
+  const incompleteToolCall = observedToolCalls.some(call => !completedToolCall(call))
+  const effectiveTerminalStatus = incompleteToolCall ? 'error' : terminalStatus
+  const toolCalls = effectiveTerminalStatus === undefined ? observedToolCalls.filter(completedToolCall) : []
   const text = textParts.join('') || textFallback
-  const stopReason = effectiveTerminalStatus ?? (functionCalls.length > 0 ? 'toolUse' : 'stop')
+  const stopReason = effectiveTerminalStatus ?? (toolCalls.length > 0 ? 'toolUse' : 'stop')
   const effectiveErrorMessage =
-    errorMessage ?? (incompleteFunctionCall ? 'AIGateway response ended with an incomplete function call' : undefined)
+    errorMessage ?? (incompleteToolCall ? 'AIGateway response ended with an incomplete tool call' : undefined)
   const message: AssistantMessage = {
     role: 'assistant',
     content: text ? [{ type: 'text', text }] : [],
     toolCalls:
-      functionCalls.length > 0
-        ? functionCalls.map(fc => ({
-            id: responseFunctionCallKey(fc) || '',
-            type: 'function' as const,
-            name: fc.name,
-            ...(fc.namespace ? { namespace: fc.namespace } : {}),
-            arguments: fc.arguments,
-            ...(fc.caller ? { caller: fc.caller } : {})
+      toolCalls.length > 0
+        ? toolCalls.map(call => ({
+            id: responseToolCallKey(call) || '',
+            type: call.type === 'custom_tool_call' ? ('custom' as const) : ('function' as const),
+            name: call.name,
+            ...(call.namespace ? { namespace: call.namespace } : {}),
+            arguments: call.type === 'custom_tool_call' ? call.input : call.arguments,
+            ...(call.caller ? { caller: call.caller } : {})
           }))
         : undefined,
     usage,
@@ -96,7 +97,7 @@ export function parseOutputItems(
     ...(effectiveErrorMessage ? { errorMessage: effectiveErrorMessage } : {})
   }
 
-  return { message, functionCalls, hasToolCalls: functionCalls.length > 0 }
+  return { message, toolCalls, hasToolCalls: toolCalls.length > 0 }
 }
 
 function responseTerminalProjection(response: OpenAIResponse): { status?: StopReason; errorMessage?: string } {
@@ -113,7 +114,7 @@ function responseTerminalProjection(response: OpenAIResponse): { status?: StopRe
   return {}
 }
 
-function completedFunctionCall(call: ResponseFunctionToolCall): boolean {
+function completedToolCall(call: ResponseToolCall): boolean {
   const value = call as unknown as JSONObject
   const status = stringValue(value.status)
   return (
@@ -122,18 +123,20 @@ function completedFunctionCall(call: ResponseFunctionToolCall): boolean {
     value.call_id.length > 0 &&
     typeof value.name === 'string' &&
     value.name.length > 0 &&
-    typeof value.arguments === 'string'
+    (call.type === 'custom_tool_call' ? typeof value.input === 'string' : typeof value.arguments === 'string')
   )
 }
 
-export function rememberFunctionCall(calls: Map<string, ResponseFunctionToolCall>, item: JSONObject): void {
-  if (item.type !== 'function_call') return
-  const call = item as unknown as ResponseFunctionToolCall
-  const callID = responseFunctionCallKey(call)
+export function rememberToolCall(calls: Map<string, ResponseToolCall>, item: JSONObject): void {
+  if (item.type !== 'function_call' && item.type !== 'custom_tool_call') return
+  const call = item as unknown as ResponseToolCall
+  const callID = responseToolCallKey(call)
   if (callID) calls.set(callID, call)
 }
 
-export function responseFunctionCallKey(call: Pick<ResponseFunctionToolCall, 'call_id' | 'id'>): string | undefined {
+export function responseToolCallKey(
+  call: Pick<ResponseFunctionToolCall | ResponseCustomToolCall, 'call_id' | 'id'>
+): string | undefined {
   return call.call_id || call.id
 }
 

@@ -11,7 +11,7 @@ import {
 } from '../src/tools/computer/computer'
 import type { ComputerToolContext } from '../src/tools/computer/context'
 import { createComputerTools } from '../src/tools/computer'
-import { createPatchTool, createReplaceTool } from '../src/tools/computer/patch-tool'
+import { createApplyPatchTool } from '../src/tools/computer/apply-patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 import { createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
 
@@ -78,52 +78,40 @@ describe('computer tools', () => {
     })
     const names = tools.map(tool => tool.name)
 
-    expect(names).toEqual(['command', 'read_file', 'replace', 'patch', 'reply_attachment'])
+    expect(names).toEqual(['command', 'read_file', 'apply_patch', 'reply_attachment'])
     expect(names.some(name => name.startsWith('browser_'))).toBe(false)
     expect(names).not.toContain('interactive_terminal')
   })
 
-  it('keeps replace and V4A patch schemas disjoint, strict, and bounded', () => {
+  it('exposes the Codex freeform apply_patch contract', () => {
     const context = contextFor(new FakeComputer())
-    const replace = createReplaceTool(context)
-    const patch = createPatchTool(context)
+    const applyPatch = createApplyPatchTool(context)
 
-    expect(replace.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b' }).success).toBe(true)
-    expect(replace.schema.safeParse({ mode: 'patch', patch: 'private patch body' }).success).toBe(false)
-    expect(replace.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b', surprise: true }).success).toBe(
-      false
+    expect(applyPatch.description).toBe(
+      'The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the patch in JSON.'
     )
-    expect(
-      replace.schema.safeParse({ path: 'a.ts', old_string: 'a'.repeat(96 * 1024 + 1), new_string: 'b' }).success
-    ).toBe(false)
-
-    expect(patch.schema.safeParse({ patch: '*** Begin Patch\n*** End Patch' }).success).toBe(true)
-    expect(patch.schema.safeParse({ path: 'a.ts', old_string: 'a', new_string: 'b' }).success).toBe(false)
-    expect(patch.schema.safeParse({ patch: 'x'.repeat(192 * 1024 + 1) }).success).toBe(false)
+    expect(applyPatch.schema.safeParse('*** Begin Patch\n*** Delete File: a.ts\n*** End Patch\n').success).toBe(true)
+    expect(applyPatch.schema.safeParse({ patch: 'private patch body' }).success).toBe(false)
+    expect(applyPatch.schema.safeParse('x'.repeat(256 * 1024 + 1)).success).toBe(false)
+    expect(applyPatch.inputFormat).toEqual({
+      type: 'grammar',
+      syntax: 'lark',
+      definition: expect.stringContaining('start: begin_patch hunk+ end_patch')
+    })
   })
 
   it('describes file and command work without exposing detailed parameters', () => {
     const computer = new FakeComputer()
     const context = contextFor(computer)
     const readFile = createReadFileTool(context)
-    const replace = createReplaceTool(context)
-    const patch = createPatchTool(context)
+    const applyPatch = createApplyPatchTool(context)
     const attachment = createReplyAttachmentTool(context)
     const command = createCommandTool(context)
 
     expect(
       readFile.describeActivity(readFile.schema.parse({ path: '/agents/agent-1/sessions/session-1/app.ts' }))
     ).toContain('session-1/app.ts')
-    expect(
-      replace.describeActivity(
-        replace.schema.parse({
-          path: '/agents/agent-1/sessions/session-1/app.ts',
-          old_string: 'before',
-          new_string: 'after'
-        })
-      )
-    ).toContain('session-1/app.ts')
-    const patchBodySummary = patch.describeActivity(patch.schema.parse({ patch: 'private patch body' }))
+    const patchBodySummary = applyPatch.describeActivity(applyPatch.schema.parse('private patch body'))
     expect(patchBodySummary).toBeTruthy()
     expect(patchBodySummary).not.toContain('private patch body')
     const attachmentSummary = attachment.describeActivity(
@@ -252,135 +240,90 @@ describe('computer tools', () => {
     expect(textOf(full)).toContain('[3 lines total]')
   })
 
-  it('shows closest line matches when replace cannot find old_string', async () => {
+  it('passes the raw patch to the native apply_patch command', async () => {
     const computer = new FakeComputer()
-    computer.files.set(
-      'demo.ts',
-      Buffer.from(
-        ['function run() {', '  const result = await computer.runCommand(input)', '  return result', '}'].join('\n')
-      )
-    )
-    const tool = createReplaceTool(contextFor(computer))
-
-    await expect(
-      tool.execute('call-1', {
-        path: 'demo.ts',
-        old_string: '  const reslt = await computer.runCommand(input)',
-        new_string: '  const result = await computer.runCommand(nextInput)'
-      })
-    ).rejects.toThrow(/Did you mean one of these sections\?[\s\S]*2\|  const result/)
-  })
-
-  it('escalates repeated patch match failures for the same path', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('repeat.ts', Buffer.from('const actual = 1\n'))
-    const tool = createReplaceTool(contextFor(computer))
-
-    let lastError: unknown
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await tool.execute('call-1', {
-          path: 'repeat.ts',
-          old_string: 'const missing = 1',
-          new_string: 'const actual = 2'
-        })
-      } catch (error) {
-        lastError = error
-      }
+    const calls: Array<Parameters<ContainerComputer['runCommand']>[0]> = []
+    computer.runImpl = async input => {
+      calls.push(input)
+      return new FakeFinishedCommand(0, 'Done!')
     }
+    const tool = createApplyPatchTool(contextFor(computer))
+    const patch = '*** Begin Patch\n*** Add File: demo.txt\n+hello\n*** End Patch\n'
 
-    expect(lastError).toBeInstanceOf(Error)
-    expect((lastError as Error).message).toContain('Repeated patch failures for repeat.ts')
-    expect((lastError as Error).message).toContain('Re-read the file with read_file')
+    const result = await tool.execute('call-1', patch)
+
+    expect(calls).toEqual([
+      {
+        cmd: 'apply_patch',
+        cwd: '/agents/agent-1/sessions/session-1',
+        stdin: patch,
+        signal: undefined
+      }
+    ])
+    expect(textOf(result)).toBe('Done!')
+    expect(result.details.exitCode).toBe(0)
   })
 
-  it('uses Unicode punctuation normalization for unique single-line replacements', async () => {
+  it('returns a stable success message when native apply_patch is silent', async () => {
+    const tool = createApplyPatchTool(contextFor(new FakeComputer()))
+
+    const result = await tool.execute('call-1', '*** Begin Patch\n*** Delete File: demo.txt\n*** End Patch\n')
+
+    expect(textOf(result)).toBe('Done!')
+  })
+
+  it('returns the native apply_patch failure to the model', async () => {
     const computer = new FakeComputer()
-    computer.files.set('demo.ts', Buffer.from('const title = “Hello”;\n'))
-    const tool = createReplaceTool(contextFor(computer))
+    computer.runImpl = async () => new FakeFinishedCommand(1, '', 'Invalid Context 0')
+    const tool = createApplyPatchTool(contextFor(computer))
 
-    const result = await tool.execute('call-1', {
-      path: 'demo.ts',
-      old_string: 'const title = "Hello";',
-      new_string: 'const title = "Hi";'
-    })
-
-    expect(textOf(result)).toContain('Patched demo.ts (1 replacement).')
-    expect(computer.files.get('demo.ts')?.toString('utf-8')).toBe('const title = "Hi";\n')
+    await expect(tool.execute('call-1', '*** Begin Patch\n*** Delete File: demo.txt\n*** End Patch\n')).rejects.toThrow(
+      'Invalid Context 0'
+    )
   })
 
-  it('creates a missing file in replace mode when old_string is empty', async () => {
-    const computer = new FakeComputer()
-    const tool = createReplaceTool(contextFor(computer))
+  it('edits files through the native apply_patch binary inside bubblewrap', async () => {
+    const agentHome = mkdtempSync('/agents/ankole-native-apply-patch-')
+    const workspaceRoot = join(agentHome, 'sessions', 'session-1')
+    mkdirSync(workspaceRoot, { recursive: true })
+    writeFileSync(join(workspaceRoot, 'report.md'), 'old\n')
+    writeFileSync(join(workspaceRoot, 'stale.md'), 'remove\n')
 
-    const result = await tool.execute('call-1', {
-      path: 'created.txt',
-      old_string: '',
-      new_string: 'one\ntwo\n'
-    })
+    try {
+      const computer = createContainerComputer(agentHome, workspaceRoot)
+      const tool = createApplyPatchTool(
+        contextFor(computer, {
+          agentHome,
+          workspaceRoot,
+          userFilesRoot: join(agentHome, 'user-files')
+        })
+      )
 
-    expect(textOf(result)).toContain('Created created.txt.')
-    expect(textOf(result)).toContain('--- a/created.txt')
-    expect(computer.files.get('created.txt')?.toString('utf-8')).toBe('one\ntwo\n')
+      await tool.execute(
+        'call-native-apply-patch',
+        [
+          '*** Begin Patch',
+          '*** Update File: report.md',
+          '@@',
+          '-old',
+          '+new',
+          '*** Add File: created.md',
+          '+created',
+          '*** Delete File: stale.md',
+          '*** End Patch',
+          ''
+        ].join('\n')
+      )
+
+      expect(readFileSync(join(workspaceRoot, 'report.md'), 'utf8')).toBe('new\n')
+      expect(readFileSync(join(workspaceRoot, 'created.md'), 'utf8')).toBe('created\n')
+      expect(() => readFileSync(join(workspaceRoot, 'stale.md'), 'utf8')).toThrow()
+    } finally {
+      rmSync(agentHome, { recursive: true, force: true })
+    }
   })
 
-  it('applies V4A hunks in cursor order without requiring global uniqueness', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('demo.txt', Buffer.from('same\nold\nsame\nold\n'))
-    const tool = createPatchTool(contextFor(computer))
-
-    await tool.execute('call-1', {
-      patch: [
-        '*** Begin Patch',
-        '*** Update File: demo.txt',
-        '@@',
-        ' same',
-        '-old',
-        '+new',
-        '@@',
-        ' same',
-        '-old',
-        '+new2',
-        '*** End Patch'
-      ].join('\n')
-    })
-
-    expect(computer.files.get('demo.txt')?.toString('utf-8')).toBe('same\nnew\nsame\nnew2\n')
-  })
-
-  it('uses @@ context as a V4A cursor anchor', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('demo.txt', Buffer.from('old\ntarget\nold\n'))
-    const tool = createPatchTool(contextFor(computer))
-
-    await tool.execute('call-1', {
-      patch: ['*** Begin Patch', '*** Update File: demo.txt', '@@ target', '-old', '+new', '*** End Patch'].join('\n')
-    })
-
-    expect(computer.files.get('demo.txt')?.toString('utf-8')).toBe('old\ntarget\nnew\n')
-  })
-
-  it('honors V4A End of File constraints', async () => {
-    const computer = new FakeComputer()
-    computer.files.set('demo.txt', Buffer.from('old\nmiddle\nold\n'))
-    const tool = createPatchTool(contextFor(computer))
-
-    await tool.execute('call-1', {
-      patch: [
-        '*** Begin Patch',
-        '*** Update File: demo.txt',
-        '@@',
-        '-old',
-        '+new',
-        '*** End of File',
-        '*** End Patch'
-      ].join('\n')
-    })
-
-    expect(computer.files.get('demo.txt')?.toString('utf-8')).toBe('old\nmiddle\nnew\n')
-  })
-
-  it('lets the current bubblewrap view decide which absolute paths file tools can use', async () => {
+  it('lets the current bubblewrap view decide which absolute paths filesystem tools can use', async () => {
     const agentHome = mkdtempSync('/agents/ankole-computer-paths-')
     const workspaceRoot = join(agentHome, 'sessions', 'session-1')
     const sharePath = join(WORKER_SHARE_ROOT, `ankole-computer-paths-${process.pid}`)
@@ -396,16 +339,11 @@ describe('computer tools', () => {
         userFilesRoot: join(agentHome, 'user-files'),
         getComputer: async () => computer
       }
-      const tool = createReplaceTool(context)
       const readTool = createReadFileTool(context)
 
-      await tool.execute('call-1', {
-        path: sharePath,
-        old_string: 'before',
-        new_string: 'after'
-      })
-
-      expect(readFileSync(sharePath, 'utf8')).toBe('after\n')
+      const sharedFile = await readTool.execute('call-1', { path: sharePath })
+      expect(textOf(sharedFile)).toContain('before')
+      expect(readFileSync(sharePath, 'utf8')).toBe('before\n')
       const builtinSkill = await readTool.execute('call-2', {
         path: join(BUILTIN_SKILLS_ROOT, 'skills', 'pdf', 'SKILL.md'),
         limit: 20

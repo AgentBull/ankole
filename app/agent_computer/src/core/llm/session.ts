@@ -3,11 +3,7 @@ import { Buffer } from 'node:buffer'
 import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
-import type {
-  ResponseCreateParams,
-  ResponseFunctionToolCall,
-  ResponseOutputItem
-} from 'openai/resources/responses/responses'
+import type { ResponseCreateParams, ResponseOutputItem } from 'openai/resources/responses/responses'
 import type {
   Message,
   ModelCallResult,
@@ -16,6 +12,7 @@ import type {
   ModelTurnCallOptions,
   ModelTurnOptions,
   ResponseWebSocketTransport,
+  ResponseToolCall,
   StatefulResponseContext,
   StopReason,
   ToolResultsRecordResult
@@ -24,7 +21,7 @@ import {
   aigatewayErrorFromFrame,
   arrayValue,
   parseOutputItems,
-  rememberFunctionCall,
+  rememberToolCall,
   shouldRefreshAuthorizationAfterWebSocketOpenFailure,
   stringValue,
   terminalErrorMessage,
@@ -197,7 +194,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
     let textBuffer = ''
     let responseID: string | undefined
     const stableItems: ResponseOutputItem[] = []
-    const functionCallsByID = new Map<string, ResponseFunctionToolCall>()
+    const toolCallsByID = new Map<string, ResponseToolCall>()
     const estimatedRequestTokens = estimateResponseRequestTokens(params)
     const staleTimeoutMs = responseEventStaleTimeoutMs(estimatedRequestTokens)
 
@@ -242,7 +239,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
               const item = recordValue(frame.item)
               if (item) {
                 stableItems.push(item as unknown as ResponseOutputItem)
-                rememberFunctionCall(functionCallsByID, item)
+                rememberToolCall(toolCallsByID, item)
               }
               continue
             }
@@ -264,7 +261,7 @@ class AIGatewayResponsesTurn implements ModelTurn {
                 terminal.status,
                 textBuffer,
                 terminal.errorMessage,
-                [...functionCallsByID.values()]
+                [...toolCallsByID.values()]
               )
               result.responseID = responseID
               await stream.return?.()

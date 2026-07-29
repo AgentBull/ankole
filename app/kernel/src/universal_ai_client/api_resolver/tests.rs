@@ -787,6 +787,72 @@ fn openai_chat_accumulates_tool_calls() {
 }
 
 #[test]
+fn openai_chat_stream_restores_custom_tool_calls() {
+    let patch = "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n";
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "tools": [{
+                    "type": "custom",
+                    "name": "apply_patch",
+                    "description": "Apply one patch.",
+                    "format": {
+                        "type": "grammar",
+                        "syntax": "lark",
+                        "definition": "start: begin_patch hunk+ end_patch"
+                    }
+                }]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let events = resolver
+        .ingest(json!({
+            "choices": [{
+                "delta": {"tool_calls": [{
+                    "index": 0,
+                    "id": "call_patch",
+                    "function": {
+                        "name": "apply_patch",
+                        "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                    }
+                }]},
+                "finish_reason": "tool_calls"
+            }]
+        }))
+        .unwrap();
+    assert!(events.iter().any(|event| {
+        event["type"] == "response.output_item.added" && event["item"]["type"] == "custom_tool_call"
+    }));
+    assert!(
+        !events
+            .iter()
+            .any(|event| { event["type"] == "response.function_call_arguments.delta" })
+    );
+
+    let events = resolver.finish().unwrap();
+    assert!(events.iter().any(|event| {
+        event["type"] == "response.custom_tool_call_input.done" && event["input"] == patch
+    }));
+    let terminal = events.last().unwrap();
+    let call = terminal["response"]["output"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "custom_tool_call")
+        .unwrap();
+    assert_eq!(call["call_id"], "call_patch");
+    assert_eq!(call["name"], "apply_patch");
+    assert_eq!(call["input"], patch);
+    assert!(call.get("arguments").is_none());
+}
+
+#[test]
 fn openai_chat_eof_keeps_partial_tool_call_incomplete_without_done_events() {
     let mut resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,
@@ -958,6 +1024,124 @@ fn openai_chat_build_body_maps_function_call_history_to_tool_messages() {
             .unwrap()
             .contains("function_call_output")
     );
+}
+
+#[test]
+fn openai_chat_build_body_maps_custom_tool_and_history_to_chat_functions() {
+    let patch = "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n";
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "tools": [{
+                    "type": "custom",
+                    "name": "apply_patch",
+                    "description": "Apply one patch.",
+                    "format": {
+                        "type": "grammar",
+                        "syntax": "lark",
+                        "definition": "start: begin_patch hunk+ end_patch"
+                    }
+                }],
+                "input": [
+                    {
+                        "type": "custom_tool_call",
+                        "call_id": "call_patch",
+                        "name": "apply_patch",
+                        "input": patch
+                    },
+                    {
+                        "type": "custom_tool_call_output",
+                        "call_id": "call_patch",
+                        "output": "Done!"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let body = Value::Object(resolver.build_body().unwrap());
+    assert_eq!(body["tools"][0]["type"], "function");
+    assert_eq!(body["tools"][0]["function"]["name"], "apply_patch");
+    assert_eq!(
+        body["tools"][0]["function"]["parameters"],
+        json!({
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": "Raw tool input. It must match this grammar:\nstart: begin_patch hunk+ end_patch"
+                }
+            },
+            "required": ["input"],
+            "additionalProperties": false
+        })
+    );
+    assert_eq!(
+        body["messages"][0]["tool_calls"][0]["function"]["arguments"],
+        serde_json::to_string(&json!({"input": patch})).unwrap()
+    );
+    assert_eq!(body["messages"][1]["role"], "tool");
+    assert_eq!(body["messages"][1]["tool_call_id"], "call_patch");
+    assert_eq!(body["messages"][1]["content"], "Done!");
+}
+
+#[test]
+fn openai_chat_non_streaming_restores_custom_tool_calls() {
+    let patch = "*** Begin Patch\n*** Delete File: stale.md\n*** End Patch\n";
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "tools": [{
+                    "type": "custom",
+                    "name": "apply_patch",
+                    "description": "Apply one patch.",
+                    "format": {"type": "text"}
+                }]
+            }),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        },
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_patch",
+                "created": 10,
+                "model": "openrouter-test",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_patch",
+                            "type": "function",
+                            "function": {
+                                "name": "apply_patch",
+                                "arguments": serde_json::to_string(&json!({"input": patch})).unwrap()
+                            }
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }]
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(response["output"][0]["type"], "custom_tool_call");
+    assert_eq!(response["output"][0]["call_id"], "call_patch");
+    assert_eq!(response["output"][0]["name"], "apply_patch");
+    assert_eq!(response["output"][0]["input"], patch);
+    assert!(response["output"][0].get("arguments").is_none());
 }
 
 #[test]

@@ -73,7 +73,7 @@ defmodule Ankole.AIGateway.CodexModels do
       "default_reasoning_summary" => "auto",
       "support_verbosity" => false,
       "default_verbosity" => nil,
-      "apply_patch_tool_type" => nil,
+      "apply_patch_tool_type" => "freeform",
       "web_search_tool_type" => "text",
       "truncation_policy" => %{"mode" => "bytes", "limit" => 10_000},
       "supports_parallel_tool_calls" => false,

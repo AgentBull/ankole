@@ -39,6 +39,7 @@ defmodule Ankole.AIGateway.CodexModelsTest do
     assert card["context_window"] == 272_000
     assert card["input_modalities"] == ["text", "image"]
     assert card["supports_search_tool"] == true
+    assert card["apply_patch_tool_type"] == "freeform"
     assert card["use_responses_lite"] == false
     assert is_binary(card["base_instructions"])
     assert byte_size(card["base_instructions"]) > 10_000

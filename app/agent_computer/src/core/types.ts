@@ -8,6 +8,7 @@
 
 import type { z } from 'zod'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { CustomToolInputFormat } from 'openai/resources/shared'
 import type {
   AssistantMessage,
   CallModelOptions,
@@ -180,6 +181,8 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   name: string
   description: string
   schema: TParameters
+  /** Declares a Responses custom tool whose model input is raw text. */
+  inputFormat?: CustomToolInputFormat
   /** Optional raw JSON Schema used when a tool comes from an external catalog. */
   jsonSchema?: Record<string, unknown>
   /** Groups this tool under one Responses namespace. */

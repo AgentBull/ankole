@@ -30,7 +30,7 @@ defmodule Ankole.AIGateway.Schemas.Message do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # `role` is now just a legacy transcript/UI projection hint, NOT the
-  # authoritative Response-item role. It is nullable because function_call and
+  # authoritative Response-item role. It is nullable because client tool calls and
   # other non-message items do not carry a role. Response.output partitioning is
   # decided by item provenance (item type + item-level role), not this column.
   @roles ~w(user assistant tool im_ambient)

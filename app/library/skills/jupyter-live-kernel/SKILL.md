@@ -80,7 +80,7 @@ For non-trivial multi-line Python, avoid shell-escaping the whole program into
 `--code`. For a disposable scratch script under `temp/` in the current Workspace, create the
 code file inside the same foreground `command` with a single-quoted heredoc and
 then pass `--code-file`. This keeps ordinary Python syntax intact and avoids
-quoting bugs in f-strings, JSON, paths, or SQL. Use `patch` instead when
+quoting bugs in f-strings, JSON, paths, or SQL. Use `apply_patch` instead when
 modifying an existing user/repo file; this workflow is only for temporary
 generated analysis code.
 

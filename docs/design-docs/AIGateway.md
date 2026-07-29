@@ -62,7 +62,10 @@ snapshot. A new or respawned Job resolves the current profile again.
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. It sends the frozen binding in the
 `x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
-provider resolution. The `coding` profile name never enters Codex as a model.
+provider resolution. The runner removes `model_catalog_json` from the Job
+project configuration, so a workspace template cannot replace the
+AIGateway-owned model cards. The `coding` profile name never enters Codex as a
+model.
 
 The same path handles API-key providers and `chatgpt_subscription`. Agent
 Computer does not resolve, store, refresh, or write back provider
@@ -389,18 +392,22 @@ can subscribe and use its own metadata to select relevant events.
 ## Record Tool Results before the Next Model Call
 
 The Worker can send `response.tool_results.record` before the next model call.
-The command requires a completed `previous_response_id` and at least one function-call output.
+The command requires a completed `previous_response_id` and at least one client
+tool output.
 
-AIGateway matches each result to an executable function call on the anchor.
-Valid results become one completed tool-result row.
+AIGateway matches each result to an executable tool call of the same type on
+the anchor. It supports `function_call` with `function_call_output` and
+`custom_tool_call` with `custom_tool_call_output`. Valid results become one
+completed tool-result row.
 
 The journal has a deterministic idempotency key.
 Retrying the same record operation returns the existing row.
 
 Unmatched results enter an error row and never reach provider history.
 
-Implicit continuation can detect an interrupted function call that has no stored
-result. It adds an interrupted output before replaying the current input.
+Implicit continuation can detect an interrupted client tool call that has no
+stored result. It adds an interrupted output of the matching type before it
+replays the current input.
 
 Explicit continuation does not rewrite the caller-selected branch.
 
@@ -438,8 +445,8 @@ The checkpoint and artifact use the same UUID.
 When AIGateway builds model history, it replaces the checkpoint with that
 output. It also keeps selected original user facts.
 
-The compaction summarizer keeps function-call pairing with one-call `call_N`
-aliases. Persisted provider call IDs do not enter its prompt.
+The compaction summarizer keeps client tool call and output pairs with one-call
+`call_N` aliases. Persisted provider call IDs do not enter its prompt.
 
 Internal history traversal supports 10,000 rows.
 The public chain API returns at most 500 rows.
@@ -452,12 +459,13 @@ read the newest snapshot in the visible history.
 
 When the context exceeds its threshold and compaction has no candidate, a
 request with `truncation=auto` keeps the last compaction checkpoint and the
-configured stable tail, then expands the tail backward until the function calls
-and outputs in both history and the current input form a valid boundary. The
+configured stable tail, then expands the tail backward until the client tool
+calls and outputs in history and the current input form a valid boundary. The
 checkpoint stays because it is the only remaining record of the conversation
 before it. A suffix size cannot be derived from cumulative snapshots, so this
-path reports no post-truncation token estimate and leaves the measurement to the
-provider. When no valid boundary exists, the request returns `context_overflow`.
+path reports no post-truncation token estimate and leaves the measurement to
+the provider. When no valid boundary exists, the request returns
+`context_overflow`.
 
 ## Store Vision Files and Generated Images
 
@@ -537,11 +545,17 @@ The Rust kernel sends the `UniversalAIRequest` and converts supported HTTP, SSE,
 and WebSocket responses to one event format.
 
 The public stream accepts `response.completed`, `response.failed`, and `response.incomplete` as terminal types.
-It rejects a provider completion that contains an incomplete function call.
+It rejects a provider completion that contains an incomplete client tool call.
 
 OpenAI Responses mode can use an upstream WebSocket transport.
 Other providers adapt their native protocols to the same public Response
 contract.
+
+The OpenAI Chat Completions adapter lowers a custom tool to a function with one
+required `input` string. It restores the provider function call as a
+`custom_tool_call` before the event enters the public Response contract. It
+also translates stored custom calls and outputs back to Chat messages during
+replay.
 
 ## Keep Encrypted Tool Fields inside AIGateway
 

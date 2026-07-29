@@ -1,7 +1,12 @@
 import OpenAI from 'openai'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import type { z } from 'zod'
-import type { ResponseCreateParams, ResponseFunctionToolCall } from 'openai/resources/responses/responses'
+import type { CustomToolInputFormat } from 'openai/resources/shared'
+import type {
+  ResponseCreateParams,
+  ResponseCustomToolCall,
+  ResponseFunctionToolCall
+} from 'openai/resources/responses/responses'
 
 export interface TextContent {
   type: 'text'
@@ -18,7 +23,7 @@ export type ContentPart = TextContent | ImageContent
 
 export interface ToolCall {
   id: string
-  type: 'function'
+  type: 'function' | 'custom'
   name: string
   namespace?: string
   arguments: string
@@ -26,6 +31,7 @@ export interface ToolCall {
 }
 
 export type ToolCaller = { type: 'direct' } | { type: 'program'; caller_id: string }
+export type ResponseToolCall = ResponseFunctionToolCall | ResponseCustomToolCall
 
 export interface UserMessage {
   role: 'user'
@@ -45,6 +51,7 @@ export interface AssistantMessage {
 export interface ToolResultMessage {
   role: 'tool'
   toolCallID: string
+  toolCallType?: ToolCall['type']
   result: string
   caller?: ToolCaller
 }
@@ -96,6 +103,7 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
   name: string
   description?: string
   parameters: TSchema
+  inputFormat?: CustomToolInputFormat
   jsonSchema?: Record<string, unknown>
   namespace?: string
   namespaceDescription?: string
@@ -137,7 +145,7 @@ export type StatefulResponseContext = {
 
 export interface ModelCallResult {
   message: AssistantMessage
-  functionCalls: ResponseFunctionToolCall[]
+  toolCalls: ResponseToolCall[]
   hasToolCalls: boolean
   responseID?: string
 }

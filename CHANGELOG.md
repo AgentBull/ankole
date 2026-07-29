@@ -1,8 +1,24 @@
 # Changelog
 
-## Version 0.50.0 (2026-07-29)
+## Version 0.48.1 (2026-07-30)
 
-- Switch Ankole releases to Semantic Versioning. The pending release is now `0.50.0`, and each historical `26.07.N` entry is now `0.N.0`. A feature-level commit increments `MINOR` and resets `PATCH` to `0`; a dependency upgrade, bug fix, documentation change, or other maintenance commit increments `PATCH`; and `MAJOR` changes only after an explicit maintainer decision. Update the runtime image version check and historical migration references to use the new format.
+- Position Ankole as the open-source AI Workforce OS across the English, Simplified Chinese, and Japanese root READMEs and the English and Simplified Chinese website. Replace the AI-colleague, team, OKR, and seat framing with autonomous labor that performs business functions, owns the execution loop within explicit authority, and is measured by outcomes. Rebuild the homepage hero, difference statements, function examples, Introduction, and Architecture opening around that contract while keeping multi-Agent execution as an optional implementation choice.
+
+- Keep the AIGateway V2 Codex model manifest under runtime ownership. A trusted workspace template can no longer set the higher-precedence project `model_catalog_json` and replace the cards that enable portable Responses Lite restoration and Tool Search lowering. Cover removal during Job project materialization and record the ownership rule in the AIGateway design document.
+
+- Publish a versioned RuntimeFabric image pair and GitHub Release only after a `main` push builds or reuses both immutable images and passes the existing pair verification. Read the version and exact release body from the newest `CHANGELOG.md` section, tag the control-plane and Worker manifests with `MAJOR.MINOR.PATCH` without rebuilding them, create the matching immutable `vMAJOR.MINOR.PATCH` Release, and fail instead of moving an existing version tag or accepting different release notes.
+
+- Upgrade dependencies for the control-plane, kernel, and Worker. Update the
+  XChaCha20-Poly1305 key and nonce conversion to the non-deprecated fixed-array
+  API required by `chacha20poly1305` 0.11.
+
+- Keep list and map `contains`, `max`, and `min` available to AuthZ conditions and SignalsGateway filters after the `cel` 0.14 upgrade. The upgraded crate's default library removes these functions, so a persisted condition or filter that uses them would fail with an undeclared-reference error at evaluation. The kernel registers the crate's own implementations again in one shared context constructor for both surfaces, and the filter contract test now pins them.
+
+- Align Main Agent file editing with Codex 0.146. Remove the Worker-owned `replace`, `patch`, and apply-patch parser, expose the same freeform `apply_patch` grammar through AIGateway, and run it through a native Codex binary link in the Worker image. Enable Codex Jobs from the same AIGateway model card, preserve custom call and output pairs through the Worker loop, stateful journal, interruption recovery, compaction, and stream validation, and lower custom tools to reversible Chat function calls for providers that do not use Responses. Update the bilingual code-execution guide and Jupyter Skill guidance, and cover the wire, execution, replay, provider, and image contracts.
+
+## Version 0.48.0 (2026-07-29)
+
+- Switch Ankole releases to Semantic Versioning from the fixed `0.42.0` baseline. Keep `0.42.0` and earlier releases unchanged, and reclassify later releases by their actual change: `0.46.0` becomes `0.45.1`, `0.47.0` becomes `0.46.0`, `0.48.0` becomes `0.46.1`, `0.49.0` becomes `0.47.0`, and `0.50.0` becomes `0.48.0`. A feature-level commit increments `MINOR` and resets `PATCH` to `0`; a dependency upgrade, bug fix, documentation change, or other maintenance commit increments `PATCH`; and `MAJOR` changes only after an explicit maintainer decision. Update the runtime image version check and historical migration references to use the new format.
 
 - Add checksum-pinned `kubectl` 1.36.3, AWS CLI 2.36.10, ClickHouse client 26.7.1.1315, MySQL client 9.7.2, and PostgreSQL client 18.4 to both Agent Computer base-image architectures. Take the MySQL executable from the digest-pinned official multi-architecture image because Oracle's Debian 13 client repository does not publish arm64 packages. Install only the ClickHouse and PostgreSQL client packages, copy only the MySQL client executable, and fail the image build if a database server entry point or package is present.
 
@@ -26,7 +42,7 @@
 
 - Enforce Feishu's five-table-per-card limit in the pure CardKit renderer. The first five typed table results keep native table components, later tables use bounded Markdown rows that preserve every label and value, and the final budget check independently rejects any future renderer path that exceeds the provider limit. Record provider error `11310` and the fallback rationale at the owning limit, and cover creation and incremental six-table boundaries so a small card cannot pass the byte and element budgets and then fail at Feishu with `table number over limit`.
 
-## Version 0.49.0 (2026-07-28)
+## Version 0.47.0 (2026-07-28)
 
 - Wait out an upstream outage instead of failing a Background Agent Job inside it. A retryable worker Turn failure on a Job session now waits on a fixed ladder from one minute to two hours between execution attempts, so the five-attempt budget spans roughly 3.7 hours; the previous 5–120-second exponential backoff let a production Job burn all attempts inside one 47-minute provider outage and fail. Ordinary actor events keep the short backoff because a user waits on them. Cover the ladder in the Job dispatch exhaustion test and record the wait contract in the Background Agent Job design document.
 
@@ -48,11 +64,11 @@
 
 - Compact AIGateway conversation history earlier and stop accepting a cut-off compaction summary silently. The default automatic-compaction cap drops from 120,000 to 100,000 tokens: production traces showed the cost of a long conversation grows with the tokens carried on every later request, and the 80,000–120,000 trigger range costs almost the same while a later trigger costs clearly more. The summarizer call now sets low reasoning effort explicitly, because the previous request let a high-effort model spend its reasoning inside the fixed 4,096-token output cap and two of nine production summaries ended exactly at that cap, truncated. The output reservation now scales with the summarizer's own context window up to 8,192 tokens, so a small-window summarizer keeps enough input render budget for the existing tighter context-error retry. When a provider reports the summary as length-truncated, the call retries once with a doubled reservation and falls back to the truncated text only when the retry itself fails; the checkpoint's summarizer metadata records the `truncated` flag. Update the dispatch tests for the new default cap, the reasoning effort, and the output reservation.
 
-## Version 0.48.0 (2026-07-28)
+## Version 0.46.1 (2026-07-28)
 
 - Serialize shared Codex Home setup for overlapping Background Agent Jobs from one Agent. Plugin installation, hook trust, and Skill configuration now finish for one Job before the next Job changes the same Plugin cache, while Jobs for different Agents and all post-setup execution remain concurrent. A stopped queued Job returns its Worker turn slot after finalization without waiting for active setup, but its skipped queue position keeps later Jobs behind that setup. Add regression coverage for same-Home serialization, cross-Agent concurrency, lock release after failure, prompt queued cancellation, and preserved queue order, and document the process-local queue's worker-placement boundary.
 
-## Version 0.47.0 (2026-07-27)
+## Version 0.46.0 (2026-07-27)
 
 - Keep the Agent Computer worker registry UNLOGGED and make heartbeat recovery complete. Worker heartbeats now carry runtime, version, capacity, available slots, and active-turn load; the kernel validates that snapshot, and the control plane rebuilds a missing authenticated worker row without weakening route or incarnation fences or hydrating the scheduler on every heartbeat. Update the RuntimeFabric contract and generated TypeScript codec, and add protocol, admission, and real Docker chaos coverage that deletes a live worker row and verifies that the same process recreates it on its next heartbeat without a restart.
 
@@ -70,7 +86,7 @@
 
 - Remove Schedule surfaces that had no user behavior: `stagger_ms`, `failure_policy`, and the `CronSchedule.failed` state. Keep `ScheduledEvent.failed` for a concrete terminal occurrence. Update the Schedule design document, protocol descriptors, generated clients, planner, schemas, projections, Console model, and regression coverage for same-slot replacement, active resume, rule round trips, terminal failure, concurrent fire and update, manual replay, deleted-name reuse, release reconciliation, timezone changes, and Checkback replacement.
 
-## Version 0.46.0 (2026-07-26)
+## Version 0.45.1 (2026-07-26)
 
 - Rebuild the Architecture guide as MDX and replace its unrendered Mermaid source block with one responsive, accessible architecture diagram. Use the current website homepage as the product source of truth, then connect that positioning to the real runtime: one logical control plane, one or more Agent Computer Workers, SignalsGateway, Actor Runtime, Brain and Dreaming, Background Agent Jobs, AIGateway, Principal/AuthZ, plugins, PostgreSQL, Agent Home, RuntimeFabric, and all three deployment forms. Render a linked SVG system map on wide screens and an equivalent semantic flow on narrow screens.
 

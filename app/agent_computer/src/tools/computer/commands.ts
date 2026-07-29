@@ -9,6 +9,7 @@ export interface CommandInput {
   args?: string[]
   cwd?: string
   env?: Record<string, string>
+  stdin?: string | Buffer
   timeoutMs?: number
   signal?: AbortSignal
 }
@@ -58,6 +59,7 @@ export async function runWorkspaceCommand(
       env: input.env,
       workerEnv: input.workerEnv,
       runtimeEnv: input.runtimeEnv,
+      stdin: input.stdin,
       signal: input.signal
     },
     agentHome,

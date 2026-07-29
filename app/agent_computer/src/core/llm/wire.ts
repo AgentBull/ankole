@@ -20,10 +20,10 @@ const PROMPT_CACHE_ROUTING_PREFIX_CHARACTERS = 4_096
 
 export function buildResponseCreateParams(model: ModelConfig, options: CallModelOptions): ResponseCreateParams {
   const input = toResponseInput(options.messages)
-  const functionTools = options.tools ? functionToolSpecs(Object.values(options.tools)) : []
+  const localTools = options.tools ? localToolSpecs(Object.values(options.tools)) : []
   const hasDeferredTools = Object.values(options.tools ?? {}).some(tool => tool.deferLoading === true)
   const tools = [
-    ...functionTools,
+    ...localTools,
     ...(hasDeferredTools ? [{ type: 'tool_search' as const, execution: 'server' as const }] : []),
     ...(options.programmaticToolCalling ? [{ type: 'programmatic_tool_calling' as const }] : []),
     ...(options.hostedTools ?? []).map(() => ({
@@ -81,21 +81,32 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
         }
         if (msg.toolCalls) {
           for (const tc of msg.toolCalls) {
-            items.push({
-              type: 'function_call',
-              call_id: tc.id,
-              name: tc.name,
-              arguments: tc.arguments,
-              ...(tc.namespace ? { namespace: tc.namespace } : {}),
-              ...(tc.caller ? { caller: tc.caller } : {})
-            } as ResponseInputItem)
+            items.push(
+              tc.type === 'custom'
+                ? ({
+                    type: 'custom_tool_call',
+                    call_id: tc.id,
+                    name: tc.name,
+                    input: tc.arguments,
+                    ...(tc.namespace ? { namespace: tc.namespace } : {}),
+                    ...(tc.caller ? { caller: tc.caller } : {})
+                  } as ResponseInputItem)
+                : ({
+                    type: 'function_call',
+                    call_id: tc.id,
+                    name: tc.name,
+                    arguments: tc.arguments,
+                    ...(tc.namespace ? { namespace: tc.namespace } : {}),
+                    ...(tc.caller ? { caller: tc.caller } : {})
+                  } as ResponseInputItem)
+            )
           }
         }
         return items
       })
       .with({ role: 'tool' }, msg => [
         {
-          type: 'function_call_output',
+          type: msg.toolCallType === 'custom' ? 'custom_tool_call_output' : 'function_call_output',
           call_id: msg.toolCallID,
           output: msg.result,
           ...(msg.caller ? { caller: msg.caller } : {})
@@ -105,13 +116,13 @@ export function toResponseInput(messages: Message[]): ResponseInputItem[] {
   )
 }
 
-function functionToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[string][]): unknown[] {
+function localToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[string][]): unknown[] {
   const sorted = definitions.toSorted((left, right) => {
     const leftKey = `${left.namespace ?? ''}\u0000${left.name}`
     const rightKey = `${right.namespace ?? ''}\u0000${right.name}`
     return leftKey.localeCompare(rightKey)
   })
-  const rootTools = sorted.filter(tool => !tool.namespace).map(functionToolSpec)
+  const rootTools = sorted.filter(tool => !tool.namespace).map(localToolSpec)
   const namespaced = Map.groupBy(
     sorted.filter(tool => tool.namespace),
     tool => tool.namespace!
@@ -120,13 +131,25 @@ function functionToolSpecs(definitions: NonNullable<CallModelOptions['tools']>[s
     type: 'namespace' as const,
     name,
     description: tools[0]?.namespaceDescription ?? `Tools from ${name}.`,
-    tools: tools.map(functionToolSpec)
+    tools: tools.map(localToolSpec)
   }))
 
   return [...rootTools, ...namespaceTools]
 }
 
-function functionToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {
+function localToolSpec(tool: NonNullable<CallModelOptions['tools']>[string]) {
+  if (tool.inputFormat) {
+    return {
+      type: 'custom' as const,
+      name: tool.name,
+      description: tool.description,
+      format: tool.inputFormat,
+      ...(tool.deferLoading ? { defer_loading: true } : {}),
+      ...(tool.toolSearchText ? { __ankole_search_text: tool.toolSearchText } : {}),
+      ...(tool.allowedCallers?.length ? { allowed_callers: tool.allowedCallers } : {})
+    }
+  }
+
   return {
     type: 'function' as const,
     name: tool.name,

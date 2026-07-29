@@ -41,7 +41,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
   return {
     name: 'command',
     description:
-      'Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use create_background_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use replace for one precise edit and patch for larger edits.',
+      'Execute one foreground, stateless, non-interactive shell command in the computer. Use this for quick builds, tests, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that do not depend on persistent cd/export/alias or process state. If a required workflow says to run, build, test, or verify with a shell command, call this tool before saying that step ran or passed; future-tense text does not execute a command. The command must finish within this call; use create_background_job for work that needs a persistent process, interactive session, or more than the active exchange. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk or heredocs to edit files; use apply_patch.',
     schema: CommandParams,
     executionMode: 'sequential',
     isReadOnly: false,

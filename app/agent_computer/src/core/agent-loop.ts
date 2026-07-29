@@ -3,9 +3,9 @@
  *
  * The loop is simple (plan §4.2):
  *   1. Call the model via a turn-scoped OpenAI Responses adapter.
- *   2. If the response contains function_call items, execute them locally.
- *   3. Record function_call_output results through AIGateway.
- *   4. Continue from the recorded journal anchor until no function_call items are returned.
+ *   2. If the response contains client tool calls, execute them locally.
+ *   3. Record the matching tool outputs through AIGateway.
+ *   4. Continue from the recorded journal anchor until no client tool calls remain.
  *
  * The worker owns loop termination and its local iteration budget. It does NOT
  * own history expansion, compaction, continuation anchors, or durable response
@@ -13,6 +13,7 @@
  * results, and explicitly reports when the whole Agent turn has ended.
  */
 
+import { Buffer } from 'node:buffer'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   safeJsonParse as safeJSONParse,
@@ -24,6 +25,7 @@ import { errorMessage } from '../common/errors'
 import {
   assistantText,
   createModelTurn,
+  MAX_TOOL_ARGUMENT_BYTES,
   validateToolArgumentsWithRepair,
   type Message,
   type AssistantMessage,
@@ -114,6 +116,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
                 name: t.name,
                 description: t.description,
                 parameters: t.schema,
+                ...(t.inputFormat ? { inputFormat: t.inputFormat } : {}),
                 ...(t.jsonSchema ? { jsonSchema: t.jsonSchema } : {}),
                 ...(t.namespace ? { namespace: t.namespace } : {}),
                 ...(t.namespaceDescription !== undefined ? { namespaceDescription: t.namespaceDescription } : {}),
@@ -180,7 +183,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       latestAssistant = result.message
       latestResponseID = requiredResponseID(result.responseID)
 
-      // A function-call-shaped item is executable only when the provider also
+      // A tool-call-shaped item is executable only when the provider also
       // proved a successful tool-use terminal. Partial/error/length responses
       // may retain diagnostic call fragments, but they never cross this gate.
       if (latestAssistant.stopReason !== 'toolUse') {
@@ -203,7 +206,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
       }
 
       if (!result.hasToolCalls || !latestAssistant.toolCalls?.length) {
-        throw new Error('LLM provider returned toolUse without a completed function call')
+        throw new Error('LLM provider returned toolUse without a completed tool call')
       }
 
       const toolCalls = latestAssistant.toolCalls
@@ -229,7 +232,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
 
       // In stateful mode, tool results become a stored AIGateway response. The
       // next model call should anchor to that response id instead of sending the
-      // same function_call_output messages again.
+      // same tool output messages again.
       if (toolJournalMessages.length > 0) {
         let recordAttempt = 0
         const recorded = await withRetry(
@@ -466,7 +469,7 @@ function canExecuteToolCallInParallel(toolCall: ToolCall, toolByName: Map<string
 }
 
 /**
- * Executes one tool call and always returns a function_call_output message.
+ * Executes one tool call and returns the matching Responses output item.
  *
  * Tool lookup, JSON parsing, schema validation, and runtime failures are sent
  * back to the model as tool output because the model must see why its requested
@@ -493,6 +496,7 @@ async function executeToolCall(
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
+        toolCallType: toolCall.type,
         result: toolOutputForCaller(formatToolError(message), toolCall.caller),
         ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
@@ -508,9 +512,20 @@ async function executeToolCall(
 
   let parsedArgs: unknown
   try {
-    const validated = validateToolArgumentsWithRepair(toolCall.arguments, tool.schema)
-    parsedArgs = validated.value
-    if (validated.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${validated.repair}`)
+    if ((toolCall.type === 'custom') !== Boolean(tool.inputFormat)) {
+      throw new Error(`tool input type does not match ${toolCall.name}`)
+    }
+
+    if (toolCall.type === 'custom') {
+      if (Buffer.byteLength(toolCall.arguments, 'utf8') > MAX_TOOL_ARGUMENT_BYTES) {
+        throw new Error(`tool input exceeds the ${MAX_TOOL_ARGUMENT_BYTES}-byte limit`)
+      }
+      parsedArgs = tool.schema.parse(toolCall.arguments)
+    } else {
+      const validated = validateToolArgumentsWithRepair(toolCall.arguments, tool.schema)
+      parsedArgs = validated.value
+      if (validated.repair !== 'none') config.onActivity?.(`tool_arguments_repaired:${validated.repair}`)
+    }
   } catch (error) {
     const message = `Invalid arguments for tool ${toolCall.name}: ${errorMessage(error)}`
     config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
@@ -524,6 +539,7 @@ async function executeToolCall(
       resultMsg: {
         role: 'tool',
         toolCallID: toolCall.id,
+        toolCallType: toolCall.type,
         result: toolOutputForCaller(formatToolError(message), toolCall.caller),
         ...(toolCall.caller ? { caller: toolCall.caller } : {})
       },
@@ -616,6 +632,7 @@ async function executeToolCall(
     resultMsg: {
       role: 'tool',
       toolCallID: toolCall.id,
+      toolCallType: toolCall.type,
       result: toolOutputForCaller(resultText || safeJSONStringify(toolResult.details), toolCall.caller),
       ...(toolCall.caller ? { caller: toolCall.caller } : {})
     },
@@ -791,7 +808,7 @@ function repeatedToolFailureWarning(toolName: string, count: number): string {
 
   const recovery =
     toolName === 'command'
-      ? 'For terminal failures, run a small diagnostic such as `pwd && ls -la` in the same tool, then try an absolute path, a simpler command, a different working directory, or a different tool such as read_file/patch.'
+      ? 'For terminal failures, run a small diagnostic such as `pwd && ls -la` in the same tool, then try an absolute path, a simpler command, a different working directory, or a different tool such as read_file/apply_patch.'
       : 'Try different arguments, a narrower query/path, an absolute path when relevant, or a different tool that can make progress. If the blocker is external, report the blocker after one diagnostic attempt instead of repeating the same failing path.'
 
   return `[Tool loop warning: repeated_tool_failure; count=${count}; ${common}${recovery}]`
@@ -892,7 +909,7 @@ async function processToolResultForModel(
 }
 
 /**
- * Adds a short marker so the function_call_output records that image content
+ * Adds a short marker so the tool output records that image content
  * exists even when the binary image travels as a follow-up user message.
  */
 function toolImageOutputText(text: string, imageCount: number): string {

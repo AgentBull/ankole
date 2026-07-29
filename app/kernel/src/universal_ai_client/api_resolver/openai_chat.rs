@@ -267,14 +267,16 @@ impl ChatState {
             && !arguments.is_empty()
         {
             call.arguments.push_str(arguments);
-            events.push(self.event(
-                "response.function_call_arguments.delta",
-                json!({
-                    "item_id": call.id,
-                    "output_index": output_index,
-                    "delta": arguments
-                }),
-            ));
+            if !chat_custom_tool(context, &call.name) {
+                events.push(self.event(
+                    "response.function_call_arguments.delta",
+                    json!({
+                        "item_id": call.id,
+                        "output_index": output_index,
+                        "delta": arguments
+                    }),
+                ));
+            }
         }
 
         self.tool_calls.insert(index, call);
@@ -330,14 +332,25 @@ impl ChatState {
 
         if completed {
             for call in self.tool_calls.values().cloned().collect::<Vec<_>>() {
-                events.push(self.event(
-                    "response.function_call_arguments.done",
-                    json!({
-                        "item_id": call.id,
-                        "output_index": call.output_index,
-                        "arguments": call.arguments
-                    }),
-                ));
+                if chat_custom_tool(context, &call.name) {
+                    events.push(self.event(
+                        "response.custom_tool_call_input.done",
+                        json!({
+                            "item_id": call.id,
+                            "output_index": call.output_index,
+                            "input": custom_tool_input(&call.arguments)
+                        }),
+                    ));
+                } else {
+                    events.push(self.event(
+                        "response.function_call_arguments.done",
+                        json!({
+                            "item_id": call.id,
+                            "output_index": call.output_index,
+                            "arguments": call.arguments
+                        }),
+                    ));
+                }
                 events.push(self.event(
                     "response.output_item.done",
                     json!({
@@ -563,6 +576,7 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
                 "status": "completed"
             });
             restore_tool_namespace(context, &mut item);
+            restore_custom_tool(context, &mut item);
             items.push(item);
         }
     }
@@ -755,7 +769,10 @@ fn chat_messages(
                         }
 
                         let item_type = map.get("type").and_then(Value::as_str);
-                        if item_type != Some("function_call_output") {
+                        if !matches!(
+                            item_type,
+                            Some("function_call_output" | "custom_tool_call_output")
+                        ) {
                             flush_chat_tool_output_images(
                                 &mut messages,
                                 &mut pending_tool_output_images,
@@ -767,7 +784,18 @@ fn chat_messages(
                                 pending_tool_calls.push(chat_function_call(context, map)?);
                                 continue;
                             }
+                            Some("custom_tool_call") => {
+                                pending_tool_calls.push(chat_custom_tool_call(map)?);
+                                continue;
+                            }
                             Some("function_call_output") => {
+                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                                let (tool_message, image_parts) = chat_function_call_output(map);
+                                messages.push(tool_message);
+                                pending_tool_output_images.extend(image_parts);
+                                continue;
+                            }
+                            Some("custom_tool_call_output") => {
                                 flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
                                 let (tool_message, image_parts) = chat_function_call_output(map);
                                 messages.push(tool_message);
@@ -900,6 +928,32 @@ fn chat_function_call(
         .get("arguments")
         .map(value_to_string)
         .unwrap_or_else(|| "{}".to_string());
+
+    Ok(json!({
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": arguments
+        }
+    }))
+}
+
+fn chat_custom_tool_call(map: &Map<String, Value>) -> Result<Value, StreamError> {
+    let call_id = map
+        .get("call_id")
+        .map(value_to_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| generated_id("call"));
+    let name = map
+        .get("name")
+        .map(value_to_text)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    let input = map.get("input").map(value_to_text).unwrap_or_default();
+    let arguments = serde_json::to_string(&json!({ "input": input })).map_err(|error| {
+        StreamError::new("custom_tool_encode_failed", "request", error.to_string())
+    })?;
 
     Ok(json!({
         "id": call_id,
@@ -1129,12 +1183,42 @@ fn chat_tools(tools: Option<&Value>) -> Option<Value> {
                         "function": chat_function_tool(function, map)
                     })]
                 }
+                Some("custom") => vec![json!({
+                    "type": "function",
+                    "function": chat_custom_function_tool(map)
+                })],
                 _other => vec![tool.clone()],
             }
         })
         .collect();
 
     (!mapped.is_empty()).then_some(Value::Array(mapped))
+}
+
+fn chat_custom_function_tool(tool: &Map<String, Value>) -> Value {
+    let format = tool.get("format").and_then(Value::as_object);
+    let input_description = format
+        .and_then(|format| format.get("definition"))
+        .and_then(Value::as_str)
+        .map(|definition| format!("Raw tool input. It must match this grammar:\n{definition}"))
+        .unwrap_or_else(|| "Raw tool input.".to_string());
+
+    json!({
+        "name": tool.get("name").cloned().unwrap_or_else(|| json!("unknown")),
+        "description": tool.get("description").cloned().unwrap_or(Value::Null),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "input": {
+                    "type": "string",
+                    "description": input_description
+                }
+            },
+            "required": ["input"],
+            "additionalProperties": false
+        },
+        "strict": false
+    })
 }
 
 fn chat_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
@@ -1173,7 +1257,55 @@ fn chat_namespace_tools(namespace: &Map<String, Value>) -> Vec<Value> {
 fn chat_function_call_item(context: &ResponseContext, call: &ToolCall, status: &str) -> Value {
     let mut item = function_call_item(call, status);
     restore_tool_namespace(context, &mut item);
+    restore_custom_tool(context, &mut item);
     item
+}
+
+fn restore_custom_tool(context: &ResponseContext, item: &mut Value) {
+    let Some(name) = item.get("name").and_then(Value::as_str) else {
+        return;
+    };
+    if !chat_custom_tool(context, name) {
+        return;
+    }
+
+    let input = item
+        .get("arguments")
+        .and_then(Value::as_str)
+        .map(custom_tool_input)
+        .unwrap_or_default();
+    let Some(item) = item.as_object_mut() else {
+        return;
+    };
+    item.insert("type".to_string(), json!("custom_tool_call"));
+    item.insert("input".to_string(), json!(input));
+    item.remove("arguments");
+}
+
+fn custom_tool_input(arguments: &str) -> String {
+    serde_json::from_str::<Value>(arguments)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("input")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| arguments.to_string())
+}
+
+fn chat_custom_tool(context: &ResponseContext, name: &str) -> bool {
+    context
+        .request
+        .get("tools")
+        .or_else(|| context.provider_options.get("tools"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .any(|tool| {
+            tool.get("type").and_then(Value::as_str) == Some("custom")
+                && tool.get("name").and_then(Value::as_str) == Some(name)
+        })
 }
 
 fn restore_tool_namespace(context: &ResponseContext, item: &mut Value) {

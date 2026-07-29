@@ -15,15 +15,16 @@ agent 通过 command 工具跑 shell 命令，由 `app/agent_computer/src/tools/
 
 实践上意味着：一条 shell 命令能读写 agent 工作区下的文件、跑已装的工具、启动 worker 镜像提供的子进程。它够不到别的 agent 的工作区，也够不到控制面状态。沙箱就是边界。
 
-## 文件读取、patch、apply-patch
+## 文件读取与 apply_patch
 
-shell 之外，computer 工具给 agent 几个结构化文件原语，每个在 `app/agent_computer/src/tools/computer/` 里对应一个工具：
+shell 之外，computer 工具给 Agent 两个文件原语：
 
 - **读文件**——`read-file-tool.ts`，直接看一个文件的内容，而不是开 shell 跑 `cat`。
-- **patch 文件**——`patch-tool.ts`，对一个已存在文件施加定向编辑。
-- **CLI 上的 apply-patch**——`apply-patch-cli.ts`，agent 对更大的结构化改动用的 apply-patch 工作流。
+- **编辑文件**——`apply-patch-tool.ts`，提供与固定 Codex 版本相同语法的 freeform `apply_patch` 工具。
 
-这些原语存在的理由是：自由形式的 shell 编辑很脆弱——模型可能在空白上漂移、重复一块、或漏掉一个闭合大括号。patch 工具收结构化的编辑描述，所以一次失败的编辑干净地失败，而不是把文件搞坏。一行读取或快速 `grep` 用 shell 就好；真正的编辑用 patch 工具更安全。
+Main Agent 通过 AIGateway 把原始 patch 作为 `custom_tool_call` 发送。Worker 再通过 `/usr/local/bin/apply_patch` 交给 Codex 原生二进制。后台 Agent 任务从 AIGateway 模型卡获得同一个 freeform 工具，也使用同一个二进制。Ankole 不再维护另一套 patch 解析器。
+
+这条共享路径让普通对话和后台 Agent 任务使用同一种编辑协议。patch 无法匹配时，原生工具会失败，并把失败结果返回给模型。快速搜索可以用 shell；文件编辑使用 `apply_patch`。
 
 ## /agents 文件系统
 
@@ -61,7 +62,7 @@ Console 将对应的模型档案显示为**后台 Agent 任务**。它在数据�
 
 需要配置的内容很少：
 
-- **Computer 工具**（shell、read-file、patch）随每个 Worker 提供，普通对话可以直接使用。
+- **Computer 工具**（`command`、`read_file` 和 `apply_patch`）随每个 Worker 提供，普通对话可以直接使用。
 - **Jupyter live kernel** 是 `default_enabled` skill，所以你通过 [Agent Library](../agent-library/) 控制它，方式和控制[浏览器](../browser-automation/) skill 一样。为不该跑迭代 Python 的 agent 收窄它。
 - **CodexRunner** 执行每个后台 Agent 任务，所有模型调用都通过 AIGateway。后台任务需要不同 Provider 或模型时，配置“后台 Agent 任务”档案；留空时，控制面使用该 Agent 的 `heavy` 档案。
 

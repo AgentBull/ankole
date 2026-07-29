@@ -194,11 +194,10 @@ function procArgs(mode: BubblewrapMode): string[] {
  */
 function runtimeBinds(): string[] {
   const binds: string[] = []
-  // The worker image keeps first-party runtime source under /repo, and
-  // /usr/local/bin wrappers such as apply_patch execute it with bun inside the
-  // job sandbox. The sandbox is a light boundary around trusted first-party
-  // code, so the whole tree stays visible read-only. Hosts without /repo skip
-  // this bind, and the skill binds below map their sources onto /repo targets.
+  // The worker image keeps first-party runtime source and builtin skills under
+  // /repo. The sandbox is a light boundary around trusted first-party code, so
+  // the whole tree stays visible read-only. Hosts without /repo skip this bind,
+  // and the skill binds below map their sources onto /repo targets.
   if (existsSync('/repo')) binds.push('--ro-bind', '/repo', '/repo')
 
   const globalToolPackagesRoot = codexGlobalPackagesRoot()

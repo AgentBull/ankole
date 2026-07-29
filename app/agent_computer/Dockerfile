@@ -143,14 +143,20 @@ RUN set -eux; \
   rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/cli/main.js "$@"' > /usr/local/bin/ankole-browser; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-browser/node/bin/node /opt/ankole-browser/dist/daemon/main.js "$@"' > /usr/local/bin/ankole-browserd; \
-  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /repo/app/agent_computer/src/tools/computer/apply-patch-cli.ts "$@"' > /usr/local/bin/apply_patch; \
-  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/apply_patch; \
+  codex_native="$(find -L /root/.bun/install/global/node_modules/@openai -path '*/vendor/*/bin/codex' -type f -print -quit)"; \
+  test -n "$codex_native"; \
+  ln -s "$codex_native" /usr/local/bin/apply_patch; \
+  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd; \
   ! command -v node; \
   bun --version >/dev/null; \
   test "$(/opt/ankole-browser/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null; \
-  apply_patch --help >/dev/null
+  patch_probe="$(mktemp -d)"; \
+  cd "$patch_probe"; \
+  printf '%s\n' '*** Begin Patch' '*** Add File: probe.txt' '+ok' '*** End Patch' | apply_patch; \
+  test "$(cat probe.txt)" = "ok"; \
+  rm -rf "$patch_probe"
 
 WORKDIR /repo/app/agent_computer
 

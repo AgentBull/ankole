@@ -1,4 +1,4 @@
-# Ankole - Open AgentOS for AI Colleagues With Their Own OKRs
+# Ankole — The Open-Source AI Workforce OS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 ![Status](https://img.shields.io/badge/status-mvp_early_production-yellow)
@@ -7,53 +7,61 @@
 
 [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-[How it's different](#how-ankole-is-different) · [Product shape](#product-shape) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
+[Why it is different](#from-ai-capability-to-autonomous-labor) · [Business functions](#business-functions) · [Actor runtime](#actor-runtime) · [Architecture](#architecture) · [Current status](#current-status) · [Development](#development)
 
-**Ankole is a self-hosted AgentOS for building your own AI colleagues.** They take an objective, not a script: they pick up a job in your team's channel, break it down, run it, deliver it, and you judge them on the result.
+**Turn AI agents into autonomous labor that performs business functions and is measured by outcomes.**
 
-It moves AI work out of a private chat box and into the places where work already happens: channels, repositories, schedules, dashboards, internal systems, and long-running project context. An Ankole agent has its own identity, memory, permissions, tools, workspace, and responsibility boundary — so it can **own ongoing work**, not just answer a one-off message.
+Most AI products give a person a model, an assistant, or a copilot. The person still decides each next step, moves context, calls tools, handles failures, and completes the work.
 
-[Claude Tag](https://claude.com/product/tag) is a useful public reference point: tag an AI into a Slack thread, let it read the shared context, use organization tools, remember channel context, and follow up when work takes time. Ankole targets the broader open version of that pattern: **not only Slack, not only Claude, not only one agent, and not vendor-owned context.**
+Ankole gives the execution loop to the Agent. You define the business function, outcome measure, authority, tools, and context.
 
-Ankole is for work that needs an owner, not just an answer. A seat it can hold is remote from end to end, has a named deliverable, and has a number that settles it afterwards.
+The Agent plans and executes the work, asks at approval or exception boundaries, and delivers a result that you can inspect and score.
 
-## How Ankole is different
+Ankole is open source and self-hosted. Identities, context, credentials, artifacts, audit records, and execution stay on infrastructure that you control.
 
-An assistant answers "how does it help me". A colleague answers "who owns this work by default". What Ankole changes is the agent's position in the organization, not the size of the model.
+This is **service as software**: software does not only help a person provide a service; it performs the service. Ankole provides the runtime that makes this possible for high-value knowledge work.
 
-- **It belongs to the channel, not to whoever brought it.** Its memory belongs to the venue, its permissions are granted per channel, its actions are visible to everyone, and its conclusions become the team's shared facts — all of it on your own servers, not in a vendor's tenant.
-- **A seat is a slot of responsibility, not a bundle of skills.** Being able to do the job is not the same as owning it, and loading skills is not the same as carrying responsibility. Ankole supplies the layer that turns ability into a seat: its own identity, organizational authorization, an audit trail, escalation paths, and a metric to answer to.
-- **It lives inside the loop of work, not reaching into one segment.** See the scene, weigh what matters, commit, push, track the result, handle the exception, answer to the organization. SaaS records the outcome, RPA performs the motions, chatbots handle the opening question — an Ankole agent owns the loop.
-- **It does not just record order — it generates it.** When commitments, risks, standards, and deadlines form in natural language in a channel, it turns them into tracked, executable, retirable organizational reality on the spot.
-- **The daily loop is its by default; people step in at the edges.** Humans stay present for approvals, exceptions, and accountability. Deliverables, decisions, and committed actions sit in a durable ledger, and its output is built to be scored afterwards.
+## From AI Capability to Autonomous Labor
 
-That generated order is only as good as the memory that holds it. Most agents keep an append-only store in which an old rule and its replacement are equals, with no timeline and nothing superseding anything. Ankole's memory adjudicates: a new rule takes the seat and the old one retires with the period it governed, kindred corrections merge, contradictions are ranked by time, source, and confidence, and a prediction is checked against how things actually went — all of it shrinking the gap between what the model expects and what it observes.
+A copilot reduces the effort needed to do work. The human still drives. Ankole changes the default owner of the execution loop: the Agent observes, decides, acts, follows up, and delivers within a defined business function.
 
-## What Ankole Adds
+- **A business function, not a chat persona.** Each Agent has an ongoing responsibility, expected deliverables, operating context, and result measure. Its identity exists to hold authority and history, not to imitate a person.
+- **Outcomes, not activity.** Work is measured by the number that matters to the business: return, risk, ranking, approval rate, cost per unit, or another declared result.
+- **An execution loop, not next-step suggestions.** The Agent owns planning, tool use, follow-up, recovery, and delivery. People do not have to drive every step.
+- **Authority with boundaries.** Identity, AuthZ, audit records, approval points, and escalation paths define what the Agent can do and when a person must decide.
+- **Long-running work, not one request.** Sessions can work for hours or days, receive new input, recover after failure, and retain the context needed for the next action.
 
-- **Long jobs run in the background.** Background jobs, schedules, and check back later. A job can run for hours; when it finishes, the agent returns to the same channel and says plainly which step failed and was retried.
-- **What the room already knows.** House rules, who prefers what, why an option did not survive last time — things nobody thought to tell an agent — settle into the channel's shared memory.
-- **Memory that models the world.** Brain distils talk into curated knowledge, induces and deduces over it, retires what has gone stale, and takes in changes from the outside world directly, with nobody having to mention them in a channel first.
-- **Deep research, and playbooks.** Fan-out retrieval, layered checks, and competing-hypothesis analysis produce a cited report. Once a kind of job runs well it becomes a playbook and the next one follows it.
-- **A browser it can really use.** The runtime owns a real Chromium session driven through `ankole-browser`: rendered pages, clicks, typing, screenshots, repeatable Playwright scripts, and a signed-in session across steps.
-- **Skills that improve themselves.** An agent proposes a change to its own skills as an overlay; a human approves it and it applies from the next session. It never rewrites itself behind your back.
-- **Many agents, one deployment instance.** Each has its own mission, access, tools, memory, and outbound identity. A main agent hands bounded work to job agents without blocking on them.
-- **Enterprise identity and IM.** Lark, Slack, DingTalk, Teams, and Google Workspace are first-party adapters, and identity comes from the IdP you already run. IM, webhooks, schedules, and internal systems all arrive as one normalized signal input.
+Autonomous work depends on current context. Ankole records rules, decisions, corrections, and outcomes with time and source, instead of treating every old message as equally true.
 
-## Product Shape
+Brain retires stale rules, merges related corrections, ranks conflicts, and compares predictions with later results. Each run starts from a more accurate operating picture.
 
-A seat Ankole can hold is remote from end to end, produces a named artifact, and can be settled afterwards with a number. Six examples across six industries, not a catalogue:
+## What Makes Autonomous Labor Possible
 
-| Seat | Deliverable | Graded on |
+- **Long jobs run in the background.** A Job can run for hours, return to the same channel, report a failed step, and retry without blocking the main Agent.
+- **Shared context becomes working memory.** Rules, preferences, and rejected options can enter memory even when nobody addressed the Agent.
+- **Memory models a changing world.** Brain curates knowledge, retires stale entries, reasons over evidence, and receives external changes directly.
+- **Deep Research becomes a playbook.** Fan-out retrieval, layered checks, and competing hypotheses produce a cited report. A successful method can guide the next run.
+- **A real browser does real work.** The Agent can read rendered pages, click, type, capture evidence, run Playwright scripts, and keep a signed-in session across steps.
+- **Skills improve under human control.** An Agent can propose a skill update. A person approves it before the change applies to later sessions.
+- **Run one Agent or many.** Each Agent can have its own function, authority, tools, memory, and outbound identity. Multi-agent execution is optional.
+- **Enterprise identity and work channels connect directly.** Lark, Slack, DingTalk, Teams, Google Workspace, webhooks, schedules, and internal systems enter through one signal boundary.
+
+## Business Functions
+
+Ankole fits work that can be done digitally, produces inspectable deliverables, and has a result measure. The measure can be ROI, risk-adjusted return, ranking movement, approval rate, or another business outcome.
+
+| Business function | Delivered work | Measured by |
 |---|---|---|
-| Equity research analyst | Company and sector notes, scenario trees, entry conditions | Hit rate and excess return once the call is scored |
-| Cloud cost engineer | Spend attribution, right-sizing plans, migration paths | Cloud spend per unit of work |
-| Smart contract auditor | Audit report with reproducible proofs of concept | Criticals missed |
-| Regulatory affairs specialist | Submission dossiers and deficiency responses | First-pass approval rate and rounds of questions |
-| Patent engineer | Prior-art searches, invention disclosures, claim drafts | Grant rate and appeals after rejection |
-| Marketplace operations analyst | Ad and restock weeklies, product shortlists | TACoS and days out of stock |
+| Performance marketing | Campaign plans, bids, creatives, and budget shifts | Incremental ROAS and customer acquisition cost |
+| Industry research and trading | Research, hypotheses, portfolio actions, and reviews | Excess return, Sharpe ratio, and maximum drawdown |
+| Search engine optimization | Keyword plans, content briefs, and on-page changes | Ranking movement and qualified organic traffic |
+| Regulatory affairs | Submission dossiers and deficiency responses | First-pass approval rate and rounds of questions |
+| Patent prosecution | Prior-art searches, claim drafts, and office-action responses | Grant rate and office-action rounds |
+| Smart contract audit | Reports with reproducible proofs of concept | Critical misses and false-positive rate |
 
-The common shape is not "answer this question." It is **hold this seat, use the context you have, and answer for the result.**
+The unit is a business function, not an Agent count. One Agent can own a narrow function, or several can share its execution. Multi-agent coordination is an implementation choice, not the product promise.
+
+The common contract is: **define the function, grant bounded authority, let the Agent work, and score the outcome.**
 
 ## Actor Runtime
 
@@ -69,7 +77,7 @@ The runtime is built around five technical bets:
 
 For users and operators, the promise is simple: agents can work for hours or days, receive new input while running, fail independently, recover with context, and keep their side effects accountable. A longer version of the runtime argument is in [Why OTP Is a Better Runtime for Multi-Agent Orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/).
 
-That is the technical bet: actor model for long-lived work identity, OTP for failure semantics, ZeroMQ for live activation, and Agent Computer for local execution. Ankole is closer to a distributed operating system for AI work than a chatbot backend.
+That is the technical bet: actor model for long-lived work identity, OTP for failure semantics, ZeroMQ for live activation, and Agent Computer for local execution. It lets Ankole operate as an AI Workforce OS instead of a chatbot backend.
 
 ## Architecture
 
@@ -128,7 +136,7 @@ At a high level:
 
 ## Current Status
 
-Ankole is a complete, self-hostable AgentOS in production. The control plane, Agent Computer, kernel, and operator console run end to end.
+Ankole is a complete, self-hostable AI Workforce OS in production. The control plane, Agent Computer, kernel, and operator console run end to end.
 
 - **Many model providers.** OpenAI, Azure OpenAI, Claude, Google AI Studio, OpenRouter, and other OpenAI-compatible endpoints are first-class, with compaction, stateful conversations, reasoning-effort control, and per-provider usage handling.
 - **Real IM integration.** Lark/Feishu and Slack are integrated as first-party providers with lifecycle, transport, main-flow, and real-LLM end-to-end coverage.

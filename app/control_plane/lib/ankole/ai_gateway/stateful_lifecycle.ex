@@ -32,12 +32,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   )
 
   @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
+  @tool_call_output_types %{
+    "function_call" => "function_call_output",
+    "custom_tool_call" => "custom_tool_call_output"
+  }
 
   # Stateful history replays as Responses items. Only these wires translate
-  # bare function_call/function_call_output items faithfully; the Anthropic
-  # wire turns a bare function_call into an empty user message (kernel
-  # api_resolver/anthropic.rs), so the upstream rejects the paired tool_result
-  # mid-conversation. Stateless (store=false) requests do not pass this gate.
+  # bare client tool calls and outputs faithfully. Other wires cannot preserve
+  # those pairs in provider history. Stateless requests do not pass this gate.
   @stateful_replay_api_resolvers [:openai_responses, :openai_chat_completions]
 
   @doc false
@@ -465,7 +467,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp public_request_metadata(_request), do: %{}
 
-  # A process crash can happen after a provider durably returns a function call
+  # A process crash can happen after a provider durably returns a client tool call
   # but before the worker journals its output. When AIGateway itself chooses the
   # latest conversation leaf, close those calls with explicit interrupted
   # outputs before replaying the actor input. Explicit previous_response_id
@@ -476,14 +478,15 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp recover_interrupted_tool_calls(history, current_input, _automatic_anchor) do
     history_items = Enum.flat_map(history, &message_content_items/1)
-    output_call_ids = paired_function_call_output_ids(history_items ++ current_input)
+    output_call_ids = paired_tool_call_output_ids(history_items ++ current_input)
 
     interrupted_calls =
       history_items
       |> Enum.reduce([], fn
-        %{"type" => "function_call", "call_id" => call_id} = item, acc
-        when is_binary(call_id) and call_id != "" ->
-          if not executable_function_call_item?(item) or
+        %{"type" => type, "call_id" => call_id} = item, acc
+        when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
+               call_id != "" ->
+          if not executable_tool_call_item?(item) or
                MapSet.member?(output_call_ids, call_id) or
                Enum.any?(acc, &(&1["call_id"] == call_id)) do
             acc
@@ -502,21 +505,29 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp message_content_items(%Message{content: content}) when is_list(content), do: content
   defp message_content_items(_message), do: []
 
-  defp paired_function_call_output_ids(items) do
+  defp paired_tool_call_output_ids(items) do
     {_calls, outputs} =
       Enum.reduce(items, {%{}, MapSet.new()}, fn
-        %{"type" => "function_call", "call_id" => call_id} = item, {calls, outputs}
-        when is_binary(call_id) and call_id != "" ->
-          if executable_function_call_item?(item) do
-            {Map.put(calls, call_id, Map.get(item, "name")), outputs}
+        %{"type" => type, "call_id" => call_id} = item, {calls, outputs}
+        when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
+               call_id != "" ->
+          if executable_tool_call_item?(item) do
+            call = %{
+              name: Map.get(item, "name"),
+              output_type: Map.get(@tool_call_output_types, type)
+            }
+
+            {Map.put(calls, call_id, call), outputs}
           else
             {calls, outputs}
           end
 
-        %{"type" => "function_call_output", "call_id" => call_id} = item, {calls, outputs}
-        when is_binary(call_id) and call_id != "" ->
+        %{"type" => type, "call_id" => call_id} = item, {calls, outputs}
+        when type in ["function_call_output", "custom_tool_call_output"] and
+               is_binary(call_id) and call_id != "" ->
           if Map.has_key?(calls, call_id) and
-               not tool_result_name_mismatch?(item, Map.get(calls, call_id)) do
+               tool_result_type_matches?(item, calls[call_id]) and
+               not tool_result_name_mismatch?(item, calls[call_id].name) do
             {calls, MapSet.put(outputs, call_id)}
           else
             {calls, outputs}
@@ -536,26 +547,37 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp canonical_tool_result_projection(items) do
     {projected, _calls, _output_ids, quarantine} =
       Enum.reduce(items, {[], %{}, MapSet.new(), %{}}, fn
-        %{"type" => "function_call"} = item, {projected, calls, output_ids, quarantine} ->
+        %{"type" => type} = item, {projected, calls, output_ids, quarantine}
+        when type in ["function_call", "custom_tool_call"] ->
           call_id = Map.get(item, "call_id")
 
           cond do
-            executable_function_call_item?(item) ->
-              call = %{executable?: true, name: Map.get(item, "name")}
+            executable_tool_call_item?(item) ->
+              call = %{
+                executable?: true,
+                name: Map.get(item, "name"),
+                output_type: Map.get(@tool_call_output_types, type)
+              }
+
               {[item | projected], Map.put(calls, call_id, call), output_ids, quarantine}
 
             is_binary(call_id) and call_id != "" ->
-              call = %{executable?: false, name: Map.get(item, "name")}
+              call = %{
+                executable?: false,
+                name: Map.get(item, "name"),
+                output_type: Map.get(@tool_call_output_types, type)
+              }
 
               {projected, Map.put(calls, call_id, call), output_ids,
                append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
 
             true ->
               {projected, calls, output_ids,
-               increment_quarantine_count(quarantine, "invalid_function_call_count")}
+               increment_quarantine_count(quarantine, "invalid_tool_call_count")}
           end
 
-        %{"type" => "function_call_output"} = item, {projected, calls, output_ids, quarantine} ->
+        %{"type" => type} = item, {projected, calls, output_ids, quarantine}
+        when type in ["function_call_output", "custom_tool_call_output"] ->
           call_id = Map.get(item, "call_id")
 
           cond do
@@ -570,6 +592,10 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
             not calls[call_id].executable? ->
               {projected, calls, output_ids,
                append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
+
+            not tool_result_type_matches?(item, calls[call_id]) ->
+              {projected, calls, output_ids,
+               append_quarantine_id(quarantine, "type_mismatch_call_ids", call_id)}
 
             tool_result_name_mismatch?(item, calls[call_id].name) ->
               {projected, calls, output_ids,
@@ -590,12 +616,24 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     {Enum.reverse(projected), quarantine}
   end
 
-  defp executable_function_call_item?(item) do
+  defp executable_tool_call_item?(%{"type" => "function_call"} = item) do
     Map.get(item, "status") in [nil, "completed"] and
       is_binary(Map.get(item, "call_id")) and Map.get(item, "call_id") != "" and
       is_binary(Map.get(item, "name")) and Map.get(item, "name") != "" and
       is_binary(Map.get(item, "arguments"))
   end
+
+  defp executable_tool_call_item?(%{"type" => "custom_tool_call"} = item) do
+    Map.get(item, "status") in [nil, "completed"] and
+      is_binary(Map.get(item, "call_id")) and Map.get(item, "call_id") != "" and
+      is_binary(Map.get(item, "name")) and Map.get(item, "name") != "" and
+      is_binary(Map.get(item, "input"))
+  end
+
+  defp executable_tool_call_item?(_item), do: false
+
+  defp tool_result_type_matches?(item, call),
+    do: Map.get(item, "type") == Map.get(call, :output_type)
 
   defp tool_result_name_mismatch?(item, call_name) do
     output_name = Map.get(item, "name")
@@ -612,9 +650,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     Map.update(quarantine, key, 1, &(&1 + 1))
   end
 
-  defp interrupted_tool_output(%{"call_id" => call_id}) do
+  defp interrupted_tool_output(%{"type" => type, "call_id" => call_id}) do
     %{
-      "type" => "function_call_output",
+      "type" => Map.fetch!(@tool_call_output_types, type),
       "call_id" => call_id,
       "output" =>
         Ankole.JSON.encode!(%{
@@ -863,7 +901,9 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp response_content(%Message{content: content}) when is_list(content), do: content
   defp response_content(_message), do: []
 
-  defp input_item?(%{"type" => "function_call_output"}), do: true
+  defp input_item?(%{"type" => type})
+       when type in ["function_call_output", "custom_tool_call_output"],
+       do: true
 
   defp input_item?(%{"type" => "message", "role" => role}) when role in @input_message_roles,
     do: true

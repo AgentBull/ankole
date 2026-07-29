@@ -69,7 +69,7 @@ fn build_filter_context(context_json: JSONValue) -> KernelResult<Context<'static
     let binding = required_context_object(object, "binding")?;
     let signal = required_context_object(object, "signal")?;
 
-    let mut context = Context::default();
+    let mut context = cel::base_context();
     context
         .add_variable("binding", binding)
         .map_err(|reason| KernelError::new(format!("invalid signal filter binding: {reason}")))?;
@@ -145,6 +145,8 @@ mod tests {
               && ['lark:chat:group-a', 'lark:chat:group-b'].contains(signal.channel.id)
               && [1, 2, 3].all(n, n > 0)
               && ['a', 'bb', 'ccc'].filter(v, v.size() > 1).map(v, v.size()).exists(size, size == 3)
+              && max(1, 3, 2) == 3
+              && min(4, 2, 8) == 2
         "#;
 
         assert!(evaluate_filter(expression, context).unwrap());
