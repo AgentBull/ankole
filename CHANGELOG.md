@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.48.2 (2026-07-29)
+
+- Fix the `Reject conflicting Git tag or Release` step in the `runtime-images` workflow. When the `gh api` call for a commit by tag name receives a 422 error, it outputs the raw error JSON to stdout. Moving `|| true` outside the command substitution to `|| tag_sha=""` ensures a failed API call sets `tag_sha` to an empty string rather than the error JSON body, which previously caused the non-empty check to treat a missing tag as a conflicting one and abort the job.
+
 ## Version 0.48.1 (2026-07-30)
 
 - Position Ankole as the open-source AI Workforce OS across the English, Simplified Chinese, and Japanese root READMEs and the English and Simplified Chinese website. Replace the AI-colleague, team, OKR, and seat framing with autonomous labor that performs business functions, owns the execution loop within explicit authority, and is measured by outcomes. Rebuild the homepage hero, difference statements, function examples, Introduction, and Architecture opening around that contract while keeping multi-Agent execution as an optional implementation choice.

@@ -512,7 +512,7 @@ jobs:
           set -euo pipefail
 
           tag_exists=false
-          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha' 2>/dev/null || true)"
+          tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha' 2>/dev/null)" || tag_sha=""
           if [[ -n "${tag_sha}" ]]; then
             tag_exists=true
             if [[ "${tag_sha}" != "${GITHUB_SHA}" ]]; then
