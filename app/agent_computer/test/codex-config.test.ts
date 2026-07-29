@@ -39,6 +39,23 @@ function aigatewayRuntime(): CodexRuntimeConfig {
   }
 }
 
+function bundledModelCatalog(): string {
+  return JSON.stringify({
+    models: [
+      {
+        slug: 'gpt-5.6-sol',
+        display_name: 'GPT-5.6 Sol',
+        base_instructions: 'PRESERVED_BASE_INSTRUCTIONS',
+        model_messages: { instructions_template: 'PRESERVED_MODEL_INSTRUCTIONS' },
+        use_responses_lite: true,
+        supports_search_tool: true,
+        tool_mode: 'code_mode_only',
+        multi_agent_version: 'v2'
+      }
+    ]
+  })
+}
+
 describe('@ankole/agent-computer Codex config', () => {
   it('shares the official Codex Home at Agent scope without CODEX_SQLITE_HOME', () => {
     const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-'))
@@ -86,12 +103,16 @@ describe('@ankole/agent-computer Codex config', () => {
   it('keeps the shared AIGateway provider model-free and sends the frozen binding through one process header', () => {
     const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-aigateway-'))
     try {
-      const materialized = materializeCodexConfig({
-        agentsRoot,
-        agentUID: 'agent-1',
-        runtime: aigatewayRuntime()
-      })
+      const materialized = materializeCodexConfig(
+        {
+          agentsRoot,
+          agentUID: 'agent-1',
+          runtime: aigatewayRuntime()
+        },
+        { readBundledModelCatalog: bundledModelCatalog }
+      )
       const config = parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<string, any>
+      const modelCatalog = JSON.parse(readFileSync(config.model_catalog_json, 'utf8')) as Record<string, any>
       const binding = JSON.parse(
         Buffer.from(materialized.env.ANKOLE_AIGATEWAY_MODEL_BINDING!, 'base64url').toString('utf8')
       )
@@ -100,6 +121,18 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(config.model_provider).toBe('ankole_aigateway')
       expect(config.model_reasoning_effort).toBeUndefined()
       expect(config.model_auto_compact_token_limit).toBe(100000)
+      expect(config.model_catalog_json).toBe(join(materialized.codexHome, 'aigateway-model-catalog.json'))
+      expect(modelCatalog.models).toEqual([
+        expect.objectContaining({
+          slug: 'gpt-5.6-sol',
+          base_instructions: 'PRESERVED_BASE_INSTRUCTIONS',
+          model_messages: { instructions_template: 'PRESERVED_MODEL_INSTRUCTIONS' },
+          use_responses_lite: false,
+          supports_search_tool: false,
+          tool_mode: 'direct',
+          multi_agent_version: null
+        })
+      ])
       expect(config.model_providers.ankole_aigateway.env_http_headers).toEqual({
         'x-ankole-aigateway-model-binding': 'ANKOLE_AIGATEWAY_MODEL_BINDING'
       })
@@ -121,8 +154,23 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(officialConfig.model).toBeUndefined()
       expect(officialConfig.model_provider).toBeUndefined()
       expect(officialConfig.model_providers).toBeUndefined()
+      expect(officialConfig.model_catalog_json).toBeUndefined()
       expect(officialConfig.model_auto_compact_token_limit).toBeUndefined()
       expect(official.env.ANKOLE_AIGATEWAY_MODEL_BINDING).toBeUndefined()
+    } finally {
+      rmSync(agentsRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects an invalid bundled model catalog for AIGateway', () => {
+    const agentsRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-invalid-catalog-'))
+    try {
+      expect(() =>
+        materializeCodexConfig(
+          { agentsRoot, agentUID: 'agent-1', runtime: aigatewayRuntime() },
+          { readBundledModelCatalog: () => '{"models":[]}' }
+        )
+      ).toThrow('must contain at least one model')
     } finally {
       rmSync(agentsRoot, { recursive: true, force: true })
     }

@@ -78,9 +78,13 @@ selector, provider options, and parallel-tool-call capability in the
 `x-ankole-aigateway-model-binding` provider header. AIGateway replaces the
 Codex-facing model name with the selector before provider resolution and uses
 the stored provider options as request defaults. It sets `parallel_tool_calls`
-from the stored provider capability. An explicit Codex Responses Lite marker in
-the HTTP header or WebSocket client metadata keeps this value false. The
-`coding` profile name never enters Codex as a model name.
+from the stored provider capability. The Agent Codex Home derives an AIGateway
+model catalog from the catalog in the installed Codex binary. It keeps the
+model instructions and other model metadata, but disables Responses Lite,
+client tool search, code-only tool mode, and native multi-Agent selection.
+These features require the ChatGPT Codex backend and do not form a portable
+provider contract. The `coding` profile name never enters Codex as a model
+name.
 
 An official-subscription Job does not use this binding. Agent Computer loads its
 stored model settings and native `auth.json` credentials instead.

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 26.07.50 (2026-07-29)
+
+- Keep AIGateway Background Agent Jobs on a portable Codex tool protocol. The Agent Codex Home now derives a model catalog from the installed Codex binary and keeps its model instructions and other metadata, but disables Responses Lite, client tool search, code-only tool mode, and native multi-Agent selection. Those Codex-backend features hid configured MCP tools from an OpenRouter Chat Completions provider and let financial-data Jobs finish without a data call. A Job project can no longer replace the runtime-owned catalog, and setup fails with a clear error when Codex returns an unreadable, empty, or invalid catalog. Cover preserved instructions, the portable overrides, official-subscription mode, invalid catalogs, and project override removal, and record the provider boundary in the AIGateway and Background Agent Job design documents.
+
 ## Version 26.07.49 (2026-07-28)
 
 - Wait out an upstream outage instead of failing a Background Agent Job inside it. A retryable worker Turn failure on a Job session now waits on a fixed ladder from one minute to two hours between execution attempts, so the five-attempt budget spans roughly 3.7 hours; the previous 5–120-second exponential backoff let a production Job burn all attempts inside one 47-minute provider outage and fail. Ordinary actor events keep the short backoff because a user waits on them. Cover the ladder in the Job dispatch exhaustion test and record the wait contract in the Background Agent Job design document.

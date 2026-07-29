@@ -866,6 +866,18 @@ if (process.argv.includes('--version')) {
   console.log('codex-cli 0.145.0')
   process.exit(0)
 }
+if (process.argv[2] === 'debug' && process.argv[3] === 'models' && process.argv.includes('--bundled')) {
+  console.log(JSON.stringify({
+    models: [{
+      slug: 'gpt-5.6-sol',
+      use_responses_lite: true,
+      supports_search_tool: true,
+      tool_mode: 'code_mode_only',
+      multi_agent_version: 'v2'
+    }]
+  }))
+  process.exit(0)
+}
 writeFileSync('browser-env.json', JSON.stringify({
   ANKOLE_BROWSER_SOCKET: process.env.ANKOLE_BROWSER_SOCKET,
   ANKOLE_BROWSER_ROUTE: process.env.ANKOLE_BROWSER_ROUTE,

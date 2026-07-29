@@ -249,8 +249,12 @@ reasoning effort. The runner never sends `coding` to Codex. It attaches the
 Job's exact provider and model selector, all stored provider options, and the
 stored parallel-tool-call capability to each AIGateway request. AIGateway
 applies that binding before it resolves the provider. It sets
-`parallel_tool_calls` from the provider capability unless Codex marks the
-request as Responses Lite.
+`parallel_tool_calls` from the provider capability. The Agent Codex Home also
+derives an AIGateway model catalog from the installed Codex binary. It keeps
+the model instructions and other metadata, but selects direct tools and
+disables Responses Lite, client tool search, and native multi-Agent metadata.
+This keeps Codex backend-only request forms out of portable AIGateway provider
+requests.
 
 For an official subscription, the runner writes `model` and
 `model_reasoning_effort` from the Job snapshot. It writes

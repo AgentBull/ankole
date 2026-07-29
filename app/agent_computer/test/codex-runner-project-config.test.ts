@@ -46,6 +46,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       configPath,
       [
         'model = "plugin-model"',
+        'model_catalog_json = "/plugin/models.json"',
         'model_reasoning_effort = "medium"',
         'web_search = "live"',
         '',
@@ -84,6 +85,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
 
       expect(materialized).toEqual({ path: configPath })
       expect(config.model).toBe('gpt-5.6-sol')
+      expect(config.model_catalog_json).toBeUndefined()
       expect(config.model_provider).toBeUndefined()
       expect(config.model_reasoning_effort).toBe('xhigh')
       expect(config.web_search).toBe('disabled')
