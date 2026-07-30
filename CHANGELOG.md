@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.49.1 (2026-07-31)
+
+- Preserve the complete AIGateway WebSocket connection state after upgrade. The socket previously rebuilt its state with only the authenticated subject, discarded the frozen Codex model binding and request context, then tried to resolve the model-card alias as an AIGateway selector and hid the resulting routing error behind a generic 502. WebSocket initialization now keeps the decoded binding and request metadata, applies the Job's frozen provider model before resolution, and returns explicit 422 errors for unknown or unconfigured model selectors. Cover connection initialization, the controller-to-socket boundary, and a real socket request routed through the frozen binding.
+
 ## Version 0.49.0 (2026-07-30)
 
 - Clarify the AGENTS.md changelog rule: all uncommitted work belongs to the one pending version, and separate versions apply only to intentionally prepared separate commits.

@@ -23,9 +23,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # ─────────────────────────────────────────────────────────────────
 
   @impl WebSock
-  def init(%{subject_uid: subject_uid, subject_type: subject_type}) do
-    {:ok, %{subject_uid: subject_uid, subject_type: subject_type}}
-  end
+  def init(%{subject_uid: _subject_uid, subject_type: _subject_type} = state), do: {:ok, state}
 
   # ─────────────────────────────────────────────────────────────────
   # Incoming: response.create
@@ -169,6 +167,28 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
               "'#{provider_kind}' uses the '#{api_resolver}' wire, which cannot replay " <>
               "that history. Select a provider on the openai_responses or " <>
               "openai_chat_completions wire, or use this provider for stateless requests.",
+            "model"
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, {:unknown_model_selector, _capability, selector}} ->
+        event =
+          error_event(
+            422,
+            "unknown_model_selector",
+            "Unknown model selector: #{selector}.",
+            "model"
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
+      {:error, {:model_binding_not_configured, capability, name}} ->
+        event =
+          error_event(
+            422,
+            "model_binding_not_configured",
+            "#{capability}.#{name} is not configured.",
             "model"
           )
 
