@@ -186,10 +186,11 @@ defmodule Ankole.Plugins.DingTalkAdapter do
     [
       field(
         "clientId",
-        %{"default" => "Client ID (AppKey)", "zh-Hans-CN" => "应用 Client ID（AppKey）"},
+        %{"default" => "Client ID (AppKey)", "zh-Hans-CN" => "Client ID（原 AppKey）"},
         %{
-          "default" => "Enterprise-internal app Client ID from Basic information > Credentials.",
-          "zh-Hans-CN" => "企业内部应用的 Client ID，在开发者后台「基础信息 → 凭证与基础信息」查看。"
+          "default" =>
+            "Find it under Basic information > Credentials in DingTalk Developer Console.",
+          "zh-Hans-CN" => "在钉钉开发者后台「基础信息 → 凭证与基础信息」中获取。"
         },
         :string,
         required: true
@@ -198,11 +199,11 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         "clientSecret",
         %{
           "default" => "Client Secret (AppSecret)",
-          "zh-Hans-CN" => "应用 Client Secret（AppSecret）"
+          "zh-Hans-CN" => "Client Secret（原 AppSecret）"
         },
         %{
-          "default" => "Enterprise-internal app Client Secret from the same page.",
-          "zh-Hans-CN" => "企业内部应用的 Client Secret，与 Client ID 在同一页面。"
+          "default" => "Find it on the same credentials page as the Client ID.",
+          "zh-Hans-CN" => "与 Client ID 位于同一“凭证与基础信息”页面。"
         },
         :secret,
         required: true,
@@ -210,22 +211,21 @@ defmodule Ankole.Plugins.DingTalkAdapter do
       ),
       field(
         "oidc.enabled",
-        %{"default" => "Enable login", "zh-Hans-CN" => "启用登录"},
+        %{"default" => "Enable sign-in", "zh-Hans-CN" => "启用登录"},
         %{
-          "default" =>
-            "Allows operators to sign in through DingTalk. The app must have a released version, and the login callback URL must be registered in Development configuration > Security settings > Redirect URL. DingTalk refuses browser login for an app it cannot find.",
-          "zh-Hans-CN" =>
-            "允许管理员通过钉钉登录。应用必须已发布版本，并在「开发配置 → 安全设置 → 重定向URL（回调域名）」登记本页显示的登录回调地址；钉钉找不到应用时会直接拒绝浏览器登录。"
+          "default" => "Allow administrators to sign in with DingTalk.",
+          "zh-Hans-CN" => "允许管理员使用钉钉登录。"
         },
         :boolean,
         default: true
       ),
       field(
         "oidc.scope",
-        %{"default" => "Login scope", "zh-Hans-CN" => "登录 scope"},
+        %{"default" => "Sign-in scopes", "zh-Hans-CN" => "登录权限范围"},
         %{
-          "default" => "Authorization scope; corpid returns the chosen org id.",
-          "zh-Hans-CN" => "授权 scope；corpid 可拿到所选组织 id。"
+          "default" =>
+            "openid identifies the user. corpid also returns the selected organization ID. Usually keep the default.",
+          "zh-Hans-CN" => "openid 用于识别用户；corpid 还会返回所选组织 ID。通常无需修改。"
         },
         :select,
         default: "openid corpid",
@@ -239,19 +239,19 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         "sync.contacts",
         %{"default" => "Sync directory", "zh-Hans-CN" => "同步通讯录"},
         %{
-          "default" =>
-            "Imports DingTalk contacts into Principals, department groups, and memberships.",
-          "zh-Hans-CN" => "将钉钉通讯录导入 Principals、部门组和成员关系。"
+          "default" => "Import DingTalk users, departments, and memberships into Ankole.",
+          "zh-Hans-CN" => "将钉钉用户、部门和成员关系同步到 Ankole。"
         },
         :boolean,
         default: true
       ),
       field(
         "sync.websocket",
-        %{"default" => "Incremental contact sync", "zh-Hans-CN" => "增量通讯录同步"},
+        %{"default" => "Sync directory changes", "zh-Hans-CN" => "实时同步通讯录变更"},
         %{
-          "default" => "Consumes DingTalk contact-change events when directory sync is enabled.",
-          "zh-Hans-CN" => "通讯录同步开启时，通过 Stream 消费钉钉通讯录变更事件。"
+          "default" =>
+            "Receive user and department changes over DingTalk Stream. Requires directory sync.",
+          "zh-Hans-CN" => "通过钉钉 Stream 接收用户和部门变更；需先开启通讯录同步。"
         },
         :boolean,
         default: true,
@@ -259,10 +259,10 @@ defmodule Ankole.Plugins.DingTalkAdapter do
       ),
       field(
         "sync.pageSize",
-        %{"default" => "Sync page size", "zh-Hans-CN" => "同步分页大小"},
+        %{"default" => "Records per page", "zh-Hans-CN" => "每页同步数量"},
         %{
-          "default" => "Provider page size for full directory sync.",
-          "zh-Hans-CN" => "全量通讯录同步时使用的 provider 分页大小。"
+          "default" => "Number of users requested per page. Usually keep the default.",
+          "zh-Hans-CN" => "每次从钉钉读取的用户数量，通常保留默认值。"
         },
         :integer,
         default: 50,

@@ -196,6 +196,13 @@ missing or empty list enables none. An operator must enable each new Plugin.
 The Registry reads the list during startup. A later change takes effect only
 after a restart.
 
+First-run setup is the only exception. While `setup.completed` is false, the
+Registry activates every discovered Control Plane Plugin. This keeps all
+bundled adapters, AppConfigure keys, and supervised processes available while
+the operator moves between setup choices or restarts an incomplete setup. The
+enable list remains the durable post-setup policy. The first restart after setup
+completes applies that list. Completed installations continue to fail closed.
+
 The Console API makes both states visible.
 
 - `GET /api/v1/control-plane-plugins`
@@ -236,6 +243,9 @@ adapter and a related Agent Plugin can have different enabled states.
 - Store parent state and member Skill state independently.
 - Load all Agent Plugins currently enabled for the Agent on every prepare.
 - Use `workspace_template_id` only to copy one initial Job Workspace template.
-- Require a restart for Control Plane Plugin activation changes.
-- Keep new Control Plane Plugins inactive until an operator enables them.
+- Keep every compiled Control Plane Plugin active until first-run setup
+  completes.
+- Require a restart after setup for Control Plane Plugin activation changes.
+- Keep new Control Plane Plugins inactive on completed installations until an
+  operator enables them.
 - Keep durable state with its owning subsystem.

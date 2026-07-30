@@ -1,5 +1,12 @@
 import { Field as FormField, Form, useForm } from '@formisch/react'
-import { RiArrowRightSLine, RiCheckLine, RiLock2Line, RiLoginCircleLine } from '@remixicon/react'
+import {
+  RiArrowRightSLine,
+  RiCheckLine,
+  RiFileCopyLine,
+  RiLoaderLine,
+  RiLock2Line,
+  RiLoginCircleLine
+} from '@remixicon/react'
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit/components/alert'
 import { Button } from '@ankole/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@ankole/uikit/components/card'
@@ -9,6 +16,7 @@ import {
   FieldDescription,
   FieldGroup,
   FieldLabel,
+  FieldTitle,
   FieldError as UiFieldError
 } from '@ankole/uikit/components/field'
 import { Input } from '@ankole/uikit/components/input'
@@ -17,7 +25,7 @@ import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
 import { internalAPIGet, internalAPIPost, internalAPIPut } from '../common/internal-api-client'
@@ -33,7 +41,7 @@ import i18n, { nativeLocaleLabel } from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 import { SetupLayout } from './layout'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
-import { PluginsStepModel } from './state/plugins-step-model'
+import { filterSelectedPluginItems, PluginsStepModel } from './state/plugins-step-model'
 import { setupStepState, type SetupStepID } from './state/setup-progress'
 
 type SetupState = {
@@ -65,15 +73,21 @@ const BootstrapSchema = v.object({
   locale: v.pipe(v.string(), v.nonEmpty())
 })
 
-const IdentitySchema = v.object({
-  adapterID: v.pipe(v.string(), v.nonEmpty('Adapter is required.')),
-  providerID: v.pipe(v.string(), v.regex(/^[a-z][a-z0-9_-]*$/, 'Use lowercase letters, numbers, _, or -.'))
-})
+const providerIDPattern = /^[a-z][a-z0-9_-]*$/
+
+function identitySchema(adapterRequired: string, providerIDInvalid: string) {
+  return v.object({
+    adapterID: v.pipe(v.string(), v.nonEmpty(adapterRequired)),
+    providerID: v.pipe(v.string(), v.regex(providerIDPattern, providerIDInvalid))
+  })
+}
 
 /** Renders the setup SPA and switches between bootstrap, plugin, and identity steps. */
 export function SetupApp() {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
+  const pluginsModel = useModel(PluginsStepModel)
+  const identityModel = useModel(IdentitySetupModel)
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const [pluginsCompleted, setPluginsCompleted] = useState(false)
   const state = useQuery({
@@ -122,7 +136,7 @@ export function SetupApp() {
                     className={`flex min-h-12 w-full items-center gap-3 border px-3 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default ${
                       itemState === 'current'
                         ? 'border-primary bg-primary/10 text-foreground'
-                        : itemState === 'completed'
+                        : itemState === 'completed' || itemState === 'available'
                           ? 'border-transparent text-foreground'
                           : 'border-transparent text-muted-foreground opacity-55'
                     }`}>
@@ -172,13 +186,18 @@ export function SetupApp() {
             />
           ) : step === 'plugins' ? (
             <PluginsStep
+              model={pluginsModel}
               onContinue={() => {
                 setPluginsCompleted(true)
                 setStep('identity')
               }}
             />
           ) : (
-            <IdentityStep publicBaseURL={state.data?.publicBaseURL ?? window.location.origin} />
+            <IdentityStep
+              model={identityModel}
+              pluginsModel={pluginsModel}
+              publicBaseURL={state.data?.publicBaseURL ?? window.location.origin}
+            />
           )}
         </div>
       </section>
@@ -280,10 +299,9 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   )
 }
 
-function PluginsStep({ onContinue }: { onContinue: () => void }) {
+function PluginsStep({ model, onContinue }: { model: InstanceType<typeof PluginsStepModel>; onContinue: () => void }) {
   useSignals()
   const { i18n: i18next, t } = useTranslation()
-  const model = useModel(PluginsStepModel)
   const query = useQuery({
     queryKey: ['setup-plugins'],
     queryFn: () => internalAPIGet<{ enabledPluginIDs: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
@@ -338,39 +356,65 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   )
 }
 
-function IdentityStep({ publicBaseURL }: { publicBaseURL: string }) {
+function IdentityStep({
+  model,
+  pluginsModel,
+  publicBaseURL
+}: {
+  model: InstanceType<typeof IdentitySetupModel>
+  pluginsModel: InstanceType<typeof PluginsStepModel>
+  publicBaseURL: string
+}) {
+  useSignals()
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
     queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
+  const adapters = filterSelectedPluginItems(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
   if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
-  if ((query.data?.adapters ?? []).length === 0) return <NoAdapters error={query.error} />
+  if (adapters.length === 0) return <NoAdapters error={query.error} />
 
-  return <IdentityForm adapters={query.data?.adapters ?? []} publicBaseURL={publicBaseURL} />
+  return <IdentityForm adapters={adapters} model={model} publicBaseURL={publicBaseURL} />
 }
 
 /** Renders the selected identity adapter fields and starts setup-time OIDC. */
-function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]; publicBaseURL: string }) {
+function IdentityForm({
+  adapters,
+  model,
+  publicBaseURL
+}: {
+  adapters: IdentityAdapter[]
+  model: InstanceType<typeof IdentitySetupModel>
+  publicBaseURL: string
+}) {
   useSignals()
   const { i18n: i18next, t } = useTranslation()
-  const model = useModel(IdentitySetupModel)
   const firstAdapter = adapters[0]
+  const [callbackCopied, setCallbackCopied] = useState(false)
+  const providerIDControlID = useId()
+  const providerIDErrorID = `${providerIDControlID}-error`
+  const providerIDHintID = `${providerIDControlID}-hint`
 
   useEffect(() => {
-    model.initialize('setup-identity', {
+    const initialDraft = {
       adapterID: firstAdapter.adapterID,
       providerID: firstAdapter.defaultProviderID,
       config: defaultConfig(firstAdapter.fields)
-    })
-  }, [firstAdapter, model])
+    }
+    model.initialize('setup-identity', initialDraft)
+
+    if (!adapters.some(adapter => adapter.adapterID === model.adapterID.value)) {
+      model.changeAdapter(initialDraft)
+    }
+  }, [adapters, firstAdapter, model])
 
   const activeAdapter = adapters.find(adapter => adapter.adapterID === model.adapterID.value) ?? firstAdapter
   const mutation = useMutation({
     mutationFn: async (input: IdentitySetupDraft) => {
       await internalAPIPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}`, {
         adapterID: input.adapterID,
-        config: input.config,
+        config: setPath(input.config, 'oidc.enabled', true),
         enabled: true
       })
       return internalAPIPost<{ authorizationURL: string }>(
@@ -384,6 +428,7 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
     const nextAdapter = adapters.find(adapter => adapter.adapterID === nextAdapterID) ?? firstAdapter
     // Switching adapters resets generated config because field paths and default
     // values are adapter-owned. Preserving old config would mix provider contracts.
+    mutation.reset()
     model.changeAdapter({
       adapterID: nextAdapter.adapterID,
       providerID: nextAdapter.defaultProviderID,
@@ -394,7 +439,7 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
   function submitIdentity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const draft = model.submission()
-    const result = v.safeParse(IdentitySchema, draft)
+    const result = v.safeParse(identitySchema(t('setup.adapter_required'), t('setup.provider_id_invalid')), draft)
     if (!result.success) {
       model.setValidationError(result.issues[0]?.message)
       return
@@ -402,6 +447,17 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
 
     model.setValidationError()
     mutation.mutate({ ...draft, ...result.output })
+  }
+
+  async function copyCallbackURL() {
+    try {
+      await navigator.clipboard.writeText(oidcCallbackURL(publicBaseURL, model.providerID.value))
+      setCallbackCopied(true)
+      toast.success(t('setup.oidc_callback_url_copied'))
+      window.setTimeout(() => setCallbackCopied(false), 2000)
+    } catch {
+      toast.error(t('setup.oidc_callback_url_copy_failed'))
+    }
   }
 
   return (
@@ -434,28 +490,49 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
           </Field>
 
           <Field>
-            <FieldLabel>{t('setup.provider_id')}</FieldLabel>
+            <FieldLabel htmlFor={providerIDControlID}>
+              {t('setup.provider_id')}
+              <span className="ml-1 font-normal text-muted-foreground">{t('common.required')}</span>
+            </FieldLabel>
             <Input
+              id={providerIDControlID}
+              aria-describedby={
+                model.validationError.value ? `${providerIDHintID} ${providerIDErrorID}` : providerIDHintID
+              }
               aria-invalid={model.validationError.value ? true : undefined}
               value={model.providerID.value}
               onChange={event => {
+                mutation.reset()
                 model.providerID.value = event.target.value
+                setCallbackCopied(false)
                 model.setValidationError()
               }}
             />
-            <FieldDescription>{t('setup.provider_id_hint')}</FieldDescription>
-            {model.validationError.value ? <UiFieldError>{model.validationError.value}</UiFieldError> : null}
+            <FieldDescription id={providerIDHintID}>{t('setup.provider_id_hint')}</FieldDescription>
+            {model.validationError.value ? (
+              <UiFieldError id={providerIDErrorID}>{model.validationError.value}</UiFieldError>
+            ) : null}
           </Field>
         </FieldGroup>
 
-        <Field>
-          <FieldLabel>{t('setup.oidc_callback_url')}</FieldLabel>
-          <Input
-            onFocus={event => event.target.select()}
-            readOnly
-            value={oidcCallbackURL(publicBaseURL, model.providerID.value)}
-          />
-          <FieldDescription>{t('setup.oidc_callback_url_hint')}</FieldDescription>
+        <Field aria-labelledby="oidc-callback-url-label" aria-describedby="oidc-callback-url-hint">
+          <FieldTitle id="oidc-callback-url-label">{t('setup.oidc_callback_url')}</FieldTitle>
+          <div className="flex min-w-0 flex-col gap-3 border border-border/70 bg-muted/30 p-3 sm:flex-row sm:items-center">
+            <code className="min-w-0 flex-1 break-all font-mono text-sm leading-6">
+              {oidcCallbackURL(publicBaseURL, model.providerID.value)}
+            </code>
+            <Button onClick={copyCallbackURL} size="sm" type="button" variant="outline">
+              {callbackCopied ? t('setup.oidc_callback_url_copied') : t('setup.oidc_callback_url_copy')}
+              {callbackCopied ? (
+                <RiCheckLine aria-hidden data-icon="inline-end" />
+              ) : (
+                <RiFileCopyLine aria-hidden data-icon="inline-end" />
+              )}
+            </Button>
+          </div>
+          <FieldDescription id="oidc-callback-url-hint">
+            {t(oidcCallbackURLHintKey(activeAdapter.adapterID))}
+          </FieldDescription>
         </Field>
 
         <section className="grid gap-5">
@@ -463,17 +540,26 @@ function IdentityForm({ adapters, publicBaseURL }: { adapters: IdentityAdapter[]
             {t('setup.adapter_config')}
           </h2>
           <ConfigFields
+            advancedLabel={t('setup.advanced_config')}
             config={model.config.value}
-            fields={activeAdapter.fields}
+            fields={activeAdapter.fields.filter(field => field.path !== 'oidc.enabled')}
             locale={i18next.language}
-            onChange={(path, value) => model.setConfig(setPath(model.config.value, path, value))}
+            onChange={(path, value) => {
+              mutation.reset()
+              model.setConfig(setPath(model.config.value, path, value))
+            }}
+            showAdvancedCount={false}
           />
         </section>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
-          <Button disabled={mutation.isPending} type="submit">
-            {t('setup.complete_with_oidc')}
-            <RiLoginCircleLine data-icon="inline-end" />
+          <Button aria-busy={mutation.isPending} disabled={mutation.isPending} type="submit">
+            {mutation.isPending ? t('setup.validating_and_redirecting') : t('setup.complete_identity')}
+            {mutation.isPending ? (
+              <RiLoaderLine aria-hidden className="animate-spin" data-icon="inline-end" />
+            ) : (
+              <RiLoginCircleLine aria-hidden data-icon="inline-end" />
+            )}
           </Button>
         </div>
       </form>
@@ -496,6 +582,23 @@ function NoAdapters({ error }: { error: unknown }) {
 /** Mirrors the host OIDC callback route, which the provider must have registered. */
 function oidcCallbackURL(publicBaseURL: string, providerID: string): string {
   return `${publicBaseURL.replace(/\/$/, '')}/sessions/oidc/${encodeURIComponent(providerID)}/callback`
+}
+
+function oidcCallbackURLHintKey(adapterID: string): string {
+  switch (adapterID) {
+    case 'dingtalk':
+      return 'setup.oidc_callback_url_hint_dingtalk'
+    case 'entra-id':
+      return 'setup.oidc_callback_url_hint_entra'
+    case 'google-workspace':
+      return 'setup.oidc_callback_url_hint_google'
+    case 'lark':
+      return 'setup.oidc_callback_url_hint_lark'
+    case 'slack':
+      return 'setup.oidc_callback_url_hint_slack'
+    default:
+      return 'setup.oidc_callback_url_hint'
+  }
 }
 
 function adapterByID(adapters: IdentityAdapter[], adapterID: string): IdentityAdapter {

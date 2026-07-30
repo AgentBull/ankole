@@ -14,6 +14,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.OutboxEntry
 
@@ -38,6 +39,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       # No recall API on the bot surface — delete_entry is deliberately absent.
       assert chat.outbound_capabilities == ["post_entry", "card"]
       assert chat.reply_preview_module == Ankole.Plugins.WeComAdapter.AIStream
+      assert :ok = Adapters.validate_declaration(chat)
 
       assert identity.contract_id == "principals.identity_provider"
 
@@ -202,11 +204,11 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   end
 
   defp start_fake_client(config, script \\ %{}) do
-    # Plugin children only run for deployment-enabled plugins, so tests own the
-    # connection registry lifecycle themselves.
-    start_supervised!(
-      {Registry, keys: :unique, name: Ankole.Plugins.WeComAdapter.ConnectionRegistry}
-    )
+    registry = Ankole.Plugins.WeComAdapter.ConnectionRegistry
+
+    if is_nil(Process.whereis(registry)) do
+      start_supervised!({Registry, keys: :unique, name: registry})
+    end
 
     key = Config.connection_key(config)
 

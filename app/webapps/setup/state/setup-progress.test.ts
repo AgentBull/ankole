@@ -14,4 +14,9 @@ describe('setupStepState', () => {
     expect(setupStepState('plugins', 'identity', true, true)).toBe('completed')
     expect(setupStepState('identity', 'identity', true, true)).toBe('current')
   })
+
+  test('keeps identity available after returning to plugins', () => {
+    expect(setupStepState('plugins', 'plugins', true, true)).toBe('current')
+    expect(setupStepState('identity', 'plugins', true, true)).toBe('available')
+  })
 })

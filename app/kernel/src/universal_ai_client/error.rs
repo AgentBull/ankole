@@ -32,7 +32,7 @@ pub struct StreamError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_status: Option<u16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider_body_excerpt: Option<String>,
+    pub provider_body_excerpt: Option<Box<str>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub provider_headers: Vec<(String, String)>,
 }
@@ -61,7 +61,11 @@ impl StreamError {
     pub fn provider_body_excerpt(mut self, body: impl AsRef<[u8]>) -> Self {
         let bytes = body.as_ref();
         let limit = bytes.len().min(PROVIDER_BODY_EXCERPT_LIMIT);
-        self.provider_body_excerpt = Some(String::from_utf8_lossy(&bytes[..limit]).to_string());
+        self.provider_body_excerpt = Some(
+            String::from_utf8_lossy(&bytes[..limit])
+                .into_owned()
+                .into_boxed_str(),
+        );
         self
     }
 
@@ -110,7 +114,7 @@ impl StreamError {
         if let Some(excerpt) = &self.provider_body_excerpt {
             details.insert(
                 "provider_body_excerpt".to_string(),
-                Value::String(excerpt.clone()),
+                Value::String(excerpt.to_string()),
             );
         }
 

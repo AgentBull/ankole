@@ -90,6 +90,26 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       refute "add_reaction" in chat.outbound_capabilities
       refute "outbound_reconciliation" in chat.outbound_capabilities
       assert Enum.all?(Microsoft365Adapter.app_config_patterns(), & &1.encrypted)
+
+      identity = Enum.find(declarations, &(&1.contract_id == "principals.identity_provider"))
+      fields = Map.new(identity.fields, &{&1.path, &1})
+
+      assert fields["tenantID"].validation.pattern ==
+               "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+      assert fields["publicBaseURL"].requiredWhen == [
+               %{path: "sync.contacts", value: true},
+               %{path: "sync.realtime", value: true}
+             ]
+
+      assert fields["tenantID"].label["zh-Hans-CN"] == "目录（租户）ID"
+      assert fields["clientID"].label["zh-Hans-CN"] == "应用程序（客户端）ID"
+      assert fields["clientSecret"].label["zh-Hans-CN"] == "客户端密码值"
+      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
+      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
+      assert fields["sync.realtime"].label["zh-Hans-CN"] == "实时同步通讯录变更"
+      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
+      assert fields["publicBaseURL"].label["zh-Hans-CN"] == "Ankole 公网地址"
     end
 
     test "chat validation enforces GUIDs and tenancy" do

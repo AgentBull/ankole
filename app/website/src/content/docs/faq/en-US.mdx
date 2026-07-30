@@ -45,12 +45,12 @@ export const commonIssues = [
     ]
   },
   {
-    question: 'Why is an enabled adapter still missing from the Provider list?',
-    symptom: 'The Control Plane Plugin is saved as enabled, but its option does not appear on the identity or signal-routing page.',
-    cause: 'The control plane loads the plugin set at startup. Saving schedules the plugin for the next start; it does not add supervised work and configuration keys to the running process.',
+    question: 'Why is a selected adapter still missing from the Provider list?',
+    symptom: 'The plugin is saved as enabled, but its option does not appear in setup or on the identity or signal-routing page.',
+    cause: 'First-time setup keeps all compiled plugins available and filters later configuration by the current saved selection. After setup, plugin changes saved in the Console apply at the next control-plane start.',
     resolution: [
-      'Restart only the control plane. Do not remove data or restart PostgreSQL.',
-      'After it starts, confirm that the plugin is active and return to the Provider page.',
+      'If you are still in /setup, return to Plugins, save the selection, and open Administrator sign-in again. A restart is not required.',
+      'If setup is complete, restart only the control plane. Do not remove data or restart PostgreSQL. Confirm that the plugin is active, and return to the Provider page.',
       'If the control plane does not start, fix the first plugin initialization error in its logs.'
     ],
     links: [
@@ -118,21 +118,21 @@ export const identityTabs = [
       {
         question: 'Slack sign-in works, but members or user groups are missing',
         symptom: 'The administrator enters the Console, but Principals or permission groups are empty or miss recent members.',
-        cause: 'The identity app lacks users:read, users:read.email, or team:read; its Bot Token predates the new scopes; or the full sync has not run.',
+        cause: 'The identity app lacks users:read, users:read.email, or team:read; its Bot User OAuth Token predates the new scopes; or the full sync has not run.',
         resolution: [
           'Add the identity scopes listed in Quick start.',
-          'After a scope change, install the app to the workspace again and save the new Bot Token in the IdP.',
+          'After a scope change, install the app to the workspace again and save the new Bot User OAuth Token in the IdP.',
           'Verify a full sync before you troubleshoot realtime sync.'
         ]
       },
       {
         question: 'Slack completes a full directory sync, but later changes stay stale',
         symptom: 'The first sync has data, but member or user-group changes do not appear promptly.',
-        cause: 'Realtime sync uses Socket Mode. The App Token is missing, has the wrong prefix, Socket Mode is off, or the control plane cannot reach Slack.',
+        cause: 'Realtime sync uses Socket Mode. The App-Level Token is missing, has the wrong prefix, Socket Mode is off, or the control plane cannot reach Slack.',
         resolution: [
-          'Enable realtime sync in the IdP and provide a valid App Token.',
+          'Turn on Sync directory changes in the IdP and provide a valid App-Level Token.',
           'Enable Socket Mode in Slack and allow outbound internet access from the control plane.',
-          'After App Token rotation, update the value in Ankole and test a new directory change.'
+          'After App-Level Token rotation, update the value in Ankole and test a new directory change.'
         ],
         links: [
           { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure the Slack IdP in Quick start' }
@@ -167,10 +167,10 @@ export const identityTabs = [
       {
         question: 'Entra ID full sync works, but realtime changes do not arrive',
         symptom: 'A later full sync repairs the data, but membership changes do not appear within minutes.',
-        cause: 'Graph must reach the public HTTPS directory webhook. A bad publicBaseURL, unavailable ingress, or untrusted certificate prevents delivery.',
+        cause: 'Graph must reach the public HTTPS directory webhook. A bad Ankole public URL, unavailable ingress, or untrusted certificate prevents delivery.',
         resolution: [
           'Confirm that the public HTTPS address is reachable from the internet and uses a trusted certificate.',
-          'Check that publicBaseURL matches the real entry point. It defines the Graph notification URL.',
+          'Check that Ankole public URL matches the real entry point. It defines the Graph notification URL.',
           'Inspect subscription reconciliation logs and let the control plane rebuild the subscription after the entry point works.'
         ],
         links: [
@@ -186,21 +186,21 @@ export const identityTabs = [
       {
         question: 'Why does Ankole reject a valid Google account?',
         symptom: 'Google authorization succeeds, but Ankole returns login_domain_not_allowed.',
-        cause: 'The account domain is not in allowedDomains, the email is not verified, or the user has a consumer Gmail account without an hd claim.',
+        cause: 'The account domain is not in Allowed Workspace domains, the email is not verified, or the user has a consumer Gmail account without an hd claim.',
         resolution: [
           'Use an enterprise Google Workspace account, not a personal gmail.com account.',
-          'Confirm that the exact account domain is in allowedDomains.',
+          'Confirm that the exact account domain is in Allowed Workspace domains.',
           'Add more than one domain only when the enterprise operates a multi-domain Workspace.'
         ]
       },
       {
         question: 'Google sign-in works, but directory sync is empty or returns 403',
         symptom: 'The administrator enters the Console, but no members or permission groups are synchronized.',
-        cause: 'Directory sync uses the Service Account, not the OAuth Client. Domain-wide delegation, delegated scopes, or adminEmail is usually wrong.',
+        cause: 'Directory sync uses the Service Account, not the OAuth Client. Domain-wide delegation, delegated scopes, or Delegated administrator email is usually wrong.',
         resolution: [
           'Enable Domain-wide delegation for the Service Account.',
           'Grant the Directory API scopes from Quick start in the Workspace admin console.',
-          'Check adminEmail and the complete Service Account JSON, then run a full sync.'
+          'Check Delegated administrator email and Service account JSON key, then run a full sync.'
         ]
       },
       {
@@ -209,7 +209,7 @@ export const identityTabs = [
         cause: 'The Google Workspace IdP currently supports full sync only. It has no realtime directory subscription. This delay is expected.',
         resolution: [
           'Wait for the next full sync. Do not expose a webhook for this Provider.',
-          'If the next sync also misses the change, check delegation, scopes, and adminEmail.',
+          'If the next sync also misses the change, check delegation, scopes, and Delegated administrator email.',
           'Use an IdP with realtime directory sync when the business requires prompt updates.'
         ],
         links: [

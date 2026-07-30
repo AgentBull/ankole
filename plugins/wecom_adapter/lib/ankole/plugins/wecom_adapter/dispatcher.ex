@@ -2,8 +2,8 @@ defmodule Ankole.Plugins.WeComAdapter.Dispatcher do
   @moduledoc """
   Builds the bot channel dispatcher for the adapter's chat consumers.
 
-  Message callbacks route to `Inbound.handle_message_receive/2`; the
-  `template_card_event` routes to `Inbound.handle_card_action/2`. Other event
+  Message callbacks route to `Inbound.handle_message_receive/3`; the
+  `template_card_event` routes to `Inbound.handle_card_action/3`. Other event
   types (`enter_chat`, `feedback_event`) stay unregistered and are dropped by
   the lib dispatcher; `disconnected_event` never reaches it (the client
   consumes it as the connection-contended signal).
@@ -24,17 +24,19 @@ defmodule Ankole.Plugins.WeComAdapter.Dispatcher do
 
       _present ->
         BotDispatcher.new()
-        |> BotDispatcher.on_message(handler(chat_consumers, &Inbound.handle_message_receive/2))
+        |> BotDispatcher.on_message(
+          handler("aibot_msg_callback", chat_consumers, &Inbound.handle_message_receive/3)
+        )
         |> BotDispatcher.on_event(
           "template_card_event",
-          handler(chat_consumers, &Inbound.handle_card_action/2)
+          handler("template_card_event", chat_consumers, &Inbound.handle_card_action/3)
         )
     end
   end
 
-  defp handler(consumers, fun) do
+  defp handler(event_type, consumers, fun) do
     # Consumer data is closed over at dispatcher build time so bot callbacks
     # stay small and never query plugin state per frame.
-    fn %Event{} = event -> fun.(event, consumers) end
+    fn %Event{} = event -> fun.(event_type, event, consumers) end
   end
 end

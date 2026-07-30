@@ -9,13 +9,15 @@ defmodule Ankole.Plugins do
 
     - **discovered**: every plugin module found and validated at boot. This is
       the full catalog the operator can see.
-    - **active**: the discovered plugins that are in the global enable
-      list. Only active plugins register config and start children.
+    - **active**: the discovered plugins that run in this process. During
+      first-run setup, all discovered plugins are active. After setup, the
+      global enable list selects them.
 
   Because plugins are installation-global and fail closed, the operator opts
   plugins in via a single global enable list (`put_enabled_ids/1`). That list is
-  read once at registry startup, so a change takes effect on the next Ankole
-  process start (see `Plugins.Config`).
+  read once at registry startup. During setup, it records the policy for the
+  first post-setup restart without removing configuration choices from the
+  current setup process (see `Plugins.Config`).
   """
 
   alias Ankole.Plugins.Config

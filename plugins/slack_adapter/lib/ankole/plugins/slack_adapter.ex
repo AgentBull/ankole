@@ -7,18 +7,20 @@ defmodule Ankole.Plugins.SlackAdapter do
   alias Ankole.Plugins.SlackAdapter.{ConnectionSupervisor, IdentityProvider, Inbound, Outbox}
 
   @zh_fields %{
-    "botToken" => {"Bot Token", "用于聊天或目录同步的 Bot User OAuth Token。"},
-    "appToken" => {"App Token", "带 connections:write 权限的 App-Level Token。"},
+    "botToken" => {"Bot User OAuth Token", "安装应用后在「OAuth & Permissions」中复制，以 xoxb- 开头。"},
+    "appToken" =>
+      {"App-Level Token",
+       "在「Basic Information → App-Level Tokens」中创建，需包含 connections:write 权限并以 xapp- 开头。"},
     "platformSubjectNamespace" => {"平台主体命名空间", "每个 Slack workspace 使用一个命名空间。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
-    "clientID" => {"Client ID", "Slack 应用的 Client ID。"},
-    "clientSecret" => {"Client Secret", "Slack 应用的 Client Secret。"},
-    "teamID" => {"Workspace ID", "可选，登录时限定 workspace。"},
-    "oidc.enabled" => {"启用 OIDC", "允许使用 Slack 登录。"},
-    "oidc.scopes" => {"OIDC 权限范围", "登录时请求的 scope。"},
-    "sync.contacts" => {"同步目录", "导入 Slack 用户与 usergroup。"},
-    "sync.websocket" => {"实时目录同步", "通过 Socket Mode 消费目录事件。"},
-    "sync.pageSize" => {"同步分页大小", "users.list 的 cursor 分页大小。"}
+    "clientID" => {"Client ID", "在 Slack 应用「Basic Information → App Credentials」中获取。"},
+    "clientSecret" => {"Client Secret", "与 Client ID 位于同一 App Credentials 页面。"},
+    "teamID" => {"Workspace ID", "可选。预先指定登录的 Workspace；留空时由用户选择。"},
+    "oidc.enabled" => {"启用登录", "允许管理员使用 Slack 登录。"},
+    "oidc.scopes" => {"登录权限范围", "登录时向 Slack 请求的权限，通常无需修改。"},
+    "sync.contacts" => {"同步通讯录", "将 Slack 用户和用户组同步到 Ankole。"},
+    "sync.websocket" => {"实时同步通讯录变更", "通过 Socket Mode 接收用户和用户组变更；需先开启通讯录同步。"},
+    "sync.pageSize" => {"每页同步数量", "每次从 Slack 读取的用户数量，通常保留默认值。"}
   }
 
   @impl true
@@ -129,33 +131,88 @@ defmodule Ankole.Plugins.SlackAdapter do
 
   defp identity_fields do
     [
-      field("clientID", "Client ID", "Slack app Client ID.", :string, required: true),
-      field("clientSecret", "Client secret", "Slack app Client Secret.", :secret,
+      field(
+        "clientID",
+        "Client ID",
+        "Find it under Basic Information > App Credentials.",
+        :string, required: true),
+      field(
+        "clientSecret",
+        "Client secret",
+        "Find it on the same App Credentials page as the Client ID.",
+        :secret,
         required: true,
         encrypted: true
       ),
-      field("teamID", "Workspace ID", "Optional workspace restriction for login.", :string, []),
-      field("botToken", "Bot token", "Directory sync bot token.", :secret, encrypted: true),
-      field("appToken", "App token", "Realtime directory event app token.", :secret,
-        encrypted: true
+      field(
+        "teamID",
+        "Workspace ID",
+        "Preselect a workspace during sign-in. Leave blank to let the user choose.",
+        :string,
+        []
       ),
-      field("oidc.enabled", "Enable OIDC", "Allow Sign in with Slack.", :boolean, default: true),
-      field("oidc.scopes", "OIDC scopes", "Scopes requested during login.", :string_array,
+      field(
+        "botToken",
+        "Bot User OAuth Token",
+        "Token used to sync the directory. It starts with xoxb-.",
+        :secret,
+        encrypted: true,
+        requiredWhen: [required_when("sync.contacts", true)],
+        validation:
+          pattern_validation(
+            "^xoxb-",
+            "Enter a Slack Bot Token that starts with xoxb-.",
+            "请输入以 xoxb- 开头的 Slack Bot Token。"
+          )
+      ),
+      field(
+        "appToken",
+        "App-Level Token",
+        "Token used for Socket Mode. It needs connections:write and starts with xapp-.",
+        :secret,
+        encrypted: true,
+        requiredWhen: [
+          required_when("sync.contacts", true),
+          required_when("sync.websocket", true)
+        ],
+        validation:
+          pattern_validation(
+            "^xapp-",
+            "Enter a Slack App Token that starts with xapp-.",
+            "请输入以 xapp- 开头的 Slack App Token。"
+          )
+      ),
+      field(
+        "oidc.enabled",
+        "Enable sign-in",
+        "Allow administrators to sign in with Slack.",
+        :boolean, default: true),
+      field(
+        "oidc.scopes",
+        "Sign-in scopes",
+        "Permissions requested during sign-in. Usually keep the default.",
+        :string_array,
         default: ["openid", "profile", "email"],
         advanced: true
       ),
-      field("sync.contacts", "Sync directory", "Import Slack users and usergroups.", :boolean,
-        default: true
-      ),
+      field(
+        "sync.contacts",
+        "Sync directory",
+        "Import Slack users and user groups into Ankole.",
+        :boolean, default: true),
       field(
         "sync.websocket",
-        "Realtime directory sync",
-        "Consume directory events over Socket Mode.",
+        "Sync directory changes",
+        "Receive user and user-group changes through Socket Mode. Requires directory sync.",
         :boolean,
         default: true,
         advanced: true
       ),
-      field("sync.pageSize", "Sync page size", "users.list cursor page size.", :integer,
+      field(
+        "sync.pageSize",
+        "Records per page",
+        "Number of users requested from Slack per page. Usually keep the default.",
+        :integer,
         default: 200,
         min: 1,
         max: 200,
@@ -176,5 +233,15 @@ defmodule Ankole.Plugins.SlackAdapter do
       description: %{"default" => description, "zh-Hans-CN" => zh_description},
       type: Atom.to_string(type)
     })
+  end
+
+  defp required_when(path, value), do: %{path: path, value: value}
+
+  defp pattern_validation(pattern, message, zh_message) do
+    %{
+      kind: "pattern",
+      pattern: pattern,
+      message: %{"default" => message, "zh-Hans-CN" => zh_message}
+    }
   end
 end

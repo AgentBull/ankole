@@ -121,10 +121,33 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       chat_fields_by_path = Map.new(chat_fields, &{&1.path, &1})
       identity_fields_by_path = Map.new(identity_fields, &{&1.path, &1})
+      identity_domain_field = identity_fields_by_path["domain"]
 
       assert Enum.all?(chat_fields, &(&1.advanced == false))
       assert identity_fields_by_path["appID"].advanced == false
+      assert identity_fields_by_path["appID"].label["zh-Hans-CN"] == "App ID"
+      assert identity_fields_by_path["appSecret"].label["zh-Hans-CN"] == "App Secret"
+      assert identity_domain_field.label["zh-Hans-CN"] == "服务区域"
+      assert identity_domain_field.default == "feishu"
+
+      assert identity_fields_by_path["appID"].description["zh-Hans-CN"] ==
+               "在开发者后台「基础信息 → 凭证与基础信息」中获取。"
+
+      assert identity_fields_by_path["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
+      assert identity_fields_by_path["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
+
+      assert identity_fields_by_path["sync.websocket"].label["zh-Hans-CN"] ==
+               "实时同步通讯录变更"
+
+      assert identity_fields_by_path["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
+
+      assert Enum.map(identity_domain_field.options, &{&1.value, &1.label["zh-Hans-CN"]}) == [
+               {"feishu", "飞书（中国大陆）"},
+               {"lark", "Lark（海外）"}
+             ]
+
       assert identity_fields_by_path["oidc.scopes"].advanced == true
+      assert identity_fields_by_path["sync.contacts"].advanced == true
       assert identity_fields_by_path["sync.websocket"].advanced == true
       assert identity_fields_by_path["sync.pageSize"].advanced == true
       assert chat_fields_by_path["appID"].advanced == false

@@ -212,14 +212,30 @@ defmodule AnkoleWeb.SetupControllerTest do
              "sync.pageSize"
            ]
 
-    assert hd(lark["fields"])["label"]["zh-Hans-CN"] == "应用 ID"
-    assert hd(lark["fields"])["description"]["default"] == "Self-built app identifier."
+    assert hd(lark["fields"])["label"]["zh-Hans-CN"] == "App ID"
+
+    assert hd(lark["fields"])["description"]["default"] ==
+             "Find it under Basic information > Credentials in the developer console."
 
     fields_by_path = Map.new(lark["fields"], &{&1["path"], &1})
     assert fields_by_path["appID"]["advanced"] == false
     assert fields_by_path["oidc.scopes"]["advanced"] == true
     assert fields_by_path["sync.websocket"]["advanced"] == true
     assert fields_by_path["sync.pageSize"]["advanced"] == true
+  end
+
+  test "setup catalog includes boot-loaded adapters outside the current selection", %{conn: conn} do
+    assert {:ok, ["lark-adapter"]} = PluginsConfig.put_enabled_ids(["lark-adapter"])
+
+    conn =
+      conn
+      |> init_test_session(%{})
+      |> WebSession.put_setup_session()
+      |> get(~p"/.internal-apis/setup/identity-provider-adapters")
+
+    assert %{"adapters" => adapters} = json_response(conn, 200)
+    assert Enum.any?(adapters, &(&1["adapterID"] == "lark"))
+    assert Enum.any?(adapters, &(&1["adapterID"] == "slack"))
   end
 
   test "setup reads and writes enabled plugin ids without inverting the selection", %{conn: conn} do

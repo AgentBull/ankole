@@ -16,6 +16,13 @@ describe('IdentitySetupModel', () => {
       providerID: 'ignored-refetch',
       config: {}
     })
+
+    expect(model.submission()).toEqual({
+      adapterID: 'oidc',
+      providerID: 'edited-company',
+      config: { issuer: 'https://id.example.com' }
+    })
+
     model.changeAdapter({
       adapterID: 'google',
       providerID: 'google-workspace',
