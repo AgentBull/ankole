@@ -4,8 +4,8 @@ import {
   RuntimeRPCClient,
   rpcMethods,
   type AIGatewayAPIKeyResponse,
+  type ControlPlaneOwnedRPCMethod,
   type RPCFrame,
-  type RPCMethod,
   type RPCRequestInit,
   type RPCRequester,
   type RPCRejection,
@@ -15,7 +15,7 @@ import {
 const aiGatewayAPIKeyRefreshSkewMs = 60_000
 const aiGatewayAPIKeyCache = new Map<string, AIGatewayAPIKeyResponse>()
 
-function isRejection(value: RPCResponseOf<RPCMethod> | RPCRejection): value is RPCRejection {
+function isRejection(value: RPCResponseOf<ControlPlaneOwnedRPCMethod> | RPCRejection): value is RPCRejection {
   return !('$typeName' in value)
 }
 
@@ -26,7 +26,7 @@ function isRejection(value: RPCResponseOf<RPCMethod> | RPCRejection): value is R
  * state.
  */
 export function throwingRPCRequester(rpcClient: RuntimeRPCClient): RPCRequester {
-  return async <M extends RPCMethod>(method: M, payload: RPCRequestInit<M>, frame: RPCFrame<M>) => {
+  return async <M extends ControlPlaneOwnedRPCMethod>(method: M, payload: RPCRequestInit<M>, frame: RPCFrame<M>) => {
     const response = await rpcClient.request(method, payload, frame)
     if (isRejection(response)) throw new RPCRejectedError(method, response)
     return response

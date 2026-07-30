@@ -17,6 +17,9 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
     session.reset_due
     check_back_later.wakeup
     cron.fire
+    webhook.received
+    automation_job.emitted
+    automation_job.run_failed
     background_agent_job.completed
     background_agent_job.failed
     background_agent_job.waiting

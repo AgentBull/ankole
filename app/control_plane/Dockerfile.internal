@@ -7,6 +7,4 @@ FROM ${BASE_IMAGE}
 WORKDIR /app
 
 COPY --chown=ankole:ankole internals/skills ./internals/skills
-COPY --chown=ankole:ankole internals/agent-plugins ./app/library/agent-plugins
-
 ENV ANKOLE_INTERNAL_SKILLS_ROOT=/app/internals/skills

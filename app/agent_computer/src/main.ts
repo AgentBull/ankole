@@ -8,7 +8,12 @@ import {
   turnNoopCompletedEnvelope,
   workerProgressEnvelope
 } from './fabric/envelopes'
-import { RuntimeRPCClient, handleWorkerRPCRequest } from './lanes/rpc_lane'
+import {
+  RuntimeRPCClient,
+  automationJobRPCRequester,
+  handleWorkerRPCRequest,
+  webhookRPCRequester
+} from './lanes/rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import { connectRuntimeFabric, isRuntimeFabricTransportError, type EnvelopeSender } from './fabric/fabric'
@@ -29,7 +34,14 @@ import { workerLogger } from './worker/logging'
 import { requestAIGatewayAPIKey, stringFromDetails, throwingRPCRequester } from './worker/rpc_requests'
 import { BrowserRuntime } from './browser-runtime'
 import { agentHomePaths } from './core/agent-home-paths'
-import { buildTurnRuntimeEnv } from './core/turns/turn_runtime_env'
+import {
+  AUTOMATION_JOB_CLI_SOCKET_ENV,
+  buildTurnRuntimeEnv,
+  WEBHOOK_CLI_SOCKET_ENV
+} from './core/turns/turn_runtime_env'
+import { startWebhookCLIBridge } from './cli/webhooks/webhook-cli-bridge'
+import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-job-cli-bridge'
+import { runAutomationJob } from './automation-jobs/run'
 
 const heartbeatIntervalMs = 15_000
 
@@ -200,7 +212,20 @@ async function handleEnvelope(
     .with({ case: 'rpcError' }, ({ value }) => {
       rpcClient.resolve(value)
     })
-    .with({ case: 'rpcRequest' }, ({ value }) => handleWorkerRPCRequest(sendEnvelope, value))
+    .with({ case: 'rpcRequest' }, ({ value }) => {
+      void handleWorkerRPCRequest(sendEnvelope, value, {
+        runAutomationJob: request =>
+          runAutomationJob(request, {
+            config,
+            rpc: throwingRPCRequester(rpcClient)
+          })
+      }).catch(error => {
+        workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
+          method: value.method,
+          error: errorValue(error)
+        })
+      })
+    })
     .with({ case: 'turnStart' }, () =>
       startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, envelope)
     )
@@ -362,50 +387,68 @@ async function runActiveTurn(
   const turnStart = active.turnStart
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
   const paths = agentHomePaths(config.agentsRoot, turnStart.turn.actor.agent_uid)
-  const runtimeEnv = buildTurnRuntimeEnv(turnStart, config.workerAuthKey)
   workerLogger.info('worker.turn_started', 'worker turn started', {
     actor_event_id: turnStart.turn.actor_event_id,
     operation: turnOperation(turnStart.turn.actor_event_id)
   })
   const rpc = throwingRPCRequester(rpcClient)
-  await syncInstalledSkillsForTurn(turnStart, {
-    agentInstalledSkillsRoot: paths.installedSkills,
-    rpc,
-    abortSignal: active.abortController.signal,
-    logger: workerLogger
+  const webhookCLI = startWebhookCLIBridge({
+    turnStart,
+    requestWebhookRPC: webhookRPCRequester(rpc, turnStart.turn)
   })
-
-  const result = await runTurnHandlers(turnStart, {
-    agentsRoot: config.agentsRoot,
+  const automationJobCLI = startAutomationJobCLIBridge({
     agentHome: paths.home,
-    workspaceRoot,
-    userFilesRoot: paths.userFiles,
-    builtinSkillsRoot: config.builtinSkillsRoot,
-    agentInstalledSkillsRoot: paths.installedSkills,
-    internalSkillsRoot: config.internalSkillsRoot,
-    runtimeEnv,
-    rpc,
-    requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
-    logger: workerLogger,
-    pollSteering: () => active.steeringUpdates.splice(0),
-    onSteeringApplied: update =>
-      sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
-    onTurnActivity,
-    onPresentationEvent: event => sendReplyPresentationProgress(sendEnvelope, active, event),
-    abortSignal: active.abortController.signal,
-    browserRuntime
+    requestAutomationJobRPC: automationJobRPCRequester(rpc, turnStart.turn)
   })
-
-  if (active.controlledStopRequested) return
-
-  if (result.kind === 'noop_completed') {
-    await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationID))
-    return
+  const runtimeEnv = {
+    ...buildTurnRuntimeEnv(turnStart, config.workerAuthKey),
+    [WEBHOOK_CLI_SOCKET_ENV]: webhookCLI.socketPath,
+    [AUTOMATION_JOB_CLI_SOCKET_ENV]: automationJobCLI.socketPath
   }
 
-  await sendEnvelope(
-    turnCompletedEnvelope(turnStart.turn, result.finalResponseID, result.outcome, active.correlationID)
-  )
+  try {
+    await syncInstalledSkillsForTurn(turnStart, {
+      agentInstalledSkillsRoot: paths.installedSkills,
+      rpc,
+      abortSignal: active.abortController.signal,
+      logger: workerLogger
+    })
+
+    const result = await runTurnHandlers(turnStart, {
+      agentsRoot: config.agentsRoot,
+      agentHome: paths.home,
+      workspaceRoot,
+      userFilesRoot: paths.userFiles,
+      builtinSkillsRoot: config.builtinSkillsRoot,
+      agentInstalledSkillsRoot: paths.installedSkills,
+      internalSkillsRoot: config.internalSkillsRoot,
+      runtimeEnv,
+      rpc,
+      requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
+      logger: workerLogger,
+      pollSteering: () => active.steeringUpdates.splice(0),
+      onSteeringApplied: update =>
+        sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
+      onTurnActivity,
+      onPresentationEvent: event => sendReplyPresentationProgress(sendEnvelope, active, event),
+      abortSignal: active.abortController.signal,
+      browserRuntime
+    })
+
+    if (active.controlledStopRequested) return
+
+    if (result.kind === 'noop_completed') {
+      await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationID))
+      return
+    }
+
+    await sendEnvelope(
+      turnCompletedEnvelope(turnStart.turn, result.finalResponseID, result.outcome, active.correlationID)
+    )
+  } finally {
+    automationJobCLI.close()
+    webhookCLI.close()
+  }
 }
 
 async function sendReplyPresentationProgress(

@@ -8,7 +8,7 @@ import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/
 
 const RespawnBackgroundJobParamsSchema = z
   .object({
-    source_job_id: ModelIntegerID.describe('Terminal BackgroundAgentJob id to respawn.'),
+    source_job_id: ModelIntegerID.describe('Terminal background agent job id to respawn.'),
     message: z
       .string()
       .min(1)
@@ -44,7 +44,7 @@ export function createRespawnBackgroundJobTool(
   return {
     name: 'respawn_background_job',
     description:
-      'Respawn one succeeded, failed, or stopped BackgroundAgentJob as a new Job. The new Job resumes the exact Codex thread and reuses the exact existing workspace. The source Job stays terminal. message is sent verbatim as the next Codex user message.',
+      'Respawn one succeeded, failed, or stopped background agent job as a new background agent job. The new background agent job resumes the exact Codex thread and reuses the exact existing workspace. The source background agent job stays terminal. message is sent verbatim as the next Codex user message.',
     schema: RespawnBackgroundJobParamsSchema,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -59,14 +59,14 @@ export function createRespawnBackgroundJobTool(
       const sourceStatus = BackgroundAgentJobStatusSchema.parse(source.status)
       if (!TerminalBackgroundAgentJobStatusSchema.safeParse(sourceStatus).success) {
         throw new Error(
-          `BackgroundAgentJob ${params.source_job_id} cannot be respawned from status ${sourceStatus}; expected succeeded, failed, or stopped`
+          `Background agent job ${params.source_job_id} cannot be respawned from status ${sourceStatus}; expected succeeded, failed, or stopped`
         )
       }
       if (!source.runtimeThreadId) {
-        throw new Error(`BackgroundAgentJob ${params.source_job_id} has no Codex thread to resume`)
+        throw new Error(`Background agent job ${params.source_job_id} has no Codex thread to resume`)
       }
       if (!source.workspaceOwnerJobId) {
-        throw new Error(`BackgroundAgentJob ${params.source_job_id} has no workspace owner`)
+        throw new Error(`Background agent job ${params.source_job_id} has no workspace owner`)
       }
 
       const projectLocation = codexJobProjectLocation(opts.agentsRoot, source.agentUid, source.workspaceOwnerJobId)
@@ -82,7 +82,7 @@ export function createRespawnBackgroundJobTool(
       })
 
       return jsonToolResult({
-        job_id: modelIntegerIDFromWire(response.jobId, 'background Agent Job id'),
+        job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }

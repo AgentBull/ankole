@@ -26,6 +26,14 @@ export interface CreateMCPToolsOptions {
   turn?: ActorTurnRef
   workerEnv?: Record<string, string>
   abortSignal?: AbortSignal
+  onCatalogUnavailable?: (failure: MCPCatalogUnavailable) => void
+}
+
+export interface MCPCatalogUnavailable {
+  serverName: string
+  sourceSkills: string[]
+  message: string
+  code?: string
 }
 
 /**
@@ -41,16 +49,31 @@ export async function createMCPTools(options: CreateMCPToolsOptions): Promise<Ag
     skillRoots: options.skillRoots,
     turn: options.turn
   })
-  const catalogs = await Promise.all(
-    servers.map(async server => ({
-      server,
-      catalog: await resolveMCPServerCatalog(server, {
-        workerEnv: options.workerEnv,
-        signal: options.abortSignal,
-        timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
-      })
-    }))
+  const secretValues = workerEnvSecretValues(options.workerEnv)
+  const catalogResults = await Promise.all(
+    servers.map(async server => {
+      try {
+        return {
+          server,
+          catalog: await resolveMCPServerCatalog(server, {
+            workerEnv: options.workerEnv,
+            signal: options.abortSignal,
+            timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
+          })
+        }
+      } catch (error) {
+        if (options.abortSignal?.aborted) throw error
+        options.onCatalogUnavailable?.({
+          serverName: server.name,
+          sourceSkills: server.sourceSkills,
+          message: boundedError(error, secretValues),
+          ...boundedErrorCode(error)
+        })
+        return undefined
+      }
+    })
   )
+  const catalogs = catalogResults.filter(result => result !== undefined)
 
   return projectMCPTools(catalogs).map(projected => createMCPTool(projected, options))
 }
@@ -68,10 +91,7 @@ interface ProjectedMCPTool {
 function createMCPTool(projected: ProjectedMCPTool, options: CreateMCPToolsOptions): AgentTool<typeof MCPArguments> {
   const { server, tool } = projected
   const readOnly = tool.annotations?.readOnlyHint === true
-  const secretValues = injectableWorkerEnv(options.workerEnv)
-    .map(([, value]) => value)
-    .filter(Boolean)
-    .sort((left, right) => right.length - left.length)
+  const secretValues = workerEnvSecretValues(options.workerEnv)
 
   return {
     name: projected.name,
@@ -342,6 +362,20 @@ function boundedString(value: string, maxBytes: number): string {
 function boundedError(error: unknown, secrets: string[]): string {
   const message = error instanceof Error ? error.message : String(error)
   return boundedString(redactSecrets(sanitizeBinaryOutput(message), secrets), MAX_ERROR_BYTES)
+}
+
+function boundedErrorCode(error: unknown): { code?: string } {
+  if (!error || typeof error !== 'object') return {}
+  const code = Reflect.get(error, 'code')
+  if (typeof code !== 'string') return {}
+  return { code: boundedString(sanitizeBinaryOutput(code), 160) }
+}
+
+function workerEnvSecretValues(workerEnv?: Record<string, string>): string[] {
+  return injectableWorkerEnv(workerEnv)
+    .map(([, value]) => value)
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
 }
 
 function redactSecrets(value: string, secrets: string[]): string {

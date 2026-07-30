@@ -221,6 +221,24 @@ defmodule Ankole.Logging.JSONFormatterTest do
     assert fields.http_request["latency"] == "65.000000s"
   end
 
+  test "Phoenix request logger never emits callback capability tokens" do
+    conn =
+      :post
+      |> Plug.Test.conn("/webhooks/v1/event-callbacks/wh_secret-capability-token")
+      |> Map.put(:host, "ankole.test")
+      |> Map.put(:status, 204)
+
+    {level, fields} = AnkoleWeb.RequestLogger.build_log(%{duration: 0}, %{conn: conn})
+
+    assert level == :info
+    assert fields.route == "/webhooks/v1/event-callbacks/[REDACTED]"
+
+    assert fields.http_request["requestURL"] ==
+             "http://ankole.test/webhooks/v1/event-callbacks/[REDACTED]"
+
+    refute inspect(fields) =~ "wh_secret-capability-token"
+  end
+
   defp format(event) do
     event
     |> JSONFormatter.format(@formatter_config)

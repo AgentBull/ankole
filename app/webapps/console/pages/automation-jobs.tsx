@@ -1,0 +1,386 @@
+import {
+  Input,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Skeleton,
+  TableCell,
+  TableRow
+} from '@ankole/uikit'
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
+import {
+  ankoleWebAgentControllerIndexOptions,
+  ankoleWebAgentSessionControllerIndexOptions,
+  ankoleWebAutomationJobControllerIndexOptions,
+  ankoleWebAutomationJobControllerShowOptions
+} from '../api/generated/@tanstack/react-query.gen'
+import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
+import { LabeledField, StatusIndicator } from '../console-form'
+import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
+import { ResourceListPage } from '../console-list-page'
+import { matchesResourceSearch } from '../state/resource-search'
+
+export function AutomationJobsPage() {
+  const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [query, setQuery] = useState('')
+
+  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
+  const agentList = agents.data?.agents ?? []
+  const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
+
+  const sessions = useQuery({
+    ...ankoleWebAgentSessionControllerIndexOptions({ path: { agent_uid: agentUID } }),
+    enabled: Boolean(agentUID)
+  })
+  const sessionList = sessions.data?.sessions ?? []
+  const sessionID = searchParams.get('session') ?? sessionList[0]?.session_id ?? ''
+  const scopeReady = Boolean(agentUID && sessionID)
+  const selectedID = automationJobID(searchParams.get('job'))
+
+  const jobs = useQuery({
+    ...ankoleWebAutomationJobControllerIndexOptions({
+      path: { agent_uid: agentUID, session_id: sessionID },
+      query: { limit: 100 }
+    }),
+    enabled: scopeReady,
+    refetchInterval: scopeReady ? 5_000 : false
+  })
+
+  const detail = useQuery({
+    ...ankoleWebAutomationJobControllerShowOptions({
+      path: {
+        agent_uid: agentUID,
+        session_id: sessionID,
+        automation_job_id: selectedID ?? 1000
+      },
+      query: { runs: 20 }
+    }),
+    enabled: scopeReady && selectedID !== undefined,
+    refetchInterval: selectedID !== undefined ? 5_000 : false,
+    retry: false
+  })
+
+  const rows = (jobs.data?.automation_jobs ?? []).filter(job =>
+    matchesResourceSearch(query, job.label, job.status, job.directory_path, String(job.id))
+  )
+
+  const selectAgent = (uid: string) => {
+    setSearchParams(uid ? new URLSearchParams({ agent: uid }) : new URLSearchParams())
+  }
+
+  const selectSession = (session: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (session) next.set('session', session)
+    else next.delete('session')
+    next.delete('job')
+    setSearchParams(next)
+  }
+
+  const openJob = (id: number) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('job', String(id))
+    setSearchParams(next)
+  }
+
+  const closeJob = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('job')
+    setSearchParams(next, { replace: true })
+  }
+
+  return (
+    <div className="grid min-w-0 gap-6">
+      <ResourceListPage
+        title={t('console.automation_jobs.title')}
+        description={t('console.automation_jobs.description')}
+        columns={[
+          t('console.automation_jobs.label'),
+          t('console.automation_jobs.directory'),
+          t('console.automation_jobs.failure_wake'),
+          t('console.automation_jobs.status'),
+          t('console.automation_jobs.created_at')
+        ]}
+        count={rows.length}
+        emptyTitle={
+          scopeReady ? t('console.automation_jobs.empty_title') : t('console.automation_jobs.select_scope_title')
+        }
+        emptyDescription={
+          scopeReady
+            ? t('console.automation_jobs.empty_description')
+            : t('console.automation_jobs.select_scope_description')
+        }
+        error={jobs.error}
+        isEmpty={rows.length === 0}
+        isFiltered={Boolean(query.trim())}
+        isLoading={scopeReady && jobs.isLoading}
+        subNav={
+          <AutomationJobScope
+            agentUID={agentUID}
+            agents={agentList}
+            sessionID={sessionID}
+            sessions={sessionList}
+            onSelectAgent={selectAgent}
+            onSelectSession={selectSession}
+          />
+        }
+        toolbar={
+          <Input
+            aria-label={t('console.automation_jobs.search_placeholder')}
+            className="max-w-sm"
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={t('console.automation_jobs.search_placeholder')}
+          />
+        }>
+        {rows.map(job => (
+          <AutomationJobRow key={job.id} job={job} onOpen={() => openJob(job.id)} />
+        ))}
+      </ResourceListPage>
+
+      <Sheet open={selectedID !== undefined} onOpenChange={open => !open && closeJob()}>
+        <SheetContent className="w-full data-[side=right]:sm:max-w-[min(64rem,92vw)]">
+          <SheetHeader className="gap-3 border-b border-border pb-6">
+            <SheetTitle>{detail.data?.automation_job.label ?? t('console.automation_jobs.detail_title')}</SheetTitle>
+            <SheetDescription>
+              {detail.data?.automation_job ? (
+                <span className="font-mono text-xs">
+                  #{detail.data.automation_job.id} · {detail.data.automation_job.owner_session_id}
+                </span>
+              ) : null}
+            </SheetDescription>
+          </SheetHeader>
+          <div className="min-w-0 flex-1 overflow-y-auto px-8 py-6">
+            {detail.error ? (
+              <ErrorBlock error={detail.error} />
+            ) : detail.isLoading || !detail.data?.automation_job ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <AutomationJobDetail job={detail.data.automation_job} />
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </div>
+  )
+}
+
+function AutomationJobScope({
+  agentUID,
+  agents,
+  sessionID,
+  sessions,
+  onSelectAgent,
+  onSelectSession
+}: {
+  agentUID: string
+  agents: { uid: string }[]
+  sessionID: string
+  sessions: { session_id: string; title?: string | null }[]
+  onSelectAgent: (uid: string) => void
+  onSelectSession: (sessionID: string) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className="grid grid-cols-1 gap-3 border-b-0 md:grid-cols-2">
+      <div className="border border-border bg-card p-3">
+        <LabeledField label={t('console.automation_jobs.agent')}>
+          <Select value={agentUID} onValueChange={value => onSelectAgent(String(value))}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={t('console.automation_jobs.select_agent')} />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map(agent => (
+                <SelectItem key={agent.uid} value={agent.uid}>
+                  {agent.uid}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </LabeledField>
+      </div>
+      <div className="border border-border bg-card p-3">
+        <LabeledField label={t('console.automation_jobs.session')}>
+          <Select
+            value={sessionID}
+            onValueChange={value => onSelectSession(String(value))}
+            disabled={!agentUID || sessions.length === 0}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={t('console.automation_jobs.select_session')} />
+            </SelectTrigger>
+            <SelectContent>
+              {sessions.map(session => (
+                <SelectItem key={session.session_id} value={session.session_id}>
+                  <span className="font-mono text-xs">{session.session_id}</span>
+                  {session.title ? (
+                    <span className="ml-2 truncate text-muted-foreground">— {session.title}</span>
+                  ) : null}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </LabeledField>
+      </div>
+    </div>
+  )
+}
+
+function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () => void }) {
+  const { t } = useTranslation()
+
+  return (
+    <TableRow>
+      <TableCell>
+        <button type="button" className="grid gap-1 text-left" onClick={onOpen}>
+          <span className="font-medium">{job.label}</span>
+          <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
+        </button>
+      </TableCell>
+      <TableCell>
+        <span className="block max-w-80 truncate font-mono text-xs" title={job.directory_path}>
+          {job.directory_path}
+        </span>
+      </TableCell>
+      <TableCell>{job.wake_on_failure ? t('common.boolean_true') : t('common.boolean_false')}</TableCell>
+      <TableCell>
+        <StatusIndicator tone={jobStatusTone(job.status)}>
+          {t(`console.automation_jobs.status_${job.status}`)}
+        </StatusIndicator>
+      </TableCell>
+      <TableCell>{formatConsoleDate(job.created_at)}</TableCell>
+    </TableRow>
+  )
+}
+
+function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
+  const { t } = useTranslation()
+
+  return (
+    <div className="grid min-w-0 gap-8">
+      <section className="grid gap-3 border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusIndicator tone={jobStatusTone(job.status)}>
+            {t(`console.automation_jobs.status_${job.status}`)}
+          </StatusIndicator>
+          <span className="text-sm text-muted-foreground">{t('console.automation_jobs.attempt_policy')}</span>
+        </div>
+        <dl className="grid gap-3 text-sm md:grid-cols-2">
+          <Fact label={t('console.automation_jobs.directory')} value={job.directory_path} mono />
+          <Fact
+            label={t('console.automation_jobs.failure_wake')}
+            value={job.wake_on_failure ? t('common.boolean_true') : t('common.boolean_false')}
+          />
+          <Fact label={t('console.automation_jobs.created_at')} value={formatConsoleDate(job.created_at)} />
+          <Fact label={t('console.automation_jobs.updated_at')} value={formatConsoleDate(job.updated_at)} />
+        </dl>
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">{t('console.automation_jobs.reply_route')}</summary>
+          <pre className="mt-2 max-h-56 overflow-auto border border-border bg-muted p-3 text-xs">
+            {formatJSON(job.reply_route)}
+          </pre>
+        </details>
+      </section>
+
+      <section className="grid gap-3">
+        <h3 className="font-medium">{t('console.automation_jobs.run_history')}</h3>
+        {job.runs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('console.automation_jobs.no_runs')}</p>
+        ) : (
+          job.runs.map(run => <AutomationJobRun key={run.id} run={run} />)
+        )}
+      </section>
+    </div>
+  )
+}
+
+function AutomationJobRun({ run }: { run: AutomationJobRunItem }) {
+  const { t } = useTranslation()
+
+  return (
+    <article className="grid min-w-0 gap-3 border border-border bg-card p-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xs">#{run.id}</span>
+          <StatusIndicator tone={runStatusTone(run.status)}>
+            {t(`console.automation_jobs.run_status_${run.status}`)}
+          </StatusIndicator>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {t('console.automation_jobs.attempts', { count: run.attempts })}
+        </span>
+      </header>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span>{formatConsoleDate(run.started_at)}</span>
+        <span>→</span>
+        <span>{formatConsoleDate(run.finished_at)}</span>
+        {run.exit_code == null ? null : <span>exit {run.exit_code}</span>}
+      </div>
+      {run.error ? <p className="break-words text-sm text-destructive">{run.error}</p> : null}
+      {run.stdout ? <RunLog label="stdout" value={run.stdout} /> : null}
+      {run.stderr ? <RunLog label="stderr" value={run.stderr} /> : null}
+    </article>
+  )
+}
+
+function RunLog({ label, value }: { label: string; value: string }) {
+  return (
+    <details>
+      <summary className="cursor-pointer font-mono text-xs">{label}</summary>
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap border border-border bg-muted p-3 text-xs">
+        {value}
+      </pre>
+    </details>
+  )
+}
+
+function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="grid min-w-0 gap-1">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={mono ? 'break-all font-mono text-xs' : ''}>{value}</dd>
+    </div>
+  )
+}
+
+function automationJobID(value: string | null): number | undefined {
+  if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 1000 ? parsed : undefined
+}
+
+function jobStatusTone(status: AutomationJobItem['status']): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {
+  switch (status) {
+    case 'active':
+      return 'positive'
+    case 'expired':
+      return 'warning'
+    case 'cancelled':
+      return 'neutral'
+  }
+}
+
+function runStatusTone(status: AutomationJobRunItem['status']): 'danger' | 'info' | 'neutral' | 'positive' | 'warning' {
+  switch (status) {
+    case 'queued':
+      return 'neutral'
+    case 'running':
+      return 'info'
+    case 'succeeded':
+      return 'positive'
+    case 'failed':
+      return 'danger'
+    case 'cancelled':
+      return 'neutral'
+  }
+}

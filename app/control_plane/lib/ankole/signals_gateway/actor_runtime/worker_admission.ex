@@ -21,6 +21,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
@@ -97,16 +98,32 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         with :ok <- worker_route_available(repo, attrs) do
           case lock_worker_by_id(repo, attrs.worker_id) do
             %AgentComputerWorker{} = worker ->
-              refresh_worker_ready(repo, worker, attrs, now)
+              replaced_route =
+                if worker.incarnation_id != attrs.incarnation_id,
+                  do: worker.transport_route,
+                  else: nil
+
+              with {:ok, worker} <- refresh_worker_ready(repo, worker, attrs, now) do
+                {:ok, {worker, replaced_route}}
+              end
 
             nil ->
-              insert_worker_projection(repo, attrs)
+              with {:ok, worker} <- insert_worker_projection(repo, attrs) do
+                {:ok, {worker, nil}}
+              end
           end
         end
       end)
 
-    if match?({:ok, %AgentComputerWorker{}}, result), do: Ankole.RuntimeEvents.Scheduler.hydrate()
-    result
+    case result do
+      {:ok, {%AgentComputerWorker{} = worker, replaced_route}} ->
+        fail_pending_rpcs(replaced_route, :worker_incarnation_replaced)
+        Ankole.RuntimeEvents.Scheduler.hydrate()
+        {:ok, worker}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   @doc """
@@ -178,18 +195,22 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
       when is_binary(route) and reason in [:unknown_route, :socket_closed] do
     now = DateTime.utc_now(:microsecond)
 
-    Repo.transact(fn repo ->
-      case worker_by_route(repo, route) do
-        %AgentComputerWorker{} = worker ->
-          with {:ok, _worker} <-
-                 stale_worker_transition(repo, worker, now, Atom.to_string(reason)) do
-            {:ok, :marked_stale}
-          end
+    result =
+      Repo.transact(fn repo ->
+        case worker_by_route(repo, route) do
+          %AgentComputerWorker{} = worker ->
+            with {:ok, _worker} <-
+                   stale_worker_transition(repo, worker, now, Atom.to_string(reason)) do
+              {:ok, :marked_stale}
+            end
 
-        nil ->
-          {:ok, :route_not_registered}
-      end
-    end)
+          nil ->
+            {:ok, :route_not_registered}
+        end
+      end)
+
+    if match?({:ok, _result}, result), do: Broker.fail_pending_rpcs(route, reason)
+    result
   end
 
   def mark_route_unusable(_route, _reason), do: :ok
@@ -206,21 +227,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     now = DateTime.utc_now(:microsecond)
     reason = normalize_reason(reason)
 
-    Repo.transact(fn repo ->
-      workers =
+    result =
+      Repo.transact(fn repo ->
         AgentComputerWorker
         |> where([worker], worker.status in ^@stale_worker_statuses)
         |> lock("FOR UPDATE")
         |> repo.all()
+        |> Enum.map(&stale_worker_transition(repo, &1, now, reason))
+        |> collect_results()
+      end)
 
-      workers
-      |> Enum.map(&stale_worker_transition(repo, &1, now, reason))
-      |> collect_results()
-      |> case do
-        {:ok, workers} -> {:ok, length(workers)}
-        {:error, _reason} = error -> error
-      end
-    end)
+    case result do
+      {:ok, workers} ->
+        Enum.each(workers, &fail_pending_rpcs(&1.transport_route, reason))
+        {:ok, length(workers)}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   @doc false
@@ -241,24 +265,34 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @worker_stale_after_seconds)
 
-    Repo.transact(fn repo ->
-      case lock_worker_by_id(repo, worker_id) do
-        %AgentComputerWorker{} = worker ->
-          cond do
-            worker.status not in @stale_worker_statuses ->
-              {:error, :worker_not_due}
+    result =
+      Repo.transact(fn repo ->
+        case lock_worker_by_id(repo, worker_id) do
+          %AgentComputerWorker{} = worker ->
+            cond do
+              worker.status not in @stale_worker_statuses ->
+                {:error, :worker_not_due}
 
-            not worker_stale_due?(worker, now, stale_after_seconds) ->
-              {:error, :worker_not_due}
+              not worker_stale_due?(worker, now, stale_after_seconds) ->
+                {:error, :worker_not_due}
 
-            true ->
-              stale_worker_transition(repo, worker, now, "heartbeat_timeout")
-          end
+              true ->
+                stale_worker_transition(repo, worker, now, "heartbeat_timeout")
+            end
 
-        nil ->
-          {:error, :worker_not_found}
-      end
-    end)
+          nil ->
+            {:error, :worker_not_found}
+        end
+      end)
+
+    case result do
+      {:ok, %AgentComputerWorker{transport_route: route}} ->
+        fail_pending_rpcs(route, :heartbeat_timeout)
+        result
+
+      _result ->
+        result
+    end
   end
 
   @doc false
@@ -692,6 +726,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   defp normalize_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp normalize_reason(reason) when is_binary(reason), do: reason
   defp normalize_reason(reason), do: inspect(reason)
+
+  defp fail_pending_rpcs(route, reason) when is_binary(route),
+    do: Broker.fail_pending_rpcs(route, reason)
+
+  defp fail_pending_rpcs(_route, _reason), do: :ok
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

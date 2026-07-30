@@ -73,6 +73,20 @@ POST /webhooks/v1/:handler_id/:instance_id/:kind
 
 控制器本身只负责路由。它解析被声明的 `signals_gateway.webhook_handler` 插件，强制执行该 handler 声明的 `kind` 白名单，并渲染该 handler 的响应指令。未知的 handler 或未声明的 kind 返回 `404`，且不回显载荷；handler 失败返回 `500` 和一条通用消息。真正调用 `Ingress` 并传入归一化事实的，是 handler 自身。
 
+## Agent 创建的 webhook 委托
+
+Agent 创建的 callback capability 使用一条独立入口：
+
+```text
+POST /webhooks/v1/event-callbacks/wh_<token>
+```
+
+这条路径不经过 provider handler。URL 本身只授权唤醒创建它的 Agent session，不认证 body 中的事实。
+
+SignalsGateway 只存 token digest。它锁定 endpoint，执行 one-shot 或 standing 投递语义，并在同一 PostgreSQL 事务中追加 `webhook.received`。Worker 随后把有界 headers 和 body 放进不可信数据边界。Agent 在执行有后果的动作前，会读取外部系统中的当前状态。
+
+Endpoint 的 create、list 和 cancel 命令通过 turn-local Worker bridge 调用。Console 可以 list 和 cancel，但不能 create，也不会显示 callback URL。用户流程、GitHub 生命周期、投递契约和运维限制见 [Webhook 委托](../webhook-delegations/)。
+
 ## 出箱：回复发回去
 
 入境只是网关的一半。另一半是出箱，它把 agent 的回复变成 provider 侧的发送动作。出箱读取 channel 的 `reply_mode` 来选择发送方式——一条 channel 帖子，或一条楼中楼回复——并走与入境相同的 adapter 契约。agent 在一个回合中提交的副作用，通过这条路径交付，它们的持久记录与产生它们的那条 actor 事件存放在一起，而不是放在 live worker 里。

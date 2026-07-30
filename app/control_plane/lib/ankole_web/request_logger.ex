@@ -86,7 +86,7 @@ defmodule AnkoleWeb.RequestLogger do
     scheme = conn.scheme |> to_string()
     host = conn.host || "unknown"
     port = conn.port || default_port(conn.scheme)
-    path = conn.request_path || "/"
+    path = redacted_path(conn.request_path)
 
     "#{scheme}://#{host}#{port_fragment(conn.scheme, port)}#{path}"
   end
@@ -122,6 +122,12 @@ defmodule AnkoleWeb.RequestLogger do
   defp request_id(conn), do: List.first(Plug.Conn.get_resp_header(conn, "x-request-id"))
 
   defp route(conn) do
-    conn.private[:phoenix_route] || conn.request_path
+    conn.private[:phoenix_route] || redacted_path(conn.request_path)
   end
+
+  defp redacted_path("/webhooks/v1/event-callbacks/" <> _token),
+    do: "/webhooks/v1/event-callbacks/[REDACTED]"
+
+  defp redacted_path(path) when is_binary(path), do: path
+  defp redacted_path(_path), do: "/"
 end

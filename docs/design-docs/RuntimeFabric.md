@@ -442,6 +442,7 @@ The registry currently contains these method families:
 - Agent Plugin catalog.
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.
+- Automation job management, execution, and event emission.
 - Background Agent Job lifecycle and trajectory.
 - Brain memory operations.
 - Schedule operations.
@@ -454,8 +455,10 @@ Memory and schedule RPCs use `JSONPassthroughResponse`. The worker passes
 The RPC lane does not carry conversation history or compaction commits.
 AIGateway owns both concerns.
 
-The worker RPC timeout is 300 seconds.
-This runtime timeout is not a PostgreSQL transaction budget.
+Worker-originated RPC calls use the normal 300-second timeout. An automation
+job execution is a control-plane-originated RPC. Its timeout is ten minutes
+plus a short transport margin. Neither runtime timeout is a PostgreSQL
+transaction budget.
 
 ## Read and Change Worker Files
 

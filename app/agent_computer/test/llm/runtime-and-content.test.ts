@@ -705,6 +705,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions).toContain('documents: [background task]')
     expect(instructions).toContain('main-helper: "Help only the main Agent."')
     expect(instructions).not.toContain('main-helper: [background task]')
+    expect(instructions).toContain('do not enumerate the environment or credential stores')
   })
 
   it('omits the Skill catalog when skill_view is unavailable and defines long-term memory once', () => {

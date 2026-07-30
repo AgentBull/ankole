@@ -1,6 +1,6 @@
 {
   "site.title": "Ankole",
-  "site.description": "Ankole 是开源的 AI Workforce OS，让 AI Agent 成为自主劳动力：承担业务职能，并按结果接受考核。",
+  "site.description": "Ankole 是开源的 AI Workforce OS，让 AI Agent 成为自主劳动力：承担岗位职能并接受考核。",
   "nav.docs": "文档",
   "nav.github": "GitHub",
   "nav.menu": "菜单",
@@ -11,7 +11,7 @@
   "hero.badge": "开源 · 自托管",
   "hero.title.line1": "开源的",
   "hero.title.line2": "AI Workforce OS",
-  "hero.subtitle": "让 AI Agent 成为自主劳动力：承担业务职能，并按结果接受考核。",
+  "hero.subtitle": "让 AI Agent 成为自主劳动力：承担岗位职能并接受考核。",
   "hero.cta.primary": "快速上手",
   "hero.cta.secondary": "GitHub",
   "hero.stack.ha": "基于 Elixir/OTP 的企业级分布式高可用架构",

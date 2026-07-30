@@ -3,6 +3,7 @@ defmodule Ankole.Schedule.Checkbacks do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Normalizer
@@ -17,7 +18,15 @@ defmodule Ankole.Schedule.Checkbacks do
 
     with {:ok, attrs} <- Normalizer.checkback_attrs(attrs, now, opts) do
       Repo.transact(fn repo ->
-        Store.insert_idempotent_event_and_wake_in_tx(repo, attrs, opts)
+        with :ok <-
+               AutomationJobs.validate_bindable_in_tx(
+                 repo,
+                 attrs.automation_job_id,
+                 attrs.agent_uid,
+                 now
+               ) do
+          Store.insert_idempotent_event_and_wake_in_tx(repo, attrs, opts)
+        end
       end)
     end
   end
@@ -113,6 +122,8 @@ defmodule Ankole.Schedule.Checkbacks do
   defp replace_checkback_in_tx(repo, event, attrs, now, opts) do
     with {:ok, replacement_attrs} <-
            Normalizer.checkback_replacement_attrs(event, attrs, now, opts),
+         :ok <-
+           validate_replacement_automation_job(repo, attrs, replacement_attrs, now),
          {:ok, %{status: insert_status, scheduled_event: replacement}} <-
            Store.insert_idempotent_event_and_wake_in_tx(repo, replacement_attrs, opts),
          :ok <- ensure_replacement_targets(replacement, event),
@@ -239,4 +250,18 @@ defmodule Ankole.Schedule.Checkbacks do
 
   defp replacement_status(:scheduled), do: :updated
   defp replacement_status(:already_scheduled), do: :already_updated
+
+  defp validate_replacement_automation_job(repo, requested_attrs, replacement_attrs, now) do
+    if Map.has_key?(requested_attrs, "automation_job_id") or
+         Map.has_key?(requested_attrs, :automation_job_id) do
+      AutomationJobs.validate_bindable_in_tx(
+        repo,
+        replacement_attrs.automation_job_id,
+        replacement_attrs.agent_uid,
+        now
+      )
+    else
+      :ok
+    end
+  end
 end

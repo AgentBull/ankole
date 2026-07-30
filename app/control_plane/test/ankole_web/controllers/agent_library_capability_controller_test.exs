@@ -38,7 +38,18 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     conn = bearer_conn(conn)
 
     global = conn |> get(~p"/api/v1/agent-library/capabilities") |> json_response(200)
-    assert Enum.map(global["agent_plugins"], & &1["id"]) == ["deep-research", "lark", "office"]
+
+    assert Enum.map(global["agent_plugins"], & &1["id"]) == [
+             "deep-research",
+             "github",
+             "lark",
+             "office"
+           ]
+
+    assert Enum.find(global["agent_plugins"], &(&1["id"] == "github"))[
+             "effective_enabled"
+           ] == false
+
     assert Enum.find(global["agent_plugins"], &(&1["id"] == "lark"))["effective_enabled"] == false
 
     standalone_names = Enum.map(global["skills"], & &1["name"])

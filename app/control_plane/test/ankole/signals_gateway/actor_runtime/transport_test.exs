@@ -95,6 +95,46 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                FabricProto.WorkerEnvResolveResponse.decode(payload)
     end
 
+    test "worker staleness fails pending RPC callers without waiting for their method deadline" do
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      task =
+        Task.async(fn ->
+          Broker.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
+        end)
+
+      assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, _request}}}, 200
+      assert :ok = Broker.fail_pending_rpcs(route, :heartbeat_timeout)
+      assert {:error, {:worker_route_unusable, :heartbeat_timeout}} = Task.await(task, 500)
+    end
+
+    test "a replacement worker fails RPC callers owned by the previous incarnation" do
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, worker} = admit_worker(route)
+
+      task =
+        Task.async(fn ->
+          Broker.request_rpc(route, "automation_job.run", <<>>, timeout_ms: 10_000)
+        end)
+
+      assert_receive {:actor_lane, %FabricProto.Envelope{body: {:rpc_request, _request}}}, 200
+
+      assert {:ok, replacement} =
+               admit_worker(route, %{
+                 worker_id: worker.worker_id,
+                 incarnation_id: "replacement-incarnation"
+               })
+
+      assert replacement.incarnation_id == "replacement-incarnation"
+
+      assert {:error, {:worker_route_unusable, :worker_incarnation_replaced}} =
+               Task.await(task, 500)
+    end
+
     test "a crashing RPC handler returns rpc_error without terminating the transport broker" do
       %{principal: agent} = agent_fixture()
       config_owner = Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker

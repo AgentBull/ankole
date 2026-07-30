@@ -108,7 +108,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           skillRoots,
           turn: turnStart.turn,
           workerEnv: toolWorkerEnv,
-          abortSignal: turnActivity.signal
+          abortSignal: turnActivity.signal,
+          onCatalogUnavailable: failure => {
+            opts.logger?.warning('worker.mcp_catalog_unavailable', 'worker MCP catalog unavailable', {
+              actor_event_id: turnStart.turn.actor_event_id,
+              mcp_server_name: failure.serverName,
+              source_skills: failure.sourceSkills,
+              error_message: failure.message,
+              ...(failure.code ? { error_code: failure.code } : {})
+            })
+          }
         }),
         'MCP tools availability'
       )

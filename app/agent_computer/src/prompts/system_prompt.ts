@@ -95,20 +95,15 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
     `Agent Home: ${agentHome}`,
     `Current workspace: ${opts.workspaceRoot}`,
     `Cross-session user files: ${userFilesRoot}`,
-    `Agent documents: ${agentHome}/SOUL.md, ${agentHome}/MISSION.md, ${agentHome}/DESIGN.md`,
-    'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
     `Current timezone: ${timezone}`
   ]
   const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
   const startedAt = parseDate(opts.agentConversationContext?.conversation?.startedAt)
-  if (startedAt) {
-    lines.push(`Conversation started date: ${formatZonedDate(timezone, startedAt)}`)
-  }
-  if (opts.currentChannel) {
-    lines.push(`Conversation started channel: ${formatCurrentChannel(opts.currentChannel)}`)
-  }
+  if (startedAt) lines.push(`Conversation started date: ${formatZonedDate(timezone, startedAt)}`)
+
+  if (opts.currentChannel) lines.push(`Conversation started channel: ${formatCurrentChannel(opts.currentChannel)}`)
 
   lines.push('</runtime_context>')
   return lines.join('\n')
@@ -185,7 +180,7 @@ function completionContractSection(): string {
 }
 
 /**
- * Defines the main agent's latency boundary and durable background handoff.
+ * Defines the conversation Agent's latency boundary and durable background handoff.
  * This block is omitted from special turns that do not expose the Job tool.
  */
 function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): string {
@@ -195,14 +190,14 @@ function backgroundAgentJobPolicySection(opts: BuildAgentSystemPromptOptions): s
     '<background_agent_job_policy>',
     '# Immediate work and background work',
     'Do work directly when the user can reasonably wait in the active exchange and your next reply can contain the completed result. A clear scope or several quick tool calls alone does not require a background job.',
-    'Use create_background_job for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Create the Job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
-    'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained Job task; call create_background_job, then tell the user it moved to the background.',
+    'Use create_background_job for work that takes minutes or hours, needs persistent or interactive execution state, is explicitly requested as background/asynchronous work, or uses a Skill marked [background task]. Create the background agent job before promising future delivery, then tell the user what was accepted and that you will report after the system wakes you.',
+    'If direct work becomes heavier than expected, preserve useful progress, decisions, relevant context, paths, constraints, acceptance criteria, and remaining work in one self-contained background agent job task; call create_background_job, then tell the user it moved to the background.',
     'Track progress with show_background_job_details or list_background_jobs only when current progress is actually needed. Do not poll: terminal outcomes and requests for user input wake this conversation automatically.',
-    'After a Job completes, inspect its status and artifacts yourself. Re-run relevant tests or checks, review diffs when code changed, and make only small mechanical corrections directly before reporting the outcome. Do not treat the Job report as sufficient evidence.',
-    'When a Job waits for user input, relay its questions with clarify, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.',
+    'When a background agent job completes, use its result and artifact information to respond to the user. If you send files, make sure they are the files the user asked for and can be opened normally.',
+    'When a background agent job waits for user input, relay its questions with clarify, one question per turn. After collecting the answer, send it as ordinary text with send_message_to_background_job.',
     ...(toolAvailable(opts, 'respawn_background_job')
       ? [
-          'When a succeeded, failed, or stopped Job needs more work, call respawn_background_job with that source Job and the new instruction. Do not send a message to a terminal Job.'
+          'When a succeeded, failed, or stopped background agent job needs more work, call respawn_background_job with that source background agent job and the new instruction. Do not send a message to a terminal background agent job.'
         ]
       : []),
     '</background_agent_job_policy>'
@@ -238,6 +233,8 @@ function toolsSection(opts: BuildAgentSystemPromptOptions): string {
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. The runtime context gives its file paths. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
 Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, OfficeCLI/Pandoc with the WeasyPrint and Typst PDF engines/nano-pdf/QPDF for document work, and common shell/dev utilities such as jq, bash, git, and rg. Verify exact versions with a quick command when the task depends on them.
+
+Tool processes can receive task-scoped credentials and unrelated runtime secrets. These values authorize external systems; they are not diagnostic data. Use only credentials named by the task or a loaded Skill. If one is missing, report the configuration blocker; do not enumerate the environment or credential stores, and never print secret values.
 
 Persistence model: Cross-session user files preserve uploads and deliverables. Agent-installed Skills persist in the installed-skills directory under Agent Home. The listed Agent documents are read-only projections of PostgreSQL state. Use the current workspace's temp directory for scratch data.
 

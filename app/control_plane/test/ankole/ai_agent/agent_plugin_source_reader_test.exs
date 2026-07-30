@@ -20,11 +20,11 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     assert length(conflict.roots) == 2
   end
 
-  test "the three trusted Agent Plugins are discovered from standard manifests" do
+  test "the four trusted Agent Plugins are discovered from standard manifests" do
     root = Path.expand("../../../../library", __DIR__)
 
     assert {:ok, agent_plugins} = SourceReader.read_trusted_agent_plugins(roots: [root])
-    assert Enum.map(agent_plugins, & &1.id) == ["deep-research", "lark", "office"]
+    assert Enum.map(agent_plugins, & &1.id) == ["deep-research", "github", "lark", "office"]
 
     plugin = Enum.find(agent_plugins, &(&1.id == "deep-research"))
 
@@ -41,6 +41,18 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     assert hd(plugin.skills).metadata["ankole-runtime"] == "main"
     refute Map.has_key?(plugin, :files)
     refute Map.has_key?(plugin, :ankole)
+
+    github = Enum.find(agent_plugins, &(&1.id == "github"))
+
+    assert github.version == "1.3.0"
+
+    assert Enum.map(github.skills, & &1.name) == [
+             "github-auth",
+             "github-issues",
+             "github-pr-workflow",
+             "github-repo-management",
+             "github-webhooks"
+           ]
   end
 
   test "GitHub stays disabled until the installation enables it" do

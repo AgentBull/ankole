@@ -11,6 +11,7 @@ defmodule Ankole.Schedule.RPCBroker do
   alias Ankole.Schedule
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime.Common
+  alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.AIGatewayLink
@@ -25,7 +26,7 @@ defmodule Ankole.Schedule.RPCBroker do
     respond(ctx, fn ->
       reply_route = Common.decode_json_bytes(request.reply_route_json)
 
-      with {:ok, source} <- validate_reply_route(turn_ref, reply_route),
+      with {:ok, source} <- ReplyRoute.validate(turn_ref, reply_route),
            {:ok, attrs} <- checkback_attrs(request, turn_ref, source, ctx, reply_route),
            {:ok, %{status: status, scheduled_event: event}} <-
              Schedule.create_check_back_later(attrs) do
@@ -87,7 +88,7 @@ defmodule Ankole.Schedule.RPCBroker do
       reply_route = Common.decode_json_bytes(request.reply_route_json)
 
       with {:ok, event} <- checkback_from_turn(request.scheduled_event_id, turn_ref),
-           {:ok, source} <- validate_reply_route(turn_ref, reply_route),
+           {:ok, source} <- ReplyRoute.validate(turn_ref, reply_route),
            {:ok, attrs} <- checkback_update_attrs(request, turn_ref, source, ctx, reply_route),
            {:ok, %{status: status, scheduled_event: updated}} <-
              Schedule.update_checkback(event.id, attrs) do
@@ -281,14 +282,18 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp checkback_attrs(request, %TurnRef{} = turn_ref, source, ctx, reply_route) do
-    with {:ok, attrs} <- checkback_turn_attrs(request, turn_ref, source, ctx, reply_route || %{}) do
+    with {:ok, automation_job_id} <-
+           optional_safe_integer(request.automation_job_id, :automation_job_id),
+         {:ok, attrs} <-
+           checkback_turn_attrs(request, turn_ref, source, ctx, reply_route || %{}) do
       {:ok,
        Map.merge(attrs, %{
          "schedule" => Common.decode_json_bytes(request.schedule_json),
          "reason" => presence(request.reason),
          "check" => presence(request.check),
          "context_summary" => presence(request.context_summary),
-         "quiet_success" => request.quiet_success
+         "quiet_success" => request.quiet_success,
+         "automation_job_id" => automation_job_id
        })}
     end
   end
@@ -332,7 +337,7 @@ defmodule Ankole.Schedule.RPCBroker do
     case Common.decode_json_bytes(request.updates_json) do
       updates when is_map(updates) and map_size(updates) > 0 ->
         updates = RPCWire.stringify_keys(updates)
-        allowed = ~w(reason check context_summary quiet_success schedule)
+        allowed = ~w(reason check context_summary quiet_success schedule automation_job_id)
 
         case Map.keys(updates) -- allowed do
           [] -> {:ok, updates}
@@ -350,6 +355,8 @@ defmodule Ankole.Schedule.RPCBroker do
     with {:ok, idempotency_key} <- required_text(request.idempotency_key, :idempotency_key),
          {:ok, binding_name} <- required_text(request.binding_name, :binding_name),
          {:ok, name} <- required_text(request.name, :name),
+         {:ok, automation_job_id} <-
+           optional_safe_integer(request.automation_job_id, :automation_job_id),
          :ok <- validate_cron_delivery_route(turn_ref, binding_name, delivery) do
       {:ok,
        %{
@@ -360,7 +367,8 @@ defmodule Ankole.Schedule.RPCBroker do
          "schedule" => Common.decode_json_bytes(request.schedule_json),
          "payload" => Common.decode_json_bytes(request.payload_json) || %{},
          "delivery" => delivery,
-         "idempotency_key" => idempotency_key
+         "idempotency_key" => idempotency_key,
+         "automation_job_id" => automation_job_id
        }}
     end
   end
@@ -374,19 +382,6 @@ defmodule Ankole.Schedule.RPCBroker do
       "origin_ai_message_id" => current_ai_message_id(turn),
       "activation_uid" => turn.activation_uid
     }
-  end
-
-  defp validate_reply_route(_turn, reply_route) when not is_map(reply_route),
-    do: {:error, :invalid_reply_route}
-
-  defp validate_reply_route(turn, reply_route) do
-    with {:ok, source} <- turn_reply_source(turn),
-         true <- reply_route_matches?(source, reply_route) do
-      {:ok, source}
-    else
-      false -> {:error, :reply_route_not_in_turn}
-      {:error, _reason} = error -> error
-    end
   end
 
   defp validate_cron_update_delivery_route(_turn, _binding_name, updates)
@@ -404,43 +399,13 @@ defmodule Ankole.Schedule.RPCBroker do
     do: :ok
 
   defp validate_cron_delivery_route(turn, binding_name, delivery) do
-    with {:ok, source} <- turn_reply_source(turn),
+    with {:ok, source} <- ReplyRoute.source(turn),
          true <- cron_delivery_route_matches?(source, binding_name, delivery) do
       :ok
     else
       false -> {:error, :reply_route_not_in_turn}
       {:error, _reason} = error -> error
     end
-  end
-
-  defp turn_reply_source(turn) do
-    case actor_event_reply_source(turn.actor_event_id) do
-      nil -> {:error, :reply_route_not_in_turn}
-      source -> {:ok, source}
-    end
-  end
-
-  defp actor_event_reply_source(actor_event_id) do
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{} = input ->
-        %{
-          actor_event_id: input.id,
-          binding_name: input.binding_name,
-          signal_channel_id: input.signal_channel_id,
-          provider_thread_id: input.provider_thread_id,
-          source_entry_id: input.source_entry_id
-        }
-
-      nil ->
-        nil
-    end
-  end
-
-  defp reply_route_matches?(source, reply_route) do
-    RPCWire.text(reply_route, "binding_name") == source.binding_name and
-      RPCWire.text(reply_route, "signal_channel_id") == source.signal_channel_id and
-      nullable_text(reply_route, "provider_thread_id") == source.provider_thread_id and
-      nullable_text(reply_route, "source_entry_id") == source.source_entry_id
   end
 
   defp cron_delivery_route_matches?(source, binding_name, delivery) do
@@ -538,6 +503,9 @@ defmodule Ankole.Schedule.RPCBroker do
   end
 
   defp safe_integer(_value, key), do: {:error, {:invalid_integer, key}}
+
+  defp optional_safe_integer(value, _key) when value in [nil, ""], do: {:ok, nil}
+  defp optional_safe_integer(value, key), do: safe_integer(value, key)
 
   defp presence(value) when is_binary(value) do
     case String.trim(value) do

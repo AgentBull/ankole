@@ -87,6 +87,13 @@ Responses namespace for each server. The namespace contains the real MCP tools.
 Each child function has `defer_loading: true`, so its schema is not in the
 model context until Tool Search selects it.
 
+A runtime failure while Agent Computer reads one server catalog removes only
+that server from the current turn and writes a bounded warning. Other MCP
+servers and the Agent turn continue. Agent Computer does not cache the failure,
+so a later turn tries the server again. An invalid local declaration or a
+conflict between declarations still rejects turn preparation because no
+unambiguous server contract exists.
+
 AIGateway owns search for the main Agent. It uses the official `tool_search`
 surface, searches the deferred child functions, returns the matching namespace
 children in `tool_search_output`, and maps the selected namespaced function
@@ -181,8 +188,8 @@ A changed declaration or credential creates a new cache entry. The cache does
 not store failures, and concurrent turns do not share an unfinished load.
 
 Before caching, Agent Computer checks catalog text and object keys for secret
-WorkerEnv values. If it finds one, it rejects the catalog instead of changing
-the server schema.
+WorkerEnv values. If it finds one, it rejects that server catalog and omits the
+server from the current turn instead of changing the server schema.
 
 ## Open a New Connection for Each Operation
 

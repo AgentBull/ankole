@@ -7,6 +7,8 @@ import { ProviderEditorPage, ProvidersListPage } from './pages/providers'
 import { SettingEditorDrawer, SettingGroupDrawer, SettingsPage } from './pages/settings'
 import { SignalBindingEditorPage, SignalsListPage } from './pages/signals'
 import { ScheduleCronEditorPage, SchedulesListPage } from './pages/schedules'
+import { WebhooksPage } from './pages/webhooks'
+import { AutomationJobsPage } from './pages/automation-jobs'
 import { WorkerEnvEditorPage, WorkerEnvsListPage } from './pages/worker-envs'
 import { WorkerFilesPage, WorkersListPage } from './pages/workers'
 import { BackgroundAgentJobsPage } from './pages/background-agent-jobs'
@@ -67,6 +69,8 @@ const router = createBrowserRouter(
         { path: 'signals/new', element: <SignalBindingEditorPage /> },
         { path: 'schedules', element: <SchedulesListPage /> },
         { path: 'schedules/new', element: <ScheduleCronEditorPage /> },
+        { path: 'webhooks', element: <WebhooksPage /> },
+        { path: 'automation-jobs', element: <AutomationJobsPage /> },
         {
           path: 'settings',
           element: <SettingsPage />,

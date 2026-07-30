@@ -10,8 +10,8 @@ const POLL_INTERVAL_MS = 1_000
 
 const SendMessageToBackgroundJobParamsSchema = z
   .object({
-    job_id: ModelIntegerID.describe('BackgroundAgentJob id.'),
-    message: z.string().min(1).describe('Message to send to the BackgroundAgentJob.'),
+    job_id: ModelIntegerID.describe('Background agent job id.'),
+    message: z.string().min(1).describe('Message to send to the background agent job.'),
     wait_reply: z.boolean().describe('Wait for the Codex Turn that receives this message.').default(true)
   })
   .strict()
@@ -58,7 +58,7 @@ export function createSendMessageToBackgroundJobTool(
   return {
     name: 'send_message_to_background_job',
     description: [
-      'Send one message to a running BackgroundAgentJob or answer a Job that is waiting_on_user.',
+      'Send one message to a running background agent job or answer one that is waiting_on_user.',
       'wait_reply defaults to true and waits for the exact Codex Turn that receives this message.',
       'Use wait_reply=false only when the Turn result is not needed now.'
     ].join(' '),
@@ -79,7 +79,7 @@ export function createSendMessageToBackgroundJobTool(
       const sentStatus = BackgroundAgentJobStatusSchema.parse(sent.status)
 
       if (!params.wait_reply) {
-        const sentJobID = modelIntegerIDFromWire(sent.jobId, 'background Agent Job id')
+        const sentJobID = modelIntegerIDFromWire(sent.jobId, 'background agent job id')
         const details = { job_id: sentJobID, status: sentStatus }
         return {
           content: [
@@ -114,7 +114,7 @@ export function createSendMessageToBackgroundJobTool(
           )
           const continuesRunning = status === 'running'
           const details = {
-            job_id: modelIntegerIDFromWire(response.jobId, 'background Agent Job id'),
+            job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
             status,
             last_turn_trajectory: trajectory,
             earlier_trajectory_omitted: response.earlierTrajectoryOmitted,

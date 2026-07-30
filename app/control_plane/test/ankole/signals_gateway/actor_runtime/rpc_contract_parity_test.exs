@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCContractParityTest do
       @contract_path
       |> File.read!()
       |> Torque.decode!()
+      |> Enum.reject(&(&1["owner"] == "worker"))
       |> Map.new(fn entry ->
         {entry["method"], {entry["scope"], entry["effect"], entry["request_type"]}}
       end)

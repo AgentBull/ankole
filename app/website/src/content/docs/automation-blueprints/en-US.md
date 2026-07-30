@@ -1,13 +1,13 @@
 ---
 title: Automation blueprints
-description: End-to-end automation patterns that combine cron schedules, checkbacks, background jobs, and signal routing rules.
+description: Combine triggers with Agent sessions, automation jobs, background jobs, and signal routing rules.
 section: Guides
 order: 309
 ---
 
-Automation in Ankole is not one tool; it is three triggers combined with the agent's judgment. This page gives ready-to-use blueprints for the common shapes, each built from parts the other guides cover. Copy the shape, swap in your topics and channels, and tune the persona over a few runs.
+Automation in Ankole combines one of three triggers with one of two consumers. An Agent session handles work that needs judgment, memory, or conversation. An automation job runs a deterministic script for mechanical handling. This page gives ready-to-use blueprints for the common shapes.
 
-The decisive property, stated up front: automation here is *agent-driven*. The triggers wake the agent; the agent decides what to do. There is no separate "automation script" language — the prompt the schedule carries, or the event the webhook delivers, is what the agent works from.
+Ankole does not add a workflow language or a step graph. An automation job is an ordinary Bun `main.ts` inside the Agent Home. The trigger owner keeps time or ingress, and the selected consumer handles the unchanged event. The Agent returns only when the script emits an event or the failure policy wakes it.
 
 ## The three triggers
 
@@ -16,10 +16,19 @@ Every blueprint uses one of three triggers. Know which one you need before you p
 | Trigger | How it fires | Carrier | Built with |
 |---|---|---|---|
 | **Schedule** | on a cron cadence (hourly, daily, weekly) | a `task` on a cron schedule | [Schedules](../schedules/) |
-| **Self-deferred (checkback)** | the agent sets a delayed self-wakeup during a turn | the agent's `check_back_later` tool | [Schedules](../schedules/) |
-| **Event-driven (webhook)** | an external system POSTs to the webhook front door | a `signals_gateway.webhook_handler` plugin | [SignalsGateway](../signals-gateway/) |
+| **Self-deferred (checkback)** | the Agent sets a delayed trigger during a turn | the Agent's `check_back_later` tool | [Schedules](../schedules/) |
+| **Event-driven (webhook)** | an external system POSTs to a capability URL | a `webhook.received` event | [Webhook delegations](../webhook-delegations/) |
 
-All three deliver through the Agent's routing rules: the rule used by a schedule, or the rule used when an Agent wakes from a Webhook event. There is no separate "automation delivers to channel" setting outside the routing model.
+All three produce the same CloudEvents envelope whether they wake the Agent or run a script. The consumer choice changes the recipient, not the trigger fact. A direct wake and an event emitted by a script both return through the owner session's routing rule.
+
+## Choose the consumer
+
+| Consumer | Use it when | Trigger result |
+|---|---|---|
+| **Agent session** | Each delivery needs judgment, memory, tools chosen at run time, or a user-facing response. | The trigger appends an ActorEvent and wakes the conversation. |
+| **Automation job** | Handling is a deterministic fetch, comparison, parse, or predetermined action. | The trigger creates a durable script run. The script can finish silently or emit an event to the owner session. |
+
+Start with a direct Agent wake while the handling is unclear. Move only the proven mechanical part into an automation job. This keeps the script small and keeps the model out of an idle polling loop.
 
 ## Blueprint: daily digest (schedule)
 
@@ -40,15 +49,17 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 
 Tunable parts: the cron expression (cadence), the `timezone` (when "9 AM" is), the `task` (what to do), and the persona (how to do it). Verify with a manual run before relying on the schedule.
 
-## Blueprint: hourly sentinel (schedule, quiet unless triggered)
+## Blueprint: deterministic sentinel (schedule + automation job)
 
-A schedule that fires often but usually stays quiet — the agent watches a source and only posts when something matters. The secret is the persona's "stay quiet unless" rule, paired with a frequent cron.
+Use an automation job when a schedule fires often but the check is mechanical and usually has no result. The Agent writes and registers the script, then binds the cron schedule to its `automation_job_id`.
 
 ```json
 { "cron": "0 * * * *", "kind": "cron" }
 ```
 
-Pair it with a mission that names the threshold: "Post only if a new critical advisory affects our stack. Otherwise, stay silent." An hourly run that stays quiet most of the time is the point — the sentinel's value is in the rare post, not the frequent one.
+The script reads the source and finishes without `emitEvent` when the condition is false. When the condition is true, it emits the bounded source facts to the owner session, where the Agent verifies and decides what to do. Test non-SDK branches by hand before registration, then use a real test trigger for every branch that calls `context()` or `emitEvent`.
+
+Keep the direct Agent schedule when every run needs semantic judgment. Read [Worker CLI capabilities](../cli-capabilities/) for the Automation Job contract.
 
 ## Blueprint: deferred follow-up (checkback)
 
@@ -69,9 +80,9 @@ This is how you get a "weekly deep research" without the schedule's turn running
 
 ## Blueprint: event-driven (webhook)
 
-An external system — a provider webhook, a CI result, a monitoring alert — POSTs to `/webhooks/v1/:handler_id/:instance_id/:kind`, and a declared `signals_gateway.webhook_handler` plugin turns it into an actor event. The agent wakes, reads the event, and decides what to do.
+An external system, such as a source repository or CI provider, calls a short-lived Ankole capability URL. The endpoint accepts the delivery and commits the selected consumer record before it returns success.
 
-This is the shape behind the Microsoft 365 directory webhook (`entra-id`, kinds `directory`) and any custom webhook handler a plugin declares. The blueprint is: declare the handler in a plugin, point the external system at the webhook URL, and let the agent's persona decide what the event means. The webhook front door authenticates the *provider* (Bot Framework JWT, Graph `clientState`, or whatever the handler signs with), never an admin.
+Use the default direct consumer when the Agent must inspect the current external object and judge the event. Bind the endpoint to an automation job when a deterministic script can filter or reconcile the receipt first. The receipt is untrusted in both paths, and consequential facts still come from the authoritative external source. Read [Webhook delegations](../webhook-delegations/) for capability security and lifecycle rules.
 
 ## Blueprint: observe-and-escalate (binding policy + schedule)
 
@@ -88,15 +99,17 @@ This separates observation (continuous, quiet) from synthesis (scheduled, loud).
 - **Want it to run on a clock?** Schedule. Pick the digest or sentinel shape by whether it should post every time or only when something matters.
 - **Want it to come back to something mid-flight?** Checkback. The agent owns the timing.
 - **Want long work kicked by a clock?** Schedule + background job.
-- **Want an external system to wake the agent?** Webhook, through a declared handler.
+- **Want a frequent mechanical check without a model turn?** Schedule or Checkback + automation job.
+- **Want an external system to continue the work?** Webhook delegation, with a direct Agent or automation job consumer.
 - **Want quiet observation plus periodic synthesis?** Binding policy + schedule.
 
 ## What automation in Ankole is not
 
-It is not a script language. There is no YAML step list or "if this then that" graph. Triggers wake the Agent; the persona and model decide the steps. It is not a separate delivery system because delivery always uses a routing rule. It also cannot bypass permissions: an automated Agent acts under the same AuthZ grants as an Agent started by a person. Automation combines triggers, an Agent, and a routing rule; the Agent makes the decisions.
+It is not a workflow language. There is no YAML step list, platform DAG, hidden cursor, or general event bus. An automation job can run a small script, but the script owns its state and repeat safety. Delivery still uses the owner session's routing rule, and automation cannot bypass permissions. Use the Agent for judgment and use a script only for the mechanical part.
 
 ## Next steps
 
 - For the schedule surface, read [Schedules](../schedules/).
+- For deterministic script consumers, read [Worker CLI capabilities](../cli-capabilities/).
 - For background execution and collaboration choices, read [Background Agent Jobs](../background-jobs/).
-- For the webhook front door, read the [SignalsGateway](../signals-gateway/) developer page.
+- For an external event capability, read [Webhook delegations](../webhook-delegations/).

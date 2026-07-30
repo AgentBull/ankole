@@ -32,6 +32,7 @@ defmodule Ankole.Schedule.Projections do
       "last_fire_at" => Planner.datetime(schedule.last_fire_at),
       "idempotency_key" => schedule.idempotency_key,
       "created_by" => schedule.created_by || %{},
+      "automation_job_id" => schedule.automation_job_id,
       "inserted_at" => Planner.datetime(schedule.inserted_at),
       "updated_at" => Planner.datetime(schedule.updated_at)
     }
@@ -47,7 +48,8 @@ defmodule Ankole.Schedule.Projections do
       "payload" => schedule.payload || %{},
       "quiet_success" => get_in(schedule.delivery || %{}, ["quiet_success"]) == true,
       "next_fire_at" => Planner.datetime(schedule.next_fire_at),
-      "last_fire_at" => Planner.datetime(schedule.last_fire_at)
+      "last_fire_at" => Planner.datetime(schedule.last_fire_at),
+      "automation_job_id" => schedule.automation_job_id
     }
   end
 
@@ -65,6 +67,8 @@ defmodule Ankole.Schedule.Projections do
       "requested_at" => Planner.datetime(event.requested_at),
       "idempotency_key" => event.idempotency_key,
       "cron_schedule_id" => event.cron_schedule_id,
+      "automation_job_id" => event.automation_job_id,
+      "automation_job_run_id" => event.automation_job_run_id,
       "cron_fire_slot_at" => Planner.datetime(event.cron_fire_slot_at),
       "tool_call_id" => event.tool_call_id,
       "origin_ai_message_id" => event.origin_ai_message_id,
@@ -99,6 +103,8 @@ defmodule Ankole.Schedule.Projections do
       "check" => wake_payload["check"],
       "context_summary" => wake_payload["context_summary"],
       "quiet_success" => wake_payload["quiet_success"] == true,
+      "automation_job_id" => event.automation_job_id,
+      "automation_job_run_id" => event.automation_job_run_id,
       "fired_at" => Planner.datetime(event.fired_at),
       "cancelled_at" => Planner.datetime(event.cancelled_at),
       "last_error" => model_last_error(event.last_fire_error)
@@ -113,6 +119,8 @@ defmodule Ankole.Schedule.Projections do
       "due_at" => Planner.datetime(event.due_at),
       "timezone" => event.timezone,
       "trigger" => wake_payload["trigger"],
+      "automation_job_id" => event.automation_job_id,
+      "automation_job_run_id" => event.automation_job_run_id,
       "fired_at" => Planner.datetime(event.fired_at),
       "cancelled_at" => Planner.datetime(event.cancelled_at),
       "last_error" => model_last_error(event.last_fire_error)

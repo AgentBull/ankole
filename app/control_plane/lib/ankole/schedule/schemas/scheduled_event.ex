@@ -9,6 +9,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
+  alias Ankole.AutomationJobs.Schemas.Job, as: AutomationJob
+  alias Ankole.AutomationJobs.Schemas.Run, as: AutomationJobRun
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Ecto.JSONPayload
   alias Ankole.TimeZone
@@ -36,6 +38,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     field :idempotency_key, :string
 
     belongs_to :cron_schedule, CronSchedule, type: :binary_id
+    belongs_to :automation_job, AutomationJob, type: :id
+    belongs_to :automation_job_run, AutomationJobRun, type: :id
 
     field :cron_fire_slot_at, :utc_datetime_usec
     field :tool_call_id, :string
@@ -76,6 +80,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :requested_at,
       :idempotency_key,
       :cron_schedule_id,
+      :automation_job_id,
+      :automation_job_run_id,
       :cron_fire_slot_at,
       :tool_call_id,
       :source_actor_event_id,
@@ -130,6 +136,8 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     |> JSONPayload.validate_map(:last_fire_error)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:cron_schedule_id)
+    |> foreign_key_constraint(:automation_job_id)
+    |> foreign_key_constraint(:automation_job_run_id)
     |> foreign_key_constraint(:source_actor_event_id)
     |> foreign_key_constraint(:actor_event_id)
     |> foreign_key_constraint(:origin_ai_message_id)

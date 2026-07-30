@@ -26,6 +26,7 @@ SignalsGateway stores these tables in PostgreSQL:
 | `signal_gateway_entries` | The latest known state of one provider message |
 | `signal_gateway_input_tombstones` | Removed messages that late delivery must not restore |
 | `signal_gateway_inbound_batches` | Nearby messages waiting to become one Agent input |
+| `signal_gateway_webhook_endpoints` | Callback capabilities that wake one Agent session |
 | `actor_events` | Work that an Agent session must process |
 | `actor_event_deliveries` | Attempts to send that work to a worker |
 | `signal_gateway_outbox_entries` | Operations that Ankole must send to a provider |
@@ -140,6 +141,42 @@ shell.
 
 Provider-specific setup and webhook behavior belong in each Plugin document.
 
+## Receive a Capability Callback
+
+A Worker can mint one callback capability for its current Agent session through
+`create-webhook-cli`. It selects `one_shot` or `standing`, a label, and an
+expiry time. `list-webhooks-cli` lists safe endpoint metadata, and
+`cancel-webhook-cli` makes an endpoint terminal. The Console can list and
+cancel endpoints for one Agent session. Neither list surface returns the
+callback URL or its digest.
+
+The callback path is
+`/webhooks/v1/event-callbacks/wh_<43-character-base64url-token>`. Creation
+returns the full URL once. PostgreSQL stores only its SHA-256 digest. A request
+body can contain at most 1 MiB. SignalsGateway stores only `content-type`,
+`x-hub-signature-256`, and headers whose names start with `ce-` or `x-github-`.
+It discards authentication and all other HTTP headers. Ankole redacts
+`/webhooks/v1/event-callbacks/*` in its request logs. An ingress, proxy, or CDN
+in front of Ankole must apply the same redaction to its access logs.
+
+SignalsGateway checks the endpoint and writes its consumer record in one
+PostgreSQL transaction before it returns success. The record is a
+`webhook.received` ActorEvent by default. If the endpoint names an automation
+job, the record is a durable run that contains the same CloudEvents envelope.
+A `one_shot` endpoint accepts one callback. A `standing` endpoint accepts each
+delivery with at-least-once semantics and does not deduplicate it. A callback
+to a known terminal endpoint returns success without a new record. An unknown
+capability returns 404.
+
+`create-webhook-cli --automation-job-id <id>` binds a new endpoint to an active
+job for the same Agent. Endpoints do not support rebinding. The Agent cancels
+the old endpoint and creates a new one.
+
+The capability authorizes a wake-up only. Its headers and body are untrusted
+input. The Agent must read the external system's authoritative state before it
+makes a consequential change. The owning Agent Plugin must create, reconcile,
+and remove the external task or hook.
+
 ## Receive an Event
 
 Adapters call `Ankole.SignalsGateway.Ingress` to report a new message, removal,
@@ -242,6 +279,7 @@ Common ActorEvent types include:
 - `command.steer`
 - `check_back_later.wakeup`
 - `cron.fire`
+- `webhook.received`
 - `background_agent_job.completed`
 - `background_agent_job.failed`
 - `background_agent_job.waiting`
@@ -369,6 +407,7 @@ SignalsGateway does these actions:
 - accept provider input in Ankole's common format
 - store the latest known provider state
 - write ActorEvents
+- insert durable automation job runs for bound callbacks
 - deliver work to Agent sessions
 - store and send provider operations
 - update temporary reply previews

@@ -7,7 +7,7 @@ import { rpcMethods, type RPCRequester, type RPCRequestInit } from '../../lanes/
 
 const StopBackgroundJobParamsSchema = z
   .object({
-    job_id: ModelIntegerID.describe('BackgroundAgentJob id.')
+    job_id: ModelIntegerID.describe('Background agent job id.')
   })
   .strict()
 
@@ -36,7 +36,7 @@ export function createStopBackgroundJobTool(
   return {
     name: 'stop_background_job',
     description:
-      'Stop one queued, running, or waiting_on_user BackgroundAgentJob. A terminal Job is an idempotent no-op.',
+      'Stop one queued, running, or waiting_on_user background agent job. A terminal background agent job is an idempotent no-op.',
     schema: StopBackgroundJobParamsSchema,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -47,7 +47,7 @@ export function createStopBackgroundJobTool(
       const response = await opts.rpc(rpcMethods.backgroundAgentJobStop, request, { turn: opts.turnStart.turn })
 
       return jsonToolResult({
-        job_id: modelIntegerIDFromWire(response.jobId, 'background Agent Job id'),
+        job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }

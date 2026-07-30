@@ -18,6 +18,7 @@ import {
   RiBroadcastLine,
   RiChat3Line,
   RiCloseLine,
+  RiCodeSSlashLine,
   RiDashboardLine,
   RiGitBranchLine,
   RiKey2Line,
@@ -30,7 +31,8 @@ import {
   RiShieldKeyholeLine,
   RiSparkling2Line,
   RiTerminalBoxLine,
-  RiTimeLine
+  RiTimeLine,
+  RiWebhookLine
 } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
 import { useState, type ComponentType } from 'react'
@@ -73,7 +75,9 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/agents', label: 'console.nav.agents', icon: RiRobot2Line },
       { to: '/conversations', label: 'console.nav.conversations', icon: RiChat3Line },
       { to: '/background-agent-jobs', label: 'console.nav.background_agent_jobs', icon: RiGitBranchLine },
-      { to: '/schedules', label: 'console.nav.schedules', icon: RiTimeLine }
+      { to: '/automation-jobs', label: 'console.nav.automation_jobs', icon: RiCodeSSlashLine },
+      { to: '/schedules', label: 'console.nav.schedules', icon: RiTimeLine },
+      { to: '/webhooks', label: 'console.nav.webhooks', icon: RiWebhookLine }
     ]
   },
   {

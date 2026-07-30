@@ -207,6 +207,21 @@ export type BrainDreamingFitnessResponse = {
 }
 
 /**
+ * AutomationJobRunItem
+ */
+export type AutomationJobRunItem = {
+  attempts: number
+  error?: string | null
+  exit_code?: number | null
+  finished_at?: string | null
+  id: number
+  started_at?: string | null
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  stderr: string
+  stdout: string
+}
+
+/**
  * WorkerFileEntry
  */
 export type WorkerFileEntry = {
@@ -608,6 +623,13 @@ export type AiGatewayProviderSetting = {
 }
 
 /**
+ * AutomationJobResponse
+ */
+export type AutomationJobResponse = {
+  automation_job: AutomationJobItem
+}
+
+/**
  * IdentityProviderResponse
  */
 export type IdentityProviderResponse = {
@@ -958,6 +980,30 @@ export type SignalBindingListResponse = {
 }
 
 /**
+ * WebhookEndpointItem
+ */
+export type WebhookEndpointItem = {
+  agent_uid: string
+  automation_job_id?: number | null
+  binding_name: string
+  cancelled_at?: string | null
+  created_at: string
+  expires_at: string
+  fired_at?: string | null
+  id: string
+  label: string
+  mode: 'one_shot' | 'standing'
+  provider_thread_id?: string | null
+  session_id: string
+  signal_channel_id?: string | null
+  source_actor_event_id?: string | null
+  source_entry_id?: string | null
+  source_provenance?: JsonValue
+  status: 'armed' | 'active' | 'fired' | 'expired' | 'cancelled'
+  updated_at: string
+}
+
+/**
  * SignalBindingWriteRequest
  */
 export type SignalBindingWriteRequest = {
@@ -1024,6 +1070,13 @@ export type WorkerFileMoveRequest = {
   overwrite?: boolean
   root: 'user_files' | 'agent_installed_skills' | 'agent_sessions'
   to_path: string
+}
+
+/**
+ * WebhookEndpointResponse
+ */
+export type WebhookEndpointResponse = {
+  webhook_endpoint: WebhookEndpointItem
 }
 
 /**
@@ -1238,6 +1291,28 @@ export type IdentityProviderSyncRunResponse = {
 }
 
 /**
+ * AutomationJobItem
+ */
+export type AutomationJobItem = {
+  agent_uid: string
+  cancelled_at?: string | null
+  created_at: string
+  directory_path: string
+  expires_at?: string | null
+  id: number
+  label: string
+  owner_session_id: string
+  reply_route: JsonValue
+  runs: Array<AutomationJobRunItem>
+  source_actor_event_id?: string | null
+  source_entry_id?: string | null
+  source_provenance: JsonValue
+  status: 'active' | 'cancelled' | 'expired'
+  updated_at: string
+  wake_on_failure: boolean
+}
+
+/**
  * BrainSourceEntry
  */
 export type BrainSourceEntry = {
@@ -1326,6 +1401,13 @@ export type PermissionGrantItem = {
   principal_uid: string | null
   resource_pattern: string
   updated_at: string
+}
+
+/**
+ * AutomationJobListResponse
+ */
+export type AutomationJobListResponse = {
+  automation_jobs: Array<AutomationJobItem>
 }
 
 /**
@@ -1583,6 +1665,13 @@ export type SignalBindingItem = {
  */
 export type AppConfigurationDecryptionResponse = {
   decrypted_value: AppConfigurationDecryptionValue
+}
+
+/**
+ * WebhookEndpointListResponse
+ */
+export type WebhookEndpointListResponse = {
+  webhook_endpoints: Array<WebhookEndpointItem>
 }
 
 /**
@@ -2395,6 +2484,40 @@ export type AnkoleWebAuthZGroupControllerCreateResponses = {
 
 export type AnkoleWebAuthZGroupControllerCreateResponse =
   AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
+
+export type AnkoleWebWebhookEndpointControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints'
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexError =
+  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
+
+export type AnkoleWebWebhookEndpointControllerIndexResponses = {
+  /**
+   * Webhook endpoints
+   */
+  200: WebhookEndpointListResponse
+}
+
+export type AnkoleWebWebhookEndpointControllerIndexResponse =
+  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
   /**
@@ -4660,6 +4783,45 @@ export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
 export type AnkoleWebAiGatewayProviderControllerIndexResponse =
   AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
 
+export type AnkoleWebWebhookEndpointControllerDeleteData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    webhook_endpoint_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}'
+}
+
+export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWebhookEndpointControllerDeleteError =
+  AnkoleWebWebhookEndpointControllerDeleteErrors[keyof AnkoleWebWebhookEndpointControllerDeleteErrors]
+
+export type AnkoleWebWebhookEndpointControllerDeleteResponses = {
+  /**
+   * Webhook endpoint
+   */
+  200: WebhookEndpointResponse
+}
+
+export type AnkoleWebWebhookEndpointControllerDeleteResponse =
+  AnkoleWebWebhookEndpointControllerDeleteResponses[keyof AnkoleWebWebhookEndpointControllerDeleteResponses]
+
 export type AnkoleWebScheduleControllerIndexCheckbacksData = {
   body?: never
   path: {
@@ -5449,6 +5611,47 @@ export type AnkoleWebPrincipalControllerShowResponses = {
 export type AnkoleWebPrincipalControllerShowResponse =
   AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
 
+export type AnkoleWebAutomationJobControllerShowData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    automation_job_id: number
+  }
+  query?: {
+    runs?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}'
+}
+
+export type AnkoleWebAutomationJobControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAutomationJobControllerShowError =
+  AnkoleWebAutomationJobControllerShowErrors[keyof AnkoleWebAutomationJobControllerShowErrors]
+
+export type AnkoleWebAutomationJobControllerShowResponses = {
+  /**
+   * Automation job
+   */
+  200: AutomationJobResponse
+}
+
+export type AnkoleWebAutomationJobControllerShowResponse =
+  AnkoleWebAutomationJobControllerShowResponses[keyof AnkoleWebAutomationJobControllerShowResponses]
+
 export type AnkoleWebBrainControllerIndexData = {
   body?: never
   path?: never
@@ -5865,6 +6068,42 @@ export type AnkoleWebAppConfigurationControllerDecryptResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptResponse =
   AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
+
+export type AnkoleWebAutomationJobControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs'
+}
+
+export type AnkoleWebAutomationJobControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAutomationJobControllerIndexError =
+  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
+
+export type AnkoleWebAutomationJobControllerIndexResponses = {
+  /**
+   * Automation jobs
+   */
+  200: AutomationJobListResponse
+}
+
+export type AnkoleWebAutomationJobControllerIndexResponse =
+  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
 
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**

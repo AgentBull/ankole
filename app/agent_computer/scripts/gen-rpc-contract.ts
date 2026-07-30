@@ -10,7 +10,8 @@ import { rpcMethods, rpcOperationMeta, rpcSchemas } from '../src/lanes/rpc_lane'
  */
 export function rpcContractEntries(): Array<{
   method: string
-  scope: string
+  owner?: string
+  scope?: string
   effect?: string
   request_type: string
   response_type: string

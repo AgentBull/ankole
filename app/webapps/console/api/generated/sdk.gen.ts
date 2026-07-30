@@ -213,6 +213,12 @@ import type {
   AnkoleWebAuthZGroupControllerUpdateData,
   AnkoleWebAuthZGroupControllerUpdateErrors,
   AnkoleWebAuthZGroupControllerUpdateResponses,
+  AnkoleWebAutomationJobControllerIndexData,
+  AnkoleWebAutomationJobControllerIndexErrors,
+  AnkoleWebAutomationJobControllerIndexResponses,
+  AnkoleWebAutomationJobControllerShowData,
+  AnkoleWebAutomationJobControllerShowErrors,
+  AnkoleWebAutomationJobControllerShowResponses,
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelErrors,
   AnkoleWebBackgroundAgentJobControllerCancelResponses,
@@ -350,6 +356,12 @@ import type {
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingErrors,
   AnkoleWebSignalBindingControllerUpdateBindingResponses,
+  AnkoleWebWebhookEndpointControllerDeleteData,
+  AnkoleWebWebhookEndpointControllerDeleteErrors,
+  AnkoleWebWebhookEndpointControllerDeleteResponses,
+  AnkoleWebWebhookEndpointControllerIndexData,
+  AnkoleWebWebhookEndpointControllerIndexErrors,
+  AnkoleWebWebhookEndpointControllerIndexResponses,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptErrors,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -857,6 +869,32 @@ export const ankoleWebAuthZGroupControllerCreate = <ThrowOnError extends boolean
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List webhook endpoints for one agent session
+ */
+export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWebhookEndpointControllerIndexResponses,
+  AnkoleWebWebhookEndpointControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebWebhookEndpointControllerIndexResponses,
+    AnkoleWebWebhookEndpointControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints',
+    ...options
   })
 
 /**
@@ -2358,6 +2396,32 @@ export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends b
   })
 
 /**
+ * Cancel one webhook endpoint
+ */
+export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerDeleteData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWebhookEndpointControllerDeleteResponses,
+  AnkoleWebWebhookEndpointControllerDeleteErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebWebhookEndpointControllerDeleteResponses,
+    AnkoleWebWebhookEndpointControllerDeleteErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}',
+    ...options
+  })
+
+/**
  * List checkback wakeups for one agent session
  */
 export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
@@ -2914,6 +2978,32 @@ export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = 
   })
 
 /**
+ * Read one automation job and its recent run history
+ */
+export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAutomationJobControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAutomationJobControllerShowResponses,
+  AnkoleWebAutomationJobControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAutomationJobControllerShowResponses,
+    AnkoleWebAutomationJobControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}',
+    ...options
+  })
+
+/**
  * List Brain entries for one owner
  */
 export const ankoleWebBrainControllerIndex = <ThrowOnError extends boolean = false>(
@@ -3180,6 +3270,32 @@ export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/app-configurations/{key}/decryptions',
+    ...options
+  })
+
+/**
+ * List automation jobs for one agent session
+ */
+export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAutomationJobControllerIndexResponses,
+  AnkoleWebAutomationJobControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAutomationJobControllerIndexResponses,
+    AnkoleWebAutomationJobControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs',
     ...options
   })
 

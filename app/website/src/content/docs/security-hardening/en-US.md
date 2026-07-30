@@ -53,6 +53,7 @@ Ankole needs some ingress; it rarely needs all of it. Tighten to what each trans
 
 - **Long-connection adapters need only outbound.** Lark, Slack, and DingTalk open outbound WebSocket/Stream connections; they do not need a public ingress endpoint. Keep the deployment private if you only use these.
 - **Teams and webhook ingress need a public endpoint — scope it.** Bot Framework and the `/webhooks/v1/...` front door need to be reachable. Use your ingress to restrict that path to the expected providers (by source IP where you can), and rely on the adapter's own authentication (Bot Framework JWT, Graph `clientState`, ZAP/PLAIN worker auth) for the rest.
+- **Webhook delegation URLs are credentials.** `/webhooks/v1/event-callbacks/*` must be reachable when an Agent delegates detection to an external system. Redact the complete path in ingress, proxy, CDN, and application logs. The URL authorizes only a wake-up, so the Agent must verify current external state before a consequential action.
 - **The Console itself** should be behind your admin network or VPN, not open to the public internet. The bearer gate stops unauthorized access, but there is no reason to expose the admin surface to the world.
 
 ## The audit posture

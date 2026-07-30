@@ -26,6 +26,46 @@
     "response_type": "ankole.runtime_fabric.v1.AppConfigureResolveResponse"
   },
   {
+    "method": "automation_job.cancel",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobTargetRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "automation_job.create",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobCreateRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "automation_job.emit",
+    "scope": "worker_agent",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobEmitRequest",
+    "response_type": "ankole.runtime_fabric.v1.AutomationJobEmitResponse"
+  },
+  {
+    "method": "automation_job.list",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobListRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "automation_job.run",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobRunRequest",
+    "response_type": "ankole.runtime_fabric.v1.AutomationJobRunResponse"
+  },
+  {
+    "method": "automation_job.show",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.AutomationJobShowRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
     "method": "background_agent_job.create",
     "scope": "turn",
     "effect": "write",
@@ -248,6 +288,27 @@
     "effect": "read",
     "request_type": "ankole.runtime_fabric.v1.SkillOverlayResolveRequest",
     "response_type": "ankole.runtime_fabric.v1.SkillOverlayResponse"
+  },
+  {
+    "method": "webhook.endpoint.cancel",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WebhookEndpointTargetRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "webhook.endpoint.create",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.WebhookEndpointCreateRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "webhook.endpoint.list",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.WebhookEndpointListRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
   },
   {
     "method": "worker_env.resolve",

@@ -3,6 +3,8 @@ defmodule Ankole.Schedule.Fire do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AutomationJobs
+  alias Ankole.AutomationJobs.Schemas.Run, as: AutomationJobRun
   alias Ankole.SignalsGateway
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
@@ -80,9 +82,9 @@ defmodule Ankole.Schedule.Fire do
          now,
          _opts
        ) do
-    with {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now),
-         {:ok, event} <- mark_event_fired(repo, event, actor_event, now) do
-      {:ok, %{status: :fired, scheduled_event: event, actor_event: actor_event}}
+    with {:ok, delivery} <- deliver_scheduled_event(repo, event, now),
+         {:ok, event} <- mark_event_fired(repo, event, delivery, now) do
+      {:ok, fire_result(event, delivery)}
     end
   end
 
@@ -95,10 +97,10 @@ defmodule Ankole.Schedule.Fire do
        ) do
     with %CronSchedule{} = schedule <- schedule,
          :ok <- Cron.validate_fire_schedule(schedule, event),
-         {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now),
-         {:ok, event} <- mark_event_fired(repo, event, actor_event, now),
+         {:ok, delivery} <- deliver_scheduled_event(repo, event, now),
+         {:ok, event} <- mark_event_fired(repo, event, delivery, now),
          {:ok, _schedule} <- Cron.advance_after_fire(repo, schedule, event, now, opts) do
-      {:ok, %{status: :fired, scheduled_event: event, actor_event: actor_event}}
+      {:ok, fire_result(event, delivery)}
     else
       nil -> mark_event_cancelled(repo, event, now, :cron_schedule_not_found)
       {:cancel, reason} -> mark_event_cancelled(repo, event, now, reason)
@@ -122,7 +124,39 @@ defmodule Ankole.Schedule.Fire do
     })
   end
 
-  defp mark_event_fired(repo, %ScheduledEvent{} = event, %{id: actor_event_id}, now) do
+  defp deliver_scheduled_event(
+         repo,
+         %ScheduledEvent{automation_job_id: nil} = event,
+         now
+       ) do
+    with {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now) do
+      {:ok, {:actor_event, actor_event}}
+    end
+  end
+
+  defp deliver_scheduled_event(
+         repo,
+         %ScheduledEvent{automation_job_id: automation_job_id} = event,
+         now
+       ) do
+    with {:ok, %{automation_job_run: run}} <-
+           AutomationJobs.enqueue_run_in_tx(
+             repo,
+             automation_job_id,
+             event.agent_uid,
+             actor_event_payload(event, now),
+             now: now
+           ) do
+      {:ok, {:automation_job_run, run}}
+    end
+  end
+
+  defp mark_event_fired(
+         repo,
+         %ScheduledEvent{} = event,
+         {:actor_event, %{id: actor_event_id}},
+         now
+       ) do
     event
     |> ScheduledEvent.changeset(%{
       status: "fired",
@@ -132,6 +166,30 @@ defmodule Ankole.Schedule.Fire do
       last_fire_error: %{}
     })
     |> repo.update()
+  end
+
+  defp mark_event_fired(
+         repo,
+         %ScheduledEvent{} = event,
+         {:automation_job_run, %AutomationJobRun{id: run_id}},
+         now
+       ) do
+    event
+    |> ScheduledEvent.changeset(%{
+      status: "fired",
+      automation_job_run_id: run_id,
+      fired_at: now,
+      last_fire_error: %{}
+    })
+    |> repo.update()
+  end
+
+  defp fire_result(event, {:actor_event, actor_event}) do
+    %{status: :fired, scheduled_event: event, actor_event: actor_event}
+  end
+
+  defp fire_result(event, {:automation_job_run, run}) do
+    %{status: :fired, scheduled_event: event, automation_job_run: run}
   end
 
   defp mark_event_cancelled(repo, %ScheduledEvent{} = event, now, reason) do

@@ -9,6 +9,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
   alias Ankole.Principals.Principal
+  alias Ankole.AutomationJobs.Schemas.Job, as: AutomationJob
   alias Ankole.Ecto.JSONPayload
   alias Ankole.TimeZone
 
@@ -36,6 +37,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     field :last_fire_at, :utc_datetime_usec
     field :idempotency_key, :string
     field :created_by, :map, default: %{}
+    belongs_to :automation_job, AutomationJob, type: :id
     timestamps()
   end
 
@@ -58,7 +60,8 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :next_fire_at,
       :last_fire_at,
       :idempotency_key,
-      :created_by
+      :created_by,
+      :automation_job_id
     ])
     |> normalize_blank([
       :status,
@@ -88,6 +91,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> validate_nullable_map(:delivery)
     |> JSONPayload.validate_map(:created_by)
     |> foreign_key_constraint(:agent_uid)
+    |> foreign_key_constraint(:automation_job_id)
     |> unique_constraint([:agent_uid, :session_id, :idempotency_key],
       name: :actor_cron_schedules_idempotency_index
     )

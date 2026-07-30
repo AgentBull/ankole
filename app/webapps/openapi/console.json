@@ -229,6 +229,23 @@
         "title": "BrainDreamingFitnessResponse",
         "type": "object"
       },
+      "AutomationJobRunItem": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": { "minimum": 0, "type": "integer" },
+          "error": { "nullable": true, "type": "string" },
+          "exit_code": { "nullable": true, "type": "integer" },
+          "finished_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
+          "started_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "status": { "enum": ["queued", "running", "succeeded", "failed", "cancelled"], "type": "string" },
+          "stderr": { "type": "string" },
+          "stdout": { "type": "string" }
+        },
+        "required": ["id", "status", "attempts", "stdout", "stderr"],
+        "title": "AutomationJobRunItem",
+        "type": "object"
+      },
       "WorkerFileEntry": {
         "additionalProperties": false,
         "properties": {
@@ -749,6 +766,13 @@
         "title": "AIGatewayProviderSetting",
         "type": "object"
       },
+      "AutomationJobResponse": {
+        "additionalProperties": false,
+        "properties": { "automation_job": { "$ref": "#/components/schemas/AutomationJobItem" } },
+        "required": ["automation_job"],
+        "title": "AutomationJobResponse",
+        "type": "object"
+      },
       "IdentityProviderResponse": {
         "additionalProperties": false,
         "properties": { "identity_provider": { "$ref": "#/components/schemas/IdentityProviderItem" } },
@@ -1180,6 +1204,43 @@
         "title": "SignalBindingListResponse",
         "type": "object"
       },
+      "WebhookEndpointItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_uid": { "type": "string" },
+          "automation_job_id": { "maximum": 9007199254740991, "minimum": 1000, "nullable": true, "type": "integer" },
+          "binding_name": { "type": "string" },
+          "cancelled_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "created_at": { "format": "date-time", "type": "string" },
+          "expires_at": { "format": "date-time", "type": "string" },
+          "fired_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "id": { "format": "uuid", "type": "string" },
+          "label": { "type": "string" },
+          "mode": { "enum": ["one_shot", "standing"], "type": "string" },
+          "provider_thread_id": { "nullable": true, "type": "string" },
+          "session_id": { "type": "string" },
+          "signal_channel_id": { "nullable": true, "type": "string" },
+          "source_actor_event_id": { "format": "uuid", "nullable": true, "type": "string" },
+          "source_entry_id": { "nullable": true, "type": "string" },
+          "source_provenance": { "$ref": "#/components/schemas/JSONValue" },
+          "status": { "enum": ["armed", "active", "fired", "expired", "cancelled"], "type": "string" },
+          "updated_at": { "format": "date-time", "type": "string" }
+        },
+        "required": [
+          "id",
+          "agent_uid",
+          "binding_name",
+          "session_id",
+          "label",
+          "mode",
+          "status",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WebhookEndpointItem",
+        "type": "object"
+      },
       "SignalBindingWriteRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1272,6 +1333,13 @@
         },
         "required": ["root", "from_path", "to_path"],
         "title": "WorkerFileMoveRequest",
+        "type": "object"
+      },
+      "WebhookEndpointResponse": {
+        "additionalProperties": false,
+        "properties": { "webhook_endpoint": { "$ref": "#/components/schemas/WebhookEndpointItem" } },
+        "required": ["webhook_endpoint"],
+        "title": "WebhookEndpointResponse",
         "type": "object"
       },
       "ConsoleApiError": {
@@ -1519,6 +1587,43 @@
         "title": "IdentityProviderSyncRunResponse",
         "type": "object"
       },
+      "AutomationJobItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_uid": { "type": "string" },
+          "cancelled_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "created_at": { "format": "date-time", "type": "string" },
+          "directory_path": { "type": "string" },
+          "expires_at": { "format": "date-time", "nullable": true, "type": "string" },
+          "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
+          "label": { "type": "string" },
+          "owner_session_id": { "type": "string" },
+          "reply_route": { "$ref": "#/components/schemas/JSONValue" },
+          "runs": { "items": { "$ref": "#/components/schemas/AutomationJobRunItem" }, "type": "array" },
+          "source_actor_event_id": { "format": "uuid", "nullable": true, "type": "string" },
+          "source_entry_id": { "nullable": true, "type": "string" },
+          "source_provenance": { "$ref": "#/components/schemas/JSONValue" },
+          "status": { "enum": ["active", "cancelled", "expired"], "type": "string" },
+          "updated_at": { "format": "date-time", "type": "string" },
+          "wake_on_failure": { "type": "boolean" }
+        },
+        "required": [
+          "id",
+          "agent_uid",
+          "owner_session_id",
+          "source_provenance",
+          "reply_route",
+          "directory_path",
+          "label",
+          "wake_on_failure",
+          "status",
+          "created_at",
+          "updated_at",
+          "runs"
+        ],
+        "title": "AutomationJobItem",
+        "type": "object"
+      },
       "BrainSourceEntry": {
         "additionalProperties": false,
         "properties": {
@@ -1628,6 +1733,15 @@
           "updated_at"
         ],
         "title": "PermissionGrantItem",
+        "type": "object"
+      },
+      "AutomationJobListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "automation_jobs": { "items": { "$ref": "#/components/schemas/AutomationJobItem" }, "type": "array" }
+        },
+        "required": ["automation_jobs"],
+        "title": "AutomationJobListResponse",
         "type": "object"
       },
       "IdentityProviderAdapterListResponse": {
@@ -1929,6 +2043,15 @@
         "properties": { "decrypted_value": { "$ref": "#/components/schemas/AppConfigurationDecryptionValue" } },
         "required": ["decrypted_value"],
         "title": "AppConfigurationDecryptionResponse",
+        "type": "object"
+      },
+      "WebhookEndpointListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "webhook_endpoints": { "items": { "$ref": "#/components/schemas/WebhookEndpointItem" }, "type": "array" }
+        },
+        "required": ["webhook_endpoints"],
+        "title": "WebhookEndpointListResponse",
         "type": "object"
       },
       "AgentSession": {
@@ -2758,6 +2881,35 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create one operator Principal group",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WebhookEndpointController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointListResponse" } }
+            },
+            "description": "Webhook endpoints"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List webhook endpoints for one agent session",
+        "tags": ["Webhooks"]
       }
     },
     "/api/v1/principal-groups/computed-member-previews": {
@@ -4850,6 +5002,44 @@
         "tags": ["AIGateway"]
       }
     },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.WebhookEndpointController.delete",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "webhook_endpoint_id",
+            "required": true,
+            "schema": { "format": "uuid", "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointResponse" } } },
+            "description": "Webhook endpoint"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Cancel one webhook endpoint",
+        "tags": ["Webhooks"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
       "get": {
         "callbacks": {},
@@ -5587,6 +5777,51 @@
         "tags": ["Principals"]
       }
     },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AutomationJobController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "automation_job_id",
+            "required": true,
+            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "runs",
+            "required": false,
+            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobResponse" } } },
+            "description": "Automation job"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one automation job and its recent run history",
+        "tags": ["Automation Jobs"]
+      }
+    },
     "/api/v1/brain/entries": {
       "get": {
         "callbacks": {},
@@ -5965,6 +6200,42 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Reveal one encrypted AppConfigure value on demand",
         "tags": ["AppConfigure"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AutomationJobController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobListResponse" } }
+            },
+            "description": "Automation jobs"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List automation jobs for one agent session",
+        "tags": ["Automation Jobs"]
       }
     },
     "/api/v1/ai-gateway/embeddings": {
@@ -6936,6 +7207,7 @@
     },
     { "description": "Operator-managed agent bindings for signal adapters", "name": "Signal Bindings" },
     { "description": "Operator-visible actor checkbacks and recurring schedules", "name": "Schedule" },
+    { "description": "Operator-visible webhook endpoint state and cancellation", "name": "Webhooks" },
     { "description": "Operator-visible actor sessions for one agent", "name": "Sessions" },
     { "description": "Agent computer worker registry and worker filesystem management", "name": "Workers" },
     { "description": "Durable background Agent work executed by CodexRunner", "name": "Background Agent Jobs" },

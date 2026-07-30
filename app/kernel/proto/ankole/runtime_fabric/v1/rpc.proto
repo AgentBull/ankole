@@ -451,6 +451,7 @@ message ScheduleCheckBackLaterCreateRequest {
   bool quiet_success = 6;
   bytes schedule_json = 7;
   bytes reply_route_json = 8;
+  string automation_job_id = 9;
 }
 
 message ScheduleCheckBackLaterListRequest {
@@ -489,6 +490,7 @@ message ScheduleCronAddRequest {
   string idempotency_key = 6;
   reserved 7;
   reserved "failure_policy_json";
+  string automation_job_id = 8;
 }
 
 message ScheduleCronUpdateRequest {
@@ -499,6 +501,76 @@ message ScheduleCronUpdateRequest {
 message ScheduleCronRunRequest {
   string name = 1;
   string tool_call_id = 2;
+}
+
+// ===== webhook endpoint (requests typed, responses model-facing passthrough) =====
+
+message WebhookEndpointCreateRequest {
+  string token = 1;
+  string label = 2;
+  string mode = 3; // one_shot | standing
+  string expires_at = 4;
+  bytes reply_route_json = 5;
+  string automation_job_id = 6;
+}
+
+message WebhookEndpointListRequest {
+  optional uint32 limit = 1;
+}
+
+message WebhookEndpointTargetRequest {
+  string webhook_endpoint_id = 1;
+}
+
+// ===== automation job =====
+
+message AutomationJobCreateRequest {
+  string directory_path = 1;
+  string label = 2;
+  bool wake_on_failure = 3;
+}
+
+message AutomationJobListRequest {
+  optional uint32 limit = 1;
+}
+
+message AutomationJobShowRequest {
+  string automation_job_id = 1;
+  optional uint32 runs = 2;
+}
+
+message AutomationJobTargetRequest {
+  string automation_job_id = 1;
+}
+
+message AutomationJobEmitRequest {
+  string automation_job_run_id = 1;
+  string attempt_id = 2;
+  bytes payload_json = 3;
+}
+
+message AutomationJobEmitResponse {}
+
+// Control-plane-originated request handled by the Agent Computer worker.
+message AutomationJobRunRequest {
+  string automation_job_run_id = 1;
+  string attempt_id = 2;
+  string agent_uid = 3;
+  string directory_path = 4;
+  string label = 5;
+  bytes event_json = 6;
+  uint32 timeout_ms = 7;
+  string automation_job_id = 8;
+}
+
+message AutomationJobRunResponse {
+  string status = 1; // succeeded | failed
+  optional int32 exit_code = 2;
+  string error = 3;
+  string stdout = 4;
+  string stderr = 5;
+  bool stdout_truncated = 6;
+  bool stderr_truncated = 7;
 }
 
 // ===== skills =====

@@ -357,6 +357,22 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/sessions/:session_id/checkbacks/:scheduled_event_id",
            ScheduleController,
            :cancel_checkback
+
+    get "/agents/:agent_uid/sessions/:session_id/webhook-endpoints",
+        WebhookEndpointController,
+        :index
+
+    delete "/agents/:agent_uid/sessions/:session_id/webhook-endpoints/:webhook_endpoint_id",
+           WebhookEndpointController,
+           :delete
+
+    get "/agents/:agent_uid/sessions/:session_id/automation-jobs",
+        AutomationJobController,
+        :index
+
+    get "/agents/:agent_uid/sessions/:session_id/automation-jobs/:automation_job_id",
+        AutomationJobController,
+        :show
   end
 
   scope "/api/v1/ai-gateway", AnkoleWeb do
@@ -377,6 +393,14 @@ defmodule AnkoleWeb.Router do
     post "/rerank", AIGatewayController, :rerank
     post "/web_search", AIGatewayController, :web_search
     post "/web_fetch", AIGatewayController, :web_fetch
+  end
+
+  # Capability URL ingress for external task receipts. The token in the path is
+  # the only admission credential, so this route has no session, CSRF, bearer
+  # token, or provider-handler pipeline. The event-callbacks subtree keeps it
+  # distinct from provider-handler ingress.
+  scope "/webhooks/v1/event-callbacks", AnkoleWeb do
+    post "/:token", WebhookCallbackController, :handle
   end
 
   # Provider webhook ingress. Not a RESTful API surface, so it lives outside

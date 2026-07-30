@@ -197,7 +197,10 @@ defmodule Ankole.SignalsGateway do
   @doc """
   Removes expired SignalsGateway TTL state.
   """
-  @spec cleanup_expired_state(DateTime.t()) :: %{tombstones: non_neg_integer()}
+  @spec cleanup_expired_state(DateTime.t()) :: %{
+          tombstones: non_neg_integer(),
+          webhook_endpoints: non_neg_integer()
+        }
   defdelegate cleanup_expired_state(now \\ DateTime.utc_now(:microsecond)), to: StateCleanup
 
   @doc """

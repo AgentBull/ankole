@@ -56,6 +56,7 @@ Ankole includes these Agent Plugins:
 | `lark` | `lark-im`, `lark-oa`, `lark-office-suite` | Disabled |
 | `office` | `docx`, `xlsx`, `pptx` | Enabled |
 | `deep-research` | `create-deep-research` | Enabled |
+| `github` | `github-auth`, `github-issues`, `github-pr-workflow`, `github-repo-management`, `github-webhooks` | Disabled |
 
 Member Skills exist only inside their Agent Plugin.
 Standalone Skills remain under `app/library/skills`.
@@ -72,6 +73,11 @@ research contract, starts one BackgroundAgentJob, and accepts the result. Its
 `workspace-template` owns the Job's research lifecycle, Playbook routing,
 working state, Markdown semantic draft, and contract-defined artifacts. The Job
 does not load the main-only member Skill.
+
+The public `github` package owns GitHub repository webhook setup,
+reconciliation, redelivery, and removal in its `github-webhooks` Skill.
+SignalsGateway supplies only the callback capability. It does not contain a
+GitHub adapter or store a copy of GitHub hook state.
 
 ### Decide Which Capabilities an Agent Can Use
 

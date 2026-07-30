@@ -143,6 +143,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
   end
 
   @doc """
+  Fails RPC callers that are waiting on one route after that route becomes unusable.
+
+  Worker liveness stays in `WorkerAdmission`. The Broker owns only the
+  transport-local waiters that can no longer receive a reply.
+  """
+  @spec fail_pending_rpcs(String.t(), term()) :: :ok
+  def fail_pending_rpcs(transport_route, reason) when is_binary(transport_route) do
+    GenServer.cast(__MODULE__, {:fail_pending_rpcs, transport_route, reason})
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc """
   Sends one raw worker-file frame set to a transport route.
 
   This is intentionally separate from `send_mandatory/2`: actor/rpc envelopes
@@ -197,7 +210,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
   @impl true
   def handle_call({:unregister_local_worker, route}, _from, state) do
-    {:reply, :ok, update_in(state.local_routes, &Map.delete(&1, route))}
+    state =
+      state
+      |> update_in([:local_routes], &Map.delete(&1, route))
+      |> fail_rpc_waiters_for_route(route, :local_route_unregistered)
+
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -283,6 +301,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
       :error ->
         {:reply, router_send_file_frame(state.router, route, frames), state}
     end
+  end
+
+  @impl true
+  def handle_cast({:fail_pending_rpcs, route, reason}, state) do
+    {:noreply, fail_rpc_waiters_for_route(state, route, reason)}
   end
 
   @impl true
@@ -635,6 +658,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Transport.Broker do
 
         state
     end
+  end
+
+  defp fail_rpc_waiters_for_route(state, route, reason) do
+    {failed, retained} =
+      Enum.split_with(state.rpc_waiters, fn {_request_id, waiter} ->
+        waiter.route == route
+      end)
+
+    Enum.each(failed, fn {_request_id, waiter} ->
+      Process.cancel_timer(waiter.timer)
+      GenServer.reply(waiter.from, {:error, {:worker_route_unusable, reason}})
+    end)
+
+    %{state | rpc_waiters: Map.new(retained)}
   end
 
   # Decodes protobuf bytes emitted by the native RuntimeFabric transport with

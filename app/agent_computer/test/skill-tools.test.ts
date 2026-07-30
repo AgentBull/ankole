@@ -201,16 +201,16 @@ describe('@ankole/agent-computer skill tools', () => {
 
       await expect(
         tool.execute('call-long-reference', { name: 'long-report', filePath: 'references/private.md' })
-      ).rejects.toThrow('available only inside a BackgroundAgentJob')
+      ).rejects.toThrow('available only inside a background agent job')
 
       const append = tools.find(candidate => candidate.name === 'skill_append')!
       const replace = tools.find(candidate => candidate.name === 'skill_replace')!
       await expect(
         append.execute('call-long-append', { name: 'long-report', content: 'blind append' })
-      ).rejects.toThrow('available only inside a BackgroundAgentJob')
+      ).rejects.toThrow('available only inside a background agent job')
       await expect(
         replace.execute('call-long-replace', { name: 'long-report', content: 'blind replacement' })
-      ).rejects.toThrow('available only inside a BackgroundAgentJob')
+      ).rejects.toThrow('available only inside a background agent job')
       expect(overlayReads).toBe(0)
       expect(overlayWrites).toBe(0)
     } finally {

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { utf8ByteLength } from '../src/common/text-sanitize'
 import { createMCPTools, loadEnabledSkillMCPServers } from '../src/tools/mcp'
-import { boundedMCPResultValue, resolveMCPTimeoutMs } from '../src/tools/mcp/mcp-tool'
+import { boundedMCPResultValue, resolveMCPTimeoutMs, type MCPCatalogUnavailable } from '../src/tools/mcp/mcp-tool'
 import type { RuntimeSkillSummary } from '../src/lanes/rpc_lane'
 
 const temporaryRoots: string[] = []
@@ -61,7 +61,7 @@ describe('main-agent native MCP tool', () => {
       internalSkillsRoot,
       'bullx-financial-data',
       'bullx-financial-data',
-      'https://ai.agentbull.cn/api/v1/financial-data/mcp',
+      'https://ai-terminal.yuma.host/api/v1/financial-data/mcp',
       'BULLX_FINANCIAL_DATA_MCP_API_KEY',
       'BullX Financial Data MCP server'
     )
@@ -81,7 +81,7 @@ describe('main-agent native MCP tool', () => {
       expect.objectContaining({
         name: 'bullx-financial-data',
         transport: 'streamable_http',
-        url: 'https://ai.agentbull.cn/api/v1/financial-data/mcp',
+        url: 'https://ai-terminal.yuma.host/api/v1/financial-data/mcp',
         bearerTokenEnvVar: 'BULLX_FINANCIAL_DATA_MCP_API_KEY',
         sourceSkills: ['bullx-financial-data']
       })
@@ -182,6 +182,33 @@ describe('main-agent native MCP tool', () => {
     expect(textOf(called)).not.toContain('top-secret-token')
     expect(requests.filter(request => request.method === 'tools/call').map(request => request.tool)).toEqual(['echo'])
     expect(requests.every(request => request.authorization === 'Bearer top-secret-token')).toBe(true)
+  })
+
+  it('keeps healthy catalogs when one enabled server is unavailable', async () => {
+    const fake = startHTTPMCPServer([])
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'healthy', 'healthy-server', `${fake.url}/mcp`)
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'unavailable', 'unavailable-server', `${fake.url}/mcp`, 'MISSING_TOKEN')
+    const failures: MCPCatalogUnavailable[] = []
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('healthy'), enabledSkill('unavailable')],
+      skillRoots: roots,
+      onCatalogUnavailable: failure => failures.push(failure)
+    })
+
+    expect(tools.map(tool => tool.namespace)).toEqual([
+      'mcp__healthy_server',
+      'mcp__healthy_server',
+      'mcp__healthy_server'
+    ])
+    expect(failures).toEqual([
+      {
+        serverName: 'unavailable-server',
+        sourceSkills: ['unavailable'],
+        message: 'MCP server unavailable-server requires WorkerEnv variable MISSING_TOKEN'
+      }
+    ])
   })
 
   it('matches Codex 0.146 model visibility, canonical names, raw routing, and search metadata', async () => {
@@ -402,25 +429,25 @@ describe('main-agent native MCP tool', () => {
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
   })
 
-  it('rejects and does not cache catalogs that reflect WorkerEnv data in schema keys', async () => {
+  it('isolates and does not cache catalogs that reflect WorkerEnv data in schema keys', async () => {
     const requests: FakeRequest[] = []
     const fake = startHTTPMCPServer(requests, { leakAuthorizationInCatalog: true })
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'leaky', 'leaky-server', `${fake.url}/mcp`, 'MCP_TOKEN')
+    const failures: MCPCatalogUnavailable[] = []
     const create = () =>
       createMCPTools({
         enabledSkills: [enabledSkill('leaky')],
         skillRoots: roots,
-        workerEnv: { MCP_TOKEN: 'catalog-secret' }
+        workerEnv: { MCP_TOKEN: 'catalog-secret' },
+        onCatalogUnavailable: failure => failures.push(failure)
       })
 
-    const failure = await create().catch(error => error as Error)
-    expect(failure).toBeInstanceOf(Error)
-    if (!(failure instanceof Error)) throw new Error('expected a rejected MCP catalog')
-    expect(failure.message).toContain('MCP catalog contained WorkerEnv data and was rejected')
-    expect(failure.message).not.toContain('catalog-secret')
-
-    await expect(create()).rejects.toThrow('MCP catalog contained WorkerEnv data and was rejected')
+    expect(await create()).toEqual([])
+    expect(await create()).toEqual([])
+    expect(failures).toHaveLength(2)
+    expect(failures.every(failure => failure.message.includes('WorkerEnv data'))).toBe(true)
+    expect(JSON.stringify(failures)).not.toContain('catalog-secret')
     expect(requests.filter(request => request.method === 'tools/list')).toHaveLength(2)
   })
 
@@ -554,14 +581,41 @@ describe('main-agent native MCP tool', () => {
       }
     } as unknown as AbortSignal
 
+    const failures: MCPCatalogUnavailable[] = []
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('missing-token')],
+      skillRoots: roots,
+      abortSignal: signal,
+      onCatalogUnavailable: failure => failures.push(failure)
+    })
+    expect(tools).toEqual([])
+    expect(failures).toEqual([
+      {
+        serverName: 'missing-token-server',
+        sourceSkills: ['missing-token'],
+        message: 'MCP server missing-token-server requires WorkerEnv variable MCP_TOKEN'
+      }
+    ])
+    expect({ added, removed }).toEqual({ added: 1, removed: 1 })
+  })
+
+  it('propagates turn cancellation instead of treating it as server unavailability', async () => {
+    const fake = startHTTPMCPServer([])
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'cancelled', 'cancelled-server', `${fake.url}/mcp`)
+    const controller = new AbortController()
+    const failures: MCPCatalogUnavailable[] = []
+    controller.abort(new Error('turn cancelled'))
+
     await expect(
       createMCPTools({
-        enabledSkills: [enabledSkill('missing-token')],
+        enabledSkills: [enabledSkill('cancelled')],
         skillRoots: roots,
-        abortSignal: signal
+        abortSignal: controller.signal,
+        onCatalogUnavailable: failure => failures.push(failure)
       })
-    ).rejects.toThrow('requires WorkerEnv variable MCP_TOKEN')
-    expect({ added, removed }).toEqual({ added: 1, removed: 1 })
+    ).rejects.toThrow()
+    expect(failures).toEqual([])
   })
 })
 

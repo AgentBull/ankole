@@ -9,7 +9,7 @@ import { modelVisibleTrajectory } from './model-trajectory'
 
 const ShowBackgroundJobDetailsParamsSchema = z
   .object({
-    job_id: ModelIntegerID.describe('BackgroundAgentJob id.')
+    job_id: ModelIntegerID.describe('Background agent job id.')
   })
   .strict()
 
@@ -60,7 +60,7 @@ export function createShowBackgroundJobDetailsTool(
   return {
     name: 'show_background_job_details',
     description:
-      'Show one BackgroundAgentJob. Returns its title, concrete status, continuation and workspace ownership, attempts, prior attempt history, current error, and an ankole_chatml trajectory built from its latest three stored semantic trajectory groups.',
+      'Show one background agent job. Returns its title, concrete status, continuation and workspace ownership, attempts, prior attempt history, current error, and an ankole_chatml trajectory built from its latest three stored semantic trajectory groups.',
     schema: ShowBackgroundJobDetailsParamsSchema,
     executionMode: 'parallel',
     isReadOnly: true,

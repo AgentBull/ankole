@@ -57,7 +57,7 @@ This example means 09:00 from Monday through Friday. The Console evaluates it in
 
 ### Task and delivery
 
-A schedule wakes an existing conversation, so the Agent continues with that conversation's context. The task only needs to say what this run must do. Do not repeat the Agent's role, style, or durable instructions.
+By default, a schedule wakes an existing conversation, so the Agent continues with that conversation's context. The task only needs to say what this run must do. Do not repeat the Agent's role, style, or durable instructions.
 
 The delivery channel and thread come from the Channel Provider. Use the channel ID for the target conversation. Add a thread ID when each result must return to the same topic or thread.
 
@@ -74,7 +74,7 @@ Open a schedule to see its recent run history. When a result is missing, first c
 
 ## Checkback
 
-A Checkback is a one-time follow-up that an Agent creates while it works, such as "check the deployment again in 30 minutes." When it becomes due, Ankole wakes the same conversation so that the Agent can continue with its existing context.
+A Checkback is a one-time follow-up that an Agent creates while it works, such as "check the deployment again in 30 minutes." By default, Ankole wakes the same conversation when it becomes due so that the Agent can continue with its existing context.
 
 Its purpose is similar to <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw's heartbeat</a>: both let an Agent return without a new human message.
 
@@ -92,6 +92,14 @@ Tell me if it failed, became blocked, or changed state. Stay silent if nothing c
 ```
 
 The **Checkbacks** tab lists reminders that have not fired for the selected conversation. You can inspect the due time, reason, and routing rule, and cancel a reminder that is no longer needed.
+
+## Use an automation job for a mechanical check
+
+By default, a Cron fire or Checkback appends an event that wakes the selected Agent conversation. When the handling is only a deterministic fetch, comparison, parse, or predetermined action, ask the Agent to create an automation job and bind the trigger with its `automation_job_id`. The trigger keeps the same event, but it creates a durable script run instead of an Agent turn. The script can finish silently or use `emitEvent` to wake the owner conversation when judgment is needed.
+
+For example, a five-minute price check can run as a script and stay silent while the price is above the threshold. The script can emit the current price and source facts only when the threshold is crossed. Keep direct Agent wakes for work that needs memory, judgment, or conversation on every fire.
+
+Read [Worker CLI capabilities](../cli-capabilities/) for the Automation Job SDK, test boundary, failure rules, and commands. Cancel the Cron, Checkback, or webhook endpoint before you cancel its automation job.
 
 ## Common problems
 

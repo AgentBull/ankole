@@ -56,6 +56,7 @@ defmodule AnkoleWeb.Endpoint do
 
   plug RequestID
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug AnkoleWeb.Plugs.WebhookCallbackBodyReader
 
   plug Plug.Parsers,
     parsers: [

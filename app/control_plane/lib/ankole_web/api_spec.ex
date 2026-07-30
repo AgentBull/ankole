@@ -93,6 +93,10 @@ defmodule AnkoleWeb.APISpec do
           description: "Operator-visible actor checkbacks and recurring schedules"
         },
         %Tag{
+          name: "Webhooks",
+          description: "Operator-visible webhook endpoint state and cancellation"
+        },
+        %Tag{
           name: "Sessions",
           description: "Operator-visible actor sessions for one agent"
         },

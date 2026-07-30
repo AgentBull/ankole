@@ -73,6 +73,20 @@ This route sits deliberately outside every auth pipeline: no session, no CSRF, n
 
 The controller only routes. It resolves the declared `signals_gateway.webhook_handler` plugin, enforces the handler's declared `kind` whitelist, and renders the handler's response instruction. An unknown handler or an undeclared kind returns `404` without echoing the payload back; a handler that fails returns `500` with a generic message. The handler itself is what calls into `Ingress` with a normalized fact.
 
+## Agent-created webhook delegations
+
+Agent-created callback capabilities use a separate ingress:
+
+```text
+POST /webhooks/v1/event-callbacks/wh_<token>
+```
+
+This path does not use a provider handler. The URL itself authorizes one wake-up path to the Agent session that created it. It does not authenticate the facts in the body.
+
+SignalsGateway stores only the token digest. It locks the endpoint, applies one-shot or standing delivery semantics, and appends `webhook.received` in the same PostgreSQL transaction. The Worker then projects a bounded set of headers and body data inside an untrusted-data boundary. The Agent reads the current external system before a consequential action.
+
+Endpoint creation, list, and cancel commands use a turn-local Worker bridge. The Console can list and cancel endpoints, but it cannot create them or reveal their callback URL. Read [Webhook delegations](../webhook-delegations/) for the user flow, GitHub lifecycle, delivery contract, and operational limits.
+
 ## The outbox: replies going back out
 
 Inbound is half the gateway. The other half is the outbox, which turns an agent's reply into provider-side sends. The outbox reads the channel's `reply_mode` to choose the send operation — a channel post or a threaded entry reply — and goes through the same adapter contract that ingress uses. Side effects the agent commits during a turn are delivered through this path, and their durable record lives with the actor event that produced them, not in the live worker.

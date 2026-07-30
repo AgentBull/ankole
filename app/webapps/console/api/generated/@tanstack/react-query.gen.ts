@@ -78,6 +78,8 @@ import {
   ankoleWebAuthZGroupControllerRemoveMember,
   ankoleWebAuthZGroupControllerShow,
   ankoleWebAuthZGroupControllerUpdate,
+  ankoleWebAutomationJobControllerIndex,
+  ankoleWebAutomationJobControllerShow,
   ankoleWebBackgroundAgentJobControllerCancel,
   ankoleWebBackgroundAgentJobControllerIndex,
   ankoleWebBackgroundAgentJobControllerShow,
@@ -126,6 +128,8 @@ import {
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
   ankoleWebSignalBindingControllerUpdateBinding,
+  ankoleWebWebhookEndpointControllerDelete,
+  ankoleWebWebhookEndpointControllerIndex,
   ankoleWebWorkerEnvControllerDecrypt,
   ankoleWebWorkerEnvControllerDecryptForAgent,
   ankoleWebWorkerEnvControllerDelete,
@@ -346,6 +350,12 @@ import type {
   AnkoleWebAuthZGroupControllerUpdateData,
   AnkoleWebAuthZGroupControllerUpdateError,
   AnkoleWebAuthZGroupControllerUpdateResponse,
+  AnkoleWebAutomationJobControllerIndexData,
+  AnkoleWebAutomationJobControllerIndexError,
+  AnkoleWebAutomationJobControllerIndexResponse,
+  AnkoleWebAutomationJobControllerShowData,
+  AnkoleWebAutomationJobControllerShowError,
+  AnkoleWebAutomationJobControllerShowResponse,
   AnkoleWebBackgroundAgentJobControllerCancelData,
   AnkoleWebBackgroundAgentJobControllerCancelError,
   AnkoleWebBackgroundAgentJobControllerCancelResponse,
@@ -483,6 +493,12 @@ import type {
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingError,
   AnkoleWebSignalBindingControllerUpdateBindingResponse,
+  AnkoleWebWebhookEndpointControllerDeleteData,
+  AnkoleWebWebhookEndpointControllerDeleteError,
+  AnkoleWebWebhookEndpointControllerDeleteResponse,
+  AnkoleWebWebhookEndpointControllerIndexData,
+  AnkoleWebWebhookEndpointControllerIndexError,
+  AnkoleWebWebhookEndpointControllerIndexResponse,
   AnkoleWebWorkerEnvControllerDecryptData,
   AnkoleWebWorkerEnvControllerDecryptError,
   AnkoleWebWorkerEnvControllerDecryptForAgentData,
@@ -1105,6 +1121,34 @@ export const ankoleWebAuthZGroupControllerCreateMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebWebhookEndpointControllerIndexQueryKey = (
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) => createQueryKey('ankoleWebWebhookEndpointControllerIndex', options)
+
+/**
+ * List webhook endpoints for one agent session
+ */
+export const ankoleWebWebhookEndpointControllerIndexOptions = (
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    AnkoleWebWebhookEndpointControllerIndexError,
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    ReturnType<typeof ankoleWebWebhookEndpointControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebWebhookEndpointControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebWebhookEndpointControllerIndexQueryKey(options)
+  })
 
 /**
  * Preview active Principals matching a computed group condition
@@ -2686,6 +2730,33 @@ export const ankoleWebAiGatewayProviderControllerIndexOptions = (
     queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
   })
 
+/**
+ * Cancel one webhook endpoint
+ */
+export const ankoleWebWebhookEndpointControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebWebhookEndpointControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebWebhookEndpointControllerDeleteResponse,
+  AnkoleWebWebhookEndpointControllerDeleteError,
+  Options<AnkoleWebWebhookEndpointControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebWebhookEndpointControllerDeleteResponse,
+    AnkoleWebWebhookEndpointControllerDeleteError,
+    Options<AnkoleWebWebhookEndpointControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebWebhookEndpointControllerDelete({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
   options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
 ) => createQueryKey('ankoleWebScheduleControllerIndexCheckbacks', options)
@@ -3333,6 +3404,34 @@ export const ankoleWebPrincipalControllerShowOptions = (options: Options<AnkoleW
     queryKey: ankoleWebPrincipalControllerShowQueryKey(options)
   })
 
+export const ankoleWebAutomationJobControllerShowQueryKey = (
+  options: Options<AnkoleWebAutomationJobControllerShowData>
+) => createQueryKey('ankoleWebAutomationJobControllerShow', options)
+
+/**
+ * Read one automation job and its recent run history
+ */
+export const ankoleWebAutomationJobControllerShowOptions = (
+  options: Options<AnkoleWebAutomationJobControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebAutomationJobControllerShowResponse,
+    AnkoleWebAutomationJobControllerShowError,
+    AnkoleWebAutomationJobControllerShowResponse,
+    ReturnType<typeof ankoleWebAutomationJobControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAutomationJobControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAutomationJobControllerShowQueryKey(options)
+  })
+
 export const ankoleWebBrainControllerIndexQueryKey = (options: Options<AnkoleWebBrainControllerIndexData>) =>
   createQueryKey('ankoleWebBrainControllerIndex', options)
 
@@ -3669,6 +3768,34 @@ export const ankoleWebAppConfigurationControllerDecryptMutation = (
   }
   return mutationOptions
 }
+
+export const ankoleWebAutomationJobControllerIndexQueryKey = (
+  options: Options<AnkoleWebAutomationJobControllerIndexData>
+) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
+
+/**
+ * List automation jobs for one agent session
+ */
+export const ankoleWebAutomationJobControllerIndexOptions = (
+  options: Options<AnkoleWebAutomationJobControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAutomationJobControllerIndexResponse,
+    AnkoleWebAutomationJobControllerIndexError,
+    AnkoleWebAutomationJobControllerIndexResponse,
+    ReturnType<typeof ankoleWebAutomationJobControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAutomationJobControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
+  })
 
 /**
  * Create embeddings through AIGateway

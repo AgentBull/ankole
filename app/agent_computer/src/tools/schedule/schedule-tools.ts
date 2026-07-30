@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { compactRecord, deepString as rawDeepString, match } from '@pleisto/active-support'
+import { compactRecord, match } from '@pleisto/active-support'
 import { z } from 'zod'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
-import { deepString } from '@pleisto/active-support'
-import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
+import type { TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
+import { currentReplyRoute, type ReplyRoute } from '../../core/turns/reply_route'
 import { ModelIntegerID, modelIntegerIDToWire } from '../../core/model-integer-id'
 import { jsonToolResult } from '../../core/tool-result'
 import { jsonBytes } from '../../fabric/envelope_proto'
@@ -18,12 +18,15 @@ export interface CreateScheduleToolsOptions {
 type ScheduleToolDetails = JSONObject
 
 const JSONMap = z.record(z.string(), z.unknown())
+const AUTOMATION_JOB_POINTER =
+  "If you judge that a script you write could perform this trigger's check equally well and at lower token cost than waking you each time, run `create-automation-job-cli --help` before creating the trigger to confirm the fit. The script can still wake you when its result needs judgment."
 const CRON_DESCRIPTION = [
   'Manage recurring schedules for this conversation: list, inspect, create, update, pause, resume, remove, manually run, or view run history.',
   'Use this tool when the user asks about standing work, recurring tasks, monitors, routines, scheduled jobs, or cron-like follow-up in the current conversation.',
   'Recurring schedules support kind=every and kind=cron only.',
   'After add or update, summarize the saved schedule in the visible reply: name, schedule/timezone, and whether quiet_success is enabled.',
-  'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.'
+  'Use quiet_success=true for recurring monitors that should stay quiet on success and visibly report failures, blockers, or meaningful state changes.',
+  AUTOMATION_JOB_POINTER
 ].join('\n')
 
 const CheckBackDelay = z.object({
@@ -59,7 +62,10 @@ const CheckBackCreateParams = z.object({
     .optional()
     .describe(
       'Allow this checkback to finish without a visible reply when nothing needs attention. Set true only when the user explicitly asked for no update on normal/no-change outcomes; failures, blockers, human decisions, meaningful changes, and time-sensitive risks must still be visible.'
-    )
+    ),
+  automation_job_id: ModelIntegerID.optional().describe(
+    'Optional automation job that consumes this trigger instead of waking this conversation directly.'
+  )
 })
 
 const CheckBackUpdateFields = z
@@ -68,7 +74,8 @@ const CheckBackUpdateFields = z
     check: z.string().min(1).max(4000).optional().describe('Replacement wakeup instructions.'),
     context_summary: z.string().max(8000).nullable().optional().describe('Replacement compact wakeup context.'),
     schedule: CheckBackSchedule.optional(),
-    quiet_success: z.boolean().optional()
+    quiet_success: z.boolean().optional(),
+    automation_job_id: ModelIntegerID.nullable().optional()
   })
   .partial()
   .refine(updates => Object.keys(updates).length > 0, {
@@ -110,6 +117,7 @@ const CheckBackLaterParams = z
     context_summary: z.string().max(8000).nullable().optional().describe('Optional compact create-time context.'),
     schedule: CheckBackSchedule.optional().describe('Required for create: the one-shot wakeup time.'),
     quiet_success: z.boolean().optional().describe('Optional create-time quiet-success policy.'),
+    automation_job_id: ModelIntegerID.optional().describe('Optional create-time automation job consumer.'),
     updates: CheckBackUpdateFields.optional().describe('Required for update; provide at least one changed field.'),
     limit: z.number().int().positive().max(25).optional().describe('Optional list result limit, at most 25.')
   })
@@ -145,6 +153,7 @@ const CronParams = z
     schedule: z.union([EverySchedule, CronSchedule]).optional(),
     payload: JSONMap.optional(),
     delivery: DeliveryParams.optional(),
+    automation_job_id: ModelIntegerID.nullable().optional(),
     limit: z.number().int().positive().max(100).optional()
   })
   .superRefine((params, context) => {
@@ -158,7 +167,8 @@ const CronParams = z
       params.action === 'update' &&
       params.schedule === undefined &&
       params.payload === undefined &&
-      params.delivery === undefined
+      params.delivery === undefined &&
+      params.automation_job_id === undefined
     ) {
       context.addIssue({ code: 'custom', path: ['action'], message: 'update requires a changed field' })
     }
@@ -194,7 +204,8 @@ function createCheckBackLaterTool(
       'For create provide reason, check, and schedule. For get/update/cancel provide checkback_id; update also requires a non-empty updates object.',
       'For create/update schedules, use at for a named clock time, market close, deadline, or exact instant; use after only for a genuinely relative delay.',
       'A conversational correction does not change durable work by itself. Never claim a checkback was created, updated, or cancelled until the corresponding tool action returns a confirmed result.',
-      'Checkbacks are visible by default. Use quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes.'
+      'Checkbacks are visible by default. Use quiet_success=true only when the user explicitly asked not to be notified for normal or unchanged outcomes.',
+      AUTOMATION_JOB_POINTER
     ].join('\n'),
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
@@ -222,7 +233,10 @@ function createCheckBackLaterTool(
             contextSummary: value.context_summary ?? '',
             quietSuccess: value.quiet_success === true,
             scheduleJson: jsonBytes(value.schedule),
-            replyRouteJson: jsonBytes(replyRoute)
+            replyRouteJson: jsonBytes(replyRoute),
+            ...(value.automation_job_id === undefined
+              ? {}
+              : { automationJobId: modelIntegerIDToWire(value.automation_job_id) })
           })
         })
         .with({ action: 'update' }, value => {
@@ -260,6 +274,7 @@ function defaultCheckBackIdempotencyKey(turnStart: TurnStart, params: z.output<t
     check: params.check.trim(),
     context_summary: params.context_summary?.trim() ?? '',
     ...(params.quiet_success === true ? { quiet_success: true } : {}),
+    ...(params.automation_job_id === undefined ? {} : { automation_job_id: params.automation_job_id }),
     schedule: params.schedule
   }
 
@@ -494,7 +509,8 @@ function cronAddPayload(
     scheduleJson: jsonBytes(params.schedule),
     payloadJson: jsonBytes(params.payload ?? {}),
     deliveryJson: jsonBytes(cronDelivery(params, route)),
-    idempotencyKey: defaultCronAddIdempotencyKey(turnStart, params, bindingName, route)
+    idempotencyKey: defaultCronAddIdempotencyKey(turnStart, params, bindingName, route),
+    ...(params.automation_job_id == null ? {} : { automationJobId: modelIntegerIDToWire(params.automation_job_id) })
   }
 }
 
@@ -513,7 +529,8 @@ function defaultCronAddIdempotencyKey(
     name: params.name?.trim() ?? '',
     schedule: params.schedule,
     payload: params.payload ?? {},
-    delivery: cronDelivery(params, route) ?? {}
+    delivery: cronDelivery(params, route) ?? {},
+    automation_job_id: params.automation_job_id ?? null
   }
 
   return `cron:add:${turnStart.turn.actor_event_id}:${stableHash(stableInput)}`
@@ -528,6 +545,7 @@ function cronUpdates(params: z.output<typeof CronParams>, turnStart: TurnStart):
   if (params.schedule !== undefined) updates.schedule = params.schedule
   if (params.payload !== undefined) updates.payload = params.payload
   if (params.delivery !== undefined) updates.delivery = cronDelivery(params, route)
+  if (params.automation_job_id !== undefined) updates.automation_job_id = params.automation_job_id
   return updates
 }
 
@@ -554,56 +572,6 @@ function requiredCronScheduleName(
   if (name) return name
   if (allowOrigin) return ''
   throw new Error(`${params.action} requires name`)
-}
-
-type ReplyRoute = {
-  binding_name?: string
-  signal_channel_id?: string
-  provider_thread_id?: string
-  source_entry_id?: string
-}
-
-/**
- * Returns the current reply route only when it has enough provider routing
- * information for a future schedule fire.
- */
-function currentReplyRoute(turnStart: TurnStart): ReplyRoute | undefined {
-  const route = replyRouteFromInput(turnStart.actor_event)
-  return route.binding_name && route.signal_channel_id ? route : undefined
-}
-
-/**
- * Extracts provider reply routing from the actor event and its payload.
- */
-function replyRouteFromInput(input: ActorEventEnvelope): ReplyRoute {
-  const payload = input.payload_json
-  return compactRecord({
-    binding_name:
-      input.binding_name ??
-      deepString(payload, ['data', 'reply_route', 'binding_name']) ??
-      deepString(payload, ['data', 'session', 'binding_name']),
-    signal_channel_id:
-      input.signal_channel_id ??
-      nonEmptyDeepString(payload, ['data', 'reply_route', 'signal_channel_id']) ??
-      nonEmptyDeepString(payload, ['data', 'channel', 'id']) ??
-      nonEmptyDeepString(payload, ['data', 'entry', 'signal_channel_id']),
-    provider_thread_id:
-      input.provider_thread_id ??
-      nonEmptyDeepString(payload, ['data', 'reply_route', 'provider_thread_id']) ??
-      nonEmptyDeepString(payload, ['data', 'entry', 'provider_thread_id']),
-    source_entry_id:
-      input.source_entry_id ??
-      nonEmptyDeepString(payload, ['data', 'reply_route', 'source_entry_id']) ??
-      nonEmptyDeepString(payload, ['data', 'entry', 'source_entry_id'])
-  })
-}
-
-/**
- * Reads a non-empty string from a nested payload path.
- */
-function nonEmptyDeepString(value: unknown, path: string[]): string | undefined {
-  const text = rawDeepString(value, path)?.trim()
-  return text ? text : undefined
 }
 
 /**

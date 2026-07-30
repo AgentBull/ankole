@@ -57,7 +57,7 @@ Cron 管理需要重复执行的工作。它既支持按日历时间运行，也
 
 ### 任务内容和投递位置
 
-计划任务会唤醒已有会话，因此 Agent 会沿用该会话的上下文。任务内容只需要说明这一次要做什么，不必重复 Agent 的角色、语气和长期规则。
+计划任务默认唤醒已有会话，因此 Agent 会沿用该会话的上下文。任务内容只需要说明这一次要做什么，不必重复 Agent 的角色、语气和长期规则。
 
 投递渠道和投递线程来自聊天平台。请使用目标会话对应的渠道 ID；若希望每次结果都回到同一个话题或线程，再填写线程 ID。
 
@@ -74,7 +74,7 @@ Cron 管理需要重复执行的工作。它既支持按日历时间运行，也
 
 ## Checkback
 
-Checkback 是 Agent 在工作过程中为自己设置的一次性回访，例如“30 分钟后再检查部署是否完成”。时间到了，系统会唤醒同一个会话，让 Agent 从原有上下文继续工作。
+Checkback 是 Agent 在工作过程中为自己设置的一次性回访，例如“30 分钟后再检查部署是否完成”。默认情况下，时间到了系统会唤醒同一个会话，让 Agent 从原有上下文继续工作。
 
 它和 <a href="https://docs.openclaw.ai/gateway/heartbeat" target="_blank" rel="noreferrer">OpenClaw 的 heartbeat</a> 用途相近：都能让 Agent 在没有新消息时主动回来检查。
 
@@ -92,6 +92,14 @@ Checkback 更接近 push（推送）：Agent 只在确实需要回访时登记�
 ```
 
 Console 的 **Checkbacks** 标签页会列出当前会话中还未触发的提醒。你可以查看到期时间、原因和投递规则，也可以取消不再需要的提醒。
+
+## 机械检查交给 Automation Job
+
+Cron 或 Checkback 默认写入事件并唤醒所选 Agent 会话。如果处理过程只是确定性的获取、比较、解析或预定动作，可以让 Agent 创建 automation job，再用它的 `automation_job_id` 绑定触发器。触发事件保持不变，但系统会创建持久脚本 run，而不是启动 Agent turn。脚本可以静默结束，也可以在需要判断时用 `emitEvent` 唤醒归属会话。
+
+例如，每五分钟检查一次价格可以只运行脚本，价格高于阈值时保持静默；跌破阈值时再发射当前价格与来源事实。每次触发都需要记忆、判断或对话时，继续直接唤醒 Agent。
+
+Automation Job 的 SDK、测试边界、失败规则与命令见 [Worker CLI 能力](../cli-capabilities/)。取消 automation job 前，先取消指向它的 Cron、Checkback 或 webhook endpoint。
 
 ## 常见问题
 

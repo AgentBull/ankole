@@ -46,6 +46,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
                complete_turn(turn_ref, final, "iteration_exhausted")
     end
 
+    test "commits a provider-visible reply for a webhook receipt" do
+      %{agent: agent, event: event, turn_ref: turn_ref} =
+        start_accepted_turn("webhook-receipt")
+
+      event =
+        event
+        |> ActorEvent.changeset(%{type: "webhook.received"})
+        |> Repo.update!()
+
+      final = complete_response(agent.uid, event, "GitHub issue state verified")
+
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                outboxes: %{final: %OutboxEntry{} = outbox}
+              }} = complete_turn(turn_ref, final)
+
+      assert outbox.binding_name == event.binding_name
+      assert outbox.signal_channel_id == event.signal_channel_id
+      assert outbox.payload["text"] == "GitHub issue state verified"
+    end
+
     test "moves a successful activation to warm idle and stops it normally at idle expiry" do
       %{agent: agent, event: event, turn_ref: turn_ref} =
         start_accepted_turn("activation-idle")

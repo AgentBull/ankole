@@ -2,8 +2,8 @@ defmodule Ankole.Schedule do
   @moduledoc """
   Control-plane schedule subsystem.
 
-  Schedule owns durable time semantics. Oban jobs are wake edges; the domain
-  tables and ActorEvent idempotency are the correctness boundary.
+  Schedule owns durable time semantics. Oban jobs are wake edges. The domain
+  tables and the selected consumer record are the correctness boundary.
   """
 
   alias Ankole.Schedule.Checkbacks
@@ -20,7 +20,7 @@ defmodule Ankole.Schedule do
           | {:error, term()}
 
   @doc """
-  Creates one delayed self-wakeup event.
+  Creates one delayed trigger for an Agent session or automation job.
   """
   @spec create_check_back_later(map(), keyword()) :: create_result()
   defdelegate create_check_back_later(attrs, opts \\ []), to: Checkbacks
@@ -39,7 +39,7 @@ defmodule Ankole.Schedule do
   defdelegate update_checkback(scheduled_event_id, attrs, opts \\ []), to: Checkbacks
 
   @doc """
-  Creates one recurring cron schedule and arms its first concrete fire.
+  Creates one recurring cron schedule and arms its first concrete trigger.
   """
   @spec create_cron_schedule(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
@@ -101,7 +101,7 @@ defmodule Ankole.Schedule do
   defdelegate cancel_checkbacks_for_provider_entry_in_tx(repo, attrs, now), to: Checkbacks
 
   @doc """
-  Fires a due scheduled event by appending an ActorEvent.
+  Fires a due scheduled event by appending an ActorEvent or automation job run.
   """
   @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}

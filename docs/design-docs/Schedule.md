@@ -1,7 +1,8 @@
 # Schedule
 
-Schedule wakes an Agent at a requested time. PostgreSQL stores what must happen
-and when. Oban wakes the control plane when that time arrives.
+Schedule starts one consumer at a requested time. The consumer is an Agent
+session by default. It can also be an automation job. PostgreSQL stores what
+must happen and when. Oban wakes the control plane when that time arrives.
 
 Users can create two kinds of schedules:
 
@@ -229,9 +230,9 @@ The wake path is:
 scheduled event row
   -> Oban wake job
   -> claim due row
-  -> ActorEvent append
+  -> ActorEvent append or automation job run insert
   -> mark row fired
-  -> ActorRuntime turn
+  -> ActorRuntime turn or automation job execution
 ```
 
 Oban can run `FireScheduledEvent` ten times. Each call tells Schedule which
@@ -240,15 +241,18 @@ attempt it is.
 The transaction claims only a due row with `status = scheduled`. It changes the
 state to `firing` and increases `fire_attempts`.
 
-A checkback fire appends `check_back_later.wakeup`.
-A cron fire appends `cron.fire`.
+A checkback fire produces `check_back_later.wakeup`.
+A cron fire produces `cron.fire`.
 
-The ActorEvent uses a CloudEvents 1.0 envelope. It contains the scheduled event
-identifier, due time, fire time, time zone, and reply route for internal
-execution. The model wake-up prompt omits the event identifier and reply route.
+The event uses a CloudEvents 1.0 envelope. It contains the scheduled event
+identifier, due time, fire time, time zone, and reply route. A direct consumer
+stores this envelope in an ActorEvent. An automation job consumer stores the
+same envelope in its run. The model wake-up prompt omits the event identifier
+and reply route.
 
-After writing the ActorEvent, Schedule changes the row to `fired` and records
-`actor_event_id` and `fired_at`.
+After it writes the consumer record, Schedule changes the row to `fired`. It
+records `actor_event_id` for a direct consumer or `automation_job_run_id` for
+an automation job consumer. It also records `fired_at`.
 
 A repeated wake does nothing when the row has ended or is not due. If the
 recurring rule is no longer valid, Schedule cancels that wake-up.
@@ -316,6 +320,8 @@ broker limits every read or change to the current Agent and Session.
 
 Checkback creation and update require an exact reply-route match.
 Cron delivery must match the current binding and channel.
+An optional `automation_job_id` must name an active job for the same Agent.
+Checkback and cron updates can clear or replace this binding.
 
 A cron-originated turn cannot add, update, pause, resume, remove, or manually
 run cron definitions. This prevents one cron turn from creating an uncontrolled
@@ -328,7 +334,7 @@ set of more cron rules.
 - An active recurring rule has exactly one pending automatic event.
 - A canceled automatic event can be replaced in the same slot.
 - A fired or failed automatic slot cannot run again.
-- One scheduled event creates at most one ActorEvent.
+- One scheduled event creates at most one ActorEvent or automation job run.
 - A worker cannot schedule output to an unrelated provider route.
 - A cron-originated turn cannot change or manually run cron definitions.
 - A canceled source entry cannot retain a pending checkback.

@@ -3,12 +3,19 @@ import type { TurnStart } from '../../lanes/actor_lane'
 
 export const CURRENT_ACTOR_SENDER_PRINCIPAL_ENV = 'ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL'
 export const LARK_PROFILE_ENV = 'ANKOLE_RUNTIME_LARK_PROFILE'
+export const WEBHOOK_CLI_SOCKET_ENV = 'ANKOLE_RUNTIME_WEBHOOK_CLI_SOCKET'
+export const AUTOMATION_JOB_CLI_SOCKET_ENV = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CLI_SOCKET'
 
 const fabricWorkerAuthKeyEnv = 'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY'
 const runtimeEnvPrefix = 'ANKOLE_RUNTIME_'
 const envNameFormat = /^[A-Za-z_][A-Za-z0-9_]*$/
 const larkProfilePrefix = 'ankole-u-'
-const workerOnlyEnvNames = new Set([fabricWorkerAuthKeyEnv, LARK_PROFILE_ENV])
+const workerOnlyEnvNames = new Set([
+  fabricWorkerAuthKeyEnv,
+  LARK_PROFILE_ENV,
+  WEBHOOK_CLI_SOCKET_ENV,
+  AUTOMATION_JOB_CLI_SOCKET_ENV
+])
 
 /**
  * Validates control-plane turn facts and adds worker-owned derived values.

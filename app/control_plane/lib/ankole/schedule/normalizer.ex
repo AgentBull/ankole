@@ -52,7 +52,8 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, session_id} <- Attrs.required_text(attrs, "session_id"),
-         {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name") do
+         {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name"),
+         {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id") do
       reply_route = Attrs.map_value(attrs, "reply_route") || %{}
 
       {:ok,
@@ -62,6 +63,7 @@ defmodule Ankole.Schedule.Normalizer do
          agent_uid: agent_uid,
          session_id: session_id,
          binding_name: binding_name,
+         automation_job_id: automation_job_id,
          due_at: due_at,
          timezone: timezone,
          requested_at: now,
@@ -120,7 +122,8 @@ defmodule Ankole.Schedule.Normalizer do
       "reason" => Map.get(wake_payload, "reason"),
       "check" => Map.get(wake_payload, "check"),
       "context_summary" => Map.get(wake_payload, "context_summary"),
-      "quiet_success" => Map.get(wake_payload, "quiet_success") == true
+      "quiet_success" => Map.get(wake_payload, "quiet_success") == true,
+      "automation_job_id" => event.automation_job_id
     }
   end
 
@@ -137,6 +140,7 @@ defmodule Ankole.Schedule.Normalizer do
            Planner.normalize_schedule_json(Attrs.map_value(attrs, "schedule"), attrs, opts),
          {:ok, delivery} <- normalize_cron_delivery(Attrs.map_value(attrs, "delivery")),
          {:ok, status} <- normalize_cron_status(Attrs.map_text(attrs, "status") || "active"),
+         {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id"),
          {:ok, next_fire_at} <- Planner.next_fire_after(schedule, timezone, now) do
       {:ok,
        %{
@@ -151,7 +155,8 @@ defmodule Ankole.Schedule.Normalizer do
          delivery: delivery,
          next_fire_at: next_fire_at_for_status(status, next_fire_at),
          idempotency_key: idempotency_key,
-         created_by: Keyword.get(opts, :created_by) || %{"kind" => "operator_api"}
+         created_by: Keyword.get(opts, :created_by) || %{"kind" => "operator_api"},
+         automation_job_id: automation_job_id
        }}
     end
   end
@@ -165,13 +170,15 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, name} <- normalize_updated_name(attrs),
          {:ok, schedule, timezone} <- normalize_updated_schedule(existing, attrs, opts),
          {:ok, delivery} <- normalize_updated_delivery(attrs),
-         {:ok, payload} <- normalize_updated_payload(attrs) do
+         {:ok, payload} <- normalize_updated_payload(attrs),
+         {:ok, automation_job_id} <- normalize_updated_automation_job_id(attrs) do
       changes =
         %{}
         |> Attrs.maybe_put(:name, name)
         |> maybe_put_updated_schedule(attrs, schedule, timezone)
         |> Attrs.maybe_put(:payload, payload)
         |> Attrs.maybe_put(:delivery, delivery)
+        |> maybe_put_automation_job_id(attrs, automation_job_id)
 
       {:ok, changes}
     end
@@ -193,7 +200,7 @@ defmodule Ankole.Schedule.Normalizer do
   defp normalize_cron_delivery(_delivery), do: {:error, :cron_delivery_route_required}
 
   defp validate_cron_update_fields(attrs) do
-    allowed = ~w(name schedule timezone payload delivery)
+    allowed = ~w(name schedule timezone payload delivery automation_job_id)
 
     case Map.keys(attrs) -- allowed do
       _unknown when map_size(attrs) == 0 ->
@@ -241,6 +248,16 @@ defmodule Ankole.Schedule.Normalizer do
     end
   end
 
+  defp normalize_updated_automation_job_id(attrs) do
+    optional_positive_integer(attrs, "automation_job_id")
+  end
+
+  defp maybe_put_automation_job_id(changes, attrs, automation_job_id) do
+    if Map.has_key?(attrs, "automation_job_id"),
+      do: Map.put(changes, :automation_job_id, automation_job_id),
+      else: changes
+  end
+
   defp maybe_put_updated_schedule(changes, attrs, schedule, timezone) do
     if Map.has_key?(attrs, "schedule") or Map.has_key?(attrs, "timezone") do
       changes
@@ -256,6 +273,31 @@ defmodule Ankole.Schedule.Normalizer do
       {:ok, value} when is_boolean(value) -> {:ok, value}
       {:ok, _value} -> {:error, {:invalid_boolean, key}}
       :error -> {:ok, default}
+    end
+  end
+
+  defp optional_positive_integer(attrs, key) do
+    case Map.fetch(attrs, key) do
+      :error ->
+        {:ok, nil}
+
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, value} when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991 ->
+        {:ok, value}
+
+      {:ok, value} when is_binary(value) ->
+        case Integer.parse(value) do
+          {integer, ""} when integer > 0 and integer <= 9_007_199_254_740_991 ->
+            {:ok, integer}
+
+          _invalid ->
+            {:error, {:invalid_positive_integer, key}}
+        end
+
+      {:ok, _value} ->
+        {:error, {:invalid_positive_integer, key}}
     end
   end
 end

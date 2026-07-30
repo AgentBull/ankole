@@ -10,7 +10,7 @@ const ListBackgroundJobsParamsSchema = z
     status: z
       .enum(['live', 'stop'])
       .describe(
-        'Job group. live includes queued, running, and waiting_on_user. stop includes succeeded, failed, or stopped jobs.'
+        'Background agent job group. live includes queued, running, and waiting_on_user. stop includes succeeded, failed, or stopped jobs.'
       )
       .optional(),
     page: z
@@ -52,9 +52,9 @@ export function createListBackgroundJobsTool(
   return {
     name: 'list_background_jobs',
     description: [
-      'List BackgroundAgentJobs visible from the current conversation or channel.',
+      'List background agent jobs visible from the current conversation or channel.',
       'status defaults to live. live includes queued, running, and waiting_on_user. stop includes succeeded, failed, and stopped.',
-      'Each page contains at most 32 Jobs, with the most recently updated Job first. Use next_page to continue.'
+      'Each page contains at most 32 background agent jobs, with the most recently updated background agent job first. Use next_page to continue.'
     ].join(' '),
     schema: ListBackgroundJobsParamsSchema,
     executionMode: 'parallel',
@@ -69,7 +69,7 @@ export function createListBackgroundJobsTool(
       const response = await opts.rpc(rpcMethods.backgroundAgentJobList, request, { turn: opts.turnStart.turn })
       return jsonToolResult({
         jobs: response.jobs.map(job => ({
-          job_id: modelIntegerIDFromWire(job.jobId, 'background Agent Job id'),
+          job_id: modelIntegerIDFromWire(job.jobId, 'background agent job id'),
           title: job.title,
           status: BackgroundAgentJobStatusSchema.parse(job.status)
         })),
@@ -81,7 +81,7 @@ export function createListBackgroundJobsTool(
 
 function cursorForPage(cursors: Map<string, string>, page: string): string {
   const cursor = cursors.get(page)
-  if (!cursor) throw new Error(`unknown background Agent Job page ${page}; use next_page from this turn`)
+  if (!cursor) throw new Error(`unknown background agent job page ${page}; use next_page from this turn`)
   return cursor
 }
 

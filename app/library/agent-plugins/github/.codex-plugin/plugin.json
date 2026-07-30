@@ -1,0 +1,6 @@
+{
+  "name": "github",
+  "version": "1.3.0",
+  "description": "Authenticate with GitHub; manage issues, pull requests, repositories, CI, releases, and durable webhook delegations.",
+  "skills": "./skills/"
+}

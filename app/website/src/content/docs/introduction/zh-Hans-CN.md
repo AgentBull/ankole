@@ -5,7 +5,7 @@ section: Getting started
 order: 1
 ---
 
-**Ankole 是开源的 AI Workforce OS。它让 AI Agent 成为自主劳动力：承担业务职能，并按结果接受考核。**
+**Ankole 是开源的 AI Workforce OS。它让 AI Agent 成为自主劳动力：承担岗位职能并接受考核。**
 
 给 Agent 一项投研职能，再定义授权边界、工具和绩效指标。它会持续维护假设、产出报告、跟踪判断，并用后来的真实结果复盘。
 

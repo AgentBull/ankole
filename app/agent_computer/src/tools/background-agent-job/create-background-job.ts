@@ -38,7 +38,7 @@ export function createCreateBackgroundJobTool(
       'Create durable background work and return immediately.',
       'title is only a management label and is not sent to Codex.',
       'task is sent verbatim as the first Codex user prompt, so it must contain the complete requirements and acceptance criteria.',
-      'The Job automatically receives every current enabled Skill that permits Background Agent Jobs.',
+      'The background agent job automatically receives every current enabled Skill that permits background agent jobs.',
       workspaceTemplateDescription(workspaceTemplates)
     ].join(' '),
     schema: createBackgroundJobParamsSchema(workspaceTemplates),
@@ -56,7 +56,7 @@ export function createCreateBackgroundJobTool(
       const response = await opts.rpc(rpcMethods.backgroundAgentJobCreate, request, { turn: opts.turnStart.turn })
 
       return jsonToolResult({
-        job_id: modelIntegerIDFromWire(response.jobId, 'background Agent Job id'),
+        job_id: modelIntegerIDFromWire(response.jobId, 'background agent job id'),
         status: BackgroundAgentJobStatusSchema.parse(response.status)
       })
     }

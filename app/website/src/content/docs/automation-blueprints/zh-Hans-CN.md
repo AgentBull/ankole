@@ -1,13 +1,13 @@
 ---
 title: 自动化蓝图
-description: 把 Cron 计划任务、Checkback、后台任务和信号路由规则组合成定时、自延迟或事件驱动的自动化。
+description: 把触发器与 Agent session、automation job、后台任务和信号路由规则组合成自动化。
 section: Guides
 order: 309
 ---
 
-Ankole 里的自动化不是一个工具，而是三种触发器与 agent 判断的组合。本页给出常见形态的可直接用蓝图，每个都由其它指南覆盖的部件构成。复制形态、换上你的话题和频道，然后在几次运行里调人设。
+Ankole 的自动化由三种触发器之一与两种消费者之一组合。Agent session 处理需要判断、记忆或对话的工作；automation job 用确定性脚本处理机械工作。本页给出常见形态的可直接用蓝图。
 
-先把决定性的性质说清楚：这里的自动化是*agent 驱动*的。触发器唤醒 agent；agent 决定做什么。没有单独的"自动化脚本"语言——schedule 带的 prompt，或 webhook 投递的事件，就是 agent 工作的依据。
+Ankole 不增加工作流语言或步骤图。Automation job 是 Agent Home 内普通的 Bun `main.ts`。触发器 owner 继续负责时间或入口，所选消费者处理不变的事件。只有脚本发射事件或失败策略要求唤醒时，Agent 才返回。
 
 ## 三种触发器
 
@@ -16,10 +16,19 @@ Ankole 里的自动化不是一个工具，而是三种触发器与 agent 判断
 | 触发器 | 如何触发 | 载体 | 用什么建 |
 |---|---|---|---|
 | **调度** | 按 cron 节奏（每小时、每天、每周） | cron schedule 上的一个 `task` | [调度](../schedules/) |
-| **自延迟（checkback）** | agent 在回合里设一个延迟自唤醒 | agent 的 `check_back_later` 工具 | [调度](../schedules/) |
-| **事件驱动（webhook）** | 外部系统 POST 到 webhook 正门 | 一个 `signals_gateway.webhook_handler` plugin | [SignalsGateway](../signals-gateway/) |
+| **自延迟（checkback）** | Agent 在回合里设置一个延迟触发器 | Agent 的 `check_back_later` 工具 | [调度](../schedules/) |
+| **事件驱动（webhook）** | 外部系统 POST 到 capability URL | 一个 `webhook.received` 事件 | [Webhook 委托](../webhook-delegations/) |
 
-三种模式都通过 Agent 的路由规则投递：计划任务使用一条规则，Agent 从 Webhook 事件醒来后发帖也使用一条规则。路由模型之外没有单独的“把自动化结果投递到频道”设置。
+三种触发器无论唤醒 Agent 还是运行脚本，都产生同一个 CloudEvents 信封。消费者选择只改变收件人，不改变触发事实。直接唤醒与脚本发射的事件都通过归属 session 的路由规则返回。
+
+## 选择消费者
+
+| 消费者 | 适用情况 | 触发结果 |
+|---|---|---|
+| **Agent session** | 每次 delivery 都需要判断、记忆、运行时选择工具或面向用户回复 | 触发器写入 ActorEvent 并唤醒会话 |
+| **Automation job** | 处理只是确定性的获取、比较、解析或预定动作 | 触发器创建持久脚本 run；脚本可以静默结束，也可以向归属 session 发射事件 |
+
+处理方式还不清楚时，先直接唤醒 Agent。只有已经证明是机械工作的部分才移入 automation job。这样脚本保持小巧，模型也不会进入空转轮询。
 
 ## 蓝图：每日摘要（调度）
 
@@ -40,15 +49,17 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/sessions/<sess
 
 可调部分：cron 表达式（节奏）、`timezone`（"9 点"是哪里的）、`task`（做什么）、人设（怎么做）。依赖 schedule 之前先手动运行验证。
 
-## 蓝图：每小时哨兵（调度，除非触发否则安静）
+## 蓝图：确定性哨兵（调度 + Automation Job）
 
-一个频繁触发但通常保持安静的 schedule——agent 盯着一个来源，只有当某事要紧才发帖。秘诀是人设的"除非否则安静"规则，配上频繁的 cron。
+Schedule 频繁触发、检查过程机械且通常无结果时，使用 automation job。Agent 写入并注册脚本，再把 cron schedule 绑定到它的 `automation_job_id`。
 
 ```json
 { "cron": "0 * * * *", "kind": "cron" }
 ```
 
-配一份点名阈值的 mission："仅当新的严重公告影响我们技术栈时发帖。否则保持安静。"一个每小时跑、大多数时候安静的 schedule 才是对的——哨兵的价值在罕见的发帖，不在频繁的。
+条件不成立时，脚本读取来源后直接结束，不调用 `emitEvent`；条件成立时，脚本把有界来源事实发射到归属 session，再由 Agent 复核并决定行动。注册前手工验证不调用 SDK 的分支，注册后用真实测试触发器验证每个调用 `context()` 或 `emitEvent` 的分支。
+
+每次运行都需要语义判断时，继续使用直接唤醒 Agent 的 schedule。Automation Job 合同见 [Worker CLI 能力](../cli-capabilities/)。
 
 ## 蓝图：延迟跟进（checkback）
 
@@ -69,9 +80,9 @@ agent 在回合里被问某事，决定稍后再回来。不是固定 cron，age
 
 ## 蓝图：事件驱动（webhook）
 
-一个外部系统——provider webhook、CI 结果、监控告警——POST 到 `/webhooks/v1/:handler_id/:instance_id/:kind`，一个声明的 `signals_gateway.webhook_handler` plugin 把它变成 actor 事件。agent 醒来、读事件、决定做什么。
+外部系统，例如源代码仓库或 CI provider，调用一条短期有效的 Ankole capability URL。Endpoint 接受 delivery 后，先持久提交所选消费者记录，再返回成功。
 
-这是 Microsoft 365 directory webhook（`entra-id`，kinds `directory`）以及任何 plugin 声明的自定义 webhook handler 背后的形态。蓝图是：在 plugin 里声明 handler，把外部系统指向 webhook URL，让人设决定事件意味着什么。webhook 正门鉴权的是*provider*（Bot Framework JWT、Graph `clientState`，或任何 handler 用来签名的东西），从不鉴权管理员。
+Agent 必须检查外部对象当前状态并判断事件时，使用默认的直接消费者。确定性脚本可以先过滤或对账回执时，把 endpoint 绑定到 automation job。两条路径都把回执视为不可信输入，有后果的事实仍以外部权威来源为准。Capability 的安全与生命周期规则见 [Webhook 委托](../webhook-delegations/)。
 
 ## 蓝图：观察并升级（binding 策略 + schedule）
 
@@ -88,15 +99,17 @@ agent 在回合里被问某事，决定稍后再回来。不是固定 cron，age
 - **想让它按钟点跑？** 调度。按"每次都发"还是"仅当某事要紧"选摘要或哨兵形态。
 - **想让它中途回来某事？** checkback。agent 掌握时机。
 - **想让长工作被钟点踢一脚？** 调度 + 后台任务。
-- **想让外部系统唤醒 agent？** webhook，通过声明的 handler。
+- **想做频繁机械检查但不启动模型？** 调度或 Checkback + automation job。
+- **想让外部系统继续工作？** Webhook 委托，消费者选择直接 Agent 或 automation job。
 - **想要安静观察加定期综合？** binding 策略 + schedule。
 
 ## Ankole 里的自动化不是什么
 
-它不是脚本语言，没有 YAML 步骤，也没有“如果这样则那样”的流程图。触发器只负责唤醒 Agent，由角色设定和模型决定下一步。它也不是独立的投递系统，所有结果仍通过路由规则交付；更不能绕过权限，自动化 Agent 和由人唤醒的 Agent 使用同一套 AuthZ 授权。自动化由触发器、Agent 和路由规则组成，真正作出决定的是 Agent。
+它不是工作流语言，没有 YAML 步骤、平台 DAG、隐藏游标或通用事件总线。Automation job 可以运行小脚本，但脚本自行拥有状态并保证重复安全。投递仍使用归属 session 的路由规则，自动化也不能绕过权限。判断交给 Agent，只有机械部分交给脚本。
 
 ## 下一步
 
 - 调度界面，读[调度](../schedules/)。
+- 确定性脚本消费者，读 [Worker CLI 能力](../cli-capabilities/)。
 - 后台执行与协作方式，读[后台 Agent 任务](../background-jobs/)。
-- webhook 正门，读 [SignalsGateway](../signals-gateway/) 开发者页。
+- 外部事件 capability，读 [Webhook 委托](../webhook-delegations/)。

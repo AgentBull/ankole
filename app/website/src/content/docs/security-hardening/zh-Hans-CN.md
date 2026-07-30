@@ -53,6 +53,7 @@ Ankole 需要一些入口；它极少需要全部。收紧到每种传输实际�
 
 - **长连接 adapter 只需出站。** Lark、Slack、钉钉开出站 WebSocket/Stream 连接；它们不需要公共入口端点。只用这些就把部署保持私有。
 - **Teams 和 webhook 入口需要公共端点——限定它。** Bot Framework 和 `/webhooks/v1/...` 正门需要可达。用入口把该路径限制到预期 provider（能按源 IP 就按），其余依赖 adapter 自身鉴权（Bot Framework JWT、Graph `clientState`、ZAP/PLAIN worker 认证）。
+- **Webhook 委托 URL 是凭据。** Agent 把检测交给外部系统时，`/webhooks/v1/event-callbacks/*` 必须可达。Ingress、proxy、CDN 和应用日志都要对完整路径脱敏。这个 URL 只授权唤醒，所以 Agent 在执行有后果的动作前必须复核外部系统当前状态。
 - **Console 本身**应在你的管理员网络或 VPN 之后，不对公网开放。bearer 门挡住未授权访问，但没有理由把管理员界面暴露给世界。
 
 ## 审计姿态

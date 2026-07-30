@@ -74,7 +74,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
   return {
     name: 'skill_view',
     description:
-      'Read an enabled inline skill file. For a Skill with ankole-runtime: background_job, this returns only BackgroundAgentJob routing guidance and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
+      'Read an enabled inline skill file. For a Skill with ankole-runtime: background_job, this returns only background agent job routing guidance and rejects referenced resources. For inline Skills, read referenced files only when needed, resolve relative paths from the returned skill directory, and use absolute paths for tool calls. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,
@@ -90,7 +90,7 @@ function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof Sk
       if (ankoleSkillRuntime(skill) === 'background_job') {
         if (filePath !== 'SKILL.md') {
           throw new Error(
-            `background-job-only Skill resources are available only inside a BackgroundAgentJob; create one with create_background_job and name ${params.name} in its task`
+            `background-job-only Skill resources are available only inside a background agent job; create one with create_background_job and name ${params.name} in its task`
           )
         }
         await safeSkillPath(skillRoot, 'SKILL.md')
@@ -205,8 +205,8 @@ function backgroundJobSkillDispatchContent(name: string): string {
   return [
     `The enabled ${name} Skill is a background-task capability.`,
     'Do not execute it inline and do not try to read its operational body or referenced resources from the main agent.',
-    `Create a BackgroundAgentJob with create_background_job. Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
-    'The Job receives the complete enabled Skill directory and can read its instructions and resources there.'
+    `Create a background agent job with create_background_job. Put the complete user request, constraints, paths, acceptance criteria, and an explicit instruction to use the ${name} Skill in the task.`,
+    'The background agent job receives the complete enabled Skill directory and can read its instructions and resources there.'
   ].join('\n')
 }
 
@@ -240,7 +240,7 @@ function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkill
 function enabledInlineSkillForOverlay(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   const skill = enabledSkill(name, opts)
   if (ankoleSkillRuntime(skill) === 'background_job') {
-    throw new Error(`background-job Skill overlays are available only inside a BackgroundAgentJob: ${name}`)
+    throw new Error(`background-job Skill overlays are available only inside a background agent job: ${name}`)
   }
   return skill
 }

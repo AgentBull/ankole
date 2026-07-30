@@ -3,6 +3,7 @@ defmodule Ankole.Schedule.Cron do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Normalizer
@@ -19,7 +20,15 @@ defmodule Ankole.Schedule.Cron do
 
     with {:ok, attrs} <- Normalizer.cron_schedule_attrs(attrs, now, opts) do
       Repo.transact(fn repo ->
-        insert_cron_schedule_in_tx(repo, attrs, now, opts)
+        with :ok <-
+               AutomationJobs.validate_bindable_in_tx(
+                 repo,
+                 attrs.automation_job_id,
+                 attrs.agent_uid,
+                 now
+               ) do
+          insert_cron_schedule_in_tx(repo, attrs, now, opts)
+        end
       end)
     end
   end
@@ -67,6 +76,8 @@ defmodule Ankole.Schedule.Cron do
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            :ok <- Store.reject_deleted(schedule),
            {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
+           :ok <-
+             validate_updated_automation_job(repo, schedule, attrs, now),
            changeset = CronSchedule.changeset(schedule, attrs),
            recurrence_changed? =
              Ecto.Changeset.changed?(changeset, :schedule) or
@@ -424,6 +435,7 @@ defmodule Ankole.Schedule.Cron do
       idempotency_key: idempotency_key,
       tool_call_id: tool_call_id,
       cron_schedule_id: schedule.id,
+      automation_job_id: schedule.automation_job_id,
       cron_fire_slot_at: slot_at,
       origin_ai_message_id: Attrs.map_text(schedule.created_by || %{}, "origin_ai_message_id"),
       source_provenance: %{
@@ -441,6 +453,7 @@ defmodule Ankole.Schedule.Cron do
     event
     |> ScheduledEvent.changeset(%{
       binding_name: schedule.binding_name,
+      automation_job_id: schedule.automation_job_id,
       signal_channel_id: Attrs.map_text(delivery, "signal_channel_id"),
       provider_thread_id: Attrs.map_text(delivery, "provider_thread_id"),
       due_at: slot_at,
@@ -541,5 +554,18 @@ defmodule Ankole.Schedule.Cron do
 
   defp same_datetime?(%DateTime{} = left, %DateTime{} = right) do
     DateTime.compare(left, right) == :eq
+  end
+
+  defp validate_updated_automation_job(repo, schedule, attrs, now) do
+    if Map.has_key?(attrs, :automation_job_id) do
+      AutomationJobs.validate_bindable_in_tx(
+        repo,
+        attrs.automation_job_id,
+        schedule.agent_uid,
+        now
+      )
+    else
+      :ok
+    end
   end
 end

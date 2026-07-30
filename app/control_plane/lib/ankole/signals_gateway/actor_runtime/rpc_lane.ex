@@ -26,6 +26,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   `rpc_error`).
   """
 
+  alias Ankole.AutomationJobs.RPCBroker, as: AutomationJobRPCBroker
   alias Ankole.Brain.RPCBroker, as: BrainRPCBroker
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
@@ -42,6 +43,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
+  alias Ankole.SignalsGateway.Webhooks.RPCBroker, as: WebhookRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
   @type scope :: :worker_agent | :turn_read | :turn_write
@@ -59,6 +61,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
     "agent_plugin.list" =>
       {AgentPluginBroker, :handle_list, :turn_read, FabricProto.AgentPluginListRequest},
+    "automation_job.create" =>
+      {AutomationJobRPCBroker, :handle_create, :turn_write,
+       FabricProto.AutomationJobCreateRequest},
+    "automation_job.list" =>
+      {AutomationJobRPCBroker, :handle_list, :turn_read, FabricProto.AutomationJobListRequest},
+    "automation_job.show" =>
+      {AutomationJobRPCBroker, :handle_show, :turn_read, FabricProto.AutomationJobShowRequest},
+    "automation_job.cancel" =>
+      {AutomationJobRPCBroker, :handle_cancel, :turn_write,
+       FabricProto.AutomationJobTargetRequest},
+    "automation_job.emit" =>
+      {AutomationJobRPCBroker, :handle_emit, :worker_agent, FabricProto.AutomationJobEmitRequest},
     "background_agent_job.create" =>
       {BackgroundAgentJobBroker, :handle_create, :turn_write,
        FabricProto.BackgroundAgentJobCreateRequest},
@@ -128,6 +142,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {ScheduleRPCBroker, :handle_cron_remove, :turn_write, FabricProto.ScheduleCronTargetRequest},
     "schedule.cron.run" =>
       {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronRunRequest},
+    "webhook.endpoint.create" =>
+      {WebhookRPCBroker, :handle_create, :turn_write, FabricProto.WebhookEndpointCreateRequest},
+    "webhook.endpoint.list" =>
+      {WebhookRPCBroker, :handle_list, :turn_read, FabricProto.WebhookEndpointListRequest},
+    "webhook.endpoint.cancel" =>
+      {WebhookRPCBroker, :handle_cancel, :turn_write, FabricProto.WebhookEndpointTargetRequest},
     "skills.installed.replace" =>
       {SkillRegistryBroker, :handle_replace, :turn_write,
        FabricProto.InstalledSkillReplaceRequest},
