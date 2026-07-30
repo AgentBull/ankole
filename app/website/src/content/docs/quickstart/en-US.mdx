@@ -1493,7 +1493,7 @@ export const channelTabs = [
     alert: {
       title: 'DingTalk limits some Ankole features',
       body: [
-        'As of July 2026, DingTalk does not support custom card messages. In a group chat, an Agent cannot read the full conversation history. It receives only messages that explicitly @-mention it.',
+        'In a group chat, an Agent cannot read the full conversation history. It receives only messages that explicitly @-mention it. DingTalk cards are template-hosted, so streaming card replies need one AI card template built on the card platform; without it, replies stay plain Markdown.',
         'These limits reduce Ankole’s functionality and user experience. They also leave the long-term memory system with incomplete context. Prefer another chat channel when possible.'
       ]
     },
@@ -1528,6 +1528,11 @@ export const channelTabs = [
               name: 'group_message_mode',
               value: 'addressed_only',
               description: 'The only mode DingTalk can deliver for group messages.'
+            },
+            {
+              name: 'cardTemplateId',
+              description:
+                'AI card template id for streaming card replies. Leave it empty for the first test; see the DingTalk AI card replies guide to build the template.'
             }
           ]
         }

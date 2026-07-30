@@ -1,0 +1,58 @@
+defmodule Ankole.Plugins.WeComAdapter.ConnectionSupervisor do
+  @moduledoc """
+  Starts or reuses one long-connection owner for each `{"wecom", botId}`.
+  """
+
+  alias Ankole.Plugins.WeComAdapter.Config
+  alias Ankole.Plugins.WeComAdapter.ConnectionOwner
+
+  @registry Ankole.Plugins.WeComAdapter.ConnectionRegistry
+  @supervisor Ankole.Plugins.WeComAdapter.ConnectionDynamicSupervisor
+
+  @type consumer :: map()
+
+  @doc "Ensures exactly one local connection owner exists for a normalized bot key."
+  @spec ensure_started(map(), [consumer()]) :: {:ok, pid()} | {:error, term()}
+  def ensure_started(config, consumers) when is_map(config) and is_list(consumers) do
+    key = Config.connection_key(config)
+
+    case Registry.lookup(@registry, key) do
+      [{pid, _value}] -> ensure_existing(pid, config, consumers)
+      [] -> start_owner(config, consumers)
+    end
+  end
+
+  @doc "Lists connection keys currently owned in this BEAM process."
+  @spec registered_keys() :: [term()]
+  def registered_keys do
+    @registry
+    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
+    |> Enum.filter(&match?({"wecom", _bot_id}, &1))
+    |> Enum.sort()
+  end
+
+  defp ensure_existing(pid, config, consumers) do
+    case ConnectionOwner.ensure_consumers(pid, config, consumers) do
+      {:ok, ^pid} -> {:ok, pid}
+      {:error, :consumer_set_changed} -> restart_owner(pid, config, consumers)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp restart_owner(pid, config, consumers) do
+    with :ok <- DynamicSupervisor.terminate_child(@supervisor, pid) do
+      start_owner(config, consumers)
+    end
+  end
+
+  defp start_owner(config, consumers) do
+    case DynamicSupervisor.start_child(
+           @supervisor,
+           {ConnectionOwner, config: config, consumers: consumers}
+         ) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, {:already_started, pid}} -> ensure_existing(pid, config, consumers)
+      {:error, _reason} = error -> error
+    end
+  end
+end

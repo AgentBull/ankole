@@ -23,7 +23,8 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.GoogleWorkspaceAdapter,
   Ankole.Plugins.LarkAdapter,
   Ankole.Plugins.Microsoft365Adapter,
-  Ankole.Plugins.SlackAdapter
+  Ankole.Plugins.SlackAdapter,
+  Ankole.Plugins.WeComAdapter
 ]
 
 # Configure the endpoint

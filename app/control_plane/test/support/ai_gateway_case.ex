@@ -221,7 +221,7 @@ defmodule Ankole.AIGatewayCase do
   end
 
   @doc false
-  def openai_response_stream_events(response_id, model, text) do
+  def openai_response_stream_events(response_id, model, text, usage \\ %{}) do
     response =
       %{
         "id" => response_id,
@@ -232,7 +232,7 @@ defmodule Ankole.AIGatewayCase do
         "model" => model,
         "previous_response_id" => nil,
         "output" => [],
-        "usage" => %{}
+        "usage" => usage
       }
 
     item = %{
@@ -270,6 +270,32 @@ defmodule Ankole.AIGatewayCase do
         }
       }
     ]
+  end
+
+  @doc false
+  def chat_completion_stream_events(request, text, usage \\ default_chat_stream_usage()) do
+    id = "chatcmpl_#{System.unique_integer([:positive])}"
+    model = request.body["model"] || "test-model"
+
+    [
+      chat_completion_chunk(id, model, %{"role" => "assistant"}, nil),
+      chat_completion_chunk(id, model, %{"content" => text}, nil),
+      Map.put(chat_completion_chunk(id, model, %{}, "stop"), "usage", usage)
+    ]
+  end
+
+  defp chat_completion_chunk(id, model, delta, finish_reason) do
+    %{
+      "id" => id,
+      "object" => "chat.completion.chunk",
+      "created" => 1_764_967_971,
+      "model" => model,
+      "choices" => [%{"index" => 0, "delta" => delta, "finish_reason" => finish_reason}]
+    }
+  end
+
+  defp default_chat_stream_usage do
+    %{"prompt_tokens" => 5, "completion_tokens" => 7, "total_tokens" => 12}
   end
 
   @doc false

@@ -372,7 +372,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
            end)
   end
 
-  test "non-stream hosted image failure rotates only the image credential in the control plane" do
+  test "non-stream hosted image failure does not replay after Provider output" do
     %{principal: agent} = agent_fixture()
     test_pid = self()
 
@@ -382,7 +382,12 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     provider_id =
       configure_openrouter_profiles(agent.uid, base_url, "pool-non-stream", pooled_entries())
 
-    assert {:ok, %{body: response}} =
+    assert {:error,
+            %{
+              status: 429,
+              type: "rate_limit_error",
+              code: "rate_limit_exceeded"
+            }} =
              AIGateway.create_response(
                agent.uid,
                %{
@@ -395,12 +400,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
                credential_retry_jitter: &Function.identity/1
              )
 
-    assert [%{"type" => "image_generation_call", "result" => @png_base64}, _message] =
-             response["output"]
-
+    assert_receive {:hosted_main_attempt, "Bearer sk-image-first"}
     assert_receive {:hosted_image_attempt, "Bearer sk-image-first"}
-    assert_receive {:image_retry_delay, 250}
-    assert_receive {:hosted_image_attempt, "Bearer sk-image-second"}
+    refute_receive {:image_retry_delay, _delay}
+    refute_receive {:hosted_main_attempt, _authorization}
     refute_receive {:hosted_image_attempt, _authorization}
 
     assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
@@ -409,10 +412,10 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert by_id["first"]["provider_status"] == 429
     assert by_id["second"]["status"] == "ok"
     refute get_in(by_id["first"], ["usage", "image_gen"])
-    assert get_in(by_id["second"], ["usage", "image_gen", "total_tokens"]) == 3
+    refute get_in(by_id["second"], ["usage", "image_gen"])
   end
 
-  test "stream hosted image failure rotates before public image progress and keeps one lifecycle" do
+  test "stream hosted image failure does not replay after Provider output" do
     %{principal: agent} = agent_fixture()
     test_pid = self()
 
@@ -440,9 +443,9 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
     assert Enum.count(types, &(&1 == "response.created")) == 1
     assert Enum.count(types, &(&1 == "response.in_progress")) == 1
-    assert Enum.count(types, &(&1 == "response.image_generation_call.in_progress")) == 1
-    assert Enum.count(types, &(&1 == "response.image_generation_call.partial_image")) == 1
-    assert Enum.count(types, &(&1 == "response.completed")) == 1
+    assert Enum.count(types, &(&1 == "response.failed")) == 1
+    refute Enum.any?(types, &String.starts_with?(&1, "response.image_generation_call."))
+    refute "response.completed" in types
 
     response_ids =
       events
@@ -453,17 +456,19 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
       |> Enum.uniq()
 
     assert [_one_response_id] = response_ids
+    assert_receive {:hosted_main_attempt, "Bearer sk-image-first"}
     assert_receive {:hosted_image_attempt, "Bearer sk-image-first"}
-    assert_receive {:image_retry_delay, 250}
-    assert_receive {:hosted_image_attempt, "Bearer sk-image-second"}
+    refute_receive {:image_retry_delay, _delay}
+    refute_receive {:hosted_main_attempt, _authorization}
     refute_receive {:hosted_image_attempt, _authorization}
 
     assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
     by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
     assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["provider_status"] == 429
     assert by_id["second"]["status"] == "ok"
     refute get_in(by_id["first"], ["usage", "image_gen"])
-    assert get_in(by_id["second"], ["usage", "image_gen", "total_tokens"]) == 3
+    refute get_in(by_id["second"], ["usage", "image_gen"])
   end
 
   test "hosted composition rotates a failing main provider without touching the image pool" do
@@ -816,6 +821,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
 
   test "hosted provider failures keep a safe status for Worker retry classification" do
     %{principal: agent} = agent_fixture()
+    test_pid = self()
 
     base_url =
       start_upstream_server(fn request ->
@@ -841,14 +847,16 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              }}
 
           {:post, "api/v1/chat/completions"} ->
+            send(test_pid, :hosted_route_main_attempt)
             main_model_response(request.body)
 
           {:post, "api/v1/images"} ->
+            send(test_pid, :hosted_route_image_attempt)
             {:json, 503, %{"error" => %{"message" => "private provider detail"}}}
         end
       end)
 
-    _provider_id = configure_openrouter_profiles(agent.uid, base_url, "provider-failure")
+    provider_id = configure_openrouter_profiles(agent.uid, base_url, "provider-failure")
 
     assert {:ok, stream, _meta} =
              AIGateway.open_sse_stream(agent.uid, %{
@@ -868,6 +876,14 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert error["retryable"] == true
     assert error["code"] == "upstream_error"
     refute Ankole.JSON.encode!(events) =~ "private provider detail"
+
+    assert_receive :hosted_route_main_attempt
+    assert_receive :hosted_route_image_attempt
+    refute_receive :hosted_route_main_attempt
+    refute_receive :hosted_route_image_attempt
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    assert [%{"status" => "ok"}] = projection["credential_pool"]["entries"]
   end
 
   test "stateful history keeps an image call id and resolves it before an edit" do
@@ -1114,6 +1130,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
          }}
 
       {:post, "api/v1/chat/completions"} ->
+        send(test_pid, {:hosted_main_attempt, request.headers["authorization"]})
         main_model_response(request.body)
 
       {:post, "api/v1/images"} ->

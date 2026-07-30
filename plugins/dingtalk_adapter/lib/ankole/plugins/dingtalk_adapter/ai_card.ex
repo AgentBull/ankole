@@ -5,10 +5,17 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   DingTalk cards are template-hosted: the operator builds the standard Ankole AI
   card template on the card platform (variable schema in
   `priv/card_template/README.md`) and supplies its `cardTemplateId`. Ankole
-  injects the fixed variable set (`answer` is the streaming Markdown variable)
-  and drives the native "typing/finished/error" states through
-  `PUT /v1.0/card/streaming` (`isFull: true`, mandatory for Markdown variables)
-  plus a terminal `PUT /v1.0/card/instances`.
+  injects the fixed variable set, streams `answer` through
+  `PUT /v1.0/card/streaming` (`isFull: true`, mandatory for Markdown variables),
+  and commits card structure through `PUT /v1.0/card/instances`.
+
+  The state the card displays is the `flowStatus` variable its AI card container
+  reads. `isFinalize` and `isError` only close the stream, so Ankole owns
+  `flowStatus` on every instance write: `2` while a page still streams, `3` once
+  it seals, `5` when it seals as an error. Instance writes merge by key
+  (`cardUpdateOptions.updateCardDataByKey`), because a full `cardData`
+  replacement clears every variable the write omits — dropping `flowStatus`
+  leaves the container with no state to render and the card looks blank.
 
   One reply is a chain of cards. PostgreSQL owns the durable page ledger: each
   page's `outTrackId`, byte-exact source slice, and sealed flag. Sealed pages
@@ -245,6 +252,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     ledger = ledger_by_index(checkpoint)
     created = created_out_track_ids(checkpoint)
     last_index = pages |> List.last() |> Map.fetch!(:index)
+    page_count = length(pages)
     state = presentation["state"]
 
     pages
@@ -261,6 +269,18 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       unchanged? = unchanged_page?(prior, page.source, seal?)
       thought = thought_write(checkpoint, presentation, tail?, created?, final?)
 
+      card = %{
+        flow_status: flow_status(seal?, error?),
+        tail?: tail?,
+        page_index: page.index,
+        page_count: page_count
+      }
+
+      # A page that seals must commit `flowStatus`, so a card the chain rolled
+      # past leaves the writing state instead of spinning forever. Sealing is a
+      # one-way transition, so an already-sealed page never writes again.
+      commit? = (tail? and (final? or repaint?)) or (seal? and not sealed_page?(prior))
+
       write =
         with :ok <-
                maybe_create(
@@ -271,6 +291,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
                  out_track_id,
                  presentation,
                  display,
+                 card,
                  created?
                ),
              :ok <-
@@ -282,7 +303,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
                  out_track_id,
                  presentation,
                  display,
-                 (tail? and final?) or (tail? and repaint?)
+                 card,
+                 commit?
                ) do
           :ok
         end
@@ -363,6 +385,15 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp unchanged_page?(%{"source" => source, "sealed" => sealed}, source, sealed), do: true
   defp unchanged_page?(_prior, _source, _seal), do: false
 
+  defp sealed_page?(%{"sealed" => true}), do: true
+  defp sealed_page?(_prior), do: false
+
+  # Values fixed by the card platform: 1 pending, 2 writing, 3 done, 4 doing,
+  # 5 failed. Ankole drives only the three a reply can be in.
+  defp flow_status(_seal?, true), do: "5"
+  defp flow_status(true, _error?), do: "3"
+  defp flow_status(false, _error?), do: "2"
+
   defp next_fence_state(open_before?, source) do
     Markdown.fence_open?(if(open_before?, do: "```\n", else: "") <> source)
   end
@@ -375,6 +406,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
          _otid,
          _presentation,
          _display,
+         _card,
          true
        ),
        do: :ok
@@ -387,6 +419,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
          out_track_id,
          presentation,
          display,
+         card,
          false
        ) do
     params =
@@ -394,7 +427,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
         "cardTemplateId" => template_id,
         "outTrackId" => out_track_id,
         "callbackType" => "STREAM",
-        "cardData" => %{"cardParamMap" => card_param_map(presentation, display)}
+        "cardData" => %{"cardParamMap" => card_param_map(presentation, display, card)}
       }
       |> Map.merge(InteractiveCard.create_model(space))
       |> Map.merge(InteractiveCard.deliver_model(space, robot_code))
@@ -427,15 +460,17 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  defp maybe_write_terminal(_client, _out_track_id, _presentation, _display, false), do: :ok
+  defp maybe_write_terminal(_client, _out_track_id, _presentation, _display, _card, false), do: :ok
 
-  # The terminal instance write carries only the tail page's display slice —
-  # earlier pages already hold their sealed slices, so writing the full answer
-  # here would duplicate content and blow the per-card budget.
-  defp maybe_write_terminal(client, out_track_id, presentation, display, true) do
+  # The instance write carries only this page's display slice — earlier pages
+  # already hold their sealed slices, so writing the full answer here would
+  # duplicate content and blow the per-card budget. `updateCardDataByKey` keeps
+  # it a merge: a full replacement would clear the variables this map omits.
+  defp maybe_write_terminal(client, out_track_id, presentation, display, card, true) do
     params = %{
       "outTrackId" => out_track_id,
-      "cardData" => %{"cardParamMap" => terminal_param_map(presentation, display)}
+      "cardData" => %{"cardParamMap" => terminal_param_map(presentation, display, card)},
+      "cardUpdateOptions" => %{"updateCardDataByKey" => true}
     }
 
     case Card.update_instance(client, params) do
@@ -446,9 +481,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   # --- rendering -----------------------------------------------------------
 
-  defp card_param_map(presentation, display_answer) do
+  defp card_param_map(presentation, display_answer, card) do
     %{
-      "state" => state_text(presentation),
+      "flowStatus" => card.flow_status,
+      "state" => state_text(presentation, card),
       "answer" => display_answer,
       "thought" => text_or_empty(presentation["thought"]),
       "plan" => render_plan(presentation["plan"]),
@@ -456,30 +492,49 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       "results" => render_results(presentation["results"]),
       "receipts" => render_receipts(presentation["receipts"]),
       "actions" => InteractiveCard.render_presentation_actions(presentation["actions"]),
-      "meta" => render_meta(presentation["meta"])
+      "meta" => render_meta(presentation, card)
     }
   end
 
-  # Terminal write removes the transient thinking and activity areas and keeps
-  # the sealed tail slice plus final structure.
-  defp terminal_param_map(presentation, display_answer) do
+  # A sealed page keeps no transient areas: the thinking draft and the running
+  # activity list belong to a turn that is no longer writing into this card.
+  defp terminal_param_map(presentation, display_answer, card) do
     presentation
-    |> card_param_map(display_answer)
+    |> card_param_map(display_answer, card)
     |> Map.put("thought", "")
     |> Map.put("activity", "")
   end
 
-  defp state_text(%{"state" => "working"}), do: "输入中"
-  defp state_text(%{"state" => "completed"}), do: "已完成"
-  defp state_text(%{"state" => "failed"}), do: "出错"
-  defp state_text(%{"state" => "stopped"}), do: "已停止"
-  defp state_text(%{"state" => "awaiting_input"}), do: "等待输入"
-  defp state_text(_presentation), do: ""
+  # A card the chain rolled past holds a finished slice of a longer answer, so
+  # its status line points at the continuation rather than the turn's live state.
+  defp state_text(_presentation, %{tail?: false}), do: "回答继续于下一张卡片"
 
-  defp render_plan(%{"items" => items}) when is_list(items) and items != [] do
-    Enum.map_join(items, "\n", fn item ->
-      "- #{status_mark(item["status"])} #{item["content"] || ""}"
-    end)
+  # While the turn works, the live tool label is a better status line than a
+  # fixed word, matching the Feishu card.
+  defp state_text(%{"state" => "working"} = presentation, _card) do
+    case get_in(presentation, ["meta", "status"]) do
+      status when is_binary(status) and status != "" -> status
+      _absent -> "输入中"
+    end
+  end
+
+  defp state_text(%{"state" => "completed"}, _card), do: "已完成"
+  defp state_text(%{"state" => "failed"}, _card), do: "出错"
+  defp state_text(%{"state" => "stopped"}, _card), do: "已停止"
+  defp state_text(%{"state" => "awaiting_input"}, _card), do: "等待输入"
+  defp state_text(_presentation, _card), do: ""
+
+  defp render_plan(%{"items" => items} = plan) when is_list(items) and items != [] do
+    summary = plan["summary"] || %{}
+    completed = summary["completed"] || 0
+    total = summary["total"] || length(items)
+
+    lines =
+      Enum.map_join(items, "\n", fn item ->
+        "- #{status_mark(item["status"])} #{item["content"] || ""}"
+      end)
+
+    "执行计划 · #{completed}/#{total}\n#{lines}"
   end
 
   defp render_plan(_plan), do: ""
@@ -510,16 +565,59 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp render_results(_items), do: ""
 
   defp render_receipts(items) when is_list(items) and items != [] do
-    Enum.map_join(items, "\n", fn item -> "- #{item["summary"] || ""}" end)
+    Enum.map_join(items, "\n", fn item ->
+      scope = if item["scope"], do: "（#{item["scope"]}）", else: ""
+      "- ✅ #{item["summary"] || ""}#{scope}"
+    end)
   end
 
   defp render_receipts(_items), do: ""
 
-  defp render_meta(meta) when is_map(meta) and map_size(meta) > 0 do
-    Enum.map_join(meta, " · ", fn {key, value} -> "#{key}: #{value}" end)
+  # Curated metadata, never the raw presentation keys: why this reply exists,
+  # which card of the chain it is, and the counters worth a reader's attention.
+  # `meta.status` stays out — it drives the state line instead.
+  defp render_meta(presentation, card) do
+    meta = presentation["meta"] || %{}
+
+    [
+      trigger_note(presentation["trigger_context"], card),
+      page_note(card),
+      count_note(meta["memory_source_count"], &"#{&1} 条记忆来源"),
+      count_note(meta["attachment_count"], &"已附上 #{&1} 个文件"),
+      elapsed_note(meta["elapsed_ms"])
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
   end
 
-  defp render_meta(_meta), do: ""
+  defp trigger_note(
+         %{"kind" => "background_agent_job_failure", "title" => title} = context,
+         %{page_index: 0}
+       )
+       when is_binary(title) do
+    case context["summary"] do
+      summary when is_binary(summary) and summary != "" ->
+        "后台 Agent 任务「#{title}」失败：#{summary}"
+
+      _absent ->
+        "后台 Agent 任务「#{title}」失败"
+    end
+  end
+
+  defp trigger_note(_context, _card), do: nil
+
+  defp page_note(%{page_index: index, page_count: count}) when count > 1,
+    do: "第 #{index + 1}/#{count} 张"
+
+  defp page_note(_card), do: nil
+
+  defp count_note(count, format) when is_integer(count) and count > 0, do: format.(count)
+  defp count_note(_count, _format), do: nil
+
+  defp elapsed_note(milliseconds) when is_integer(milliseconds) and milliseconds >= 1_000,
+    do: "用时 #{Float.round(milliseconds / 1_000, 1)} 秒"
+
+  defp elapsed_note(_milliseconds), do: nil
 
   defp answer_source(presentation, final?) do
     case presentation["answer"] do

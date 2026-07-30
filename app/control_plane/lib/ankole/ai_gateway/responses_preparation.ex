@@ -27,21 +27,16 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
   @spec prepare(String.t(), map(), keyword()) :: {:ok, prepared()} | {:error, term()}
   def prepare(subject_uid, request, opts \\ []) when is_map(request) do
-    request = MapUtils.normalize_request_keys(request)
-
-    request_context =
-      opts
-      |> Keyword.get(:request_context, %{})
-      |> RequestContext.prepare(request)
-
-    with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
-         {:ok, runtime} <-
-           Resolver.resolve_request_model(
-             subject_uid,
-             "llm",
-             Map.put(request, "__ankole_request_context", request_context)
-           ) do
+    with {:ok, request, runtime} <- resolve_request_runtime(subject_uid, request, opts) do
       build(subject_uid, runtime, request, opts)
+    end
+  end
+
+  @doc false
+  @spec resolve_runtime(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resolve_runtime(subject_uid, request, opts \\ []) when is_map(request) do
+    with {:ok, _request, runtime} <- resolve_request_runtime(subject_uid, request, opts) do
+      {:ok, runtime}
     end
   end
 
@@ -60,6 +55,25 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
 
     with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request) do
       build(subject_uid, runtime, request, opts)
+    end
+  end
+
+  defp resolve_request_runtime(subject_uid, request, opts) do
+    request = MapUtils.normalize_request_keys(request)
+
+    request_context =
+      opts
+      |> Keyword.get(:request_context, %{})
+      |> RequestContext.prepare(request)
+
+    with {:ok, request} <- CompactionArtifacts.resolve_request_input_handles(subject_uid, request),
+         {:ok, runtime} <-
+           Resolver.resolve_request_model(
+             subject_uid,
+             "llm",
+             Map.put(request, "__ankole_request_context", request_context)
+           ) do
+      {:ok, request, runtime}
     end
   end
 

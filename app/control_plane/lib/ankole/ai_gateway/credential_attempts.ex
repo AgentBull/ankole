@@ -31,15 +31,13 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     websocket_connect_failed
     websocket_read_failed
   )
-  @retryable_provider_codes ~w(server_is_overloaded slow_down)
-
   @type context :: %{
           required(:runtime) => map(),
           required(:build) => (map(), map() | nil -> {:ok, map()} | {:error, term()}),
           optional(:request) => map() | nil,
           optional(:attempt_number) => non_neg_integer(),
           optional(:attempted_ids) => MapSet.t(),
-          optional(:single_retry_used?) => boolean(),
+          optional(:route_retry_used?) => boolean(),
           optional(:refresh_used?) => boolean()
         }
 
@@ -56,7 +54,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       request: request,
       attempt_number: 0,
       attempted_ids: MapSet.new(),
-      single_retry_used?: false,
+      route_retry_used?: false,
       refresh_used?: false
     })
   end
@@ -206,42 +204,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     end
   end
 
-  @doc false
-  @spec recoverable_failure?(term()) :: boolean()
-  def recoverable_failure?(reason) do
-    failure = classify(reason)
-    failure.status == 401 or failure.retryable?
-  end
-
-  @doc """
-  Maps future rebuilds in an attempt context without resetting its counters.
-  """
-  @spec map_build(context() | nil, (map() -> map())) :: context() | nil
-  def map_build(%{build: build} = context, mapper)
-      when is_function(build, 2) and is_function(mapper, 1) do
-    mapped_build = fn runtime, request ->
-      case build.(runtime, request) do
-        {:ok, spec} when is_map(spec) -> {:ok, mapper.(spec)}
-        other -> other
-      end
-    end
-
-    %{context | build: mapped_build}
-  end
-
-  def map_build(context, _mapper), do: context
-
-  @doc """
-  Maps future rebuilds in a context attached to a prepared spec.
-  """
-  @spec map_attached_build(map(), (map() -> map())) :: map()
-  def map_attached_build(spec, mapper) when is_map(spec) and is_function(mapper, 1) do
-    case Map.get(spec, @private_key) do
-      %{} = context -> Map.put(spec, @private_key, map_build(context, mapper))
-      _missing -> spec
-    end
-  end
-
   @doc """
   Starts a new logical provider round while preserving current pool health and
   affinity. Per-round retry counters reset.
@@ -258,7 +220,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
          | request: request,
            attempt_number: 0,
            attempted_ids: MapSet.new(),
-           single_retry_used?: false,
+           route_retry_used?: false,
            refresh_used?: false
        }}
     end
@@ -348,6 +310,40 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   def record_usage(_context, _response_or_event, _opts), do: :ok
 
   @doc """
+  Records credential health after Provider output has closed the retry window.
+
+  This function never selects another credential or rebuilds the request.
+  """
+  @spec record_failure(context() | nil, term()) :: :ok
+  def record_failure(nil, _reason), do: :ok
+
+  def record_failure(%{runtime: runtime} = context, reason) do
+    failure = classify(reason)
+
+    cond do
+      failure.status == 429 ->
+        mark_attributed(context, failure, :exhausted)
+        :ok
+
+      failure.status == 401 and chatgpt_oauth?(runtime) and
+          not Map.get(context, :refresh_used?, false) ->
+        :ok
+
+      failure.status == 401 ->
+        mark =
+          if runtime["provider_kind"] == "chatgpt_subscription",
+            do: :dead,
+            else: :exhausted
+
+        mark_attributed(context, failure, mark)
+        :ok
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
   Returns the current credential id for diagnostics and tests.
   """
   @spec credential_id(context() | nil) :: String.t() | nil
@@ -387,8 +383,11 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       failure.status == 401 ->
         recover_unauthorized(context, spec, reason, failure, opts)
 
-      failure.retryable? ->
-        recover_retryable(context, spec, reason, failure, opts)
+      failure.status == 429 ->
+        rotate(context, reason, failure, opts, mark: :exhausted)
+
+      failure.route_retryable? ->
+        recover_route_failure(context, spec, reason, opts)
 
       true ->
         {:stop, reason, context}
@@ -420,14 +419,17 @@ defmodule Ankole.AIGateway.CredentialAttempts do
         {:error, {:chatgpt_refresh_permanent, _code}} ->
           rotate(context, reason, failure, opts, mark: :dead)
 
-        {:error, refresh_reason} ->
+        {:error, {:chatgpt_refresh_transient, 429, _headers, _code} = refresh_reason} ->
           rotate(
             context,
-            reason,
+            refresh_reason,
             refresh_failure(refresh_reason, failure),
             opts,
             mark: :exhausted
           )
+
+        {:error, refresh_reason} ->
+          {:stop, refresh_reason, context}
       end
     else
       mark =
@@ -439,43 +441,24 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     end
   end
 
-  defp recover_retryable(context, spec, reason, failure, opts) do
-    if attributed?(context.runtime) and single_entry?(context.runtime) and
-         not context.single_retry_used? do
+  defp recover_route_failure(context, spec, reason, opts) do
+    if context.route_retry_used? do
+      {:stop, reason, context}
+    else
       delay(context, opts)
 
       {:retry,
        context
-       |> Map.put(:single_retry_used?, true)
+       |> Map.put(:route_retry_used?, true)
        |> increment_attempt(), spec}
-    else
-      rotate(context, reason, failure, opts, mark: :exhausted)
     end
   end
-
-  defp attributed?(runtime),
-    do: is_binary(Map.get(runtime, "credential_id"))
 
   defp rotate(context, original_reason, failure, opts, mark: mark) do
     runtime = context.runtime
     credential_id = Map.get(runtime, "credential_id")
-    provider_row_id = provider_row_id(runtime)
 
-    if is_binary(credential_id) and is_binary(provider_row_id) do
-      case mark do
-        :dead ->
-          CredentialPool.mark_dead(provider_row_id, credential_id, failure.error)
-
-        :exhausted ->
-          CredentialPool.mark_exhausted(
-            provider_row_id,
-            credential_id,
-            failure.status,
-            failure.headers,
-            failure.error
-          )
-      end
-
+    if mark_attributed(context, failure, mark) == :ok do
       attempted_ids = MapSet.put(context.attempted_ids, credential_id)
 
       case Resolver.reselect_credential(runtime, exclude: MapSet.to_list(attempted_ids)) do
@@ -488,7 +471,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
              |> Map.put(:runtime, next_runtime)
              |> Map.put(:attempted_ids, attempted_ids)
              |> Map.put(:refresh_used?, false)
-             |> Map.put(:single_retry_used?, false)
              |> increment_attempt(), candidate}
           else
             {:error, reason} -> {:stop, reason, context}
@@ -503,6 +485,31 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       end
     else
       recover_unattributed(context, original_reason, opts)
+    end
+  end
+
+  defp mark_attributed(context, failure, mark) do
+    runtime = context.runtime
+
+    with credential_id when is_binary(credential_id) <- Map.get(runtime, "credential_id"),
+         provider_row_id when is_binary(provider_row_id) <- provider_row_id(runtime) do
+      case mark do
+        :dead ->
+          CredentialPool.mark_dead(provider_row_id, credential_id, failure.error)
+
+        :exhausted ->
+          CredentialPool.mark_exhausted(
+            provider_row_id,
+            credential_id,
+            failure.status,
+            failure.headers,
+            failure.error
+          )
+      end
+
+      :ok
+    else
+      _missing -> :unattributed
     end
   end
 
@@ -591,9 +598,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       cloudflare_challenge?:
         status == 403 and
           header_value(headers, "cf-mitigated") == "challenge",
-      retryable?:
-        status == 429 or (is_integer(status) and status in 500..599) or
-          code in @retryable_provider_codes or transport_failure?(reason, code, stage)
+      route_retryable?: status in [502, 503, 504] or transport_failure?(reason, code, stage)
     }
   end
 
@@ -658,27 +663,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       |> Map.get("connection_options", %{})
       |> Map.get("auth_type", "oauth")
       |> Kernel.==("oauth")
-  end
-
-  defp single_entry?(runtime) do
-    case Map.get(runtime, "credential_available_count") do
-      count when is_integer(count) ->
-        count <= 1
-
-      _missing ->
-        runtime
-        |> Map.get("provider")
-        |> case do
-          %{credential_pool: %{"entries" => entries}} when is_list(entries) ->
-            Enum.count(entries, fn entry ->
-              is_nil(Map.get(entry, "disabled_at")) and
-                Map.get(entry, "reauth_required") != true
-            end) <= 1
-
-          _provider ->
-            true
-        end
-    end
   end
 
   defp provider_row_id(runtime) do
@@ -782,12 +766,9 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       original
       | status: status,
         headers: headers,
-        error: %{"code" => to_string(code), "reason" => "chatgpt_refresh_failed"},
-        retryable?: true
+        error: %{"code" => to_string(code), "reason" => "chatgpt_refresh_failed"}
     }
   end
-
-  defp refresh_failure(_reason, original), do: original
 
   defp cloudflare_challenge_error(failure) do
     {:universal_ai_request_failed,

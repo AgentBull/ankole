@@ -225,8 +225,11 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
         mark_dead(provider_id, credential_id)
         {:error, reason}
 
-      {:error, {:chatgpt_refresh_transient, status, headers, _code} = reason} ->
-        mark_exhausted(provider_id, credential_id, status, headers)
+      {:error, {:chatgpt_refresh_transient, 429, headers, _code} = reason} ->
+        mark_exhausted(provider_id, credential_id, 429, headers)
+        {:error, reason}
+
+      {:error, {:chatgpt_refresh_transient, _status, _headers, _code} = reason} ->
         {:error, reason}
 
       other ->

@@ -192,9 +192,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   The request context can include `affinity_key` and an `exclude` list. The
   selected credential id is returned with the plaintext fields so asynchronous
-  failure handling never has to guess which entry failed. A permanent or
-  temporary OAuth refresh failure updates that entry's health and selects the
-  next usable entry before this function returns.
+  failure handling never has to guess which entry failed. A permanent refresh
+  failure or HTTP 429 updates that entry's health and selects the next usable
+  entry. Other refresh endpoint failures leave credential health unchanged.
   """
   @spec resolve_credential(Provider.t(), map() | keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -236,7 +236,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
             [selection.credential_id | excluded]
           )
 
-        {:error, {:chatgpt_refresh_transient, _status, _headers, _reason}} ->
+        {:error, {:chatgpt_refresh_transient, 429, _headers, _reason}} ->
           resolve_credential(
             provider,
             entries,
@@ -244,6 +244,9 @@ defmodule Ankole.AIGateway.ProviderConfigs do
             affinity_key,
             [selection.credential_id | excluded]
           )
+
+        {:error, {:chatgpt_refresh_transient, _status, _headers, _reason}} = error ->
+          error
 
         {:error, _reason} = error ->
           error

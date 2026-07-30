@@ -2,7 +2,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
+
+  import Ankole.AIGatewayCase,
+    only: [chat_completion_stream_events: 2, start_upstream_server: 1]
+
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
@@ -1546,8 +1549,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     assert_receive {:native_controller_upstream_request, upstream_request}
     assert upstream_request["stream"] == true
-    assert_receive {:native_controller_upstream_request, retried_request}
-    assert retried_request == upstream_request
+    refute_receive {:native_controller_upstream_request, _retried_request}
 
     assert %{
              "error" => %{
@@ -1897,10 +1899,19 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        if request.path == "models" do
-          {:json, 200, openrouter_models_fixture()}
-        else
-          {:json, 200, compact_chat_completion_fixture(request.body)}
+        cond do
+          request.path == "models" ->
+            {:json, 200, openrouter_models_fixture()}
+
+          request.body["stream"] == true ->
+            {:sse, 200,
+             chat_completion_stream_events(
+               request,
+               "## Active Task\nhello from compliance"
+             )}
+
+          true ->
+            {:json, 200, compact_chat_completion_fixture(request.body)}
         end
       end)
 
@@ -2032,22 +2043,10 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
             {:json, 200, openrouter_models_fixture()}
 
           inspect(request.body) =~ "second round follow-up" ->
-            {:json, 200,
-             request.body
-             |> chat_completion_fixture()
-             |> put_in(
-               ["choices", Access.at(0), "message", "content"],
-               "## Active Task\nsecond summary"
-             )}
+            {:sse, 200, chat_completion_stream_events(request, "## Active Task\nsecond summary")}
 
           true ->
-            {:json, 200,
-             request.body
-             |> chat_completion_fixture()
-             |> put_in(
-               ["choices", Access.at(0), "message", "content"],
-               "## Active Task\nfirst summary"
-             )}
+            {:sse, 200, chat_completion_stream_events(request, "## Active Task\nfirst summary")}
         end
       end)
 
@@ -2140,7 +2139,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         if request.path == "models" do
           {:json, 200, openrouter_models_fixture()}
         else
-          {:json, 200, compact_chat_completion_fixture(request.body)}
+          {:sse, 200,
+           chat_completion_stream_events(request, "## Active Task\nhello from compliance")}
         end
       end)
 
@@ -2253,7 +2253,8 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         if request.path == "models" do
           {:json, 200, openrouter_models_fixture()}
         else
-          {:json, 200, compact_chat_completion_fixture(request.body)}
+          {:sse, 200,
+           chat_completion_stream_events(request, "## Active Task\nhello from compliance")}
         end
       end)
 

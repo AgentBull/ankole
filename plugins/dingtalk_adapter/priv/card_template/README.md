@@ -10,11 +10,14 @@ card streaming — AI replies degrade to plain Markdown messages.
 Build steps (DingTalk developer console):
 
 1. Open 卡片平台 (Card Platform) → 新建模板 → choose the **AI 卡片** category —
-   the AI card kind carries the native 输入中 / 已完成 / 出错 states that
-   Ankole drives through the streaming API (`isFinalize` / `isError`).
+   the AI card kind carries the native 输入中 / 已完成 / 出错 states, and its AI
+   card container selects which one to show from the `flowStatus` variable.
 2. Add the variables below with exactly these names (变量名). The card fails
    closed if a variable is missing: Ankole writes it on every instance.
-3. Associate the template with the enterprise-internal app that owns the robot,
+3. Bind the AI card container's status variable (流程状态 / `flowStatusVar`) to
+   `flowStatus`, and keep the 输入中 and 出错 states enabled. A container whose
+   status variable is unbound cannot leave the writing state.
+4. Associate the template with the enterprise-internal app that owns the robot,
    publish it, and copy the template id into the binding's `cardTemplateId`.
 
 Whether the card platform can import a template as JSON (and the exact control
@@ -26,15 +29,16 @@ build the template manually from the table below.
 
 | Variable (变量名) | Type | Content Ankole writes |
 |---|---|---|
-| `state` | text | Status line: `输入中` / `已完成` / `出错` / `已停止` / `等待输入` (empty when unknown) |
+| `flowStatus` | text, bound to the AI card container | `2` while the card streams, `3` once it is sealed, `5` when it is sealed as an error |
+| `state` | text | Status line: the live tool label or `输入中` while working, then `已完成` / `出错` / `已停止` / `等待输入`. A card the chain rolled past says `回答继续于下一张卡片`. |
 | `answer` | **streaming Markdown** | The reply body. Written with `PUT /v1.0/card/streaming`, `isFull: true`. This is the only variable updated at streaming cadence. |
 | `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is working. Streamed on its own key; always blanked at terminal/refresh. Place it in a folded area. |
-| `plan` | text | Task list snapshot, one `- [ ] item` line per entry |
+| `plan` | text | `执行计划 · completed/total` header, then one `- [ ] item` line per entry |
 | `activity` | text, collapsed section | Running tool activity, one `- … label` line per entry; blanked at terminal |
 | `results` | text | One `- title` line per structured result |
-| `receipts` | text | One `- summary` line per side-effect receipt |
+| `receipts` | text | One `- ✅ summary（scope）` line per side-effect receipt |
 | `actions` | **JSON string** | Interactive controls for the action area (below); empty string when none |
-| `meta` | text | `key: value` pairs joined with `·` |
+| `meta` | text | Curated metadata joined with ` · `: why the turn was triggered, the card's place in the chain, recalled-memory and attachment counts, elapsed time |
 
 `answer` must be a Markdown-rendering variable; the platform mandates
 `isFull: true` full overwrites for streamed Markdown, which matches Ankole's
@@ -42,6 +46,19 @@ accumulated-snapshot model. One reply may span several cards: past the
 single-card source budget Ankole seals the current card (`isFinalize`) and
 continues on a freshly delivered continuation card. Sealed cards are never
 written again.
+
+## Card state (`flowStatus`)
+
+The AI card container decides which state to render from `flowStatus`. Closing
+the stream with `isFinalize` or `isError` does not move it, so Ankole writes the
+value itself on every `PUT /v1.0/card/instances` call, and every such call sets
+`cardUpdateOptions.updateCardDataByKey` so the write merges instead of replacing
+the whole variable map. A full replacement would clear `flowStatus`, leaving the
+container with no state to render and the card visibly blank.
+
+The platform's values are `1` pending, `2` writing, `3` done, `4` doing, and `5`
+failed. Ankole uses only `2`, `3`, and `5`; the template does not need to render
+the other two.
 
 ## Action area (`actions` variable)
 

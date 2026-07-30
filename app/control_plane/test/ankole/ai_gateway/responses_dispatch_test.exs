@@ -315,42 +315,42 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert by_id["second"]["request_count"] == 1
   end
 
-  test "5xx rotation uses exponential backoff before each new credential" do
+  test "route failures retry the same credential once and leave the pool usable" do
     %{principal: agent} = agent_fixture()
     test_pid = self()
 
     base_url =
       start_upstream_server(fn request ->
         authorization = request.headers["authorization"]
-        send(test_pid, {:pool_attempt, authorization})
+        input = request.body["input"]
+        send(test_pid, {:route_attempt, input, authorization})
 
-        case authorization do
-          "Bearer sk-third" ->
+        case input do
+          "second request" ->
             {:json, 200,
              %{
-               "id" => "resp_pool_backoff",
+               "id" => "resp_after_route_failure",
                "object" => "response",
                "status" => "completed",
                "output" => [],
                "usage" => %{}
              }}
 
-          _credential ->
+          "first request" ->
             {:json, 503,
-             %{"error" => %{"code" => "provider_unavailable", "message" => "try another key"}}}
+             %{"error" => %{"code" => "provider_unavailable", "message" => "route unavailable"}}}
         end
       end)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "openai-pool-backoff",
+               provider_id: "openai-route-retry",
                provider_kind: "openai",
                base_url: base_url,
                credential_pool: %{
                  "entries" => [
                    %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
-                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"},
-                   %{"id" => "third", "label" => "Third", "api_key" => "sk-third"}
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
                  ]
                },
                connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
@@ -358,14 +358,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-pool-backoff",
+               provider_id: "openai-route-retry",
                model: "gpt-5.5"
              })
 
-    assert {:ok, %{body: %{"id" => "resp_pool_backoff"}}} =
+    assert {:error,
+            {:upstream_response_failed, 503,
+             %{
+               "error" => %{
+                 "code" => "provider_unavailable",
+                 "message" => "route unavailable"
+               }
+             }}} =
              AIGateway.create_response(
                agent.uid,
-               %{"model" => "primary", "input" => "hello"},
+               %{"model" => "primary", "input" => "first request"},
                credential_retry_base_ms: 100,
                credential_retry_jitter: & &1,
                credential_retry_sleep: fn milliseconds ->
@@ -373,20 +380,25 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                end
              )
 
-    assert_receive {:pool_attempt, "Bearer sk-first"}
+    assert_receive {:route_attempt, "first request", "Bearer sk-first"}
     assert_receive {:credential_retry_delay, 100}
-    assert_receive {:pool_attempt, "Bearer sk-second"}
-    assert_receive {:credential_retry_delay, 200}
-    assert_receive {:pool_attempt, "Bearer sk-third"}
-    refute_receive {:pool_attempt, _authorization}
+    assert_receive {:route_attempt, "first request", "Bearer sk-first"}
+    refute_receive {:route_attempt, "first request", _authorization}
+    refute_receive {:credential_retry_delay, _milliseconds}
 
-    assert {:ok, projection} = ProviderConfigs.get_provider("openai-pool-backoff")
+    assert {:ok, projection} = ProviderConfigs.get_provider("openai-route-retry")
     by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
-    assert by_id["first"]["status"] == "exhausted"
-    assert by_id["first"]["provider_status"] == 503
-    assert by_id["second"]["status"] == "exhausted"
-    assert by_id["second"]["provider_status"] == 503
-    assert by_id["third"]["status"] == "ok"
+    assert by_id["first"]["status"] == "ok"
+    assert by_id["second"]["status"] == "ok"
+
+    assert {:ok, %{body: %{"id" => "resp_after_route_failure"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "second request"
+             })
+
+    assert_receive {:route_attempt, "second request", "Bearer sk-first"}
+    refute_receive {:route_attempt, "second request", _authorization}
   end
 
   test "ChatGPT Cloudflare challenges preserve the safe header and fail with operator guidance" do
@@ -610,6 +622,149 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute_receive {:single_usable_attempt, _authorization}
   end
 
+  test "route and provider endpoint failures retry once without changing credential health" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-route-failure-classification",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
+                 ]
+               }
+             })
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "openai-route-failure-classification/gpt-5.5"
+             })
+
+    context = %{
+      runtime: runtime,
+      build: fn _runtime, _request -> {:ok, %{marker: :same_request}} end,
+      request: %{},
+      attempt_number: 0,
+      attempted_ids: MapSet.new(),
+      route_retry_used?: false,
+      refresh_used?: false
+    }
+
+    reasons = [
+      {:upstream_response_failed, 502, %{}, %{}},
+      {:upstream_response_failed, 503, %{}, %{}},
+      {:upstream_response_failed, 504, %{}, %{}},
+      %{"code" => "connect_timeout", "stage" => "connect"},
+      %{"code" => "upstream_read_failed", "stage" => "read"},
+      :timeout
+    ]
+
+    retry_opts = [
+      credential_retry_base_ms: 0,
+      credential_retry_jitter: &Function.identity/1
+    ]
+
+    for reason <- reasons do
+      assert {:ok, retried, %{marker: :same_request}} =
+               CredentialAttempts.retry_spec(
+                 context,
+                 %{marker: :same_request},
+                 reason,
+                 retry_opts
+               )
+
+      assert retried.runtime["credential_id"] == runtime["credential_id"]
+      assert retried.route_retry_used?
+
+      assert {:error, ^reason} =
+               CredentialAttempts.retry_spec(
+                 retried,
+                 %{marker: :same_request},
+                 reason,
+                 retry_opts
+               )
+    end
+
+    provider_failure =
+      {:upstream_response_failed, 500, %{"error" => %{"code" => "server_is_overloaded"}}, %{}}
+
+    assert {:error, ^provider_failure} =
+             CredentialAttempts.retry_spec(
+               context,
+               %{marker: :same_request},
+               provider_failure,
+               retry_opts
+             )
+
+    statuses = CredentialPool.statuses(provider.id, provider.credential_pool["entries"])
+    assert statuses["first"]["status"] == "ok"
+    assert statuses["second"]["status"] == "ok"
+  end
+
+  test "credential rotation does not reset the request route retry budget" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-route-retry-budget",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [
+                   %{"id" => "first", "label" => "First", "api_key" => "sk-first"},
+                   %{"id" => "second", "label" => "Second", "api_key" => "sk-second"}
+                 ]
+               }
+             })
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "openai-route-retry-budget/gpt-5.5"
+             })
+
+    context = %{
+      runtime: runtime,
+      build: fn _runtime, _request -> {:ok, %{marker: :same_request}} end,
+      request: %{},
+      attempt_number: 1,
+      attempted_ids: MapSet.new(),
+      route_retry_used?: true,
+      refresh_used?: false
+    }
+
+    retry_opts = [
+      credential_retry_base_ms: 0,
+      credential_retry_jitter: &Function.identity/1
+    ]
+
+    unauthorized =
+      {:upstream_response_failed, 401, %{"error" => %{"code" => "unauthorized"}}, %{}}
+
+    assert {:ok, rotated, %{marker: :same_request}} =
+             CredentialAttempts.retry_spec(
+               context,
+               %{marker: :same_request},
+               unauthorized,
+               retry_opts
+             )
+
+    assert rotated.runtime["credential_id"] != runtime["credential_id"]
+    assert rotated.route_retry_used?
+
+    route_failure = {:upstream_response_failed, 503, %{}, %{}}
+
+    assert {:error, ^route_failure} =
+             CredentialAttempts.retry_spec(
+               rotated,
+               %{marker: :same_request},
+               route_failure,
+               retry_opts
+             )
+  end
+
   test "unattributed failures mark no credential and stop after one pool lap" do
     %{principal: agent} = agent_fixture()
 
@@ -637,12 +792,11 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       request: %{},
       attempt_number: 0,
       attempted_ids: MapSet.new(),
-      single_retry_used?: false,
+      route_retry_used?: false,
       refresh_used?: false
     }
 
-    reason =
-      {:upstream_response_failed, 503, %{"error" => %{"code" => "provider_unavailable"}}, %{}}
+    reason = {:upstream_response_failed, 401, %{"error" => %{"code" => "unauthorized"}}, %{}}
 
     retry_opts = [
       credential_retry_base_ms: 0,
@@ -1850,48 +2004,45 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute inspect(provider_input) =~ brain_pre_compaction_nudge_marker()
   end
 
-  test "websocket stateful history auto-compacts before creating the provider request" do
+  test "websocket stateful history auto-compacts through ChatGPT Subscription streaming" do
     %{principal: agent} = agent_fixture()
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
 
     base_url =
       start_recording_upstream(self(), fn request ->
-        assert request.path == "v1/responses"
+        assert request.path == "responses"
         assert request.body["model"] == "gpt-compact-light"
+        assert request.body["stream"] == true
+        assert request.headers["accept"] == "text/event-stream"
+        assert request.headers["session_id"] == request.body["prompt_cache_key"]
 
-        {:json, 200,
-         %{
-           "id" => "resp_summary",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [
-             %{
-               "type" => "message",
-               "role" => "assistant",
-               "content" => [
-                 %{
-                   "type" => "output_text",
-                   "text" => "## Active Task\nPrior two turns were compressed.",
-                   "annotations" => []
-                 }
-               ]
-             }
-           ],
-           "usage" => %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
-         }}
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary",
+           "gpt-compact-light",
+           "## Active Task\nPrior two turns were compressed.",
+           %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
+         )}
       end)
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "openai-auto-compaction",
-               provider_kind: "openai",
-               base_url: "#{base_url}/v1",
+               provider_id: "chatgpt-auto-compaction",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
                credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+                 "entries" => [
+                   %{
+                     "id" => "enterprise",
+                     "label" => "Enterprise",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })
@@ -1899,7 +2050,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
       assert {:ok, _profile} =
                ModelProfiles.put_model_profile(agent.uid, profile, %{
-                 provider_id: "openai-auto-compaction",
+                 provider_id: "chatgpt-auto-compaction",
                  model: model
                })
     end
@@ -1943,7 +2094,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     assert_receive {:gateway_request, summarizer_request}
-    summarizer_input = summarizer_request.body["input"]
+
+    assert [
+             %{
+               "role" => "user",
+               "content" => [%{"type" => "input_text", "text" => summarizer_input}]
+             }
+           ] = summarizer_request.body["input"]
 
     assert summarizer_request.body["model"] == "gpt-compact-light"
     assert summarizer_request.body["store"] == false
@@ -2011,26 +2168,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         assert request.path == "v1/responses"
         assert request.body["model"] == "gpt-compact-light"
 
-        {:json, 200,
-         %{
-           "id" => "resp_summary_tool_tail",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [
-             %{
-               "type" => "message",
-               "role" => "assistant",
-               "content" => [
-                 %{
-                   "type" => "output_text",
-                   "text" => "## Active Task\nOnly the first row was compressed.",
-                   "annotations" => []
-                 }
-               ]
-             }
-           ],
-           "usage" => %{"input_tokens" => 7, "output_tokens" => 5, "total_tokens" => 12}
-         }}
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_tool_tail",
+           "gpt-compact-light",
+           "## Active Task\nOnly the first row was compressed.",
+           %{"input_tokens" => 7, "output_tokens" => 5, "total_tokens" => 12}
+         )}
       end)
 
     assert {:ok, _provider} =
@@ -2042,7 +2186,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })
@@ -2168,7 +2311,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     base_url =
       start_recording_upstream(self(), fn _request ->
-        {:json, 200, response_summary("## Active Task\nReasoning summary")}
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_reasoning_summary",
+           "gpt-compact-light",
+           "## Active Task\nReasoning summary"
+         )}
       end)
 
     create_openai_compaction_provider!(agent, "openai-compaction-reasoning-redaction", base_url)
@@ -2231,7 +2379,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
               {:json, 400, %{"error" => %{"message" => "maximum context length exceeded"}}}
 
             _attempt ->
-              {:json, 200, response_summary("## Active Task\nRetried summary")}
+              {:sse, 200,
+               openai_response_stream_events(
+                 "resp_retried_summary",
+                 "gpt-compact-light",
+                 "## Active Task\nRetried summary"
+               )}
           end
       end)
 
@@ -2268,7 +2421,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     base_url =
       start_recording_upstream(self(), fn request ->
         assert request.body["model"] == "gpt-main"
-        {:json, 200, response_summary("## Active Task\nPrimary high reasoning summary")}
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_primary_summary",
+           "gpt-main",
+           "## Active Task\nPrimary high reasoning summary"
+         )}
       end)
 
     create_openai_compaction_provider!(agent, "openai-compaction-high-reasoning", base_url,
@@ -2751,14 +2910,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         assert request.path == "v1/responses"
         assert request.body["model"] == "gpt-main"
 
-        {:json, 200,
-         %{
-           "id" => "resp_empty_tool_summary",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [],
-           "usage" => %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
-         }}
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_empty_tool_summary",
+           "gpt-main",
+           "",
+           %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
+         )}
       end)
 
     assert {:ok, _provider} =
@@ -2770,7 +2928,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })
@@ -2844,14 +3001,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         assert request.path == "v1/responses"
         assert request.body["model"] == "gpt-main"
 
-        {:json, 200,
-         %{
-           "id" => "resp_empty_summary",
-           "object" => "response",
-           "status" => "completed",
-           "output" => [],
-           "usage" => %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
-         }}
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_empty_summary",
+           "gpt-main",
+           "",
+           %{"input_tokens" => 9, "output_tokens" => 0, "total_tokens" => 9}
+         )}
       end)
 
     assert {:ok, _provider} =
@@ -2863,7 +3019,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })
@@ -3109,8 +3264,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert_receive {:gateway_request, request}
     assert request.path == "chat/completions"
-    assert_receive {:gateway_request, retry_request}
-    assert retry_request.path == "chat/completions"
     refute_receive {:gateway_request, _request}
     assert is_binary(retry_at)
     assert [%{"provider_status" => 429, "status" => "exhausted"}] = Map.values(statuses)
@@ -4238,24 +4391,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
   end
 
-  defp response_summary(text) do
-    %{
-      "id" => "resp_summary_#{System.unique_integer([:positive])}",
-      "object" => "response",
-      "status" => "completed",
-      "output" => [
-        %{
-          "type" => "message",
-          "role" => "assistant",
-          "content" => [
-            %{"type" => "output_text", "text" => text, "annotations" => []}
-          ]
-        }
-      ],
-      "usage" => %{"input_tokens" => 11, "output_tokens" => 7, "total_tokens" => 18}
-    }
-  end
-
   defp create_openai_compaction_provider!(agent, provider_id, base_url, opts \\ []) do
     profiles =
       Keyword.get(opts, :profiles, [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}])
@@ -4269,7 +4404,6 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket",
                  "transport" => %{"http_versions" => ["h1"], "compression" => ["gzip"]}
                }
              })

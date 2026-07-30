@@ -15,12 +15,11 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.CompactionPrompt
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.CompactionRetention
-  alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.MapUtils
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
-  alias Ankole.AIGateway.Providers
-  alias Ankole.AIGateway.Resolver
+  alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Message
 
@@ -1073,13 +1072,25 @@ defmodule Ankole.AIGateway.Compaction do
   end
 
   defp resolve_summarizer_runtime(subject_uid, selector) do
-    Resolver.resolve_request_model(subject_uid, "llm", %{"model" => selector})
+    ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => selector})
   end
 
-  defp call_summarizer(_subject_uid, runtime, selector, prompt) do
-    case request_summary(runtime, selector, prompt, summarizer_output_cap(runtime)) do
+  defp call_summarizer(subject_uid, runtime, selector, prompt) do
+    case request_summary(
+           subject_uid,
+           runtime,
+           selector,
+           prompt,
+           summarizer_output_cap(runtime)
+         ) do
       {:ok, %{truncated: true} = truncated_summary} ->
-        case request_summary(runtime, selector, prompt, summarizer_retry_output_cap(runtime)) do
+        case request_summary(
+               subject_uid,
+               runtime,
+               selector,
+               prompt,
+               summarizer_retry_output_cap(runtime)
+             ) do
           {:ok, retried_summary} -> {:ok, retried_summary}
           {:error, _retry_failed} -> {:ok, truncated_summary}
         end
@@ -1099,18 +1110,24 @@ defmodule Ankole.AIGateway.Compaction do
     min(@summarizer_retry_max_output_tokens, floor(summarizer_context_length(runtime) * 0.4))
   end
 
-  defp request_summary(runtime, selector, prompt, max_output_tokens) do
-    request = %{
-      "model" => selector,
-      "instructions" => CompactionPrompt.system_prompt(),
-      "input" => prompt,
-      "reasoning" => %{"effort" => "low"},
-      "max_output_tokens" => max_output_tokens
-    }
+  defp request_summary(subject_uid, runtime, selector, prompt, max_output_tokens) do
+    cache_key = get_in(runtime, ["request_context", "cache_key"])
 
-    with {:ok, prepared_request} <-
-           Providers.build_response_request(runtime, request, stream?: false),
-         {:ok, %{body: body}} <- CredentialAttempts.request(prepared_request),
+    request =
+      %{
+        "model" => selector,
+        "instructions" => CompactionPrompt.system_prompt(),
+        "input" => prompt,
+        "reasoning" => %{"effort" => "low"},
+        "max_output_tokens" => max_output_tokens
+      }
+      |> maybe_put_prompt_cache_key(cache_key)
+
+    with {:ok, %{request: request, spec: prepared_request}} <-
+           ResponsesPreparation.prepare_with_runtime(subject_uid, runtime, request, stream?: true),
+         {:ok, stream, _meta} <-
+           ResponseStream.open(subject_uid, request, prepared_request),
+         {:ok, body} <- collect_summary_response(stream),
          {:ok, text} <- extract_summary_text(body) do
       {:ok,
        %{
@@ -1122,6 +1139,42 @@ defmodule Ankole.AIGateway.Compaction do
        }}
     end
   end
+
+  defp collect_summary_response(%ResponseStream{pid: pid, ref: ref} = stream) do
+    monitor = Process.monitor(pid)
+
+    try do
+      read_summary_response(stream, ref, monitor)
+    after
+      Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  defp read_summary_response(stream, ref, monitor) do
+    with :ok <- ResponseStream.read(stream, 1) do
+      receive do
+        {:ai_gateway_response_stream, ^ref, :events, _events, :continue} ->
+          read_summary_response(stream, ref, monitor)
+
+        {:ai_gateway_response_stream, ^ref, :events, _events,
+         {:terminal, %{terminal_error: nil, terminal_response: %{} = response}}} ->
+          {:ok, response}
+
+        {:ai_gateway_response_stream, ^ref, :events, _events,
+         {:terminal, %{terminal_error: error}}} ->
+          {:error, {:compaction_summary_failed, error}}
+
+        {:DOWN, ^monitor, :process, _pid, reason} ->
+          {:error, {:compaction_summary_stream_closed, reason}}
+      end
+    end
+  end
+
+  defp maybe_put_prompt_cache_key(request, cache_key)
+       when is_binary(cache_key) and cache_key != "",
+       do: Map.put(request, "prompt_cache_key", cache_key)
+
+  defp maybe_put_prompt_cache_key(request, _cache_key), do: request
 
   defp summary_truncated?(%{"incomplete_details" => %{"reason" => "max_output_tokens"}}), do: true
 

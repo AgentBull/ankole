@@ -86,13 +86,7 @@ defmodule Ankole.AIGateway do
 
       {:error, reason}
       when is_map(hosted_attempt) ->
-        retry_hosted_response_request(
-          runtime,
-          prepared_request,
-          hosted_attempt,
-          reason,
-          opts
-        )
+        handle_hosted_response_failure(prepared_request, hosted_attempt, reason)
 
       {:error, reason} when is_map_key(prepared_request, :hosted_tools) ->
         normalize_hosted_execution_error(prepared_request, reason)
@@ -106,33 +100,11 @@ defmodule Ankole.AIGateway do
     end
   end
 
-  defp retry_hosted_response_request(
-         runtime,
-         prepared_request,
-         hosted_attempt,
-         reason,
-         opts
-       ) do
+  defp handle_hosted_response_failure(prepared_request, hosted_attempt, reason) do
     cond do
       ImageGeneration.credential_failure?(reason) ->
-        case ImageGeneration.retry_credential_attempt(
-               prepared_request,
-               hosted_attempt,
-               reason,
-               opts
-             ) do
-          {:ok, next_request, next_attempt} ->
-            {^next_attempt, next_request} =
-              ImageGeneration.pop_credential_attempt(next_request)
-
-            do_execute_response_request(runtime, next_request, next_attempt, opts)
-
-          {:error, {:credential_pool_exhausted, _details} = exhausted} ->
-            {:error, exhausted}
-
-          {:error, final_reason} ->
-            normalize_hosted_execution_error(prepared_request, final_reason)
-        end
+        :ok = ImageGeneration.record_credential_failure(hosted_attempt, reason)
+        normalize_hosted_execution_error(prepared_request, reason)
 
       ImageGeneration.hosted_execution_failure?(reason) ->
         normalize_hosted_execution_error(prepared_request, reason)

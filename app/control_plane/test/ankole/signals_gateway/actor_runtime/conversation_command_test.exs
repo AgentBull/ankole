@@ -40,25 +40,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
         Ankole.AIGatewayCase.start_upstream_server(fn request ->
           send(test_pid, {:gateway_request, request})
 
-          {:json, 200,
-           %{
-             "id" => "resp_manual_compaction_summary",
-             "object" => "response",
-             "status" => "completed",
-             "output" => [
-               %{
-                 "type" => "message",
-                 "role" => "assistant",
-                 "content" => [
-                   %{
-                     "type" => "output_text",
-                     "text" => "## Active Task\nManual compressed history."
-                   }
-                 ]
-               }
-             ],
-             "usage" => %{"total_tokens" => 7}
-           }}
+          {:sse, 200,
+           Ankole.AIGatewayCase.openai_response_stream_events(
+             "resp_manual_compaction_summary",
+             "gpt-compress",
+             "## Active Task\nManual compressed history.",
+             %{"total_tokens" => 7}
+           )}
         end)
 
       provider_id = "compress-summary-" <> Ecto.UUID.generate()
@@ -169,25 +157,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
         Ankole.AIGatewayCase.start_upstream_server(fn request ->
           send(test_pid, {:gateway_request, request})
 
-          {:json, 200,
-           %{
-             "id" => "resp_real_role_content_compaction_summary",
-             "object" => "response",
-             "status" => "completed",
-             "output" => [
-               %{
-                 "type" => "message",
-                 "role" => "assistant",
-                 "content" => [
-                   %{
-                     "type" => "output_text",
-                     "text" => "## Active Task\nReal role/content history compressed."
-                   }
-                 ]
-               }
-             ],
-             "usage" => %{"total_tokens" => 7}
-           }}
+          {:sse, 200,
+           Ankole.AIGatewayCase.openai_response_stream_events(
+             "resp_real_role_content_compaction_summary",
+             "gpt-compress",
+             "## Active Task\nReal role/content history compressed.",
+             %{"total_tokens" => 7}
+           )}
         end)
 
       provider_id = "compress-real-role-content-" <> Ecto.UUID.generate()
@@ -314,25 +290,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ConversationCommandTest do
         Ankole.AIGatewayCase.start_upstream_server(fn request ->
           send(test_pid, {:gateway_request, request})
 
-          {:json, 200,
-           %{
-             "id" => "resp_deferred_manual_compaction_summary",
-             "object" => "response",
-             "status" => "completed",
-             "output" => [
-               %{
-                 "type" => "message",
-                 "role" => "assistant",
-                 "content" => [
-                   %{
-                     "type" => "output_text",
-                     "text" => "## Active Task\nDeferred compressed history."
-                   }
-                 ]
-               }
-             ],
-             "usage" => %{"total_tokens" => 7}
-           }}
+          {:sse, 200,
+           Ankole.AIGatewayCase.openai_response_stream_events(
+             "resp_deferred_manual_compaction_summary",
+             "gpt-compress",
+             "## Active Task\nDeferred compressed history.",
+             %{"total_tokens" => 7}
+           )}
         end)
 
       provider_id = "compress-deferred-summary-" <> Ecto.UUID.generate()

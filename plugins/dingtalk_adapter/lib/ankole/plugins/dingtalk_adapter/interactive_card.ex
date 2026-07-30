@@ -65,6 +65,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
         fallback || ""
 
     %{
+      # A `card` outbox row carries a finished payload and never streams, so the
+      # instance is born in the container's done state (see `AICard` for why the
+      # caller owns `flowStatus`).
+      "flowStatus" => "3",
       "state" => optional_text(output, "state") || "",
       "answer" => Markdown.display_chunk(body),
       "thought" => "",

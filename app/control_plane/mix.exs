@@ -115,6 +115,7 @@ defmodule Ankole.MixProject do
       {:dingtalk_openapi, path: "../../libs/dingtalk_openapi"},
       {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
       {:google_openapi, path: "../../libs/google_openapi"},
+      {:wecom_openapi, path: "../../libs/wecom_openapi"},
       {:dns_cluster, "~> 0.2"},
       {:bandit, "~> 1.12"}
     ]
@@ -141,6 +142,7 @@ defmodule Ankole.MixProject do
           "../../tools/e2e/suites/slack_main_flow_e2e_test.exs " <>
           "../../tools/e2e/suites/slack_lifecycle_e2e_test.exs " <>
           "../../tools/e2e/suites/dingtalk_transport_e2e_test.exs " <>
+          "../../tools/e2e/suites/wecom_transport_e2e_test.exs " <>
           "../../tools/e2e/suites/worker_computer_e2e_test.exs " <>
           "../../tools/e2e/suites/schedule_e2e_test.exs --trace"
       ],

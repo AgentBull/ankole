@@ -131,21 +131,35 @@ Disabled entries also stay out. PostgreSQL stores the credential facts, but it
 does not store these rebuildable health facts.
 
 An upstream reset header sets the recovery time when it is available. The
-fallback is five minutes for HTTP 401 and one hour for HTTP 429 or other
-retryable failures. A process restart can cause one additional probe.
+fallback is five minutes for HTTP 401 and one hour for HTTP 429. A process
+restart can cause one additional probe.
 
 The selected credential ID stays in the private request context until success
 or failure. A failure that has no credential attribution does not change any
-entry. Such retries stop after one pool lap.
+entry. Credential retries stop after one pool lap.
 
-For HTTP 429, HTTP 5xx, transport failures, and provider terminal events with
-the `server_is_overloaded` or `slow_down` code, the control plane marks the
-attributed entry exhausted, selects a different entry, prepares a new request,
-and retries. A terminal event can report an overload inside an HTTP 200 stream.
-AIGateway retries it only before it has emitted provider output. Delay uses
-exponential backoff with 0.9 to 1.1 jitter. A single-entry pool can retry that
-entry once. The kernel never selects a credential and never retries a provider
-request.
+HTTP 401 is a credential authentication failure. AIGateway can refresh, mark,
+or rotate only the attributed credential. HTTP 429 is a credential quota
+failure. AIGateway marks the attributed credential exhausted until the
+upstream reset time, or until the fallback time when no reset time is
+available, and then selects another credential.
+
+Connection, read, and timeout failures and HTTP 502, 503, and 504 responses
+belong to the route or Provider endpoint. Before the first Provider event,
+AIGateway can retry the same prepared request with the same credential once.
+These failures never change credential health and never select another
+credential. The first normalized Provider event closes this retry window,
+including `response.created`, `response.in_progress`, and `response.failed`.
+An overload reported as a terminal event in an HTTP 200 stream is therefore
+returned in the current Response and is never replayed. Delay uses exponential
+backoff with 0.9 to 1.1 jitter. The kernel never selects a credential and never
+retries a Provider request.
+
+A hosted tool failure cannot reopen the complete model request after the main
+Provider returns output. A credential HTTP 401 or 429 from the hosted request
+can update only its attributed credential. A hosted route or endpoint failure
+does not change credential health. AIGateway returns either failure in the
+current Response without repeating the main Provider call.
 
 When no entry is usable, AIGateway returns `credential_pool_exhausted`. It
 includes the earliest `retry_at` only when a current exhausted entry has a
@@ -190,10 +204,11 @@ refresh token twice.
 Both Responses requests and the model-catalog connection check send
 `X-OpenAI-Fedramp: true` for a FedRAMP credential.
 
-A permanent refresh error marks the entry `dead`. A refresh rate limit or
-transport error keeps the credential and marks it temporarily exhausted. An
-upstream HTTP 401 causes one forced refresh. A second HTTP 401 marks an OAuth
-or Enterprise entry `dead` and selects another entry.
+A permanent refresh error marks the entry `dead`. An HTTP 429 refresh response
+keeps the credential and marks it temporarily exhausted. A refresh transport
+or endpoint failure leaves credential health unchanged and returns that
+failure. An upstream HTTP 401 causes one forced refresh. A second HTTP 401
+marks an OAuth or Enterprise entry `dead` and selects another entry.
 
 ChatGPT requests always use `store=false` and request
 `reasoning.encrypted_content`. AIGateway stores and replays that encrypted
@@ -447,6 +462,14 @@ output. It also keeps selected original user facts.
 
 The compaction summarizer keeps client tool call and output pairs with one-call
 `call_N` aliases. Persisted provider call IDs do not enter its prompt.
+
+The summarizer uses the standard streaming Responses preparation and stream
+owner. AIGateway creates its request context before model resolution and keeps
+the same cache key when it prepares the provider request. It reads the stream
+until a terminal Response arrives. A completed Response supplies the summary,
+and a `max_output_tokens` incomplete Response can start the existing larger
+output retry. A failed Response or a stream that closes before a terminal
+Response cannot produce a compaction artifact.
 
 Internal history traversal supports 10,000 rows.
 The public chain API returns at most 500 rows.

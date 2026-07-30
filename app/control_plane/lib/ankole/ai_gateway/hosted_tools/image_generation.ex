@@ -63,18 +63,11 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     do: Map.pop(spec, :hosted_credential_attempt)
 
   @doc false
-  @spec retry_credential_attempt(map(), map(), term(), keyword()) ::
-          {:ok, map(), map()} | {:error, term()}
-  def retry_credential_attempt(outer_spec, %{context: context, spec: image_spec}, reason, opts)
-      when is_map(outer_spec) and is_map(context) and is_map(image_spec) do
-    with {:ok, next_context, next_image_spec} <-
-           CredentialAttempts.retry_spec(context, image_spec, reason, opts) do
-      next_attempt = %{context: next_context, spec: next_image_spec}
-      {:ok, pin_credential_attempt(outer_spec, next_attempt), next_attempt}
-    end
-  end
+  @spec record_credential_failure(map() | nil, term()) :: :ok
+  def record_credential_failure(%{context: context}, reason) when is_map(context),
+    do: CredentialAttempts.record_failure(context, reason)
 
-  def retry_credential_attempt(_outer_spec, _attempt, reason, _opts), do: {:error, reason}
+  def record_credential_failure(_attempt, _reason), do: :ok
 
   @doc false
   @spec credential_failure?(term()) :: boolean()
@@ -100,12 +93,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
   end
 
   def record_credential_usage(_attempt, _response_or_event), do: :ok
-
-  @doc false
-  @spec pin_main_attempt_context(map() | nil, map()) :: map() | nil
-  def pin_main_attempt_context(context, attempt) do
-    CredentialAttempts.map_build(context, &pin_credential_attempt(&1, attempt))
-  end
 
   defp prepare_declared_tool(subject_uid, request, tool, tool_index, opts) do
     param_prefix = "tools[#{tool_index}]"
@@ -195,27 +182,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
        }}
     end
   end
-
-  defp pin_credential_attempt(outer_spec, attempt) do
-    mapper = &put_credential_attempt(&1, attempt)
-
-    outer_spec
-    |> put_credential_attempt(attempt)
-    |> CredentialAttempts.map_attached_build(mapper)
-  end
-
-  defp put_credential_attempt(
-         %{hosted_tools: %{image_generation: image_generation} = hosted_tools} = outer_spec,
-         %{spec: image_spec} = attempt
-       ) do
-    image_generation = Map.put(image_generation, "prepared_request", image_spec)
-
-    outer_spec
-    |> Map.put(:hosted_tools, Map.put(hosted_tools, :image_generation, image_generation))
-    |> Map.put(:hosted_credential_attempt, attempt)
-  end
-
-  defp put_credential_attempt(outer_spec, _attempt), do: outer_spec
 
   defp hosted_image_usage(%{body: %{} = body}), do: hosted_image_usage(body)
   defp hosted_image_usage(%{"body" => %{} = body}), do: hosted_image_usage(body)

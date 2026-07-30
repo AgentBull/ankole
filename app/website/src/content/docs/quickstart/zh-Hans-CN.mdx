@@ -1474,7 +1474,7 @@ export const channelTabs = [
     alert: {
       title: '钉钉会限制部分功能',
       body: [
-        '截至 2026 年 7 月，钉钉不支持自定义卡片消息。在群聊中，Agent 也看不到完整的聊天记录，只能收到明确 @ 它的消息。',
+        '在群聊中，Agent 看不到完整的聊天记录，只能收到明确 @ 它的消息。钉钉卡片是模板托管的，流式卡片回复需要先在卡片平台搭一份 AI 卡片模板；没有模板时回复保持普通 Markdown。',
         '这些限制会明显影响 Ankole 的完整功能和使用体验。长期记忆系统也只能从 Agent 收到的消息片段中积累上下文，效果会受到影响。条件允许时，请优先选择其他聊天渠道。'
       ]
     },
@@ -1509,6 +1509,11 @@ export const channelTabs = [
               name: 'group_message_mode',
               value: 'addressed_only',
               description: '钉钉群聊只支持此模式。'
+            },
+            {
+              name: 'cardTemplateId',
+              description:
+                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建模板见「钉钉 AI 卡片回复」。'
             }
           ]
         }

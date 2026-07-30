@@ -34,7 +34,7 @@ The Console shows only the modes that the selected Channel Provider supports:
 | **Observe unaddressed messages** | The message enters the conversation context but does not wake the Agent. The Agent can use it as context after someone addresses it. |
 | **May intervene** | The Agent first decides whether joining the conversation will help. It replies only when it decides to speak. |
 
-Slack, Microsoft Teams, Lark, and Feishu support all three modes. DingTalk can currently receive only group messages that explicitly address the bot, so the Console offers only the first mode for DingTalk.
+Slack, Microsoft Teams, Lark, and Feishu support all three modes. DingTalk and WeCom can receive only group messages that explicitly address the bot, so the Console offers only the first mode for them. WeCom has many more limits than this one (no recall, no files in groups, the Agent cannot start a conversation), so we do not recommend it as your first channel. See [WeCom adapter limits](../adapters-wecom/).
 
 **May intervene** does not make the Agent reply to every message. It lets the Agent decide when to speak. If it speaks too often, first tighten its role instructions.
 
@@ -55,8 +55,11 @@ Removing a rule stops new message delivery but does not delete the chat applicat
 ## If the Agent does not reply
 
 - **The Channel Provider is missing:** open **Agent Library → Control Plane Plugins**, enable its plugin, and restart the control plane when the page tells you to.
-- **The bot receives no group messages:** check the provider event subscriptions, permissions, and application release state. DingTalk group messages must explicitly @-mention the bot.
+- **The bot receives no group messages:** check the provider event subscriptions, permissions, and application release state. DingTalk and WeCom group messages must explicitly @-mention the bot.
+- **WeCom behaves unexpectedly:** compare the behavior with [WeCom adapter limits](../adapters-wecom/) first — the usual causes are a bot not created by a super administrator, a missing trusted-IP entry, or a conversation the user has not activated yet.
 - **The rule is saved but there is no reply:** confirm that the target Agent is enabled, its model configuration works, and the rule is available in the rule list.
 - **Direct messages work but group messages do not:** check the group-message mode and confirm that the bot belongs to the target group.
 
 Use the provider-specific permissions, events, and credentials in [Quick start](../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule).
+
+For a DingTalk rule, streaming card replies need one AI card template on the DingTalk card platform. See [DingTalk AI card replies](../dingtalk-ai-card/).

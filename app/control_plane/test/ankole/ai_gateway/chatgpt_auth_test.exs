@@ -460,6 +460,50 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
     assert by_id["fresh"]["status"] == "ok"
   end
 
+  test "refresh endpoint failures do not exhaust or rotate credentials" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    issuer =
+      start_upstream_server(fn request ->
+        send(test_pid, {:refresh_attempt, request.body["refresh_token"]})
+
+        {:json, 503, %{"error" => %{"code" => "provider_unavailable", "type" => "server_error"}}}
+      end)
+
+    fresh_entry =
+      "fresh"
+      |> oauth_entry(
+        future_access_token("fresh-access", "account-fresh"),
+        "fresh-refresh",
+        "account-fresh"
+      )
+      |> Map.put("last_refresh", DateTime.utc_now(:second) |> DateTime.to_iso8601())
+
+    create_chatgpt_provider!("chatgpt-refresh-route-failure", issuer, [
+      oauth_entry(
+        "unavailable",
+        expired_access_token("unavailable-access", "account-unavailable"),
+        "unavailable-refresh",
+        "account-unavailable"
+      ),
+      fresh_entry
+    ])
+
+    assert {:error, {:chatgpt_refresh_transient, 503, _headers, "provider_unavailable"}} =
+             Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "chatgpt-refresh-route-failure/gpt-5.6-codex"
+             })
+
+    assert_receive {:refresh_attempt, "unavailable-refresh"}
+    refute_receive {:refresh_attempt, _refresh_token}
+
+    projection = ProviderConfigs.projection(provider_for!("chatgpt-refresh-route-failure"))
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["unavailable"]["status"] == "ok"
+    assert by_id["fresh"]["status"] == "ok"
+  end
+
   defp create_chatgpt_provider!(provider_id, issuer, entries \\ []) do
     assert {:ok, provider} = create_chatgpt_provider(provider_id, issuer, entries)
     provider

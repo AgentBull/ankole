@@ -110,7 +110,6 @@ defmodule Ankole.AIGateway.ResponseStream do
        stateful: Keyword.get(opts, :stateful),
        tool_loop: Keyword.get(opts, :tool_loop),
        hosted_credential_attempt: Keyword.get(opts, :hosted_credential_attempt),
-       hosted_retrying?: false,
        upstream_opts: Keyword.get(opts, :upstream_opts, []),
        open_fun: Keyword.get(opts, :open_fun),
        telemetry_spec: Keyword.fetch!(opts, :telemetry_spec),
@@ -376,23 +375,14 @@ defmodule Ankole.AIGateway.ResponseStream do
 
     case decode_event(chunk) do
       {:ok, event} ->
-        if suppress_retried_hosted_lifecycle?(state, event) do
-          replenish_suppressed_credit(state)
-        else
-          case retryable_failure_event(event, state) do
-            {:retry, reason} ->
-              reopen_stream(state, reason)
+        state = %{state | provider_output?: true}
 
-            :observe ->
-              state =
-                state
-                |> record_credential_success(event)
-                |> Map.put(:hosted_retrying?, false)
+        state =
+          state
+          |> record_credential_success(event)
+          |> record_event_credential_failure(event)
 
-              provider_output? = state.provider_output? or provider_output_event?(event)
-              observe_event(%{state | provider_output?: provider_output?}, event, sequence)
-          end
-        end
+        observe_event(state, event, sequence)
 
       {:error, reason} ->
         stop_with_failure(state, "invalid_response_stream_event: #{reason}")
@@ -441,12 +431,14 @@ defmodule Ankole.AIGateway.ResponseStream do
     if State.terminal?(state.semantic) do
       {:stop, :normal, state}
     else
-      if retry_hosted_failure?(state, error) do
-        retry_hosted_stream(state, error)
-      else
-        if not state.provider_output? do
+      cond do
+        hosted_credential_failure?(state, error) ->
+          stop_after_hosted_failure(state, error)
+
+        not state.provider_output? ->
           reopen_stream(state, error)
-        else
+
+        true ->
           state = state |> log_failure_once(error) |> emit_failure_once(error)
 
           {state, events, outcome} =
@@ -457,7 +449,6 @@ defmodule Ankole.AIGateway.ResponseStream do
 
           send_events(state, events, {:terminal, outcome})
           {:stop, :normal, state}
-        end
       end
     end
   end
@@ -611,7 +602,6 @@ defmodule Ankole.AIGateway.ResponseStream do
                  meta: meta,
                  attempt_context: attempt_context,
                  attempt_spec: attempt_spec,
-                 hosted_retrying?: is_map(state.hosted_credential_attempt),
                  credential_success_recorded?: false,
                  provider_output?: false,
                  outstanding_credit: credit
@@ -622,63 +612,6 @@ defmodule Ankole.AIGateway.ResponseStream do
               state,
               {:credential_retry_read_failed, read_reason}
             )
-        end
-
-      {:error, final_reason} ->
-        stop_after_retry_failure(state, final_reason)
-    end
-  end
-
-  defp retry_hosted_stream(state, reason) do
-    _ = cancel_native(state.native_stream)
-
-    case ImageGeneration.retry_credential_attempt(
-           state.attempt_spec,
-           state.hosted_credential_attempt,
-           reason,
-           state.upstream_opts
-         ) do
-      {:ok, next_spec, next_hosted_attempt} ->
-        {^next_hosted_attempt, next_spec} =
-          ImageGeneration.pop_credential_attempt(next_spec)
-
-        case UniversalAIRequest.open_stream(
-               next_spec,
-               :websocket_text,
-               state.upstream_opts
-             ) do
-          {:ok, native_stream, meta} ->
-            credit = max(state.outstanding_credit, 1)
-
-            case UniversalAIClient.read(native_stream, credit) do
-              :ok ->
-                {:noreply,
-                 %{
-                   state
-                   | native_stream: native_stream,
-                     meta: meta,
-                     attempt_context:
-                       ImageGeneration.pin_main_attempt_context(
-                         state.attempt_context,
-                         next_hosted_attempt
-                       ),
-                     attempt_spec: next_spec,
-                     hosted_credential_attempt: next_hosted_attempt,
-                     hosted_retrying?: true,
-                     credential_success_recorded?: false,
-                     provider_output?: false,
-                     outstanding_credit: credit
-                 }}
-
-              {:error, read_reason} ->
-                stop_after_retry_failure(
-                  state,
-                  {:credential_retry_read_failed, read_reason}
-                )
-            end
-
-          {:error, open_reason} ->
-            stop_after_retry_failure(state, open_reason)
         end
 
       {:error, final_reason} ->
@@ -711,6 +644,31 @@ defmodule Ankole.AIGateway.ResponseStream do
           ]
       end
 
+    stop_after_provider_failure(state, reason, failure_opts)
+  end
+
+  defp stop_after_hosted_failure(state, reason) do
+    :ok =
+      ImageGeneration.record_credential_failure(
+        state.hosted_credential_attempt,
+        reason
+      )
+
+    classification = FailureDiagnostics.classify(reason)
+    error = ImageGeneration.normalize_execution_error(reason)
+
+    failure_opts = [
+      code: error.code,
+      retryable: Map.get(classification, :retryable, true),
+      message: error.message,
+      provider_status: Map.get(classification, :provider_status),
+      details: retry_failure_details(classification)
+    ]
+
+    stop_after_provider_failure(state, reason, failure_opts)
+  end
+
+  defp stop_after_provider_failure(state, reason, failure_opts) do
     state = state |> log_failure_once(reason) |> emit_failure_once(reason)
 
     {state, events, outcome} =
@@ -742,66 +700,47 @@ defmodule Ankole.AIGateway.ResponseStream do
   defp credential_pool_exhausted_message(_retry_at),
     do: "AIGateway credential pool exhausted. Try again later."
 
-  defp retryable_failure_event(_event, %{provider_output?: true}), do: :observe
-
-  defp retryable_failure_event(
-         %{"type" => "response.failed", "response" => %{"error" => %{} = error}},
-         _state
-       ) do
-    details = Map.get(error, "details_json", %{})
-    status = Map.get(error, "status") || Map.get(details, "provider_status")
-    code = Map.get(error, "code")
-    stage = Map.get(details, "stage", "read")
-
-    failure = %{
-      "code" => code || "provider_status_rejected",
-      "stage" => stage,
-      "message" => Map.get(error, "message", "provider request failed"),
-      "provider_status" => status,
-      "provider_headers" => Map.get(details, "provider_headers", %{})
-    }
-
-    if CredentialAttempts.recoverable_failure?(failure) do
-      {:retry, failure}
-    else
-      :observe
-    end
-  end
-
-  defp retryable_failure_event(_event, _state), do: :observe
-
-  defp retry_hosted_failure?(
-         %{hosted_credential_attempt: %{}, provider_output?: false},
+  defp hosted_credential_failure?(
+         %{hosted_credential_attempt: %{}},
          reason
        ),
        do: ImageGeneration.credential_failure?(reason)
 
-  defp retry_hosted_failure?(_state, _reason), do: false
+  defp hosted_credential_failure?(_state, _reason), do: false
 
-  defp suppress_retried_hosted_lifecycle?(
-         %{hosted_retrying?: true},
-         %{"type" => type}
-       )
-       when type in ["response.created", "response.in_progress"],
-       do: true
+  defp record_event_credential_failure(
+         state,
+         %{"type" => "response.failed", "response" => %{"error" => %{} = error}}
+       ) do
+    details =
+      case Map.get(error, "details_json") do
+        %{} = details -> details
+        _missing -> %{}
+      end
 
-  defp suppress_retried_hosted_lifecycle?(_state, _event), do: false
+    stage = Map.get(details, "stage", "provider_response")
 
-  defp replenish_suppressed_credit(state) do
-    case UniversalAIClient.read(state.native_stream, 1) do
-      :ok ->
-        {:noreply, Map.update!(state, :outstanding_credit, &(&1 + 1))}
+    failure = %{
+      "code" => Map.get(error, "code", "provider_status_rejected"),
+      "stage" => stage,
+      "message" => Map.get(error, "message", "provider request failed"),
+      "provider_status" => Map.get(error, "status") || Map.get(details, "provider_status"),
+      "provider_headers" => Map.get(details, "provider_headers", %{})
+    }
 
-      {:error, reason} ->
-        stop_after_retry_failure(state, {:credential_retry_read_failed, reason})
-    end
+    attempt_context =
+      if stage == "image_generation" and
+           is_map(state.hosted_credential_attempt) do
+        state.hosted_credential_attempt.context
+      else
+        state.attempt_context
+      end
+
+    :ok = CredentialAttempts.record_failure(attempt_context, failure)
+    state
   end
 
-  defp provider_output_event?(%{"type" => type})
-       when type in ["response.created", "response.in_progress"],
-       do: false
-
-  defp provider_output_event?(_event), do: true
+  defp record_event_credential_failure(state, _event), do: state
 
   defp consume_credit(%{outstanding_credit: credit} = state) when credit > 0,
     do: %{state | outstanding_credit: credit - 1}

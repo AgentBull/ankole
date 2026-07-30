@@ -91,12 +91,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     @impl true
     def terminate(_reason, _state), do: :ok
 
-    defp response_frames(%{scenario: :overload_then_complete} = state) do
+    defp response_frames(%{scenario: :created_then_overload} = state) do
       attempt = :atomics.add_get(state.counter, 1, 1)
       send(state.test_pid, {:native_socket_upstream_attempt, attempt, state.authorization})
 
-      event = if attempt == 1, do: response_failed(), else: response_completed()
-      [{:text, Ankole.JSON.encode!(event)}]
+      events =
+        if attempt == 1,
+          do: [response_created(), response_failed(1)],
+          else: [response_completed()]
+
+      Enum.map(events, &{:text, Ankole.JSON.encode!(&1)})
     end
 
     defp response_frames(%{scenario: :output_then_overload} = state) do
@@ -106,6 +110,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       [
         {:text, Ankole.JSON.encode!(response_output())},
         {:text, Ankole.JSON.encode!(response_failed(1))}
+      ]
+    end
+
+    defp response_frames(%{scenario: :created_then_rate_limit} = state) do
+      attempt = :atomics.add_get(state.counter, 1, 1)
+      send(state.test_pid, {:native_socket_upstream_attempt, attempt, state.authorization})
+
+      [
+        {:text, Ankole.JSON.encode!(response_created())},
+        {:text, Ankole.JSON.encode!(response_rate_limited())}
       ]
     end
 
@@ -153,7 +167,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       }
     end
 
-    defp response_failed(sequence_number \\ 0) do
+    defp response_failed(sequence_number) do
       %{
         "type" => "response.failed",
         "sequence_number" => sequence_number,
@@ -166,6 +180,33 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
             "code" => "server_is_overloaded",
             "message" => "opaque provider text",
             "param" => nil
+          },
+          "output" => []
+        }
+      }
+    end
+
+    defp response_rate_limited do
+      reset_at = DateTime.utc_now(:second) |> DateTime.add(600) |> DateTime.to_unix()
+
+      %{
+        "type" => "response.failed",
+        "sequence_number" => 1,
+        "response" => %{
+          "id" => "resp_native_socket_rate_limited",
+          "object" => "response",
+          "status" => "failed",
+          "error" => %{
+            "type" => "rate_limit_error",
+            "code" => "rate_limit_exceeded",
+            "message" => "opaque provider text",
+            "status" => 429,
+            "details_json" => %{
+              "provider_status" => 429,
+              "provider_headers" => %{
+                "x-codex-primary-reset-at" => Integer.to_string(reset_at)
+              }
+            }
           },
           "output" => []
         }
@@ -530,11 +571,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert active.ref == state.active_stream.ref
   end
 
-  test "Codex overload before provider output rotates credentials without exposing the failed attempt" do
+  test "the first provider event prevents a transparent retry" do
     %{principal: agent} = agent_fixture()
     counter = :atomics.new(1, [])
-    provider_id = "openai-native-socket-overload-retry"
-    base_url = start_native_socket_upstream(:overload_then_complete, counter)
+    provider_id = "openai-native-socket-provider-event-boundary"
+    base_url = start_native_socket_upstream(:created_then_overload, counter)
 
     configure_native_socket_provider(agent.uid, provider_id, base_url)
 
@@ -554,20 +595,39 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert :ok = AIGateway.read_response_stream(stream, 4)
     assert_receive {:native_socket_upstream_attempt, 1, "Bearer sk-first"}
-    assert_receive {:native_socket_upstream_attempt, 2, "Bearer sk-second"}
 
-    assert_receive {:ai_gateway_response_stream, ^ref, :events, events,
-                    {:terminal, %{terminal_error: nil}}},
+    assert_receive {:ai_gateway_response_stream, ^ref, :events, [%{"type" => "response.created"}],
+                    :continue},
                    5_000
 
-    assert [%{"type" => "response.completed"}] = events
-    refute Enum.any?(events, &(&1["type"] == "response.failed"))
-    refute inspect(events) =~ "opaque provider text"
+    assert_receive {:ai_gateway_response_stream, ^ref, :events,
+                    [
+                      %{
+                        "type" => "response.failed",
+                        "response" => %{
+                          "error" => %{
+                            "code" => "server_is_overloaded",
+                            "failure_kind" => "provider_response",
+                            "retryable" => true
+                          }
+                        }
+                      }
+                    ],
+                    {:terminal,
+                     %{
+                       terminal_error: %{
+                         "code" => "server_is_overloaded",
+                         "failure_kind" => "provider_response",
+                         "retryable" => true
+                       }
+                     }}},
+                   5_000
+
+    refute_receive {:native_socket_upstream_attempt, 2, _authorization}, 300
 
     assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
     by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
-    assert by_id["first"]["status"] == "exhausted"
-    assert by_id["first"]["last_error_code"] == "server_is_overloaded"
+    assert by_id["first"]["status"] == "ok"
     assert by_id["second"]["status"] == "ok"
   end
 
@@ -624,6 +684,49 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                    5_000
 
     refute_receive {:native_socket_upstream_attempt, 2, _authorization}, 300
+  end
+
+  test "a post-output 429 exhausts only its credential without replay" do
+    %{principal: agent} = agent_fixture()
+    counter = :atomics.new(1, [])
+    provider_id = "openai-native-socket-post-output-rate-limit"
+    base_url = start_native_socket_upstream(:created_then_rate_limit, counter)
+
+    configure_native_socket_provider(agent.uid, provider_id, base_url)
+
+    request = %{
+      "type" => "response.create",
+      "model" => "primary",
+      "input" => [text_message("user", "hello")],
+      "store" => false
+    }
+
+    assert {:ok, %ResponseStream{ref: ref} = stream, _meta} =
+             AIGateway.open_websocket_stream(agent.uid, request,
+               receiver: self(),
+               credential_retry_base_ms: 0,
+               credential_retry_jitter: &Function.identity/1
+             )
+
+    assert :ok = AIGateway.read_response_stream(stream, 4)
+    assert_receive {:native_socket_upstream_attempt, 1, "Bearer sk-first"}
+
+    assert_receive {:ai_gateway_response_stream, ^ref, :events, [%{"type" => "response.created"}],
+                    :continue},
+                   5_000
+
+    assert_receive {:ai_gateway_response_stream, ^ref, :events, [%{"type" => "response.failed"}],
+                    {:terminal, %{terminal_error: %{"code" => "rate_limit_exceeded"}}}},
+                   5_000
+
+    refute_receive {:native_socket_upstream_attempt, 2, _authorization}, 300
+
+    assert {:ok, projection} = ProviderConfigs.get_provider(provider_id)
+    by_id = Map.new(projection["credential_pool"]["entries"], &{&1["id"], &1})
+    assert by_id["first"]["status"] == "exhausted"
+    assert by_id["first"]["provider_status"] == 429
+    assert is_binary(by_id["first"]["retry_at"])
+    assert by_id["second"]["status"] == "ok"
   end
 
   test "response.create store true without previous_response_id or conversation creates a managed durable conversation" do
@@ -2403,7 +2506,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     assert_receive :socket_pool_attempt
-    assert_receive :socket_pool_attempt
+    refute_receive :socket_pool_attempt
 
     assert %{
              "type" => "error",

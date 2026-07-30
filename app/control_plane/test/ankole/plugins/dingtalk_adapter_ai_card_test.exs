@@ -123,6 +123,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert create_body["callbackType"] == "STREAM"
     assert create_body["outTrackId"] == "ankole:#{event.id}:0"
     assert create_body["openSpaceId"] =~ "dtv1.card//IM_GROUP."
+    assert get_in(create_body, ["cardData", "cardParamMap", "flowStatus"]) == "2"
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming", stream_body}
     assert stream_body["key"] == "answer"
@@ -176,6 +177,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert get_in(terminal_body, ["cardData", "cardParamMap", "answer"]) == "short"
     assert get_in(terminal_body, ["cardData", "cardParamMap", "thought"]) == ""
 
+    # The container renders whichever state `flowStatus` names, and the write
+    # must merge by key so it cannot clear the variables it omits.
+    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "3"
+    assert terminal_body["cardUpdateOptions"] == %{"updateCardDataByKey" => true}
+
     refute_received {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _}
     assert final_result.reply_preview_checkpoint["streaming_state"] == "closed"
   end
@@ -216,6 +222,15 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert_receive {:card_call, "PUT", "/v1.0/card/streaming",
                     %{"outTrackId" => ^otid0, "isFinalize" => true}}
+
+    # Sealing the page commits its state: closing the stream does not move the
+    # container out of the writing state, and the rolled-past card must say so.
+    assert_receive {:card_call, "PUT", "/v1.0/card/instances",
+                    %{"outTrackId" => ^otid0} = sealed_body}
+
+    assert get_in(sealed_body, ["cardData", "cardParamMap", "flowStatus"]) == "3"
+    assert get_in(sealed_body, ["cardData", "cardParamMap", "state"]) == "回答继续于下一张卡片"
+    assert get_in(sealed_body, ["cardData", "cardParamMap", "meta"]) == "第 1/2 张"
 
     assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver",
                     %{"outTrackId" => otid1}}
@@ -275,6 +290,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert_receive {:card_call, "PUT", "/v1.0/card/instances", terminal_body}
     assert get_in(terminal_body, ["cardData", "cardParamMap", "state"]) == "出错"
+    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "5"
   end
 
   test "awaiting_input finalizes without sealing and renders protocol-carrying actions" do
@@ -320,6 +336,10 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert stream_body["isFinalize"] == false
 
     assert_receive {:card_call, "PUT", "/v1.0/card/instances", terminal_body}
+
+    # The card stays in the writing state so its buttons remain live.
+    assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "2"
+
     actions_json = get_in(terminal_body, ["cardData", "cardParamMap", "actions"])
     assert [action] = Torque.decode!(actions_json)
     assert action["label"] == "Option A"
@@ -334,6 +354,64 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
              "optionValue" => "a",
              "sourceActorEventId" => event.id
            }
+  end
+
+  test "structure variables carry curated copy instead of raw presentation keys" do
+    event =
+      setup_binding(%{
+        "clientId" => "cli_aicard",
+        "clientSecret" => "secret",
+        "cardTemplateId" => "tpl-1"
+      })
+
+    record_requests(self())
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("done")
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "plan-1",
+        "revision" => 2,
+        "items" => [
+          %{"id" => "a", "content" => "Read the ledger", "status" => "completed"},
+          %{"id" => "b", "content" => "Write the report", "status" => "pending"}
+        ]
+      })
+      |> ReplyPresentation.apply_event("effect.receipt", %{
+        "operation_id" => "receipt-1",
+        "revision" => 1,
+        "phase" => "completed",
+        "summary" => "Saved the weekly note",
+        "scope" => "shared"
+      })
+      |> ReplyPresentation.project_trigger("background_agent_job.failed", %{
+        "data" => %{
+          "title" => "Weekly digest",
+          "result_summary" => "the model rejected the prompt"
+        }
+      })
+      |> ReplyPresentation.terminal("completed", "done")
+
+    presentation =
+      put_in(presentation["meta"], %{"attachment_count" => 2, "elapsed_ms" => 12_500})
+
+    assert {:ok, _result} =
+             AICard.finalize(%Request{
+               actor_event: event,
+               presentation: presentation,
+               mode: :terminal
+             })
+
+    assert_receive {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _create}
+    assert_receive {:card_call, "PUT", "/v1.0/card/streaming", _stream}
+    assert_receive {:card_call, "PUT", "/v1.0/card/instances", body}
+    params = get_in(body, ["cardData", "cardParamMap"])
+
+    assert params["plan"] == "执行计划 · 1/2\n- [x] Read the ledger\n- [ ] Write the report"
+    assert params["receipts"] == "- ✅ Saved the weekly note（shared）"
+
+    assert params["meta"] ==
+             "后台 Agent 任务「Weekly digest」失败：the model rejected the prompt · 已附上 2 个文件 · 用时 12.5 秒"
   end
 
   test "with no card template a working sync sends nothing and returns non-retryable" do
