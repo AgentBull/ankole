@@ -210,6 +210,7 @@ fn execute(request: RunRequest) -> RunOutcome {
         Ok(runtime) => runtime,
         Err(error) => return failed(&format!("tokio runtime unavailable: {error}")),
     };
+    let _runtime_guard = tokio_runtime.enter();
 
     let mut js_runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![ankole_program::init()],
