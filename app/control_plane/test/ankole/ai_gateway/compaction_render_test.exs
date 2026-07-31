@@ -63,6 +63,31 @@ defmodule Ankole.AIGateway.CompactionRenderTest do
     refute rendered =~ call_id
   end
 
+  test "caps program code and output with one local alias" do
+    call_id = "019f0000-0000-7000-8000-000000000003"
+
+    rendered =
+      CompactionRender.render_items([
+        %{
+          "type" => "program",
+          "call_id" => call_id,
+          "code" => String.duplicate("const result = await tools.market({});\n", 1_000)
+        },
+        %{
+          "type" => "program_output",
+          "call_id" => call_id,
+          "status" => "completed",
+          "result" => String.duplicate("x", 300_000)
+        }
+      ])
+
+    assert rendered =~ "program call_ref=call_1"
+    assert rendered =~ "program_output call_ref=call_1 status=completed"
+    assert rendered =~ "tokens elided"
+    refute rendered =~ call_id
+    assert CompactionRender.approx_tokens(rendered) <= 2_700
+  end
+
   test "global budget elides oldest eligible items while preserving users and latest items" do
     items =
       for index <- 1..20 do

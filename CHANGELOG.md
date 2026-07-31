@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.50.2 (2026-07-31)
+
+- Fix repeated AIGateway context overflow and provider errors after a large Programmatic Tool Calling run. Compaction now treats `program` and `program_output` as one client tool pair, renders their code and result through the existing bounded summarizer format, moves the preferred boundary forward across a completed pair or an over-budget tail, and refuses to store a checkpoint whose replay input is still over budget. Automatic truncation checks the calls it drops against the outputs it keeps, so it cannot lower an orphaned `program_output` into a provider `function_call_output`. Cover large cross-row program compaction, checkpoint size, and provider-facing truncation order.
+
 ## Version 0.50.1 (2026-07-31)
 
 - Prevent Programmatic Tool Calling from aborting the control plane under V8 heap pressure. ProgramRunner created a Tokio runtime but built `JsRuntime` before it entered that runtime. As a result, `deno_core` registered the isolate without a runtime handle and aborted the process when V8 posted a delayed GC task. Enter the runtime before `JsRuntime` creation, keep the guard alive until the isolate is dropped, and add a small-heap regression test that forces the delayed-task path.

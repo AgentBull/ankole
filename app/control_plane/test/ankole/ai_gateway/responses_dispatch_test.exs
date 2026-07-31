@@ -2158,7 +2158,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Enum.drop(artifact.content["output"], 3) == m3.content
   end
 
-  test "websocket stateful auto-compaction keeps client tool calls with protected results" do
+  test "websocket stateful auto-compaction closes a complete client tool batch" do
     %{principal: agent} = agent_fixture()
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 2)
@@ -2172,7 +2172,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
          openai_response_stream_events(
            "resp_summary_tool_tail",
            "gpt-compact-light",
-           "## Active Task\nOnly the first row was compressed.",
+           "## Active Task\nThe complete tool batch was compressed.",
            %{"input_tokens" => 7, "output_tokens" => 5, "total_tokens" => 12}
          )}
       end)
@@ -2273,10 +2273,12 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     [_, conversation_section] =
       Regex.run(~r/<conversation>\n(.*?)\n<\/conversation>/s, summarizer_input)
 
+    assert conversation_section =~ "function_call web_search call_ref=call_1"
+    assert conversation_section =~ "custom_tool_call apply_patch call_ref=call_2"
+    assert conversation_section =~ "function_call_output call_ref=call_1 output=search result"
+    assert conversation_section =~ "custom_tool_call_output call_ref=call_2 output=Done!"
     refute conversation_section =~ "call_keep_with_tail"
     refute conversation_section =~ "call_custom_keep_with_tail"
-    refute conversation_section =~ "search result"
-    refute conversation_section =~ "Done!"
 
     provider_request = request.response_context.request
     [user_orig_1, compaction_item | rest] = provider_request["input"]
@@ -2285,9 +2287,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert compaction_item["type"] == "compaction"
 
     assert compaction_item["encrypted_content"] ==
-             "## Active Task\nOnly the first row was compressed."
+             "## Active Task\nThe complete tool batch was compressed."
 
-    assert rest == tool_calls ++ tool_results ++ m4.content ++ current_input
+    assert rest == m4.content ++ current_input
 
     [compaction] =
       Repo.all(Message)
@@ -2295,13 +2297,141 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert compaction.previous_message_id == m4.id
     assert compaction.metadata["auto"] == true
+    assert compaction.metadata["covered_message_count"] == 3
 
     assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, compaction.id)
 
     assert get_in(artifact.content, ["summary", "text"]) ==
-             "## Active Task\nOnly the first row was compressed."
+             "## Active Task\nThe complete tool batch was compressed."
 
-    assert Enum.drop(artifact.content["output"], 2) == tool_calls ++ tool_results ++ m4.content
+    assert Enum.drop(artifact.content["output"], 2) == m4.content
+  end
+
+  test "websocket stateful auto-compaction closes and compresses one large program batch" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 2)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        assert request.path == "v1/responses"
+        assert request.body["model"] == "gpt-compact-light"
+
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_summary_program_batch",
+           "gpt-compact-light",
+           "## Active Task\nThe completed program batch was compressed.",
+           %{"input_tokens" => 15, "output_tokens" => 9, "total_tokens" => 24}
+         )}
+      end)
+
+    create_openai_compaction_provider!(
+      agent,
+      "openai-auto-compaction-program-batch",
+      base_url
+    )
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-program-batch-compaction")
+
+    program_call_id = "call_program_batch"
+    nested_call_id = "call_program_batch_market"
+
+    {:ok, m1} =
+      start_stateful_message(agent.uid, conversation, "program-batch-call", [
+        %{
+          "type" => "program",
+          "call_id" => program_call_id,
+          "code" => "const quote = await tools.market({ symbol: \"AAPL\" }); text(quote);",
+          "fingerprint" => "program-batch-fingerprint"
+        },
+        %{
+          "type" => "function_call",
+          "call_id" => nested_call_id,
+          "name" => "market",
+          "arguments" => ~s({"symbol":"AAPL"}),
+          "caller" => %{"type" => "program", "caller_id" => program_call_id}
+        }
+      ])
+
+    {:ok, m1} = StatefulResponses.commit_complete(m1, [], usage(170))
+
+    {:ok, m2} =
+      start_linked_stateful_message(agent.uid, conversation, m1, "program-batch-tool-output", [
+        %{
+          "type" => "function_call_output",
+          "call_id" => nested_call_id,
+          "output" => ~s({"price":212.5})
+        }
+      ])
+
+    {:ok, m2} = StatefulResponses.commit_complete(m2, [], usage(175))
+
+    large_result = "PROGRAM_RESULT_SENTINEL:" <> String.duplicate("x", 300_000)
+
+    {:ok, m3} =
+      start_linked_stateful_message(agent.uid, conversation, m2, "program-batch-output", [
+        %{
+          "type" => "program_output",
+          "call_id" => program_call_id,
+          "status" => "completed",
+          "result" => large_result
+        }
+      ])
+
+    {:ok, m3} = StatefulResponses.commit_complete(m3, [], usage(178))
+
+    {:ok, m4} =
+      start_linked_stateful_message(agent.uid, conversation, m3, "program-batch-final", [
+        text_message(
+          "assistant",
+          "FINAL_RESPONSE_SENTINEL #{brain_pre_compaction_nudge_marker()} " <>
+            String.duplicate("final ", 20_000)
+        )
+      ])
+
+    {:ok, _m4} = StatefulResponses.commit_complete(m4, [], usage(180))
+
+    current_input = [text_message("user", "continue with the result")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "tools" => programmatic_tools(),
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "program-batch-compaction-event"}
+             })
+
+    assert_receive {:gateway_request, summarizer_request}
+    summarizer_input = Ankole.JSON.encode!(summarizer_request.body["input"])
+
+    assert summarizer_input =~ "program call_ref=call_1"
+    assert summarizer_input =~ "program_output call_ref=call_1 status=completed"
+    assert summarizer_input =~ "tokens elided"
+    assert summarizer_input =~ "FINAL_RESPONSE_SENTINEL"
+    refute summarizer_input =~ program_call_id
+    assert byte_size(summarizer_input) < 50_000
+
+    provider_input = request.response_context.request["input"]
+
+    assert [%{"type" => "compaction"} = compaction_item | ^current_input] = provider_input
+
+    assert compaction_item["encrypted_content"] ==
+             "## Active Task\nThe completed program batch was compressed."
+
+    refute Ankole.JSON.encode!(provider_input) =~ "PROGRAM_RESULT_SENTINEL"
+    refute Ankole.JSON.encode!(provider_input) =~ "FINAL_RESPONSE_SENTINEL"
+
+    [checkpoint] = Repo.all(Message) |> Enum.filter(&(&1.type == "checkpoint"))
+    assert checkpoint.metadata["covered_message_count"] == 4
+
+    assert %CompactionArtifact{} = artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+    assert get_in(artifact.content, ["retention", "actual"]) == 0
+    assert length(artifact.content["output"]) == 1
+    assert byte_size(Ankole.JSON.encode!(artifact.content["output"])) < 10_000
   end
 
   test "websocket stateful auto-compaction renders reasoning summaries without encrypted content" do
@@ -2712,6 +2842,149 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_request = request.response_context.request
     assert provider_request["input"] == call.content ++ tail.content ++ current_input
+  end
+
+  test "websocket stateful truncation keeps a program call with its output" do
+    %{principal: agent} = agent_fixture()
+
+    with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 2)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-truncation-program-boundary",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:1/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-truncation-program-boundary",
+               model: "gpt-main"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-truncation-program-boundary")
+
+    {:ok, opaque} =
+      start_stateful_message(agent.uid, conversation, "program-truncation-opaque", [
+        media_message_with_memory_nudge("https://files.example.test/program-boundary.png")
+      ])
+
+    {:ok, opaque} = StatefulResponses.commit_complete(opaque, [], usage(120))
+
+    program_call_id = "call_program_truncation"
+    nested_call_id = "call_program_truncation_market"
+
+    {:ok, program} =
+      start_linked_stateful_message(agent.uid, conversation, opaque, "program-truncation-call", [
+        %{
+          "type" => "program",
+          "call_id" => program_call_id,
+          "code" => "const quote = await tools.market({}); text(quote);",
+          "fingerprint" => "program-truncation-fingerprint"
+        },
+        %{
+          "type" => "function_call",
+          "call_id" => nested_call_id,
+          "name" => "market",
+          "arguments" => "{}",
+          "caller" => %{"type" => "program", "caller_id" => program_call_id}
+        }
+      ])
+
+    {:ok, program} = StatefulResponses.commit_complete(program, [], usage(130))
+
+    {:ok, nested_output} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        program,
+        "program-truncation-nested-output",
+        [
+          %{
+            "type" => "function_call_output",
+            "call_id" => nested_call_id,
+            "output" => ~s({"price":212.5})
+          }
+        ]
+      )
+
+    {:ok, nested_output} = StatefulResponses.commit_complete(nested_output, [], usage(140))
+
+    {:ok, program_output} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        nested_output,
+        "program-truncation-output",
+        [
+          %{
+            "type" => "program_output",
+            "call_id" => program_call_id,
+            "status" => "completed",
+            "result" => ~s({"price":212.5})
+          }
+        ]
+      )
+
+    {:ok, program_output} = StatefulResponses.commit_complete(program_output, [], usage(150))
+
+    {:ok, final} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        program_output,
+        "program-truncation-tail",
+        [
+          text_message("assistant", "program result ready #{brain_pre_compaction_nudge_marker()}")
+        ]
+      )
+
+    {:ok, _final} = StatefulResponses.commit_complete(final, [], usage(180))
+
+    current_input = [text_message("user", "use that result")]
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => current_input,
+               "tools" => programmatic_tools(),
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "program-truncation-boundary-event"}
+             })
+
+    provider_input = request.response_context.request["input"]
+
+    program_call =
+      Enum.find(
+        provider_input,
+        &(&1["type"] == "function_call" and &1["call_id"] == program_call_id)
+      )
+
+    settled_output =
+      Enum.find(
+        provider_input,
+        &(&1["type"] == "function_call_output" and &1["call_id"] == program_call_id)
+      )
+
+    assert program_call["name"] == "program"
+    assert settled_output["output"] =~ "completed"
+
+    assert Enum.find_index(provider_input, &(&1 == program_call)) <
+             Enum.find_index(provider_input, &(&1 == settled_output))
+
+    refute Enum.any?(provider_input, &(&1["call_id"] == nested_call_id))
+    refute Ankole.JSON.encode!(provider_input) =~ "program-boundary.png"
+    assert Enum.take(provider_input, -2) == final.content ++ current_input
+    refute_receive {:gateway_request, _request}
   end
 
   test "websocket stateful truncation keeps the compaction checkpoint with the stable tail" do
@@ -4534,6 +4807,19 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         "total_tokens" => input_tokens + output_tokens
       }
     }
+  end
+
+  defp programmatic_tools do
+    [
+      %{
+        "type" => "function",
+        "name" => "market",
+        "description" => "Return market data.",
+        "allowed_callers" => ["programmatic"],
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
   end
 
   defp with_compaction_config(config) do

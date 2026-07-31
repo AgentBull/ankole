@@ -460,8 +460,18 @@ The checkpoint and artifact use the same UUID.
 When AIGateway builds model history, it replaces the checkpoint with that
 output. It also keeps selected original user facts.
 
-The compaction summarizer keeps client tool call and output pairs with one-call
-`call_N` aliases. Persisted provider call IDs do not enter its prompt.
+The compaction summarizer treats `function_call`, `custom_tool_call`, and
+`program` as calls paired with their matching output items. It renders bounded
+arguments, code, and results with one-call `call_N` aliases. Persisted provider
+call IDs do not enter its prompt.
+
+The configured tail row count is a preference. AIGateway can move the
+compaction boundary forward to include a completed call batch or to keep the
+retained tail and current input within the history budget. It can move the
+boundary backward when the current input closes a call. Before AIGateway stores
+a checkpoint, it estimates the selected user originals, summary, retained tail,
+and current input together. An over-budget result cannot create an artifact and
+uses the normal overflow policy.
 
 The summarizer uses the standard streaming Responses preparation and stream
 owner. AIGateway creates its request context before model resolution and keeps
@@ -483,12 +493,13 @@ read the newest snapshot in the visible history.
 When the context exceeds its threshold and compaction has no candidate, a
 request with `truncation=auto` keeps the last compaction checkpoint and the
 configured stable tail, then expands the tail backward until the client tool
-calls and outputs in history and the current input form a valid boundary. The
-checkpoint stays because it is the only remaining record of the conversation
-before it. A suffix size cannot be derived from cumulative snapshots, so this
-path reports no post-truncation token estimate and leaves the measurement to
-the provider. When no valid boundary exists, the request returns
-`context_overflow`.
+calls and outputs in history and the current input form a valid boundary. This
+rule includes `program` and `program_output`; truncation cannot retain a program
+output after it drops the matching program. The checkpoint stays because it is
+the only remaining record of the conversation before it. A suffix size cannot
+be derived from cumulative snapshots, so this path reports no post-truncation
+token estimate and leaves the measurement to the provider. When no valid
+boundary exists, the request returns `context_overflow`.
 
 ## Store Vision Files and Generated Images
 

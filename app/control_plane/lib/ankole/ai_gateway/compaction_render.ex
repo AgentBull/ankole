@@ -109,6 +109,27 @@ defmodule Ankole.AIGateway.CompactionRender do
     "custom_tool_call_output call_ref=#{call_ref} output=#{output}"
   end
 
+  def item_text(%{"type" => "program"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+
+    code =
+      Map.get(item, "code") |> stringify() |> truncate_text(cap(caps, :function_call_arguments))
+
+    "program call_ref=#{call_ref} code=#{code}"
+  end
+
+  def item_text(%{"type" => "program_output"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    status = Map.get(item, "status") || "unknown"
+
+    result =
+      Map.get(item, "result") |> stringify() |> truncate_text(cap(caps, :function_call_output))
+
+    "program_output call_ref=#{call_ref} status=#{status} result=#{result}"
+  end
+
   def item_text(%{"type" => "reasoning"} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
 
