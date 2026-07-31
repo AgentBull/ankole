@@ -21,6 +21,9 @@ defmodule Ankole.Application do
     #     and register AppConfigure definitions during their own `init/1`.
     #   - I18n before Plugins/SignalsGateway: adapter startup and recovered Actor
     #     replies may render user-facing text immediately during their own startup.
+    #   - Setup.Bootstrap before Plugins.Registry: the registry reads the durable
+    #     setup state to decide whether the installation still needs every
+    #     compiled plugin during first-run configuration.
     #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
     #     activates plugins, then the supervisor reads that active set to know
     #     which plugin-contributed children to start (snapshot taken once at boot).

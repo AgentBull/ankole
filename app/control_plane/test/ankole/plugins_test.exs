@@ -26,6 +26,7 @@ defmodule Ankole.PluginsTest do
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
+  alias Ankole.Setup.Config, as: SetupConfig
 
   import ExUnit.CaptureLog
 
@@ -33,6 +34,8 @@ defmodule Ankole.PluginsTest do
     allow_cache_database_access()
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
+    :ok = SetupConfig.ensure_registered()
+    {:ok, true} = SetupConfig.put_completed(true)
 
     :ok
   end
@@ -69,6 +72,34 @@ defmodule Ankole.PluginsTest do
 
     restarted_registry = start_registry!()
     assert Registry.active?("beta", restarted_registry)
+  end
+
+  test "unfinished setup activates every discovered plugin and preserves the next-start policy" do
+    assert {:ok, ["alpha"]} = Config.put_enabled_ids(["alpha"])
+    assert {:ok, false} = SetupConfig.put_completed(false)
+
+    registry = start_registry!()
+
+    assert Enum.map(Registry.list_active(registry), & &1.id) == ["alpha", "beta"]
+    assert Registry.enabled_ids(registry) == ["alpha"]
+    assert Registry.active?("alpha", registry)
+    assert Registry.active?("beta", registry)
+
+    beta_definition = BetaPlugin.app_config_definitions() |> List.first()
+    assert {:ok, false} = AppConfigure.put_global(beta_definition, false)
+
+    assert Enum.map(Registry.adapter_declarations("test.adapter", registry), & &1.id) == [
+             "alpha-adapter",
+             "beta-adapter"
+           ]
+
+    assert {:ok, true} = SetupConfig.put_completed(true)
+    AppConfigureRegistry.clear_for_test()
+    Cache.clear_for_test()
+
+    restarted_registry = start_registry!()
+    assert Enum.map(Registry.list_active(restarted_registry), & &1.id) == ["alpha"]
+    refute Registry.active?("beta", restarted_registry)
   end
 
   test "plugins outside the enable list do not expose config definitions or adapters" do
@@ -215,7 +246,8 @@ defmodule Ankole.PluginsTest do
              Ankole.Plugins.GoogleWorkspaceAdapter,
              Ankole.Plugins.LarkAdapter,
              Ankole.Plugins.Microsoft365Adapter,
-             Ankole.Plugins.SlackAdapter
+             Ankole.Plugins.SlackAdapter,
+             Ankole.Plugins.WeComAdapter
            ]
 
     assert is_list(Plugins.list_active())

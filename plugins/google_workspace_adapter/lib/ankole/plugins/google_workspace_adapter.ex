@@ -6,16 +6,17 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
   alias Ankole.Plugins.GoogleWorkspaceAdapter.{Config, IdentityProvider}
 
   @zh_fields %{
-    "clientID" => {"Client ID", "Google Cloud OAuth 客户端 ID。"},
-    "clientSecret" => {"Client Secret", "Google Cloud OAuth 客户端密码。"},
-    "oidc.enabled" => {"启用 OIDC", "允许使用 Google 账号登录。"},
-    "oidc.scopes" => {"OIDC 权限范围", "登录时请求的 scope。"},
-    "oidc.allowedDomains" => {"允许的域名", "允许登录的 Workspace 域名列表；Google 无租户隔离，必须限定。"},
-    "serviceAccountKey" => {"服务账号密钥", "启用域级委派的服务账号 JSON 密钥。"},
-    "adminEmail" => {"管理员邮箱", "服务账号通过域级委派模拟的管理员账号。"},
-    "sync.contacts" => {"同步目录", "导入 Google Workspace 用户与组。"},
-    "sync.pageSize" => {"同步分页大小", "Directory API 列表接口的分页大小。"},
-    "sync.includeSuspended" => {"包含停用用户", "目录同步是否包含已停用/已归档用户。"}
+    "clientID" =>
+      {"OAuth 客户端 ID", "在 Google Cloud 控制台「Google Auth Platform → Clients」中创建 Web 应用后获取。"},
+    "clientSecret" => {"OAuth 客户端密钥", "对应 OAuth Web 客户端的 Client Secret。"},
+    "oidc.enabled" => {"启用登录", "允许管理员使用 Google Workspace 登录。"},
+    "oidc.scopes" => {"登录权限范围", "登录时向 Google 请求的权限，通常无需修改。"},
+    "oidc.allowedDomains" => {"允许登录的 Workspace 域名", "只有这些 Workspace 域名的账号可以登录，每行填写一个域名。"},
+    "serviceAccountKey" => {"服务账号 JSON 密钥", "粘贴已配置全网域授权的服务账号完整 JSON 密钥。"},
+    "adminEmail" => {"委派管理员邮箱", "服务账号通过全网域授权模拟此 Workspace 管理员读取用户和群组。"},
+    "sync.contacts" => {"同步通讯录", "将 Google Workspace 用户和群组同步到 Ankole。"},
+    "sync.pageSize" => {"每页同步数量", "每次从 Google Workspace 读取的记录数量，通常保留默认值。"},
+    "sync.includeSuspended" => {"包含已停用用户", "同步时包含已停用和已归档的用户。"}
   }
 
   @impl true
@@ -61,45 +62,91 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
 
   defp identity_fields do
     [
-      field("clientID", "Client ID", "Google Cloud OAuth client ID.", :string, []),
-      field("clientSecret", "Client secret", "Google Cloud OAuth client secret.", :secret,
-        encrypted: true
+      field(
+        "clientID",
+        "OAuth client ID",
+        "Create a Web application under Google Auth Platform > Clients.",
+        :string,
+        requiredWhen: [required_when("oidc.enabled", true)]
       ),
-      field("oidc.enabled", "Enable OIDC", "Allow sign-in with Google.", :boolean, default: true),
-      field("oidc.scopes", "OIDC scopes", "Scopes requested during login.", :string_array,
+      field(
+        "clientSecret",
+        "OAuth client secret",
+        "Client secret for the same OAuth web client.",
+        :secret,
+        encrypted: true,
+        requiredWhen: [required_when("oidc.enabled", true)]
+      ),
+      field(
+        "oidc.enabled",
+        "Enable sign-in",
+        "Allow administrators to sign in with Google Workspace.",
+        :boolean,
+        default: true
+      ),
+      field(
+        "oidc.scopes",
+        "Sign-in scopes",
+        "Permissions requested during sign-in. Usually keep the default.",
+        :string_array,
         default: ["openid", "email", "profile"],
         advanced: true
       ),
       field(
         "oidc.allowedDomains",
-        "Allowed domains",
-        "Workspace domains allowed to sign in; Google has no tenant isolation, so this list is required.",
+        "Allowed Workspace domains",
+        "Only accounts in these Workspace domains can sign in. Enter one domain per line.",
         :string_array,
-        []
+        requiredWhen: [required_when("oidc.enabled", true)],
+        validation:
+          pattern_validation(
+            "^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$",
+            "Enter a Workspace domain such as example.com on each line.",
+            "请输入 Workspace 域名，例如 example.com，每行一个。"
+          )
       ),
       field(
         "serviceAccountKey",
-        "Service account key",
-        "JSON key of the service account with domain-wide delegation.",
+        "Service account JSON key",
+        "Paste the full JSON key for a service account with domain-wide delegation.",
         :secret,
-        encrypted: true
+        encrypted: true,
+        requiredWhen: [required_when("sync.contacts", true)],
+        validation: %{
+          kind: "json_object",
+          requiredStringProperties: ["client_email", "private_key"],
+          stringPrefixes: %{"private_key" => "-----BEGIN"},
+          message: %{
+            "default" =>
+              "Paste a service account JSON key that contains client_email and private_key.",
+            "zh-Hans-CN" => "请粘贴包含 client_email 和 private_key 的服务账号 JSON 密钥。"
+          }
+        }
       ),
       field(
         "adminEmail",
-        "Admin email",
-        "Administrator the service account impersonates through domain-wide delegation.",
+        "Delegated administrator email",
+        "Workspace administrator that the service account impersonates to read users and groups.",
         :string,
-        []
+        requiredWhen: [required_when("sync.contacts", true)],
+        validation:
+          pattern_validation(
+            "^[^\\s@]+@[^\\s@]+$",
+            "Enter a valid administrator email address.",
+            "请输入有效的管理员邮箱地址。"
+          )
       ),
       field(
         "sync.contacts",
         "Sync directory",
-        "Import Google Workspace users and groups.",
-        :boolean, default: true),
+        "Import Google Workspace users and groups into Ankole.",
+        :boolean,
+        default: true
+      ),
       field(
         "sync.pageSize",
-        "Sync page size",
-        "Directory API page size for list calls.",
+        "Records per page",
+        "Number of records requested from Google Workspace per page. Usually keep the default.",
         :integer,
         default: 500,
         min: 1,
@@ -109,7 +156,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
       field(
         "sync.includeSuspended",
         "Include suspended users",
-        "Whether directory sync includes suspended and archived users.",
+        "Include suspended and archived users in directory sync.",
         :boolean,
         default: false,
         advanced: true
@@ -129,5 +176,15 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
       description: %{"default" => description, "zh-Hans-CN" => zh_description},
       type: Atom.to_string(type)
     })
+  end
+
+  defp required_when(path, value), do: %{path: path, value: value}
+
+  defp pattern_validation(pattern, message, zh_message) do
+    %{
+      kind: "pattern",
+      pattern: pattern,
+      message: %{"default" => message, "zh-Hans-CN" => zh_message}
+    }
   end
 end

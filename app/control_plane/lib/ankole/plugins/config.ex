@@ -2,13 +2,13 @@ defmodule Ankole.Plugins.Config do
   @moduledoc """
   AppConfigure storage for the global plugin enable list.
 
-  Plugins are installation-global and fail closed, so the operator explicitly
-  opts plugins in through a durable list of enabled plugin ids. It lives in
-  AppConfigure (PostgreSQL) rather than process state because the registry reads
-  it once at startup; a change therefore takes effect on the next Ankole process
-  start, not immediately. This is deliberate — activating or deactivating a
-  plugin can add or remove supervised children and config keys, which is a
-  boot-time concern, not a hot-swap.
+  Plugins are installation-global and fail closed after first-run setup, so the
+  operator explicitly opts plugins in through a durable list of enabled plugin
+  ids. It lives in AppConfigure (PostgreSQL) rather than process state because
+  the registry reads it once at startup. During setup, all compiled plugins stay
+  active and this list records the first post-setup startup policy. This is
+  deliberate: activating or deactivating a plugin can add or remove supervised
+  children and config keys, which is a boot-time concern, not a hot-swap.
   """
 
   alias Ankole.AppConfigure
@@ -29,7 +29,7 @@ defmodule Ankole.Plugins.Config do
       schema: enabled_ids_schema(),
       scope: :global,
       default_value: [],
-      description: "Plugin ids enabled on the next Ankole process start."
+      description: "Plugin ids enabled on the next post-setup Ankole process start."
     )
   end
 

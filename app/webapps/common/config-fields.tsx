@@ -1,10 +1,10 @@
 import {
-  Checkbox,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
   Input,
@@ -13,16 +13,36 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
   Textarea
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
-import { useId } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import i18n from './i18n'
 
 export type LocalizedText = Record<string, string> | null | undefined
 
+export type ConfigFieldRequirement = {
+  path: string
+  value: unknown
+}
+
+export type ConfigFieldValidation =
+  | {
+      kind: 'json_object'
+      message: Record<string, string>
+      requiredStringProperties?: string[]
+      stringPrefixes?: Record<string, string>
+    }
+  | {
+      kind: 'pattern'
+      message: Record<string, string>
+      pattern: string
+    }
+
 export type ConfigFieldDefinition = {
+  advanced?: boolean
   default?: unknown
   description?: LocalizedText
   label?: LocalizedText
@@ -30,9 +50,10 @@ export type ConfigFieldDefinition = {
   min?: number
   options?: Array<{ description?: LocalizedText; label?: LocalizedText; value: string }>
   path: string
-  advanced?: boolean
   required?: boolean
+  requiredWhen?: ConfigFieldRequirement[]
   type: string
+  validation?: ConfigFieldValidation
 }
 
 export function ConfigFields({
@@ -41,7 +62,8 @@ export function ConfigFields({
   fieldGroupClassName = 'grid gap-5 md:grid-cols-2',
   fields,
   locale,
-  onChange
+  onChange,
+  showAdvancedCount = true
 }: {
   advancedLabel?: string
   config: JSONObject
@@ -49,6 +71,7 @@ export function ConfigFields({
   fields: ConfigFieldDefinition[]
   locale: string
   onChange(path: string, value: unknown, field: ConfigFieldDefinition): void
+  showAdvancedCount?: boolean
 }) {
   const basicFields = fields.filter(field => !field.advanced)
   const advancedFields = fields.filter(field => field.advanced)
@@ -63,7 +86,7 @@ export function ConfigFields({
           <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border/70 bg-card/60 px-4 py-3 text-left text-sm font-medium text-foreground">
             <span>{advancedLabel}</span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
-              {advancedFields.length}
+              {showAdvancedCount ? advancedFields.length : null}
               <RiArrowDownSLine className="size-4" aria-hidden />
             </span>
           </CollapsibleTrigger>
@@ -83,6 +106,7 @@ export function ConfigFields({
         field={field}
         key={field.path}
         locale={locale}
+        required={configFieldRequired(field, config)}
         value={getPath(config, field.path)}
         onChange={value => onChange(field.path, value, field)}
       />
@@ -94,27 +118,62 @@ export function ConfigField({
   field,
   locale,
   onChange,
+  required = field.required === true,
   value
 }: {
   field: ConfigFieldDefinition
   locale: string
   onChange(value: unknown): void
+  required?: boolean
   value: unknown
 }) {
   const label = localizedText(field.label, locale) ?? field.path
   const description = localizedText(field.description, locale)
-  // Every branch below rendered a label bound to nothing, so an operator using a
-  // screen reader met an unnamed box for each provider credential.
   const controlID = useId()
+  const descriptionID = `${controlID}-description`
+  const errorID = `${controlID}-error`
+  const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [showValidationError, setShowValidationError] = useState(false)
+  const validationError =
+    required || !field.requiredWhen?.length ? configFieldValidationMessage(field, value, locale) : undefined
+  const describedBy = [
+    description ? descriptionID : undefined,
+    showValidationError && validationError ? errorID : undefined
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  useEffect(() => {
+    inputRef.current?.setCustomValidity(validationError ?? '')
+    textareaRef.current?.setCustomValidity(validationError ?? '')
+    if (!validationError) setShowValidationError(false)
+  }, [validationError])
+
+  const labelContent = (
+    <>
+      {label}
+      {required ? <span className="ml-1 font-normal text-muted-foreground">{i18n.t('common.required')}</span> : null}
+    </>
+  )
 
   if (field.type === 'boolean') {
     return (
-      <Field orientation="horizontal" className="items-center justify-between border border-border/70 bg-card/60 p-4">
-        <div className="grid gap-1">
-          <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
-          {description ? <FieldDescription>{description}</FieldDescription> : null}
-        </div>
-        <Checkbox id={controlID} checked={Boolean(value)} onCheckedChange={checked => onChange(checked === true)} />
+      <Field>
+        <FieldLabel>{labelContent}</FieldLabel>
+        <FieldLabel
+          htmlFor={controlID}
+          className="h-10 w-full cursor-pointer items-center justify-between border border-transparent border-b-input bg-field px-4 text-sm font-normal transition-[background-color,border-color] has-data-checked:border-transparent has-data-checked:border-b-input has-data-checked:bg-field has-focus-visible:border-b-ring dark:has-data-checked:border-transparent dark:has-data-checked:border-b-input dark:has-data-checked:bg-field">
+          <span>{i18n.t('common.enable')}</span>
+          <Switch
+            id={controlID}
+            aria-describedby={description ? descriptionID : undefined}
+            aria-required={required || undefined}
+            checked={Boolean(value)}
+            onCheckedChange={onChange}
+          />
+        </FieldLabel>
+        {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
       </Field>
     )
   }
@@ -124,9 +183,13 @@ export function ConfigField({
 
     return (
       <Field>
-        <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
+        <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
         <Select value={typeof value === 'string' ? value : ''} onValueChange={next => onChange(next ?? '')}>
-          <SelectTrigger id={controlID} className="w-full">
+          <SelectTrigger
+            id={controlID}
+            aria-describedby={description ? descriptionID : undefined}
+            aria-required={required || undefined}
+            className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -137,7 +200,7 @@ export function ConfigField({
             ))}
           </SelectContent>
         </Select>
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
+        {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
       </Field>
     )
   }
@@ -145,9 +208,13 @@ export function ConfigField({
   if (field.type === 'string_array') {
     return (
       <Field>
-        <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
+        <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
         <Textarea
           id={controlID}
+          ref={textareaRef}
+          aria-describedby={describedBy || undefined}
+          aria-invalid={showValidationError && validationError ? true : undefined}
+          required={required}
           value={Array.isArray(value) ? value.join('\n') : ''}
           onChange={event =>
             // Accept both newline and comma input because setup fields often copy
@@ -159,26 +226,86 @@ export function ConfigField({
                 .filter(Boolean)
             )
           }
+          onBlur={() => setShowValidationError(Boolean(validationError))}
+          onInvalid={() => setShowValidationError(Boolean(validationError))}
         />
-        {description ? <FieldDescription>{description}</FieldDescription> : null}
+        {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
+        {showValidationError && validationError ? <FieldError id={errorID}>{validationError}</FieldError> : null}
       </Field>
     )
   }
 
   return (
     <Field>
-      <FieldLabel htmlFor={controlID}>{label}</FieldLabel>
+      <FieldLabel htmlFor={controlID}>{labelContent}</FieldLabel>
       <Input
         id={controlID}
+        ref={inputRef}
+        aria-describedby={describedBy || undefined}
+        aria-invalid={showValidationError && validationError ? true : undefined}
         max={field.max}
         min={field.min}
+        required={required}
         type={field.type === 'secret' ? 'password' : field.type === 'integer' ? 'number' : 'text'}
         value={value == null ? '' : String(value)}
         onChange={event => onChange(field.type === 'integer' ? Number(event.target.value) : event.target.value)}
+        onBlur={() => setShowValidationError(Boolean(validationError))}
+        onInvalid={() => setShowValidationError(Boolean(validationError))}
       />
-      {description ? <FieldDescription>{description}</FieldDescription> : null}
+      {description ? <FieldDescription id={descriptionID}>{description}</FieldDescription> : null}
+      {showValidationError && validationError ? <FieldError id={errorID}>{validationError}</FieldError> : null}
     </Field>
   )
+}
+
+export function configFieldValidationMessage(
+  field: ConfigFieldDefinition,
+  value: unknown,
+  locale: string
+): string | undefined {
+  const validation = field.validation
+  if (!validation || configFieldValueEmpty(value)) return undefined
+
+  const message = localizedText(validation.message, locale) ?? localizedText(validation.message, 'default')
+
+  if (validation.kind === 'pattern') {
+    const values = Array.isArray(value) ? value : [value]
+    const pattern = new RegExp(validation.pattern)
+
+    return values.every(item => typeof item === 'string' && pattern.test(item.trim())) ? undefined : message
+  }
+
+  if (typeof value !== 'string') return message
+
+  try {
+    const object = JSON.parse(value)
+    if (!object || typeof object !== 'object' || Array.isArray(object)) return message
+
+    const requiredPropertiesValid = (validation.requiredStringProperties ?? []).every(
+      property => typeof object[property] === 'string' && object[property].trim() !== ''
+    )
+    const prefixesValid = Object.entries(validation.stringPrefixes ?? {}).every(
+      ([property, prefix]) => typeof object[property] === 'string' && object[property].startsWith(prefix)
+    )
+
+    return requiredPropertiesValid && prefixesValid ? undefined : message
+  } catch {
+    return message
+  }
+}
+
+export function configFieldRequired(field: ConfigFieldDefinition, config: JSONObject): boolean {
+  if (field.required) return true
+  if (!field.requiredWhen?.length) return false
+
+  return field.requiredWhen.every(requirement => getPath(config, requirement.path) === requirement.value)
+}
+
+function configFieldValueEmpty(value: unknown): boolean {
+  if (value == null) return true
+  if (typeof value === 'string') return value.trim() === ''
+  if (Array.isArray(value)) return value.length === 0
+  return false
 }
 
 export function localizedText(value: LocalizedText, locale: string): string | undefined {

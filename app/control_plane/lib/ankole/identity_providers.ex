@@ -32,12 +32,23 @@ defmodule Ankole.IdentityProviders do
   def list_adapters do
     enabled_ids = enabled_plugin_ids()
 
-    # The plugin registry applies the enabled list only when the process boots:
-    # active children/config registration are startup-time effects. Setup is an
-    # operator-facing catalog, so it also filters the persisted enabled ids live
-    # and avoids offering a plugin that will be inactive after the next restart.
+    # The plugin registry applies the enabled list only when the process boots.
+    # Configuration writes also honor the persisted next-start selection so
+    # they cannot create a provider for a plugin that the next restart removes.
+    list_active_plugin_adapters()
+    |> Enum.filter(&MapSet.member?(enabled_ids, &1.plugin_id))
+  end
+
+  @doc """
+  Lists identity-provider adapters loaded by plugins active in this process.
+
+  Setup uses this boot-time catalog and applies the current setup selection in
+  the browser. This keeps an adapter available when an operator clears and then
+  restores its selection before the process restarts.
+  """
+  @spec list_active_plugin_adapters() :: [adapter()]
+  def list_active_plugin_adapters do
     Plugins.list_active()
-    |> Enum.filter(&MapSet.member?(enabled_ids, &1.id))
     |> Enum.flat_map(&adapters_for_plugin/1)
     |> Enum.sort_by(& &1.adapter_id)
   end

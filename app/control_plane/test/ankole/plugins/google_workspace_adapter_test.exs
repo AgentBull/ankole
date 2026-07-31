@@ -70,6 +70,38 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
       assert capabilities == ["oidc_authorization", "oidc_code_exchange", "directory_full_sync"]
       refute "directory_realtime_sync" in capabilities
       assert Enum.all?(GoogleWorkspaceAdapter.app_config_patterns(), & &1.encrypted)
+
+      [identity] = GoogleWorkspaceAdapter.adapter_declarations()
+      fields = Map.new(identity.fields, &{&1.path, &1})
+
+      assert fields["clientID"].requiredWhen == [%{path: "oidc.enabled", value: true}]
+      assert fields["clientSecret"].requiredWhen == [%{path: "oidc.enabled", value: true}]
+      assert fields["oidc.allowedDomains"].requiredWhen == [%{path: "oidc.enabled", value: true}]
+      assert fields["serviceAccountKey"].requiredWhen == [%{path: "sync.contacts", value: true}]
+      assert fields["adminEmail"].requiredWhen == [%{path: "sync.contacts", value: true}]
+      assert fields["clientID"].label["zh-Hans-CN"] == "OAuth 客户端 ID"
+      assert fields["clientSecret"].label["zh-Hans-CN"] == "OAuth 客户端密钥"
+      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
+      assert fields["serviceAccountKey"].label["zh-Hans-CN"] == "服务账号 JSON 密钥"
+      assert fields["adminEmail"].label["zh-Hans-CN"] == "委派管理员邮箱"
+      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
+      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
+
+      assert fields["oidc.allowedDomains"].validation.pattern ==
+               "^[A-Za-z0-9][A-Za-z0-9.-]*\\.[A-Za-z]{2,}$"
+
+      assert fields["serviceAccountKey"].validation == %{
+               kind: "json_object",
+               requiredStringProperties: ["client_email", "private_key"],
+               stringPrefixes: %{"private_key" => "-----BEGIN"},
+               message: %{
+                 "default" =>
+                   "Paste a service account JSON key that contains client_email and private_key.",
+                 "zh-Hans-CN" => "请粘贴包含 client_email 和 private_key 的服务账号 JSON 密钥。"
+               }
+             }
+
+      assert fields["adminEmail"].validation.pattern == "^[^\\s@]+@[^\\s@]+$"
     end
 
     test "the booted registry discovered and validated the plugin" do

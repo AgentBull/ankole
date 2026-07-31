@@ -48,14 +48,16 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   end
 
   @doc "Handles a message callback for all chat consumers."
-  @spec handle_message_receive(Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
-  def handle_message_receive(%Event{} = event, consumers) do
+  @spec handle_message_receive(String.t(), Event.t(), [map()]) ::
+          {:ok, list()} | {:error, term()}
+  def handle_message_receive(_event_type, %Event{} = event, consumers) do
     dispatch_chat(consumers, &emit_message_receive(&1, event))
   end
 
   @doc "Handles a template-card event for all chat consumers."
-  @spec handle_card_action(Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
-  def handle_card_action(%Event{} = event, consumers) do
+  @spec handle_card_action(String.t(), Event.t(), [map()]) ::
+          {:ok, list()} | {:error, term()}
+  def handle_card_action(_event_type, %Event{} = event, consumers) do
     dispatch_chat(consumers, &emit_card_action(&1, event))
   end
 

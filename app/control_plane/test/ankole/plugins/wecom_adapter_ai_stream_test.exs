@@ -81,11 +81,11 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     |> Channel.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
     |> Repo.update!()
 
-    # Plugin children only run for deployment-enabled plugins, so tests own the
-    # connection registry lifecycle themselves.
-    start_supervised!(
-      {Registry, keys: :unique, name: Ankole.Plugins.WeComAdapter.ConnectionRegistry}
-    )
+    registry = Ankole.Plugins.WeComAdapter.ConnectionRegistry
+
+    if is_nil(Process.whereis(registry)) do
+      start_supervised!({Registry, keys: :unique, name: registry})
+    end
 
     key = Config.connection_key(config)
 

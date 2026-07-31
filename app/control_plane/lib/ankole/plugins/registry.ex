@@ -3,12 +3,13 @@ defmodule Ankole.Plugins.Registry do
   GenServer holding the boot-time snapshot of discovered and active plugins.
 
   The whole plugin set is resolved once in `init/1`. The Registry validates the
-  compiled module list, selects the globally enabled ids, and registers the
-  active plugins' AppConfigure keys. State is immutable for the lifetime of the
-  process, so enabling or disabling a plugin requires an Ankole restart. If
-  module validation, a uniqueness invariant, or config registration fails,
-  `init/1` returns `:stop`. This result stops application startup before it can
-  use a partly registered plugin set.
+  compiled module list, selects the runtime plugin set, and registers the active
+  plugins' AppConfigure keys. First-run setup activates every discovered plugin
+  so every bundled configuration path remains available across setup restarts.
+  After setup, the global enable list selects the runtime set. State is immutable
+  for the lifetime of the process. If module validation, a uniqueness invariant,
+  or config registration fails, `init/1` returns `:stop`. This result stops
+  application startup before it can use a partly registered plugin set.
   """
 
   use GenServer
@@ -16,6 +17,7 @@ defmodule Ankole.Plugins.Registry do
   alias Ankole.AppConfigure
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Spec
+  alias Ankole.Setup.Config, as: SetupConfig
 
   @plugin_modules Application.compile_env!(:ankole, :control_plane_plugin_modules)
   @call_timeout 5_000
@@ -100,15 +102,17 @@ defmodule Ankole.Plugins.Registry do
   def init(opts) do
     modules = Keyword.get(opts, :modules, @plugin_modules)
 
-    # Resolve everything up front. Note the enable list is read from durable
-    # AppConfigure exactly once here, which is why an enablement change only
-    # lands on the next boot. Adapter-uniqueness and config registration run over
-    # the *active* set only, so an inactive plugin can never collide or register.
+    # Resolve everything up front. The durable enable list is the post-setup
+    # startup policy. Before setup completes, every compiled plugin stays active
+    # so an operator can move between provider choices after any setup restart.
+    # Adapter validation and config registration still run over the exact set
+    # that this process starts.
     with {:ok, specs} <- specs_from_modules(modules),
          :ok <- ensure_unique_ids(specs),
          :ok <- Config.ensure_registered(),
          {:ok, enabled_ids} <- Config.enabled_ids(),
-         active_specs <- active_specs(specs, enabled_ids),
+         {:ok, setup_completed?} <- SetupConfig.completed?(),
+         active_specs <- active_specs(specs, enabled_ids, setup_completed?),
          :ok <- ensure_unique_adapter_declarations(active_specs),
          :ok <- ensure_valid_adapter_contract_declarations(active_specs),
          :ok <- register_plugin_config(active_specs) do
@@ -196,7 +200,9 @@ defmodule Ankole.Plugins.Registry do
 
   defp specs_from_modules(modules), do: {:error, {:invalid_plugin_modules, modules}}
 
-  defp active_specs(specs, enabled_ids) do
+  defp active_specs(specs, _enabled_ids, false), do: specs
+
+  defp active_specs(specs, enabled_ids, true) do
     enabled = MapSet.new(enabled_ids)
     Enum.filter(specs, &MapSet.member?(enabled, &1.id))
   end

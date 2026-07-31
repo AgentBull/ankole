@@ -171,46 +171,58 @@ defmodule Ankole.Plugins.LarkAdapter do
     [
       field(
         "appID",
-        %{"default" => "App ID", "zh-Hans-CN" => "应用 ID"},
-        %{"default" => "Self-built app identifier.", "zh-Hans-CN" => "自建应用的 App ID。"},
+        %{"default" => "App ID", "zh-Hans-CN" => "App ID"},
+        %{
+          "default" => "Find it under Basic information > Credentials in the developer console.",
+          "zh-Hans-CN" => "在开发者后台「基础信息 → 凭证与基础信息」中获取。"
+        },
         :string,
         required: true
       ),
       field(
         "appSecret",
-        %{"default" => "App Secret", "zh-Hans-CN" => "应用密钥"},
-        %{"default" => "Self-built app secret.", "zh-Hans-CN" => "自建应用的 App Secret。"},
+        %{"default" => "App Secret", "zh-Hans-CN" => "App Secret"},
+        %{
+          "default" => "Find it on the same credentials page as the App ID.",
+          "zh-Hans-CN" => "与 App ID 位于同一“凭证与基础信息”页面。"
+        },
         :secret,
         required: true,
         encrypted: true
       ),
       field(
         "domain",
-        %{"default" => "Domain", "zh-Hans-CN" => "域"},
-        %{"default" => "Provider network to call.", "zh-Hans-CN" => "要连接的服务网络。"},
+        %{"default" => "Service region", "zh-Hans-CN" => "服务区域"},
+        %{
+          "default" => "Select the platform where the app was created.",
+          "zh-Hans-CN" => "选择创建该应用时使用的开放平台。"
+        },
         :select,
         default: "feishu",
         options: [
-          option("feishu", %{"default" => "Feishu", "zh-Hans-CN" => "飞书"}),
-          option("lark", %{"default" => "Lark", "zh-Hans-CN" => "Lark"})
+          option("feishu", %{
+            "default" => "Feishu (Mainland China)",
+            "zh-Hans-CN" => "飞书（中国大陆）"
+          }),
+          option("lark", %{"default" => "Lark (Global)", "zh-Hans-CN" => "Lark（海外）"})
         ]
       ),
       field(
         "oidc.enabled",
-        %{"default" => "Enable OIDC", "zh-Hans-CN" => "启用 OIDC"},
+        %{"default" => "Enable sign-in", "zh-Hans-CN" => "启用登录"},
         %{
-          "default" => "Allows operators to sign in through this provider.",
-          "zh-Hans-CN" => "允许管理员通过该身份提供方登录。"
+          "default" => "Allow administrators to sign in with Feishu or Lark.",
+          "zh-Hans-CN" => "允许管理员使用飞书或 Lark 登录。"
         },
         :boolean,
         default: true
       ),
       field(
         "oidc.scopes",
-        %{"default" => "OIDC scopes", "zh-Hans-CN" => "OIDC 权限范围"},
+        %{"default" => "Sign-in scopes", "zh-Hans-CN" => "登录权限范围"},
         %{
-          "default" => "Scopes requested during OIDC authorization.",
-          "zh-Hans-CN" => "OIDC 授权时请求的 scope。"
+          "default" => "Permissions requested during sign-in. Usually keep the default.",
+          "zh-Hans-CN" => "登录时向飞书或 Lark 请求的权限，通常无需修改。"
         },
         :string_array,
         default: ["contact:user.employee_id:readonly"],
@@ -220,19 +232,20 @@ defmodule Ankole.Plugins.LarkAdapter do
         "sync.contacts",
         %{"default" => "Sync directory", "zh-Hans-CN" => "同步通讯录"},
         %{
-          "default" =>
-            "Imports provider contacts into Principals, department groups, and memberships.",
-          "zh-Hans-CN" => "将 provider 通讯录导入 Principals、部门组和成员关系。"
+          "default" => "Import Feishu or Lark users, departments, and memberships into Ankole.",
+          "zh-Hans-CN" => "将飞书或 Lark 用户、部门和成员关系同步到 Ankole。"
         },
         :boolean,
-        default: true
+        default: true,
+        advanced: true
       ),
       field(
         "sync.websocket",
-        %{"default" => "Incremental contact sync", "zh-Hans-CN" => "增量通讯录同步"},
+        %{"default" => "Sync directory changes", "zh-Hans-CN" => "实时同步通讯录变更"},
         %{
-          "default" => "Consumes provider contact-change events when directory sync is enabled.",
-          "zh-Hans-CN" => "通讯录同步开启时，通过长连接消费 provider 通讯录变更事件。"
+          "default" =>
+            "Receive user and department changes over a long connection. Requires directory sync.",
+          "zh-Hans-CN" => "通过长连接接收用户和部门变更；需先开启通讯录同步。"
         },
         :boolean,
         default: true,
@@ -240,10 +253,10 @@ defmodule Ankole.Plugins.LarkAdapter do
       ),
       field(
         "sync.pageSize",
-        %{"default" => "Sync page size", "zh-Hans-CN" => "同步分页大小"},
+        %{"default" => "Records per page", "zh-Hans-CN" => "每页同步数量"},
         %{
-          "default" => "Provider page size for full directory sync.",
-          "zh-Hans-CN" => "全量通讯录同步时使用的 provider 分页大小。"
+          "default" => "Number of records requested per page. Usually keep the default.",
+          "zh-Hans-CN" => "每次读取的记录数量，通常保留默认值。"
         },
         :integer,
         default: 50,

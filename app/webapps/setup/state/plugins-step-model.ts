@@ -1,5 +1,12 @@
 import { createModel, signal } from '@preact/signals-react'
 
+export function filterSelectedPluginItems<T extends { pluginID: string }>(
+  items: readonly T[],
+  selectedPluginIDs: ReadonlySet<string>
+): T[] {
+  return items.filter(item => selectedPluginIDs.has(item.pluginID))
+}
+
 export const PluginsStepModel = createModel(() => {
   const sourceKey = signal<string>()
   const selectedPluginIDs = signal<ReadonlySet<string>>(new Set())

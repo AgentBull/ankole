@@ -15,19 +15,19 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
     "appID" => {"应用 ID", "Azure Bot 注册的 Microsoft App ID（client id）。"},
     "appPassword" => {"应用密码", "Microsoft App 的 client secret。"},
     "botTenancy" => {"应用租户模式", "Azure Bot 应用类型：单租户或多租户。"},
-    "tenantID" => {"租户 ID", "Entra 租户 GUID；单租户应用必填。"},
+    "tenantID" => {"目录（租户）ID", "在 Entra 应用注册的“概述”页面复制。"},
     "platformSubjectNamespace" => {"平台主体命名空间", "与 Entra IdP 实例共享的主体命名空间。"},
     "userName" => {"输出显示名", "出站消息使用的显示名称。"},
-    "clientID" => {"Client ID", "Entra 应用注册的 Application (client) ID。"},
-    "clientSecret" => {"Client Secret", "Entra 应用的客户端密码。"},
-    "oidc.enabled" => {"启用 OIDC", "允许使用 Entra ID 登录。"},
-    "oidc.scopes" => {"OIDC 权限范围", "登录时请求的 scope。"},
-    "sync.contacts" => {"同步目录", "导入 Entra 用户与组。"},
-    "sync.realtime" => {"实时目录同步", "通过 Graph change notifications 接收目录变更。"},
-    "sync.pageSize" => {"同步分页大小", "Graph 列表接口的 $top 分页大小。"},
-    "sync.groupsFilter" => {"组过滤器", "可选，OData $filter 限定要同步的组。"},
-    "sync.includeGuests" => {"包含来宾", "目录同步是否包含 Guest 用户。"},
-    "publicBaseURL" => {"公网基础 URL", "本安装的公网 HTTPS 地址，用于拼 Graph 通知端点。"}
+    "clientID" => {"应用程序（客户端）ID", "在 Entra 应用注册的“概述”页面复制。"},
+    "clientSecret" => {"客户端密码值", "创建客户端密码后复制“值”，不要填写“密码 ID”。"},
+    "oidc.enabled" => {"启用登录", "允许管理员使用 Entra ID 登录。"},
+    "oidc.scopes" => {"登录权限范围", "登录时向 Microsoft 请求的权限，通常无需修改。"},
+    "sync.contacts" => {"同步通讯录", "将 Entra ID 用户和组同步到 Ankole。"},
+    "sync.realtime" => {"实时同步通讯录变更", "通过 Microsoft Graph 接收用户和组变更；需要 Ankole 公网 HTTPS 地址。"},
+    "sync.pageSize" => {"每页同步数量", "每次从 Microsoft Graph 读取的记录数量，通常保留默认值。"},
+    "sync.groupsFilter" => {"同步组筛选条件", "可选。填写 Microsoft Graph OData $filter；留空则同步全部组。"},
+    "sync.includeGuests" => {"包含来宾用户", "同步时包含 Entra ID 来宾用户。"},
+    "publicBaseURL" => {"Ankole 公网地址", "用于接收 Microsoft Graph 变更通知的 Ankole 公网 HTTPS 地址。"}
   }
 
   @impl true
@@ -166,33 +166,63 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
 
   defp identity_fields do
     [
-      field("tenantID", "Tenant ID", "Entra tenant GUID.", :string, required: true),
-      field("clientID", "Client ID", "Entra app registration Application (client) ID.", :string,
-        required: true
+      field(
+        "tenantID",
+        "Directory (tenant) ID",
+        "Copy it from the Entra app registration Overview page.",
+        :string,
+        required: true,
+        validation:
+          pattern_validation(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "Enter a Directory (tenant) ID in GUID format.",
+            "请输入 GUID 格式的目录（租户）ID。"
+          )
       ),
-      field("clientSecret", "Client secret", "Entra app client secret.", :secret,
+      field(
+        "clientID",
+        "Application (client) ID",
+        "Copy it from the Entra app registration Overview page.",
+        :string, required: true),
+      field(
+        "clientSecret",
+        "Client secret value",
+        "Copy the secret Value, not the Secret ID.",
+        :secret,
         required: true,
         encrypted: true
       ),
-      field("oidc.enabled", "Enable OIDC", "Allow sign-in with Entra ID.", :boolean,
-        default: true
-      ),
-      field("oidc.scopes", "OIDC scopes", "Scopes requested during login.", :string_array,
+      field(
+        "oidc.enabled",
+        "Enable sign-in",
+        "Allow administrators to sign in with Entra ID.",
+        :boolean, default: true),
+      field(
+        "oidc.scopes",
+        "Sign-in scopes",
+        "Permissions requested during sign-in. Usually keep the default.",
+        :string_array,
         default: ["openid", "profile", "email", "User.Read"],
         advanced: true
       ),
-      field("sync.contacts", "Sync directory", "Import Entra users and groups.", :boolean,
-        default: true
-      ),
+      field(
+        "sync.contacts",
+        "Sync directory",
+        "Import Entra ID users and groups into Ankole.",
+        :boolean, default: true),
       field(
         "sync.realtime",
-        "Realtime directory sync",
-        "Receive directory changes through Graph change notifications.",
+        "Sync directory changes",
+        "Receive user and group changes through Microsoft Graph. Requires a public HTTPS URL for Ankole.",
         :boolean,
         default: true,
         advanced: true
       ),
-      field("sync.pageSize", "Sync page size", "Graph $top page size for list calls.", :integer,
+      field(
+        "sync.pageSize",
+        "Records per page",
+        "Number of records requested from Microsoft Graph per page. Usually keep the default.",
+        :integer,
         default: 999,
         min: 1,
         max: 999,
@@ -200,25 +230,28 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
       ),
       field(
         "sync.groupsFilter",
-        "Groups filter",
-        "Optional OData $filter restricting synced groups.",
+        "Synced groups filter",
+        "Optional Microsoft Graph OData $filter. Leave blank to sync all groups.",
         :string,
         advanced: true
       ),
       field(
         "sync.includeGuests",
-        "Include guests",
-        "Whether directory sync includes Guest users.",
+        "Include guest users",
+        "Include Entra ID guest users in directory sync.",
         :boolean,
         default: false,
         advanced: true
       ),
       field(
         "publicBaseURL",
-        "Public base URL",
-        "Public HTTPS address of this installation, used to build the Graph notification endpoint.",
+        "Ankole public URL",
+        "Public HTTPS URL for Ankole to receive Microsoft Graph change notifications.",
         :string,
-        []
+        requiredWhen: [
+          required_when("sync.contacts", true),
+          required_when("sync.realtime", true)
+        ]
       )
     ]
   end
@@ -238,4 +271,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   end
 
   defp option(value, label), do: %{value: value, label: label}
+  defp required_when(path, value), do: %{path: path, value: value}
+
+  defp pattern_validation(pattern, message, zh_message) do
+    %{
+      kind: "pattern",
+      pattern: pattern,
+      message: %{"default" => message, "zh-Hans-CN" => zh_message}
+    }
+  end
 end

@@ -550,7 +550,7 @@ export const identityTabs = [
           title: 'Copy the callback URL from Ankole',
           body: [
             'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Slack Adapter on the plugin page, save the selection, and then select Slack.',
-            'Keep the provider ID as slack-main. Copy the login callback URL shown on the page. Do not type or change this URL by hand.'
+            'Keep Configuration ID (Provider ID) as slack-main. Use Copy to copy the login callback URL. Do not type or change this URL by hand.'
           ]
         },
         {
@@ -625,12 +625,12 @@ export const identityTabs = [
           bullets: [
             'Client ID: the Client ID from Basic Information',
             'Client Secret: the Client Secret on the same page',
-            'Workspace ID: the T… part after /client/ in the Slack web URL; it limits sign-in and directory sync to this workspace',
-            'Bot Token: the xoxb- token',
-            'App Token: the xapp- token'
+            'Workspace ID: optional. Enter the T… value after /client/ in the Slack web URL to preselect a sign-in workspace; it does not limit directory sync',
+            'Bot User OAuth Token: the xoxb- token',
+            'App-Level Token: the xapp- token'
           ],
           body: [
-            'Keep Enable OIDC, Sync directory, and Realtime directory sync on. Select Save and sign in with OIDC, and then complete the Slack authorization.'
+            'Keep Sync directory and Sync directory changes on. Select Validate configuration and sign in. Then complete the Slack authorization.'
           ]
         },
         {
@@ -649,13 +649,13 @@ export const identityTabs = [
         {
           title: 'Use Slack only for sign-in',
           body: [
-            'When you turn off Sync directory, the Bot Token is not required and realtime sync also turns off. The Client ID and Client Secret are still required.'
+            'When you turn off Sync directory, the Bot User OAuth Token is not required and realtime sync also turns off. The Client ID and Client Secret are still required.'
           ]
         },
         {
           title: 'Use full sync without realtime events',
           body: [
-            'Keep Sync directory on and turn off Realtime directory sync. This setup needs the Bot Token but does not need the App Token. Member changes appear after the next full sync.'
+            'Keep Sync directory on and turn off Sync directory changes. This setup needs the Bot User OAuth Token but does not need the App-Level Token. Member changes appear after the next full sync.'
           ]
         },
         {
@@ -684,7 +684,7 @@ export const identityTabs = [
           title: 'Copy the callback URL from Ankole',
           body: [
             'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Microsoft 365 Adapter on the plugin page, save the selection, and then select Entra ID.',
-            'Keep the provider ID as entra-id-main. Copy the login callback URL shown on the page.'
+            'Keep Configuration ID (Provider ID) as entra-id-main. Use Copy to copy the login callback URL.'
           ]
         },
         {
@@ -727,13 +727,13 @@ export const identityTabs = [
         {
           title: 'Enter the Entra values in Ankole',
           bullets: [
-            'Tenant ID: Directory (tenant) ID',
-            'Client ID: Application (client) ID',
-            'Client Secret: the secret Value',
-            'Public base URL: https://<ANKOLE_HOST>, not an internal container or cluster address'
+            'Directory (tenant) ID: the value from the app Overview page',
+            'Application (client) ID: the value from the app Overview page',
+            'Client secret value: the secret Value',
+            'Ankole public URL: https://<ANKOLE_HOST>, not an internal container or cluster address'
           ],
           body: [
-            'Keep Enable OIDC, Sync directory, and Realtime directory sync on. Select Save and sign in with OIDC, and sign in with an account from this tenant.'
+            'Keep Sync directory and Sync directory changes on. Select Validate configuration and sign in. Use an account from this tenant.'
           ]
         },
         {
@@ -752,7 +752,7 @@ export const identityTabs = [
         {
           title: 'Make the notification endpoint reachable',
           body: [
-            'With realtime sync on, Public base URL must be a valid public HTTPS address. Ankole creates /webhooks/v1/entra-id/entra-id-main/directory under it and manages the Graph subscriptions.'
+            'When Sync directory changes is on, Ankole public URL must be a valid public HTTPS address. Ankole creates /webhooks/v1/entra-id/entra-id-main/directory under it and manages the Graph subscriptions.'
           ],
           links: [
             {
@@ -764,13 +764,13 @@ export const identityTabs = [
         {
           title: 'Turn off realtime sync without public ingress',
           body: [
-            'If Graph cannot reach this instance, turn off Realtime directory sync before you save. Full sync still works, and Public base URL is no longer required.'
+            'If Graph cannot reach this instance, turn off Sync directory changes before you save. Full sync still works, and Ankole public URL is no longer required.'
           ]
         },
         {
           title: 'Include guests or filter groups only when needed',
           body: [
-            'Include guests is off by default. Groups filter accepts a Microsoft Graph OData $filter. Complete an unfiltered sync first, so you do not mistake a filter result for a permission failure.'
+            'Include guest users is off by default. Synced groups filter accepts a Microsoft Graph OData $filter. Complete an unfiltered sync first, so you do not mistake a filter result for a permission failure.'
           ]
         }
       ]
@@ -793,7 +793,7 @@ export const identityTabs = [
           title: 'Copy the callback URL from Ankole',
           body: [
             'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Google Workspace Adapter on the plugin page, save the selection, and then select Google Workspace.',
-            'Keep the provider ID as google-workspace-main. Copy the login callback URL shown on the page.'
+            'Keep Configuration ID (Provider ID) as google-workspace-main. Use Copy to copy the login callback URL.'
           ]
         },
         {
@@ -856,13 +856,13 @@ export const identityTabs = [
         {
           title: 'Enter the Google values in Ankole',
           bullets: [
-            'Client ID and Client Secret: credentials from the Web application OAuth client',
-            'Allowed domains: a Workspace domain such as example.com, without @',
-            'Service account key: the complete contents of the JSON key file',
-            'Admin email: a Workspace administrator that can read users and groups'
+            'OAuth client ID and OAuth client secret: credentials from the Web application OAuth client',
+            'Allowed Workspace domains: a Workspace domain such as example.com, without @',
+            'Service account JSON key: the complete contents of the JSON key file',
+            'Delegated administrator email: a Workspace administrator that can read users and groups'
           ],
           body: [
-            'Keep Enable OIDC and Sync directory on. Select Save and sign in with OIDC, and use a Workspace account from an allowed domain.'
+            'Keep Sync directory on. Select Validate configuration and sign in. Use a Workspace account from an allowed domain.'
           ]
         },
         {
@@ -879,7 +879,7 @@ export const identityTabs = [
       summary: 'Google Workspace supports full sync only. It does not send realtime directory events to this adapter.',
       steps: [
         {
-          title: 'Keep Allowed domains narrow',
+          title: 'Keep Allowed Workspace domains narrow',
           body: [
             'Enter only the Workspace domains that the enterprise uses. Ankole also requires a Google-verified email and a Workspace hosted-domain claim. A consumer gmail.com account has no such claim, so Ankole rejects it even after Google authenticates it.'
           ]
@@ -893,7 +893,7 @@ export const identityTabs = [
         {
           title: 'Reduce and rotate service-account access',
           body: [
-            'After the first verification, you can use a dedicated administrator with user and group read access as Admin email. When you rotate the JSON key, update Service account key in Ankole.'
+            'After the first verification, you can use a dedicated administrator with user and group read access as Delegated administrator email. When you rotate the JSON key, update Service account JSON key in Ankole.'
           ]
         }
       ]
@@ -916,7 +916,7 @@ export const identityTabs = [
           title: 'Copy the callback URL from Ankole',
           body: [
             'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select Lark Adapter on the plugin page, save the selection, and then select Lark or Feishu.',
-            'Keep the provider ID as lark-main. Copy the login callback URL shown on the page.'
+            'Keep Configuration ID (Provider ID) as lark-main. Use Copy to copy the login callback URL.'
           ]
         },
         {
@@ -999,10 +999,10 @@ export const identityTabs = [
           title: 'Enter the Lark or Feishu values in Ankole',
           bullets: [
             'App ID and App Secret: values from Credentials & Basic Info',
-            'Domain: select Feishu for the China service or Lark for the international service'
+            'Service region: select Feishu (Mainland China) for Feishu or Lark (Global) for Lark'
           ],
           body: [
-            'Keep Enable OIDC, Sync directory, and Incremental contact sync on. Select Save and sign in with OIDC. Then open Console → Identity Providers and run a full sync for lark-main.',
+            'The default directory sync settings usually do not need changes. Select Validate configuration and sign in. Then open Console → Identity Providers and run a full sync for lark-main.',
             'Check Principals and Principal groups for the employees, departments, and memberships.'
           ]
         }
@@ -1013,9 +1013,9 @@ export const identityTabs = [
       summary: 'The control plane opens the long connection. You do not need a public Feishu webhook.',
       steps: [
         {
-          title: 'Use full sync without incremental events',
+          title: 'Use full sync without realtime events',
           body: [
-            'Turn off Incremental contact sync if you do not want directory events. Employee and department changes then appear after the next full sync.'
+            'Under Advanced settings (usually no changes needed), turn off Sync directory changes if you do not want directory events. Employee and department changes then appear after the next full sync.'
           ]
         },
         {
@@ -1050,7 +1050,7 @@ export const identityTabs = [
           title: 'Copy the callback URL from Ankole',
           body: [
             'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select DingTalk Adapter on the plugin page, save the selection, and then select DingTalk.',
-            'Keep the provider ID as dingtalk-main. Copy the login callback URL shown on the page.'
+            'Keep Configuration ID (Provider ID) as dingtalk-main. Use Copy to copy the login callback URL.'
           ]
         },
         {
@@ -1124,7 +1124,7 @@ export const identityTabs = [
             'Client Secret (AppSecret): Client Secret from the same page'
           ],
           body: [
-            'Keep Enable login, Sync directory, and Incremental contact sync on. Select Save and sign in with OIDC. Ankole checks the credentials before it opens DingTalk sign-in.',
+            'Keep Sync directory and Sync directory changes on. Select Validate configuration and sign in. Ankole checks the credentials before it opens DingTalk sign-in.',
             'After sign-in, open Console → Identity Providers and run a full sync for dingtalk-main. Check Principals and Principal groups for the employees and departments.'
           ]
         }
@@ -1137,7 +1137,7 @@ export const identityTabs = [
         {
           title: 'Use full sync without Stream events',
           body: [
-            'Turn off Incremental contact sync if you do not want directory events. Employee and department changes then appear after the next full sync.'
+            'Turn off Sync directory changes if you do not want directory events. Employee and department changes then appear after the next full sync.'
           ]
         },
         {

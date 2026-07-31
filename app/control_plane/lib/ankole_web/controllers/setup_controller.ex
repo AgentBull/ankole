@@ -143,7 +143,7 @@ defmodule AnkoleWeb.SetupController do
   def identity_provider_adapters(conn, _params) do
     with :ok <- require_setup_session(conn) do
       json(conn, %{
-        adapters: Enum.map(IdentityProviders.list_adapters(), &adapter_json/1)
+        adapters: Enum.map(IdentityProviders.list_active_plugin_adapters(), &adapter_json/1)
       })
     else
       {:error, status, reason} -> error(conn, status, reason)

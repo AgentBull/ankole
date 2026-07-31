@@ -1,5 +1,23 @@
 # Changelog
 
+## Version 0.51.0 (2026-07-31)
+
+- Make the first Identity Provider setup form reject incomplete and malformed adapter configuration before it calls the server. Adapter field declarations now express unconditional and conditional requirements, regular-expression checks, and structured JSON checks. The shared form displays localized inline errors, marks invalid controls for assistive technology, and keeps the server error as a fallback. Add declarations and regression coverage for Entra tenant GUIDs, Google Workspace domains, administrator email addresses and service-account keys, Slack bot and app token prefixes, and the existing required credentials for all supported adapters.
+
+- Simplify the Feishu setup path. Hide the fixed OIDC switch and always enable OIDC in the submitted configuration. Keep directory synchronization enabled by default and move it under an advanced section named “Advanced settings (usually no changes needed)” without an item count. Rename the region field and its Feishu and Lark options, present the callback URL as a read-only information block with copy feedback, and show Feishu-specific submit and pending text.
+
+- Keep plugin and Identity Provider drafts in the setup application while an operator moves between steps. Returning from Identity Provider setup no longer reconstructs plugin choices from a stale query result, and returning to Identity Provider setup keeps its current adapter and field values. Keep every compiled Control Plane Plugin active until first-run setup completes, use the saved selection as the first post-setup restart policy, and filter the boot-loaded adapter catalog with the current setup selection. Clearing and restoring a plugin therefore updates the Identity Provider form immediately even after an incomplete setup restarts, without adding runtime hot-loading to completed installations. If the saved plugin selection removes the active adapter, select an available adapter and its defaults. Keep the Identity step available after plugin selection, add the matching navigation state and translations, and cover the model, startup policy, and navigation behavior with regression tests.
+
+- Clarify the Chinese activation-code instruction so it names the Ankole startup code and the service log where an operator can find it.
+
+- Replace oversized checkbox cards and ambiguous yes-or-no rows with 40-pixel setting bars. Each boolean field now keeps the same title, control, and description rhythm as text and select fields while using a clear Enable label and standard switch. The switch alone communicates its state; turning it on does not recolor the surrounding field.
+
+- Standardize the first Identity Provider setup copy across DingTalk, Entra ID, Google Workspace, Feishu or Lark, and Slack. Use plain administrator-facing terms, provider-specific callback registration paths, consistent directory-sync labels, one submit action, one advanced-settings title, and localized configuration-id validation. Keep official provider field names where they help operators find the matching value, and remove internal implementation terms and repeated instructions without changing configuration keys, defaults, or provider behavior. Align the bilingual Website Quick start and plugin FAQ with the same visible labels, provider-field meanings, and first-run plugin timing.
+
+- Store the optional upstream response excerpt in `StreamError` as an immutable boxed string. This keeps the serialized error contract unchanged while reducing every native `Result` error value below Clippy's large-error threshold without suppressing the performance warning at each call site.
+
+- Route the bundled WeCom message and card handlers through the standard three-argument SignalsGateway callbacks. This keeps the adapter available while unfinished setup activates every compiled Plugin, and validates its declared capabilities before startup.
+
 ## Version 0.50.2 (2026-07-31)
 
 - Fix repeated AIGateway context overflow and provider errors after a large Programmatic Tool Calling run. Compaction now treats `program` and `program_output` as one client tool pair, renders their code and result through the existing bounded summarizer format, moves the preferred boundary forward across a completed pair or an over-budget tail, and refuses to store a checkpoint whose replay input is still over budget. Automatic truncation checks the calls it drops against the outputs it keeps, so it cannot lower an orphaned `program_output` into a provider `function_call_output`. Cover large cross-row program compaction, checkpoint size, and provider-facing truncation order.

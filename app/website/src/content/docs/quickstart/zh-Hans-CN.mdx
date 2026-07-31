@@ -542,7 +542,7 @@ export const identityTabs = [
           title: '先从 Ankole 复制回调地址',
           body: [
             '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Slack 适配器」并保存，然后选择 Slack。',
-            'Provider ID 保持 slack-main。复制页面显示的登录回调地址；后面不要手写或改动它。'
+            '「配置 ID（Provider ID）」保持 slack-main。使用页面上的「复制」按钮复制登录回调地址；后面不要手写或改动它。'
           ]
         },
         {
@@ -617,12 +617,12 @@ export const identityTabs = [
           bullets: [
             'Client ID：Basic Information 中的 Client ID',
             'Client Secret：同一页的 Client Secret',
-            'Workspace ID：Slack 网页地址 /client/T… 中以 T 开头的那一段；它把登录和目录同步限定在这个 workspace',
-            'Bot Token：刚才取得的 xoxb- token',
-            'App Token：刚才取得的 xapp- token'
+            'Workspace ID：可选。填写 Slack 网页地址 /client/T… 中以 T 开头的值，可以预先指定登录的 Workspace；它不限制通讯录同步范围',
+            'Bot User OAuth Token：刚才取得的 xoxb- token',
+            'App-Level Token：刚才取得的 xapp- token'
           ],
           body: [
-            '保持「启用 OIDC」「同步目录」「实时目录同步」开启，然后选择「保存并使用 OIDC 登录」。在 Slack 授权页完成登录。'
+            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。在 Slack 授权页完成登录。'
           ]
         },
         {
@@ -641,13 +641,13 @@ export const identityTabs = [
         {
           title: '只使用 Slack 登录',
           body: [
-            '关闭「同步目录」后，Bot Token 不再必填，实时同步也会随之关闭；Client ID 和 Client Secret 仍然必填。'
+            '关闭「同步通讯录」后，Bot User OAuth Token 不再必填，实时同步也会随之关闭；Client ID 和 Client Secret 仍然必填。'
           ]
         },
         {
           title: '暂时不用实时同步',
           body: [
-            '保留「同步目录」、关闭「实时目录同步」时，只需要 Bot Token，不需要 App Token。成员变化会在下一次全量同步后出现。'
+            '保留「同步通讯录」、关闭「实时同步通讯录变更」时，只需要 Bot User OAuth Token，不需要 App-Level Token。成员变化会在下一次全量同步后出现。'
           ]
         },
         {
@@ -675,7 +675,7 @@ export const identityTabs = [
           title: '先从 Ankole 复制回调地址',
           body: [
             '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Microsoft 365 适配器」并保存，然后选择 Entra ID。',
-            'Provider ID 保持 entra-id-main。复制页面显示的登录回调地址。'
+            '「配置 ID（Provider ID）」保持 entra-id-main。使用页面上的「复制」按钮复制登录回调地址。'
           ]
         },
         {
@@ -718,13 +718,13 @@ export const identityTabs = [
         {
           title: '把 Entra 配置填回 Ankole',
           bullets: [
-            'Tenant ID：Directory (tenant) ID',
-            'Client ID：Application (client) ID',
-            'Client Secret：刚才复制的 secret Value',
-            'Public base URL：https://<ANKOLE_HOST>，不要填写内部容器或集群地址'
+            '目录（租户）ID：Directory (tenant) ID',
+            '应用程序（客户端）ID：Application (client) ID',
+            '客户端密码值：刚才复制的 secret Value',
+            'Ankole 公网地址：https://<ANKOLE_HOST>，不要填写内部容器或集群地址'
           ],
           body: [
-            '保持「启用 OIDC」「同步目录」「实时目录同步」开启，然后选择「保存并使用 OIDC 登录」。用当前租户内的账号完成登录。'
+            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。用当前租户内的账号完成登录。'
           ]
         },
         {
@@ -743,7 +743,7 @@ export const identityTabs = [
         {
           title: '确认实时通知地址可访问',
           body: [
-            '开启实时同步时，Public base URL 必须是有效的公网 HTTPS 地址。Ankole 会在其下建立 /webhooks/v1/entra-id/entra-id-main/directory 接口，并自动创建和续订 Graph 订阅。'
+            '开启「实时同步通讯录变更」时，「Ankole 公网地址」必须是有效的公网 HTTPS 地址。Ankole 会在其下建立 /webhooks/v1/entra-id/entra-id-main/directory 接口，并自动创建和续订 Graph 订阅。'
           ],
           links: [
             {
@@ -755,13 +755,13 @@ export const identityTabs = [
         {
           title: '没有公网入口时关闭实时同步',
           body: [
-            '如果 Graph 无法访问这套实例，请在保存前关闭「实时目录同步」。全量同步仍然可用，Public base URL 也不再必填。'
+            '如果 Graph 无法访问这套实例，请在保存前关闭「实时同步通讯录变更」。全量同步仍然可用，「Ankole 公网地址」也不再必填。'
           ]
         },
         {
           title: '按需包含来宾或筛选组',
           body: [
-            '「包含来宾」默认关闭。「组过滤器」接受 Microsoft Graph 的 OData $filter；先让完整同步成功，再添加过滤条件，避免把权限问题误判成过滤结果。'
+            '「包含来宾用户」默认关闭。「同步组筛选条件」接受 Microsoft Graph 的 OData $filter；先让完整同步成功，再添加过滤条件，避免把权限问题误判成过滤结果。'
           ]
         }
       ]
@@ -770,7 +770,7 @@ export const identityTabs = [
   {
     value: 'google-workspace',
     label: 'Google Workspace',
-    summary: 'Google 登录和通讯录读取使用两套凭证：OAuth Client 负责登录，启用域级委派的服务账号负责同步用户与群组。',
+    summary: 'Google 登录和通讯录读取使用两套凭证：OAuth Client 负责登录，启用全网域授权的服务账号负责同步用户与群组。',
     prerequisites: [
       'Google Workspace 超级管理员',
       '可管理 Google Cloud 项目的账号',
@@ -783,7 +783,7 @@ export const identityTabs = [
           title: '先从 Ankole 复制回调地址',
           body: [
             '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「Google Workspace 适配器」并保存，然后选择 Google Workspace。',
-            'Provider ID 保持 google-workspace-main。复制页面显示的登录回调地址。'
+            '「配置 ID（Provider ID）」保持 google-workspace-main。使用页面上的「复制」按钮复制登录回调地址。'
           ]
         },
         {
@@ -815,7 +815,7 @@ export const identityTabs = [
         {
           title: '创建用于同步通讯录的服务账号',
           body: [
-            '进入 IAM & Admin → Service Accounts，创建服务账号。打开该账号的详情，在 Domain-wide delegation 中启用 Google Workspace 域级委派，并记下它的数字 Client ID。',
+            '进入 IAM & Admin → Service Accounts，创建服务账号。打开该账号的详情，在 Domain-wide delegation 中启用 Google Workspace 全网域授权，并记下它的数字 Client ID。',
             '进入 Keys → Add key → Create new key，选择 JSON。下载的完整 JSON 文件稍后要粘贴到 Ankole；不要把它提交到代码仓库。'
           ],
           links: [
@@ -826,7 +826,7 @@ export const identityTabs = [
           ]
         },
         {
-          title: '在 Workspace 中批准域级委派',
+          title: '在 Workspace 中批准全网域授权',
           body: [
             '打开 admin.google.com，进入 Security → Access and data control → API Controls → Manage Domain Wide Delegation，选择 Add new。',
             'Client ID 填服务账号的数字 Client ID。OAuth scopes 是一个输入框，直接复制下面这一整行并粘贴，然后授权。'
@@ -846,13 +846,13 @@ export const identityTabs = [
         {
           title: '把 Google 配置填回 Ankole',
           bullets: [
-            'Client ID / Client Secret：Web application 类型的 OAuth Client 凭证',
-            'Allowed domains：允许登录的 Workspace 域名，例如 example.com，不要带 @',
-            'Service account key：JSON 密钥文件的完整内容',
-            'Admin email：服务账号要模拟的 Workspace 管理员邮箱，该账号必须能读取用户和群组'
+            'OAuth 客户端 ID / OAuth 客户端密钥：Web application 类型的 OAuth Client 凭证',
+            '允许登录的 Workspace 域名：例如 example.com，不要带 @',
+            '服务账号 JSON 密钥：JSON 密钥文件的完整内容',
+            '委派管理员邮箱：服务账号要模拟的 Workspace 管理员邮箱，该账号必须能读取用户和群组'
           ],
           body: [
-            '保持「启用 OIDC」和「同步目录」开启，然后选择「保存并使用 OIDC 登录」。使用 Allowed domains 中的 Workspace 账号完成登录。'
+            '确认「同步通讯录」已开启，然后选择「验证配置并登录」。使用「允许登录的 Workspace 域名」中的 Workspace 账号完成登录。'
           ]
         },
         {
@@ -869,7 +869,7 @@ export const identityTabs = [
       summary: 'Google Workspace 只支持全量同步，不接收实时目录事件。',
       steps: [
         {
-          title: '严格填写 Allowed domains',
+          title: '严格填写允许登录的 Workspace 域名',
           body: [
             '只填写企业实际使用的 Workspace 域名。Ankole 还会检查邮箱已经过 Google 验证，并且账号带有 Workspace hosted-domain 标记。普通 gmail.com 账号没有这个标记，即使 Google 登录成功也会被拒绝。'
           ]
@@ -883,7 +883,7 @@ export const identityTabs = [
         {
           title: '缩小服务账号权限',
           body: [
-            '首次验证完成后，可以把 Admin email 换成只具备用户与群组读取权限的专用管理员账号。轮换 JSON 密钥时，要同时更新 Ankole 中的 Service account key。'
+            '首次验证完成后，可以把「委派管理员邮箱」换成只具备用户与群组读取权限的专用管理员账号。轮换 JSON 密钥时，要同时更新 Ankole 中的「服务账号 JSON 密钥」。'
           ]
         }
       ]
@@ -905,7 +905,7 @@ export const identityTabs = [
           title: '先从 Ankole 复制回调地址',
           body: [
             '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「飞书适配器」并保存，然后选择飞书。',
-            'Provider ID 保持 lark-main。复制页面显示的登录回调地址。'
+            '「配置 ID（Provider ID）」保持 lark-main。使用页面上的「复制」按钮复制登录回调地址。'
           ]
         },
         {
@@ -988,10 +988,10 @@ export const identityTabs = [
           title: '把飞书或 Lark 凭证填回 Ankole',
           bullets: [
             'App ID / App Secret：自建应用「凭证与基础信息」中的值',
-            'Domain：中国版飞书选择 Feishu；海外版 Lark 选择 Lark'
+            '服务区域：中国大陆选择「飞书（中国大陆）」；海外选择「Lark（海外）」'
           ],
           body: [
-            '保持「启用 OIDC」「同步通讯录」「增量通讯录同步」开启，然后选择「保存并使用 OIDC 登录」。完成授权后，打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
+            '默认的通讯录同步设置通常无需修改。选择「验证配置并登录」。完成授权后，打开 Console → 身份源提供商，对 lark-main 运行一次全量同步。',
             '最后在主体和权限组中确认员工、部门和成员关系已经出现。'
           ]
         }
@@ -1002,9 +1002,9 @@ export const identityTabs = [
       summary: '长连接由控制面主动连出，不需要为飞书开放 webhook。',
       steps: [
         {
-          title: '暂时不用增量同步',
+          title: '暂时不用实时同步',
           body: [
-            '可以关闭「增量通讯录同步」，只保留全量同步。此时不必订阅通讯录事件，但员工和部门的变化要等下一次全量同步。'
+            '可以在「高级设置（通常无需修改）」中关闭「实时同步通讯录变更」，只保留全量同步。此时不必订阅通讯录事件，但员工和部门的变化要等下一次全量同步。'
           ]
         },
         {
@@ -1038,7 +1038,7 @@ export const identityTabs = [
           title: '先从 Ankole 复制回调地址',
           body: [
             '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「钉钉适配器」并保存，然后选择钉钉。',
-            'Provider ID 保持 dingtalk-main。复制页面显示的登录回调地址。'
+            '「配置 ID（Provider ID）」保持 dingtalk-main。使用页面上的「复制」按钮复制登录回调地址。'
           ]
         },
         {
@@ -1111,7 +1111,7 @@ export const identityTabs = [
             'Client Secret（AppSecret）：同一页的 Client Secret'
           ],
           body: [
-            '保持「启用登录」「同步通讯录」「增量通讯录同步」开启，然后选择「保存并使用 OIDC 登录」。Ankole 会先校验这组凭证，再跳转到钉钉登录。',
+            '确认「同步通讯录」和「实时同步通讯录变更」已开启，然后选择「验证配置并登录」。Ankole 会先校验这组凭证，再跳转到钉钉登录。',
             '登录成功后，打开 Console → 身份源提供商，对 dingtalk-main 运行一次全量同步，再到主体和权限组检查员工与部门。'
           ]
         }
@@ -1124,7 +1124,7 @@ export const identityTabs = [
         {
           title: '只保留全量同步',
           body: [
-            '关闭「增量通讯录同步」后，可以不订阅 Stream 通讯录事件。员工和部门的变化会在下一次全量同步后出现。'
+            '关闭「实时同步通讯录变更」后，可以不订阅 Stream 通讯录事件。员工和部门的变化会在下一次全量同步后出现。'
           ]
         },
         {

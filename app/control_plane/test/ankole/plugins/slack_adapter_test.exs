@@ -40,6 +40,26 @@ defmodule Ankole.Plugins.SlackAdapterTest do
              ] = SlackAdapter.adapter_declarations()
 
       assert Enum.all?(SlackAdapter.app_config_patterns(), & &1.encrypted)
+
+      [_chat, identity] = SlackAdapter.adapter_declarations()
+      fields = Map.new(identity.fields, &{&1.path, &1})
+
+      assert fields["botToken"].requiredWhen == [%{path: "sync.contacts", value: true}]
+      assert fields["botToken"].validation.pattern == "^xoxb-"
+
+      assert fields["appToken"].requiredWhen == [
+               %{path: "sync.contacts", value: true},
+               %{path: "sync.websocket", value: true}
+             ]
+
+      assert fields["appToken"].validation.pattern == "^xapp-"
+      assert fields["clientID"].description["zh-Hans-CN"] =~ "App Credentials"
+      assert fields["botToken"].label["zh-Hans-CN"] == "Bot User OAuth Token"
+      assert fields["appToken"].label["zh-Hans-CN"] == "App-Level Token"
+      assert fields["oidc.scopes"].label["zh-Hans-CN"] == "登录权限范围"
+      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
+      assert fields["sync.websocket"].label["zh-Hans-CN"] == "实时同步通讯录变更"
+      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
     end
 
     test "chat validation enforces token types and stable fingerprints" do

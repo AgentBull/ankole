@@ -51,6 +51,15 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
                "directory_full_sync",
                "directory_realtime_sync"
              ]
+
+      fields = Map.new(identity.fields, &{&1.path, &1})
+
+      assert fields["clientId"].label["zh-Hans-CN"] == "Client ID（原 AppKey）"
+      assert fields["clientSecret"].label["zh-Hans-CN"] == "Client Secret（原 AppSecret）"
+      assert fields["oidc.scope"].label["zh-Hans-CN"] == "登录权限范围"
+      assert fields["sync.contacts"].label["zh-Hans-CN"] == "同步通讯录"
+      assert fields["sync.websocket"].label["zh-Hans-CN"] == "实时同步通讯录变更"
+      assert fields["sync.pageSize"].label["zh-Hans-CN"] == "每页同步数量"
     end
   end
 
