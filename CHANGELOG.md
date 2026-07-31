@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.52.0 (2026-07-31)
+
+- Reintroduce `mcporter` 0.12.3 into the Agent Computer base image with the pinned global install, the Bun shim, and the version assertion, so scripts and Agents can call MCP servers from the shell. State the path in the automation job help: the mcporter CLI reads `~/.mcporter/mcporter.json` from the Agent Home, and a script reaches MCP data through Bun Shell.
+
 ## Version 0.51.0 (2026-07-31)
 
 - Make the first Identity Provider setup form reject incomplete and malformed adapter configuration before it calls the server. Adapter field declarations now express unconditional and conditional requirements, regular-expression checks, and structured JSON checks. The shared form displays localized inline errors, marks invalid controls for assistive technology, and keeps the server error as a fallback. Add declarations and regression coverage for Entra tenant GUIDs, Google Workspace domains, administrator email addresses and service-account keys, Slack bot and app token prefixes, and the existing required credentials for all supported adapters.
