@@ -161,6 +161,25 @@ fn runaway_programs_hit_the_timeout() {
 }
 
 #[test]
+fn heap_pressure_keeps_v8_delayed_tasks_on_the_runtime() {
+    let outcome = run(RunRequest {
+        program: r#"let s = ""; while (true) { s += "Hello"; }"#.to_string(),
+        tools: Vec::new(),
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: Some(32 * 1024 * 1024),
+    });
+
+    assert_eq!(outcome.status, "failed");
+    assert!(
+        outcome
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("execution terminated"))
+    );
+}
+
+#[test]
 fn run_json_round_trips() {
     let outcome_json = run_json(
         &serde_json::to_string(&json!({
