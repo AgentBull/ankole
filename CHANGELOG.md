@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.52.1 (2026-07-31)
+
+- Fix WeCom AI-bot WebSocket handshakes against the provider gateway by preserving the conventional RFC 6455 Header casing during the HTTP/1.1 upgrade. Add strict regression coverage for the connection path.
+
 ## Version 0.52.0 (2026-07-31)
 
 - Reintroduce `mcporter` 0.12.3 into the Agent Computer base image with the pinned global install, the Bun shim, and the version assertion, so scripts and Agents can call MCP servers from the shell. State the path in the automation job help: the mcporter CLI reads `~/.mcporter/mcporter.json` from the Agent Home, and a script reaches MCP data through Bun Shell.

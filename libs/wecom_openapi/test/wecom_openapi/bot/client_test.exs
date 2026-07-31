@@ -12,6 +12,42 @@ defmodule WeComOpenAPI.Bot.ClientTest do
     end
   end
 
+  test "connects to the WeCom gateway when its HTTP/1 upgrade headers are case-sensitive" do
+    parent = self()
+    {server, port} = FakeWsServer.start(parent, require_wecom_header_case: true)
+
+    {:ok, pid} =
+      Client.start_link(
+        bot_id: "bot-1",
+        secret: "secret-1",
+        dispatcher: Dispatcher.new(),
+        ws_url: "ws://127.0.0.1:#{port}/",
+        auto_reconnect: false
+      )
+
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      Process.exit(pid, :shutdown)
+      if Process.alive?(server), do: send(server, :close)
+    end)
+
+    assert_receive {:ws_upgraded, ^server}, 2_000
+    assert_receive {:client_frame, %{"cmd" => "aibot_subscribe"} = auth}, 2_000
+
+    send(
+      server,
+      {:push,
+       %{
+         "headers" => %{"req_id" => auth["headers"]["req_id"]},
+         "errcode" => 0,
+         "errmsg" => "ok"
+       }}
+    )
+
+    wait_until(fn -> Client.status(pid) == :connected end)
+  end
+
   defp start_connected(dispatcher) do
     parent = self()
     {server, port} = FakeWsServer.start(parent)
