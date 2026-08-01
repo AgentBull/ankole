@@ -399,6 +399,63 @@ defmodule Ankole.AIGateway.ToolSearchStreamTest do
       assert sequences == [Enum.at(sequences, 0), Enum.at(sequences, 0) + 1]
     end
 
+    test "uses streamed round items when a terminal omits output", %{
+      state: state,
+      provider_request: provider_request
+    } do
+      arguments = ~s({"paths":["bx_market_data"]})
+
+      {state, _events, _statuses} =
+        Enum.reduce(search_call_events("call_sparse", arguments), {state, [], []}, fn event,
+                                                                                      {state, all,
+                                                                                       statuses} ->
+          {state, events, status} = observe!(state, event)
+          {state, all ++ events, statuses ++ [status]}
+        end)
+
+      {state, [search_output_event], {:round, continuation_request}} =
+        observe!(state, completed_event([], 4))
+
+      assert search_output_event["item"]["type"] == "tool_search_output"
+
+      original_input_length = length(provider_request["input"])
+      [call, output] = Enum.drop(continuation_request["input"], original_input_length)
+      assert call["type"] == "function_call"
+      assert call["call_id"] == "call_sparse"
+      assert output["type"] == "function_call_output"
+      assert output["call_id"] == "call_sparse"
+
+      message = %{
+        "id" => "msg_sparse",
+        "type" => "message",
+        "role" => "assistant",
+        "content" => [%{"type" => "output_text", "text" => "行情如下"}]
+      }
+
+      {state, [_message_event], :continue} =
+        observe!(state, %{
+          "type" => "response.output_item.done",
+          "sequence_number" => 1,
+          "output_index" => 0,
+          "item" => message
+        })
+
+      {_state, [terminal], {:terminal, outcome, :keep_upstream}} =
+        observe!(state, completed_event([], 2))
+
+      assert Enum.map(terminal["response"]["output"], & &1["type"]) == [
+               "tool_search_call",
+               "tool_search_output",
+               "message"
+             ]
+
+      assert Enum.map(outcome.public_items, & &1["type"]) == [
+               "tool_search_call",
+               "tool_search_output",
+               "message"
+             ]
+    end
+
     test "admits a terminal-only search call before its output and the next round", %{
       state: state
     } do

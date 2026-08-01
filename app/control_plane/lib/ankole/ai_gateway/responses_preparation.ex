@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     with {:ok, provider_request} <- provider_request(runtime, request),
          {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
          :ok <- validate_tool_budget_owners(request, provider_request, tool_plan),
-         response_stream_driver? = response_stream_driver?(tool_plan),
+         response_stream_driver? = response_stream_driver?(runtime, tool_plan),
          provider_request =
            StreamLoop.apply_tool_budget(
              tool_plan,
@@ -128,7 +128,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     )
   end
 
-  defp response_stream_driver?(plan), do: ToolSearch.response_stream_required?(plan)
+  defp response_stream_driver?(%{"provider_kind" => "chatgpt_subscription"}, _plan), do: true
+  defp response_stream_driver?(_runtime, plan), do: ToolSearch.response_stream_required?(plan)
 
   defp validate_tool_budget_owners(
          %{"max_tool_calls" => limit, "tool_choice" => "none"},

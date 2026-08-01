@@ -2,7 +2,15 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
   @moduledoc false
 
   @lite_metadata_key "ws_request_header_x_openai_internal_codex_responses_lite"
-  @forbidden_fields ~w(generate max_output_tokens metadata prompt_cache_retention safety_identifier stream_options)
+  @forbidden_fields ~w(
+    generate
+    max_output_tokens
+    metadata
+    prompt_cache_retention
+    safety_identifier
+    stream_options
+    truncation
+  )
   @max_input_id_bytes 64
 
   @spec prepare(map(), map()) ::

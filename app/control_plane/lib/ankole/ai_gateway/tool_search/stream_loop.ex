@@ -30,6 +30,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   defstruct plan: nil,
             provider_request: nil,
             provider_items_rev: [],
+            current_round_items_rev: [],
             provider_history_count: 0,
             provider_history_item_bytes: 0,
             provider_history_error: nil,
@@ -253,7 +254,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
           | {:local, [map()], map(), t()}
   def intercept_terminal(%__MODULE__{} = loop, event_type, %{} = response) do
     loop = accumulate_usage(loop, response)
-    output = response |> Map.get("output") |> list_of_maps()
+    output = terminal_output(loop, response)
 
     case remember_provider_items(loop, output) do
       {:ok, loop} ->
@@ -433,6 +434,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     do: {:emit, renumber(event, loop), bump_sequence(loop, event)}
 
   defp observe_item_done(loop, %{"item" => %{} = item} = event) do
+    loop = %{loop | current_round_items_rev: [item | loop.current_round_items_rev]}
+
     if rewritable_call_item?(loop, item) do
       event = event |> Map.put("item", rewrite_call_item(loop, item)) |> renumber(loop)
       {:emit, event, bump_sequence(loop, event)}
@@ -513,7 +516,12 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   end
 
   defp begin_next_round(loop) do
-    %{loop | rounds: loop.rounds + 1, suppressed_item_ids: MapSet.new()}
+    %{
+      loop
+      | rounds: loop.rounds + 1,
+        suppressed_item_ids: MapSet.new(),
+        current_round_items_rev: []
+    }
   end
 
   defp search_output_items(loop, executed) do
@@ -682,6 +690,13 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   # ─────────────────────────────────────────────────────────────────
   # Terminal helpers
   # ─────────────────────────────────────────────────────────────────
+
+  defp terminal_output(loop, response) do
+    case response |> Map.get("output") |> list_of_maps() do
+      [] -> Enum.reverse(loop.current_round_items_rev)
+      output -> output
+    end
+  end
 
   defp rewrite_items(loop, items) do
     Enum.map(items, &rewrite_call_item(loop, &1))

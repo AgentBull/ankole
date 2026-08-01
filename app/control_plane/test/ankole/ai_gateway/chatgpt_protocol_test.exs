@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
       "prompt_cache_retention" => "24h",
       "safety_identifier" => "unsafe-upstream-field",
       "stream_options" => %{"include_usage" => true},
+      "truncation" => "auto",
       "instructions" => nil,
       "parallel_tool_calls" => true,
       "tools" => [],
@@ -45,6 +46,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
     refute Map.has_key?(prepared, "prompt_cache_retention")
     refute Map.has_key?(prepared, "safety_identifier")
     refute Map.has_key?(prepared, "stream_options")
+    refute Map.has_key?(prepared, "truncation")
     refute Map.has_key?(prepared, "parallel_tool_calls")
     assert prepared["instructions"] == ""
     assert prepared["store"] == false
@@ -131,7 +133,9 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
   test "restores a codex responses-lite request for a standard provider" do
     request = %{
       "model" => "gpt-5.6",
+      "max_output_tokens" => 512,
       "instructions" => "",
+      "truncation" => "auto",
       "tools" => nil,
       "parallel_tool_calls" => false,
       "client_metadata" => %{@lite_marker => "true", "trace_id" => "trace-1"},
@@ -159,6 +163,8 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
     assert [%{"name" => "weather"}] = restored["tools"]
     assert [%{"role" => "user"}] = restored["input"]
     assert restored["client_metadata"] == %{"trace_id" => "trace-1"}
+    assert restored["max_output_tokens"] == 512
+    assert restored["truncation"] == "auto"
   end
 
   test "preserves a responses-lite request for the subscription protocol" do

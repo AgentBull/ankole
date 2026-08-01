@@ -262,6 +262,63 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert codex_request.body["tools"] == codex_tools
   end
 
+  test "ChatGPT complete responses collect SSE and strip unsupported request fields" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_chatgpt_complete",
+           "gpt-5.6-sol",
+           "stream collected"
+         )}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-complete-response",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "enterprise",
+                     "label" => "Enterprise",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "chatgpt-complete-response",
+               model: "gpt-5.6-sol"
+             })
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "hello",
+               "max_output_tokens" => 1_024,
+               "truncation" => "auto"
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "responses"
+    assert request.headers["accept"] == "text/event-stream"
+    assert request.body["stream"] == true
+    refute Map.has_key?(request.body, "max_output_tokens")
+    refute Map.has_key?(request.body, "truncation")
+
+    assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
+             "stream collected"
+  end
+
   test "first-party OpenAI keeps function and custom PTC native" do
     %{principal: agent} = agent_fixture()
 

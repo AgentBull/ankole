@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.53.1 (2026-08-01)
+
+- Keep complete-response callers on the ChatGPT Subscription protocol that the Codex endpoint accepts. AIGateway now opens the required upstream SSE stream and collects its terminal Response, removes the unsupported `truncation` field with the existing ChatGPT-only request cleanup, and leaves OpenAI, OpenRouter, and other providers on their current request path.
+
+- Fix local Tool Search and program continuations when a provider sends complete output-item events but omits the terminal `output` array. The response loop now uses the raw items from that provider round only when terminal output is empty, clears them before the next round, and keeps a nonempty terminal output authoritative. This prevents a public search call from being stored without its matching output.
+
 ## Version 0.53.0 (2026-08-01)
 
 - Rebuild AIGateway Tool Search and programmatic tool calling around one public Response lifecycle. `ResponseStream` now owns streaming and collected execution, absolute open deadlines, retry boundaries, task monitors, sequence numbers, stateful commits, and cancellation. A bounded program task supervisor keeps dirty native work outside the stream owner. Client and server Tool Search, deferred loading, top-level programs, nested program calls, repeated pauses, and pre-provider program resumes now use one multi-round loop with frozen tool bindings, stable item and pair identities, and one global output index across provider rounds. A pre-provider resume emits the sole public admission lifecycle before its local items, preserves that buffered lifecycle through admission and continuation-open failures, and suppresses all later provider admission frames. If another process commits a stateful terminal first, the live stream projects that durable winner instead of publishing the conflicting provider terminal.
