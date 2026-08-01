@@ -47,7 +47,6 @@ pub(super) fn redact_hosted_error(mut error: StreamError) -> StreamError {
                 | "sse_event_too_large"
                 | "eventstream_frame_too_large"
                 | "websocket_message_too_large"
-                | "max_tool_calls_exceeded"
                 | "upstream_error"
         );
 

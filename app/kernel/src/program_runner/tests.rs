@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+use std::time::Instant;
 
 fn run_program(program: &str, tools: &[&str], memo: Vec<MemoEntry>) -> RunOutcome {
     run(RunRequest {
@@ -8,6 +9,12 @@ fn run_program(program: &str, tools: &[&str], memo: Vec<MemoEntry>) -> RunOutcom
         memo,
         timeout_ms: Some(5_000),
         heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
     })
 }
 
@@ -48,6 +55,19 @@ fn pauses_on_the_first_unanswered_tool_call() {
             arguments: json!({"symbol": "600519"})
         }]
     );
+}
+
+#[test]
+fn monkey_patching_promise_then_cannot_forge_program_completion() {
+    let outcome = run_program(
+        "Promise.prototype.then = function (ok) { ok(); return this; };\
+         await tools.market({ symbol: \"600519\" });",
+        &["market"],
+        Vec::new(),
+    );
+
+    assert_eq!(outcome.status, "pending");
+    assert_eq!(outcome.pending_calls.len(), 1);
 }
 
 #[test]
@@ -112,6 +132,28 @@ fn completes_after_full_memo_replay() {
 }
 
 #[test]
+fn memo_output_cannot_impersonate_a_host_replay_error() {
+    let memo = vec![MemoEntry {
+        name: "market".to_string(),
+        arguments: json!({}),
+        output: json!({
+            "__ankole_reply": "error",
+            "__ankole_divergence": "ordinary provider data",
+            "value": 42
+        }),
+    }];
+
+    let outcome = run_program(
+        "const data = await tools.market({}); text(data.value);",
+        &["market"],
+        memo,
+    );
+
+    assert_eq!(outcome.status, "completed");
+    assert_eq!(outcome.output[0].value, "42");
+}
+
+#[test]
 fn divergent_replay_fails_loudly() {
     let memo = vec![MemoEntry {
         name: "market".to_string(),
@@ -148,6 +190,14 @@ fn program_errors_fail_with_the_thrown_message() {
 }
 
 #[test]
+fn program_error_messages_are_bounded() {
+    let outcome = run_program(r#"throw new Error("界".repeat(20_000));"#, &[], Vec::new());
+
+    assert_eq!(outcome.status, "failed");
+    assert!(outcome.error.unwrap().len() <= DEFAULT_MAX_ERROR_BYTES);
+}
+
+#[test]
 fn runaway_programs_hit_the_timeout() {
     let outcome = run(RunRequest {
         program: "for (;;) {}".to_string(),
@@ -155,6 +205,12 @@ fn runaway_programs_hit_the_timeout() {
         memo: Vec::new(),
         timeout_ms: Some(500),
         heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
     });
 
     assert_eq!(outcome.status, "failed");
@@ -168,20 +224,25 @@ fn heap_pressure_keeps_v8_delayed_tasks_on_the_runtime() {
         memo: Vec::new(),
         timeout_ms: Some(5_000),
         heap_limit_bytes: Some(32 * 1024 * 1024),
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
     });
 
     assert_eq!(outcome.status, "failed");
-    assert!(
-        outcome
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("execution terminated"))
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_heap_limit_exceeded")
     );
 }
 
 #[test]
 fn run_json_round_trips() {
     let outcome_json = run_json(
+        "json-round-trip",
         &serde_json::to_string(&json!({
             "program": "text(\"ok\");",
             "tools": [],
@@ -194,4 +255,260 @@ fn run_json_round_trips() {
     let outcome: JsonValue = serde_json::from_str(&outcome_json).unwrap();
     assert_eq!(outcome["status"], "completed");
     assert_eq!(outcome["output"][0]["value"], "ok");
+}
+
+#[test]
+fn run_json_rejects_the_removed_operation_envelope() {
+    let error = run_json(
+        "legacy-envelope",
+        &serde_json::to_string(&json!({
+            "operation": "run",
+            "run_id": "legacy-run",
+            "program": "text(\"ignored\");",
+            "tools": [],
+            "memo": []
+        }))
+        .unwrap(),
+    )
+    .unwrap_err();
+
+    assert!(error.contains("unknown field `operation`"));
+}
+
+#[test]
+fn rejects_direct_op_calls_for_tools_outside_the_allowlist() {
+    let outcome = run_program(
+        r#"await Deno.core.ops.op_ankole_tool_call("secret", {});"#,
+        &[],
+        Vec::new(),
+    );
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_tool_not_allowed")
+    );
+}
+
+#[test]
+fn timeout_after_an_async_resume_never_reenters_user_javascript() {
+    let memo = vec![MemoEntry {
+        name: "market".to_string(),
+        arguments: json!({}),
+        output: json!({"ok": true}),
+    }];
+
+    let outcome = run(RunRequest {
+        program: "await tools.market({}); for (;;) {}".to_string(),
+        tools: vec!["market".to_string()],
+        memo,
+        timeout_ms: Some(250),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(outcome.error_code.as_deref(), Some("program_timeout"));
+}
+
+#[test]
+fn output_part_overflow_fails_instead_of_truncating() {
+    let program = (0..=MAX_OUTPUT_PARTS)
+        .map(|_| "text(\"x\");")
+        .collect::<String>();
+    let outcome = run_program(&program, &[], Vec::new());
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_output_limit_exceeded")
+    );
+}
+
+#[test]
+fn output_byte_overflow_fails_loudly() {
+    let outcome = run(RunRequest {
+        program: "text(\"12345\");".to_string(),
+        tools: Vec::new(),
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: Some(4),
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_output_limit_exceeded")
+    );
+}
+
+#[test]
+fn pending_call_overflow_fails_loudly() {
+    let outcome = run(RunRequest {
+        program: "await Promise.all([tools.a({}), tools.b({})]);".to_string(),
+        tools: vec!["a".to_string(), "b".to_string()],
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: None,
+        max_output_bytes: None,
+        max_pending_calls: Some(1),
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_pending_limit_exceeded")
+    );
+}
+
+#[test]
+fn source_byte_overflow_fails_before_creating_an_isolate() {
+    let outcome = run(RunRequest {
+        program: "text(\"x\");".to_string(),
+        tools: Vec::new(),
+        memo: Vec::new(),
+        timeout_ms: Some(5_000),
+        heap_limit_bytes: None,
+        max_program_bytes: Some(4),
+        max_output_bytes: None,
+        max_pending_calls: None,
+        max_pending_bytes: None,
+        max_memo_entries: None,
+        max_memo_bytes: None,
+    });
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_source_limit_exceeded")
+    );
+}
+
+#[test]
+fn unused_memo_entries_are_replay_divergence() {
+    let memo = vec![MemoEntry {
+        name: "market".to_string(),
+        arguments: json!({}),
+        output: json!({"ok": true}),
+    }];
+    let outcome = run_program("text(\"done\");", &["market"], memo);
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(
+        outcome.error_code.as_deref(),
+        Some("program_replay_memo_unused")
+    );
+}
+
+#[test]
+fn cancellation_terminates_v8_and_releases_the_runtime_slot() {
+    let run_id = "cancellation-terminates-v8";
+
+    let worker = std::thread::spawn(move || {
+        run_registered(
+            run_id,
+            RunRequest {
+                program: "for (;;) {}".to_string(),
+                tools: Vec::new(),
+                memo: Vec::new(),
+                timeout_ms: Some(5_000),
+                heap_limit_bytes: Some(32 * 1024 * 1024),
+                max_program_bytes: None,
+                max_output_bytes: None,
+                max_pending_calls: None,
+                max_pending_bytes: None,
+                max_memo_entries: None,
+                max_memo_bytes: None,
+            },
+        )
+    });
+
+    let admission_deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let control = run_registry()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(run_id)
+            .cloned();
+        let isolate_installed = control.is_some_and(|control| {
+            control
+                .isolate
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .is_some()
+        });
+
+        if isolate_installed {
+            break;
+        }
+
+        assert!(
+            Instant::now() < admission_deadline,
+            "program never installed its V8 isolate"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let cancelled_at = Instant::now();
+    assert_eq!(cancel(run_id), Ok(true));
+    let outcome = worker.join().unwrap();
+
+    assert_eq!(outcome.status, "failed");
+    assert_eq!(outcome.error_code.as_deref(), Some("program_cancelled"));
+    assert!(
+        cancelled_at.elapsed() < Duration::from_secs(1),
+        "cancel waited for the five-second watchdog"
+    );
+    assert!(
+        !run_registry()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .contains_key(run_id)
+    );
+
+    // Joining the worker observes `RunPermit::drop`; a new run therefore
+    // proves the cancelled isolate no longer holds its concurrency slot.
+    let next = run_program("text(\"next\");", &[], Vec::new());
+    assert_eq!(next.status, "completed");
+}
+
+#[test]
+fn cancellation_before_registration_does_not_poison_a_later_run() {
+    let run_id = "cancel-before-registration";
+    assert_eq!(cancel(run_id), Ok(false));
+
+    let outcome = run_registered(
+        run_id,
+        RunRequest {
+            program: "text(\"late\");".to_string(),
+            tools: Vec::new(),
+            memo: Vec::new(),
+            timeout_ms: Some(5_000),
+            heap_limit_bytes: None,
+            max_program_bytes: None,
+            max_output_bytes: None,
+            max_pending_calls: None,
+            max_pending_bytes: None,
+            max_memo_entries: None,
+            max_memo_bytes: None,
+        },
+    );
+
+    assert_eq!(outcome.status, "completed");
+    assert_eq!(outcome.output[0].value, "late");
 }

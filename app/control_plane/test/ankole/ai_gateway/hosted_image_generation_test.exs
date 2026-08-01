@@ -4,6 +4,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
+  alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.StatefulResponses
 
   @png_base64 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
@@ -60,7 +61,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert error.code == "invalid_value"
   end
 
-  test "uses native image execution only when the hosted profile is absent and the provider declares it" do
+  test "native image execution ignores a configured hosted fallback" do
     %{principal: agent} = agent_fixture()
     request = %{"tools" => [%{"type" => "image_generation", "output_format" => "png"}]}
 
@@ -68,6 +69,52 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              ImageGeneration.prepare(agent.uid, request,
                main_runtime: %{"provider_kind" => "openai"}
              )
+
+    provider_id = "unused-image-fallback-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openrouter",
+               base_url: "http://127.0.0.1:1/api/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Unused", "api_key" => "sk-unused"}]
+               }
+             })
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_catalog, provider_id, "images/models"},
+        [%{"id" => "openai/gpt-image-1"}],
+        60_000
+      )
+
+    :ok =
+      ModelMetadataCache.put(
+        {:image_model_endpoints, provider_id, "images/models/openai/gpt-image-1/endpoints"},
+        [
+          %{
+            "provider_slug" => "openai",
+            "provider_tag" => "openai/gpt-image-1:openai",
+            "supported_parameters" => %{}
+          }
+        ],
+        60_000
+      )
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", %{
+               provider_id: provider_id,
+               model: "openai/gpt-image-1"
+             })
+
+    assert {:ok, nil} =
+             ImageGeneration.prepare(agent.uid, request,
+               main_runtime: %{"provider_kind" => "openai"}
+             )
+
+    assert {:ok, %{profile: nil}} =
+             ModelProfiles.put_model_profile(agent.uid, "image_generate", nil)
 
     assert {:error, error} =
              ImageGeneration.prepare(agent.uid, request,

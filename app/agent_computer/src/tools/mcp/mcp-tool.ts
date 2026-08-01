@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
@@ -8,7 +9,13 @@ import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../co
 import { injectableWorkerEnv } from '../computer/env'
 import { callMCPServerTool, type MCPListedTool, type MCPServerCatalog } from './client'
 import { resolveMCPServerCatalog } from './catalog-cache'
-import { DEFAULT_MCP_TIMEOUT_MS, loadEnabledSkillMCPServers, type MCPServerConfig } from './config'
+import {
+  assertMCPResourceLimit,
+  DEFAULT_MCP_TIMEOUT_MS,
+  loadEnabledSkillMCPServers,
+  MCP_RESOURCE_LIMITS,
+  type MCPServerConfig
+} from './config'
 import { codexMCPInputSchema } from './json-schema'
 import { compareCodePointStrings } from './ordering'
 
@@ -19,6 +26,10 @@ const MAX_ARRAY_ENTRIES = 128
 const MAX_OBJECT_ENTRIES = 256
 const MAX_STRING_BYTES = 16 * 1024
 const MCPArguments = z.record(z.string(), z.unknown())
+type MCPOutputValidator = ReturnType<AjvJsonSchemaValidator['getValidator']>
+type MCPOutputValidators = ReadonlyMap<MCPListedTool, MCPOutputValidator>
+
+const outputValidatorsByCatalog = new WeakMap<MCPServerCatalog, MCPOutputValidators>()
 
 export interface CreateMCPToolsOptions {
   enabledSkills: Array<RuntimeSkillSummary | string>
@@ -53,13 +64,16 @@ export async function createMCPTools(options: CreateMCPToolsOptions): Promise<Ag
   const catalogResults = await Promise.all(
     servers.map(async server => {
       try {
+        const catalog = await resolveMCPServerCatalog(server, {
+          workerEnv: options.workerEnv,
+          signal: options.abortSignal,
+          timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
+        })
+
         return {
           server,
-          catalog: await resolveMCPServerCatalog(server, {
-            workerEnv: options.workerEnv,
-            signal: options.abortSignal,
-            timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
-          })
+          catalog,
+          outputValidators: outputValidatorsForCatalog(server, catalog)
         }
       } catch (error) {
         if (options.abortSignal?.aborted) throw error
@@ -75,7 +89,9 @@ export async function createMCPTools(options: CreateMCPToolsOptions): Promise<Ag
   )
   const catalogs = catalogResults.filter(result => result !== undefined)
 
-  return projectMCPTools(catalogs).map(projected => createMCPTool(projected, options))
+  const projected = projectMCPTools(catalogs)
+  assertMCPModelSurfaceBudget(projected)
+  return projected.map(tool => createMCPTool(tool, options, secretValues))
 }
 
 interface ProjectedMCPTool {
@@ -86,26 +102,34 @@ interface ProjectedMCPTool {
   namespaceDescription: string
   searchText: string
   jsonSchema: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+  outputValidator?: MCPOutputValidator
 }
 
-function createMCPTool(projected: ProjectedMCPTool, options: CreateMCPToolsOptions): AgentTool<typeof MCPArguments> {
+function createMCPTool(
+  projected: ProjectedMCPTool,
+  options: CreateMCPToolsOptions,
+  secretValues: string[]
+): AgentTool<typeof MCPArguments> {
   const { server, tool } = projected
   const readOnly = tool.annotations?.readOnlyHint === true
-  const secretValues = workerEnvSecretValues(options.workerEnv)
+  const destructive = tool.annotations?.destructiveHint === true
+  const programmatic = readOnly && !destructive
 
   return {
     name: projected.name,
     description: tool.description ?? '',
     schema: MCPArguments,
     jsonSchema: projected.jsonSchema,
+    ...(projected.outputSchema ? { outputSchema: projected.outputSchema } : {}),
     namespace: projected.namespace,
     namespaceDescription: projected.namespaceDescription,
     deferLoading: true,
     toolSearchText: projected.searchText,
-    allowedCallers: ['direct', 'programmatic'],
-    executionMode: readOnly ? 'parallel' : 'sequential',
+    allowedCallers: programmatic ? ['direct', 'programmatic'] : ['direct'],
+    executionMode: programmatic ? 'parallel' : 'sequential',
     isReadOnly: readOnly,
-    isDestructive: !readOnly,
+    isDestructive: destructive,
     describeActivity: () => `调用 MCP：${boundedLabel(server.name, tool.name)}`,
     async execute(_toolCallID, args, signal): Promise<AgentToolResult<unknown>> {
       try {
@@ -114,7 +138,7 @@ function createMCPTool(projected: ProjectedMCPTool, options: CreateMCPToolsOptio
           signal: signal ?? options.abortSignal,
           timeoutMs: resolveMCPTimeoutMs(undefined, server.timeoutMs)
         })
-        return modelResult(boundedMCPResultValue(result, secretValues))
+        return modelResult(mcpToolOutput(result, tool.name, projected.outputValidator, secretValues))
       } catch (error) {
         return modelResult({
           content: [{ type: 'text', text: boundedError(error, secretValues) }],
@@ -123,6 +147,93 @@ function createMCPTool(projected: ProjectedMCPTool, options: CreateMCPToolsOptio
       }
     }
   }
+}
+
+function mcpToolOutput(
+  result: unknown,
+  toolName: string,
+  outputValidator: MCPOutputValidator | undefined,
+  secretValues: string[]
+): unknown {
+  if (!outputValidator) return boundedMCPResultValue(result, secretValues)
+  if (!isRecord(result)) throw new Error(`MCP tool ${toolName} returned an invalid result envelope`)
+
+  const structuredContent = result.structuredContent
+  if (structuredContent === undefined) {
+    if (result.isError === true) return boundedMCPResultValue(result, secretValues)
+    throw new Error(`MCP tool ${toolName} declares an output schema but returned no structured content`)
+  }
+
+  const rawValidation = outputValidator(structuredContent)
+  if (!rawValidation.valid) {
+    throw new Error(`MCP tool ${toolName} returned structured content that does not match its output schema`)
+  }
+  if (result.isError === true) return boundedMCPResultValue(result, secretValues)
+
+  const projected = boundedMCPResultValue(rawValidation.data, secretValues)
+  const projectedValidation = outputValidator(projected)
+  if (!projectedValidation.valid) {
+    throw new Error(`MCP tool ${toolName} output cannot be projected within the Worker result limits`)
+  }
+  return projectedValidation.data
+}
+
+function outputValidatorsForCatalog(server: MCPServerConfig, catalog: MCPServerCatalog): MCPOutputValidators {
+  const cached = outputValidatorsByCatalog.get(catalog)
+  if (cached) return cached
+
+  const validatorProvider = new AjvJsonSchemaValidator()
+  const validators = new Map<MCPListedTool, MCPOutputValidator>()
+  for (const tool of catalog.tools) {
+    if (!tool.outputSchema || !toolAllowed(server, tool.name) || !toolIsModelVisible(tool)) continue
+    if (!codexMCPInputSchema(tool.inputSchema)) continue
+    validators.set(tool, validatorProvider.getValidator(tool.outputSchema))
+  }
+  outputValidatorsByCatalog.set(catalog, validators)
+  return validators
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function assertMCPModelSurfaceBudget(tools: ProjectedMCPTool[]): void {
+  assertMCPResourceLimit('aggregate model-visible tools', tools.length, MCP_RESOURCE_LIMITS.modelVisibleTools, 'count')
+
+  const namespaces = new Map<string, { description: string; tools: unknown[] }>()
+  for (const projected of tools) {
+    const namespace = namespaces.get(projected.namespace) ?? {
+      description: projected.namespaceDescription,
+      tools: []
+    }
+    const readOnly = projected.tool.annotations?.readOnlyHint === true
+    const destructive = projected.tool.annotations?.destructiveHint === true
+    namespace.tools.push({
+      type: 'function',
+      name: projected.name,
+      description: projected.tool.description ?? '',
+      parameters: projected.jsonSchema,
+      ...(projected.outputSchema ? { output_schema: projected.outputSchema } : {}),
+      strict: false,
+      defer_loading: true,
+      __ankole_search_text: projected.searchText,
+      allowed_callers: readOnly && !destructive ? ['direct', 'programmatic'] : ['direct']
+    })
+    namespaces.set(projected.namespace, namespace)
+  }
+
+  const surface = [...namespaces.entries()].map(([name, namespace]) => ({
+    type: 'namespace',
+    name,
+    description: namespace.description,
+    tools: namespace.tools
+  }))
+  assertMCPResourceLimit(
+    'aggregate model tool catalog',
+    utf8ByteLength(JSON.stringify(surface)),
+    MCP_RESOURCE_LIMITS.modelToolCatalogBytes,
+    'byte'
+  )
 }
 
 export function resolveMCPTimeoutMs(requestedTimeoutMs?: number, serverTimeoutMs?: number): number {
@@ -137,13 +248,16 @@ interface MCPToolCandidate {
   rawToolIdentity: string
   namespace: string
   name: string
+  outputValidator?: MCPOutputValidator
 }
 
-function projectMCPTools(catalogs: Array<{ server: MCPServerConfig; catalog: MCPServerCatalog }>): ProjectedMCPTool[] {
+function projectMCPTools(
+  catalogs: Array<{ server: MCPServerConfig; catalog: MCPServerCatalog; outputValidators: MCPOutputValidators }>
+): ProjectedMCPTool[] {
   const seenRawNames = new Set<string>()
   const candidates: MCPToolCandidate[] = []
 
-  for (const { server, catalog } of catalogs) {
+  for (const { server, catalog, outputValidators } of catalogs) {
     for (const tool of catalog.tools) {
       if (!toolAllowed(server, tool.name)) continue
       const rawNamespaceIdentity = `${server.name}\0${server.name}\0`
@@ -158,7 +272,8 @@ function projectMCPTools(catalogs: Array<{ server: MCPServerConfig; catalog: MCP
         rawNamespaceIdentity,
         rawToolIdentity,
         namespace: sanitizedNamespace.startsWith('mcp__') ? sanitizedNamespace : `mcp__${sanitizedNamespace}`,
-        name: sanitizeResponsesToolName(tool.name)
+        name: sanitizeResponsesToolName(tool.name),
+        ...(outputValidators.get(tool) ? { outputValidator: outputValidators.get(tool) } : {})
       })
     }
   }
@@ -211,7 +326,9 @@ function projectMCPTools(catalogs: Array<{ server: MCPServerConfig; catalog: MCP
         namespace: candidate.namespace,
         namespaceDescription,
         searchText: mcpSearchText(candidate, namespaceDescription),
-        jsonSchema
+        jsonSchema,
+        ...(candidate.tool.outputSchema ? { outputSchema: candidate.tool.outputSchema } : {}),
+        ...(candidate.outputValidator ? { outputValidator: candidate.outputValidator } : {})
       }
     ]
   })
@@ -243,8 +360,7 @@ function mcpSearchText(candidate: MCPToolCandidate, namespaceDescription: string
       : []
 
   return [
-    `${candidate.namespace}${candidate.name}`,
-    `${candidate.namespace}__${candidate.name}`,
+    providerToolName(candidate.namespace, candidate.name),
     candidate.name,
     candidate.tool.name,
     candidate.server.name,
@@ -289,8 +405,8 @@ function uniqueCallableParts(
   rawIdentity: string,
   usedNames: Set<string>
 ): [string, string] {
-  const modelName = `${namespace}${name}`
-  if (modelName.length + TOOL_NAME_DELIMITER_LENGTH <= MAX_TOOL_NAME_LENGTH && !usedNames.has(modelName)) {
+  const modelName = providerToolName(namespace, name)
+  if (modelName.length <= MAX_TOOL_NAME_LENGTH && !usedNames.has(modelName)) {
     usedNames.add(modelName)
     return [namespace, name]
   }
@@ -298,11 +414,15 @@ function uniqueCallableParts(
   for (let attempt = 0; ; attempt += 1) {
     const hashInput = attempt === 0 ? rawIdentity : `${rawIdentity}\0${attempt}`
     const parts = fitCallablePartsWithHash(namespace, name, hashInput)
-    const candidateName = `${parts[0]}${parts[1]}`
+    const candidateName = providerToolName(parts[0], parts[1])
     if (usedNames.has(candidateName)) continue
     usedNames.add(candidateName)
     return parts
   }
+}
+
+function providerToolName(namespace: string, name: string): string {
+  return `${namespace}__${name}`
 }
 
 function fitCallablePartsWithHash(namespace: string, name: string, rawIdentity: string): [string, string] {
@@ -339,15 +459,20 @@ export function boundedMCPResultValue(value: unknown, secrets: string[], depth =
   }
   if (typeof value === 'object') {
     const output = Object.create(null) as Record<string, unknown>
-    const entries = Object.entries(value as Record<string, unknown>)
-    for (const [key, entry] of entries.slice(0, MAX_OBJECT_ENTRIES)) {
-      output[boundedString(redactSecrets(sanitizeBinaryOutput(key), secrets), 512)] = boundedMCPResultValue(
-        entry,
-        secrets,
-        depth + 1
-      )
+    const record = value as Record<string, unknown>
+    let entryCount = 0
+    for (const key in record) {
+      if (!Object.hasOwn(record, key)) continue
+      if (entryCount < MAX_OBJECT_ENTRIES) {
+        output[boundedString(redactSecrets(sanitizeBinaryOutput(key), secrets), 512)] = boundedMCPResultValue(
+          record[key],
+          secrets,
+          depth + 1
+        )
+      }
+      entryCount += 1
     }
-    if (entries.length > MAX_OBJECT_ENTRIES) output._ankole_omitted_entries = entries.length - MAX_OBJECT_ENTRIES
+    if (entryCount > MAX_OBJECT_ENTRIES) output._ankole_omitted_entries = entryCount - MAX_OBJECT_ENTRIES
     return output
   }
   return boundedString(String(value), MAX_STRING_BYTES)

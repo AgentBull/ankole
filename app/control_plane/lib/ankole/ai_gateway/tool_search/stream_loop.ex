@@ -8,24 +8,39 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   response can span several provider responses; the loop renumbers public
   events and accumulates raw provider items for the continuation input.
 
-  Server rounds are bounded only as an incident stop: a model that keeps
-  searching without progress would otherwise burn provider spend invisibly.
+  Internal rounds share one budget: search and program continuations cannot
+  amplify provider spend independently.
   """
 
+  alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolSearch
 
-  @max_server_rounds 16
+  @max_internal_rounds 16
+  @max_top_level_programs 8
+  @max_provider_history_items 1_024
+  @max_provider_history_bytes 8 * 1024 * 1024
+
+  @default_limits %{
+    top_level_programs: @max_top_level_programs,
+    provider_history_items: @max_provider_history_items,
+    provider_history_bytes: @max_provider_history_bytes
+  }
 
   defstruct plan: nil,
             provider_request: nil,
-            provider_items: [],
+            provider_items_rev: [],
+            provider_history_count: 0,
+            provider_history_item_bytes: 0,
+            provider_history_error: nil,
             downstream_tools: nil,
             suppressed_item_ids: MapSet.new(),
             usage: nil,
             tool_usage: nil,
             rounds: 0,
             sequence: -1,
-            program_run: nil
+            incomplete_reason: nil,
+            limits: @default_limits
 
   @type t :: %__MODULE__{}
 
@@ -33,106 +48,172 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   def new(nil), do: nil
   def new(%__MODULE__{} = loop), do: loop
 
-  def new(%{plan: %ToolSearch.Plan{} = plan, provider_request: %{} = provider_request} = config) do
+  def new(%{plan: %ToolSearch.Plan{} = plan, provider_request: %{} = provider_request}) do
+    base_items = provider_request |> Map.get("input") |> input_items()
+    {base_count, base_bytes, history_error} = initial_history_stats(base_items)
+
     %__MODULE__{
       plan: plan,
       provider_request: provider_request,
       downstream_tools: ToolSearch.list_tools(provider_request),
-      program_run: Map.get(config, :program_run)
+      provider_history_count: base_count,
+      provider_history_item_bytes: base_bytes,
+      provider_history_error: history_error
     }
   end
 
-  @doc """
-  Returns whether the plan carries an unsettled program that must resume
-  before any provider round.
-  """
-  @spec pre_round?(t() | nil) :: boolean()
-  def pre_round?(%__MODULE__{plan: %ToolSearch.Plan{pre_round: %{}}}), do: true
-  def pre_round?(_loop), do: false
+  @doc "Returns whether this loop executes built-in effects inside AIGateway."
+  @spec gateway_effects?(t() | nil) :: boolean()
+  def gateway_effects?(%__MODULE__{plan: plan}), do: ToolSearch.response_stream_required?(plan)
+
+  def gateway_effects?(_loop), do: false
+
+  @doc "Applies the remaining public built-in tool budget to one provider round."
+  @spec apply_tool_budget(t() | ToolSearch.Plan.t() | nil, map(), non_neg_integer() | nil) ::
+          map()
+  def apply_tool_budget(_loop_or_plan, %{} = request, nil), do: request
+
+  def apply_tool_budget(loop_or_plan, %{} = request, 0),
+    do: disable_budgeted_effects(loop_or_plan, request)
+
+  def apply_tool_budget(_loop_or_plan, %{} = request, remaining)
+      when is_integer(remaining) and remaining > 0,
+      do: Map.put(request, "max_tool_calls", remaining)
+
+  @doc "Removes all built-in tools after the public tool budget is exhausted."
+  @spec disable_budgeted_effects(t() | ToolSearch.Plan.t() | nil, map()) :: map()
+  def disable_budgeted_effects(%__MODULE__{plan: plan}, %{} = request),
+    do: disable_budgeted_effects(plan, request)
+
+  def disable_budgeted_effects(plan, %{} = request)
+      when is_nil(plan) or is_struct(plan, ToolSearch.Plan) do
+    names =
+      [plan && plan.tool_name, plan && PTC.active_tool_name(plan.ptc)]
+      |> Enum.filter(&is_binary/1)
+      |> MapSet.new()
+
+    tools =
+      request
+      |> ToolSearch.list_tools()
+      |> Enum.reject(fn tool ->
+        MapSet.member?(names, Map.get(tool, "name")) or
+          ResponseItems.budgeted_tool_declaration?(tool)
+      end)
+
+    request
+    |> Map.delete("max_tool_calls")
+    |> ToolSearch.put_tools(tools)
+    |> disable_removed_tool_choice(names, tools)
+  end
 
   @doc """
-  Resumes the request's unsettled program by replaying its recorded calls.
-
-  Returns `{:provider_round, items, request, loop}` when the settled program
-  hands control back to the model, or `{:respond, items, loop}` when the
-  program pauses again and the response answers the client without any
-  provider call.
+  Returns whether the loop has a local effect before its first provider round.
   """
-  @spec pre_round(t()) ::
-          {:provider_round, [map()], map(), t()} | {:respond, [map()], t()}
-  def pre_round(%__MODULE__{plan: %ToolSearch.Plan{pre_round: %{} = pre_round} = plan} = loop) do
-    bindings = plan.program.bindings
-    loop = %{loop | plan: %{plan | pre_round: nil}}
+  @spec initial_local_effect?(t() | nil) :: boolean()
+  def initial_local_effect?(%__MODULE__{plan: %ToolSearch.Plan{ptc: ptc}}),
+    do: PTC.resumes_pending?(ptc)
 
-    outcome = run_program(loop, pre_round.code, bindings, pre_round.memo, pre_round.fingerprint)
+  def initial_local_effect?(_loop), do: false
 
-    case outcome.status do
-      :pending ->
-        items =
-          paused_program_items(loop.plan, pre_round.call_id, outcome, length(pre_round.memo))
+  @doc """
+  Takes and freezes the local effects that precede the first provider round.
+  """
+  @spec take_initial_local_effect(t()) :: {:ok, [map()], map(), t()}
+  def take_initial_local_effect(
+        %__MODULE__{plan: %ToolSearch.Plan{ptc: %PTC.Plan{resumes: [_ | _]}} = plan} = loop
+      ) do
+    {resumes, ptc} = PTC.take_resumes(plan.ptc)
+    loop = %{loop | plan: %{plan | ptc: ptc}}
 
-        {:respond, items, loop}
+    {:ok, programs} = PTC.build_resume_jobs(plan.ptc, resumes)
 
-      _settled ->
-        output_item = ToolSearch.public_program_output(pre_round.call_id, outcome)
+    {programs, loop} = preflight_resume_jobs(loop, programs)
 
-        downstream = ToolSearch.downstream_program_output(pre_round.call_id, outcome)
-        loop = remember_provider_items(loop, [downstream])
+    {:ok, programs, %{programs: programs}, loop}
+  end
 
-        continuation_request =
-          loop.provider_request
-          |> Map.put("input", continuation_input(loop))
-          |> ToolSearch.put_tools(loop.downstream_tools)
+  defp preflight_resume_jobs(loop, programs) do
+    condition =
+      cond do
+        length(programs) > loop.limits.top_level_programs ->
+          {:error,
+           {:program_batch_limit_exceeded, length(programs), loop.limits.top_level_programs}}
 
-        {:provider_round, [output_item], continuation_request, %{loop | rounds: loop.rounds + 1}}
+        true ->
+          provider_history_size(loop, PTC.output_reservations(programs))
+      end
+
+    case condition do
+      {:ok, _count, _bytes, _item_bytes} ->
+        {programs, loop}
+
+      {:error, reason} ->
+        preflight = PTC.failed_outcome("program_admission_failed", reason)
+
+        {Enum.map(programs, &Map.put(&1, :preflight_outcome, preflight)),
+         mark_incomplete(loop, reason_code(reason))}
     end
   end
 
-  defp run_program(loop, code, bindings, memo, expected_fingerprint) do
-    cond do
-      not is_function(loop.program_run, 3) ->
-        %{status: :failed, output: [], pending_calls: [], error: "program runtime unavailable"}
+  @doc """
+  Applies one batch of local program outcomes regardless of where that batch
+  occurs in the public response loop.
+  """
+  @spec complete_local_effect(t(), map(), [map()]) ::
+          {:round, map(), [map()], t()}
+          | {:finalize, [map()], [map()], t()}
+          | {:error, term(), t()}
+  def complete_local_effect(%__MODULE__{} = loop, %{programs: programs} = context, outcomes) do
+    with {:ok, program_items, downstream, paused?} <-
+           PTC.settle(loop.plan.ptc, programs, outcomes) do
+      extra_items = Map.get(context, :search_outputs, []) ++ program_items
 
-      is_binary(expected_fingerprint) and
-          expected_fingerprint != ToolSearch.program_fingerprint(code, bindings) ->
-        %{
-          status: :failed,
-          output: [],
-          pending_calls: [],
-          error: "program fingerprint mismatch: bindings changed between requests"
-        }
+      case remember_provider_items(loop, downstream) do
+        {:ok, loop} ->
+          complete_remembered_local_effect(loop, context, programs, extra_items, paused?)
+
+        {:error, reason} ->
+          loop = mark_incomplete(loop, reason_code(reason))
+          {:finalize, local_effect_terminal_output(loop, context, programs), extra_items, loop}
+      end
+    else
+      {:error, reason} -> {:error, reason, mark_incomplete(loop, reason_code(reason))}
+    end
+  end
+
+  defp complete_remembered_local_effect(loop, context, programs, extra_items, paused?) do
+    cond do
+      Map.has_key?(context, :output) and (paused? or Map.get(context, :pending_client?, false)) ->
+        {:finalize, local_effect_terminal_output(loop, context, programs), extra_items, loop}
+
+      not Map.has_key?(context, :output) and
+          (paused? or not is_nil(loop.incomplete_reason)) ->
+        {:finalize, [], extra_items, loop}
 
       true ->
-        case loop.program_run.(code, bindings, memo) do
-          {:ok, outcome} -> outcome
-          {:error, reason} -> %{status: :failed, output: [], pending_calls: [], error: reason}
-        end
+        continue_round(loop, extra_items)
     end
   end
 
-  defp paused_program_items(plan, program_call_id, outcome, memo_offset) do
-    outcome.pending_calls
-    |> Enum.with_index()
-    |> Enum.map(fn {call, index} ->
-      program_call_id
-      |> ToolSearch.nested_program_call(memo_offset + index, call)
-      |> then(&ToolSearch.public_function_call(plan, &1))
-    end)
-  end
+  defp local_effect_terminal_output(loop, %{output: output}, programs),
+    do: rewrite_items(loop, output, programs)
+
+  defp local_effect_terminal_output(_loop, _context, _programs), do: []
 
   @doc """
   Rewrites or suppresses one provider event before public observation.
 
   Suppression covers the argument streaming of the synthesized search tool and
-  the per-round `response.created`/`response.in_progress` lifecycle of
-  continuation rounds; the public stream keeps one response lifecycle.
+  the per-round admission lifecycle of continuation rounds; the public stream
+  keeps one response lifecycle.
   """
   @terminal_event_types ~w(response.completed response.failed response.incomplete)
 
   @spec observe(t(), map()) :: {:emit, map(), t()} | {:suppress, t()}
   def observe(%__MODULE__{} = loop, %{"type" => type} = event) do
     cond do
-      type in ["response.created", "response.in_progress"] and loop.rounds > 0 ->
+      type in ["response.created", "response.queued", "response.in_progress"] and
+          loop.rounds > 0 ->
         {:suppress, loop}
 
       # Terminal events are numbered by the terminal path after any appended
@@ -169,83 +250,146 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
   @spec intercept_terminal(t(), String.t(), map()) ::
           {:finalize, [map()], [map()], t()}
           | {:round, map(), [map()], t()}
+          | {:local, [map()], map(), t()}
   def intercept_terminal(%__MODULE__{} = loop, event_type, %{} = response) do
     loop = accumulate_usage(loop, response)
     output = response |> Map.get("output") |> list_of_maps()
-    loop = remember_provider_items(loop, output)
 
-    server_search_calls =
-      if loop.plan.execution == :server and loop.rounds < @max_server_rounds,
+    case remember_provider_items(loop, output) do
+      {:ok, loop} ->
+        intercept_remembered_terminal(loop, event_type, output)
+
+      {:error, reason} ->
+        {:finalize, rewrite_items(loop, output), [], mark_incomplete(loop, reason_code(reason))}
+    end
+  end
+
+  defp intercept_remembered_terminal(loop, event_type, output) do
+    search_calls =
+      if loop.plan.execution == :server,
         do: Enum.filter(output, &ToolSearch.search_call_item?(loop.plan, &1)),
         else: []
 
-    program_calls = Enum.filter(output, &ToolSearch.program_call_item?(loop.plan, &1))
+    program_calls = Enum.filter(output, &PTC.call_item?(loop.plan.ptc, &1))
+    internal_calls? = search_calls != [] or program_calls != []
 
-    if event_type != "response.completed" or (server_search_calls == [] and program_calls == []) do
-      {:finalize, rewrite_items(loop, output), [], loop}
-    else
-      {loop, executed_searches} = execute_search_calls(loop, server_search_calls)
-      search_outputs = search_output_items(loop, executed_searches)
-      {loop, program_items, program_paused?} = execute_program_calls(loop, program_calls)
-      extras = search_outputs ++ program_items
+    cond do
+      event_type != "response.completed" or not internal_calls? ->
+        {:finalize, rewrite_items(loop, output), [], loop}
 
-      finalize? =
-        program_paused? or
-          Enum.any?(output, &pending_client_call?(loop, &1)) or
-          (server_search_calls != [] and loop.rounds >= @max_server_rounds)
+      loop.rounds >= @max_internal_rounds ->
+        {:finalize, rewrite_items(loop, output), [],
+         mark_incomplete(loop, "tool_loop_rounds_exhausted")}
 
-      if finalize? do
-        {:finalize, rewrite_items(loop, output), extras, loop}
-      else
-        continue_round(loop, extras)
-      end
+      length(program_calls) > loop.limits.top_level_programs ->
+        {:finalize, rewrite_items(loop, output), [],
+         mark_incomplete(loop, "program_batch_limit_exceeded")}
+
+      true ->
+        # Program bindings are frozen before Tool Search can load anything in
+        # this terminal. One program therefore cannot gain capabilities based
+        # on provider item ordering.
+        with {:ok, programs} <- PTC.build_jobs(loop.plan.ptc, program_calls),
+             {:ok, parsed_search_calls} <- validate_search_calls(loop.plan, search_calls),
+             {:ok, loop, executed_searches} <-
+               execute_search_calls(loop, parsed_search_calls) do
+          search_outputs = search_output_items(loop, executed_searches)
+          pending_client? = Enum.any?(output, &pending_client_call?(loop, &1))
+
+          cond do
+            programs != [] ->
+              case provider_history_size(loop, PTC.output_reservations(programs)) do
+                {:ok, _count, _bytes, _item_bytes} ->
+                  context = %{
+                    output: output,
+                    search_outputs: search_outputs,
+                    programs: programs,
+                    pending_client?: pending_client?
+                  }
+
+                  {:local, programs, context, loop}
+
+                {:error, reason} ->
+                  {:finalize, rewrite_items(loop, output, programs), search_outputs,
+                   mark_incomplete(loop, reason_code(reason))}
+              end
+
+            pending_client? ->
+              {:finalize, rewrite_items(loop, output), search_outputs, loop}
+
+            true ->
+              continue_round(loop, search_outputs)
+          end
+        else
+          {:error, reason} ->
+            {:finalize, rewrite_items(loop, output), [],
+             mark_incomplete(loop, reason_code(reason))}
+        end
     end
   end
 
   # Client-owned calls the gateway cannot answer: ordinary function or custom
   # calls, plus client-mode search calls.
-  defp pending_client_call?(loop, %{"type" => type} = item)
-       when type in ["function_call", "custom_tool_call"] do
-    cond do
-      ToolSearch.program_call_item?(loop.plan, item) -> false
-      not ToolSearch.search_call_item?(loop.plan, item) -> true
-      true -> loop.plan.execution == :client
+  defp pending_client_call?(loop, item) do
+    ResponseItems.client_call_item?(item) and
+      cond do
+        PTC.call_item?(loop.plan.ptc, item) -> false
+        not ToolSearch.search_call_item?(loop.plan, item) -> true
+        true -> loop.plan.execution == :client
+      end
+  end
+
+  defp validate_search_calls(plan, search_calls) do
+    Enum.reduce_while(
+      search_calls,
+      {:ok, MapSet.new(), []},
+      fn call, {:ok, seen, parsed_calls_rev} ->
+        public = ToolSearch.public_search_call(plan, call)
+        provider_call_id = Map.get(call, "call_id")
+
+        cond do
+          not ResponseItems.executable_call?(public) ->
+            {:halt, {:error, {:incomplete_tool_search_call, provider_call_id}}}
+
+          not is_binary(provider_call_id) or provider_call_id == "" ->
+            {:halt, {:error, {:invalid_provider_search_call_id, provider_call_id}}}
+
+          MapSet.member?(seen, provider_call_id) ->
+            {:halt, {:error, {:duplicate_tool_search_call_id, provider_call_id}}}
+
+          true ->
+            case ToolSearch.parse_search_arguments(plan, call) do
+              {:ok, selection} ->
+                {:cont,
+                 {:ok, MapSet.put(seen, provider_call_id), [{call, selection} | parsed_calls_rev]}}
+
+              {:error, reason} ->
+                {:halt, {:error, reason}}
+            end
+        end
+      end
+    )
+    |> case do
+      {:ok, _seen, parsed_calls_rev} -> {:ok, Enum.reverse(parsed_calls_rev)}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp pending_client_call?(_loop, _item), do: false
-
-  # Runs each freshly issued program with an empty memo. A completed or failed
-  # program answers the model in a continuation round; a paused program hands
-  # its nested calls to the client and forces finalization.
-  defp execute_program_calls(loop, program_calls) do
-    Enum.reduce(program_calls, {loop, [], false}, fn call_item, {loop, items, paused?} ->
-      call_id = Map.get(call_item, "call_id")
-      %{code: code} = ToolSearch.parse_program_arguments(call_item)
-      bindings = loop.plan.program.bindings
-      outcome = run_program(loop, code, bindings, [], nil)
-
-      case outcome.status do
-        :pending ->
-          nested = paused_program_items(loop.plan, call_id, outcome, 0)
-          {loop, items ++ nested, true}
-
-        _settled ->
-          output_item = ToolSearch.public_program_output(call_id, outcome)
-
-          downstream = ToolSearch.downstream_program_output(call_id, outcome)
-          {remember_provider_items(loop, [downstream]), items ++ [output_item], paused?}
-      end
-    end)
-  end
-
   @doc """
-  Returns whether the loop exhausted its server round budget on a terminal
-  that still carried search calls.
+  Returns the explicit reason why an internal loop must terminate incomplete.
   """
-  @spec round_budget_exhausted?(t() | nil) :: boolean()
-  def round_budget_exhausted?(%__MODULE__{rounds: rounds}), do: rounds >= @max_server_rounds
-  def round_budget_exhausted?(_loop), do: false
+  @spec incomplete_reason(t() | nil) :: String.t() | nil
+  def incomplete_reason(%__MODULE__{incomplete_reason: reason}), do: reason
+  def incomplete_reason(_loop), do: nil
+
+  defp mark_incomplete(loop, reason), do: %{loop | incomplete_reason: reason}
+
+  defp reason_code(reason)
+       when is_tuple(reason) and tuple_size(reason) > 0 and is_atom(elem(reason, 0)),
+       do: reason |> elem(0) |> Atom.to_string()
+
+  defp reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_code(_reason), do: "tool_loop_invalid_state"
 
   @doc """
   Returns the accumulated usage across provider rounds, or `nil` for a single
@@ -303,7 +447,7 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
   defp rewritable_call_item?(loop, item) do
     ToolSearch.search_call_item?(loop.plan, item) or
-      ToolSearch.program_call_item?(loop.plan, item)
+      PTC.call_item?(loop.plan.ptc, item)
   end
 
   defp rewrite_call_item(loop, item) do
@@ -311,8 +455,8 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
       ToolSearch.search_call_item?(loop.plan, item) ->
         ToolSearch.public_search_call(loop.plan, item)
 
-      ToolSearch.program_call_item?(loop.plan, item) ->
-        ToolSearch.public_program_item(loop.plan, item)
+      PTC.call_item?(loop.plan.ptc, item) ->
+        PTC.public_item(loop.plan.ptc, item)
 
       true ->
         ToolSearch.public_function_call(loop.plan, item)
@@ -365,7 +509,11 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
       |> Map.put("input", continuation_input(loop))
       |> ToolSearch.put_tools(loop.downstream_tools)
 
-    {:round, continuation_request, extras, %{loop | rounds: loop.rounds + 1}}
+    {:round, continuation_request, extras, begin_next_round(loop)}
+  end
+
+  defp begin_next_round(loop) do
+    %{loop | rounds: loop.rounds + 1, suppressed_item_ids: MapSet.new()}
   end
 
   defp search_output_items(loop, executed) do
@@ -374,26 +522,41 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
     end)
   end
 
-  defp execute_search_calls(loop, search_calls) do
-    Enum.reduce(search_calls, {loop, []}, fn call_item, {loop, executed} ->
-      %{query: query, limit: limit} = ToolSearch.parse_search_arguments(call_item)
-      loaded = ToolSearch.search(loop.plan, query, limit)
-      {plan, downstream_tools} = ToolSearch.load_tools(loop.plan, loop.downstream_tools, loaded)
-      downstream_output = ToolSearch.downstream_search_output(call_item, loaded)
+  defp execute_search_calls(loop, parsed_search_calls) do
+    result =
+      Enum.reduce_while(
+        parsed_search_calls,
+        {:ok, loop, [], []},
+        fn {call_item, %{paths: paths}}, {:ok, loop, executed, downstream_outputs} ->
+          with {:ok, loaded} <- ToolSearch.search_paths(loop.plan, paths),
+               {:ok, plan, downstream_tools} <-
+                 ToolSearch.load_tools(loop.plan, loop.downstream_tools, loaded) do
+            downstream_output = ToolSearch.downstream_search_output(call_item, loaded)
+            loop = %{loop | plan: plan, downstream_tools: downstream_tools}
 
-      loop = %{
-        remember_provider_items(loop, [downstream_output])
-        | plan: plan,
-          downstream_tools: downstream_tools
-      }
+            {:cont,
+             {:ok, loop, [{call_item, loaded} | executed],
+              [downstream_output | downstream_outputs]}}
+          else
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end
+      )
 
-      {loop, executed ++ [{call_item, loaded}]}
-    end)
+    case result do
+      {:ok, loop, executed, downstream_outputs} ->
+        with {:ok, loop} <- remember_provider_items(loop, Enum.reverse(downstream_outputs)) do
+          {:ok, loop, Enum.reverse(executed)}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp continuation_input(loop) do
     original = loop.provider_request |> Map.get("input") |> input_items()
-    original ++ loop.provider_items
+    original ++ Enum.reverse(loop.provider_items_rev)
   end
 
   defp input_items(input) when is_list(input), do: input
@@ -410,9 +573,111 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
   defp input_items(_input), do: []
 
-  defp remember_provider_items(loop, items) do
-    %{loop | provider_items: loop.provider_items ++ items}
+  defp disable_removed_tool_choice(request, names, tools) do
+    choice = Map.get(request, "tool_choice")
+
+    cond do
+      tools == [] ->
+        Map.put(request, "tool_choice", "none")
+
+      match?(%{"type" => "allowed_tools", "tools" => allowed} when is_list(allowed), choice) ->
+        filter_allowed_tool_choice(request, choice, names)
+
+      chosen_tool_removed?(choice, names) ->
+        Map.put(request, "tool_choice", "auto")
+
+      true ->
+        request
+    end
   end
+
+  defp filter_allowed_tool_choice(request, choice, names) do
+    allowed = Enum.reject(choice["tools"], &chosen_tool_removed?(&1, names))
+
+    if allowed == [] do
+      Map.put(request, "tool_choice", "none")
+    else
+      Map.put(request, "tool_choice", Map.put(choice, "tools", allowed))
+    end
+  end
+
+  defp chosen_tool_removed?(%{} = choice, names) do
+    ResponseItems.budgeted_tool_choice?(choice) or
+      choice_name_removed?(choice, names)
+  end
+
+  defp chosen_tool_removed?(_choice, _names), do: false
+
+  defp choice_name_removed?(%{"name" => name}, names), do: MapSet.member?(names, name)
+
+  defp choice_name_removed?(%{"function" => %{"name" => name}}, names),
+    do: MapSet.member?(names, name)
+
+  defp choice_name_removed?(_choice, _names), do: false
+
+  defp remember_provider_items(loop, items) do
+    case provider_history_size(loop, items) do
+      {:ok, count, _bytes, item_bytes} ->
+        {:ok,
+         %{
+           loop
+           | provider_items_rev: Enum.reverse(items, loop.provider_items_rev),
+             provider_history_count: count,
+             provider_history_item_bytes: loop.provider_history_item_bytes + item_bytes
+         }}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp provider_history_size(loop, new_items) do
+    count = loop.provider_history_count + length(new_items)
+
+    cond do
+      not is_nil(loop.provider_history_error) ->
+        {:error, {:provider_history_encoding_failed, loop.provider_history_error}}
+
+      count > loop.limits.provider_history_items ->
+        {:error,
+         {:provider_history_item_limit_exceeded, count, loop.limits.provider_history_items}}
+
+      true ->
+        case json_items_size(new_items) do
+          {:ok, item_bytes} ->
+            bytes = json_array_size(count, loop.provider_history_item_bytes + item_bytes)
+
+            if bytes <= loop.limits.provider_history_bytes do
+              {:ok, count, bytes, item_bytes}
+            else
+              {:error,
+               {:provider_history_byte_limit_exceeded, bytes, loop.limits.provider_history_bytes}}
+            end
+
+          {:error, reason} ->
+            {:error, {:provider_history_encoding_failed, reason}}
+        end
+    end
+  end
+
+  defp initial_history_stats(items) do
+    case json_items_size(items) do
+      {:ok, bytes} -> {length(items), bytes, nil}
+      {:error, reason} -> {length(items), 0, reason}
+    end
+  end
+
+  defp json_items_size(items) do
+    Enum.reduce_while(items, {:ok, 0}, fn item, {:ok, bytes} ->
+      case Ankole.JSON.encode(item) do
+        {:ok, encoded} -> {:cont, {:ok, bytes + byte_size(encoded)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp json_array_size(0, _item_bytes), do: 2
+  defp json_array_size(count, item_bytes), do: item_bytes + count + 1
 
   # ─────────────────────────────────────────────────────────────────
   # Terminal helpers
@@ -420,6 +685,22 @@ defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
 
   defp rewrite_items(loop, items) do
     Enum.map(items, &rewrite_call_item(loop, &1))
+  end
+
+  defp rewrite_items(loop, items, program_rounds) do
+    frozen_bindings = Map.new(program_rounds, &{&1.call_id, &1.bindings})
+
+    Enum.map(items, fn item ->
+      call_id = Map.get(item, "call_id")
+
+      case {PTC.call_item?(loop.plan.ptc, item), Map.get(frozen_bindings, call_id)} do
+        {true, bindings} when is_list(bindings) ->
+          PTC.public_item_with_bindings(item, bindings)
+
+        _ordinary_or_unfrozen ->
+          rewrite_call_item(loop, item)
+      end
+    end)
   end
 
   @doc false

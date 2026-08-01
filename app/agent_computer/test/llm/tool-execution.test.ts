@@ -4,10 +4,10 @@ import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import type { ReplyPresentationEvent } from '../../src/core/types'
 import { createModel } from '../../src/core/llm'
-import { fakeResponseSocket, parallelReadTool, toolResultsRecordedFrame } from '../support/llm'
+import { fakeResponseSocket, parallelReadTool, sleep, toolResultsRecordedFrame } from '../support/llm'
 
 describe('@ankole/agent-computer llm helpers: tool execution scheduling and guards', () => {
-  it('keeps a hosted image tool beside local tools and the default PTC declaration', async () => {
+  it('keeps a hosted image tool beside local tools without an empty PTC declaration', async () => {
     const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -54,6 +54,11 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
           name: 'lookup',
           description: 'Look up facts',
           schema: z.object({ q: z.string() }),
+          outputSchema: {
+            type: 'object',
+            properties: { answer: { type: 'string' } },
+            required: ['answer']
+          },
           describeActivity: () => '测试查询',
           execute: async () => ({
             content: [{ type: 'text', text: 'unused' }],
@@ -65,8 +70,16 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
 
     expect(sentPayloads).toHaveLength(1)
     expect(sentPayloads[0]!.tools).toEqual([
-      expect.objectContaining({ type: 'function', name: 'lookup', allowed_callers: ['direct'] }),
-      { type: 'programmatic_tool_calling' },
+      expect.objectContaining({
+        type: 'function',
+        name: 'lookup',
+        output_schema: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer']
+        },
+        allowed_callers: ['direct']
+      }),
       { type: 'image_generation' }
     ])
   })
@@ -462,9 +475,12 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
     expect(events.indexOf('suspend:tool_execution:end')).toBeLessThan(events.indexOf('tool_results_record_start'))
   })
 
-  it('executes pure read-only tool batches in parallel while preserving result order', async () => {
+  it('bounds pure read-only tool concurrency while preserving result order', async () => {
     const sentPayloads: JSONObject[] = []
-    const events: string[] = []
+    const toolNames = Array.from({ length: 9 }, (_, index) => `read_${index}`)
+    const completionOrder: string[] = []
+    let active = 0
+    let maxActive = 0
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -489,22 +505,13 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
                   response: {
                     id: 'resp_parallel_read',
                     status: 'completed',
-                    output: [
-                      {
-                        type: 'function_call',
-                        id: 'fc_read_a',
-                        call_id: 'call_read_a',
-                        name: 'read_a',
-                        arguments: '{}'
-                      },
-                      {
-                        type: 'function_call',
-                        id: 'fc_read_b',
-                        call_id: 'call_read_b',
-                        name: 'read_b',
-                        arguments: '{}'
-                      }
-                    ]
+                    output: toolNames.map(name => ({
+                      type: 'function_call',
+                      id: `fc_${name}`,
+                      call_id: `call_${name}`,
+                      name,
+                      arguments: '{}'
+                    }))
                   }
                 }
               ]
@@ -538,23 +545,117 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         actorEventID: '00000000-0000-0000-0000-000000000017',
         conversationID: '17171717-1717-1717-1717-171717171717'
       },
-      tools: [parallelReadTool('read_a', events, 20, 'A'), parallelReadTool('read_b', events, 1, 'B')]
+      tools: toolNames.map((name, index) => ({
+        name,
+        description: `Read ${name}`,
+        schema: z.object({}),
+        executionMode: 'parallel' as const,
+        isReadOnly: true,
+        isDestructive: false,
+        describeActivity: () => `测试工具：${name}`,
+        execute: async () => {
+          active += 1
+          maxActive = Math.max(maxActive, active)
+          try {
+            await sleep(index === 0 ? 20 : 1)
+            completionOrder.push(name)
+            return { content: [{ type: 'text' as const, text: `result-${index}` }], details: {} }
+          } finally {
+            active -= 1
+          }
+        }
+      }))
     })
 
     expect(final.message.content).toEqual([{ type: 'text', text: 'read results handled' }])
-    expect(events.indexOf('read_b:start')).toBeLessThan(events.indexOf('read_a:end'))
+    expect(maxActive).toBe(4)
+    expect(completionOrder).not.toEqual(toolNames)
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',
-      input: [
-        { type: 'function_call_output', call_id: 'call_read_a' },
-        { type: 'function_call_output', call_id: 'call_read_b' }
-      ]
+      input: toolNames.map(name => ({ type: 'function_call_output', call_id: `call_${name}` }))
     })
     const outputs = sentPayloads[1]!.input as Array<JSONObject>
-    expect(outputs[0]!.output).toContain('A')
-    expect(outputs[1]!.output).toContain('B')
-    expectWrappedToolOutput(outputs[0]!.output)
-    expectWrappedToolOutput(outputs[1]!.output)
+    outputs.forEach((output, index) => {
+      expect(output.output).toContain(`result-${index}`)
+      expectWrappedToolOutput(output.output)
+    })
+  })
+
+  it('does not start queued parallel tools after the turn is aborted', async () => {
+    const controller = new AbortController()
+    const abortReason = new DOMException('operator stopped the turn', 'AbortError')
+    const sentPayloads: JSONObject[] = []
+    const toolNames = Array.from({ length: 8 }, (_, index) => `abort_read_${index}`)
+    const started: string[] = []
+    const receivedSignals: Array<AbortSignal | undefined> = []
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_abort_parallel_read',
+                  status: 'completed',
+                  output: toolNames.map(name => ({
+                    type: 'function_call',
+                    id: `fc_${name}`,
+                    call_id: `call_${name}`,
+                    name,
+                    arguments: '{}'
+                  }))
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const run = runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'start the reads' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000027',
+        conversationID: '27272727-2727-2727-2727-272727272727'
+      },
+      abortSignal: controller.signal,
+      tools: toolNames.map(name => ({
+        name,
+        description: `Read ${name}`,
+        schema: z.object({}),
+        executionMode: 'parallel' as const,
+        isReadOnly: true,
+        isDestructive: false,
+        describeActivity: () => null,
+        execute: async (_toolCallID, _params, signal) => {
+          started.push(name)
+          receivedSignals.push(signal)
+          if (started.length === 4) controller.abort(abortReason)
+          if (!signal) throw new Error('missing abort signal')
+          signal.throwIfAborted()
+          await new Promise<void>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+          throw new Error('unreachable')
+        }
+      }))
+    })
+
+    await expect(run).rejects.toThrow('operator stopped the turn')
+    expect(started).toEqual(toolNames.slice(0, 4))
+    expect(receivedSignals).toHaveLength(4)
+    expect(receivedSignals.every(signal => signal === controller.signal)).toBe(true)
+    expect(sentPayloads.map(payload => payload.type)).toEqual(['response.create'])
   })
 
   it('keeps mixed side-effecting tool batches sequential', async () => {
@@ -998,6 +1099,43 @@ describe('@ankole/agent-computer llm helpers: tool execution scheduling and guar
         ]
       })
     ).rejects.toThrow('duplicate tool name: duplicate')
+  })
+
+  it('rejects root and namespaced tools that flatten to the same provider name', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary'
+    })
+
+    await expect(
+      runAgentLoop({
+        model,
+        maxModelIterations: 90,
+        messages: [{ role: 'user', content: 'hello' }],
+        stateful: {
+          actorEventID: '00000000-0000-0000-0000-000000000026',
+          conversationID: '26262626-2626-2626-2626-262626262626'
+        },
+        tools: [
+          {
+            name: 'a__b',
+            description: 'Root tool.',
+            schema: z.object({}),
+            describeActivity: () => null,
+            execute: async () => ({ content: [{ type: 'text', text: 'root' }], details: {} })
+          },
+          {
+            namespace: 'a',
+            name: 'b',
+            description: 'Namespaced tool.',
+            schema: z.object({}),
+            describeActivity: () => null,
+            execute: async () => ({ content: [{ type: 'text', text: 'child' }], details: {} })
+          }
+        ]
+      })
+    ).rejects.toThrow('duplicate provider tool name: a__b')
   })
 })
 

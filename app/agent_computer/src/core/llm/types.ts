@@ -105,6 +105,7 @@ export interface ToolDefinition<TSchema extends z.ZodType = z.ZodType> {
   parameters: TSchema
   inputFormat?: CustomToolInputFormat
   jsonSchema?: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
   namespace?: string
   namespaceDescription?: string
   deferLoading?: boolean

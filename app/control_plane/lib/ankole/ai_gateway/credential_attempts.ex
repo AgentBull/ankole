@@ -82,6 +82,18 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   def pop(spec) when is_map(spec), do: Map.pop(spec, @private_key)
 
   @doc """
+  Separates the retry context from the spec that can cross the native boundary.
+
+  The returned spec contains no control-plane-only credential, hosted-tool, or
+  Tool Search state.
+  """
+  @spec prepare_stream(map()) :: {context() | nil, map()}
+  def prepare_stream(spec) when is_map(spec) do
+    {context, clean_spec} = pop(spec)
+    {context, native_spec(clean_spec)}
+  end
+
+  @doc """
   Executes a non-streaming request with pool retry.
   """
   @spec request(map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -154,53 +166,22 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   @doc """
-  Reopens a live stream after a pre-output native error.
+  Plans one retry without blocking the caller.
+
+  This function performs credential health and selection work, but it does not
+  sleep. The caller owns the returned delay and can schedule the next attempt.
+  Hosted failures are eligible only when the caller enables them in `opts`.
   """
-  @spec reopen(context() | nil, map(), term(), UniversalAIRequest.downstream_kind(), keyword()) ::
-          {:ok, Ankole.Kernel.UniversalAIClient.stream(), map(), context(), map()}
-          | {:error, term()}
-  def reopen(nil, _spec, reason, _downstream, _opts), do: {:error, reason}
-
-  def reopen(context, spec, reason, downstream, opts)
+  @spec plan_retry(context(), map(), term(), keyword()) ::
+          {:retry, context(), map(), non_neg_integer()} | {:stop, term(), context()}
+  def plan_retry(context, spec, reason, opts \\ [])
       when is_map(context) and is_map(spec) do
-    case recover(context, spec, reason, opts) do
-      {:retry, context, candidate} ->
-        run(
-          context,
-          candidate,
-          fn next_spec ->
-            UniversalAIRequest.open_stream(next_spec, downstream, native_opts(opts))
-          end,
-          opts
-        )
-        |> case do
-          {:ok, {stream, meta}, context, clean_spec} ->
-            {:ok, stream, meta, context, clean_spec}
+    case recover(context, native_spec(spec), reason, opts) do
+      {:retry, next_context, candidate, delay_ms} ->
+        {:retry, next_context, native_spec(candidate), delay_ms}
 
-          {:error, next_reason, _context} ->
-            {:error, next_reason}
-        end
-
-      {:stop, final_reason, _context} ->
-        {:error, final_reason}
-    end
-  end
-
-  @doc """
-  Applies the pool recovery policy without executing the replacement spec.
-
-  Composite request owners use this to replace one nested provider request
-  while the native boundary still performs only one transport attempt.
-  """
-  @spec retry_spec(context(), map(), term(), keyword()) ::
-          {:ok, context(), map()} | {:error, term()}
-  def retry_spec(context, spec, reason, opts \\ [])
-      when is_map(context) and is_map(spec) do
-    opts = Keyword.put(opts, :credential_retry_allow_hosted_failure, true)
-
-    case recover(context, spec, reason, opts) do
-      {:retry, next_context, candidate} -> {:ok, next_context, candidate}
-      {:stop, final_reason, _context} -> {:error, final_reason}
+      {:stop, _final_reason, _context} = stop ->
+        stop
     end
   end
 
@@ -214,7 +195,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     with {:ok, spec} <- build.(runtime, request) do
       {_nested, clean_spec} = pop(spec)
 
-      {:ok, clean_spec,
+      {:ok, native_spec(clean_spec),
        %{
          context
          | request: request,
@@ -223,33 +204,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
            route_retry_used?: false,
            refresh_used?: false
        }}
-    end
-  end
-
-  @doc """
-  Builds and opens a new logical provider round with the normal retry policy.
-  """
-  @spec open_round(context(), map(), UniversalAIRequest.downstream_kind(), keyword()) ::
-          {:ok, Ankole.Kernel.UniversalAIClient.stream(), map(), context(), map()}
-          | {:error, term()}
-  def open_round(context, request, downstream, opts \\ [])
-      when is_map(context) and is_map(request) do
-    with {:ok, clean_spec, context} <- build_round(context, request) do
-      run(
-        context,
-        clean_spec,
-        fn candidate ->
-          UniversalAIRequest.open_stream(candidate, downstream, native_opts(opts))
-        end,
-        opts
-      )
-      |> case do
-        {:ok, {stream, meta}, context, clean_spec} ->
-          {:ok, stream, meta, context, clean_spec}
-
-        {:error, reason, _context} ->
-          {:error, reason}
-      end
     end
   end
 
@@ -362,8 +316,12 @@ defmodule Ankole.AIGateway.CredentialAttempts do
 
       {:error, reason} ->
         case recover(context, spec, reason, opts) do
-          {:retry, context, candidate} -> run(context, candidate, operation, opts)
-          {:stop, final_reason, context} -> {:error, final_reason, context}
+          {:retry, context, candidate, delay_ms} ->
+            sleep_retry(delay_ms, opts)
+            run(context, candidate, operation, opts)
+
+          {:stop, final_reason, context} ->
+            {:error, final_reason, context}
         end
     end
   end
@@ -408,10 +366,8 @@ defmodule Ankole.AIGateway.CredentialAttempts do
         {:ok, refreshed} ->
           with {:ok, runtime} <- runtime_with_refreshed_credential(runtime, refreshed),
                {:ok, candidate} <- rebuild(context, runtime, context.request) do
-            delay(context, opts)
-
             {:retry, %{context | runtime: runtime, refresh_used?: true} |> increment_attempt(),
-             candidate}
+             candidate, retry_delay_ms(context, opts)}
           else
             {:error, build_reason} -> {:stop, build_reason, context}
           end
@@ -445,12 +401,10 @@ defmodule Ankole.AIGateway.CredentialAttempts do
     if context.route_retry_used? do
       {:stop, reason, context}
     else
-      delay(context, opts)
-
       {:retry,
        context
        |> Map.put(:route_retry_used?, true)
-       |> increment_attempt(), spec}
+       |> increment_attempt(), spec, retry_delay_ms(context, opts)}
     end
   end
 
@@ -464,14 +418,12 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       case Resolver.reselect_credential(runtime, exclude: MapSet.to_list(attempted_ids)) do
         {:ok, next_runtime} ->
           with {:ok, candidate} <- rebuild(context, next_runtime, context.request) do
-            delay(context, opts)
-
             {:retry,
              context
              |> Map.put(:runtime, next_runtime)
              |> Map.put(:attempted_ids, attempted_ids)
              |> Map.put(:refresh_used?, false)
-             |> increment_attempt(), candidate}
+             |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
           else
             {:error, reason} -> {:stop, reason, context}
           end
@@ -534,8 +486,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
              ignore_affinity: true
            ),
          {:ok, candidate} <- rebuild(context, runtime, context.request) do
-      delay(context, opts)
-
       attempted_ids =
         case Map.get(runtime, "credential_id") do
           credential_id when is_binary(credential_id) ->
@@ -549,7 +499,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
        context
        |> Map.put(:runtime, runtime)
        |> Map.put(:attempted_ids, attempted_ids)
-       |> increment_attempt(), candidate}
+       |> increment_attempt(), candidate, retry_delay_ms(context, opts)}
     else
       {:error, {:credential_pool_exhausted, _details}} ->
         {:stop, original_reason, context}
@@ -738,14 +688,17 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   defp increment_attempt(context),
     do: Map.update!(context, :attempt_number, &(&1 + 1))
 
-  defp delay(context, opts) do
+  defp retry_delay_ms(context, opts) do
     exponent = min(context.attempt_number, 5)
     base = Keyword.get(opts, :credential_retry_base_ms, @default_base_delay_ms)
     maximum = Keyword.get(opts, :credential_retry_max_ms, @maximum_delay_ms)
     jitter = Keyword.get(opts, :credential_retry_jitter, &default_jitter/1)
-    delay = min(base * Integer.pow(2, exponent), maximum) |> jitter.()
+    min(base * Integer.pow(2, exponent), maximum) |> jitter.() |> max(0)
+  end
+
+  defp sleep_retry(delay_ms, opts) do
     sleep = Keyword.get(opts, :credential_retry_sleep, &Process.sleep/1)
-    sleep.(max(delay, 0))
+    sleep.(delay_ms)
   end
 
   defp default_jitter(milliseconds) do

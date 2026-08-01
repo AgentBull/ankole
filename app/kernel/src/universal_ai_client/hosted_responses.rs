@@ -612,6 +612,9 @@ async fn execute_hosted(
         .get("max_tool_calls")
         .and_then(Value::as_u64)
         .map(|value| value as usize);
+    if max_calls == Some(0) {
+        disable_hidden_tool(&mut private_request, &hidden_name);
+    }
     let mut total_tool_calls = 0usize;
     let mut main_model_rounds = 0u64;
     let mut successful_image_calls = 0u64;
@@ -653,15 +656,6 @@ async fn execute_hosted(
             .iter()
             .filter(|item| hidden_function_call(item, &hidden_name))
             .count();
-        if exceeds_max_tool_calls(max_calls, total_tool_calls, hidden_calls) {
-            let max_calls = max_calls.expect("exceeded max_tool_calls must be present");
-            return Err(StreamError::new(
-                "max_tool_calls_exceeded",
-                "hosted_responses",
-                format!("response exceeded max_tool_calls={max_calls}"),
-            ));
-        }
-        total_tool_calls = total_tool_calls.saturating_add(hidden_calls);
 
         if hidden_calls == 0 {
             for item in round_output {
@@ -689,9 +683,19 @@ async fn execute_hosted(
 
         let mut internal_outputs = Vec::new();
         let mut public_function_present = false;
+        let mut remaining_calls = max_calls
+            .map(|limit| limit.saturating_sub(total_tool_calls))
+            .unwrap_or(usize::MAX);
 
         for item in &round_output {
             if hidden_function_call(item, &hidden_name) {
+                if remaining_calls == 0 {
+                    internal_outputs.push(hidden_max_tool_calls_output(item));
+                    continue;
+                }
+
+                remaining_calls = remaining_calls.saturating_sub(1);
+                total_tool_calls = total_tool_calls.saturating_add(1);
                 let output_index = visible_output.len();
                 match execute_hidden_call(item, &hosted.image_generation, output_index, progress)
                     .await?
@@ -765,6 +769,9 @@ async fn execute_hosted(
 
         append_round_history(&mut private_request, &round_output, internal_outputs);
         private_request.insert("tool_choice".to_string(), json!("auto"));
+        if max_calls.is_some_and(|limit| total_tool_calls >= limit) {
+            disable_hidden_tool(&mut private_request, &hidden_name);
+        }
     };
     let public_body = json!({
         "id": api_resolver::generated_id("resp"),
@@ -812,14 +819,6 @@ async fn execute_hosted(
         final_body,
         metrics,
     })
-}
-
-fn exceeds_max_tool_calls(
-    max_calls: Option<usize>,
-    completed_calls: usize,
-    next_calls: usize,
-) -> bool {
-    max_calls.is_some_and(|limit| completed_calls.saturating_add(next_calls) > limit)
 }
 
 async fn send_hosted_progress(
@@ -1155,6 +1154,42 @@ fn lower_allowed_tools(
 fn hidden_function_call(item: &Value, hidden_name: &str) -> bool {
     item.get("type").and_then(Value::as_str) == Some("function_call")
         && item.get("name").and_then(Value::as_str) == Some(hidden_name)
+}
+
+fn disable_hidden_tool(request: &mut Map<String, Value>, hidden_name: &str) {
+    let remaining_tools = request
+        .get_mut("tools")
+        .and_then(Value::as_array_mut)
+        .map(|tools| {
+            tools.retain(|tool| tool.get("name").and_then(Value::as_str) != Some(hidden_name));
+            tools.len()
+        })
+        .unwrap_or(0);
+    let hidden_choice = request
+        .get("tool_choice")
+        .and_then(Value::as_object)
+        .is_some_and(|choice| {
+            choice.get("type").and_then(Value::as_str) == Some("function")
+                && choice.get("name").and_then(Value::as_str) == Some(hidden_name)
+        });
+
+    if hidden_choice || remaining_tools == 0 {
+        request.insert(
+            "tool_choice".to_string(),
+            json!(if remaining_tools == 0 { "none" } else { "auto" }),
+        );
+    }
+}
+
+fn hidden_max_tool_calls_output(call: &Value) -> Value {
+    let call_id = call
+        .get("call_id")
+        .and_then(Value::as_str)
+        .unwrap_or("call");
+    hidden_error_output(
+        call_id,
+        "This built-in tool call was ignored because max_tool_calls was reached.",
+    )
 }
 
 async fn execute_hidden_call(
@@ -1976,10 +2011,29 @@ mod tests {
     const HIDDEN_TOOL: &str = "__ankole_hosted_image_generation";
 
     #[test]
-    fn omitted_max_tool_calls_has_no_hidden_numeric_limit() {
-        assert!(!exceeds_max_tool_calls(None, 8, 1));
-        assert!(!exceeds_max_tool_calls(Some(9), 8, 1));
-        assert!(exceeds_max_tool_calls(Some(8), 8, 1));
+    fn exhausted_tool_budget_removes_only_the_hidden_image_tool() {
+        let mut request = json!({
+            "tools": [
+                {"type": "function", "name": HIDDEN_TOOL},
+                {"type": "function", "name": "lookup"}
+            ],
+            "tool_choice": {"type": "function", "name": HIDDEN_TOOL}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        disable_hidden_tool(&mut request, HIDDEN_TOOL);
+
+        assert_eq!(
+            request["tools"],
+            json!([{"type": "function", "name": "lookup"}])
+        );
+        assert_eq!(request["tool_choice"], json!("auto"));
+
+        disable_hidden_tool(&mut request, "lookup");
+        assert_eq!(request["tools"], json!([]));
+        assert_eq!(request["tool_choice"], json!("none"));
     }
 
     #[test]
@@ -3101,14 +3155,24 @@ mod tests {
                         "message": {
                             "role": "assistant",
                             "content": null,
-                            "tool_calls": [{
-                                "id": "call_hidden",
-                                "type": "function",
-                                "function": {
-                                    "name": hidden_name,
-                                    "arguments": "{\"prompt\":\"Turn the source into a moonlit lake\",\"action\":\"edit\",\"input_image_refs\":[\"img_1\"]}"
+                            "tool_calls": [
+                                {
+                                    "id": "call_hidden",
+                                    "type": "function",
+                                    "function": {
+                                        "name": hidden_name,
+                                        "arguments": "{\"prompt\":\"Turn the source into a moonlit lake\",\"action\":\"edit\",\"input_image_refs\":[\"img_1\"]}"
+                                    }
+                                },
+                                {
+                                    "id": "call_hidden_ignored",
+                                    "type": "function",
+                                    "function": {
+                                        "name": hidden_name,
+                                        "arguments": "{\"prompt\":\"Make a second image\",\"action\":\"generate\",\"input_image_refs\":[]}"
+                                    }
                                 }
-                            }]
+                            ]
                         },
                         "finish_reason": "tool_calls"
                     }],
@@ -3157,6 +3221,7 @@ mod tests {
                 "request": {
                     "input": "Draw a lake",
                     "temperature": 0.25,
+                    "max_tool_calls": 1,
                     "tools": [{"type": "image_generation", "model": "openai/gpt-image-2"}],
                     "tool_choice": {"type": "image_generation"}
                 }
@@ -3167,6 +3232,7 @@ mod tests {
                     "model": "main-model",
                     "input": "Draw a lake",
                     "service_tier": "priority",
+                    "max_tool_calls": 1,
                     "tools": [{"type": "image_generation", "model": "openai/gpt-image-2"}],
                     "tool_choice": {"type": "image_generation"}
                 },
@@ -3240,7 +3306,11 @@ mod tests {
         assert!(first_main.get("service_tier").is_none());
         let second_main_json = second_main.to_string();
         assert!(second_main_json.contains("call_hidden"));
+        assert!(second_main_json.contains("call_hidden_ignored"));
+        assert!(second_main_json.contains("max_tool_calls was reached"));
         assert!(!second_main_json.contains("ig_"));
+        assert!(second_main.get("tools").is_none());
+        assert_eq!(second_main["tool_choice"], json!("none"));
         assert_eq!(image_request["model"], "openai/gpt-image-2");
         assert_eq!(
             image_request["prompt"],

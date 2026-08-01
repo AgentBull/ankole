@@ -13,9 +13,12 @@
 //! `Date.now` shims so replays reproduce the recorded call sequence.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -25,10 +28,96 @@ use serde_json::Value as JsonValue;
 
 const DEFAULT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_HEAP_LIMIT_BYTES: usize = 256 * 1024 * 1024;
+const DEFAULT_MAX_PROGRAM_BYTES: usize = 256 * 1024;
+const DEFAULT_MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+const DEFAULT_MAX_ERROR_BYTES: usize = 16 * 1024;
+const DEFAULT_MAX_TEXT_BYTES: usize = 64 * 1024;
+const DEFAULT_MAX_IMAGE_BYTES: usize = 16 * 1024;
+const DEFAULT_MAX_PENDING_CALLS: usize = 64;
+const DEFAULT_MAX_PENDING_BYTES: usize = 1024 * 1024;
+const DEFAULT_MAX_PENDING_ARGUMENT_BYTES: usize = 256 * 1024;
+const DEFAULT_MAX_MEMO_ENTRIES: usize = 1024;
+const DEFAULT_MAX_MEMO_BYTES: usize = 8 * 1024 * 1024;
+const DEFAULT_MAX_TOOLS: usize = 128;
+const DEFAULT_MAX_TOOL_NAME_BYTES: usize = 256;
+const DEFAULT_MAX_TOOL_NAMES_BYTES: usize = 16 * 1024;
+const MAX_RUN_REQUEST_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RUN_ID_BYTES: usize = 128;
 const MAX_OUTPUT_PARTS: usize = 256;
-const DIVERGENCE_KEY: &str = "__ankole_divergence";
+const EXECUTION_RUNNING: u8 = 0;
+const TERMINATION_TIMEOUT: u8 = 1;
+const TERMINATION_HEAP: u8 = 2;
+const TERMINATION_CANCELLED: u8 = 3;
+const EXECUTION_FINISHING: u8 = 4;
+const EXECUTION_DONE: u8 = 5;
+
+#[cfg(not(test))]
+const MAX_CONCURRENT_RUNS: usize = 4;
+#[cfg(test)]
+const MAX_CONCURRENT_RUNS: usize = 64;
+
+static ACTIVE_RUNS: AtomicUsize = AtomicUsize::new(0);
+static RUN_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<RunControl>>>> = OnceLock::new();
+
+/// One cancellation authority for the V8 isolate that is currently running.
+/// Watchdog, heap pressure, and caller cancellation all race through the same
+/// execution phase, so V8 is terminated at most once and never after the host
+/// starts finishing.
+struct RunControl {
+    execution_phase: AtomicU8,
+    isolate: Mutex<Option<deno_core::v8::IsolateHandle>>,
+}
+
+impl RunControl {
+    fn new() -> Self {
+        Self {
+            execution_phase: AtomicU8::new(EXECUTION_RUNNING),
+            isolate: Mutex::new(None),
+        }
+    }
+
+    fn install_isolate(&self, handle: deno_core::v8::IsolateHandle) {
+        let mut isolate = self
+            .isolate
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *isolate = Some(handle.clone());
+
+        if self.execution_phase.load(Ordering::SeqCst) == TERMINATION_CANCELLED {
+            handle.terminate_execution();
+        }
+    }
+
+    fn clear_isolate(&self) {
+        self.isolate
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take();
+    }
+
+    fn terminate(&self, reason: u8) {
+        if self
+            .execution_phase
+            .compare_exchange(
+                EXECUTION_RUNNING,
+                reason,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            )
+            .is_ok()
+            && let Some(handle) = self
+                .isolate
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .as_ref()
+        {
+            handle.terminate_execution();
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunRequest {
     pub program: String,
     #[serde(default)]
@@ -39,6 +128,18 @@ pub struct RunRequest {
     pub timeout_ms: Option<u64>,
     #[serde(default)]
     pub heap_limit_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_program_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_output_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_pending_calls: Option<usize>,
+    #[serde(default)]
+    pub max_pending_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_memo_entries: Option<usize>,
+    #[serde(default)]
+    pub max_memo_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -67,27 +168,100 @@ pub struct RunOutcome {
     pub pending_calls: Vec<PendingCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+}
+
+#[derive(Clone)]
+struct ProgramFailure {
+    code: String,
+    message: String,
+}
+
+enum ProgramStatus {
+    Running,
+    Completed,
+    Failed(String),
 }
 
 struct ProgramState {
+    allowed_tools: HashSet<String>,
     memo: Vec<MemoEntry>,
     memo_cursor: usize,
     pending_calls: Vec<PendingCall>,
+    pending_bytes: usize,
     output: Vec<OutputPart>,
+    output_bytes: usize,
     activity: u64,
     divergence: Option<String>,
+    failure: Option<ProgramFailure>,
+    status: ProgramStatus,
+    max_output_bytes: usize,
+    max_pending_calls: usize,
+    max_pending_bytes: usize,
+    max_pending_argument_bytes: usize,
 }
 
 impl ProgramState {
-    fn new(memo: Vec<MemoEntry>) -> Self {
-        Self {
-            memo,
+    fn new(request: &RunRequest) -> Result<Self, ProgramFailure> {
+        let allowed_tools = validate_tools(&request.tools)?;
+
+        Ok(Self {
+            allowed_tools,
+            memo: request.memo.clone(),
             memo_cursor: 0,
             pending_calls: Vec::new(),
+            pending_bytes: 0,
             output: Vec::new(),
+            output_bytes: 0,
             activity: 0,
             divergence: None,
+            failure: None,
+            status: ProgramStatus::Running,
+            max_output_bytes: capped(request.max_output_bytes, DEFAULT_MAX_OUTPUT_BYTES),
+            max_pending_calls: capped(request.max_pending_calls, DEFAULT_MAX_PENDING_CALLS),
+            max_pending_bytes: capped(request.max_pending_bytes, DEFAULT_MAX_PENDING_BYTES),
+            max_pending_argument_bytes: DEFAULT_MAX_PENDING_ARGUMENT_BYTES,
+        })
+    }
+
+    fn fail(&mut self, code: &str, message: String) {
+        if self.failure.is_none() {
+            self.failure = Some(ProgramFailure {
+                code: code.to_string(),
+                message: bounded_message(&message),
+            });
         }
+    }
+
+    fn push_output(&mut self, kind: &str, value: String) -> bool {
+        let part_limit = if kind == "image" {
+            DEFAULT_MAX_IMAGE_BYTES
+        } else {
+            DEFAULT_MAX_TEXT_BYTES
+        };
+        let next_bytes = self.output_bytes.saturating_add(value.len());
+
+        if value.len() > part_limit
+            || self.output.len() >= MAX_OUTPUT_PARTS
+            || next_bytes > self.max_output_bytes
+        {
+            self.fail(
+                "program_output_limit_exceeded",
+                format!(
+                    "program output exceeded the per-part, {}-part, or {}-byte limit",
+                    MAX_OUTPUT_PARTS, self.max_output_bytes,
+                ),
+            );
+            return false;
+        }
+
+        self.output_bytes = next_bytes;
+        self.output.push(OutputPart {
+            kind: kind.to_string(),
+            value,
+        });
+        true
     }
 }
 
@@ -103,8 +277,9 @@ impl Future for EternalPend {
     }
 }
 
-// Divergence rides back as a sentinel object that the JS binding turns into a
-// thrown error, so the op needs no host error type.
+// Every resolved op result is host-tagged before JavaScript unwraps it. A tool
+// output can therefore contain any object keys without impersonating a host
+// replay error.
 #[op2]
 #[serde]
 async fn op_ankole_tool_call(
@@ -123,7 +298,11 @@ async fn op_ankole_tool_call(
         let program = op_state.borrow_mut::<ProgramState>();
         program.activity += 1;
 
-        if program.memo_cursor < program.memo.len() {
+        if !program.allowed_tools.contains(&name) {
+            let message = format!("program tool is not enabled: {name}");
+            program.fail("program_tool_not_allowed", message.clone());
+            Reply::Diverged(message)
+        } else if program.memo_cursor < program.memo.len() {
             let entry = &program.memo[program.memo_cursor];
 
             if entry.name == name && entry.arguments == arguments {
@@ -139,42 +318,53 @@ async fn op_ankole_tool_call(
                 Reply::Diverged(message)
             }
         } else {
-            program.pending_calls.push(PendingCall { name, arguments });
-            Reply::Pend
+            let argument_bytes =
+                serde_json::to_vec(&arguments).map_or(usize::MAX, |value| value.len());
+            let next_pending_bytes = program.pending_bytes.saturating_add(argument_bytes);
+
+            if argument_bytes > program.max_pending_argument_bytes
+                || program.pending_calls.len() >= program.max_pending_calls
+                || next_pending_bytes > program.max_pending_bytes
+            {
+                let message = format!(
+                    "program pending calls exceeded the per-argument, {}-call, or {}-byte limit",
+                    program.max_pending_calls, program.max_pending_bytes,
+                );
+                program.fail("program_pending_limit_exceeded", message.clone());
+                Reply::Diverged(message)
+            } else {
+                program.pending_bytes = next_pending_bytes;
+                program.pending_calls.push(PendingCall { name, arguments });
+                Reply::Pend
+            }
         }
     };
 
     match reply {
-        Reply::Memo(output) => output,
-        Reply::Diverged(message) => serde_json::json!({ DIVERGENCE_KEY: message }),
+        Reply::Memo(output) => serde_json::json!({
+            "__ankole_reply": "memo",
+            "value": output,
+        }),
+        Reply::Diverged(message) => serde_json::json!({
+            "__ankole_reply": "error",
+            "error": message,
+        }),
         Reply::Pend => EternalPend.await,
     }
 }
 
 #[op2(fast)]
-fn op_ankole_text(state: &mut OpState, #[string] text: String) {
+fn op_ankole_text(state: &mut OpState, #[string] text: String) -> bool {
     let program = state.borrow_mut::<ProgramState>();
     program.activity += 1;
-
-    if program.output.len() < MAX_OUTPUT_PARTS {
-        program.output.push(OutputPart {
-            kind: "text".to_string(),
-            value: text,
-        });
-    }
+    program.push_output("text", text)
 }
 
 #[op2(fast)]
-fn op_ankole_image(state: &mut OpState, #[string] url: String) {
+fn op_ankole_image(state: &mut OpState, #[string] url: String) -> bool {
     let program = state.borrow_mut::<ProgramState>();
     program.activity += 1;
-
-    if program.output.len() < MAX_OUTPUT_PARTS {
-        program.output.push(OutputPart {
-            kind: "image".to_string(),
-            value: url,
-        });
-    }
+    program.push_output("image", url)
 }
 
 deno_core::extension!(
@@ -184,31 +374,88 @@ deno_core::extension!(
 
 /// Runs one program to completion or to its first unanswered tool-call batch.
 pub fn run(request: RunRequest) -> RunOutcome {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(request))) {
+    let _permit = match RunPermit::acquire() {
+        Some(permit) => permit,
+        None => {
+            return failed(
+                "program_runtime_busy",
+                "program runtime concurrency limit reached",
+            );
+        }
+    };
+
+    guarded_execute(request, Arc::new(RunControl::new()))
+}
+
+/// Registers and runs one cancellable native execution.
+pub fn run_registered(run_id: &str, request: RunRequest) -> RunOutcome {
+    let _permit = match RunPermit::acquire() {
+        Some(permit) => permit,
+        None => {
+            return failed(
+                "program_runtime_busy",
+                "program runtime concurrency limit reached",
+            );
+        }
+    };
+
+    let running = match RunningRun::begin(run_id) {
+        Ok(running) => running,
+        Err(failure) => return failed(&failure.code, &failure.message),
+    };
+
+    guarded_execute(request, Arc::clone(&running.control))
+}
+
+fn guarded_execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| execute(request, control))) {
         Ok(outcome) => outcome,
-        Err(_panic) => failed("program runtime panicked"),
+        Err(_panic) => failed("program_runtime_panicked", "program runtime panicked"),
     }
 }
 
-fn failed(message: &str) -> RunOutcome {
+fn failed(code: &str, message: &str) -> RunOutcome {
     RunOutcome {
         status: "failed".to_string(),
         output: Vec::new(),
         pending_calls: Vec::new(),
-        error: Some(message.to_string()),
+        error: Some(bounded_message(message)),
+        error_code: Some(code.to_string()),
     }
 }
 
-fn execute(request: RunRequest) -> RunOutcome {
-    let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS));
-    let heap_limit = request.heap_limit_bytes.unwrap_or(DEFAULT_HEAP_LIMIT_BYTES);
+fn execute(request: RunRequest, control: Arc<RunControl>) -> RunOutcome {
+    if let Err(failure) = validate_request(&request) {
+        return failed(&failure.code, &failure.message);
+    }
+
+    if let Some(outcome) = termination_outcome(&control.execution_phase) {
+        return outcome;
+    }
+
+    let timeout = Duration::from_millis(
+        request
+            .timeout_ms
+            .unwrap_or(DEFAULT_TIMEOUT_MS)
+            .min(DEFAULT_TIMEOUT_MS),
+    );
+    let heap_limit = request
+        .heap_limit_bytes
+        .filter(|limit| *limit > 0)
+        .unwrap_or(DEFAULT_HEAP_LIMIT_BYTES)
+        .min(DEFAULT_HEAP_LIMIT_BYTES);
 
     let tokio_runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
     {
         Ok(runtime) => runtime,
-        Err(error) => return failed(&format!("tokio runtime unavailable: {error}")),
+        Err(error) => {
+            return failed(
+                "program_runtime_unavailable",
+                &format!("tokio runtime unavailable: {error}"),
+            );
+        }
     };
     let _runtime_guard = tokio_runtime.enter();
 
@@ -218,77 +465,154 @@ fn execute(request: RunRequest) -> RunOutcome {
         ..Default::default()
     });
 
-    // A heap near-limit callback cannot recover the isolate; terminate loudly.
     let isolate_handle = js_runtime.v8_isolate().thread_safe_handle();
-    let heap_handle = isolate_handle.clone();
+    control.install_isolate(isolate_handle);
+
+    // Only a running isolate may be terminated. Once the host claims the
+    // finishing phase, watchdog and heap callbacks can no longer race a
+    // terminal read with a fresh V8 termination.
+    let heap_control = Arc::clone(&control);
     js_runtime.add_near_heap_limit_callback(move |current, _initial| {
-        heap_handle.terminate_execution();
+        heap_control.terminate(TERMINATION_HEAP);
         current * 2
     });
 
-    js_runtime
-        .op_state()
-        .borrow_mut()
-        .put(ProgramState::new(request.memo));
+    let program_state = match ProgramState::new(&request) {
+        Ok(state) => state,
+        Err(failure) => return failed(&failure.code, &failure.message),
+    };
+    js_runtime.op_state().borrow_mut().put(program_state);
 
-    let watchdog_handle = isolate_handle;
+    let watchdog_control = Arc::clone(&control);
     let (cancel_watchdog, watchdog_cancelled) = std::sync::mpsc::channel::<()>();
     let watchdog = std::thread::spawn(move || {
         if watchdog_cancelled.recv_timeout(timeout).is_err() {
-            watchdog_handle.terminate_execution();
+            watchdog_control.terminate(TERMINATION_TIMEOUT);
         }
     });
 
-    let outcome = tokio_runtime.block_on(drive(&mut js_runtime, &request.program, &request.tools));
+    let outcome = tokio_runtime.block_on(drive(
+        &mut js_runtime,
+        &request.program,
+        &request.tools,
+        &control.execution_phase,
+    ));
 
     let _ = cancel_watchdog.send(());
     let _ = watchdog.join();
+    control.clear_isolate();
+    let _ = control.execution_phase.compare_exchange(
+        EXECUTION_FINISHING,
+        EXECUTION_DONE,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
 
     outcome
 }
 
-async fn drive(js_runtime: &mut JsRuntime, program: &str, tools: &[String]) -> RunOutcome {
+async fn drive(
+    js_runtime: &mut JsRuntime,
+    program: &str,
+    tools: &[String],
+    execution_phase: &AtomicU8,
+) -> RunOutcome {
     if let Err(error) = js_runtime.execute_script("ankole:prelude", prelude(tools)) {
-        return failed(&format!("program prelude failed: {error}"));
+        return claim_failure(
+            execution_phase,
+            "program_prelude_failed",
+            &format!("program prelude failed: {error}"),
+        );
     }
 
-    let wrapped = format!(
-        "globalThis.__ankole_program = (async () => {{\n{program}\n}})();\
-         globalThis.__ankole_status = \"running\";\
-         globalThis.__ankole_program.then(\
-           () => {{ globalThis.__ankole_status = \"completed\"; }},\
-           (error) => {{\
-             globalThis.__ankole_status = \"failed\";\
-             globalThis.__ankole_error = String((error && error.stack) || error);\
-           }}\
-         );"
-    );
+    let wrapped = format!("(async () => {{\n{program}\n}})()");
 
-    if let Err(error) = js_runtime.execute_script("ankole:program", wrapped) {
-        return failed(&format!("program rejected before start: {error}"));
-    }
+    let promise = match js_runtime.execute_script("ankole:program", wrapped) {
+        Ok(promise) => promise,
+        Err(error) => {
+            return claim_failure(
+                execution_phase,
+                "program_start_failed",
+                &format!("program rejected before start: {error}"),
+            );
+        }
+    };
+
+    // `JsRuntime::resolve` installs a V8 promise hook without consulting the
+    // user-mutable `Promise.prototype.then`. Completion is therefore a host
+    // fact: model code cannot invoke a completion op or monkey-patch the
+    // wrapper into settling early.
+    let mut program_resolution = Box::pin(js_runtime.resolve(promise));
 
     // The only async ops are tool calls: memoized calls resolve within the
     // tick and unanswered calls pend forever. A Pending event loop with no new
     // op activity between two polls therefore means the program stalled on its
     // pending batch.
     let mut last_activity = activity(js_runtime);
+    let mut event_loop_idle_once = false;
 
     loop {
-        let poll_result = futures_util::future::poll_fn(|cx| {
-            Poll::Ready(js_runtime.poll_event_loop(cx, PollEventLoopOptions::default()))
+        let (resolution, poll_result) = futures_util::future::poll_fn(|cx| {
+            Poll::Ready((
+                program_resolution.as_mut().poll(cx),
+                js_runtime.poll_event_loop(cx, PollEventLoopOptions::default()),
+            ))
         })
         .await;
 
+        if let Some(outcome) = termination_outcome(execution_phase) {
+            return outcome;
+        }
+
+        match resolution {
+            Poll::Ready(Ok(_value)) => {
+                set_program_status(js_runtime, ProgramStatus::Completed);
+                return safe_finish(js_runtime, None, execution_phase);
+            }
+            Poll::Ready(Err(error)) => {
+                set_program_status(
+                    js_runtime,
+                    ProgramStatus::Failed(bounded_message(&error.to_string())),
+                );
+                return safe_finish(js_runtime, None, execution_phase);
+            }
+            Poll::Pending => {}
+        }
+
         match poll_result {
-            Poll::Ready(Ok(())) => break,
-            Poll::Ready(Err(error)) => return finish(js_runtime, Some(format!("{error}"))),
+            Poll::Ready(Ok(())) => {
+                // Promise hooks can resolve one host poll after the event loop
+                // first reports idle. Give the native resolver that turn, but
+                // do not spin forever for a promise with no operations.
+                if event_loop_idle_once {
+                    return safe_finish(js_runtime, None, execution_phase);
+                }
+
+                event_loop_idle_once = true;
+                tokio::task::yield_now().await;
+            }
+            Poll::Ready(Err(error)) => {
+                return safe_finish(
+                    js_runtime,
+                    Some(ProgramFailure {
+                        code: "program_event_loop_failed".to_string(),
+                        message: error.to_string(),
+                    }),
+                    execution_phase,
+                );
+            }
 
             Poll::Pending => {
+                event_loop_idle_once = false;
+
+                if has_host_failure(js_runtime) {
+                    return safe_finish(js_runtime, None, execution_phase);
+                }
+
                 let current_activity = activity(js_runtime);
 
                 if current_activity == last_activity && has_pending_calls(js_runtime) {
-                    return finish(js_runtime, None);
+                    return safe_finish(js_runtime, None, execution_phase);
                 }
 
                 last_activity = current_activity;
@@ -296,8 +620,6 @@ async fn drive(js_runtime: &mut JsRuntime, program: &str, tools: &[String]) -> R
             }
         }
     }
-
-    finish(js_runtime, None)
 }
 
 fn prelude(tools: &[String]) -> String {
@@ -309,11 +631,10 @@ fn prelude(tools: &[String]) -> String {
                    value: async (args = {{}}) => {{\
                      const result = await \
                        Deno.core.ops.op_ankole_tool_call({name:?}, args);\
-                     if (result && typeof result === \"object\" && \
-                         result.{DIVERGENCE_KEY}) {{\
-                       throw new Error(result.{DIVERGENCE_KEY});\
+                     if (!result || result.__ankole_reply !== \"memo\") {{\
+                       throw new Error(String(result && result.error));\
                      }}\
-                     return result;\
+                     return result.value;\
                    }},\
                    enumerable: true\
                  }});"
@@ -325,8 +646,16 @@ fn prelude(tools: &[String]) -> String {
     format!(
         "globalThis.tools = {{}};\n\
          {tool_bindings}\n\
-         globalThis.text = (value) => Deno.core.ops.op_ankole_text(String(value));\n\
-         globalThis.image = (value) => Deno.core.ops.op_ankole_image(String(value));\n\
+         globalThis.text = (value) => {{\
+           if (!Deno.core.ops.op_ankole_text(String(value))) {{\
+             throw new Error(\"program output limit exceeded\");\
+           }}\
+         }};\n\
+         globalThis.image = (value) => {{\
+           if (!Deno.core.ops.op_ankole_image(String(value))) {{\
+             throw new Error(\"program output limit exceeded\");\
+           }}\
+         }};\n\
          (() => {{\n\
            let seed = 0x2F6E2B1;\n\
            Math.random = () => {{\n\
@@ -357,89 +686,351 @@ fn has_pending_calls(js_runtime: &mut JsRuntime) -> bool {
     !op_state.borrow::<ProgramState>().pending_calls.is_empty()
 }
 
-fn read_global_string(js_runtime: &mut JsRuntime, expression: &'static str) -> Option<String> {
-    let value = js_runtime.execute_script("ankole:read", expression).ok()?;
-    deno_core::scope!(scope, js_runtime);
-    let local = deno_core::v8::Local::new(scope, value);
-
-    if local.is_undefined() || local.is_null() {
-        return None;
-    }
-
-    Some(local.to_rust_string_lossy(scope))
+fn has_host_failure(js_runtime: &mut JsRuntime) -> bool {
+    let op_state = js_runtime.op_state();
+    let op_state = op_state.borrow();
+    op_state.borrow::<ProgramState>().failure.is_some()
 }
 
-fn finish(js_runtime: &mut JsRuntime, event_loop_error: Option<String>) -> RunOutcome {
-    let status = read_global_string(js_runtime, "globalThis.__ankole_status");
+fn set_program_status(js_runtime: &mut JsRuntime, status: ProgramStatus) {
+    let op_state = js_runtime.op_state();
+    let mut op_state = op_state.borrow_mut();
+    op_state.borrow_mut::<ProgramState>().status = status;
+}
 
-    let (divergence, pending_calls, output) = {
+fn finish(js_runtime: &mut JsRuntime, event_loop_failure: Option<ProgramFailure>) -> RunOutcome {
+    let (divergence, failure, status, memo_remaining, pending_calls, output) = {
         let op_state = js_runtime.op_state();
         let mut op_state = op_state.borrow_mut();
         let program = op_state.borrow_mut::<ProgramState>();
 
         (
             program.divergence.take(),
+            program.failure.take(),
+            std::mem::replace(&mut program.status, ProgramStatus::Running),
+            program.memo.len().saturating_sub(program.memo_cursor),
             std::mem::take(&mut program.pending_calls),
             std::mem::take(&mut program.output),
         )
     };
 
-    match (divergence, status.as_deref(), event_loop_error) {
-        (Some(message), _status, _loop_error) => RunOutcome {
+    let failure = failure
+        .or_else(|| {
+            divergence.map(|message| ProgramFailure {
+                code: "program_replay_diverged".to_string(),
+                message: bounded_message(&message),
+            })
+        })
+        .or(event_loop_failure);
+
+    if let Some(failure) = failure {
+        return RunOutcome {
             status: "failed".to_string(),
             output,
             pending_calls: Vec::new(),
-            error: Some(message),
+            error: Some(failure.message),
+            error_code: Some(failure.code),
+        };
+    }
+
+    match status {
+        ProgramStatus::Completed if memo_remaining > 0 => RunOutcome {
+            status: "failed".to_string(),
+            output,
+            pending_calls: Vec::new(),
+            error: Some(format!(
+                "program replay completed with {memo_remaining} unused memo entries"
+            )),
+            error_code: Some("program_replay_memo_unused".to_string()),
         },
 
-        (None, Some("completed"), _loop_error) => RunOutcome {
+        ProgramStatus::Completed => RunOutcome {
             status: "completed".to_string(),
             output,
             pending_calls: Vec::new(),
             error: None,
+            error_code: None,
         },
 
-        (None, Some("failed"), _loop_error) => {
-            let message = read_global_string(js_runtime, "globalThis.__ankole_error")
-                .unwrap_or_else(|| "program failed".to_string());
-
-            RunOutcome {
-                status: "failed".to_string(),
-                output,
-                pending_calls: Vec::new(),
-                error: Some(message),
-            }
-        }
-
-        (None, _status, Some(loop_error)) => RunOutcome {
+        ProgramStatus::Failed(message) => RunOutcome {
             status: "failed".to_string(),
             output,
             pending_calls: Vec::new(),
-            error: Some(loop_error),
+            error: Some(message),
+            error_code: Some("program_execution_failed".to_string()),
         },
 
-        (None, _status, None) if !pending_calls.is_empty() => RunOutcome {
+        ProgramStatus::Running if !pending_calls.is_empty() => RunOutcome {
             status: "pending".to_string(),
             output,
             pending_calls,
             error: None,
+            error_code: None,
         },
 
-        (None, _status, None) => RunOutcome {
+        ProgramStatus::Running => RunOutcome {
             status: "failed".to_string(),
             output,
             pending_calls: Vec::new(),
             error: Some("program neither completed nor paused".to_string()),
+            error_code: Some("program_invalid_terminal_state".to_string()),
         },
     }
 }
 
+fn validate_request(request: &RunRequest) -> Result<(), ProgramFailure> {
+    let max_program_bytes = capped(request.max_program_bytes, DEFAULT_MAX_PROGRAM_BYTES);
+    if request.program.len() > max_program_bytes {
+        return Err(ProgramFailure {
+            code: "program_source_limit_exceeded".to_string(),
+            message: format!("program source exceeded {max_program_bytes} bytes"),
+        });
+    }
+
+    let max_memo_entries = capped(request.max_memo_entries, DEFAULT_MAX_MEMO_ENTRIES);
+    if request.memo.len() > max_memo_entries {
+        return Err(ProgramFailure {
+            code: "program_memo_limit_exceeded".to_string(),
+            message: format!("program memo exceeded {max_memo_entries} entries"),
+        });
+    }
+
+    let memo_bytes = serde_json::to_vec(&request.memo).map_or(usize::MAX, |value| value.len());
+    let max_memo_bytes = capped(request.max_memo_bytes, DEFAULT_MAX_MEMO_BYTES);
+    if memo_bytes > max_memo_bytes {
+        return Err(ProgramFailure {
+            code: "program_memo_limit_exceeded".to_string(),
+            message: format!("program memo exceeded {max_memo_bytes} bytes"),
+        });
+    }
+
+    let allowed_tools = validate_tools(&request.tools)?;
+    if let Some(entry) = request
+        .memo
+        .iter()
+        .find(|entry| !allowed_tools.contains(&entry.name))
+    {
+        return Err(ProgramFailure {
+            code: "program_memo_tool_not_allowed".to_string(),
+            message: format!("program memo references a disabled tool: {}", entry.name),
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_tools(tools: &[String]) -> Result<HashSet<String>, ProgramFailure> {
+    if tools.len() > DEFAULT_MAX_TOOLS {
+        return Err(ProgramFailure {
+            code: "program_tool_limit_exceeded".to_string(),
+            message: format!("program tools exceeded {DEFAULT_MAX_TOOLS} entries"),
+        });
+    }
+
+    let mut unique = HashSet::with_capacity(tools.len());
+    let mut total_bytes = 0usize;
+    for tool in tools {
+        total_bytes = total_bytes.saturating_add(tool.len());
+        if tool.is_empty()
+            || tool.len() > DEFAULT_MAX_TOOL_NAME_BYTES
+            || total_bytes > DEFAULT_MAX_TOOL_NAMES_BYTES
+            || !unique.insert(tool.clone())
+        {
+            return Err(ProgramFailure {
+                code: "program_invalid_tools".to_string(),
+                message: "program tools must be non-empty, unique, and within name limits"
+                    .to_string(),
+            });
+        }
+    }
+    Ok(unique)
+}
+
+fn capped(requested: Option<usize>, hard_max: usize) -> usize {
+    requested.unwrap_or(hard_max).min(hard_max)
+}
+
+fn bounded_message(message: &str) -> String {
+    if message.len() <= DEFAULT_MAX_ERROR_BYTES {
+        return message.to_string();
+    }
+
+    let mut end = DEFAULT_MAX_ERROR_BYTES.saturating_sub('…'.len_utf8());
+    while end > 0 && !message.is_char_boundary(end) {
+        end -= 1;
+    }
+
+    format!("{}…", &message[..end])
+}
+
+fn termination_outcome(termination: &AtomicU8) -> Option<RunOutcome> {
+    match termination.load(Ordering::SeqCst) {
+        TERMINATION_TIMEOUT => Some(failed(
+            "program_timeout",
+            "program execution exceeded its timeout",
+        )),
+        TERMINATION_HEAP => Some(failed(
+            "program_heap_limit_exceeded",
+            "program execution exceeded its heap limit",
+        )),
+        TERMINATION_CANCELLED => Some(failed(
+            "program_cancelled",
+            "program execution was cancelled",
+        )),
+        _none => None,
+    }
+}
+
+fn safe_finish(
+    js_runtime: &mut JsRuntime,
+    event_loop_failure: Option<ProgramFailure>,
+    execution_phase: &AtomicU8,
+) -> RunOutcome {
+    match execution_phase.compare_exchange(
+        EXECUTION_RUNNING,
+        EXECUTION_FINISHING,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    ) {
+        Ok(_) => finish(js_runtime, event_loop_failure),
+        Err(_) => termination_outcome(execution_phase).unwrap_or_else(|| {
+            failed(
+                "program_invalid_execution_phase",
+                "program could not enter its finishing phase",
+            )
+        }),
+    }
+}
+
+fn claim_failure(execution_phase: &AtomicU8, code: &str, message: &str) -> RunOutcome {
+    match execution_phase.compare_exchange(
+        EXECUTION_RUNNING,
+        EXECUTION_FINISHING,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    ) {
+        Ok(_) => failed(code, message),
+        Err(_) => termination_outcome(execution_phase)
+            .unwrap_or_else(|| failed("program_invalid_execution_phase", message)),
+    }
+}
+
+struct RunPermit;
+
+impl RunPermit {
+    fn acquire() -> Option<Self> {
+        ACTIVE_RUNS
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |active| {
+                (active < MAX_CONCURRENT_RUNS).then_some(active + 1)
+            })
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for RunPermit {
+    fn drop(&mut self) {
+        ACTIVE_RUNS.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+struct RunningRun {
+    run_id: String,
+    control: Arc<RunControl>,
+}
+
+impl RunningRun {
+    fn begin(run_id: &str) -> Result<Self, ProgramFailure> {
+        validate_run_id(run_id)?;
+
+        let control = Arc::new(RunControl::new());
+        let registry = run_registry();
+        let mut registry = registry.lock().unwrap_or_else(|error| error.into_inner());
+
+        if registry.contains_key(run_id) {
+            return Err(ProgramFailure {
+                code: "program_run_id_conflict".to_string(),
+                message: "program run id is already active".to_string(),
+            });
+        }
+
+        registry.insert(run_id.to_string(), Arc::clone(&control));
+
+        Ok(Self {
+            run_id: run_id.to_string(),
+            control,
+        })
+    }
+}
+
+impl Drop for RunningRun {
+    fn drop(&mut self) {
+        let registry = run_registry();
+        let mut registry = registry.lock().unwrap_or_else(|error| error.into_inner());
+
+        if registry
+            .get(&self.run_id)
+            .is_some_and(|registered| Arc::ptr_eq(registered, &self.control))
+        {
+            registry.remove(&self.run_id);
+        }
+    }
+}
+
+fn run_registry() -> &'static Mutex<HashMap<String, Arc<RunControl>>> {
+    RUN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Cancels a run that has entered native execution.
+///
+/// A cancellation that races before registration can miss. The BEAM task is
+/// still killed, and the native watchdog bounds the rare late-registration
+/// race to one execution slot for at most the configured timeout.
+pub fn cancel(run_id: &str) -> Result<bool, String> {
+    validate_run_id(run_id).map_err(|failure| failure.message)?;
+
+    let control = run_registry()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .get(run_id)
+        .cloned();
+
+    if let Some(control) = control {
+        control.terminate(TERMINATION_CANCELLED);
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+fn validate_run_id(run_id: &str) -> Result<(), ProgramFailure> {
+    if run_id.is_empty()
+        || run_id.len() > MAX_RUN_ID_BYTES
+        || !run_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(ProgramFailure {
+            code: "program_invalid_run_id".to_string(),
+            message: "program run id is invalid".to_string(),
+        });
+    }
+
+    Ok(())
+}
+
 /// JSON boundary used by the NIF layer.
-pub fn run_json(request_json: &str) -> Result<String, String> {
+pub fn run_json(run_id: &str, request_json: &str) -> Result<String, String> {
+    if request_json.len() > MAX_RUN_REQUEST_BYTES {
+        return Err(format!(
+            "invalid program run request: exceeds {MAX_RUN_REQUEST_BYTES} bytes"
+        ));
+    }
+
     let request: RunRequest = serde_json::from_str(request_json)
         .map_err(|error| format!("invalid program run request: {error}"))?;
 
-    serde_json::to_string(&run(request))
+    serde_json::to_string(&run_registered(run_id, request))
         .map_err(|error| format!("program outcome encoding failed: {error}"))
 }
 

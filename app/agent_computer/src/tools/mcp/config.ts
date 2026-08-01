@@ -18,6 +18,14 @@ import { compareCodePointStrings } from './ordering'
 const MAX_METADATA_BYTES = 64 * 1024
 const MAX_DEPENDENCIES_PER_SKILL = 64
 const MAX_FILTERED_TOOLS_PER_SERVER = 256
+export const MCP_RESOURCE_LIMITS = {
+  enabledSkills: 128,
+  enabledServers: 32,
+  modelVisibleTools: 512,
+  modelToolCatalogBytes: 2 * 1024 * 1024,
+  httpResponseBytes: 2 * 1024 * 1024,
+  stdioMessageBytes: 2 * 1024 * 1024
+} as const
 export const DEFAULT_MCP_TIMEOUT_MS = 360_000
 export const MINIMUM_MCP_TIMEOUT_MS = 100
 const ServerName = z
@@ -126,6 +134,8 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
     .filter(skill => skillAvailableInRuntime(skill, runtime))
     .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
+  assertMCPResourceLimit('aggregate enabled Skills', skills.length, MCP_RESOURCE_LIMITS.enabledSkills, 'count')
+
   if (skills.length === 0) return []
   if (!input.skillRoots) throw new Error('enabled inline Skills require worker skill source roots for MCP discovery')
 
@@ -143,6 +153,12 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
       const accumulated = servers.get(candidate.name)
       const existing = accumulated?.server
       if (!existing) {
+        assertMCPResourceLimit(
+          'aggregate enabled servers',
+          servers.size + 1,
+          MCP_RESOURCE_LIMITS.enabledServers,
+          'count'
+        )
         servers.set(candidate.name, { server: candidate, sourceGenerations: new Map([[skillName, generation]]) })
         continue
       }
@@ -169,6 +185,10 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
       )
     }))
     .sort((left, right) => compareCodePointStrings(left.name, right.name))
+}
+
+export function assertMCPResourceLimit(subject: string, actual: number, limit: number, unit: 'count' | 'byte'): void {
+  if (actual > limit) throw new Error(`MCP ${subject} exceeds the ${limit}-${unit} limit`)
 }
 
 async function readSkillMCPDependencies(

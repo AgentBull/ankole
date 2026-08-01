@@ -3,6 +3,7 @@ import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import { callModel, createModel } from '../../src/core/llm'
+import { parseOutputItems } from '../../src/core/llm/parse'
 import { classifyLLMError, isLocallyRetryableLLMError } from '../../src/core/llm-error-classifier'
 import {
   estimateResponseRequestTokens,
@@ -209,7 +210,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
           namespaceDescription: 'Financial data tools.',
           deferLoading: true,
           toolSearchText:
-            'mcp__financestock_price mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
+            'mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
           allowedCallers: ['direct', 'programmatic']
         }
       }
@@ -234,7 +235,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             strict: false,
             defer_loading: true,
             __ankole_search_text:
-              'mcp__financestock_price mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
+              'mcp__finance__stock_price stock_price stock-price finance Stock Price Financial data tools symbol',
             allowed_callers: ['direct', 'programmatic']
           }
         ]
@@ -325,6 +326,154 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
         caller
       }
     ])
+  })
+
+  it('keeps direct and program-scoped calls distinct when their raw call ids match', () => {
+    const calls = [
+      {
+        type: 'function_call',
+        call_id: 'same',
+        name: 'direct_lookup',
+        arguments: '{}',
+        status: 'completed'
+      },
+      {
+        type: 'function_call',
+        call_id: 'same',
+        name: 'nested_lookup',
+        arguments: '{}',
+        status: 'completed',
+        caller: { type: 'program', caller_id: 'program_1' }
+      }
+    ]
+
+    const result = parseOutputItems(calls as never, 'gpt-5.6', undefined, undefined, '', undefined, calls as never)
+
+    expect(result.message.toolCalls).toEqual([
+      expect.objectContaining({ id: 'same', name: 'direct_lookup' }),
+      expect.objectContaining({
+        id: 'same',
+        name: 'nested_lookup',
+        caller: { type: 'program', caller_id: 'program_1' }
+      })
+    ])
+  })
+
+  it('uses changed terminal arguments instead of the same caller-scoped streamed fallback', () => {
+    const caller = { type: 'program' as const, caller_id: 'program_terminal_wins' }
+    const streamed = {
+      type: 'function_call',
+      call_id: 'call_terminal_wins',
+      name: 'lookup',
+      arguments: '{"query":"stale"}',
+      status: 'completed',
+      caller
+    }
+    const terminal = {
+      ...streamed,
+      arguments: '{"query":"authoritative"}'
+    }
+
+    const result = parseOutputItems([terminal] as never, 'gpt-5.6', undefined, undefined, '', undefined, [
+      streamed
+    ] as never)
+
+    expect(result.message.stopReason).toBe('toolUse')
+    expect(result.message.toolCalls).toEqual([
+      expect.objectContaining({
+        id: 'call_terminal_wins',
+        arguments: '{"query":"authoritative"}',
+        caller
+      })
+    ])
+  })
+
+  it('rejects a failed terminal call instead of executing the same caller-scoped streamed fallback', () => {
+    const caller = { type: 'program' as const, caller_id: 'program_failed_terminal' }
+    const streamed = {
+      type: 'function_call',
+      call_id: 'call_failed_terminal',
+      name: 'lookup',
+      arguments: '{"query":"stale"}',
+      status: 'completed',
+      caller
+    }
+    const terminal = {
+      ...streamed,
+      status: 'failed'
+    }
+
+    const result = parseOutputItems([terminal] as never, 'gpt-5.6', undefined, undefined, '', undefined, [
+      streamed
+    ] as never)
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.message.toolCalls).toBeUndefined()
+    expect(result.hasToolCalls).toBe(false)
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
+  })
+
+  it('rejects a malformed terminal call instead of executing the same caller-scoped streamed fallback', () => {
+    const caller = { type: 'program' as const, caller_id: 'program_malformed_terminal' }
+    const streamed = {
+      type: 'function_call',
+      call_id: 'call_malformed_terminal',
+      name: 'lookup',
+      arguments: '{"query":"stale"}',
+      status: 'completed',
+      caller
+    }
+    const terminal = {
+      type: 'function_call',
+      call_id: streamed.call_id,
+      name: streamed.name,
+      status: 'completed',
+      caller
+    }
+
+    const result = parseOutputItems([terminal] as never, 'gpt-5.6', undefined, undefined, '', undefined, [
+      streamed
+    ] as never)
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.message.toolCalls).toBeUndefined()
+    expect(result.hasToolCalls).toBe(false)
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
+  })
+
+  it('accepts the exact direct caller shape and rejects ambiguous caller fields', () => {
+    const direct = {
+      type: 'function_call',
+      call_id: 'direct',
+      name: 'lookup',
+      arguments: '{}',
+      status: 'completed',
+      caller: { type: 'direct' }
+    }
+
+    const valid = parseOutputItems([direct] as never, 'gpt-5.6', undefined)
+
+    expect(valid.message.toolCalls).toEqual([
+      expect.objectContaining({
+        id: 'direct',
+        caller: { type: 'direct' }
+      })
+    ])
+
+    const invalid = parseOutputItems(
+      [
+        {
+          ...direct,
+          caller: { type: 'direct', caller_id: 'forged' }
+        }
+      ] as never,
+      'gpt-5.6',
+      undefined
+    )
+
+    expect(invalid.message.stopReason).toBe('error')
+    expect(invalid.message.toolCalls).toBeUndefined()
+    expect(invalid.hasToolCalls).toBe(false)
   })
 
   it('round-trips custom calls and outputs without a JSON wrapper', () => {
@@ -786,7 +935,7 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
     expect(JSON.stringify(sentPayloads[0]!.input)).not.toContain('system prompt')
   })
 
-  it('enables PTC by default for the main agent and keeps writes direct-only', async () => {
+  it('omits PTC when every tool is direct-only', async () => {
     const sentPayloads: JSONObject[] = []
     const model = createModel({
       apiKey: 'unused',
@@ -835,7 +984,10 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
           isReadOnly: true,
           isDestructive: false,
           describeActivity: () => '查询',
-          execute: async () => ({ content: [{ type: 'text', text: 'value' }], details: {} })
+          execute: async () => ({
+            content: [{ type: 'text', text: 'value' }],
+            details: {}
+          })
         },
         {
           name: 'write',
@@ -844,15 +996,20 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
           isReadOnly: false,
           isDestructive: true,
           describeActivity: () => '写入',
-          execute: async () => ({ content: [{ type: 'text', text: 'ok' }], details: {} })
+          execute: async () => ({
+            content: [{ type: 'text', text: 'ok' }],
+            details: {}
+          })
         }
       ]
     })
 
     expect(sentPayloads[0]!.tools).toEqual([
-      expect.objectContaining({ name: 'lookup', allowed_callers: ['direct', 'programmatic'] }),
-      expect.objectContaining({ name: 'write', allowed_callers: ['direct'] }),
-      { type: 'programmatic_tool_calling' }
+      expect.objectContaining({
+        name: 'lookup',
+        allowed_callers: ['direct']
+      }),
+      expect.objectContaining({ name: 'write', allowed_callers: ['direct'] })
     ])
   })
 
@@ -1158,6 +1315,52 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
       stateful: {
         actorEventID: '00000000-0000-0000-0000-000000000021',
         conversationID: '21212121-2121-2121-2121-212121212121'
+      }
+    })
+
+    expect(result.message.stopReason).toBe('error')
+    expect(result.message.toolCalls).toBeUndefined()
+    expect(result.hasToolCalls).toBe(false)
+    expect(result.message.errorMessage).toBe('AIGateway response ended with an incomplete tool call')
+  })
+
+  it('does not execute a tool call with a malformed program caller', async () => {
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, () => [
+            {
+              type: 'response.completed',
+              response: {
+                id: 'resp_invalid_caller',
+                status: 'completed',
+                output: [
+                  {
+                    type: 'function_call',
+                    status: 'completed',
+                    call_id: 'call_invalid_caller',
+                    name: 'lookup',
+                    arguments: '{}',
+                    caller: { type: 'program', caller_id: '' }
+                  }
+                ]
+              }
+            }
+          ])
+      }
+    })
+
+    const result = await callModel(model, {
+      messages: [{ role: 'user', content: 'look this up' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000022',
+        conversationID: '22222222-2222-2222-2222-222222222222'
       }
     })
 

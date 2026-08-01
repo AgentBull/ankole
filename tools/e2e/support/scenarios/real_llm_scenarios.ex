@@ -214,13 +214,13 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
                Required path:
                1. Use the command tool to create the directory temp/ankole-terminal-tools-real in the current Session Workspace.
-               2. Use the replace tool with old_string exactly "" to create temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
+               2. Use apply_patch to create temp/ankole-terminal-tools-real/orders.csv with exactly this CSV content:
                   region,owner,items
                   north,Ada,2
                   south,Bo,5
                   north,Cy,4
                   west,Dee,3
-               3. Use the replace tool with old_string exactly "" to create temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
+               3. In the same or a second apply_patch call, create temp/ankole-terminal-tools-real/summarize.js. The script must read orders.csv, compute item totals by region, and write report.md.
                4. Run the script with the command tool from temp/ankole-terminal-tools-real.
                5. Use read_file to inspect temp/ankole-terminal-tools-real/report.md.
                6. Only after the read_file result proves the report, reply exactly:
@@ -259,7 +259,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert_text_contains_with_trace!(reply.text, "west=3", input.id, messages)
     assert_text_contains_with_trace!(reply.text, "total=14", input.id, messages)
 
-    assert replace_create_file_calls(messages) >= 2
+    assert apply_patch_created_terminal_files?(messages)
     assert command_tool_succeeded?(messages)
 
     read_results = successful_tool_results(messages, "read_file")
@@ -272,7 +272,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     called_tools =
       messages
-      |> function_call_items()
+      |> tool_call_items()
       |> Enum.map(& &1["name"])
 
     refute Enum.any?(called_tools, &String.starts_with?(&1, "browser_"))
@@ -1284,16 +1284,17 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            """
   end
 
-  defp replace_create_file_calls(messages) do
-    messages
-    |> tool_results("replace")
-    |> Enum.count(fn
-      %{arguments: %{"old_string" => "", "new_string" => new_string}}
-      when is_binary(new_string) ->
-        true
+  defp apply_patch_created_terminal_files?(messages) do
+    patches =
+      messages
+      |> tool_results("apply_patch")
+      |> Enum.reject(&tool_result_error?/1)
+      |> Enum.flat_map(fn
+        %{arguments: %{"raw" => patch}} when is_binary(patch) -> [patch]
+        _other -> []
+      end)
 
-      _other ->
-        false
-    end)
+    Enum.any?(patches, &String.contains?(&1, "temp/ankole-terminal-tools-real/orders.csv")) and
+      Enum.any?(patches, &String.contains?(&1, "temp/ankole-terminal-tools-real/summarize.js"))
   end
 end

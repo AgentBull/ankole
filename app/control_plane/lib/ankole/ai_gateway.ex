@@ -50,27 +50,62 @@ defmodule Ankole.AIGateway do
     request = normalize_request_keys(request)
 
     with :ok <- reject_http_stateful_fields(request),
-         {:ok, %{runtime: runtime, spec: prepared_request}} <-
+         {:ok, %{runtime: runtime, spec: prepared_request, driver: driver}} <-
            ResponsesPreparation.prepare(
              subject_uid,
              request,
              Keyword.put(opts, :stream?, false)
            ),
-         :ok <- reject_non_streaming_tool_loop(prepared_request),
-         {:ok, upstream_response} <-
-           execute_response_request(runtime, prepared_request, opts) do
-      persist_response(subject_uid, runtime, prepared_request, upstream_response)
+         {:ok, response} <-
+           execute_response_driver(
+             driver,
+             subject_uid,
+             request,
+             runtime,
+             prepared_request,
+             opts
+           ) do
+      {:ok, response}
     end
   end
 
   def create_response(_subject_uid, _request, _opts), do: {:error, :invalid_request_body}
 
-  # Tool search and deferred loading need the streaming loop owner; the plain
-  # HTTP path cannot run continuation rounds or rewrite stream items.
-  defp reject_non_streaming_tool_loop(%{tool_loop: %{}}),
-    do: {:error, :tool_search_requires_streaming}
+  defp execute_response_driver(
+         :single_request,
+         subject_uid,
+         _request,
+         runtime,
+         prepared_request,
+         opts
+       ) do
+    with {:ok, upstream_response} <-
+           execute_response_request(runtime, prepared_request, opts),
+         upstream_response <-
+           ResponseStream.project_non_streaming_response(prepared_request, upstream_response) do
+      persist_response(subject_uid, runtime, prepared_request, upstream_response)
+    end
+  end
 
-  defp reject_non_streaming_tool_loop(_prepared_request), do: :ok
+  defp execute_response_driver(
+         :response_stream,
+         subject_uid,
+         request,
+         runtime,
+         prepared_request,
+         opts
+       ) do
+    case ResponseStream.collect(subject_uid, request, prepared_request, opts) do
+      {:ok, %{terminal_response: %{} = body}, _meta} ->
+        {:ok, gateway_response(200, body, runtime)}
+
+      {:ok, _outcome, _meta} ->
+        {:error, :response_stream_missing_terminal_response}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp execute_response_request(runtime, prepared_request, opts) do
     {hosted_attempt, prepared_request} =

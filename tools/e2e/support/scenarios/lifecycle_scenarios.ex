@@ -11,6 +11,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
   import Ankole.E2E.WaitHelpers,
     only: [
       deadline: 1,
+      wait_for_actor_event_dead_letter: 3,
       wait_for_actor_event_completed: 3,
       wait_for_completed_final_reply: 3,
       wait_for_turn_status: 4,
@@ -56,8 +57,8 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert {:ok, %Message{status: "error"} = failed_message} =
              wait_for_turn_status(container, input.id, "failed", deadline(45_000))
 
-    assert %ActorEvent{input_state: "dead_letter", dead_letter_at: %DateTime{}} =
-             Repo.get!(ActorEvent, input.id)
+    assert {:ok, %ActorEvent{input_state: "dead_letter", dead_letter_at: %DateTime{}}} =
+             wait_for_actor_event_dead_letter(container, input.id, deadline(5_000))
 
     expected_notice =
       Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => input.id})

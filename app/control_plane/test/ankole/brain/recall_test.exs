@@ -55,6 +55,7 @@ defmodule Ankole.Brain.RecallTest do
     %{principal: agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
     binding_fixture(agent.uid, "brain-recall", :record_only)
+    recent = DateTime.add(DateTime.utc_now(:microsecond), -1, :day)
 
     assert {:ok, %{signal_entry: signal_entry}} =
              Ingress.emit_entry(
@@ -63,9 +64,10 @@ defmodule Ankole.Brain.RecallTest do
                group_entry(%{
                  source_event_id: "brain-recall-event",
                  source_entry_id: "brain-recall-message",
-                 text: "国际化渠道的季度数据已经发布"
+                 text: "国际化渠道的季度数据已经发布",
+                 provider_time: recent
                }),
-               now: base_time()
+               now: recent
              )
 
     {:ok, shared_scope} = Scope.for_store(agent.uid, "shared")
@@ -141,7 +143,9 @@ defmodule Ankole.Brain.RecallTest do
     assert result["status"] == "degraded"
     assert result["result_completeness"] == "incomplete"
     assert result["degraded_reasons"] != []
-    assert [%{"layer" => "chat"} | _rest] = result["results"]
+
+    assert match?([%{"layer" => "chat"} | _rest], result["results"]),
+           inspect(result["degraded_reasons"])
 
     result_entry_ids =
       result["results"]

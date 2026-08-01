@@ -44,6 +44,7 @@ const EMPTY_AFTER_TOOL_NUDGE_TEXT =
 const MODEL_ITERATION_LIMIT_SYNTHESIS_TEXT =
   "You've reached the maximum number of tool-calling iterations allowed. Please provide a final response summarizing what you've found and accomplished so far, without calling any more tools."
 const TOOL_ERROR_RECOVERY_HINT = 'Analyze the error above and try a different approach.'
+const MAX_PARALLEL_TOOL_EXECUTIONS = 4
 const VOLATILE_TOOL_ARGUMENT_KEYS = new Set([
   'idempotency_key',
   'nonce',
@@ -72,6 +73,9 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
   const repeatedFailureState: RepeatedToolFailureState = { count: 0 }
   const maxModelIterations = config.maxModelIterations
   const toolByName = config.tools?.length ? agentToolMap(config.tools) : undefined
+  const programmaticToolCalling =
+    toolByName !== undefined &&
+    Array.from(toolByName.values()).some(tool => programmaticCallers(tool).includes('programmatic'))
   const emitPresentationEvent = presentationEmitter(config)
   const modelTurn = createModelTurn(config.model, {
     stateful: config.stateful,
@@ -118,6 +122,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
                 parameters: t.schema,
                 ...(t.inputFormat ? { inputFormat: t.inputFormat } : {}),
                 ...(t.jsonSchema ? { jsonSchema: t.jsonSchema } : {}),
+                ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
                 ...(t.namespace ? { namespace: t.namespace } : {}),
                 ...(t.namespaceDescription !== undefined ? { namespaceDescription: t.namespaceDescription } : {}),
                 ...(t.deferLoading ? { deferLoading: true } : {}),
@@ -147,7 +152,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
               messages: pendingMessages,
               tools: tools as never,
               hostedTools: config.hostedTools,
-              programmaticToolCalling: true,
+              programmaticToolCalling,
               maxOutputTokens: config.maxTokens,
               temperature: config.temperature,
               text: config.text
@@ -312,6 +317,7 @@ export async function runAgentLoop(config: AgentLoopConfig): Promise<AgentLoopRe
  */
 function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
   const byName = new Map<string, AgentTool>()
+  const providerAliases = new Set<string>()
 
   for (const tool of tools) {
     const identity = toolIdentity(tool.namespace, tool.name)
@@ -319,19 +325,28 @@ function agentToolMap(tools: AgentTool[]): Map<string, AgentTool> {
       throw new Error(`duplicate tool name: ${identity}`)
     }
 
+    const providerAlias = toolProviderAlias(tool.namespace, tool.name)
+    if (providerAliases.has(providerAlias)) {
+      throw new Error(`duplicate provider tool name: ${providerAlias}`)
+    }
+
     byName.set(identity, tool)
+    providerAliases.add(providerAlias)
   }
 
   return byName
 }
 
 function toolIdentity(namespace: string | undefined, name: string): string {
-  return namespace ? `${namespace}.${name}` : name
+  return namespace ? `${namespace}\0${name}` : name
+}
+
+function toolProviderAlias(namespace: string | undefined, name: string): string {
+  return namespace ? `${namespace}__${name}` : name
 }
 
 function programmaticCallers(tool: AgentTool): Array<'direct' | 'programmatic'> {
-  if (tool.allowedCallers) return tool.allowedCallers
-  return tool.isReadOnly === true && tool.isDestructive !== true ? ['direct', 'programmatic'] : ['direct']
+  return tool.allowedCallers ?? ['direct']
 }
 
 /**
@@ -440,15 +455,50 @@ async function executeToolCalls(
 ): Promise<ExecutedToolCall[]> {
   const executeOne = (toolCall: ToolCall) => executeToolCall(toolCall, toolByName, config, emitPresentationEvent)
   if (canExecuteToolCallsInParallel(toolCalls, toolByName)) {
-    return Promise.all(toolCalls.map(executeOne))
+    return executeParallelToolCalls(toolCalls, executeOne, config.abortSignal)
   }
 
   const results: ExecutedToolCall[] = []
   for (const toolCall of toolCalls) {
+    config.abortSignal?.throwIfAborted()
     const result = await executeOne(toolCall)
     results.push(result)
     if (result.terminate && !result.failure) break
   }
+  return results
+}
+
+async function executeParallelToolCalls(
+  toolCalls: ToolCall[],
+  executeOne: (toolCall: ToolCall) => Promise<ExecutedToolCall>,
+  signal?: AbortSignal
+): Promise<ExecutedToolCall[]> {
+  signal?.throwIfAborted()
+
+  const results = new Array<ExecutedToolCall>(toolCalls.length)
+  const workerCount = Math.min(MAX_PARALLEL_TOOL_EXECUTIONS, toolCalls.length)
+  let nextIndex = 0
+  let failure: { reason: unknown } | undefined
+
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (!failure) {
+      signal?.throwIfAborted()
+
+      const index = nextIndex
+      if (index >= toolCalls.length) return
+      nextIndex += 1
+
+      try {
+        results[index] = await executeOne(toolCalls[index]!)
+      } catch (reason) {
+        failure = { reason }
+      }
+    }
+  })
+
+  await Promise.allSettled(workers)
+  signal?.throwIfAborted()
+  if (failure) throw failure.reason
   return results
 }
 
@@ -505,6 +555,35 @@ async function executeToolCall(
       terminate: false,
       failure: {
         key: toolCallFailureKey(toolCall, 'unknown_tool', toolCall.arguments),
+        toolName: toolCall.name
+      }
+    }
+  }
+
+  const caller = toolCall.caller?.type === 'program' ? 'programmatic' : 'direct'
+  if (!programmaticCallers(tool).includes(caller)) {
+    const message = `Caller ${caller} is not allowed for tool ${toolCall.name}`
+    config.logger?.warning('worker.tool_call_rejected', 'worker tool call rejected', {
+      actor_event_id: config.stateful.actorEventID,
+      tool_name: toolCall.name,
+      tool_call_id: toolCall.id,
+      failure_code: 'caller_not_allowed',
+      caller
+    })
+    return {
+      toolName: toolCall.name,
+      resultMsg: {
+        role: 'tool',
+        toolCallID: toolCall.id,
+        toolCallType: toolCall.type,
+        result: toolOutputForCaller(formatToolError(message), toolCall.caller),
+        ...(toolCall.caller ? { caller: toolCall.caller } : {})
+      },
+      followUpMessages: [],
+      completeActorEventIDs: [],
+      terminate: false,
+      failure: {
+        key: toolCallFailureKey(toolCall, 'caller_not_allowed', caller),
         toolName: toolCall.name
       }
     }
@@ -578,6 +657,7 @@ async function executeToolCall(
 
   try {
     config.onActivity?.(`tool:${toolCall.name}:start`)
+    config.abortSignal?.throwIfAborted()
     toolResult = await tool.execute(toolCall.id, parsedArgs as never, config.abortSignal)
     const processed = await processToolResultForModel(toolResult, config)
     resultText = processed.outputText
@@ -586,6 +666,8 @@ async function executeToolCall(
       await emitPresentationEvent(event)
     }
   } catch (e) {
+    if (config.abortSignal?.aborted) throw config.abortSignal.reason ?? e
+
     const message = `Error: ${errorMessage(e)}`
     toolResult = {
       content: [{ type: 'text', text: message }],
@@ -638,7 +720,7 @@ async function executeToolCall(
     },
     followUpMessages,
     completeActorEventIDs: toolResult.completeActorEventIDs ?? [],
-    terminate: toolResult.terminate === true,
+    terminate: toolResult.terminate === true && toolCall.caller?.type !== 'program',
     failure
   }
 }

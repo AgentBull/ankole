@@ -121,9 +121,24 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   def load_identity_config_key(_key), do: {:error, :invalid_config_key}
 
-  @spec client(chat_config() | identity_config()) :: Client.t()
-  def client(config) do
-    Client.new(bot_token: Map.get(config, "botToken"), app_token: Map.get(config, "appToken"))
+  @doc """
+  Builds a Slack client without accepting a provider endpoint from stored config.
+
+  The optional application `:client_opts` value is an internal transport seam
+  for integration tests. Explicit options take precedence over that seam.
+  """
+  @spec client(chat_config() | identity_config(), keyword()) :: Client.t()
+  def client(config, opts \\ []) do
+    client_opts =
+      :ankole
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:client_opts, [])
+
+    Client.new(
+      [bot_token: Map.get(config, "botToken"), app_token: Map.get(config, "appToken")]
+      |> Keyword.merge(client_opts)
+      |> Keyword.merge(opts)
+    )
   end
 
   @spec connection_key(chat_config() | identity_config()) :: {String.t(), String.t()}

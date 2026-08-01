@@ -102,11 +102,12 @@ arguments as a JSON object before it opens a new connection and invokes the raw
 tool. The MCP server owns validation against its declared input schema, as it
 does when Codex calls it directly.
 
-The main Agent also declares the official `programmatic_tool_calling` tool by
-default. Every model-visible MCP child permits both `direct` and
-`programmatic` callers, as Codex 0.146 does in code mode. `readOnlyHint` controls
-parallel execution only. It does not control whether a program can call the
-tool.
+Every model-visible MCP child permits `direct` calls. A child also permits
+`programmatic` calls only when MCP marks it read-only and not destructive. The
+main Agent declares the official `programmatic_tool_calling` tool when at least
+one visible binding permits that caller. The declaration permits bounded
+parallel execution. A direct-only turn does not send an empty program tool. A
+missing or unsafe annotation keeps execution direct and sequential.
 
 The `mcp` `list`, `describe`, and `call` meta-tool does not exist. The model
 sees the official namespace, Tool Search, and child function items.
@@ -134,7 +135,9 @@ The worker uses the MCP initialize instructions as the namespace description.
 It lowers the MCP input schema with the Codex rules. These rules replace
 `const` with `enum`, supply missing object properties and array items, remove
 unreachable definitions and unsupported fields, and compact schemas larger
-than the Codex limit. It omits a tool when the schema cannot be lowered.
+than the Codex limit. It omits a tool when the schema cannot be lowered. When
+the server declares an output schema, Agent Computer carries it through Tool
+Search and uses it to decode and validate program replay results.
 
 An absent or non-array `_meta.ui.visibility` value makes a tool visible. An
 array value must contain `model`. Agent Computer applies `enabled_tools` first
@@ -146,9 +149,12 @@ tool name, raw server name, tool title, tool description, MCP initialize
 instructions, and root input-schema property names. AIGateway removes the
 private corpus field before it sends or returns a public tool spec.
 
-MCP calls return the bounded MCP `content`, `structuredContent`, and `isError`
-shape to the model. A connection, transport, or protocol failure becomes an MCP
-error result instead of changing the public function-call protocol.
+When an MCP tool declares an output schema, a successful call returns only the
+validated `structuredContent` value to the model. A call without an output
+schema, or a call with `isError: true`, returns a bounded envelope that keeps
+`content`, `structuredContent`, and `isError`. A connection, transport, or
+protocol failure becomes the same error envelope instead of changing the public
+function-call protocol.
 
 ## Use MCP from a Background Agent Job
 
@@ -170,6 +176,10 @@ runs Codex 0.146 Tool Search, and compares the loaded tool specs with the main
 Agent catalog.
 
 ## Limit and Cache Tool Catalogs
+
+A main-Agent turn reads at most 128 enabled Skills and 32 distinct MCP servers.
+A complete model surface contains at most 512 child tools and 2 MiB of
+namespace, description, schema, and search data.
 
 A catalog can contain at most 20 pages and 256 tools.
 One tool schema can use at most 64 KiB.
@@ -196,6 +206,9 @@ server from the current turn instead of changing the server schema.
 Each catalog load or tool call creates a new official MCP SDK client. Agent
 Computer closes it when the operation ends.
 
+The HTTP transport rejects a response body above 2 MiB before the SDK buffers
+it for JSON parsing.
+
 HTTP transport can read a bearer token from WorkerEnv. Stdio transport runs the
 declared command through `/bin/sh -lc` with the safe SDK environment and allowed
 WorkerEnv values.
@@ -211,8 +224,9 @@ It uses the 360-second default when the Skill has no timeout.
 ## Treat Server Output as Untrusted
 
 Agent Computer limits description, schema, result, error, nesting, collection,
-and string sizes. It removes binary and control characters. It truncates fields
-with declared limits and rejects a complete result that is too large.
+and string sizes. A complete model result cannot exceed 64 KiB. It removes
+binary and control characters. It truncates fields with declared limits and
+rejects a complete result that is too large.
 
 It removes WorkerEnv secrets from result values and object keys. MCP output
 remains untrusted input to the model.

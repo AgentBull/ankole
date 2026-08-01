@@ -210,10 +210,12 @@ or endpoint failure leaves credential health unchanged and returns that
 failure. An upstream HTTP 401 causes one forced refresh. A second HTTP 401
 marks an OAuth or Enterprise entry `dead` and selects another entry.
 
-ChatGPT requests always use `store=false` and request
-`reasoning.encrypted_content`. AIGateway stores and replays that encrypted
-reasoning content. It does not use the upstream compact endpoint or upstream
-response storage.
+The upstream ChatGPT transport always uses `store=false` and requests
+`reasoning.encrypted_content`. This is a Codex-provider transport rule, not the
+main Agent's public lifecycle: a main Agent Response still uses AIGateway
+`store=true` state and local tool-result journals. AIGateway stores and replays
+the encrypted reasoning content and does not use upstream response storage or
+the upstream compact endpoint.
 
 The provider prepares the Codex protocol as follows:
 
@@ -251,9 +253,9 @@ access-token requests omit the subscription account and Codex identity headers.
 
 Responses Lite keeps its compact request and response shapes for ChatGPT. For
 other providers, AIGateway restores the normal Responses shape before provider
-preparation. Tool Search, deferred tool loading, programmatic tool calls, and
-compaction therefore use the same gateway path for a Codex Job and the main
-Agent.
+preparation. A real Codex client keeps Tool Search and programmatic tool calls
+native. The main Agent uses the local compatibility loop. Both paths use the
+same public item and lifecycle contracts.
 
 ## Runtime API
 
@@ -307,6 +309,11 @@ conversation, message, or artifact filters by that Principal.
 HTTP Responses calls are stateless.
 They do not write `ai_gateway_conversations` or `ai_gateway_messages`.
 
+Codex uses this `store=false` path and replays the Responses items that it
+needs. The main Agent does not use this path. It opens a stateful WebSocket
+Response with `store=true`, records client tool results through
+`response.tool_results.record`, and continues from the returned durable anchor.
+
 HTTP accepts `store=false`.
 It rejects `store=true`, `conversation`, and `previous_response_id`.
 
@@ -329,6 +336,13 @@ a provider wire that replays those items without loss: `openai_responses` or
 `stateful_wire_unsupported` (status 422). Providers on other wires, such as the
 Anthropic wire, stay available for stateless requests. To move a conversation
 across wire families, start a new conversation.
+
+Tool history is also provider-implementation specific. A native Responses
+history can contain caller-scoped Shell, Apply Patch, or other provider-hosted
+items that the local compatibility runtime cannot execute. If a later route
+would move that history into the local runtime, AIGateway rejects the first
+unsupported child with `invalid_program_child` instead of changing its meaning.
+Start a new conversation when the provider change crosses this boundary.
 
 A visible leaf is the last Response currently available for continuation. A
 request chooses one of these ways to continue:
@@ -405,6 +419,97 @@ The socket rejects a second command while that stream is active.
 The control plane publishes Response events for each conversation. SignalsGateway
 can subscribe and use its own metadata to select relevant events.
 
+## Run Tool Search and Program Calls
+
+AIGateway normalizes the executable tool contract before the first provider
+round. One descriptor keeps the public name and namespace, provider alias,
+input and output schemas, codec, deferred-loading state, and allowed callers.
+It rejects ambiguous provider aliases and incompatible duplicate tools. It also
+creates one fingerprint from the complete executable snapshot. A later Tool
+Search result can repeat a known tool only when its descriptor is equal, and a
+program can resume only against the same fingerprint.
+
+`ResponseItems` is the semantic owner for Responses call/output pairs. The
+current registry covers function, custom, program, Tool Search, computer,
+local-shell, shell, apply-patch, and MCP approval pairs, including the different
+identity field used by local-shell output. It also includes program caller
+scope in pair identity. Streaming, persistence, compaction, truncation, and the
+tool budget use this registry instead of separate item-type lists. An unknown
+provider item can pass through as opaque content, but it is not executable or
+pair-aware until the registry declares its contract.
+
+Tool Search uses one synthesized provider function and exposes
+`tool_search_call` plus `tool_search_output` in the public Response. Server mode
+executes the search in AIGateway. Client mode returns the search call to the
+caller. Both modes preserve one public response lifecycle across later provider
+rounds.
+
+Programmatic tool calls run in a fresh bare V8 isolate. The program has no Node,
+filesystem, or network API. It runs until it finishes or reaches its first
+unanswered tool-call batch. A resume replays the program from the start with
+the recorded answers. Nested calls carry their program caller identity, and
+Agent Computer executes one only when the frozen tool descriptor permits the
+`programmatic` caller. A direct-only or incomplete call becomes an explicit
+tool failure and does not cross the execution boundary.
+
+The synthesized program tool lists only the provider aliases of bindings that
+also have direct declarations. Their schemas already exist in the provider tool
+array. It embeds the full contract only for programmatic-only bindings, because
+the model has no other way to receive those schemas.
+
+A first-party OpenAI Responses request keeps Tool Search and Programmatic Tool
+Calling provider-native. A ChatGPT Subscription request does the same only
+when the inbound protocol identifies a real Codex client. The ChatGPT Codex
+endpoint rejects the Responses API `programmatic_tool_calling` declaration
+from the main Agent, so the main Agent uses local planning with that provider.
+This provider-and-client-protocol decision cannot change when a later turn
+adds or removes a tool. OpenAI Chat Completions and other providers also use
+local planning. Only function and custom tools can become local program
+bindings; each provider-hosted tool keeps its provider-owned contract.
+
+`ResponseStream` remains the sole owner of public events, sequence numbers,
+loop advancement, and durable commit. Program execution runs under a bounded
+`Task.Supervisor`, so a dirty native call cannot block the stream owner. The
+Rust registers only a program that has started running. Cancellation addresses
+that running entry and then stops its BEAM task. If an owner is killed in the
+short interval before registration, cancellation can miss and one native slot
+can remain occupied until the 30-second watchdog ends that run. This bounded
+loss replaces a separate reservation and guardian protocol. The same lifecycle
+owner serves SSE, WebSocket, and collected non-streaming Responses.
+
+One public `max_tool_calls` budget covers all internal rounds. A zero budget
+removes every built-in tool before the first provider call. A positive budget
+admits calls in response order, ignores later attempts, and removes built-ins
+and stale `tool_choice` values from later rounds. Function and custom calls are
+outside this built-in-tool budget. Native Responses providers receive the
+positive limit directly; AIGateway enforces the same rule for locally owned
+Tool Search, program, hosted-image, and adapted-provider effects. Budget
+exhaustion does not synthesize `response.incomplete`; the real provider or loop
+terminal remains authoritative.
+
+AIGateway rejects a positive budget when one request mixes a local Tool Search
+or program owner with a provider-owned built-in tool. HTTP returns 400, and
+WebSocket returns the equivalent `unsupported_value` error for
+`max_tool_calls`. No single owner can enforce the call order for that
+combination. A `tool_choice: "none"` request is the exception because it
+prevents every tool effect, so the positive limit cannot cross an
+execution-owner boundary.
+
+Internal work is bounded before it can amplify provider or worker cost. One
+public response permits at most 16 internal rounds, 8 top-level programs, 256
+nested program calls, 1,024 retained provider-history items, and 8 MiB of
+retained provider history. The native runner also caps program code, memo,
+pending calls, output, heap, runtime, and concurrent isolates. These limits fail
+the affected response or program explicitly instead of dropping a dependency
+edge.
+
+Histories written before this registry existed can contain contradictory pair
+identities, including duplicate items produced by the earlier PTC bug. Such a
+history has no safe compaction or truncation boundary. AIGateway rejects it
+instead of guessing or rewriting durable facts. The operator must start a new
+conversation, or use the existing validated tail retraction or deletion when
+the invalid rows form the current removable tail.
+
 ## Record Tool Results before the Next Model Call
 
 The Worker can send `response.tool_results.record` before the next model call.
@@ -461,10 +566,10 @@ The checkpoint and artifact use the same UUID.
 When AIGateway builds model history, it replaces the checkpoint with that
 output. It also keeps selected original user facts.
 
-The compaction summarizer treats `function_call`, `custom_tool_call`, and
-`program` as calls paired with their matching output items. It renders bounded
-arguments, code, and results with one-call `call_N` aliases. Persisted provider
-call IDs do not enter its prompt.
+The compaction summarizer uses the shared Responses pair registry for every
+registered call and output type. It renders bounded arguments, code, actions,
+and results with one-call `call_N` aliases. Persisted provider call IDs do not
+enter its prompt.
 
 The configured tail row count is a preference. AIGateway can move the
 compaction boundary forward to include a completed call batch or to keep the
@@ -514,20 +619,21 @@ Stateless generated images expire after 30 days.
 Generated images linked to messages in PostgreSQL do not use that stateless
 expiry.
 
-The execution owner depends on the model profile. When `image_generate` is
-configured, AIGateway runs the public `image_generation` tool as a hosted tool.
-The main provider sees only the hidden function used by the hosted executor.
-The image provider endpoint catalog removes endpoints that cannot satisfy the
-request. All remaining endpoints stay eligible.
+The main language-model provider owns image generation when its Responses
+capability declares native support. A configured `image_generate` profile is a
+fallback only when the main provider has no native path. The fallback runs the
+public `image_generation` tool as a hosted tool, and the main provider sees only
+the hidden function used by that executor. The image provider endpoint catalog
+removes endpoints that cannot satisfy the request. All remaining endpoints stay
+eligible.
 The public tool rejects `output_compression` unless `output_format` is `jpeg`
 or `webp`. This validation runs before hosted or native execution is selected.
 
-When `image_generate` is not configured, AIGateway leaves the declared tool in
-the provider request if the language-model capability declares native image
-generation. OpenAI and `chatgpt_subscription` declare this capability. If
-neither path is available, request preparation returns an explicit unsupported
-value error. AIGateway never adds an image tool that the caller did not
-declare.
+OpenAI and `chatgpt_subscription` declare native image generation. Their native
+path does not resolve or validate a configured fallback, so a stale fallback
+cannot block an ordinary conversation. If neither native nor fallback execution
+is available, request preparation returns an explicit unsupported-value error.
+AIGateway never adds an image tool that the caller did not declare.
 
 The hosted tool can run for 30 minutes.
 The prepared streaming limits allow 128 MiB for the generated upstream response.
@@ -576,8 +682,15 @@ Elixir chooses the provider, model, eligible endpoints, and headers. It
 prepares the provider request and removes Ankole-only state fields before
 sending it.
 
+Elixir also owns the complete public stream lifecycle. One `ResponseStream`
+state machine applies the absolute deadline, task monitors, retry boundary,
+item projection, terminal validation, stateful commit, and cancellation for
+streaming and collected calls.
+
 The Rust kernel sends the `UniversalAIRequest` and converts supported HTTP, SSE,
-and WebSocket responses to one event format.
+and WebSocket responses to one event format. It owns native stream and program
+run identities, resource limits, and cancellation handles, but it does not
+advance the public Response lifecycle.
 
 The public stream accepts `response.completed`, `response.failed`, and `response.incomplete` as terminal types.
 It rejects a provider completion that contains an incomplete client tool call.
@@ -591,6 +704,18 @@ required `input` string. It restores the provider function call as a
 `custom_tool_call` before the event enters the public Response contract. It
 also translates stored custom calls and outputs back to Chat messages during
 replay.
+
+For Chat providers that return `reasoning_details`, the adapter concatenates
+the streamed detail objects in order and emits one Responses `reasoning` item.
+Its AIGateway-owned `encrypted_content` carries the provider state without
+exposing a new public item type. A continuation decodes that item and restores
+the exact detail sequence on the assistant tool-call message. A missing,
+corrupt, or foreign adapter token fails with `invalid_reasoning_replay` instead
+of sending an invalid continuation. An explicit public
+`reasoning.effort` value overrides the route's `reasoningEffort` default.
+If reasoning has no assistant content or tool call, the adapter discards it
+during replay. It cannot attach that state to a valid Chat message, and some
+Chat providers reject an assistant message with no content or tool call.
 
 ## Keep Encrypted Tool Fields inside AIGateway
 
@@ -627,6 +752,9 @@ This encoding does not provide cryptographic secrecy. Provider reasoning
 - Only an explicit continuation can select an earlier Response and create a branch.
 - One WebSocket has at most one active Response stream.
 - AIGateway commits the final state before it sends a terminal public frame.
+- One Responses item registry owns call/output pairing and safe history cuts.
+- A program child call runs only when its frozen tool contract permits it.
+- Exhausting `max_tool_calls` never invents an incomplete terminal Response.
 - A completed Response does not complete an ActorEvent.
 - A compaction plan cannot change history before the run starts.
 - Unmatched tool results never enter provider history.

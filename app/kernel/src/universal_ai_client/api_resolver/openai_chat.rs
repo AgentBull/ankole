@@ -1,4 +1,135 @@
 use super::*;
+use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
+
+const CHAT_REASONING_PREFIX: &str = "ankole-aigateway-chat-reasoning-v1:";
+
+#[derive(Debug, Clone, Default)]
+struct ChatReasoning {
+    details: Vec<Value>,
+    text: String,
+}
+
+impl ChatReasoning {
+    fn is_empty(&self) -> bool {
+        self.details.is_empty() && self.text.is_empty()
+    }
+
+    fn append_delta(&mut self, delta: &Value) -> Result<bool, StreamError> {
+        let mut appended = false;
+
+        match delta.get("reasoning_details") {
+            Some(Value::Array(details)) => {
+                self.details.extend(details.iter().cloned());
+                appended = !details.is_empty();
+            }
+            Some(Value::Null) | None => {}
+            Some(_invalid) => {
+                return Err(invalid_chat_reasoning(
+                    "provider reasoning_details must be an array",
+                ));
+            }
+        }
+
+        match delta.get("reasoning") {
+            Some(Value::String(text)) => {
+                self.text.push_str(text);
+                appended |= !text.is_empty();
+            }
+            Some(Value::Null) | None => {}
+            Some(_invalid) => {
+                return Err(invalid_chat_reasoning(
+                    "provider reasoning must be a string",
+                ));
+            }
+        }
+
+        Ok(appended)
+    }
+
+    fn from_message(message: &Value) -> Result<Self, StreamError> {
+        let mut reasoning = Self::default();
+        reasoning.append_delta(message)?;
+        Ok(reasoning)
+    }
+
+    fn encoded_content(&self) -> String {
+        let payload = json!({
+            "reasoning_details": self.details,
+            "reasoning": self.text
+        });
+        let encoded = payload.to_string();
+
+        format!(
+            "{CHAT_REASONING_PREFIX}{}",
+            base64_url_safe_encode(encoded.as_bytes())
+        )
+    }
+
+    fn decode_item(item: &Map<String, Value>) -> Result<Self, StreamError> {
+        let encoded = item
+            .get("encrypted_content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                invalid_chat_reasoning("reasoning replay requires AIGateway encrypted_content")
+            })?;
+        let payload = encoded.strip_prefix(CHAT_REASONING_PREFIX).ok_or_else(|| {
+            invalid_chat_reasoning(
+                "AIGateway cannot replay reasoning from another provider implementation",
+            )
+        })?;
+        let decoded = base64_url_safe_decode(payload)
+            .map_err(|_| invalid_chat_reasoning("reasoning encrypted_content is not Base64URL"))?;
+        let value: Value = serde_json::from_slice(&decoded)
+            .map_err(|_| invalid_chat_reasoning("reasoning encrypted_content is not valid JSON"))?;
+        let object = value.as_object().ok_or_else(|| {
+            invalid_chat_reasoning("reasoning encrypted_content must contain an object")
+        })?;
+
+        let details = match object.get("reasoning_details") {
+            Some(Value::Array(details)) => details.clone(),
+            Some(Value::Null) | None => Vec::new(),
+            Some(_invalid) => {
+                return Err(invalid_chat_reasoning(
+                    "reasoning encrypted_content has invalid reasoning_details",
+                ));
+            }
+        };
+        let text = match object.get("reasoning") {
+            Some(Value::String(text)) => text.clone(),
+            Some(Value::Null) | None => String::new(),
+            Some(_invalid) => {
+                return Err(invalid_chat_reasoning(
+                    "reasoning encrypted_content has invalid reasoning text",
+                ));
+            }
+        };
+
+        let reasoning = Self { details, text };
+        if reasoning.is_empty() {
+            return Err(invalid_chat_reasoning(
+                "reasoning encrypted_content contains no replayable reasoning",
+            ));
+        }
+        Ok(reasoning)
+    }
+
+    fn extend(&mut self, mut other: Self) {
+        self.details.append(&mut other.details);
+        self.text.push_str(&other.text);
+    }
+
+    fn apply_to_message(&self, message: &mut Map<String, Value>) {
+        if !self.details.is_empty() {
+            message.insert(
+                "reasoning_details".to_string(),
+                Value::Array(self.details.clone()),
+            );
+        }
+        if !self.text.is_empty() {
+            message.insert("reasoning".to_string(), json!(self.text));
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct ToolCall {
@@ -21,6 +152,9 @@ pub(super) struct ChatState {
     message_output_index: Option<usize>,
     content_started: bool,
     output_text: String,
+    reasoning: ChatReasoning,
+    reasoning_item_id: Option<String>,
+    reasoning_output_index: Option<usize>,
     tool_calls: BTreeMap<usize, ToolCall>,
     usage: Value,
     terminal: bool,
@@ -42,6 +176,9 @@ impl ChatState {
             message_output_index: None,
             content_started: false,
             output_text: String::new(),
+            reasoning: ChatReasoning::default(),
+            reasoning_item_id: None,
+            reasoning_output_index: None,
             tool_calls: BTreeMap::new(),
             usage: json!({}),
             terminal: false,
@@ -89,6 +226,8 @@ impl ChatState {
         let terminal_pending = self.pending_status.is_some();
 
         if !terminal_pending {
+            events.extend(self.reasoning_delta(&delta)?);
+
             if let Some(content) = delta.get("content").and_then(Value::as_str)
                 && !content.is_empty()
             {
@@ -112,6 +251,35 @@ impl ChatState {
         }
 
         Ok(events)
+    }
+
+    fn reasoning_delta(&mut self, delta: &Value) -> Result<Vec<Value>, StreamError> {
+        if !self.reasoning.append_delta(delta)? {
+            return Ok(Vec::new());
+        }
+
+        if self.reasoning_item_id.is_some() {
+            return Ok(Vec::new());
+        }
+
+        let item_id = generated_id("rs");
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        self.reasoning_item_id = Some(item_id.clone());
+        self.reasoning_output_index = Some(output_index);
+
+        Ok(vec![self.event(
+            "response.output_item.added",
+            json!({
+                "output_index": output_index,
+                "item": {
+                    "id": item_id,
+                    "type": "reasoning",
+                    "status": "in_progress",
+                    "summary": []
+                }
+            }),
+        )])
     }
 
     fn put_chat_metadata(&mut self, chunk: &Value) {
@@ -297,6 +465,17 @@ impl ChatState {
         let mut events = Vec::new();
         let completed = status == "completed";
 
+        if completed && !self.reasoning.is_empty() {
+            let output_index = self.reasoning_output_index.unwrap_or(0);
+            events.push(self.event(
+                "response.output_item.done",
+                json!({
+                    "output_index": output_index,
+                    "item": self.reasoning_item("completed")
+                }),
+            ));
+        }
+
         if completed && self.content_started {
             let item_id = self
                 .message_item_id
@@ -391,17 +570,32 @@ impl ChatState {
         error: Option<&StreamError>,
     ) -> Value {
         let item_status = response_item_status(status);
-        let mut output = Vec::new();
+        let mut indexed_output = Vec::new();
+        if !self.reasoning.is_empty() {
+            indexed_output.push((
+                self.reasoning_output_index.unwrap_or(0),
+                self.reasoning_item(item_status),
+            ));
+        }
         if self.content_started {
-            output.push(self.message_item(item_status));
+            indexed_output.push((
+                self.message_output_index.unwrap_or(0),
+                self.message_item(item_status),
+            ));
         }
         let mut calls = self.tool_calls.values().cloned().collect::<Vec<_>>();
         calls.sort_by_key(|call| call.output_index);
-        output.extend(
-            calls
-                .iter()
-                .map(|call| chat_function_call_item(context, call, item_status)),
-        );
+        indexed_output.extend(calls.iter().map(|call| {
+            (
+                call.output_index,
+                chat_function_call_item(context, call, item_status),
+            )
+        }));
+        indexed_output.sort_by_key(|(output_index, _item)| *output_index);
+        let output = indexed_output
+            .into_iter()
+            .map(|(_output_index, item)| item)
+            .collect::<Vec<_>>();
 
         let created_at = self.created_at.unwrap_or_else(now_seconds);
         complete_response_resource(
@@ -433,6 +627,19 @@ impl ChatState {
                 "text": self.output_text,
                 "annotations": []
             }]
+        })
+    }
+
+    fn reasoning_item(&self, status: &str) -> Value {
+        json!({
+            "id": self
+                .reasoning_item_id
+                .clone()
+                .unwrap_or_else(|| generated_id("rs")),
+            "type": "reasoning",
+            "status": status,
+            "encrypted_content": self.reasoning.encoded_content(),
+            "summary": []
         })
     }
 
@@ -545,6 +752,11 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     let content = message.get("content").unwrap_or(&Value::Null);
     let mut items = Vec::new();
     let content_parts = chat_assistant_content_parts(content);
+    let reasoning = ChatReasoning::from_message(message)?;
+
+    if !reasoning.is_empty() {
+        items.push(chat_reasoning_item(&reasoning, "completed"));
+    }
 
     if !content_parts.is_empty() {
         items.push(json!({
@@ -592,6 +804,20 @@ fn chat_output_items(context: &ResponseContext, message: &Value) -> Result<Value
     }
 
     Ok(Value::Array(items))
+}
+
+fn chat_reasoning_item(reasoning: &ChatReasoning, status: &str) -> Value {
+    json!({
+        "id": generated_id("rs"),
+        "type": "reasoning",
+        "status": status,
+        "encrypted_content": reasoning.encoded_content(),
+        "summary": []
+    })
+}
+
+fn invalid_chat_reasoning(message: impl Into<String>) -> StreamError {
+    StreamError::new("invalid_reasoning_replay", "api_resolver", message)
 }
 
 fn chat_assistant_content_parts(content: &Value) -> Vec<Value> {
@@ -761,6 +987,7 @@ fn chat_messages(
         Some(Value::Array(items)) => {
             let mut pending_tool_calls = Vec::new();
             let mut pending_tool_output_images = Vec::new();
+            let mut pending_reasoning = ChatReasoning::default();
             for item in items {
                 match item {
                     Value::Object(map) => {
@@ -780,6 +1007,15 @@ fn chat_messages(
                         }
 
                         match item_type {
+                            Some("reasoning") => {
+                                flush_chat_tool_calls(
+                                    &mut messages,
+                                    &mut pending_tool_calls,
+                                    &mut pending_reasoning,
+                                );
+                                pending_reasoning.extend(ChatReasoning::decode_item(map)?);
+                                continue;
+                            }
                             Some("function_call") => {
                                 pending_tool_calls.push(chat_function_call(context, map)?);
                                 continue;
@@ -789,41 +1025,66 @@ fn chat_messages(
                                 continue;
                             }
                             Some("function_call_output") => {
-                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                                flush_chat_tool_calls(
+                                    &mut messages,
+                                    &mut pending_tool_calls,
+                                    &mut pending_reasoning,
+                                );
                                 let (tool_message, image_parts) = chat_function_call_output(map);
                                 messages.push(tool_message);
                                 pending_tool_output_images.extend(image_parts);
                                 continue;
                             }
                             Some("custom_tool_call_output") => {
-                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                                flush_chat_tool_calls(
+                                    &mut messages,
+                                    &mut pending_tool_calls,
+                                    &mut pending_reasoning,
+                                );
                                 let (tool_message, image_parts) = chat_function_call_output(map);
                                 messages.push(tool_message);
                                 pending_tool_output_images.extend(image_parts);
                                 continue;
                             }
                             Some("agent_message") => {
-                                flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
-                                messages.push(chat_agent_message(map)?);
+                                flush_chat_tool_calls(
+                                    &mut messages,
+                                    &mut pending_tool_calls,
+                                    &mut pending_reasoning,
+                                );
+                                push_chat_message(
+                                    &mut messages,
+                                    chat_agent_message(map)?,
+                                    &mut pending_reasoning,
+                                );
                                 continue;
                             }
                             _type => {}
                         }
 
-                        flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                        flush_chat_tool_calls(
+                            &mut messages,
+                            &mut pending_tool_calls,
+                            &mut pending_reasoning,
+                        );
                         let role = map
                             .get("role")
                             .and_then(Value::as_str)
                             .map(normalize_chat_role);
                         let content = map.get("content");
                         match (role, content) {
-                            (Some(role), Some(content)) => {
-                                messages.push(chat_role_content_message(role, content, map))
+                            (Some(role), Some(content)) => push_chat_message(
+                                &mut messages,
+                                chat_role_content_message(role, content, map),
+                                &mut pending_reasoning,
+                            ),
+                            _ => {
+                                discard_unattached_chat_reasoning(&mut pending_reasoning);
+                                messages.push(json!({
+                                    "role": "user",
+                                    "content": value_to_text(item)
+                                }));
                             }
-                            _ => messages.push(json!({
-                                "role": "user",
-                                "content": value_to_text(item)
-                            })),
                         }
                     }
                     value => {
@@ -831,12 +1092,22 @@ fn chat_messages(
                             &mut messages,
                             &mut pending_tool_output_images,
                         );
-                        flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+                        flush_chat_tool_calls(
+                            &mut messages,
+                            &mut pending_tool_calls,
+                            &mut pending_reasoning,
+                        );
+                        discard_unattached_chat_reasoning(&mut pending_reasoning);
                         messages.push(json!({ "role": "user", "content": value_to_text(value) }))
                     }
                 }
             }
-            flush_chat_tool_calls(&mut messages, &mut pending_tool_calls);
+            flush_chat_tool_calls(
+                &mut messages,
+                &mut pending_tool_calls,
+                &mut pending_reasoning,
+            );
+            discard_unattached_chat_reasoning(&mut pending_reasoning);
             flush_chat_tool_output_images(&mut messages, &mut pending_tool_output_images);
         }
         _input => {}
@@ -879,16 +1150,46 @@ fn is_chat_system_message(map: &Map<String, Value>) -> bool {
     )
 }
 
-fn flush_chat_tool_calls(messages: &mut Vec<Value>, pending_tool_calls: &mut Vec<Value>) {
+fn flush_chat_tool_calls(
+    messages: &mut Vec<Value>,
+    pending_tool_calls: &mut Vec<Value>,
+    pending_reasoning: &mut ChatReasoning,
+) {
     if pending_tool_calls.is_empty() {
         return;
     }
 
-    messages.push(json!({
-        "role": "assistant",
-        "content": Value::Null,
-        "tool_calls": std::mem::take(pending_tool_calls)
-    }));
+    let mut message = Map::from_iter([
+        ("role".to_string(), json!("assistant")),
+        ("content".to_string(), Value::Null),
+        (
+            "tool_calls".to_string(),
+            Value::Array(std::mem::take(pending_tool_calls)),
+        ),
+    ]);
+    pending_reasoning.apply_to_message(&mut message);
+    *pending_reasoning = ChatReasoning::default();
+    messages.push(Value::Object(message));
+}
+
+fn push_chat_message(
+    messages: &mut Vec<Value>,
+    mut message: Value,
+    pending_reasoning: &mut ChatReasoning,
+) {
+    if message.get("role").and_then(Value::as_str) == Some("assistant") {
+        if let Some(message) = message.as_object_mut() {
+            pending_reasoning.apply_to_message(message);
+            *pending_reasoning = ChatReasoning::default();
+        }
+    } else {
+        discard_unattached_chat_reasoning(pending_reasoning);
+    }
+    messages.push(message);
+}
+
+fn discard_unattached_chat_reasoning(pending_reasoning: &mut ChatReasoning) {
+    *pending_reasoning = ChatReasoning::default();
 }
 
 fn flush_chat_tool_output_images(messages: &mut Vec<Value>, image_parts: &mut Vec<Value>) {

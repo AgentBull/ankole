@@ -12,6 +12,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
   alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel}
   alias SlackOpenAPI.Event
 
+  import Ankole.E2E.Harness, only: [put_slack_test_client_opts!: 1]
   import Ankole.PrincipalsFixtures
 
   test "directory sync creates users, usergroups and memberships, while OIDC converges on the same subject" do
@@ -39,12 +40,13 @@ defmodule Ankole.E2E.SlackLifecycleTest do
         ]
       )
 
+    put_slack_test_client_opts!(base_url: fake.base_url)
+
     config = %{
       "clientID" => "client",
       "clientSecret" => "secret",
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
-      "baseURL" => fake.base_url,
       "oidc" => %{"enabled" => true, "scopes" => ["openid", "profile", "email"]},
       "sync" => %{"contacts" => true, "websocket" => true, "pageSize" => 200}
     }
@@ -82,6 +84,8 @@ defmodule Ankole.E2E.SlackLifecycleTest do
         members: %{"C1" => ["U1", "UBOT"]}
       )
 
+    put_slack_test_client_opts!(base_url: fake.base_url)
+
     %{principal: agent} = agent_fixture()
     binding_name = "slack-lifecycle"
 
@@ -89,7 +93,6 @@ defmodule Ankole.E2E.SlackLifecycleTest do
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
       "botUserID" => "UBOT",
-      "baseURL" => fake.base_url,
       "platformSubjectNamespace" => "slack-main",
       "userName" => "Slack"
     }

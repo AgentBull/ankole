@@ -30,7 +30,11 @@ defmodule Ankole.E2E.FakeDingTalk.Router do
   post "/v1.0/gateway/connections/open" do
     :ok = State.record_register(state(conn), conn.params)
     ticket = State.next_ticket(state(conn))
-    json(conn, 200, %{"endpoint" => "ws://127.0.0.1:#{conn.port}", "ticket" => ticket})
+
+    json(conn, 200, %{
+      "endpoint" => "ws://127.0.0.1:#{conn.port}/connect",
+      "ticket" => ticket
+    })
   end
 
   post "/v1.0/oauth2/accessToken" do

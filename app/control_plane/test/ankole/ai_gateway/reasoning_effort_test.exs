@@ -63,4 +63,14 @@ defmodule Ankole.AIGateway.ReasoningEffortTest do
     assert {:ok, %{"reasoning_effort" => "medium"}} =
              ReasoningEffort.provider_options(ctx, target: :reasoning_effort)
   end
+
+  test "the official Responses reasoning field overrides the route default" do
+    ctx = %{
+      request: %{"reasoning" => %{"effort" => "none"}},
+      provider_options: %{"reasoningEffort" => "high"}
+    }
+
+    assert {:ok, %{"reasoning" => %{"effort" => "none"}}} =
+             ReasoningEffort.provider_options(ctx, target: :reasoning)
+  end
 end

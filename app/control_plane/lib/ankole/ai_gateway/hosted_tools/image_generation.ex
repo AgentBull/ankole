@@ -99,27 +99,56 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     catalog_opts = Keyword.put(opts, :tool_index, tool_index)
 
     with :ok <- validate_tool(tool, param_prefix) do
-      case Resolver.resolve_request_model(subject_uid, "image_generate", %{
-             "model" => "image_generate.default"
-           }) do
-        {:ok, runtime} ->
-          prepare_hosted_tool(
-            subject_uid,
-            request,
-            tool,
-            tool_index,
-            param_prefix,
-            runtime,
-            catalog_opts,
-            opts
-          )
-
-        {:error, :model_profile_not_configured} ->
-          prepare_native_tool(tool_index, opts)
-
-        {:error, _reason} = error ->
-          error
+      if Providers.supports_native_image_generation?(Keyword.get(opts, :main_runtime)) do
+        {:ok, nil}
+      else
+        prepare_hosted_fallback(
+          subject_uid,
+          request,
+          tool,
+          tool_index,
+          param_prefix,
+          catalog_opts,
+          opts
+        )
       end
+    end
+  end
+
+  defp prepare_hosted_fallback(
+         subject_uid,
+         request,
+         tool,
+         tool_index,
+         param_prefix,
+         catalog_opts,
+         opts
+       ) do
+    case Resolver.resolve_request_model(subject_uid, "image_generate", %{
+           "model" => "image_generate.default"
+         }) do
+      {:ok, runtime} ->
+        prepare_hosted_tool(
+          subject_uid,
+          request,
+          tool,
+          tool_index,
+          param_prefix,
+          runtime,
+          catalog_opts,
+          opts
+        )
+
+      {:error, :model_profile_not_configured} ->
+        {:error,
+         OpenAIError.invalid(
+           "tools[#{tool_index}].type",
+           "unsupported_value",
+           "image_generation requires either an image_generate model profile or a language-model provider that supports native image generation."
+         )}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -199,19 +228,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     do: Map.get(error, "stage") || Map.get(error, :stage)
 
   defp failure_stage(_reason), do: nil
-
-  defp prepare_native_tool(tool_index, opts) do
-    if Providers.supports_native_image_generation?(Keyword.get(opts, :main_runtime)) do
-      {:ok, nil}
-    else
-      {:error,
-       OpenAIError.invalid(
-         "tools[#{tool_index}].type",
-         "unsupported_value",
-         "image_generation requires either an image_generate model profile or a language-model provider that supports native image generation."
-       )}
-    end
-  end
 
   defp declared_tool(request) do
     tools = Map.get(request, "tools", [])

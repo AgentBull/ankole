@@ -10,6 +10,7 @@ config :ankole, Ankole.Repo,
   database: "ankole_test#{Ankole.Config.Bootstrap.env_string("MIX_TEST_PARTITION")}",
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
+  ownership_timeout: 3_600_000,
   pool_size: System.schedulers_online() * 2
 
 # We don't run a server during test. If one is required,

@@ -31,17 +31,20 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
-    base_url = "https://slack.com/api"
+    client = Config.client(config)
 
     with {:ok, token} <-
-           OIDC.exchange_code(nil,
+           OIDC.exchange_code(client,
              client_id: Map.fetch!(config, "clientID"),
              client_secret: Map.fetch!(config, "clientSecret"),
              code: code,
-             redirect_uri: Keyword.get(opts, :redirect_uri),
-             base_url: base_url
+             redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
-         {:ok, claims} <- OIDC.user_info(token.access_token, base_url: base_url),
+         {:ok, claims} <-
+           OIDC.user_info(token.access_token,
+             base_url: client.base_url,
+             req_options: client.req_options
+           ),
          user <- normalize_claims(claims),
          {:ok, user} <- hydrate_user(config, user) do
       {:ok, %{token: token, user: user}}

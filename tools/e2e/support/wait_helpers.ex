@@ -12,12 +12,13 @@ defmodule Ankole.E2E.WaitHelpers do
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeEvents.Event
   alias Ankole.RuntimeEvents.Handlers
-  alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
@@ -87,33 +88,6 @@ defmodule Ankole.E2E.WaitHelpers do
       )
 
     [old_user.id, old_assistant.id, old_followup_user.id, old_followup_assistant.id]
-  end
-
-  @doc """
-  Fetches the checkback row created by a worker schedule tool call.
-  """
-  @spec checkback_by_idempotency!(String.t(), String.t()) :: ScheduledEvent.t()
-  def checkback_by_idempotency!(agent_uid, idempotency_key) do
-    Repo.one!(
-      from(event in ScheduledEvent,
-        where: event.agent_uid == ^String.downcase(agent_uid),
-        where: event.kind == "check_back_later",
-        where: event.idempotency_key == ^idempotency_key
-      )
-    )
-  end
-
-  @doc """
-  Fetches the cron schedule row created by a worker cron tool call.
-  """
-  @spec cron_schedule_by_idempotency!(String.t(), String.t()) :: CronSchedule.t()
-  def cron_schedule_by_idempotency!(agent_uid, idempotency_key) do
-    Repo.one!(
-      from(schedule in CronSchedule,
-        where: schedule.agent_uid == ^String.downcase(agent_uid),
-        where: schedule.idempotency_key == ^idempotency_key
-      )
-    )
   end
 
   @doc """
@@ -263,6 +237,23 @@ defmodule Ankole.E2E.WaitHelpers do
       _other ->
         receive_port_or_wait(process, deadline, fn ->
           wait_for_actor_event_completed(process, actor_event_id, deadline)
+        end)
+    end
+  end
+
+  @doc """
+  Waits until an actor event reaches its durable dead-letter state.
+  """
+  @spec wait_for_actor_event_dead_letter(map() | port(), Ecto.UUID.t(), integer()) ::
+          {:ok, ActorEvent.t()}
+  def wait_for_actor_event_dead_letter(process, actor_event_id, deadline) do
+    case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{input_state: "dead_letter", dead_letter_at: %DateTime{}} = event ->
+        {:ok, event}
+
+      _other ->
+        receive_port_or_wait(process, deadline, fn ->
+          wait_for_actor_event_dead_letter(process, actor_event_id, deadline)
         end)
     end
   end
@@ -576,6 +567,36 @@ defmodule Ankole.E2E.WaitHelpers do
         |> where([event], event.id == ^actor_event_id)
         |> Repo.all()
         |> Enum.map(&Map.take(&1, [:id, :source_entry_id, :completed_at])),
+      deliveries:
+        ActorEventDelivery
+        |> where([delivery], delivery.actor_event_id == ^actor_event_id)
+        |> Repo.all()
+        |> Enum.map(
+          &Map.take(&1, [
+            :id,
+            :state,
+            :worker_id,
+            :transport_route,
+            :activation_uid,
+            :actor_epoch,
+            :revision,
+            :error
+          ])
+        ),
+      activations:
+        ActorSessionActivation
+        |> where([activation], activation.current_actor_event_id == ^actor_event_id)
+        |> Repo.all()
+        |> Enum.map(
+          &Map.take(&1, [
+            :activation_uid,
+            :status,
+            :assigned_worker_id,
+            :actor_epoch,
+            :revision,
+            :stop_reason
+          ])
+        ),
       outboxes:
         OutboxEntry
         |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)

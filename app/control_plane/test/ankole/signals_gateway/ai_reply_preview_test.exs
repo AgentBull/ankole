@@ -720,7 +720,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert request.checkpoint["refresh_reason"] == "terminal_recovery"
   end
 
-  test "stop cancels an in-flight rich mutation before terminal outbox takes over" do
+  test "stop drains an in-flight rich mutation before terminal outbox takes over" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-drain")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
     owner = self()
@@ -728,11 +728,13 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     adapter = %ReplyPreviewAdapter{
       open_fun: fn _request -> {:ok, %{}} end,
       update_fun: fn _request ->
-        send(owner, {:rich_update_started, self()})
+        Repo.checkout(fn ->
+          send(owner, {:rich_update_started, self()})
 
-        receive do
-          :finish_rich_update -> {:ok, %{}}
-        end
+          receive do
+            :finish_rich_update -> {:ok, %{}}
+          end
+        end)
       end,
       finalize_fun: fn _request -> {:ok, %{}} end
     }
@@ -759,11 +761,16 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
+    refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
+    assert Process.alive?(task_pid)
+
+    send(task_pid, :finish_rich_update)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 500
     refute Process.alive?(task_pid)
+    assert %{rows: [[1]]} = Repo.query!("SELECT 1")
   end
 
-  test "terminal handoff immediately fences a hung rich mutation" do
+  test "terminal handoff checkpoints after the bounded rich mutation settles" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("rich-stop-timeout")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
     owner = self()
@@ -809,6 +816,10 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
 
     monitor = Process.monitor(pid)
     assert :ok = AIReplyPreview.stop(actor_event.id)
+    refute_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 100
+    assert Process.alive?(task_pid)
+
+    send(task_pid, :never_finish)
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 500
     refute Process.alive?(task_pid)
 

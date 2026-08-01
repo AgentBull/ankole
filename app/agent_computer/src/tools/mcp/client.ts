@@ -3,7 +3,7 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { CallToolResultSchema, ListToolsResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { injectableWorkerEnv } from '../computer/env'
-import type { MCPServerConfig } from './config'
+import { assertMCPResourceLimit, MCP_RESOURCE_LIMITS, type MCPServerConfig } from './config'
 import { compareCodePointStrings } from './ordering'
 
 const MAX_LIST_PAGES = 20
@@ -140,17 +140,40 @@ function createTransport(server: MCPServerConfig, workerEnv?: Record<string, str
       throw new Error(`MCP server ${server.name} requires WorkerEnv variable ${server.bearerTokenEnvVar}`)
     }
 
-    return new StreamableHTTPClientTransport(
-      new URL(server.url),
-      token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : {}
-    )
+    return new StreamableHTTPClientTransport(new URL(server.url), {
+      fetch: boundedMCPHTTPFetch,
+      ...(token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : {})
+    })
   }
 
   return new StdioClientTransport({
     command: '/bin/sh',
     args: ['-lc', server.command],
     env: { ...getDefaultEnvironment(), ...resolvedWorkerEnv(workerEnv) },
-    stderr: 'ignore'
+    stderr: 'ignore',
+    maxBufferSize: MCP_RESOURCE_LIMITS.stdioMessageBytes
+  })
+}
+
+async function boundedMCPHTTPFetch(url: string | URL, init?: RequestInit): Promise<Response> {
+  const response = await fetch(url, init)
+  if (!response.body) return response
+
+  let receivedBytes = 0
+  const body = response.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        receivedBytes += chunk.byteLength
+        assertMCPResourceLimit('transport HTTP response', receivedBytes, MCP_RESOURCE_LIMITS.httpResponseBytes, 'byte')
+        controller.enqueue(chunk)
+      }
+    })
+  )
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
   })
 }
 

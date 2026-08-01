@@ -11,10 +11,13 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.MapUtils
+  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.RequestContext
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ToolSearch
+  alias Ankole.AIGateway.ToolSearch.StreamLoop
 
   @hosted_max_bytes 128 * 1024 * 1024
   @hosted_total_timeout_ms 30 * 60 * 1000
@@ -22,7 +25,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   @type prepared :: %{
           required(:request) => map(),
           required(:runtime) => map(),
-          required(:spec) => map()
+          required(:spec) => map(),
+          required(:driver) => :single_request | :response_stream
         }
 
   @spec prepare(String.t(), map(), keyword()) :: {:ok, prepared()} | {:error, term()}
@@ -81,12 +85,17 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     stream? = Keyword.get(opts, :stream?, false)
 
     with {:ok, provider_request} <- provider_request(runtime, request),
-         {:ok, provider_request, tool_plan} <- ToolSearch.plan(provider_request),
-         {:ok, image_generation} <-
-           ImageGeneration.prepare(subject_uid, request,
-             stream?: stream?,
-             main_runtime: runtime
+         {:ok, provider_request, tool_plan} <- plan_tools(runtime, provider_request),
+         :ok <- validate_tool_budget_owners(request, provider_request, tool_plan),
+         response_stream_driver? = response_stream_driver?(tool_plan),
+         provider_request =
+           StreamLoop.apply_tool_budget(
+             tool_plan,
+             provider_request,
+             initial_tool_budget(request)
            ),
+         {:ok, image_generation} <-
+           prepare_image_generation(subject_uid, request, runtime, stream?),
          {:ok, spec} <-
            build_attempt_spec(
              runtime,
@@ -94,11 +103,113 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
              request,
              image_generation,
              tool_plan,
-             stream?
+             stream? or response_stream_driver?
            ) do
-      {:ok, %{request: request, runtime: runtime, spec: spec}}
+      {:ok,
+       %{
+         request: request,
+         runtime: runtime,
+         spec: spec,
+         driver: if(response_stream_driver?, do: :response_stream, else: :single_request)
+       }}
     end
   end
+
+  defp initial_tool_budget(%{"max_tool_calls" => 0}), do: 0
+  defp initial_tool_budget(_request), do: nil
+
+  defp prepare_image_generation(_subject_uid, %{"max_tool_calls" => 0}, _runtime, _stream?),
+    do: {:ok, nil}
+
+  defp prepare_image_generation(subject_uid, request, runtime, stream?) do
+    ImageGeneration.prepare(subject_uid, request,
+      stream?: stream?,
+      main_runtime: runtime
+    )
+  end
+
+  defp response_stream_driver?(plan), do: ToolSearch.response_stream_required?(plan)
+
+  defp validate_tool_budget_owners(
+         %{"max_tool_calls" => limit, "tool_choice" => "none"},
+         _provider_request,
+         _tool_plan
+       )
+       when is_integer(limit) and limit > 0,
+       do: :ok
+
+  defp validate_tool_budget_owners(
+         %{"max_tool_calls" => limit},
+         provider_request,
+         tool_plan
+       )
+       when is_integer(limit) and limit > 0 and not is_nil(tool_plan) do
+    mixed_owners? =
+      ToolSearch.response_stream_required?(tool_plan) and
+        Enum.any?(
+          ToolSearch.list_tools(provider_request),
+          &ResponseItems.budgeted_tool_declaration?/1
+        )
+
+    if mixed_owners? do
+      {:error,
+       OpenAIError.invalid(
+         "max_tool_calls",
+         "unsupported_value",
+         "Do not use a positive max_tool_calls with local Tool Search or " <>
+           "Programmatic Tool Calling and another built-in tool."
+       )}
+    else
+      :ok
+    end
+  end
+
+  defp validate_tool_budget_owners(_request, _provider_request, _tool_plan), do: :ok
+
+  # Tool ownership follows the stable provider/client protocol. A tool list
+  # change must not switch one conversation between native and local handling.
+  defp plan_tools(runtime, provider_request) do
+    if native_openai_tools?(runtime) do
+      {:ok, provider_request, nil}
+    else
+      case ToolSearch.plan(provider_request) do
+        {:ok, _provider_request, _plan} = planned -> planned
+        {:error, reason} -> {:error, invalid_tool_plan(reason)}
+      end
+    end
+  end
+
+  defp invalid_tool_plan(reason) do
+    code =
+      case reason do
+        {tag, _details} when is_atom(tag) -> Atom.to_string(tag)
+        tag when is_atom(tag) -> Atom.to_string(tag)
+        _reason -> "invalid_tools"
+      end
+
+    OpenAIError.invalid(
+      nil,
+      code,
+      "The Responses tool declaration or tool-call history is invalid."
+    )
+  end
+
+  defp native_openai_tools?(%{"provider_kind" => "openai"} = runtime) do
+    connection_options = Map.get(runtime, "connection_options", %{})
+
+    endpoint_kind =
+      Map.get(connection_options, "endpoint_kind") || Map.get(connection_options, :endpoint_kind)
+
+    endpoint_kind != "chat_completions"
+  end
+
+  defp native_openai_tools?(%{"provider_kind" => "chatgpt_subscription"} = runtime) do
+    runtime
+    |> Map.get("request_context", %{})
+    |> ChatGPTProtocol.codex_client?()
+  end
+
+  defp native_openai_tools?(_runtime), do: false
 
   defp build_attempt_spec(
          runtime,
@@ -106,11 +217,11 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
          public_request,
          image_generation,
          tool_plan,
-         stream?
+         upstream_stream?
        ) do
     with {:ok, main_spec} <-
            Providers.build_response_request(runtime, provider_request,
-             stream?: stream? and is_nil(image_generation)
+             stream?: upstream_stream? and is_nil(image_generation)
            ) do
       spec =
         main_spec
@@ -124,7 +235,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
           public_request,
           image_generation,
           tool_plan,
-          stream?
+          upstream_stream?
         )
       end
 
@@ -148,10 +259,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   defp put_tool_loop(spec, plan, provider_request) do
     Map.put(spec, :tool_loop, %{
       plan: plan,
-      provider_request: provider_request,
-      program_run: fn code, bindings, memo ->
-        Ankole.Kernel.ProgramRunner.run(code, bindings, memo)
-      end
+      provider_request: provider_request
     })
   end
 

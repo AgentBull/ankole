@@ -1,8 +1,10 @@
 defmodule Ankole.AIGateway.ToolSearchTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.AIGateway.ToolSearch.Index
+  alias Ankole.AIGateway.ToolSearch.StreamLoop
 
   # Golden wire sample from codex rust-v0.146.0
   # codex-rs/protocol/src/models.rs `tool_search_call_roundtrips`.
@@ -29,6 +31,19 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
   defp base_request(tools, input \\ []) do
     %{"model" => "gpt-5.6", "tools" => tools, "input" => input}
+  end
+
+  defp client_search_output(call_id, tools \\ [], extra \\ %{}) do
+    Map.merge(
+      %{
+        "type" => "tool_search_output",
+        "call_id" => call_id,
+        "status" => "completed",
+        "execution" => "client",
+        "tools" => tools
+      },
+      extra
+    )
   end
 
   describe "plan/1" do
@@ -64,7 +79,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert search_tool["type"] == "function"
       assert search_tool["description"] =~ "bx_market_data"
       assert search_tool["description"] =~ "龙虎榜席位数据"
-      assert search_tool["parameters"]["required"] == ["query"]
+      assert search_tool["parameters"]["required"] == ["paths"]
+      assert search_tool["parameters"]["properties"]["paths"]["type"] == "array"
     end
 
     test "plans deferred tools inside the responses-lite carrier" do
@@ -94,11 +110,20 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       [carrier | remaining_input] = provider_request["input"]
       assert carrier["type"] == "additional_tools"
-      assert Enum.map(carrier["tools"], & &1["name"]) == ["get_weather", "tool_search"]
+
+      assert Enum.map(carrier["tools"], & &1["name"]) == [
+               "get_weather",
+               "tool_search",
+               "program"
+             ]
+
       assert Enum.at(remaining_input, 0)["role"] == "developer"
 
-      [loaded] = ToolSearch.search(plan, "行情", 5)
-      {_plan, next_tools} = ToolSearch.load_tools(plan, carrier["tools"], [loaded])
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["bx_market_data"])
+
+      assert {:ok, _plan, next_tools} =
+               ToolSearch.load_tools(plan, carrier["tools"], [loaded])
+
       continuation = ToolSearch.put_tools(provider_request, next_tools)
 
       assert continuation["tools"] == nil
@@ -106,7 +131,8 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert Enum.map(hd(continuation["input"])["tools"], & &1["name"]) == [
                "get_weather",
                "tool_search",
-               "bx_market_data"
+               "bx_market_data",
+               "program"
              ]
     end
 
@@ -149,7 +175,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       request =
         base_request([%{"type" => "namespace", "name" => "agents", "defer_loading" => true}])
 
-      assert {:error, {:invalid_tool_search, {:invalid_namespace, "agents"}}} =
+      assert {:error, {:invalid_tool_contract, {:namespace_tools_must_be_a_list, "agents", nil}}} =
                ToolSearch.plan(request)
     end
 
@@ -165,7 +191,12 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       }
 
       assert {:ok, provider_request, plan} =
-               ToolSearch.plan(base_request([namespace, %{"type" => "tool_search"}]))
+               ToolSearch.plan(
+                 base_request(
+                   [namespace, %{"type" => "tool_search"}],
+                   [%{"type" => "message", "role" => "user", "content" => "股票行情"}]
+                 )
+               )
 
       assert Enum.map(plan.catalog, & &1["__ankole_public_name"]) == [
                "stock_price",
@@ -176,7 +207,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       assert hd(provider_request["tools"])["description"] =~ "mcp__finance"
       refute hd(provider_request["tools"])["description"] =~ "stock_price"
 
-      [loaded] = ToolSearch.search(plan, "股票行情", 5)
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__finance"])
       assert loaded["__ankole_public_name"] == "stock_price"
 
       output =
@@ -200,7 +231,9 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                }
              ] = output["tools"]
 
-      {plan, provider_tools} = ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
+      assert {:ok, plan, provider_tools} =
+               ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
+
       [loaded_provider, _search] = Enum.sort_by(provider_tools, & &1["name"])
       refute Map.has_key?(loaded_provider, "namespace")
       refute Map.has_key?(loaded_provider, "defer_loading")
@@ -224,20 +257,131 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           deferred_tool("bx_market_data", "行情")
         ])
 
-      assert {:error, {:invalid_tool_search, {:tool_name_collision, "tool_search"}}} =
+      assert {:error,
+              {:invalid_tool_contract, {:reserved_provider_name, "tool_search", "tool_search"}}} =
                ToolSearch.plan(request)
     end
 
-    test "rewrites replayed tool_search_call items into provider function calls" do
+    test "zero built-in budget removes native and synthesized tools before the first round" do
+      request =
+        base_request([
+          %{"type" => "web_search"},
+          %{"type" => "web_search_2025_08_26"},
+          %{"type" => "web_search_preview_2025_03_11"},
+          %{"type" => "function", "name" => "get_weather"},
+          %{"type" => "tool_search", "execution" => "client"},
+          %{"type" => "programmatic_tool_calling"}
+        ])
+        |> Map.put("max_tool_calls", 0)
+        |> Map.put("tool_choice", %{"type" => "web_search_2025_08_26"})
+
+      assert {:ok, provider_request, plan} = ToolSearch.plan(request)
+
+      provider_request = StreamLoop.apply_tool_budget(plan, provider_request, 0)
+
+      assert [%{"type" => "function", "name" => "get_weather"}] =
+               ToolSearch.list_tools(provider_request)
+
+      refute Map.has_key?(provider_request, "max_tool_calls")
+      assert provider_request["tool_choice"] == "auto"
+    end
+
+    test "zero budget removes versioned built-ins from an allowed tool choice" do
+      request = %{
+        "input" => "hello",
+        "tools" => [
+          %{"type" => "function", "name" => "get_weather"},
+          %{"type" => "computer"},
+          %{"type" => "mcp", "server_label" => "inventory"},
+          %{"type" => "web_search_2025_08_26"},
+          %{"type" => "web_search_preview_2025_03_11"}
+        ],
+        "tool_choice" => %{
+          "type" => "allowed_tools",
+          "mode" => "auto",
+          "tools" => [
+            %{"type" => "function", "name" => "get_weather"},
+            %{"type" => "computer_use"},
+            %{"type" => "mcp", "server_label" => "inventory", "name" => "lookup"},
+            %{"type" => "web_search_2025_08_26"},
+            %{"type" => "web_search_preview_2025_03_11"}
+          ]
+        }
+      }
+
+      provider_request = StreamLoop.disable_budgeted_effects(nil, request)
+
+      assert ToolSearch.list_tools(provider_request) == [
+               %{"type" => "function", "name" => "get_weather"}
+             ]
+
+      assert provider_request["tool_choice"] == %{
+               "type" => "allowed_tools",
+               "mode" => "auto",
+               "tools" => [%{"type" => "function", "name" => "get_weather"}]
+             }
+    end
+
+    test "zero budget clears the computer tool-choice alias" do
+      request = %{
+        "input" => "hello",
+        "tools" => [
+          %{"type" => "function", "name" => "get_weather"},
+          %{"type" => "computer"}
+        ],
+        "tool_choice" => %{"type" => "computer_use"}
+      }
+
+      provider_request = StreamLoop.disable_budgeted_effects(nil, request)
+
+      assert ToolSearch.list_tools(provider_request) == [
+               %{"type" => "function", "name" => "get_weather"}
+             ]
+
+      assert provider_request["tool_choice"] == "auto"
+    end
+
+    test "zero budget clears an exact MCP tool choice that includes a name" do
+      request = %{
+        "input" => "hello",
+        "tools" => [
+          %{"type" => "function", "name" => "get_weather"},
+          %{"type" => "mcp", "server_label" => "inventory"}
+        ],
+        "tool_choice" => %{
+          "type" => "mcp",
+          "server_label" => "inventory",
+          "name" => "lookup"
+        }
+      }
+
+      provider_request = StreamLoop.disable_budgeted_effects(nil, request)
+
+      assert ToolSearch.list_tools(provider_request) == [
+               %{"type" => "function", "name" => "get_weather"}
+             ]
+
+      assert provider_request["tool_choice"] == "auto"
+    end
+
+    test "rewrites a paired tool_search_call into a provider function call" do
+      output = %{
+        "type" => "tool_search_output",
+        "call_id" => "search-1",
+        "status" => "completed",
+        "execution" => "client",
+        "tools" => []
+      }
+
       request =
         base_request(
           [%{"type" => "tool_search", "execution" => "client"}],
-          [@codex_tool_search_call]
+          [@codex_tool_search_call, output]
         )
 
       assert {:ok, provider_request, _plan} = ToolSearch.plan(request)
 
-      [call] = provider_request["input"]
+      [call, _output] = provider_request["input"]
       assert call["type"] == "function_call"
       assert call["name"] == "tool_search"
       assert call["call_id"] == "search-1"
@@ -326,9 +470,18 @@ defmodule Ankole.AIGateway.ToolSearchTest do
     test "keeps loaded tools out of the searchable listing" do
       loaded = deferred_tool("bx_market_data", "A股行情数据查询")
 
+      search_call = %{
+        "type" => "tool_search_call",
+        "call_id" => nil,
+        "status" => "completed",
+        "execution" => "server",
+        "arguments" => %{"paths" => ["bx_market_data"]}
+      }
+
       output_item = %{
         "type" => "tool_search_output",
-        "call_id" => "search-1",
+        "call_id" => nil,
+        "status" => "completed",
         "execution" => "server",
         "tools" => [loaded]
       }
@@ -336,7 +489,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       request =
         base_request(
           [deferred_tool("bx_market_data", "A股行情数据查询"), deferred_tool("bx_news", "新闻")],
-          [output_item]
+          [search_call, output_item]
         )
 
       assert {:ok, provider_request, _plan} = ToolSearch.plan(request)
@@ -345,9 +498,377 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       refute search_tool["description"] =~ "bx_market_data:"
       assert search_tool["description"] =~ "bx_news"
     end
+
+    test "rejects managed history when its declaration is absent" do
+      cases = [
+        {%{"type" => "program", "call_id" => "prog"}, {:invalid_program, :declaration_missing}},
+        {%{"type" => "program_output", "call_id" => "prog"},
+         {:invalid_program, :declaration_missing}},
+        {%{
+           "type" => "tool_search_call",
+           "call_id" => nil,
+           "execution" => "server",
+           "arguments" => %{"paths" => ["weather"]}
+         }, {:invalid_tool_search_history, :declaration_missing}},
+        {%{
+           "type" => "function_call_output",
+           "call_id" => "nested",
+           "caller" => %{"type" => "program", "caller_id" => "prog"}
+         }, {:invalid_program, :declaration_missing}}
+      ]
+
+      for {item, expected} <- cases do
+        assert {:error, ^expected} = ToolSearch.plan(base_request([], [item]))
+      end
+    end
+
+    test "replays a complete client search pair without repeating its declaration" do
+      loaded = %{
+        "type" => "function",
+        "name" => "calendar",
+        "description" => "Read the calendar.",
+        "parameters" => %{"type" => "object"}
+      }
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request(
+                   [],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [loaded])
+                   ]
+                 )
+               )
+
+      assert plan.execution == nil
+      assert plan.tool_name == nil
+      assert plan.loaded_names == MapSet.new(["calendar"])
+
+      assert Enum.map(provider_request["input"], & &1["type"]) == [
+               "function_call",
+               "function_call_output"
+             ]
+
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar"]
+    end
+
+    test "rejects malformed or conflicting client-loaded contracts atomically" do
+      malformed_namespace = %{
+        "type" => "namespace",
+        "name" => "crm",
+        "tools" => ["not-a-tool"]
+      }
+
+      assert {:error, {:invalid_tool_search_history, :namespace_children_must_be_objects}} =
+               ToolSearch.plan(
+                 base_request(
+                   [],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [malformed_namespace])
+                   ]
+                 )
+               )
+
+      existing = %{
+        "type" => "function",
+        "name" => "calendar",
+        "parameters" => %{"type" => "object"}
+      }
+
+      changed = put_in(existing, ["parameters", "type"], "array")
+
+      assert {:error, {:invalid_tool_contract, {:loaded_tool_mismatch, "calendar"}}} =
+               ToolSearch.plan(
+                 base_request(
+                   [existing],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [changed])
+                   ]
+                 )
+               )
+
+      assert {:error, {:invalid_tool_contract, {:reserved_provider_name, "program", "program"}}} =
+               ToolSearch.plan(
+                 base_request(
+                   [],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [
+                       %{"type" => "function", "name" => "program"}
+                     ])
+                   ]
+                 )
+               )
+    end
+
+    test "requires strict client search pairs" do
+      call = @codex_tool_search_call
+      output = client_search_output("search-1")
+
+      cases = [
+        {[output], {:orphan_client_search_output, "search-1"}},
+        {[call, client_search_output("search-2")],
+         {:mismatched_client_search_output, "search-2"}},
+        {[call, call], {:duplicate_client_search_call, "search-1"}},
+        {[call, output, output], {:duplicate_client_search_output, "search-1"}},
+        {[call], {:unanswered_client_search_call, "search-1"}},
+        {[call, Map.delete(output, "status")], {:incomplete_tool_search_output, "search-1"}},
+        {[call, Map.put(output, "status", "in_progress")],
+         {:incomplete_tool_search_output, "search-1", "in_progress"}},
+        {[call, Map.delete(output, "execution")], {:invalid_search_output_id, "search-1"}},
+        {[call, Map.put(output, "call_id", nil)], {:invalid_tool_search_output, nil}}
+      ]
+
+      for {input, expected} <- cases do
+        assert {:error, {:invalid_tool_search_history, ^expected}} =
+                 ToolSearch.plan(
+                   base_request([%{"type" => "tool_search", "execution" => "client"}], input)
+                 )
+      end
+    end
+
+    test "preserves a deferred custom contract through search and loading" do
+      format = %{"type" => "grammar", "syntax" => "lark", "definition" => "start: WORD"}
+      output_schema = %{"type" => "object", "required" => ["changed"]}
+
+      custom = %{
+        "type" => "custom",
+        "name" => "apply_edit",
+        "description" => "Apply an edit.",
+        "format" => format,
+        "output_schema" => output_schema,
+        "allowed_callers" => ["direct", "programmatic"],
+        "defer_loading" => true
+      }
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request([
+                   custom,
+                   %{"type" => "tool_search", "execution" => "server"},
+                   %{"type" => "programmatic_tool_calling"}
+                 ])
+               )
+
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["apply_edit"])
+      assert loaded["format"] == format
+      assert loaded["output_schema"] == output_schema
+      refute Map.has_key?(loaded, "parameters")
+
+      public =
+        ToolSearch.public_search_output(
+          plan,
+          %{"id" => "fc_search", "call_id" => "call_search"},
+          [loaded]
+        )
+
+      assert [public_tool] = public["tools"]
+      assert public_tool["type"] == "custom"
+      assert public_tool["format"] == format
+      assert public_tool["output_schema"] == output_schema
+
+      assert {:ok, loaded_plan, tools} =
+               ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
+
+      provider_tool = Enum.find(tools, &(&1["name"] == "apply_edit"))
+      assert provider_tool["type"] == "custom"
+      assert provider_tool["format"] == format
+      refute Map.has_key?(provider_tool, "output_schema")
+      refute Map.has_key?(provider_tool, "parameters")
+      assert Enum.any?(loaded_plan.ptc.program.bindings, &(&1.provider_name == "apply_edit"))
+    end
+
+    test "rejects a complete loaded list when any member is invalid" do
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(base_request([deferred_tool("quote", "Quote lookup")]))
+
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["quote"])
+      invalid = %{"type" => "function", "name" => "broken", "allowed_callers" => []}
+
+      assert {:error, {:invalid_tool_contract, {:invalid_allowed_callers, "broken", []}}} =
+               ToolSearch.load_tools(plan, provider_request["tools"], [loaded, invalid])
+
+      assert plan.loaded_names == MapSet.new()
+    end
+
+    test "rejects root and namespace aliases that flatten to one provider name" do
+      request =
+        base_request([
+          %{"type" => "function", "name" => "a__b"},
+          %{
+            "type" => "namespace",
+            "name" => "a",
+            "tools" => [%{"type" => "function", "name" => "b"}]
+          }
+        ])
+
+      assert {:error,
+              {:invalid_tool_contract, {:provider_alias_collision, "a__b", ["a__b", "a.b"]}}} =
+               ToolSearch.plan(request)
+    end
+
+    test "rejects a program contract that exceeds the description budget" do
+      huge_tool = %{
+        "type" => "function",
+        "name" => "huge",
+        "description" => String.duplicate("x", 40_000),
+        "parameters" => %{"type" => "object"},
+        "allowed_callers" => ["programmatic"]
+      }
+
+      assert {:error, {:invalid_program, {:program_contract_too_large, bytes, 32_768}}} =
+               ToolSearch.plan(
+                 base_request([huge_tool, %{"type" => "programmatic_tool_calling"}])
+               )
+
+      assert bytes > 32_768
+    end
+
+    test "a dual-channel contract is referenced once instead of copied into program" do
+      huge_tool = %{
+        "type" => "function",
+        "name" => "huge",
+        "description" => String.duplicate("x", 40_000),
+        "parameters" => %{"type" => "object"},
+        "allowed_callers" => ["direct", "programmatic"]
+      }
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request([huge_tool, %{"type" => "programmatic_tool_calling"}])
+               )
+
+      program = PTC.provider_tool(plan.ptc)
+      assert program["description"] =~ ~s|matching direct tool declarations: ["huge"]|
+      refute program["description"] =~ String.duplicate("x", 1_000)
+
+      assert Enum.any?(
+               provider_request["tools"],
+               &(&1["name"] == "huge" and byte_size(&1["description"]) == 40_000)
+             )
+    end
+
+    test "rejects bindings that cannot fit the resumable fingerprint snapshot" do
+      tools =
+        for index <- 1..129 do
+          %{
+            "type" => "function",
+            "name" => "t#{index}",
+            "parameters" => %{"type" => "object"},
+            "allowed_callers" => ["programmatic"]
+          }
+        end
+
+      assert {:error,
+              {:invalid_program,
+               {:program_binding_snapshot_invalid, :invalid_program_fingerprint_bindings}}} =
+               ToolSearch.plan(base_request(tools ++ [%{"type" => "programmatic_tool_calling"}]))
+    end
   end
 
-  describe "search/3" do
+  describe "program history ordering" do
+    setup do
+      tool = %{
+        "type" => "function",
+        "name" => "worker",
+        "parameters" => %{"type" => "object"},
+        "allowed_callers" => ["programmatic"]
+      }
+
+      tools = [tool, %{"type" => "programmatic_tool_calling"}]
+      assert {:ok, _request, plan} = ToolSearch.plan(base_request(tools))
+      code = "await tools.worker({})"
+
+      root = %{
+        "type" => "program",
+        "call_id" => "prog",
+        "code" => code,
+        "fingerprint" => PTC.fingerprint(code, plan.ptc.program.bindings),
+        "status" => "completed"
+      }
+
+      caller = %{"type" => "program", "caller_id" => "prog"}
+
+      call = %{
+        "type" => "function_call",
+        "call_id" => "nested",
+        "name" => "worker",
+        "arguments" => "{}",
+        "status" => "completed",
+        "caller" => caller
+      }
+
+      output = %{
+        "type" => "function_call_output",
+        "call_id" => "nested",
+        "output" => "ok",
+        "caller" => caller
+      }
+
+      program_output = %{
+        "type" => "program_output",
+        "call_id" => "prog",
+        "status" => "completed",
+        "result" => "done"
+      }
+
+      %{tools: tools, root: root, call: call, output: output, program_output: program_output}
+    end
+
+    test "validates program outputs and refuses to settle unanswered children", context do
+      cases = [
+        {[context.root, Map.delete(context.program_output, "status")],
+         {:invalid_program_output, "prog"}},
+        {[context.root, Map.delete(context.program_output, "result")],
+         {:invalid_program_output, "prog"}},
+        {[context.root, context.call, context.program_output],
+         {:program_calls_unanswered, "prog"}}
+      ]
+
+      for {input, expected} <- cases do
+        assert {:error, {:invalid_program, ^expected}} =
+                 ToolSearch.plan(base_request(context.tools, input))
+      end
+    end
+
+    test "rejects children after the owning program is closed", context do
+      assert {:error, {:invalid_program, {:late_program_call, "prog", "nested"}}} =
+               ToolSearch.plan(
+                 base_request(context.tools, [context.root, context.program_output, context.call])
+               )
+
+      assert {:error, {:invalid_program, {:late_program_call_output, "prog", "nested"}}} =
+               ToolSearch.plan(
+                 base_request(context.tools, [
+                   context.root,
+                   context.program_output,
+                   context.output
+                 ])
+               )
+    end
+
+    test "requires a nested output to match call type and name", context do
+      custom_output = %{context.output | "type" => "custom_tool_call_output"}
+      wrong_name = Map.put(context.output, "name", "other")
+
+      assert {:error,
+              {:invalid_program, {:invalid_program_call_output, "prog", "nested", :type_mismatch}}} =
+               ToolSearch.plan(
+                 base_request(context.tools, [context.root, context.call, custom_output])
+               )
+
+      assert {:error,
+              {:invalid_program, {:invalid_program_call_output, "prog", "nested", :name_mismatch}}} =
+               ToolSearch.plan(
+                 base_request(context.tools, [context.root, context.call, wrong_name])
+               )
+    end
+  end
+
+  describe "hosted namespace resolution" do
     setup do
       catalog = [
         %{"type" => "function", "name" => "bx_market_data", "description" => "A股行情与K线数据查询"},
@@ -367,38 +888,14 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       %{plan: plan}
     end
 
-    test "matches Chinese queries through bigram tokens", %{plan: plan} do
-      assert [%{"name" => "bx_dragon_tiger"} = tool] = ToolSearch.search(plan, "龙虎榜", 5)
+    test "root paths resolve exactly", %{plan: plan} do
+      assert {:ok, [%{"name" => "bx_dragon_tiger"} = tool]} =
+               ToolSearch.search_paths(plan, ["bx_dragon_tiger"])
+
       assert tool["defer_loading"] == true
     end
 
-    test "matches English queries through word tokens", %{plan: plan} do
-      assert [%{"name" => "get_weather"}] = ToolSearch.search(plan, "weather forecast", 5)
-    end
-
-    test "matches tool name fragments split on underscores", %{plan: plan} do
-      assert [%{"name" => "bx_market_data"} | _rest] = ToolSearch.search(plan, "market data", 5)
-    end
-
-    test "returns nothing for an unmatched or empty query", %{plan: plan} do
-      assert ToolSearch.search(plan, "", 5) == []
-      assert ToolSearch.search(plan, "unrelated topic zzz", 5) == []
-    end
-
-    test "returns eight tools by default" do
-      catalog =
-        Enum.map(1..12, fn index ->
-          deferred_tool("market_metric_#{index}", "Shared market lookup #{index}")
-        end)
-
-      {:ok, _request, plan} = ToolSearch.plan(base_request(catalog))
-
-      assert plan
-             |> ToolSearch.search("market lookup", nil)
-             |> length() == 8
-    end
-
-    test "indexes the owner-supplied MCP corpus and strips it from public and provider tools" do
+    test "uses owner-supplied metadata only for bounded namespace ranking" do
       tool =
         deferred_tool("opaque_tool", "Generic lookup")
         |> Map.put(
@@ -406,8 +903,26 @@ defmodule Ankole.AIGateway.ToolSearchTest do
           "raw-name canonical_name Market Title server.one initialize instructions security_id"
         )
 
-      {:ok, provider_request, plan} = ToolSearch.plan(base_request([tool]))
-      assert [loaded] = ToolSearch.search(plan, "security_id", nil)
+      namespace = %{
+        "type" => "namespace",
+        "name" => "market",
+        "description" => "Market tools",
+        "tools" => [
+          tool,
+          deferred_tool("other_tool", "Weather forecast")
+        ]
+      }
+
+      {:ok, provider_request, plan} =
+        ToolSearch.plan(
+          base_request(
+            [namespace, %{"type" => "tool_search"}],
+            [%{"type" => "message", "role" => "user", "content" => "lookup security_id"}]
+          )
+        )
+
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["market"])
+      assert loaded["__ankole_public_name"] == "opaque_tool"
 
       output =
         ToolSearch.public_search_output(
@@ -419,9 +934,40 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       [public_tool] = output["tools"]
       refute Map.has_key?(public_tool, "__ankole_search_text")
 
-      {_plan, provider_tools} = ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
-      provider_tool = Enum.find(provider_tools, &(&1["name"] == "opaque_tool"))
+      assert {:ok, _plan, provider_tools} =
+               ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
+
+      provider_tool = Enum.find(provider_tools, &(&1["name"] == "market__opaque_tool"))
       refute Map.has_key?(provider_tool, "__ankole_search_text")
+    end
+
+    test "preserves an empty namespace description across a server load" do
+      namespace = %{
+        "type" => "namespace",
+        "name" => "mcp__e2e_ptc",
+        "description" => "",
+        "tools" => [deferred_tool("lookup_ptc_marker", "Return one marker")]
+      }
+
+      {:ok, provider_request, plan} =
+        ToolSearch.plan(base_request([namespace, %{"type" => "tool_search"}]))
+
+      assert {:ok, [loaded]} = ToolSearch.search_paths(plan, ["mcp__e2e_ptc"])
+      assert loaded["__ankole_namespace_description"] == ""
+
+      assert {:ok, _loaded_plan, provider_tools} =
+               ToolSearch.load_tools(plan, provider_request["tools"], [loaded])
+
+      assert Enum.any?(provider_tools, &(&1["name"] == "mcp__e2e_ptc__lookup_ptc_marker"))
+
+      output =
+        ToolSearch.public_search_output(
+          plan,
+          %{"id" => "fc_search", "call_id" => "call_search"},
+          [loaded]
+        )
+
+      assert [%{"name" => "mcp__e2e_ptc", "description" => ""}] = output["tools"]
     end
   end
 
@@ -456,42 +1002,44 @@ defmodule Ankole.AIGateway.ToolSearchTest do
         "type" => "function_call",
         "name" => "tool_search",
         "call_id" => "call_abc",
-        "arguments" => ~s({"query":"新闻"})
+        "arguments" => ~s({"paths":["bx_news"]})
       }
 
       public = ToolSearch.public_search_call(plan, item)
       assert public["call_id"] == nil
       assert public["execution"] == "server"
+      assert public["arguments"] == %{"paths" => ["bx_news"]}
+      refute Map.has_key?(public, "provider_call_id")
     end
 
-    test "server mode output pairs loaded tools with the provider call" do
+    test "server mode output stays in the official null-call-id shape" do
       {:ok, _request, plan} = ToolSearch.plan(base_request([deferred_tool("bx_news", "新闻")]))
 
       call_item = %{"type" => "function_call", "call_id" => "call_abc"}
-      loaded = ToolSearch.search(plan, "新闻", 5)
+      assert {:ok, loaded} = ToolSearch.search_paths(plan, ["bx_news"])
 
       output = ToolSearch.public_search_output(plan, call_item, loaded)
       assert output["type"] == "tool_search_output"
       assert output["call_id"] == nil
       assert output["execution"] == "server"
-      assert output["provider_call_id"] == "call_abc"
+      refute Map.has_key?(output, "provider_call_id")
       assert [%{"name" => "bx_news", "defer_loading" => true}] = output["tools"]
     end
 
-    test "load_tools merges loaded tools once and advances the round" do
+    test "load_tools merges loaded tools once and reuses the unchanged plan" do
       {:ok, provider_request, plan} =
         ToolSearch.plan(base_request([deferred_tool("bx_news", "新闻")]))
 
-      loaded = ToolSearch.search(plan, "新闻", 5)
+      assert {:ok, loaded} = ToolSearch.search_paths(plan, ["bx_news"])
 
-      {plan, tools} = ToolSearch.load_tools(plan, provider_request["tools"], loaded)
+      assert {:ok, loaded_plan, tools} =
+               ToolSearch.load_tools(plan, provider_request["tools"], loaded)
+
       assert Enum.count(tools, &(&1["name"] == "bx_news")) == 1
       refute Map.has_key?(Enum.find(tools, &(&1["name"] == "bx_news")), "defer_loading")
-      assert plan.server_round == 1
 
-      {plan, tools} = ToolSearch.load_tools(plan, tools, loaded)
+      assert {:ok, ^loaded_plan, ^tools} = ToolSearch.load_tools(loaded_plan, tools, loaded)
       assert Enum.count(tools, &(&1["name"] == "bx_news")) == 1
-      assert plan.server_round == 2
     end
   end
 
@@ -513,6 +1061,109 @@ defmodule Ankole.AIGateway.ToolSearchTest do
                ToolSearch.parse_search_arguments(%{
                  "arguments" => %{"query" => "q", "limit" => 999}
                })
+    end
+  end
+
+  describe "hosted path selection" do
+    test "loads exact root and namespace paths without silently truncating" do
+      namespace = %{
+        "type" => "namespace",
+        "name" => "crm",
+        "description" => "CRM tools",
+        "tools" => [
+          deferred_tool("get_customer", "Get a customer"),
+          deferred_tool("list_orders", "List orders")
+        ]
+      }
+
+      {:ok, _request, plan} =
+        ToolSearch.plan(
+          base_request([
+            deferred_tool("get_weather", "Weather lookup"),
+            namespace,
+            %{"type" => "tool_search"}
+          ])
+        )
+
+      assert {:ok, %{paths: ["crm", "get_weather"]}} =
+               ToolSearch.parse_search_arguments(plan, %{
+                 "arguments" => ~s({"paths":["crm","get_weather"]})
+               })
+
+      assert {:ok, loaded} = ToolSearch.search_paths(plan, ["crm", "get_weather"])
+
+      assert Enum.map(loaded, & &1["name"]) == [
+               "crm__get_customer",
+               "crm__list_orders",
+               "get_weather"
+             ]
+
+      assert {:error, {:unknown_tool_search_path, "crm.list_orders"}} =
+               ToolSearch.search_paths(plan, ["crm.list_orders"])
+    end
+
+    test "rejects malformed hosted arguments before search execution" do
+      {:ok, _request, plan} =
+        ToolSearch.plan(base_request([deferred_tool("bx_news", "News")]))
+
+      assert {:error, {:invalid_tool_search_arguments, :invalid_shape}} =
+               ToolSearch.parse_search_arguments(plan, %{
+                 "arguments" => ~s({"query":"news"})
+               })
+
+      assert {:error, {:invalid_tool_search_arguments, :duplicate_path}} =
+               ToolSearch.parse_search_arguments(plan, %{
+                 "arguments" => %{"paths" => ["bx_news", "bx_news"]}
+               })
+
+      assert {:error, {:invalid_tool_search_arguments, :invalid_shape}} =
+               ToolSearch.parse_search_arguments(plan, %{
+                 "arguments" => %{"paths" => ["bx_news"], "limit" => 1}
+               })
+
+      assert {:error, {:unknown_tool_search_path, "missing"}} =
+               ToolSearch.search_paths(plan, ["missing"])
+    end
+
+    test "rejects root and namespace surface path collisions during planning" do
+      namespace = %{
+        "type" => "namespace",
+        "name" => "crm",
+        "description" => "CRM tools",
+        "tools" => [deferred_tool("lookup", "Lookup")]
+      }
+
+      assert {:error, {:invalid_tool_search, {:surface_path_collision, "crm"}}} =
+               ToolSearch.plan(
+                 base_request([
+                   deferred_tool("crm", "Root CRM function"),
+                   namespace,
+                   %{"type" => "tool_search"}
+                 ])
+               )
+    end
+
+    test "rejects a namespace expansion beyond the atomic result budget" do
+      namespace = %{
+        "type" => "namespace",
+        "name" => "large",
+        "description" => "Large tool set",
+        "tools" =>
+          Enum.map(1..51, fn index ->
+            deferred_tool("tool_#{index}", "Capability #{index}")
+          end)
+      }
+
+      {:ok, _request, plan} =
+        ToolSearch.plan(
+          base_request([
+            namespace,
+            %{"type" => "tool_search"}
+          ])
+        )
+
+      assert {:error, {:tool_search_result_limit_exceeded, 51, 50}} =
+               ToolSearch.search_paths(plan, ["large"])
     end
   end
 

@@ -55,9 +55,10 @@ defmodule Ankole.E2E.Scenarios.Skill do
     messages = ai_messages_for_actor_event(input.id)
     assert [skill_result] = successful_tool_results(messages, "skill_view")
     rendered = inspect(skill_result)
-    assert rendered =~ "skill://enabled/pdf/SKILL.md"
     assert rendered =~ "pdf Skill is a background-task capability"
     assert rendered =~ "create_background_job"
+    refute rendered =~ "skill://"
+    refute rendered =~ "directory="
     refute rendered =~ "# PDF"
 
     assert_actor_event_completed!(input.id)
@@ -99,11 +100,12 @@ defmodule Ankole.E2E.Scenarios.Skill do
     rendered = inspect(skill_results)
 
     for skill_name <- ~w(jupyter-live-kernel pdf) do
-      assert rendered =~ "skill://enabled/#{skill_name}/SKILL.md"
       assert rendered =~ "#{skill_name} Skill is a background-task capability"
     end
 
     assert rendered =~ "create_background_job"
+    refute rendered =~ "skill://"
+    refute rendered =~ "directory="
     refute rendered =~ "# Jupyter Live Kernel"
     refute rendered =~ "# PDF"
 

@@ -294,11 +294,49 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   def request(_spec, _opts), do: {:error, :invalid_universal_ai_request}
 
   @doc """
+  Starts a native stream without waiting for the upstream ready boundary.
+
+  The selected receiver owns all native stream messages. This function only
+  validates and starts the native request, so a GenServer can keep its mailbox
+  responsive while the provider connects.
+  """
+  @spec start_stream(map() | t(), downstream_kind(), receiver: pid()) ::
+          {:ok, UniversalAIClient.stream()} | {:error, term()}
+  def start_stream(spec, downstream, opts \\ [])
+
+  def start_stream(%__MODULE__{} = request, downstream, opts) do
+    with {:ok, spec} <- to_spec(request) do
+      start_stream(spec, downstream, opts)
+    end
+  end
+
+  def start_stream(spec, downstream, opts)
+      when is_map(spec) and downstream in [:sse, :websocket_text] and is_list(opts) do
+    receiver = Keyword.get(opts, :receiver, self())
+
+    if is_pid(receiver) do
+      spec
+      |> Map.put(:downstream, downstream)
+      |> UniversalAIClient.open(receiver: receiver)
+      |> case do
+        {:ok, stream} -> {:ok, stream}
+        {:error, reason} -> {:error, normalize_stream_error(reason)}
+      end
+    else
+      {:error, :invalid_universal_ai_stream_receiver}
+    end
+  end
+
+  def start_stream(_spec, _downstream, _opts),
+    do: {:error, :invalid_universal_ai_stream_request}
+
+  @doc """
   Opens a native stream and waits for the `:ready` message before returning.
 
   Phoenix callers must not commit SSE or WebSocket responses before Rust has
   connected upstream and selected the downstream chunk mode. Waiting here keeps
-  pre-ready failures representable as ordinary HTTP errors.
+  pre-ready failures representable as ordinary HTTP errors. New stream owners
+  should use `start_stream/3` and observe ready in their own mailbox.
   """
   @spec open_stream(map(), downstream_kind(), keyword()) ::
           {:ok, UniversalAIClient.stream(), map()} | {:error, term()}
@@ -312,17 +350,15 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
 
   def open_stream(spec, downstream, _opts)
       when is_map(spec) and downstream in [:sse, :websocket_text] do
-    stream_spec = Map.put(spec, :downstream, downstream)
-
-    case UniversalAIClient.open(stream_spec, receiver: self()) do
+    case start_stream(spec, downstream, receiver: self()) do
       {:ok, stream} ->
-        case wait_ready(stream, receive_timeout_ms(stream_spec)) do
+        case wait_ready(stream, ready_timeout_ms(spec)) do
           {:ok, meta} -> {:ok, stream, meta}
           {:error, _reason} = error -> error
         end
 
-      {:error, reason} ->
-        {:error, normalize_error_reason(reason)}
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -516,7 +552,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
         {:ok, meta}
 
       {:universal_ai_client, ref, :error, error} when ref == stream.ref ->
-        {:error, normalize_error_reason(error)}
+        {:error, normalize_stream_error(error)}
 
       {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
         {:error, :stream_aborted}
@@ -542,34 +578,35 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
 
   defp normalize_response(response), do: {:error, {:invalid_universal_ai_response, response}}
 
-  # Ready waits add a small BEAM delivery grace period on top of upstream
-  # timeouts. Without this, a slow scheduler could make a healthy native ready
-  # message look like a transport timeout.
-  defp receive_timeout_ms(spec) do
-    spec
-    |> get_in_any([:upstream, :timeout])
-    |> timeout_ms()
-    |> Kernel.+(@receive_grace_ms)
+  @doc """
+  Returns the maximum wait for the native ready message.
+
+  Ready means that the provider supplied the first response headers or bytes,
+  so only the first-byte limit and a smaller total limit constrain this wait.
+  The idle limit applies after ready and must not extend the ready wait.
+  """
+  @spec ready_timeout_ms(map()) :: pos_integer()
+  def ready_timeout_ms(spec) when is_map(spec) do
+    timeout = get_in_any(spec, [:upstream, :timeout])
+    first_byte_ms = positive_timeout(timeout, :first_byte_ms) || @default_timeout_ms
+    total_ms = positive_timeout(timeout, :total_ms)
+
+    min_timeout(first_byte_ms, total_ms) + @receive_grace_ms
   end
 
-  defp timeout_ms(timeout) when is_map(timeout) do
-    timeout
-    |> Enum.flat_map(fn
-      {key, value}
-      when key in [:connect_ms, :first_byte_ms, :idle_ms, :total_ms] or
-             key in ["connect_ms", "first_byte_ms", "idle_ms", "total_ms"] ->
-        if is_integer(value) and value > 0, do: [value], else: []
+  def ready_timeout_ms(_spec), do: @default_timeout_ms + @receive_grace_ms
 
-      _entry ->
-        []
-    end)
-    |> case do
-      [] -> @default_timeout_ms
-      values -> Enum.max(values)
+  defp positive_timeout(timeout, key) when is_map(timeout) do
+    case Map.get(timeout, key) || Map.get(timeout, Atom.to_string(key)) do
+      value when is_integer(value) and value > 0 -> value
+      _value -> nil
     end
   end
 
-  defp timeout_ms(_timeout), do: @default_timeout_ms
+  defp positive_timeout(_timeout, _key), do: nil
+
+  defp min_timeout(first_byte_ms, nil), do: first_byte_ms
+  defp min_timeout(first_byte_ms, total_ms), do: min(first_byte_ms, total_ms)
 
   defp get_in_any(map, []), do: map
 
@@ -579,6 +616,12 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   end
 
   defp get_in_any(_value, _path), do: nil
+
+  @doc """
+  Normalizes one native stream error into the AIGateway error vocabulary.
+  """
+  @spec normalize_stream_error(term()) :: term()
+  def normalize_stream_error(reason), do: normalize_error_reason(reason)
 
   # Controllers still speak the older AIGateway error vocabulary. This function
   # maps structured native errors back to that shape while preserving provider

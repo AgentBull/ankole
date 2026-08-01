@@ -457,6 +457,26 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple({:invalid_upstream_response, status, _body}) when is_integer(status),
     do: {502, "invalid_upstream_response", "upstream provider returned an invalid response"}
 
+  defp error_tuple(:invalid_response_stream_collect_timeout),
+    do:
+      {400, "invalid_response_stream_collect_timeout",
+       "response stream collect timeout must be a positive integer"}
+
+  defp error_tuple(:response_stream_collect_timeout),
+    do: {504, "upstream_timeout", "upstream provider timed out"}
+
+  defp error_tuple(:universal_ai_stream_ready_timeout),
+    do: {504, "upstream_timeout", "upstream provider timed out"}
+
+  defp error_tuple(:response_stream_missing_terminal_response),
+    do: {502, "invalid_upstream_response", "upstream provider closed without a terminal response"}
+
+  defp error_tuple(:response_stream_closed),
+    do: {502, "upstream_transport_failed", "upstream provider stream closed unexpectedly"}
+
+  defp error_tuple({:response_stream_closed, _reason}),
+    do: error_tuple(:response_stream_closed)
+
   defp error_tuple({:universal_ai_request_failed, _details} = reason) do
     case FailureDiagnostics.classify(reason) do
       %{failure_kind: :timeout} ->

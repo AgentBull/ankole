@@ -463,8 +463,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "action" => "create",
         "reason" => "Lark chaos checkback",
         "check" => "Confirm CHAOS_CHECKBACK_WAKE_OK",
-        "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}},
-        "idempotency_key" => "lark-chaos-checkback-1"
+        "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}}
       }
     }
   end
@@ -483,8 +482,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
         "action" => "add",
         "name" => "lark-chaos-cron",
         "schedule" => %{"kind" => "every", "every_ms" => 60_000, "anchor_at" => anchor_at},
-        "payload" => %{"task" => "CHAOS_CRON_WAKE_OK"},
-        "idempotency_key" => "lark-chaos-cron-1"
+        "payload" => %{"task" => "CHAOS_CRON_WAKE_OK"}
       }
     }
   end
@@ -584,7 +582,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p ~/user-files/chaos && printf 'before\\nCHAOS_PATCH_OLD\\nafter\\n' > ~/user-files/chaos/patch.txt",
+          "mkdir -p chaos && printf 'before\\nCHAOS_PATCH_OLD\\nafter\\n' > chaos/patch.txt",
         "timeout" => 5
       }
     }
@@ -593,11 +591,10 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp tool_call_for(:patch_tool) do
     %{
       id: "call_lark_chaos_patch",
-      name: "replace",
+      name: "apply_patch",
       arguments: %{
-        "path" => "~/user-files/chaos/patch.txt",
-        "old_string" => "CHAOS_PATCH_OLD",
-        "new_string" => "CHAOS_PATCH_NEW"
+        "input" =>
+          "*** Begin Patch\n*** Update File: chaos/patch.txt\n@@\n-CHAOS_PATCH_OLD\n+CHAOS_PATCH_NEW\n*** End Patch\n"
       }
     }
   end
@@ -607,7 +604,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_patch_read_file",
       name: "read_file",
       arguments: %{
-        "path" => "~/user-files/chaos/patch.txt",
+        "path" => "chaos/patch.txt",
         "offset" => 1,
         "limit" => 20
       }

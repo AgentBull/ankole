@@ -79,6 +79,31 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                Config.secret_fingerprint(%{config | "botToken" => "xoxb-other"})
     end
 
+    test "stored config cannot override the provider endpoint" do
+      previous = Application.fetch_env(:ankole, Config)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, value} -> Application.put_env(:ankole, Config, value)
+          :error -> Application.delete_env(:ankole, Config)
+        end
+      end)
+
+      assert {:ok, config} =
+               Config.validate_chat_config(
+                 Map.put(chat_config(), "baseURL", "https://stored.invalid")
+               )
+
+      refute Map.has_key?(config, "baseURL")
+      assert Config.client(config).base_url == "https://slack.com/api"
+
+      Application.put_env(:ankole, Config, client_opts: [base_url: "https://test.invalid"])
+      assert Config.client(config).base_url == "https://test.invalid"
+
+      assert Config.client(config, base_url: "https://explicit.invalid").base_url ==
+               "https://explicit.invalid"
+    end
+
     test "identity validation enforces sync credential dependencies" do
       assert {:error, {:missing, "botToken"}} =
                Config.validate_identity_config(%{"clientID" => "c", "clientSecret" => "s"})

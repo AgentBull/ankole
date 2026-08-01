@@ -95,6 +95,7 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
     `Agent Home: ${agentHome}`,
     `Current workspace: ${opts.workspaceRoot}`,
     `Cross-session user files: ${userFilesRoot}`,
+    `Agent documents: ${agentHome}/SOUL.md, ${agentHome}/MISSION.md, ${agentHome}/DESIGN.md`,
     `Current timezone: ${timezone}`
   ]
   const role = agentRole(opts)

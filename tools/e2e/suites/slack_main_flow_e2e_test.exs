@@ -7,17 +7,18 @@ defmodule Ankole.E2E.SlackMainFlowTest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
 
+  import Ankole.E2E.Harness, only: [put_slack_test_client_opts!: 1]
   import Ankole.PrincipalsFixtures
 
   test "durable outbox adapter posts, edits, reacts, and reconciles against Web API" do
     fake = Server.start!()
+    put_slack_test_client_opts!(base_url: fake.base_url)
     %{principal: agent} = agent_fixture()
     binding_name = "slack-main-flow"
 
     config = %{
       "botToken" => "xoxb-fake",
       "appToken" => "xapp-fake",
-      "baseURL" => fake.base_url,
       "platformSubjectNamespace" => "slack-main",
       "userName" => "Slack"
     }

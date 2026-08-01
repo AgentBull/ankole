@@ -830,6 +830,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
           }
         ],
         "max_output_tokens" => 64,
+        "reasoning" => %{"effort" => "none"},
         "temperature" => 0
       })
 
