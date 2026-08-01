@@ -279,9 +279,12 @@ defmodule WeComOpenAPI.Bot.Client do
 
   defp connect(state) do
     with {:ok, scheme, host, port, path} <- parse_url(state.ws_url),
-         {:ok, conn} <- Mint.HTTP.connect(http_scheme(scheme), host, port, protocols: [:http1]),
-         {:ok, conn, ref} <-
-           Mint.WebSocket.upgrade(scheme, conn, path, [{"user-agent", @user_agent}]) do
+         {:ok, conn} <-
+           Mint.HTTP.connect(http_scheme(scheme), host, port,
+             protocols: [:http1],
+             case_sensitive_headers: true
+           ),
+         {:ok, conn, ref} <- wecom_websocket_upgrade(scheme, conn, path) do
       emit([:connect], %{duration_ms: 0}, %{host: host})
 
       {:ok,
@@ -296,6 +299,30 @@ defmodule WeComOpenAPI.Bot.Client do
       {:error, reason} -> {:error, reason}
       {:error, _conn, reason} -> {:error, reason}
     end
+  end
+
+  # WeCom's long-connection gateway currently treats the RFC 6455 upgrade
+  # header names as case-sensitive and returns 404 for Mint.WebSocket's
+  # lowercase defaults. Preserve the conventional HTTP/1 spelling used by the
+  # official SDK while retaining Mint.WebSocket for framing after the upgrade.
+  defp wecom_websocket_upgrade(scheme, conn, path) do
+    nonce = :crypto.strong_rand_bytes(16) |> Base.encode64()
+
+    conn =
+      conn
+      |> Mint.HTTP.put_private(:scheme, scheme)
+      |> Mint.HTTP.put_private(:sec_websocket_key, nonce)
+      |> Mint.HTTP.put_private(:extensions, [])
+
+    headers = [
+      {"Upgrade", "websocket"},
+      {"Connection", "Upgrade"},
+      {"Sec-WebSocket-Version", "13"},
+      {"Sec-WebSocket-Key", nonce},
+      {"User-Agent", @user_agent}
+    ]
+
+    Mint.HTTP.request(conn, "GET", path, headers, nil)
   end
 
   defp parse_url(url) do
