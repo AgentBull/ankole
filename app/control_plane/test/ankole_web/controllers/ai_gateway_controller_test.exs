@@ -1281,7 +1281,123 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert body["previous_response_id"] == nil
   end
 
-  test "HTTP SSE fallback emits incomplete after already-started built-ins finish" do
+  test "HTTP SSE accepts mixed tool owners when tool_choice is none", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:sse, 200, response_sse_events("resp_mixed_tool_budget_none", "gpt-5.5", "No tool ran.")}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-http-mixed-tool-budget-none",
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-http-mixed-tool-budget-none",
+               model: "gpt-5.5"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> put_req_header("accept", "text/event-stream")
+      |> put_req_header("content-type", "application/json")
+      |> post(~p"/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "Do not run tools.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "lookup",
+            "allowed_callers" => ["programmatic"],
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          },
+          %{"type" => "programmatic_tool_calling"},
+          %{"type" => "web_search"}
+        ],
+        "tool_choice" => "none",
+        "max_tool_calls" => 1,
+        "stream" => true
+      })
+
+    response = response(conn, 200)
+    assert response =~ "event: response.completed"
+
+    assert_receive {:gateway_request, request}
+    assert request.path == "v1/responses"
+    assert request.body["tool_choice"] == "none"
+    assert request.body["max_tool_calls"] == 1
+  end
+
+  test "responses maps invalid tool contracts to an OpenAI-compatible request error" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 500, %{"error" => %{"message" => "must not reach upstream"}}}
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-invalid-tool-contract-http",
+               provider_kind: "openrouter",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-invalid-tool-contract-http",
+               model: "test/main-model"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      api_key.api_key
+      |> gateway_conn()
+      |> post(~p"/api/v1/ai-gateway/responses", %{
+        "model" => "primary",
+        "input" => "Run the tool.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "broken",
+            "parameters" => %{"type" => "object", "properties" => %{}},
+            "allowed_callers" => ["bogus"]
+          },
+          %{"type" => "programmatic_tool_calling"}
+        ]
+      })
+
+    assert %{
+             "error" => %{
+               "type" => "invalid_request_error",
+               "code" => "invalid_tool_contract",
+               "param" => nil,
+               "message" => message
+             }
+           } = json_response(conn, 400)
+
+    assert message == "The Responses tool declaration or tool-call history is invalid."
+    refute response(conn, 400) =~ "invalid_allowed_callers"
+    refute response(conn, 400) =~ "bogus"
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "HTTP SSE ignores later built-ins and preserves the provider terminal" do
     state =
       ResponseStreamState.new(
         "agent-test",
@@ -1307,7 +1423,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         1
       )
 
-    {:ok, state, [_added], :continue} =
+    {:ok, state, [], :continue} =
       ResponseStreamState.observe(
         state,
         output_item_event("response.output_item.added", "search_2", 1, 2),
@@ -1321,40 +1437,52 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
         3
       )
 
-    {:ok, _state, [_done, incomplete], {:terminal, _outcome, :cancel_upstream}} =
+    {:ok, state, [], :continue} =
       ResponseStreamState.observe(
         state,
         output_item_event("response.output_item.done", "search_2", 1, 4),
         4
       )
 
+    terminal = %{
+      "type" => "response.completed",
+      "sequence_number" => 5,
+      "response" => %{
+        "id" => "resp_http_limit",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [
+          %{"id" => "search_1", "status" => "completed", "type" => "web_search_call"},
+          %{"id" => "search_2", "status" => "completed", "type" => "web_search_call"}
+        ]
+      }
+    }
+
+    {:ok, _state, [completed], {:terminal, outcome, :keep_upstream}} =
+      ResponseStreamState.observe(state, terminal, 5)
+
     assert %{
-             "type" => "response.incomplete",
+             "type" => "response.completed",
              "sequence_number" => 5,
              "response" => %{
                "id" => "resp_http_limit",
-               "status" => "incomplete",
-               "incomplete_details" => nil,
+               "status" => "completed",
                "output" => [
-                 %{"id" => "search_1", "type" => "web_search_call"},
-                 %{"id" => "search_2", "type" => "web_search_call"}
-               ],
-               "provider_metadata" => %{
-                 "max_tool_calls" => %{
-                   "limit" => 1,
-                   "observed" => 2,
-                   "overshoot" => 1
-                 }
-               }
+                 %{"id" => "search_1", "status" => "completed", "type" => "web_search_call"}
+               ]
              }
-           } = incomplete
+           } = completed
+
+    assert outcome.public_items == [
+             %{"id" => "search_1", "status" => "completed", "type" => "web_search_call"}
+           ]
   end
 
   test "HTTP SSE provider terminal in the current chunk wins over local fallback" do
     state =
       ResponseStreamState.new(
         "agent-test",
-        %{"max_tool_calls" => 0},
+        %{},
         %{"api_resolver" => "anthropic_messages"}
       )
 

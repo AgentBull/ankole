@@ -105,9 +105,9 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
     expect(sentPayloads[1]!.input).toHaveLength(1)
   })
 
-  it('executes a programmatic namespaced tool call and preserves its caller on the result', async () => {
+  it('settles every sequential program call before it resumes the program to a final answer', async () => {
     const sentPayloads: JSONObject[] = []
-    const executedParams: JSONObject[] = []
+    const executed: string[] = []
     const model = createModel({
       apiKey: 'unused',
       baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
@@ -125,8 +125,23 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
               return [toolResultsRecordedFrame('resp_program_result')]
             }
 
-            if (sentPayloads.filter(sent => sent.type === 'response.create').length > 1) {
-              throw new Error('a terminating programmatic tool result must not trigger another model call')
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 2) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_program_final',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'message',
+                        role: 'assistant',
+                        content: [{ type: 'output_text', text: 'The program completed.' }]
+                      }
+                    ]
+                  }
+                }
+              ]
             }
 
             return [
@@ -142,6 +157,15 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
                       call_id: 'call_program',
                       namespace: 'mcp__finance',
                       name: 'stock_price',
+                      arguments: '{"symbol":"600519"}',
+                      caller: { type: 'program', caller_id: 'prog_1' }
+                    },
+                    {
+                      type: 'function_call',
+                      id: 'fc_program_name',
+                      call_id: 'call_program_name',
+                      namespace: 'mcp__finance',
+                      name: 'company_name',
                       arguments: '{"symbol":"600519"}',
                       caller: { type: 'program', caller_id: 'prog_1' }
                     }
@@ -169,38 +193,59 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           deferLoading: true,
           description: 'Get a stock price',
           schema: z.object({ symbol: z.string() }),
-          executionMode: 'parallel',
+          allowedCallers: ['direct', 'programmatic'],
+          executionMode: 'sequential',
           isReadOnly: true,
           isDestructive: false,
           describeActivity: () => '测试行情查询',
           execute: async (_toolCallID, params) => {
-            executedParams.push(params as JSONObject)
+            executed.push(`price:${(params as JSONObject).symbol}`)
             return {
               content: [{ type: 'text', text: '{"price":123.45}' }],
               details: { ok: true },
               terminate: true
             }
           }
+        },
+        {
+          name: 'company_name',
+          namespace: 'mcp__finance',
+          namespaceDescription: 'Financial market data',
+          deferLoading: true,
+          description: 'Get a company name',
+          schema: z.object({ symbol: z.string() }),
+          allowedCallers: ['direct', 'programmatic'],
+          executionMode: 'sequential',
+          isReadOnly: true,
+          isDestructive: false,
+          describeActivity: () => '测试公司查询',
+          execute: async (_toolCallID, params) => {
+            executed.push(`name:${(params as JSONObject).symbol}`)
+            return {
+              content: [{ type: 'text', text: '{"name":"Kweichow Moutai"}' }],
+              details: { ok: true }
+            }
+          }
         }
       ]
     })
 
-    expect(final.responseID).toBe('resp_program_result')
-    expect(executedParams).toEqual([{ symbol: '600519' }])
-    expect(sentPayloads).toHaveLength(2)
+    expect(final.responseID).toBe('resp_program_final')
+    expect(executed).toEqual(['price:600519', 'name:600519'])
+    expect(sentPayloads).toHaveLength(3)
     expect(sentPayloads[0]!.tools).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           type: 'namespace',
           name: 'mcp__finance',
-          tools: [
+          tools: expect.arrayContaining([
             expect.objectContaining({
               type: 'function',
               name: 'stock_price',
               defer_loading: true,
               allowed_callers: ['direct', 'programmatic']
             })
-          ]
+          ])
         }),
         expect.objectContaining({ type: 'tool_search' }),
         { type: 'programmatic_tool_calling' }
@@ -214,10 +259,129 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           type: 'function_call_output',
           call_id: 'call_program',
           caller: { type: 'program', caller_id: 'prog_1' }
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'call_program_name',
+          caller: { type: 'program', caller_id: 'prog_1' }
         }
       ]
     })
     expect(((sentPayloads[1]!.input as JSONObject[])[0] as JSONObject).output).toBe('{"price":123.45}')
+    expect(sentPayloads[2]).toMatchObject({
+      type: 'response.create',
+      previous_response_id: 'resp_program_result',
+      input: []
+    })
+  })
+
+  it('rejects a forged program caller for a direct-only tool before execution', async () => {
+    const sentPayloads: JSONObject[] = []
+    let executions = 0
+    const model = createModel({
+      apiKey: 'unused',
+      baseURL: 'http://aigateway.invalid/api/v1/ai-gateway',
+      selector: 'primary',
+      responseWebSocket: {
+        kind: 'aigateway-websocket',
+        url: 'ws://aigateway.invalid/api/v1/ai-gateway/responses',
+        authorization: () => 'Bearer agent-key',
+        createWebSocket: (_url, init) =>
+          fakeResponseSocket(init, data => {
+            const payload = JSON.parse(data) as JSONObject
+            sentPayloads.push(payload)
+
+            if (payload.type === 'response.tool_results.record') {
+              return [toolResultsRecordedFrame('resp_forged_caller_result')]
+            }
+
+            if (sentPayloads.filter(sent => sent.type === 'response.create').length === 1) {
+              return [
+                {
+                  type: 'response.completed',
+                  response: {
+                    id: 'resp_forged_caller',
+                    status: 'completed',
+                    output: [
+                      {
+                        type: 'function_call',
+                        id: 'fc_forged_caller',
+                        call_id: 'call_forged_caller',
+                        name: 'write_record',
+                        arguments: '{"value":"changed"}',
+                        caller: { type: 'program', caller_id: 'prog_forged' }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+
+            return [
+              {
+                type: 'response.completed',
+                response: {
+                  id: 'resp_after_forged_caller',
+                  status: 'completed',
+                  output: [
+                    {
+                      type: 'message',
+                      role: 'assistant',
+                      content: [{ type: 'output_text', text: 'The write was rejected.' }]
+                    }
+                  ]
+                }
+              }
+            ]
+          })
+      }
+    })
+
+    const final = await runAgentLoop({
+      model,
+      maxModelIterations: 90,
+      messages: [{ role: 'user', content: 'write the record' }],
+      stateful: {
+        actorEventID: '00000000-0000-0000-0000-000000000027',
+        conversationID: '27272727-2727-2727-2727-272727272727'
+      },
+      tools: [
+        {
+          name: 'write_record',
+          description: 'Write one record.',
+          schema: z.object({ value: z.string() }),
+          allowedCallers: ['direct'],
+          executionMode: 'sequential',
+          isReadOnly: false,
+          isDestructive: true,
+          describeActivity: () => '测试写入',
+          execute: async () => {
+            executions += 1
+            return { content: [{ type: 'text', text: 'changed' }], details: {} }
+          }
+        }
+      ]
+    })
+
+    expect(final.responseID).toBe('resp_after_forged_caller')
+    expect(executions).toBe(0)
+    expect(sentPayloads.map(payload => payload.type)).toEqual([
+      'response.create',
+      'response.tool_results.record',
+      'response.create'
+    ])
+    expect(sentPayloads[1]).toMatchObject({
+      input: [
+        {
+          type: 'function_call_output',
+          call_id: 'call_forged_caller',
+          caller: { type: 'program', caller_id: 'prog_forged' }
+        }
+      ]
+    })
+    expect(String(((sentPayloads[1]!.input as JSONObject[])[0] as JSONObject).output)).toContain(
+      'Caller programmatic is not allowed for tool write_record'
+    )
   })
 
   it('executes a custom apply_patch call with raw input and records the matching output type', async () => {
@@ -313,8 +477,7 @@ describe('@ankole/agent-computer llm helpers: stateful tool-loop continuations',
           definition: grammar
         },
         allowed_callers: ['direct']
-      },
-      { type: 'programmatic_tool_calling' }
+      }
     ])
     expect(sentPayloads[1]).toMatchObject({
       type: 'response.tool_results.record',

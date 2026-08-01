@@ -68,10 +68,17 @@ defmodule Ankole.AIGateway.ReasoningEffort do
   @spec provider_options(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def provider_options(ctx, opts) when is_map(ctx) do
     options = ctx |> Map.get(:provider_options, %{}) |> MapUtils.normalize_request_keys()
-    public_value = Map.get(options, "reasoningEffort")
+    public_value = request_effort(ctx) || Map.get(options, "reasoningEffort")
     target = Keyword.fetch!(opts, :target)
 
     put_mapped_effort(options, public_value, target, opts)
+  end
+
+  defp request_effort(ctx) do
+    case Map.get(ctx, :request, %{}) do
+      %{"reasoning" => %{"effort" => effort}} -> effort
+      _request -> nil
+    end
   end
 
   defp put_mapped_effort(options, value, target, opts) do

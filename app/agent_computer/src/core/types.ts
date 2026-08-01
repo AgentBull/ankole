@@ -185,6 +185,8 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   inputFormat?: CustomToolInputFormat
   /** Optional raw JSON Schema used when a tool comes from an external catalog. */
   jsonSchema?: Record<string, unknown>
+  /** Optional result schema from the tool owner. */
+  outputSchema?: Record<string, unknown>
   /** Groups this tool under one Responses namespace. */
   namespace?: string
   namespaceDescription?: string

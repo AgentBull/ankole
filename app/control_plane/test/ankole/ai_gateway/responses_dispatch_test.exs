@@ -8,7 +8,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.Artifacts
+  alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Conversation
@@ -108,6 +110,658 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert body["model"] == "gpt-5.5"
     assert model_ref["selector"] == "primary"
     assert model_ref["provider_id"] == "openai-responses-main"
+  end
+
+  test "first-party OpenAI preserves PTC tools whose execution owner is native" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_native_ptc_tools",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-native-ptc-tools")
+
+    tools = [
+      %{
+        "type" => "mcp",
+        "server_label" => "inventory",
+        "server_url" => "https://mcp.example.test",
+        "require_approval" => "never",
+        "allowed_callers" => ["programmatic"]
+      },
+      %{"type" => "apply_patch", "allowed_callers" => ["programmatic"]},
+      %{"type" => "shell", "allowed_callers" => ["programmatic"]},
+      %{
+        "type" => "code_interpreter",
+        "container" => %{"type" => "auto"},
+        "allowed_callers" => ["programmatic"]
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_native_ptc_tools"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run the native program.",
+               "tools" => tools,
+               "max_tool_calls" => 1
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == tools
+    assert request.body["max_tool_calls"] == 1
+  end
+
+  test "ChatGPT Subscription keeps Codex tools native and runs Main Agent PTC locally" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        if request.body["stream"] == true do
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_chatgpt_native_ptc_tools",
+             request.body["model"],
+             "Done."
+           )}
+        else
+          {:json, 200,
+           %{
+             "id" => "resp_chatgpt_native_ptc_tools",
+             "object" => "response",
+             "status" => "completed",
+             "output" => [],
+             "usage" => %{}
+           }}
+        end
+      end)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "chatgpt-native-ptc-tools",
+               provider_kind: "chatgpt_subscription",
+               base_url: base_url,
+               credential_pool: %{
+                 "entries" => [
+                   %{
+                     "id" => "enterprise",
+                     "label" => "Enterprise",
+                     "access_token" => "access-token",
+                     "account_id" => "account-id",
+                     "auth_type" => "enterprise_access_token"
+                   }
+                 ]
+               },
+               connection_options: %{"transport" => %{"http_versions" => ["h1"]}}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "chatgpt-native-ptc-tools",
+               model: "gpt-5.6-sol"
+             })
+
+    main_tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "description" => "Look up one record.",
+        "allowed_callers" => ["direct", "programmatic"],
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_chatgpt_native_ptc_tools"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run the main Agent program.",
+               "tools" => main_tools
+             })
+
+    assert_receive {:gateway_request, main_request}
+    assert Enum.map(main_request.body["tools"], & &1["name"]) == ["lookup", "program"]
+
+    refute Enum.any?(
+             main_request.body["tools"],
+             &(&1["type"] == "programmatic_tool_calling")
+           )
+
+    codex_tools = [
+      %{
+        "type" => "mcp",
+        "server_label" => "inventory",
+        "server_url" => "https://mcp.example.test",
+        "require_approval" => "never",
+        "allowed_callers" => ["programmatic"]
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_chatgpt_native_ptc_tools"}}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "Run the native program.",
+                 "tools" => codex_tools
+               },
+               request_context: %{"headers" => %{"originator" => "codex_cli_rs"}}
+             )
+
+    assert_receive {:gateway_request, codex_request}
+    assert codex_request.path == "responses"
+    assert codex_request.body["tools"] == codex_tools
+  end
+
+  test "first-party OpenAI keeps function and custom PTC native" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_native_direct_tool",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-native-direct-tool")
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "allowed_callers" => ["programmatic"],
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      },
+      %{
+        "type" => "custom",
+        "name" => "apply",
+        "allowed_callers" => ["programmatic"],
+        "format" => %{"type" => "text"}
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_native_direct_tool"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run tools.",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == tools
+  end
+
+  test "first-party OpenAI tool ownership stays native without a request-local PTC declaration" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_native_ptc_history",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-native-ptc-history")
+
+    caller = %{"type" => "program", "caller_id" => "prog_native"}
+
+    history = [
+      %{
+        "type" => "program",
+        "call_id" => "prog_native",
+        "code" => "await tools.lookup({});",
+        "fingerprint" => "opaque-native-token",
+        "status" => "completed"
+      },
+      %{
+        "type" => "function_call",
+        "call_id" => "nested_native",
+        "name" => "lookup",
+        "arguments" => "{}",
+        "status" => "completed",
+        "caller" => caller
+      },
+      %{
+        "type" => "function_call_output",
+        "call_id" => "nested_native",
+        "output" => "ok",
+        "caller" => caller
+      }
+    ]
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      }
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_native_ptc_history"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => history,
+               "tools" => tools,
+               "store" => false
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["input"] == history
+    assert request.body["tools"] == tools
+    assert request.body["store"] == false
+  end
+
+  test "first-party OpenAI passes Tool Search and deferred contracts through unchanged" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 200,
+         %{
+           "id" => "resp_native_tool_search",
+           "object" => "response",
+           "status" => "completed",
+           "output" => [],
+           "usage" => %{}
+         }}
+      end)
+
+    configure_openai_responses_provider!(agent.uid, base_url, "openai-native-tool-search")
+
+    tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "description" => "Look up a record.",
+        "parameters" => %{"type" => "object", "properties" => %{}},
+        "defer_loading" => true,
+        "allowed_callers" => ["direct", "programmatic"]
+      },
+      %{"type" => "tool_search", "execution" => "server"},
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    assert {:ok, %{body: %{"id" => "resp_native_tool_search"}}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Find and use the lookup tool.",
+               "tools" => tools
+             })
+
+    assert_receive {:gateway_request, request}
+    assert request.body["tools"] == tools
+  end
+
+  test "local_shell does not invent an allowed_callers contract" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 500, %{"error" => %{"message" => "must not dispatch"}}}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-invalid-local-shell-ptc"
+    )
+
+    assert {:error,
+            %OpenAIError{
+              status: 400,
+              type: "invalid_request_error",
+              code: "unsupported_tool_type"
+            }} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run tools.",
+               "tools" => [
+                 %{"type" => "local_shell", "allowed_callers" => ["programmatic"]},
+                 %{"type" => "programmatic_tool_calling"}
+               ]
+             })
+
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "positive max_tool_calls rejects mixed local and provider effect owners" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 500, %{"error" => %{"message" => "must not dispatch"}}}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-mixed-tool-budget"
+    )
+
+    local_tools = [
+      %{
+        "type" => "function",
+        "name" => "lookup",
+        "allowed_callers" => ["programmatic"],
+        "parameters" => %{"type" => "object", "properties" => %{}}
+      },
+      %{"type" => "programmatic_tool_calling"}
+    ]
+
+    provider_owned_types = ~w(
+      computer
+      computer_use_preview
+      file_search
+      image_generation
+      local_shell
+      web_search
+      web_search_2025_08_26
+      web_search_preview
+      web_search_preview_2025_03_11
+    )
+
+    expected = %OpenAIError{
+      status: 400,
+      type: "invalid_request_error",
+      param: "max_tool_calls",
+      code: "unsupported_value",
+      message:
+        "Do not use a positive max_tool_calls with local Tool Search or " <>
+          "Programmatic Tool Calling and another built-in tool."
+    }
+
+    for type <- provider_owned_types do
+      request = %{
+        "model" => "primary",
+        "input" => "Run tools.",
+        "tools" => local_tools ++ [%{"type" => type}],
+        "max_tool_calls" => 1
+      }
+
+      assert {:error, ^expected} = ResponsesPreparation.prepare(agent.uid, request)
+    end
+
+    request = %{
+      "model" => "primary",
+      "input" => "Run tools.",
+      "tools" => local_tools ++ [%{"type" => "web_search"}],
+      "max_tool_calls" => 1
+    }
+
+    assert {:error, ^expected} = AIGateway.create_response(agent.uid, request)
+    assert {:error, ^expected} = AIGateway.open_sse_stream(agent.uid, request)
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "tool_choice none allows a positive budget with mixed effect owners during preparation" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 500, %{"error" => %{"message" => "must not dispatch during preparation"}}}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-mixed-tool-budget-none"
+    )
+
+    assert {:ok, %{driver: :response_stream}} =
+             ResponsesPreparation.prepare(agent.uid, %{
+               "model" => "primary",
+               "input" => "Do not run tools.",
+               "tools" => [
+                 %{
+                   "type" => "function",
+                   "name" => "lookup",
+                   "allowed_callers" => ["programmatic"],
+                   "parameters" => %{"type" => "object", "properties" => %{}}
+                 },
+                 %{"type" => "programmatic_tool_calling"},
+                 %{"type" => "web_search"}
+               ],
+               "tool_choice" => "none",
+               "max_tool_calls" => 1
+             })
+
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "positive max_tool_calls accepts a single local effect owner" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn _request ->
+        {:json, 500, %{"error" => %{"message" => "not called during preparation"}}}
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-local-tool-budget"
+    )
+
+    cases = [
+      [
+        %{
+          "type" => "function",
+          "name" => "lookup",
+          "allowed_callers" => ["programmatic"],
+          "parameters" => %{"type" => "object", "properties" => %{}}
+        },
+        %{"type" => "programmatic_tool_calling"}
+      ],
+      [
+        %{
+          "type" => "function",
+          "name" => "lookup",
+          "defer_loading" => true,
+          "parameters" => %{"type" => "object", "properties" => %{}}
+        },
+        %{"type" => "tool_search", "execution" => "server"}
+      ]
+    ]
+
+    for tools <- cases do
+      assert {:ok, %{driver: :response_stream}} =
+               ResponsesPreparation.prepare(agent.uid, %{
+                 "model" => "primary",
+                 "input" => "Run tools.",
+                 "tools" => tools,
+                 "max_tool_calls" => 1
+               })
+    end
+
+    projection_only = [
+      %{
+        "type" => "namespace",
+        "name" => "crm",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "lookup",
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          }
+        ]
+      },
+      %{"type" => "web_search"}
+    ]
+
+    assert {:ok, %{driver: :single_request}} =
+             ResponsesPreparation.prepare(agent.uid, %{
+               "model" => "primary",
+               "input" => "Run tools.",
+               "tools" => projection_only,
+               "max_tool_calls" => 1
+             })
+
+    refute_receive {:gateway_request, _request}
+  end
+
+  test "non-streaming server Tool Search drives internal streamed rounds and returns one final body" do
+    %{principal: agent} = agent_fixture()
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        if provider_input_has_output?(request.body["input"], "call_search_market") do
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_search_final",
+             request.body["model"],
+             "Market data is ready."
+           )}
+        else
+          {:sse, 200,
+           openai_function_call_stream_events(
+             "resp_search_first",
+             request.body["model"],
+             "tool_search",
+             %{"paths" => ["market_quote"]},
+             "call_search_market"
+           )}
+        end
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-non-stream-tool-search"
+    )
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "primary",
+               "input" => "Find and use the market quote tool.",
+               "tools" => [
+                 %{
+                   "type" => "function",
+                   "name" => "market_quote",
+                   "description" => "Returns a current market quote.",
+                   "defer_loading" => true,
+                   "parameters" => %{
+                     "type" => "object",
+                     "properties" => %{
+                       "symbol" => %{"type" => "string"}
+                     }
+                   }
+                 }
+               ]
+             })
+
+    requests = collect_gateway_requests(2, []) |> Enum.reverse()
+    assert Enum.all?(requests, &(&1.body["stream"] == true))
+
+    assert Enum.map(body["output"], & &1["type"]) == [
+             "tool_search_call",
+             "tool_search_output",
+             "message"
+           ]
+
+    assert get_in(body, ["output", Access.at(1), "tools", Access.at(0), "name"]) ==
+             "market_quote"
+  end
+
+  test "non-streaming PTC waits for the async program after native done and returns one final body" do
+    %{principal: agent} = agent_fixture()
+    test_pid = self()
+
+    base_url =
+      start_recording_upstream(test_pid, fn request ->
+        if provider_input_has_output?(request.body["input"], "call_program_http") do
+          {:sse, 200,
+           openai_response_stream_events(
+             "resp_program_final",
+             request.body["model"],
+             "The program returned 42."
+           )}
+        else
+          {:sse, 200,
+           openai_function_call_stream_events(
+             "resp_program_first",
+             request.body["model"],
+             "program",
+             %{"code" => "text('42')"},
+             "call_program_http"
+           )}
+        end
+      end)
+
+    configure_openai_compatible_responses_provider!(
+      agent.uid,
+      base_url,
+      "compatible-non-stream-ptc"
+    )
+
+    runner = fn code, bindings, memo ->
+      send(test_pid, {:http_program_runner_started, self(), code, bindings, memo})
+
+      receive do
+        :release_http_program ->
+          {:ok,
+           %{
+             status: :completed,
+             output: [%{kind: "text", value: "42"}],
+             pending_calls: []
+           }}
+      end
+    end
+
+    response_task =
+      Task.async(fn ->
+        AIGateway.create_response(
+          agent.uid,
+          %{
+            "model" => "primary",
+            "input" => "Run a program.",
+            "tools" => programmatic_tools()
+          },
+          program_runner: runner
+        )
+      end)
+
+    assert_receive {:http_program_runner_started, program_pid, "text('42')", ["market"], []},
+                   2_000
+
+    # The upstream SSE response has already closed. Its native :done must not
+    # terminate the public response while the admitted program task is live.
+    refute Task.yield(response_task, 50)
+    refute_receive {:http_program_runner_started, _pid, _code, _bindings, _memo}
+
+    send(program_pid, :release_http_program)
+
+    assert {:ok, %{body: body}} = Task.await(response_task, 5_000)
+
+    requests = collect_gateway_requests(2, []) |> Enum.reverse()
+    assert Enum.all?(requests, &(&1.body["stream"] == true))
+
+    assert Enum.map(body["output"], & &1["type"]) == [
+             "program",
+             "program_output",
+             "message"
+           ]
+
+    assert get_in(body, ["output", Access.at(1), "result"]) == "42"
   end
 
   test "native image generation passes through, persists non-stream bytes, and accounts usage" do
@@ -668,8 +1322,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     ]
 
     for reason <- reasons do
-      assert {:ok, retried, %{marker: :same_request}} =
-               CredentialAttempts.retry_spec(
+      assert {:retry, retried, %{marker: :same_request}, 0} =
+               CredentialAttempts.plan_retry(
                  context,
                  %{marker: :same_request},
                  reason,
@@ -679,8 +1333,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       assert retried.runtime["credential_id"] == runtime["credential_id"]
       assert retried.route_retry_used?
 
-      assert {:error, ^reason} =
-               CredentialAttempts.retry_spec(
+      assert {:stop, ^reason, ^retried} =
+               CredentialAttempts.plan_retry(
                  retried,
                  %{marker: :same_request},
                  reason,
@@ -691,8 +1345,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_failure =
       {:upstream_response_failed, 500, %{"error" => %{"code" => "server_is_overloaded"}}, %{}}
 
-    assert {:error, ^provider_failure} =
-             CredentialAttempts.retry_spec(
+    assert {:stop, ^provider_failure, ^context} =
+             CredentialAttempts.plan_retry(
                context,
                %{marker: :same_request},
                provider_failure,
@@ -743,8 +1397,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     unauthorized =
       {:upstream_response_failed, 401, %{"error" => %{"code" => "unauthorized"}}, %{}}
 
-    assert {:ok, rotated, %{marker: :same_request}} =
-             CredentialAttempts.retry_spec(
+    assert {:retry, rotated, %{marker: :same_request}, 0} =
+             CredentialAttempts.plan_retry(
                context,
                %{marker: :same_request},
                unauthorized,
@@ -756,8 +1410,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     route_failure = {:upstream_response_failed, 503, %{}, %{}}
 
-    assert {:error, ^route_failure} =
-             CredentialAttempts.retry_spec(
+    assert {:stop, ^route_failure, ^rotated} =
+             CredentialAttempts.plan_retry(
                rotated,
                %{marker: :same_request},
                route_failure,
@@ -803,18 +1457,18 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       credential_retry_jitter: &Function.identity/1
     ]
 
-    assert {:ok, first_retry, %{}} =
-             CredentialAttempts.retry_spec(context, %{}, reason, retry_opts)
+    assert {:retry, first_retry, %{}, 0} =
+             CredentialAttempts.plan_retry(context, %{}, reason, retry_opts)
 
     first_retry = update_in(first_retry.runtime, &Map.delete(&1, "credential_id"))
 
-    assert {:ok, second_retry, %{}} =
-             CredentialAttempts.retry_spec(first_retry, %{}, reason, retry_opts)
+    assert {:retry, second_retry, %{}, 0} =
+             CredentialAttempts.plan_retry(first_retry, %{}, reason, retry_opts)
 
     second_retry = update_in(second_retry.runtime, &Map.delete(&1, "credential_id"))
 
-    assert {:error, ^reason} =
-             CredentialAttempts.retry_spec(second_retry, %{}, reason, retry_opts)
+    assert {:stop, ^reason, ^second_retry} =
+             CredentialAttempts.plan_retry(second_retry, %{}, reason, retry_opts)
 
     statuses =
       CredentialPool.statuses(
@@ -1310,7 +1964,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     provider_request = request.response_context.request
 
     assert request.upstream.kind == :websocket_text
-    history_input = Enum.map(first.content, &Map.delete(&1, "id"))
+    history_input = Enum.map(request_items, &Map.delete(&1, "id")) ++ terminal_items
     assert provider_request["input"] == history_input ++ current_input
 
     assert get_in(provider_request, ["input", Access.at(0), "content", Access.at(1)]) == %{
@@ -1318,10 +1972,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "image_url" => image_url
            }
 
-    refute Enum.any?(
-             Enum.take(provider_request["input"], length(history_input)),
-             &Map.has_key?(&1, "id")
-           )
+    refute Map.has_key?(Enum.at(provider_request["input"], 0), "id")
+    assert Enum.at(provider_request["input"], 1)["id"] == "msg_previous_assistant"
 
     refute Map.has_key?(provider_request, "service_tier")
     assert provider_request["prompt_cache_key"] == "cache-ws"
@@ -1363,6 +2015,299 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                    "content" => [%{"type" => "input_text", "text" => "next user as a string"}]
                  }
                ]
+  end
+
+  test "websocket stateful replay keeps only ids required by Responses input items" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-stateful-replay-ids",
+               provider_kind: "openai",
+               base_url: "https://api.openai.test/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "upstream_transport" => "websocket"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-stateful-replay-ids",
+               model: "gpt-5.5"
+             })
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-stateful-replay-ids")
+
+    {:ok, first} =
+      start_stateful_message(agent.uid, conversation, "dispatch-stateful-replay-ids-a", [
+        text_message("user", "Run the tools.")
+      ])
+
+    history_items = [
+      %{
+        "id" => "assistant_message_item_id",
+        "type" => "message",
+        "role" => "assistant",
+        "status" => "completed",
+        "content" => [
+          %{"type" => "output_text", "text" => "Tools finished.", "annotations" => []}
+        ]
+      },
+      %{
+        "id" => "referenced_item_id",
+        "type" => "item_reference"
+      },
+      %{"id" => "implicit_referenced_item_id"},
+      %{"id" => "null_referenced_item_id", "type" => nil},
+      %{
+        "id" => "program_item_id",
+        "type" => "program",
+        "call_id" => "program_call_id",
+        "code" => "text('done');",
+        "fingerprint" => "program_fingerprint"
+      },
+      %{
+        "id" => "program_output_item_id",
+        "type" => "program_output",
+        "call_id" => "program_call_id",
+        "status" => "completed",
+        "result" => "done"
+      },
+      %{
+        "id" => "mcp_call_item_id",
+        "type" => "mcp_call",
+        "arguments" => "{}",
+        "name" => "lookup",
+        "server_label" => "inventory",
+        "status" => "completed",
+        "output" => "found"
+      },
+      %{
+        "id" => "mcp_list_tools_item_id",
+        "type" => "mcp_list_tools",
+        "server_label" => "inventory",
+        "tools" => []
+      },
+      %{
+        "id" => "mcp_approval_request_item_id",
+        "type" => "mcp_approval_request",
+        "arguments" => "{}",
+        "name" => "update",
+        "server_label" => "inventory"
+      },
+      %{
+        "id" => "optional_mcp_approval_response_id",
+        "type" => "mcp_approval_response",
+        "approval_request_id" => "mcp_approval_request_item_id",
+        "approve" => true
+      },
+      %{
+        "id" => "code_interpreter_item_id",
+        "type" => "code_interpreter_call",
+        "code" => "1 + 1",
+        "container_id" => "container_1",
+        "outputs" => [],
+        "status" => "completed"
+      },
+      %{
+        "id" => "local_shell_item_id",
+        "type" => "local_shell_call",
+        "call_id" => "local_shell_call_id",
+        "action" => %{"type" => "exec", "command" => ["true"], "env" => %{}},
+        "status" => "completed"
+      },
+      %{
+        "id" => "local_shell_call_id",
+        "type" => "local_shell_call_output",
+        "output" => "{}"
+      },
+      %{
+        "id" => "computer_call_item_id",
+        "type" => "computer_call",
+        "call_id" => "computer_call_id",
+        "pending_safety_checks" => [],
+        "status" => "completed"
+      },
+      %{
+        "id" => "optional_computer_output_id",
+        "type" => "computer_call_output",
+        "call_id" => "computer_call_id",
+        "output" => %{
+          "type" => "computer_screenshot",
+          "image_url" => "data:image/png;base64,eA=="
+        }
+      },
+      %{
+        "id" => "file_search_item_id",
+        "type" => "file_search_call",
+        "queries" => ["inventory"],
+        "status" => "completed"
+      },
+      %{
+        "id" => "reasoning_item_id",
+        "type" => "reasoning",
+        "summary" => [],
+        "encrypted_content" => "encrypted"
+      },
+      %{
+        "id" => "web_search_item_id",
+        "type" => "web_search_call",
+        "action" => %{"type" => "search", "queries" => ["inventory"]},
+        "status" => "completed"
+      },
+      %{
+        "id" => "image_generation_item_id",
+        "type" => "image_generation_call",
+        "status" => "completed",
+        "result" => "image"
+      },
+      %{
+        "id" => "optional_function_call_id",
+        "type" => "function_call",
+        "call_id" => "function_call_id",
+        "name" => "lookup",
+        "arguments" => "{}"
+      },
+      %{
+        "id" => "optional_function_output_id",
+        "type" => "function_call_output",
+        "call_id" => "function_call_id",
+        "output" => "found"
+      },
+      %{
+        "id" => "optional_custom_call_id",
+        "type" => "custom_tool_call",
+        "call_id" => "custom_call_id",
+        "name" => "render",
+        "input" => "report"
+      },
+      %{
+        "id" => "optional_custom_output_id",
+        "type" => "custom_tool_call_output",
+        "call_id" => "custom_call_id",
+        "output" => "rendered"
+      },
+      %{
+        "id" => "optional_shell_call_id",
+        "type" => "shell_call",
+        "call_id" => "shell_call_id",
+        "action" => %{"commands" => ["true"]},
+        "status" => "completed"
+      },
+      %{
+        "id" => "optional_shell_output_id",
+        "type" => "shell_call_output",
+        "call_id" => "shell_call_id",
+        "output" => []
+      },
+      %{
+        "id" => "optional_apply_patch_call_id",
+        "type" => "apply_patch_call",
+        "call_id" => "apply_patch_call_id",
+        "operation" => %{"type" => "delete_file", "path" => "old.txt"},
+        "status" => "completed"
+      },
+      %{
+        "id" => "optional_apply_patch_output_id",
+        "type" => "apply_patch_call_output",
+        "call_id" => "apply_patch_call_id",
+        "status" => "completed"
+      },
+      %{
+        "id" => "optional_tool_search_call_id",
+        "type" => "tool_search_call",
+        "execution" => "client",
+        "call_id" => "tool_search_call_id",
+        "arguments" => %{"query" => "inventory"},
+        "status" => "completed"
+      },
+      %{
+        "id" => "optional_tool_search_output_id",
+        "type" => "tool_search_output",
+        "execution" => "client",
+        "call_id" => "tool_search_call_id",
+        "tools" => [],
+        "status" => "completed"
+      }
+    ]
+
+    {:ok, first} = StatefulResponses.commit_complete(first, history_items)
+
+    assert {:ok, request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => [text_message("user", "Continue.")],
+               "store" => true,
+               "previous_response_id" => "resp_#{first.id}",
+               "tools" => [
+                 %{
+                   "type" => "mcp",
+                   "server_label" => "inventory",
+                   "server_url" => "https://mcp.example.test",
+                   "allowed_callers" => ["programmatic"]
+                 },
+                 %{"type" => "programmatic_tool_calling"}
+               ]
+             })
+
+    provider_input = request.response_context.request["input"]
+
+    required_ids = %{
+      "code_interpreter_call" => "code_interpreter_item_id",
+      "computer_call" => "computer_call_item_id",
+      "file_search_call" => "file_search_item_id",
+      "image_generation_call" => "image_generation_item_id",
+      "item_reference" => "referenced_item_id",
+      "local_shell_call" => "local_shell_item_id",
+      "local_shell_call_output" => "local_shell_call_id",
+      "mcp_approval_request" => "mcp_approval_request_item_id",
+      "mcp_call" => "mcp_call_item_id",
+      "mcp_list_tools" => "mcp_list_tools_item_id",
+      "program" => "program_item_id",
+      "program_output" => "program_output_item_id",
+      "reasoning" => "reasoning_item_id",
+      "web_search_call" => "web_search_item_id"
+    }
+
+    Enum.each(required_ids, fn {type, id} ->
+      assert %{"id" => ^id} = Enum.find(provider_input, &(&1["type"] == type))
+    end)
+
+    assert %{"id" => "assistant_message_item_id"} =
+             Enum.find(
+               provider_input,
+               &(&1["type"] == "message" and &1["role"] == "assistant")
+             )
+
+    Enum.each(~w(implicit_referenced_item_id null_referenced_item_id), fn id ->
+      assert %{"id" => ^id, "type" => "item_reference"} =
+               Enum.find(provider_input, &(&1["id"] == id))
+    end)
+
+    optional_id_types = ~w(
+      apply_patch_call
+      apply_patch_call_output
+      computer_call_output
+      custom_tool_call
+      custom_tool_call_output
+      function_call
+      function_call_output
+      mcp_approval_response
+      shell_call
+      shell_call_output
+      tool_search_call
+      tool_search_output
+    )
+
+    Enum.each(optional_id_types, fn type ->
+      item = Enum.find(provider_input, &(&1["type"] == type))
+      assert is_map(item)
+      refute Map.has_key?(item, "id")
+    end)
   end
 
   test "automatic stateful continuation closes client tool calls interrupted before durable output" do
@@ -1445,6 +2390,47 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                Enum.map(call_response.content, &Map.delete(&1, "id")) ++
                  [recovered_output] ++ retry_input
     end
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(agent.uid, "dispatch-interrupted-nested-tool")
+
+    nested_call = %{
+      "type" => "function_call",
+      "call_id" => "call_interrupted_nested",
+      "name" => "lookup",
+      "arguments" => "{}",
+      "caller" => %{"type" => "program", "caller_id" => "program_interrupted"}
+    }
+
+    {:ok, call_response} =
+      start_stateful_message(
+        agent.uid,
+        conversation,
+        "dispatch-interrupted-nested-tool-call",
+        [text_message("user", "run through a program")]
+      )
+
+    {:ok, call_response} = StatefulResponses.commit_complete(call_response, [nested_call])
+    retry_input = [text_message("user", "continue")]
+
+    assert {:ok, prepared, run_attrs} =
+             StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
+               "model" => "primary",
+               "input" => retry_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "metadata" => %{"actor_event_id" => "interrupted-nested-tool-retry"}
+             })
+
+    assert run_attrs.request_items == retry_input
+    refute Map.has_key?(run_attrs.metadata, "recovered_interrupted_tool_call_ids")
+
+    assert prepared.response_context.request["input"] ==
+             [call_response.content |> hd() |> Map.delete("id")] ++ retry_input
+
+    assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
+             "non_executable_call_ids" => ["call_interrupted_nested"]
+           }
   end
 
   test "provider projection drops legacy orphan outputs while preserving the raw row" do
@@ -1566,8 +2552,28 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       "output" => "legacy output that must not be replayed"
     }
 
+    partial_program = %{
+      "type" => "program",
+      "status" => "in_progress",
+      "call_id" => "program_legacy_partial",
+      "code" => "text('unfinished",
+      "fingerprint" => "partial-program-fingerprint"
+    }
+
+    partial_program_output = %{
+      "type" => "program_output",
+      "call_id" => "program_legacy_partial",
+      "status" => "completed",
+      "result" => ~s({"status":"completed"})
+    }
+
     {:ok, legacy_row} =
-      StatefulResponses.commit_complete(legacy_row, [malformed_call, malformed_output])
+      StatefulResponses.commit_complete(legacy_row, [
+        malformed_call,
+        malformed_output,
+        partial_program,
+        partial_program_output
+      ])
 
     assert {:ok, prepared, run_attrs} =
              StatefulLifecycle.prepare_websocket_provider_request(agent.uid, %{
@@ -1580,18 +2586,24 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     projected_input = prepared.response_context.request["input"]
 
-    refute Enum.any?(projected_input, fn item ->
-             item["call_id"] == "call_legacy_partial"
-           end)
+    refute Enum.any?(
+             projected_input,
+             &(&1["call_id"] in ["call_legacy_partial", "program_legacy_partial"])
+           )
 
     assert run_attrs.metadata["provider_projection_tool_result_quarantine"] == %{
-             "non_executable_call_ids" => ["call_legacy_partial"]
+             "non_executable_call_ids" => [
+               "call_legacy_partial",
+               "program_legacy_partial"
+             ]
            }
 
     assert Repo.get!(Message, legacy_row.id).content == [
              text_message("user", "legacy request"),
              malformed_call,
-             malformed_output
+             malformed_output,
+             partial_program,
+             partial_program_output
            ]
   end
 
@@ -2362,7 +3374,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         %{
           "type" => "function_call_output",
           "call_id" => nested_call_id,
-          "output" => ~s({"price":212.5})
+          "output" => ~s({"price":212.5}),
+          "caller" => %{"type" => "program", "caller_id" => program_call_id}
         }
       ])
 
@@ -2851,20 +3864,20 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
-               provider_id: "openai-truncation-program-boundary",
-               provider_kind: "openai",
+               provider_id: "compatible-truncation-program-boundary",
+               provider_kind: "openai_compatible",
                base_url: "http://127.0.0.1:1/v1",
                credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
                },
                connection_options: %{
-                 "upstream_transport" => "websocket"
+                 "endpoint_kind" => "responses"
                }
              })
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-truncation-program-boundary",
+               provider_id: "compatible-truncation-program-boundary",
                model: "gpt-main"
              })
 
@@ -2910,7 +3923,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
           %{
             "type" => "function_call_output",
             "call_id" => nested_call_id,
-            "output" => ~s({"price":212.5})
+            "output" => ~s({"price":212.5}),
+            "caller" => %{"type" => "program", "caller_id" => program_call_id}
           }
         ]
       )
@@ -4821,6 +5835,111 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       %{"type" => "programmatic_tool_calling"}
     ]
   end
+
+  defp configure_openai_responses_provider!(agent_uid, base_url, provider_id) do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{
+                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent_uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-5.6"
+             })
+
+    :ok
+  end
+
+  defp configure_openai_compatible_responses_provider!(agent_uid, base_url, provider_id) do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: provider_id,
+               provider_kind: "openai_compatible",
+               base_url: "#{base_url}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               },
+               connection_options: %{
+                 "endpoint_kind" => "responses",
+                 "transport" => %{"http_versions" => ["h1"], "compression" => []}
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent_uid, "primary", %{
+               provider_id: provider_id,
+               model: "gpt-compatible"
+             })
+
+    :ok
+  end
+
+  defp openai_function_call_stream_events(response_id, model, name, arguments, call_id) do
+    encoded_arguments = Ankole.JSON.encode!(arguments)
+
+    response = %{
+      "id" => response_id,
+      "object" => "response",
+      "status" => "in_progress",
+      "model" => model,
+      "output" => []
+    }
+
+    call = %{
+      "type" => "function_call",
+      "id" => "fc_#{call_id}",
+      "name" => name,
+      "call_id" => call_id,
+      "status" => "completed",
+      "arguments" => encoded_arguments
+    }
+
+    [
+      %{"type" => "response.created", "sequence_number" => 0, "response" => response},
+      %{
+        "type" => "response.output_item.added",
+        "sequence_number" => 1,
+        "output_index" => 0,
+        "item" => %{call | "status" => "in_progress", "arguments" => ""}
+      },
+      %{
+        "type" => "response.function_call_arguments.delta",
+        "sequence_number" => 2,
+        "item_id" => call["id"],
+        "output_index" => 0,
+        "delta" => encoded_arguments
+      },
+      %{
+        "type" => "response.output_item.done",
+        "sequence_number" => 3,
+        "output_index" => 0,
+        "item" => call
+      },
+      %{
+        "type" => "response.completed",
+        "sequence_number" => 4,
+        "response" => %{response | "status" => "completed", "output" => [call]}
+      }
+    ]
+  end
+
+  defp provider_input_has_output?(input, call_id) when is_list(input) do
+    Enum.any?(input, fn
+      %{"type" => "function_call_output", "call_id" => ^call_id} -> true
+      _item -> false
+    end)
+  end
+
+  defp provider_input_has_output?(_input, _call_id), do: false
 
   defp with_compaction_config(config) do
     assert {:ok, _config} = Compaction.put_config(Map.new(config))

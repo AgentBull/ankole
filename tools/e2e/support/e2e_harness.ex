@@ -27,6 +27,7 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.JSON
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.RuntimeEvents
@@ -499,7 +500,10 @@ defmodule Ankole.E2E.Harness do
                # from the Docker worker, so localhost is correct here.
                base_url: "http://127.0.0.1:#{fake_llm_port}",
                credential_pool: %{
-                 "entries" => [%{"label" => "Default", "api_key" => api_key}]
+                 "entries" => [
+                   %{"label" => "Primary", "api_key" => api_key},
+                   %{"label" => "Fallback", "api_key" => api_key <> "-fallback"}
+                 ]
                }
              })
   end
@@ -799,9 +803,23 @@ defmodule Ankole.E2E.Harness do
     end)
   end
 
+  @doc "Returns direct function and custom tool calls, optionally by tool name."
+  def tool_call_items(messages, tool_name \\ nil) do
+    messages
+    |> Enum.flat_map(&message_items/1)
+    |> Enum.filter(fn
+      %{"type" => type, "name" => name}
+      when type in ["function_call", "custom_tool_call"] ->
+        is_nil(tool_name) or name == tool_name
+
+      _item ->
+        false
+    end)
+  end
+
   @doc """
-  Pairs function_call items with their function_call_output items by call_id
-  and returns decoded results in call order.
+  Pairs direct function and custom tool calls with their matching outputs by
+  call_id and returns decoded results in call order.
 
   The output payload is worker-owned JSON; when it does not decode as JSON the
   raw string is wrapped as `%{"raw" => output}`.
@@ -810,17 +828,31 @@ defmodule Ankole.E2E.Harness do
     outputs =
       messages
       |> Enum.flat_map(&message_items/1)
-      |> Enum.filter(&match?(%{"type" => "function_call_output"}, &1))
-      |> Map.new(fn item -> {item["call_id"], item["output"]} end)
+      |> Enum.filter(fn
+        %{"type" => type} when type in ["function_call_output", "custom_tool_call_output"] ->
+          true
+
+        _item ->
+          false
+      end)
+      |> Map.new(fn item -> {{item["type"], item["call_id"]}, item["output"]} end)
 
     messages
-    |> function_call_items(tool_name)
+    |> tool_call_items(tool_name)
     |> Enum.map(fn call ->
+      output_type =
+        if call["type"] == "custom_tool_call",
+          do: "custom_tool_call_output",
+          else: "function_call_output"
+
+      arguments =
+        if call["type"] == "custom_tool_call", do: call["input"], else: call["arguments"]
+
       %{
         tool_name: call["name"],
         call_id: call["call_id"],
-        arguments: decode_json_or_raw(call["arguments"]),
-        result: decode_json_or_raw(Map.get(outputs, call["call_id"]))
+        arguments: decode_json_or_raw(arguments),
+        result: decode_json_or_raw(Map.get(outputs, {output_type, call["call_id"]}))
       }
     end)
   end
@@ -1073,6 +1105,20 @@ defmodule Ankole.E2E.Harness do
   end
 
   def unique_worker_auth_key, do: "lark-e2e-" <> Ecto.UUID.generate()
+
+  @doc "Sets a test-scoped Slack transport without storing its endpoint in binding config."
+  def put_slack_test_client_opts!(client_opts) do
+    previous = Application.fetch_env(:ankole, SlackConfig)
+    current = Application.get_env(:ankole, SlackConfig, [])
+    Application.put_env(:ankole, SlackConfig, Keyword.put(current, :client_opts, client_opts))
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:ankole, SlackConfig, value)
+        :error -> Application.delete_env(:ankole, SlackConfig)
+      end
+    end)
+  end
 
   defp put_lark_test_client_opts!(client_opts) do
     previous = Application.fetch_env(:ankole, LarkConfig)

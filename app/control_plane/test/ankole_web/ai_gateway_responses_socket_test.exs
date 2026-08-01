@@ -464,6 +464,182 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     refute Map.has_key?(event, "error")
   end
 
+  test "response.create maps invalid tool contracts to the official flat error event" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-invalid-tool-contract-socket",
+               provider_kind: "openrouter",
+               base_url: "https://openrouter.invalid/api/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openrouter"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-invalid-tool-contract-socket",
+               model: "test/main-model"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => "Run the tool.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "broken",
+            "parameters" => %{"type" => "object", "properties" => %{}},
+            "allowed_callers" => ["bogus"]
+          },
+          %{"type" => "programmatic_tool_calling"}
+        ]
+      })
+
+    assert {:push, {:text, pushed}, state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "sequence_number" => 0,
+             "code" => "invalid_tool_contract",
+             "param" => nil,
+             "message" => message
+           } = event = Ankole.JSON.decode!(pushed)
+
+    assert message == "The Responses tool declaration or tool-call history is invalid."
+    refute pushed =~ "invalid_allowed_callers"
+    refute pushed =~ "bogus"
+    refute Map.has_key?(event, "status")
+    refute Map.has_key?(event, "error")
+    refute Map.has_key?(state, :active_stream)
+  end
+
+  test "response.create rejects a positive budget with mixed tool effect owners" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-mixed-tool-budget-socket",
+               provider_kind: "openai_compatible",
+               base_url: "https://compatible.invalid/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-compatible"}]
+               },
+               connection_options: %{"endpoint_kind" => "responses"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "compatible-mixed-tool-budget-socket",
+               model: "gpt-main"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => "Run tools.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "lookup",
+            "allowed_callers" => ["programmatic"],
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          },
+          %{"type" => "programmatic_tool_calling"},
+          %{"type" => "web_search"}
+        ],
+        "max_tool_calls" => 1
+      })
+
+    assert {:push, {:text, pushed}, state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "sequence_number" => 0,
+             "code" => "unsupported_value",
+             "param" => "max_tool_calls"
+           } = event = Ankole.JSON.decode!(pushed)
+
+    assert event["message"] =~ "positive max_tool_calls"
+    refute Map.has_key?(state, :active_stream)
+  end
+
+  test "response.create accepts mixed tool owners when tool_choice is none" do
+    %{principal: agent} = agent_fixture()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: {NativeResponsesWebSocketUpstreamPlug, test_pid: self()},
+         scheme: :http,
+         ip: {127, 0, 0, 1},
+         port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-socket-mixed-tool-budget-none",
+               provider_kind: "openai",
+               base_url: "http://127.0.0.1:#{port}/v1",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               },
+               connection_options: %{"upstream_transport" => "websocket"}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-socket-mixed-tool-budget-none",
+               model: "gpt-main"
+             })
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "input" => "Do not run tools.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "lookup",
+            "allowed_callers" => ["programmatic"],
+            "parameters" => %{"type" => "object", "properties" => %{}}
+          },
+          %{"type" => "programmatic_tool_calling"},
+          %{"type" => "web_search"}
+        ],
+        "tool_choice" => "none",
+        "max_tool_calls" => 1
+      })
+
+    assert {:ok, %{active_stream: active} = state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert_receive {:native_socket_upstream_request, upstream_request}
+    assert upstream_request["tool_choice"] == "none"
+    assert upstream_request["max_tool_calls"] == 1
+
+    _ = AIGateway.cancel_response_stream(state.active_stream.stream)
+    assert active.ref == state.active_stream.ref
+  end
+
   test "response.create accepts Codex ResponseCreateWsRequest fields" do
     %{principal: agent} = agent_fixture()
 
@@ -1208,10 +1384,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {agent, _conversation, actor_event, message} = stateful_message("socket-computer-item")
     ref = make_ref()
 
-    active =
-      active_stream(ref, message, actor_event,
-        max_tool_calls: MaxToolCalls.new(0, :openai_chat_completions)
-      )
+    active = active_stream(ref, message, actor_event)
 
     web_search_item = %{
       "type" => "web_search_call",
@@ -1244,7 +1417,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert body["output"] == [web_search_item]
   end
 
-  test "non-native max_tool_calls stops at a safe built-in item boundary without inventing a reason" do
+  test "non-native max_tool_calls waits for the provider terminal after the admitted call" do
     {agent, conversation, actor_event, message} =
       stateful_message("socket-max-tool-calls-late-stop")
 
@@ -1272,10 +1445,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "item" => web_search_item
     }
 
-    assert {:push, [{:text, provider_chunk}, {:text, incomplete_chunk}], state} =
+    assert {:push, {:text, provider_chunk}, state} =
              handle_test_event(%{active_stream: active}, ref, chunk, 10)
 
-    refute Map.has_key?(state, :active_stream)
+    assert Map.has_key?(state, :active_stream)
 
     response_id = "resp_#{message.id}"
 
@@ -1284,38 +1457,37 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              "response_id" => ^response_id
            } = Ankole.JSON.decode!(provider_chunk)
 
+    terminal = %{
+      "type" => "response.completed",
+      "sequence_number" => 11,
+      "response" => %{
+        "id" => "provider_resp_late_stop",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [web_search_item]
+      }
+    }
+
+    assert {:push, {:text, completed_chunk}, state} =
+             handle_test_event(state, ref, terminal, 11)
+
+    refute Map.has_key?(state, :active_stream)
+
     assert %{
-             "type" => "response.incomplete",
-             "sequence_number" => 11,
+             "type" => "response.completed",
              "response" => %{
                "id" => ^response_id,
-               "status" => "incomplete",
-               "incomplete_details" => nil,
-               "output" => [^web_search_item],
-               "provider_metadata" => %{
-                 "max_tool_calls" => %{
-                   "limit" => 1,
-                   "observed" => 1,
-                   "overshoot" => 0
-                 }
-               }
+               "status" => "completed",
+               "output" => [^web_search_item]
              }
-           } = Ankole.JSON.decode!(incomplete_chunk)
+           } = Ankole.JSON.decode!(completed_chunk)
 
     stored = Repo.get!(Message, message.id)
     assert stored.status == "complete"
     assert stored.content == message.content ++ [web_search_item]
-    assert stored.metadata["response"]["status"] == "incomplete"
-    refute Map.has_key?(stored.metadata, "incomplete_details")
-    refute Map.has_key?(stored.metadata, "stop_reason")
-
-    assert stored.metadata["provider_metadata"] == %{
-             "max_tool_calls" => %{
-               "limit" => 1,
-               "observed" => 1,
-               "overshoot" => 0
-             }
-           }
+    assert stored.metadata["response"]["status"] == "completed"
+    assert stored.metadata["stop_reason"] == "stop"
+    refute Map.has_key?(stored.metadata["provider_metadata"], "max_tool_calls")
 
     assert_receive {:ai_gateway_event, :tool_call_started,
                     %{
@@ -1331,15 +1503,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert actor_event_id == actor_event.id
 
     assert {:ok, %{body: body}} = AIGateway.retrieve_response(agent.uid, response_id)
-    assert body["status"] == "incomplete"
-    assert is_nil(body["incomplete_details"])
-    assert body["provider_metadata"] == stored.metadata["provider_metadata"]
+    assert body["status"] == "completed"
+    assert body["output"] == [web_search_item]
 
-    assert_receive {:ai_gateway_event, :response_incomplete,
+    assert_receive {:ai_gateway_event, :response_completed,
                     %{response_id: ^response_id, payload: %{content: [^web_search_item]}}}
   end
 
-  test "non-native max_tool_calls also bounds a stateless socket response" do
+  test "non-native max_tool_calls ignores a stateless provider call beyond zero" do
     ref = make_ref()
     request_item = text_message("user", "search")
 
@@ -1362,27 +1533,37 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "item" => web_search_item
     }
 
-    assert {:push, [{:text, _provider_chunk}, {:text, incomplete_chunk}], state} =
+    assert {:ok, state} =
              handle_test_event(%{active_stream: active}, ref, chunk, 4)
+
+    assert Map.has_key?(state, :active_stream)
+
+    terminal = %{
+      "type" => "response.completed",
+      "sequence_number" => 5,
+      "response" => %{
+        "id" => "provider_resp_stateless_limit",
+        "object" => "response",
+        "status" => "completed",
+        "output" => [web_search_item]
+      }
+    }
+
+    assert {:push, {:text, completed_chunk}, state} =
+             handle_test_event(state, ref, terminal, 5)
 
     refute Map.has_key?(state, :active_stream)
 
     assert %{
-             "type" => "response.incomplete",
+             "type" => "response.completed",
              "response" => %{
                "id" => "provider_resp_stateless_limit",
-               "status" => "incomplete",
-               "provider_metadata" => %{
-                 "max_tool_calls" => %{
-                   "limit" => 0,
-                   "observed" => 1,
-                   "overshoot" => 1
-                 }
-               }
+               "status" => "completed",
+               "output" => []
              }
-           } = Ankole.JSON.decode!(incomplete_chunk)
+           } = Ankole.JSON.decode!(completed_chunk)
 
-    assert %{items: [^request_item, ^web_search_item]} =
+    assert %{items: [^request_item]} =
              state.response_history["provider_resp_stateless_limit"]
   end
 
@@ -1587,7 +1768,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.status == "error"
     assert stored.content == message.content ++ [partial_call]
     assert stored.metadata["error"]["code"] == "partial_tool_call_completed"
-    assert stored.metadata["stop_reason"] == "stop"
+    assert stored.metadata["stop_reason"] == "error"
     assert StatefulResponses.latest_visible_leaf(conversation.id) == nil
   end
 

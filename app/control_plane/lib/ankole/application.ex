@@ -52,6 +52,9 @@ defmodule Ankole.Application do
         {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
         {Phoenix.PubSub, name: Ankole.PubSub},
         Ankole.AIGateway.CredentialPool,
+        {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
+        {Task.Supervisor,
+         name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,
         Ankole.SignalsGateway.Supervisor
       ]

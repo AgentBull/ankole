@@ -135,7 +135,9 @@ describe('automation job CLI', () => {
     expect(normalized).toContain('A run with no emitEvent call is a silent, completed consumption')
     expect(normalized).toContain('Runs can overlap and deliveries can repeat')
     expect(normalized).toContain('These SDK functions exist only in a platform run')
-    expect(normalized).toContain('the mcporter CLI is in the image, reads ~/.mcporter/mcporter.json from the Agent Home')
+    expect(normalized).toContain(
+      'the mcporter CLI is in the image, reads ~/.mcporter/mcporter.json from the Agent Home'
+    )
     expect(normalized).toContain('mcporter --help documents commands and config')
     expect(normalized).toContain('After registration, use a test trigger to check each SDK branch')
     expect(normalized).toContain('whatever is on disk at fire time is what runs')

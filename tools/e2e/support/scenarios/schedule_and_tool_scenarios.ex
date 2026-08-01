@@ -9,10 +9,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
   import Ankole.E2E.WaitHelpers,
     only: [
-      checkback_by_idempotency!: 2,
       cron_event_for_schedule!: 1,
-      cron_schedule_by_idempotency!: 2,
       deadline: 1,
+      wait_until: 2,
       wait_for_completed_final_reply: 3,
       wait_for_completed_outbox: 3,
       ai_messages_for_actor_event: 1
@@ -21,6 +20,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.Schedule
+  alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.Entry
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
@@ -53,7 +54,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     messages = ai_messages_for_actor_event(input.id)
     assert tool_result_succeeded?(messages, "check_back_later")
 
-    checkback = checkback_by_idempotency!(agent.uid, "lark-chaos-checkback-1")
+    checkback = Repo.get_by!(ScheduledEvent, source_actor_event_id: input.id)
     assert checkback.status == "scheduled"
     assert checkback.binding_name == "lark-chaos-primary"
     assert checkback.source_actor_event_id == input.id
@@ -66,12 +67,10 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert DateTime.diff(checkback.due_at, checkback.requested_at, :second) in 295..305
 
     assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
+    %{input: input, reply: reply, checkback: checkback}
   end
 
-  def run_checkback_fire(%{fake_feishu: _fake_feishu, agent: agent, container: container}) do
-    checkback = checkback_by_idempotency!(agent.uid, "lark-chaos-checkback-1")
-
+  def run_checkback_fire(%{fake_feishu: _fake_feishu, container: container}, checkback) do
     assert {:ok, %{status: :fired, actor_event: wake_input}} =
              Schedule.fire_due_event(checkback.id, now: checkback.due_at)
 
@@ -120,7 +119,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     messages = ai_messages_for_actor_event(input.id)
     assert tool_result_succeeded?(messages, "cron")
 
-    cron_schedule = cron_schedule_by_idempotency!(agent.uid, "lark-chaos-cron-1")
+    cron_schedule = Repo.get_by!(CronSchedule, agent_uid: agent.uid, name: "lark-chaos-cron")
     assert cron_schedule.status == "active"
     assert cron_schedule.binding_name == "lark-chaos-primary"
     assert cron_schedule.name == "lark-chaos-cron"
@@ -137,11 +136,10 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert cron_event.wake_payload["payload"] == %{"task" => "CHAOS_CRON_WAKE_OK"}
 
     assert_actor_event_completed!(input.id)
-    %{input: input, reply: reply}
+    %{input: input, reply: reply, cron_schedule: cron_schedule}
   end
 
-  def run_cron_fire(%{fake_feishu: _fake_feishu, agent: agent, container: container}) do
-    cron_schedule = cron_schedule_by_idempotency!(agent.uid, "lark-chaos-cron-1")
+  def run_cron_fire(%{fake_feishu: _fake_feishu, container: container}, cron_schedule) do
     cron_event = cron_event_for_schedule!(cron_schedule.id)
 
     assert {:ok, %{status: :fired, actor_event: fire_input}} =
@@ -196,11 +194,20 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     input = actor_event_by_source_entry_id!(agent.uid, "om_file_1")
     assert input.type == "im.message.addressed"
 
-    assert %Entry{text: nil, attachments: [attachment]} =
-             Repo.get_by!(Entry,
-               signal_channel_id: "lark:oc_chaos_file",
-               source_entry_id: "om_file_1"
-             )
+    assert {:ok, %Entry{text: nil, attachments: [attachment]}} =
+             wait_until(deadline(10_000), fn ->
+               case Repo.get_by!(Entry,
+                      signal_channel_id: "lark:oc_chaos_file",
+                      source_entry_id: "om_file_1"
+                    ) do
+                 %Entry{attachments: [%{"agent_computer_path" => path}]} = entry
+                 when is_binary(path) ->
+                   entry
+
+                 %Entry{} ->
+                   nil
+               end
+             end)
 
     # Materialized attachments carry extra worker-file keys on top of the
     # provider identity, so assert the provider identity as a subset.
@@ -218,7 +225,14 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                ~w(provider_ref provider source_message_id file_key download_type resource_type name)
              )
 
-    assert get_in(input.payload, ["data", "entry", "attachments"]) == [attachment]
+    assert {:ok, %ActorEvent{} = input} =
+             wait_until(deadline(10_000), fn ->
+               refreshed = Repo.get!(ActorEvent, input.id)
+
+               if get_in(refreshed.payload, ["data", "entry", "attachments"]) == [attachment],
+                 do: refreshed,
+                 else: nil
+             end)
 
     assert {:ok, %{send_outcome: "sent_or_queued"}} =
              process_ready_event_for_actor!(input, DateTime.add(input.available_at, 1, :second))
@@ -358,7 +372,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
   end
 
   @doc """
-  Runs `patch` against a Docker-worker file and verifies the edited contents.
+  Runs `apply_patch` against a Docker-worker file and verifies the edited contents.
   """
   def run_patch_tool_loop(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
     mention = lark_bot_mention()
@@ -388,8 +402,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
 
     messages = ai_messages_for_actor_event(input.id)
     assert command_tool_succeeded?(messages)
-    assert [patch_result] = successful_tool_results(messages, "replace")
-    assert inspect(patch_result) =~ "CHAOS_PATCH_NEW"
+
+    assert [_patch_result] = successful_tool_results(messages, "apply_patch"),
+           "apply_patch results: #{inspect(tool_results(messages, "apply_patch"))}"
 
     read_results = successful_tool_results(messages, "read_file")
     assert read_results |> List.last() |> inspect() =~ "CHAOS_PATCH_NEW"

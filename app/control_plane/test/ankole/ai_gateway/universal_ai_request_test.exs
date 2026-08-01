@@ -78,6 +78,61 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
            ]
   end
 
+  test "start_stream returns before ready and assigns the selected receiver" do
+    {:ok, url, server} = start_blocked_sse_server()
+    test_pid = self()
+    receiver = spawn_link(fn -> forward_stream_messages(test_pid) end)
+
+    assert {:ok, stream} =
+             UniversalAIRequest.start_stream(stream_spec(url), :sse, receiver: receiver)
+
+    assert stream.owner == receiver
+    assert_receive :upstream_request_received, 1_000
+    refute_receive {:stream_message, {:universal_ai_client, _, :ready, _}}, 50
+
+    send(server, :release_response)
+
+    assert_receive {:stream_message, {:universal_ai_client, ref, :ready, meta}}, 1_000
+    assert ref == stream.ref
+    assert meta["downstream_kind"] == "sse"
+
+    assert :ok = Ankole.Kernel.UniversalAIClient.cancel(stream)
+    send(receiver, :stop)
+  end
+
+  test "ready timeout uses first byte and a smaller total but never idle" do
+    assert UniversalAIRequest.ready_timeout_ms(%{
+             upstream: %{
+               timeout: %{first_byte_ms: 5_000, idle_ms: 90_000, total_ms: 3_000}
+             }
+           }) == 4_000
+
+    assert UniversalAIRequest.ready_timeout_ms(%{
+             "upstream" => %{
+               "timeout" => %{
+                 "first_byte_ms" => 5_000,
+                 "idle_ms" => 100,
+                 "total_ms" => 8_000
+               }
+             }
+           }) == 6_000
+
+    assert UniversalAIRequest.ready_timeout_ms(%{
+             upstream: %{timeout: %{idle_ms: 100, total_ms: nil}}
+           }) == 61_000
+  end
+
+  test "stream error normalization preserves provider status details" do
+    assert UniversalAIRequest.normalize_stream_error(%{
+             "code" => "provider_status_rejected",
+             "provider_status" => 429,
+             "provider_body_excerpt" => ~s({"error":{"message":"slow down"}}),
+             "provider_headers" => [["retry-after", "2"]]
+           }) ==
+             {:upstream_response_failed, 429, %{"error" => %{"message" => "slow down"}},
+              [{"retry-after", "2"}]}
+  end
+
   defp request(opts) do
     timeout_ms = Keyword.get(opts, :timeout_ms)
 
@@ -97,6 +152,66 @@ defmodule Ankole.AIGateway.UniversalAIRequestTest do
     }
 
     UniversalAIRequest.new(ctx, "responses", :openai_responses)
+  end
+
+  defp stream_spec(url) do
+    %{
+      api_resolver: :openai_responses,
+      upstream: %{
+        kind: :http_sse,
+        method: "POST",
+        url: url,
+        headers: [{"content-type", "application/json"}],
+        timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+        transport: %{http_versions: [:h1], compression: []}
+      },
+      response_context: %{model: "test-model", request: %{"input" => "hello"}}
+    }
+  end
+
+  defp start_blocked_sse_server do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    test_pid = self()
+
+    server =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 1_000)
+        send(test_pid, :upstream_request_received)
+
+        receive do
+          :release_response ->
+            body = "data: [DONE]\n\n"
+
+            :ok =
+              :gen_tcp.send(socket, [
+                "HTTP/1.1 200 OK\r\n",
+                "content-type: text/event-stream\r\n",
+                "content-length: #{byte_size(body)}\r\n",
+                "\r\n",
+                body
+              ])
+
+            :gen_tcp.close(socket)
+            :gen_tcp.close(listen_socket)
+        end
+      end)
+
+    {:ok, "http://127.0.0.1:#{port}/responses", server}
+  end
+
+  defp forward_stream_messages(test_pid) do
+    receive do
+      :stop ->
+        :ok
+
+      message ->
+        send(test_pid, {:stream_message, message})
+        forward_stream_messages(test_pid)
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map

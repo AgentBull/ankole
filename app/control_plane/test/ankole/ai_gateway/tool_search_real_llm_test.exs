@@ -97,6 +97,19 @@ defmodule Ankole.AIGateway.ToolSearchRealLLMTest do
 
   defp item_types(items), do: Enum.map(items, & &1["type"])
 
+  defp program_output(call, output) do
+    %{
+      "type" =>
+        if(call["type"] == "custom_tool_call",
+          do: "custom_tool_call_output",
+          else: "function_call_output"
+        ),
+      "call_id" => call["call_id"],
+      "output" => output,
+      "caller" => call["caller"]
+    }
+  end
+
   test "server-mode search loads the relevant deferred tool and completes with its result", %{
     agent: agent
   } do
@@ -169,16 +182,186 @@ defmodule Ankole.AIGateway.ToolSearchRealLLMTest do
     assert final_text =~ "1712"
   end
 
+  test "client-mode search loads a tool across two client pauses", %{agent: agent} do
+    request = %{
+      "model" => "primary",
+      "stream" => true,
+      "tools" => [
+        %{
+          "type" => "tool_search",
+          "execution" => "client",
+          "description" => "Search the client tool catalog for a named finance capability."
+        }
+      ],
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{
+              "type" => "input_text",
+              "text" =>
+                "First use tool_search to find the finance quote tool. Then call the loaded " <>
+                  "tool for symbol 600519 and report its numeric price."
+            }
+          ]
+        }
+      ]
+    }
+
+    {_events, first} = stream!(agent, request)
+    assert first.terminal_error == nil
+
+    [search_call] = Enum.filter(first.public_items, &(&1["type"] == "tool_search_call"))
+    assert search_call["execution"] == "client"
+    assert is_binary(search_call["call_id"])
+
+    finance_namespace = %{
+      "type" => "namespace",
+      "name" => "mcp__finance",
+      "description" => "Financial data tools.",
+      "tools" => [
+        %{
+          "type" => "function",
+          "name" => "get_quote",
+          "description" => "Return the latest numeric price for one stock symbol.",
+          "defer_loading" => true,
+          "parameters" => %{
+            "type" => "object",
+            "properties" => %{"symbol" => %{"type" => "string"}},
+            "required" => ["symbol"],
+            "additionalProperties" => false
+          }
+        }
+      ]
+    }
+
+    search_output = %{
+      "type" => "tool_search_output",
+      "call_id" => search_call["call_id"],
+      "status" => "completed",
+      "execution" => "client",
+      "tools" => [finance_namespace]
+    }
+
+    first_input = request["input"] ++ first.public_items ++ [search_output]
+    {_events, second} = stream!(agent, %{request | "input" => first_input})
+    assert second.terminal_error == nil
+
+    quote_calls =
+      Enum.filter(second.public_items, fn item ->
+        item["type"] == "function_call" and item["name"] == "get_quote"
+      end)
+
+    assert length(quote_calls) == 1,
+           "expected one quote call, got: #{inspect(second.public_items)}"
+
+    quote_call = hd(quote_calls)
+
+    assert quote_call["namespace"] == "mcp__finance"
+    assert Ankole.JSON.decode!(quote_call["arguments"])["symbol"] =~ "600519"
+
+    second_input =
+      first_input ++
+        second.public_items ++
+        [
+          %{
+            "type" => "function_call_output",
+            "call_id" => quote_call["call_id"],
+            "output" => ~s({"symbol":"600519","price":1712.5})
+          }
+        ]
+
+    {_events, final} = stream!(agent, %{request | "input" => second_input})
+    assert final.terminal_error == nil
+
+    final_text =
+      final.public_items
+      |> Enum.filter(&(&1["type"] == "message"))
+      |> Enum.flat_map(&(&1["content"] || []))
+      |> Enum.map(&(&1["text"] || ""))
+      |> Enum.join(" ")
+
+    assert final_text =~ "1712"
+  end
+
+  test "direct custom tool preserves raw text across stateless replay", %{agent: agent} do
+    request = %{
+      "model" => "primary",
+      "stream" => true,
+      "tools" => [
+        %{
+          "type" => "custom",
+          "name" => "uppercase_text",
+          "description" => "Return the raw input text in uppercase.",
+          "format" => %{"type" => "text"}
+        }
+      ],
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{
+              "type" => "input_text",
+              "text" =>
+                "Call uppercase_text exactly once with raw input ankole, then report its result."
+            }
+          ]
+        }
+      ]
+    }
+
+    {_events, first} = stream!(agent, request)
+    assert first.terminal_error == nil
+
+    [call] = Enum.filter(first.public_items, &(&1["type"] == "custom_tool_call"))
+    assert call["name"] == "uppercase_text"
+    assert call["input"] == "ankole"
+
+    follow_up = %{
+      request
+      | "input" =>
+          request["input"] ++
+            first.public_items ++
+            [
+              %{
+                "type" => "custom_tool_call_output",
+                "call_id" => call["call_id"],
+                "output" => "ANKOLE"
+              }
+            ]
+    }
+
+    {_events, final} = stream!(agent, follow_up)
+    assert final.terminal_error == nil
+
+    final_text =
+      final.public_items
+      |> Enum.filter(&(&1["type"] == "message"))
+      |> Enum.flat_map(&(&1["content"] || []))
+      |> Enum.map(&(&1["text"] || ""))
+      |> Enum.join(" ")
+
+    assert final_text =~ "ANKOLE"
+  end
+
   test "PTC runs a program with parallel nested calls across pause and resume", %{agent: agent} do
     price_tool = %{
       "type" => "function",
       "name" => "get_price",
-      "description" => "Returns the latest price for one stock symbol as a number.",
+      "description" => "Returns an object with the latest numeric price for one stock symbol.",
       "allowed_callers" => ["programmatic"],
       "parameters" => %{
         "type" => "object",
         "properties" => %{"symbol" => %{"type" => "string"}},
         "required" => ["symbol"]
+      },
+      "output_schema" => %{
+        "type" => "object",
+        "properties" => %{"price" => %{"type" => "number"}},
+        "required" => ["price"],
+        "additionalProperties" => false
       }
     }
 
@@ -244,9 +427,159 @@ defmodule Ankole.AIGateway.ToolSearchRealLLMTest do
     final_types = item_types(final.public_items)
     assert "program_output" in final_types
 
-    [program_output] = Enum.filter(final.public_items, &(&1["type"] == "program_output"))
+    program_outputs = Enum.filter(final.public_items, &(&1["type"] == "program_output"))
+
+    assert Enum.uniq_by(program_outputs, & &1["call_id"]) == program_outputs
+
+    program_output =
+      Enum.find(program_outputs, &(&1["call_id"] == program_item["call_id"])) ||
+        flunk("the resumed program did not produce its matching output")
+
     assert program_output["status"] == "completed"
 
-    assert program_output["result"] =~ "2000"
+    assert program_output["result"] == "2000"
+  end
+
+  test "PTC replays dependent calls across two pauses", %{agent: agent} do
+    seed_tool = %{
+      "type" => "function",
+      "name" => "get_seed",
+      "description" => "Return an object with next_key (string) for one key.",
+      "allowed_callers" => ["programmatic"],
+      "parameters" => %{
+        "type" => "object",
+        "properties" => %{"key" => %{"type" => "string"}},
+        "required" => ["key"],
+        "additionalProperties" => false
+      },
+      "output_schema" => %{
+        "type" => "object",
+        "properties" => %{"next_key" => %{"type" => "string"}},
+        "required" => ["next_key"],
+        "additionalProperties" => false
+      }
+    }
+
+    value_tool = %{
+      "type" => "function",
+      "name" => "get_value",
+      "description" => "Return an object with value (number) for one key.",
+      "allowed_callers" => ["programmatic"],
+      "parameters" => %{
+        "type" => "object",
+        "properties" => %{"key" => %{"type" => "string"}},
+        "required" => ["key"],
+        "additionalProperties" => false
+      },
+      "output_schema" => %{
+        "type" => "object",
+        "properties" => %{"value" => %{"type" => "number"}},
+        "required" => ["value"],
+        "additionalProperties" => false
+      }
+    }
+
+    request = %{
+      "model" => "primary",
+      "stream" => true,
+      "tools" => [seed_tool, value_tool, %{"type" => "programmatic_tool_calling"}],
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{
+              "type" => "input_text",
+              "text" =>
+                "Use exactly one program. First await tools.get_seed({key:\"root\"}). " <>
+                  "Then await tools.get_value({key: seed.next_key}). Emit only the numeric value " <>
+                  "with text(String(result.value)). Do not call either function directly."
+            }
+          ]
+        }
+      ]
+    }
+
+    {_events, first} = stream!(agent, request)
+    assert first.terminal_error == nil
+
+    [seed_call] =
+      Enum.filter(first.public_items, fn item ->
+        item["type"] == "function_call" and item["name"] == "get_seed"
+      end)
+
+    first_input =
+      request["input"] ++
+        first.public_items ++ [program_output(seed_call, ~s({"next_key":"leaf"}))]
+
+    {_events, second} = stream!(agent, %{request | "input" => first_input})
+    assert second.terminal_error == nil
+
+    [value_call] =
+      Enum.filter(second.public_items, fn item ->
+        item["type"] == "function_call" and item["name"] == "get_value"
+      end)
+
+    assert Ankole.JSON.decode!(value_call["arguments"]) == %{"key" => "leaf"}
+
+    second_input =
+      first_input ++ second.public_items ++ [program_output(value_call, ~s({"value":73}))]
+
+    {_events, final} = stream!(agent, %{request | "input" => second_input})
+    assert final.terminal_error == nil
+
+    [output] = Enum.filter(final.public_items, &(&1["type"] == "program_output"))
+    assert output["status"] == "completed"
+    assert output["result"] == "73"
+  end
+
+  test "PTC preserves custom tool text input and output", %{agent: agent} do
+    request = %{
+      "model" => "primary",
+      "stream" => true,
+      "tools" => [
+        %{
+          "type" => "custom",
+          "name" => "reverse_text",
+          "description" => "Return the input text with its characters reversed.",
+          "format" => %{"type" => "text"},
+          "allowed_callers" => ["programmatic"]
+        },
+        %{"type" => "programmatic_tool_calling"}
+      ],
+      "input" => [
+        %{
+          "type" => "message",
+          "role" => "user",
+          "content" => [
+            %{
+              "type" => "input_text",
+              "text" =>
+                "Use exactly one program that awaits tools.reverse_text(\"ankole\") and emits " <>
+                  "the returned string with text(result). Do not call reverse_text directly."
+            }
+          ]
+        }
+      ]
+    }
+
+    {_events, first} = stream!(agent, request)
+    assert first.terminal_error == nil
+
+    [call] = Enum.filter(first.public_items, &(&1["type"] == "custom_tool_call"))
+    assert call["name"] == "reverse_text"
+    assert call["input"] == "ankole"
+
+    follow_up = %{
+      request
+      | "input" => request["input"] ++ first.public_items ++ [program_output(call, "elokna")]
+    }
+
+    {_events, final} = stream!(agent, follow_up)
+    assert final.terminal_error == nil
+
+    [output] = Enum.filter(final.public_items, &(&1["type"] == "program_output"))
+    assert output["status"] == "completed"
+    assert output["result"] == "elokna"
   end
 end

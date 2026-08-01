@@ -19,6 +19,7 @@ defmodule Ankole.AIGateway.Compaction do
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.Message
@@ -36,15 +37,6 @@ defmodule Ankole.AIGateway.Compaction do
   @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
-  @tool_call_output_types %{
-    "function_call" => "function_call_output",
-    "custom_tool_call" => "custom_tool_call_output",
-    "program" => "program_output"
-  }
-  @tool_call_types Map.keys(@tool_call_output_types)
-  @tool_output_types Map.values(@tool_call_output_types)
-  @text_compactable_tool_types @tool_call_types ++ @tool_output_types
-
   @type result :: %{
           history: [Message.t()],
           previous_response_id: binary() | nil,
@@ -804,17 +796,16 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp truncate_history_to_stable_tail(history, current_input) do
     {checkpoint, tail} = split_last_compaction(history)
-    minimum_count = min(tail_rows(), length(tail))
+    tail_count = length(tail)
+    minimum_count = min(tail_rows(), tail_count)
+    boundary_plan = compaction_boundary_plan(tail, current_input)
 
-    case Enum.find_value(Range.new(minimum_count, length(tail)), fn count ->
-           {dropped_prefix, retained_tail} = Enum.split(tail, length(tail) - count)
-           candidate = checkpoint ++ retained_tail
-
-           if stable_tool_boundary?(dropped_prefix, retained_tail, current_input),
-             do: candidate
+    case Enum.find(Range.new(minimum_count, tail_count), fn retained_count ->
+           prefix_count = tail_count - retained_count
+           safe_row_boundary?(boundary_plan, prefix_count)
          end) do
       nil -> {:error, :no_safe_truncation_boundary}
-      candidate -> {:ok, candidate}
+      retained_count -> {:ok, checkpoint ++ Enum.take(tail, -retained_count)}
     end
   end
 
@@ -914,6 +905,7 @@ defmodule Ankole.AIGateway.Compaction do
          retained_tail_budget_tokens
        ) do
     start_count = min(preferred_prefix_count, compactable_count)
+    boundary_plan = compaction_boundary_plan(rows_after_compaction, current_input)
 
     forward_counts = Enum.to_list(start_count..compactable_count)
 
@@ -923,44 +915,79 @@ defmodule Ankole.AIGateway.Compaction do
         else: []
 
     Enum.find(forward_counts ++ backward_counts, fn count ->
-      prefix = Enum.take(rows_after_compaction, count)
-      retained_tail = Enum.drop(rows_after_compaction, count)
-
-      stable_tool_boundary?(prefix, retained_tail, current_input) and
-        retained_tail_within_budget?(
-          retained_tail,
-          current_input,
-          retained_tail_budget_tokens
-        )
+      safe_row_boundary?(boundary_plan, count) and
+        retained_tail_within_budget?(boundary_plan, count, retained_tail_budget_tokens)
     end)
   end
 
-  defp split_tool_call_ids(prefix, tail_messages, current_input) do
-    prefix_call_ids =
-      prefix
-      |> messages_to_items()
-      |> tool_call_ids()
+  defp compaction_boundary_plan(rows, current_input) do
+    row_items = Enum.map(rows, &message_items/1)
+    current_items = input_items(current_input)
+    row_stats = Enum.map(row_items, &json_item_stats/1)
+    current_stats = json_item_stats(current_items)
 
-    tail_output_call_ids =
-      (messages_to_items(tail_messages) ++ input_items(current_input))
-      |> tool_call_output_ids()
+    prefix_item_counts =
+      [
+        0
+        | Enum.scan(row_stats, 0, fn %{count: count}, total -> total + count end)
+      ]
+      |> List.to_tuple()
 
-    MapSet.intersection(prefix_call_ids, tail_output_call_ids)
+    total_row_stats =
+      Enum.reduce(row_stats, %{count: 0, bytes: 0}, fn stats, total ->
+        %{count: total.count + stats.count, bytes: total.bytes + stats.bytes}
+      end)
+
+    prefix_stats =
+      [
+        %{count: 0, bytes: 0}
+        | Enum.scan(row_stats, %{count: 0, bytes: 0}, fn stats, prefix ->
+            %{count: prefix.count + stats.count, bytes: prefix.bytes + stats.bytes}
+          end)
+      ]
+
+    tail_token_estimates =
+      prefix_stats
+      |> Enum.map(fn prefix ->
+        tail_count = total_row_stats.count - prefix.count + current_stats.count
+        tail_bytes = total_row_stats.bytes - prefix.bytes + current_stats.bytes
+        json_list_token_estimate(tail_count, tail_bytes)
+      end)
+      |> List.to_tuple()
+
+    all_items = List.flatten(row_items) ++ current_items
+
+    %{
+      safe_item_cuts: ResponseItems.safe_boundary_cuts(all_items),
+      prefix_item_counts: prefix_item_counts,
+      tail_token_estimates: tail_token_estimates
+    }
   end
 
-  defp stable_tool_boundary?(prefix, tail_messages, current_input) do
-    MapSet.size(split_tool_call_ids(prefix, tail_messages, current_input)) == 0
+  defp json_item_stats(items) do
+    Enum.reduce(items, %{count: 0, bytes: 0}, fn item, stats ->
+      %{count: stats.count + 1, bytes: stats.bytes + byte_size(Ankole.JSON.encode!(item))}
+    end)
   end
 
-  defp retained_tail_within_budget?(_retained_tail, _current_input, nil), do: true
+  defp json_list_token_estimate(item_count, item_bytes) do
+    comma_bytes = max(item_count - 1, 0)
+    encoded_bytes = 2 + item_bytes + comma_bytes
+    max(div(encoded_bytes, 4), 1)
+  end
+
+  defp safe_row_boundary?(plan, row_count) do
+    MapSet.member?(plan.safe_item_cuts, elem(plan.prefix_item_counts, row_count))
+  end
+
+  defp retained_tail_within_budget?(_plan, _row_count, nil), do: true
 
   defp retained_tail_within_budget?(
-         retained_tail,
-         current_input,
+         plan,
+         row_count,
          retained_tail_budget_tokens
        ) do
-    items = messages_to_items(retained_tail) ++ input_items(current_input)
-    items_token_estimate(items) <= retained_tail_budget_tokens
+    elem(plan.tail_token_estimates, row_count) <= retained_tail_budget_tokens
   end
 
   defp rows_after_last_compaction(history) do
@@ -1169,9 +1196,9 @@ defmodule Ankole.AIGateway.Compaction do
 
     with {:ok, %{request: request, spec: prepared_request}} <-
            ResponsesPreparation.prepare_with_runtime(subject_uid, runtime, request, stream?: true),
-         {:ok, stream, _meta} <-
-           ResponseStream.open(subject_uid, request, prepared_request),
-         {:ok, body} <- collect_summary_response(stream),
+         {:ok, outcome, _meta} <-
+           ResponseStream.collect(subject_uid, request, prepared_request),
+         {:ok, body} <- compaction_summary_body(outcome),
          {:ok, text} <- extract_summary_text(body) do
       {:ok,
        %{
@@ -1184,35 +1211,14 @@ defmodule Ankole.AIGateway.Compaction do
     end
   end
 
-  defp collect_summary_response(%ResponseStream{pid: pid, ref: ref} = stream) do
-    monitor = Process.monitor(pid)
+  defp compaction_summary_body(%{terminal_error: nil, terminal_response: %{} = response}),
+    do: {:ok, response}
 
-    try do
-      read_summary_response(stream, ref, monitor)
-    after
-      Process.demonitor(monitor, [:flush])
-    end
-  end
+  defp compaction_summary_body(%{terminal_error: error}),
+    do: {:error, {:compaction_summary_failed, error}}
 
-  defp read_summary_response(stream, ref, monitor) do
-    with :ok <- ResponseStream.read(stream, 1) do
-      receive do
-        {:ai_gateway_response_stream, ^ref, :events, _events, :continue} ->
-          read_summary_response(stream, ref, monitor)
-
-        {:ai_gateway_response_stream, ^ref, :events, _events,
-         {:terminal, %{terminal_error: nil, terminal_response: %{} = response}}} ->
-          {:ok, response}
-
-        {:ai_gateway_response_stream, ^ref, :events, _events,
-         {:terminal, %{terminal_error: error}}} ->
-          {:error, {:compaction_summary_failed, error}}
-
-        {:DOWN, ^monitor, :process, _pid, reason} ->
-          {:error, {:compaction_summary_stream_closed, reason}}
-      end
-    end
-  end
+  defp compaction_summary_body(_outcome),
+    do: {:error, :compaction_summary_missing_terminal_response}
 
   defp maybe_put_prompt_cache_key(request, cache_key)
        when is_binary(cache_key) and cache_key != "",
@@ -1527,11 +1533,10 @@ defmodule Ankole.AIGateway.Compaction do
        when type in ["input_text", "output_text", "text"] and is_binary(text),
        do: true
 
-  defp text_compactable_item?(%{"type" => type})
-       when type in @text_compactable_tool_types or type == "reasoning",
-       do: true
+  defp text_compactable_item?(%{"type" => "reasoning"}), do: true
 
-  defp text_compactable_item?(_item), do: false
+  defp text_compactable_item?(item),
+    do: ResponseItems.call_item?(item) or ResponseItems.output_item?(item)
 
   defp text_compactable_content?(content) when is_binary(content), do: true
 
@@ -1546,33 +1551,14 @@ defmodule Ankole.AIGateway.Compaction do
   defp text_compactable_content?(_content), do: false
 
   defp messages_to_items(messages) do
-    Enum.flat_map(messages, fn
-      %Message{content: content} when is_list(content) -> content
-      _message -> []
-    end)
+    Enum.flat_map(messages, &message_items/1)
   end
+
+  defp message_items(%Message{content: content}) when is_list(content), do: content
+  defp message_items(_message), do: []
 
   defp input_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
   defp input_items(_items), do: []
-
-  defp item_call_ids(items, item_types) do
-    items
-    |> Enum.reduce(MapSet.new(), fn
-      %{"type" => type, "call_id" => call_id}, acc when is_binary(call_id) ->
-        if type in item_types, do: MapSet.put(acc, call_id), else: acc
-
-      _item, acc ->
-        acc
-    end)
-  end
-
-  defp tool_call_ids(items) do
-    item_call_ids(items, @tool_call_types)
-  end
-
-  defp tool_call_output_ids(items) do
-    item_call_ids(items, @tool_output_types)
-  end
 
   defp tail_rows do
     config()

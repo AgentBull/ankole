@@ -787,6 +787,299 @@ fn openai_chat_accumulates_tool_calls() {
 }
 
 #[test]
+fn openai_chat_stream_round_trips_reasoning_details_with_tool_calls() {
+    let reasoning_details = json!([
+        {
+            "type": "reasoning.encrypted",
+            "data": "provider-state",
+            "format": "google-gemini-v1",
+            "id": "reasoning_1",
+            "index": 0
+        },
+        {
+            "type": "reasoning.text",
+            "text": "Select the weather tool.",
+            "format": "google-gemini-v1",
+            "id": "reasoning_1",
+            "index": 1
+        }
+    ]);
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gemini-test".to_string(),
+            request: json!({
+                "tools": [{
+                    "type": "function",
+                    "name": "get_weather",
+                    "parameters": {"type": "object"}
+                }],
+                "input": "Get the weather."
+            }),
+            provider_options: json!({}),
+            stream: Some(true),
+            include_model: true,
+        },
+    );
+
+    let events = resolver
+        .ingest(json!({
+            "choices": [{
+                "delta": {
+                    "reasoning_details": [reasoning_details[0].clone()],
+                    "reasoning": "Select "
+                },
+                "finish_reason": null
+            }]
+        }))
+        .unwrap();
+    assert!(events.iter().any(|event| {
+        event["type"] == "response.output_item.added" && event["item"]["type"] == "reasoning"
+    }));
+
+    resolver
+        .ingest(json!({
+            "choices": [{
+                "delta": {
+                    "reasoning_details": [reasoning_details[1].clone()],
+                    "reasoning": "the weather tool.",
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_weather",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"city\":\"Shanghai\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        }))
+        .unwrap();
+
+    let events = resolver.finish().unwrap();
+    let terminal = events.last().unwrap();
+    let output = terminal["response"]["output"].as_array().unwrap();
+    assert_eq!(output[0]["type"], "reasoning");
+    assert_eq!(output[1]["type"], "function_call");
+    assert!(
+        output[0]["encrypted_content"]
+            .as_str()
+            .unwrap()
+            .starts_with("ankole-aigateway-chat-reasoning-v1:")
+    );
+
+    let mut replay_input = output.clone();
+    replay_input.push(json!({
+        "type": "function_call_output",
+        "call_id": "call_weather",
+        "output": "sunny"
+    }));
+    let replay = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gemini-test".to_string(),
+            request: json!({
+                "tools": [{
+                    "type": "function",
+                    "name": "get_weather",
+                    "parameters": {"type": "object"}
+                }],
+                "input": replay_input
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+    let replay_body = Value::Object(replay.build_body().unwrap());
+    let replay_messages = replay_body["messages"].as_array().unwrap();
+
+    assert_eq!(replay_messages[0]["reasoning_details"], reasoning_details);
+    assert_eq!(replay_messages[0]["reasoning"], "Select the weather tool.");
+    assert_eq!(replay_messages[0]["tool_calls"][0]["id"], "call_weather");
+    assert_eq!(replay_messages[1]["role"], "tool");
+    assert_eq!(replay_messages[1]["tool_call_id"], "call_weather");
+}
+
+#[test]
+fn openai_chat_non_streaming_round_trips_reasoning_details() {
+    let reasoning_details = json!([{
+        "type": "reasoning.encrypted",
+        "data": "provider-state",
+        "format": "google-gemini-v1",
+        "id": "reasoning_1",
+        "index": 0
+    }]);
+    let tools = json!([{
+        "type": "function",
+        "name": "lookup",
+        "parameters": {"type": "object"}
+    }]);
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gemini-test".to_string(),
+            request: json!({"tools": tools.clone(), "input": "Look it up."}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_reasoning",
+                "created": 10,
+                "model": "gemini-test",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "reasoning_details": reasoning_details.clone(),
+                        "tool_calls": [{
+                            "id": "call_lookup",
+                            "type": "function",
+                            "function": {"name": "lookup", "arguments": "{}"}
+                        }]
+                    },
+                    "finish_reason": "tool_calls"
+                }],
+                "usage": {}
+            }),
+        )
+        .unwrap();
+    assert_eq!(response["output"][0]["type"], "reasoning");
+    assert_eq!(response["output"][1]["type"], "function_call");
+
+    let replay = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "gemini-test".to_string(),
+            request: json!({
+                "tools": tools,
+                "input": [
+                    response["output"][0].clone(),
+                    response["output"][1].clone(),
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_lookup",
+                        "output": "found"
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+    let replay_body = Value::Object(replay.build_body().unwrap());
+
+    assert_eq!(
+        replay_body["messages"][0]["reasoning_details"],
+        reasoning_details
+    );
+    assert_eq!(
+        replay_body["messages"][0]["tool_calls"][0]["id"],
+        "call_lookup"
+    );
+}
+
+#[test]
+fn openai_chat_drops_reasoning_that_has_no_message_or_tool_call() {
+    let mut resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "qwen-test".to_string(),
+            request: json!({"input": "Answer the user."}),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let response = resolver
+        .normalize_body(
+            200,
+            json!({
+                "id": "chatcmpl_reasoning_only",
+                "created": 10,
+                "model": "qwen-test",
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "reasoning_details": [{
+                            "type": "reasoning.text",
+                            "text": "No visible answer.",
+                            "format": "unknown",
+                            "index": 0
+                        }]
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {}
+            }),
+        )
+        .unwrap();
+
+    let replay = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "qwen-test".to_string(),
+            request: json!({
+                "input": [
+                    response["output"][0].clone(),
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Try again."}]
+                    }
+                ]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+    let replay_body = Value::Object(replay.build_body().unwrap());
+    let messages = replay_body["messages"].as_array().unwrap();
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(
+        messages[0]["content"],
+        json!([{"type": "text", "text": "Try again."}])
+    );
+}
+
+#[test]
+fn openai_chat_rejects_foreign_reasoning_replay() {
+    let resolver = APIResolver::new(
+        APIResolverKind::OpenAIChatCompletions,
+        ResponseContext {
+            model: "openrouter-test".to_string(),
+            request: json!({
+                "input": [{
+                    "type": "reasoning",
+                    "encrypted_content": "foreign-provider-state",
+                    "summary": []
+                }]
+            }),
+            provider_options: json!({}),
+            stream: Some(false),
+            include_model: true,
+        },
+    );
+
+    let error = resolver.build_body().unwrap_err();
+    assert_eq!(error.code, "invalid_reasoning_replay");
+    assert!(error.message.contains("another provider implementation"));
+}
+
+#[test]
 fn openai_chat_stream_restores_custom_tool_calls() {
     let patch = "*** Begin Patch\n*** Add File: report.md\n+done\n*** End Patch\n";
     let mut resolver = APIResolver::new(

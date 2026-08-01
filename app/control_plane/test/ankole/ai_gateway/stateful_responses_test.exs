@@ -5,6 +5,8 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   import Ecto.Query
 
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.ResponseStream.State
+  alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
@@ -336,6 +338,47 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       assert StatefulResponses.latest_visible_leaf(conversation.id) == journal.id
     end
 
+    test "quarantines a tool output with no replay value" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-output-value")
+
+      {:ok, anchor} = start_run(agent, conversation, "event-output-value-anchor")
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "function_call",
+            "call_id" => "call_missing_output",
+            "name" => "lookup",
+            "arguments" => "{}"
+          }
+        ])
+
+      invalid_output = %{
+        "type" => "function_call_output",
+        "call_id" => "call_missing_output"
+      }
+
+      assert {:error,
+              {:tool_results_quarantined,
+               %{
+                 "reason" => "invalid_tool_call_output",
+                 "invalid_output_count" => 1,
+                 "quarantine_response_id" => quarantine_response_id
+               }}} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [invalid_output]
+               })
+
+      quarantine_id = String.replace_prefix(quarantine_response_id, "resp_", "")
+      assert Repo.get!(Message, quarantine_id).content == [invalid_output]
+      assert StatefulResponses.latest_visible_leaf(conversation.id) == anchor.id
+    end
+
     test "writes a custom tool output after its matching custom call" do
       agent = agent_fixture()
 
@@ -514,6 +557,68 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
                })
     end
 
+    test "pairs nested outputs by caller scope instead of call_id alone" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(agent.principal.uid, "test-conv-caller-scope")
+
+      {:ok, anchor} = start_run(agent, conversation, "event-caller-scope-anchor")
+
+      caller = %{"type" => "program", "caller_id" => "program_1"}
+
+      {:ok, anchor} =
+        StatefulResponses.commit_complete(anchor, [
+          %{
+            "type" => "program",
+            "call_id" => "program_1",
+            "code" => "const result = await tools.lookup({}); text(result);",
+            "fingerprint" => "sha256:caller-scope"
+          },
+          %{
+            "type" => "function_call",
+            "call_id" => "call_shared",
+            "name" => "lookup",
+            "arguments" => "{}",
+            "caller" => caller
+          }
+        ])
+
+      assert {:error,
+              {:tool_results_quarantined,
+               %{
+                 "reason" => "orphan_tool_call_output",
+                 "orphan_call_ids" => ["call_shared"]
+               }}} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [
+                   %{
+                     "type" => "function_call_output",
+                     "call_id" => "call_shared",
+                     "output" => "wrong scope"
+                   }
+                 ]
+               })
+
+      scoped_output = %{
+        "type" => "function_call_output",
+        "call_id" => "call_shared",
+        "output" => "correct scope",
+        "caller" => caller
+      }
+
+      assert {:ok, journal} =
+               StatefulResponses.record_tool_results(%{
+                 subject_uid: agent.principal.uid,
+                 previous_response_id: "resp_#{anchor.id}",
+                 request_items: [scoped_output]
+               })
+
+      assert journal.content == [scoped_output]
+    end
+
     test "rejects records that do not contain a tool output" do
       agent = agent_fixture()
 
@@ -577,6 +682,62 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       assert {:ok, _failed} = StatefulResponses.commit_error(message, [], %{"reason" => "closed"})
       assert {:ok, :already_terminal} = StatefulResponses.commit_complete(message, [])
+    end
+
+    test "projects the durable terminal winner when a provider terminal loses the race" do
+      agent = agent_fixture()
+
+      {:ok, conversation} =
+        StatefulResponses.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-terminal-projection-race"
+        )
+
+      {:ok, message} = start_run(agent, conversation, "event-terminal-projection-race")
+
+      assert {:ok, _failed} =
+               StatefulResponses.commit_error(message, [], %{
+                 "code" => "provider_stream_error",
+                 "retryable" => true
+               })
+
+      stateful = %{
+        message_id: message.id,
+        message: message,
+        subject_uid: message.subject_uid,
+        conversation_id: message.conversation_id
+      }
+
+      provider_completed = %{
+        "type" => "response.completed",
+        "response" => %{
+          "id" => "resp_provider",
+          "object" => "response",
+          "status" => "completed",
+          "output" => []
+        }
+      }
+
+      assert {:ok, _state, [public_event],
+              {:terminal, %{terminal_response: public_response, terminal_error: terminal_error},
+               :cancel_upstream}} =
+               State.observe(
+                 State.new(agent.principal.uid, %{}, %{}, stateful: stateful),
+                 provider_completed,
+                 0
+               )
+
+      assert {:ok, %{body: durable_response}} =
+               StatefulLifecycle.retrieve_response(
+                 agent.principal.uid,
+                 "resp_#{message.id}"
+               )
+
+      assert public_event["type"] == "response.failed"
+      assert public_event["response"] == durable_response
+      assert public_response == durable_response
+      assert terminal_error["code"] == "provider_stream_error"
+      assert terminal_error["retryable"] == true
     end
   end
 

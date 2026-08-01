@@ -11,9 +11,9 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   import Ankole.E2E.Scenarios.ScheduleAndTool,
     only: [
       run_checkback_tool_loop: 1,
-      run_checkback_fire: 1,
+      run_checkback_fire: 2,
       run_cron_tool_loop: 1,
-      run_cron_fire: 1
+      run_cron_fire: 2
     ]
 
   alias Ankole.E2E.FakeOpenAIState
@@ -33,7 +33,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       "om_checkback_tool_1"
     )
 
-    checkback_wake = run_checkback_fire(ctx)
+    checkback_wake = run_checkback_fire(ctx, checkback.checkback)
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -53,7 +53,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       "om_cron_tool_1"
     )
 
-    cron_fire = run_cron_fire(ctx)
+    cron_fire = run_cron_fire(ctx, cron.cron_schedule)
 
     assert_lark_final_reply(
       ctx.fake_feishu,

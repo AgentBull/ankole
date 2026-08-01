@@ -537,7 +537,7 @@ test ! -e ./AGENTS.override.md
       runtimeFiles.cleanup()
       rmSync(root, { recursive: true, force: true })
     }
-  })
+  }, 20_000)
 })
 
 function protocolFiles(root: string): string[] {

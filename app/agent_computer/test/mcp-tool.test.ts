@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { utf8ByteLength } from '../src/common/text-sanitize'
-import { createMCPTools, loadEnabledSkillMCPServers } from '../src/tools/mcp'
+import { createMCPTools, loadEnabledSkillMCPServers, MCP_RESOURCE_LIMITS } from '../src/tools/mcp'
 import { boundedMCPResultValue, resolveMCPTimeoutMs, type MCPCatalogUnavailable } from '../src/tools/mcp/mcp-tool'
 import type { RuntimeSkillSummary } from '../src/lanes/rpc_lane'
 
@@ -19,6 +19,39 @@ afterEach(() => {
 })
 
 describe('main-agent native MCP tool', () => {
+  it('rejects aggregate enabled Skill and server counts before catalog connections start', async () => {
+    await expect(
+      loadEnabledSkillMCPServers({
+        enabledSkills: Array.from({ length: MCP_RESOURCE_LIMITS.enabledSkills + 1 }, (_, index) =>
+          enabledSkill(`skill-${index}`)
+        )
+      })
+    ).rejects.toThrow(`MCP aggregate enabled Skills exceeds the ${MCP_RESOURCE_LIMITS.enabledSkills}-count limit`)
+
+    const roots = skillRoots()
+    writeMetadata(
+      roots.builtinSkillsRoot,
+      'too-many-servers',
+      [
+        'dependencies:',
+        '  tools:',
+        ...Array.from({ length: MCP_RESOURCE_LIMITS.enabledServers + 1 }, (_, index) => [
+          '    - type: "mcp"',
+          `      value: "server-${index}"`,
+          '      transport: "streamable_http"',
+          `      url: "https://server-${index}.example.test/mcp"`
+        ]).flat()
+      ].join('\n')
+    )
+
+    await expect(
+      loadEnabledSkillMCPServers({
+        enabledSkills: [enabledSkill('too-many-servers')],
+        skillRoots: roots
+      })
+    ).rejects.toThrow(`MCP aggregate enabled servers exceeds the ${MCP_RESOURCE_LIMITS.enabledServers}-count limit`)
+  })
+
   it('loads only enabled inline Skill declarations and strictly deduplicates identical servers', async () => {
     const roots = skillRoots()
     writeHTTPMetadata(roots.builtinSkillsRoot, 'enabled-one', 'shared', 'https://example.test/mcp')
@@ -171,12 +204,20 @@ describe('main-agent native MCP tool', () => {
       properties: { value: { type: 'string' } },
       required: ['value']
     })
+    expect(echo?.outputSchema).toEqual({
+      type: 'object',
+      properties: { echoed: { type: 'string' } },
+      required: ['echoed']
+    })
+    expect(echo?.allowedCallers).toEqual(['direct', 'programmatic'])
     expect(echo?.isReadOnly).toBe(true)
     expect(echo?.isDestructive).toBe(false)
+    expect(tools.find(tool => tool.name === 'large')?.allowedCallers).toEqual(['direct'])
+    expect(tools.find(tool => tool.name === 'slow')?.allowedCallers).toEqual(['direct'])
 
     const called = await echo!.execute('call', { value: 'hello' })
     expect(resultJSON(called)).toMatchObject({
-      content: [{ type: 'text', text: 'hello' }]
+      echoed: 'hello'
     })
     expect(textOf(called)).toContain('[REDACTED]')
     expect(textOf(called)).not.toContain('top-secret-token')
@@ -211,6 +252,80 @@ describe('main-agent native MCP tool', () => {
     ])
   })
 
+  it('isolates an invalid output schema to its owning MCP server', async () => {
+    const healthy = startHTTPMCPServer([])
+    const invalid = startHTTPMCPServer([], {
+      tools: [
+        {
+          name: 'broken',
+          inputSchema: { type: 'object', properties: {} },
+          outputSchema: { $ref: '#/$defs/missing' },
+          annotations: { readOnlyHint: true }
+        }
+      ]
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'healthy-schema', 'healthy-schema', `${healthy.url}/mcp`)
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'invalid-schema', 'invalid-schema', `${invalid.url}/mcp`)
+    const failures: MCPCatalogUnavailable[] = []
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('healthy-schema'), enabledSkill('invalid-schema')],
+      skillRoots: roots,
+      onCatalogUnavailable: failure => failures.push(failure)
+    })
+
+    expect(tools.map(tool => tool.namespace)).toEqual([
+      'mcp__healthy_schema',
+      'mcp__healthy_schema',
+      'mcp__healthy_schema'
+    ])
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toMatchObject({ serverName: 'invalid-schema', sourceSkills: ['invalid-schema'] })
+  })
+
+  it('atomically rejects aggregate model-visible tool count and byte budgets', async () => {
+    const toolCountServer = startHTTPMCPServer([], {
+      tools: Array.from({ length: Math.ceil((MCP_RESOURCE_LIMITS.modelVisibleTools + 1) / 3) }, (_, index) => ({
+        name: `tool-${index}`,
+        description: `Tool ${index}.`,
+        inputSchema: { type: 'object', properties: {} }
+      }))
+    })
+    const countRoots = skillRoots()
+    writeMultiHTTPMetadata(countRoots.builtinSkillsRoot, 'too-many-tools', toolCountServer.url, 3)
+
+    await expect(
+      createMCPTools({
+        enabledSkills: [enabledSkill('too-many-tools')],
+        skillRoots: countRoots
+      })
+    ).rejects.toThrow(
+      `MCP aggregate model-visible tools exceeds the ${MCP_RESOURCE_LIMITS.modelVisibleTools}-count limit`
+    )
+
+    const largeDescriptionServer = startHTTPMCPServer([], {
+      tools: [
+        {
+          name: 'large-description',
+          description: 'd'.repeat(400 * 1024),
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const byteRoots = skillRoots()
+    writeMultiHTTPMetadata(byteRoots.builtinSkillsRoot, 'oversized-model-catalog', largeDescriptionServer.url, 3)
+
+    await expect(
+      createMCPTools({
+        enabledSkills: [enabledSkill('oversized-model-catalog')],
+        skillRoots: byteRoots
+      })
+    ).rejects.toThrow(
+      `MCP aggregate model tool catalog exceeds the ${MCP_RESOURCE_LIMITS.modelToolCatalogBytes}-byte limit`
+    )
+  })
+
   it('matches Codex 0.146 model visibility, canonical names, raw routing, and search metadata', async () => {
     const requests: FakeRequest[] = []
     const fake = startHTTPMCPServer(requests, {
@@ -235,7 +350,13 @@ describe('main-agent native MCP tool', () => {
             required: ['security_id'],
             examples: [{ security_id: '600519' }],
             $defs: { unused: { type: 'string' } }
-          }
+          },
+          outputSchema: {
+            type: 'object',
+            properties: { price: { type: 'number' } },
+            required: ['price']
+          },
+          annotations: { readOnlyHint: true }
         },
         {
           name: 'hidden-tool',
@@ -247,6 +368,7 @@ describe('main-agent native MCP tool', () => {
           name: 'model-tool',
           description: 'The model can use this.',
           inputSchema: { type: 'object', properties: {} },
+          annotations: { readOnlyHint: true, destructiveHint: true },
           _meta: { ui: { visibility: ['app', 'model'] } }
         },
         {
@@ -266,10 +388,12 @@ describe('main-agent native MCP tool', () => {
       'mcp__server_one.tool_two_three'
     ])
     expect(tools.every(tool => tool.namespaceDescription === 'Use the market data catalog.')).toBe(true)
-    expect(tools.every(tool => JSON.stringify(tool.allowedCallers) === '["direct","programmatic"]')).toBe(true)
+    expect(tools.find(tool => tool.name === 'model_tool')?.allowedCallers).toEqual(['direct'])
+    expect(tools.find(tool => tool.name === 'model_tool')?.isDestructive).toBe(true)
 
     const quote = tools.find(tool => tool.name === 'tool_two_three')
     expect(quote?.description).toBe('Fetch one quote.')
+    expect(quote?.allowedCallers).toEqual(['direct', 'programmatic'])
     expect(quote?.jsonSchema).toEqual({
       type: 'object',
       properties: {
@@ -290,10 +414,18 @@ describe('main-agent native MCP tool', () => {
       },
       required: ['security_id']
     })
+    expect(quote?.outputSchema).toEqual({
+      type: 'object',
+      properties: { price: { type: 'number' } },
+      required: ['price']
+    })
     expect(quote?.toolSearchText).toContain('tool.two-three')
     expect(quote?.toolSearchText).toContain('tool_two_three')
+    expect(quote?.toolSearchText).not.toContain('mcp__server_onetool_two_three')
     expect(quote?.toolSearchText).toContain('Market Quote')
     expect(quote?.toolSearchText).toContain('server.one')
+    // The namespace description is indexed once by AIGateway. Repeating it in
+    // every child search string multiplies large server instructions.
     expect(quote?.toolSearchText).toContain('Use the market data catalog.')
     expect(quote?.toolSearchText).toContain('security_id')
 
@@ -366,6 +498,41 @@ describe('main-agent native MCP tool', () => {
     ])
   })
 
+  it('resolves collisions against the provider namespace__name identity', async () => {
+    const first = startHTTPMCPServer([], {
+      tools: [
+        {
+          name: 'b__c',
+          description: 'First provider alias.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const second = startHTTPMCPServer([], {
+      tools: [
+        {
+          name: 'c',
+          description: 'Second provider alias.',
+          inputSchema: { type: 'object', properties: {} }
+        }
+      ]
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'first', 'a', `${first.url}/mcp`)
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'second', 'a__b', `${second.url}/mcp`)
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('first'), enabledSkill('second')],
+      skillRoots: roots
+    })
+    const providerNames = tools.map(tool => `${tool.namespace}__${tool.name}`)
+
+    expect(providerNames).toHaveLength(2)
+    expect(new Set(providerNames).size).toBe(2)
+    expect(providerNames).toContain('mcp__a__b__c')
+    expect(providerNames.some(name => /^mcp__a__b__c_[a-f0-9]{12}$/.test(name))).toBe(true)
+  })
+
   it('applies Codex enabled_tools allowlist before disabled_tools denylist using raw MCP names', async () => {
     const fake = startHTTPMCPServer([], {
       tools: [
@@ -427,6 +594,14 @@ describe('main-agent native MCP tool', () => {
     expect(Reflect.get(bounded, 'constructor')).toBe('server supplied constructor key')
     expect(JSON.parse(JSON.stringify(bounded))).toEqual(malicious)
     expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+  })
+
+  it('bounds wide result objects without losing the omitted entry count', () => {
+    const wide = Object.fromEntries(Array.from({ length: 300 }, (_, index) => [`field_${index}`, index]))
+    const bounded = boundedMCPResultValue(wide, []) as Record<string, unknown>
+
+    expect(Object.keys(bounded)).toHaveLength(257)
+    expect(bounded._ankole_omitted_entries).toBe(44)
   })
 
   it('isolates and does not cache catalogs that reflect WorkerEnv data in schema keys', async () => {
@@ -509,6 +684,87 @@ describe('main-agent native MCP tool', () => {
     expect(textOf(aborted)).toMatch(/caller stopped MCP|abort/i)
   })
 
+  it('rejects an oversized HTTP result body before the SDK buffers it for JSON parsing', async () => {
+    const fake = startHTTPMCPServer([], {
+      callTextBytes: MCP_RESOURCE_LIMITS.httpResponseBytes + 1
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'oversized-http-result', 'oversized-http-result', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('oversized-http-result')],
+      skillRoots: roots
+    })
+    const result = await tools.find(tool => tool.name === 'echo')!.execute('oversized-http-result', { value: 'x' })
+
+    expect(resultJSON(result)).toMatchObject({ isError: true })
+    expect(textOf(result)).toContain(
+      `MCP transport HTTP response exceeds the ${MCP_RESOURCE_LIMITS.httpResponseBytes}-byte limit`
+    )
+  })
+
+  it('rejects MCP structured content that does not match the declared output schema', async () => {
+    const fake = startHTTPMCPServer([], { invalidEchoStructuredContent: true })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'invalid-output', 'invalid-output', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('invalid-output')], skillRoots: roots })
+    const result = await tools.find(tool => tool.name === 'echo')!.execute('invalid-output', { value: 'x' })
+
+    expect(resultJSON(result)).toMatchObject({ isError: true })
+    expect(textOf(result)).toContain('does not match its output schema')
+  })
+
+  it('validates raw structured content before truncation can make it valid', async () => {
+    const fake = startHTTPMCPServer([], {
+      callTextBytes: 20_000,
+      echoOutputSchema: {
+        type: 'object',
+        properties: { echoed: { type: 'string', maxLength: 16 * 1024 } },
+        required: ['echoed']
+      }
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'raw-invalid-output', 'raw-invalid-output', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('raw-invalid-output')], skillRoots: roots })
+    const result = await tools.find(tool => tool.name === 'echo')!.execute('raw-invalid-output', { value: 'x' })
+
+    expect(resultJSON(result)).toMatchObject({ isError: true })
+    expect(textOf(result)).toContain('does not match its output schema')
+  })
+
+  it('rejects a valid raw result when bounding would violate its output schema', async () => {
+    const fake = startHTTPMCPServer([], {
+      callTextBytes: 20_000,
+      echoOutputSchema: {
+        type: 'object',
+        properties: { echoed: { type: 'string', minLength: 20_000 } },
+        required: ['echoed']
+      }
+    })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'unprojectable-output', 'unprojectable-output', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('unprojectable-output')], skillRoots: roots })
+    const result = await tools.find(tool => tool.name === 'echo')!.execute('unprojectable-output', { value: 'x' })
+
+    expect(resultJSON(result)).toMatchObject({ isError: true })
+    expect(textOf(result)).toContain('cannot be projected within the Worker result limits')
+  })
+
+  it('validates structured content carried by an MCP error result', async () => {
+    const fake = startHTTPMCPServer([], { invalidEchoStructuredContent: true, echoIsError: true })
+    const roots = skillRoots()
+    writeHTTPMetadata(roots.builtinSkillsRoot, 'invalid-error-output', 'invalid-error-output', `${fake.url}/mcp`)
+
+    const tools = await createMCPTools({ enabledSkills: [enabledSkill('invalid-error-output')], skillRoots: roots })
+    const result = await tools.find(tool => tool.name === 'echo')!.execute('invalid-error-output', { value: 'x' })
+
+    expect(resultJSON(result)).toMatchObject({ isError: true })
+    expect(textOf(result)).toContain('does not match its output schema')
+  })
+
   it('uses the Skill timeout for direct namespace child calls', async () => {
     const fake = startHTTPMCPServer([])
     const roots = skillRoots()
@@ -562,6 +818,35 @@ describe('main-agent native MCP tool', () => {
 
     await waitFor(() => existsSync(marker))
     expect(JSON.parse(readFileSync(marker, 'utf8'))).toEqual({ closed: true, worker_env_seen: true })
+  })
+
+  it('bounds one stdio JSON-RPC message before parsing it', async () => {
+    const roots = skillRoots()
+    const fixture = join(import.meta.dir, 'fixtures', 'mcp-stdio-server.ts')
+    writeMetadata(
+      roots.builtinSkillsRoot,
+      'oversized-stdio',
+      [
+        'dependencies:',
+        '  tools:',
+        '    - type: "mcp"',
+        '      value: "oversized-stdio"',
+        '      transport: "stdio"',
+        `      command: ${JSON.stringify(`${process.execPath} ${shellQuote(fixture)}`)}`
+      ].join('\n')
+    )
+    const failures: MCPCatalogUnavailable[] = []
+
+    const tools = await createMCPTools({
+      enabledSkills: [enabledSkill('oversized-stdio')],
+      skillRoots: roots,
+      workerEnv: { MCP_STDIO_RESPONSE_BYTES: String(MCP_RESOURCE_LIMITS.stdioMessageBytes + 1) },
+      onCatalogUnavailable: failure => failures.push(failure)
+    })
+
+    expect(tools).toEqual([])
+    expect(failures).toHaveLength(1)
+    expect(failures[0]?.message).toContain('Connection closed')
   })
 
   it('cleans up the operation budget when transport preparation rejects missing credentials', async () => {
@@ -626,6 +911,10 @@ interface FakeRequest {
 }
 
 interface FakeMCPServerOptions {
+  callTextBytes?: number
+  echoIsError?: boolean
+  echoOutputSchema?: Record<string, unknown>
+  invalidEchoStructuredContent?: boolean
   leakAuthorizationInCallKey?: boolean
   leakAuthorizationInCatalog?: boolean
   instructions?: string
@@ -672,6 +961,11 @@ function startHTTPMCPServer(requests: FakeRequest[], options: FakeMCPServerOptio
                   : { value: { type: 'string' } },
                 required: ['value']
               },
+              outputSchema: options.echoOutputSchema ?? {
+                type: 'object',
+                properties: { echoed: { type: 'string' } },
+                required: ['echoed']
+              },
               annotations: { readOnlyHint: true }
             },
             {
@@ -694,19 +988,27 @@ function startHTTPMCPServer(requests: FakeRequest[], options: FakeMCPServerOptio
         const tool = message.params?.name
         if (tool === 'slow') await Bun.sleep(Number(message.params?.arguments?.delay_ms ?? 500))
         const text =
-          tool === 'large'
-            ? 'x'.repeat(100_000)
-            : tool === 'echo'
-              ? String(message.params?.arguments?.value ?? '')
-              : 'slow result'
+          options.callTextBytes !== undefined
+            ? 'x'.repeat(options.callTextBytes)
+            : tool === 'large'
+              ? 'x'.repeat(100_000)
+              : tool === 'echo'
+                ? String(message.params?.arguments?.value ?? '')
+                : 'slow result'
         const credential = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? ''
         return jsonRPCResult(message.id, {
           content: [{ type: 'text', text }],
-          ...(options.leakAuthorizationInCallKey && credential
+          ...(options.echoIsError ? { isError: true } : {}),
+          ...(tool === 'echo'
             ? {
-                structuredContent: {
-                  [credential]: 'server reflected a secret in an object key'
-                }
+                structuredContent: options.invalidEchoStructuredContent
+                  ? { echoed: 42 }
+                  : {
+                      echoed: text,
+                      ...(options.leakAuthorizationInCallKey && credential
+                        ? { [credential]: 'server reflected a secret in an object key' }
+                        : {})
+                    }
               }
             : {})
         })
@@ -758,6 +1060,23 @@ function writeHTTPMetadata(
       `      url: ${JSON.stringify(url)}`,
       ...(bearerTokenEnvVar ? [`      bearer_token_env_var: ${JSON.stringify(bearerTokenEnvVar)}`] : []),
       ...(timeoutMs !== undefined ? [`      timeout_ms: ${timeoutMs}`] : [])
+    ].join('\n')
+  )
+}
+
+function writeMultiHTTPMetadata(root: string, skill: string, baseURL: string, serverCount: number): void {
+  writeMetadata(
+    root,
+    skill,
+    [
+      'dependencies:',
+      '  tools:',
+      ...Array.from({ length: serverCount }, (_, index) => [
+        '    - type: "mcp"',
+        `      value: "aggregate-${index}"`,
+        '      transport: "streamable_http"',
+        `      url: ${JSON.stringify(`${baseURL}/aggregate-${index}`)}`
+      ]).flat()
     ].join('\n')
   )
 }

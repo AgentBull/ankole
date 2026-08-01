@@ -14,6 +14,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.HostedToolTelemetry
+  alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
   alias Ankole.AIGateway.StatefulResponses
@@ -25,6 +26,8 @@ defmodule Ankole.AIGateway.ResponseStream do
   @terminal_shutdown_ms 5_000
   @cancel_shutdown_ms 1_000
   @open_failure_shutdown_ms 5_000
+  @collect_timeout_ms 30 * 60 * 1_000
+  @recovery_task_supervisor Ankole.AIGateway.ResponseRecoveryTaskSupervisor
 
   @enforce_keys [:pid, :ref]
   defstruct [:pid, :ref]
@@ -44,7 +47,15 @@ defmodule Ankole.AIGateway.ResponseStream do
     {hosted_credential_attempt, prepared_request} =
       ImageGeneration.pop_credential_attempt(prepared_request)
 
-    upstream_opts = Keyword.drop(opts, [:receiver, :stateful])
+    upstream_opts =
+      Keyword.drop(opts, [
+        :receiver,
+        :stateful,
+        :program_runner,
+        :program_task_supervisor,
+        :collect_timeout,
+        :describe_timeout
+      ])
 
     child_opts = [
       subject_uid: subject_uid,
@@ -52,6 +63,8 @@ defmodule Ankole.AIGateway.ResponseStream do
       stateful: Keyword.get(opts, :stateful),
       tool_loop: tool_loop,
       hosted_credential_attempt: hosted_credential_attempt,
+      program_runner: Keyword.get(opts, :program_runner),
+      program_task_supervisor: Keyword.get(opts, :program_task_supervisor),
       upstream_opts: upstream_opts,
       receiver: receiver,
       telemetry_spec: telemetry_spec(prepared_request),
@@ -60,11 +73,81 @@ defmodule Ankole.AIGateway.ResponseStream do
     ]
 
     case start_stream(child_opts) do
-      {:ok, pid} -> describe(pid)
+      {:ok, pid} -> describe(pid, Keyword.get(opts, :describe_timeout, :infinity))
       {:error, reason} -> {:error, reason}
       :ignore -> {:error, :response_stream_start_ignored}
     end
   end
+
+  @doc """
+  Runs this same state machine behind a synchronous transport adapter.
+  """
+  @spec collect(String.t(), map(), UniversalAIRequest.t() | map(), keyword()) ::
+          {:ok, State.outcome(), map()} | {:error, term()}
+  def collect(subject_uid, request, prepared_request, opts \\ []) do
+    timeout = Keyword.get(opts, :collect_timeout, @collect_timeout_ms)
+
+    if is_integer(timeout) and timeout > 0 do
+      deadline = System.monotonic_time(:millisecond) + timeout
+
+      open_opts =
+        opts
+        |> Keyword.delete(:collect_timeout)
+        |> Keyword.put(:describe_timeout, timeout)
+        |> Keyword.put(:receiver, self())
+
+      with {:ok, %__MODULE__{} = stream, meta} <-
+             open(subject_uid, request, prepared_request, open_opts) do
+        remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+        if remaining > 0 do
+          await_terminal(stream, meta, remaining)
+        else
+          _ = cancel(stream, "synchronous_collector_timeout")
+          {:error, :response_stream_collect_timeout}
+        end
+      end
+    else
+      {:error, :invalid_response_stream_collect_timeout}
+    end
+  end
+
+  @doc false
+  @spec await_terminal(t(), map(), pos_integer()) ::
+          {:ok, State.outcome(), map()} | {:error, term()}
+  def await_terminal(%__MODULE__{} = stream, meta, timeout)
+      when is_map(meta) and is_integer(timeout) and timeout > 0 do
+    monitor = Process.monitor(stream.pid)
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    try do
+      collect_next(stream, monitor, deadline, meta)
+    after
+      Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  def await_terminal(%__MODULE__{}, _meta, _timeout),
+    do: {:error, :invalid_response_stream_collect_timeout}
+
+  @doc false
+  @spec project_non_streaming_response(map(), map()) :: map()
+  def project_non_streaming_response(
+        prepared_request,
+        %{body: %{"output" => output} = body} = upstream_response
+      )
+      when is_map(prepared_request) and is_list(output) do
+    {tool_loop, _prepared_request} = pop_tool_loop(prepared_request)
+    loop = ToolSearchStreamLoop.new(tool_loop)
+
+    %{
+      upstream_response
+      | body: Map.put(body, "output", ToolSearchStreamLoop.rewrite_public_items(loop, output))
+    }
+  end
+
+  def project_non_streaming_response(_prepared_request, upstream_response),
+    do: upstream_response
 
   @spec read(t(), non_neg_integer()) :: :ok | {:error, term()}
   def read(stream, count \\ 1)
@@ -100,117 +183,96 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   @impl true
   def init(opts) do
-    {:ok,
-     %{
-       phase: :opening,
-       ref: make_ref(),
-       receiver: Keyword.fetch!(opts, :receiver),
-       subject_uid: Keyword.fetch!(opts, :subject_uid),
-       request: Keyword.fetch!(opts, :request),
-       stateful: Keyword.get(opts, :stateful),
-       tool_loop: Keyword.get(opts, :tool_loop),
-       hosted_credential_attempt: Keyword.get(opts, :hosted_credential_attempt),
-       upstream_opts: Keyword.get(opts, :upstream_opts, []),
-       open_fun: Keyword.get(opts, :open_fun),
-       telemetry_spec: Keyword.fetch!(opts, :telemetry_spec),
-       telemetry_emitted?: false,
-       diagnostics: Keyword.get(opts, :diagnostics, %{}),
-       failure_logged?: false,
-       prepared_request: Keyword.get(opts, :prepared_request, %{})
-     }, {:continue, :open_native_stream}}
+    receiver = Keyword.fetch!(opts, :receiver)
+    owner_monitor = Process.monitor(receiver)
+    prepared_request = Keyword.get(opts, :prepared_request, %{})
+    {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
+    raw_tool_loop = Keyword.get(opts, :tool_loop)
+    loop = ToolSearchStreamLoop.new(raw_tool_loop)
+    meta = resolver_meta(prepared_request)
+    stateful = Keyword.get(opts, :stateful)
+
+    state = %{
+      phase: if(ToolSearchStreamLoop.initial_local_effect?(loop), do: :ready, else: :opening),
+      public_open?: ToolSearchStreamLoop.initial_local_effect?(loop),
+      ref: make_ref(),
+      receiver: receiver,
+      owner_monitor: owner_monitor,
+      subject_uid: Keyword.fetch!(opts, :subject_uid),
+      request: Keyword.fetch!(opts, :request),
+      stateful: stateful,
+      semantic: nil,
+      round_open: round_open_fun(raw_tool_loop),
+      program_runner: Keyword.get(opts, :program_runner),
+      program_task_supervisor: Keyword.get(opts, :program_task_supervisor),
+      hosted_credential_attempt: Keyword.get(opts, :hosted_credential_attempt),
+      upstream_opts: Keyword.get(opts, :upstream_opts, []),
+      open_fun: Keyword.get(opts, :open_fun),
+      telemetry_spec: Keyword.fetch!(opts, :telemetry_spec),
+      telemetry_emitted?: false,
+      diagnostics: Keyword.get(opts, :diagnostics, %{}),
+      failure_logged?: false,
+      prepared_request: prepared_request,
+      describe_waiters: [],
+      opening: nil,
+      native_stream: nil,
+      meta: meta,
+      attempt_context: attempt_context,
+      attempt_spec: attempt_spec,
+      credential_success_recorded?: false,
+      provider_output?: false,
+      outstanding_credit: 0,
+      pending_flush: nil,
+      program_task: nil,
+      native_done?: false,
+      closing?: false,
+      heartbeat_timer: schedule_heartbeat(stateful)
+    }
+
+    state = %{state | semantic: new_semantic(state, meta, loop)}
+    {:ok, state, {:continue, :open_native_stream}}
   end
 
   @impl true
   def handle_continue(:open_native_stream, state) do
-    loop = ToolSearchStreamLoop.new(state.tool_loop)
+    loop = ToolSearchStreamLoop.new(state.semantic.tool_loop)
 
-    if ToolSearchStreamLoop.pre_round?(loop) do
-      handle_pre_round(state, loop)
+    if ToolSearchStreamLoop.initial_local_effect?(loop) do
+      start_initial_local_effect(state)
     else
       open_initial_stream(state, loop)
     end
   end
 
   defp open_initial_stream(state, loop) do
-    case open_native_stream(state) do
-      {:ok, native_stream, meta, attempt_context, attempt_spec} ->
-        {:noreply,
-         ready_state(
-           state,
-           loop,
-           native_stream,
-           meta,
-           nil,
-           attempt_context,
-           attempt_spec
-         )}
+    state = %{state | semantic: %{state.semantic | tool_loop: loop}}
 
-      {:error, reason} ->
-        open_failed(state, reason)
+    if is_function(state.open_fun, 0) do
+      begin_custom_open(state, :initial, state.open_fun)
+    else
+      begin_open_episode(state, :initial, state.attempt_context, state.attempt_spec)
     end
   end
 
-  defp open_native_stream(%{open_fun: open_fun}) when is_function(open_fun, 0) do
-    case open_fun.() do
-      {:ok, native_stream, meta} -> {:ok, native_stream, meta, nil, %{}}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp open_native_stream(state) do
-    CredentialAttempts.open(
-      state.prepared_request,
-      :websocket_text,
-      state.upstream_opts
-    )
-  end
-
-  # A request that resumes a paused program answers its program before any
-  # provider round; a program that pauses again answers the client without a
-  # provider call at all. Events buffer until the consumer's first read so
-  # they cannot race the open handshake.
-  defp handle_pre_round(state, loop) do
-    case ToolSearchStreamLoop.pre_round(loop) do
-      {:respond, items, loop} ->
-        semantic = new_semantic(state, %{}, loop)
-        {semantic, events, status} = State.respond_without_provider(semantic, items)
-
-        {:terminal, outcome, _upstream_action} = status
-
+  # An initial local effect can emit and even finish the public response before
+  # any provider stream opens. Buffer its lifecycle until the first read.
+  defp start_initial_local_effect(state) do
+    case State.take_initial_local_effect(state.semantic) do
+      {:ok, semantic, lifecycle_events, jobs, context} ->
         ready =
-          ready_state(
-            state,
-            loop,
-            nil,
-            %{},
-            {events, {:terminal, outcome}},
-            nil,
-            %{}
-          )
+          state
+          |> Map.put(:semantic, semantic)
+          |> deliver_or_buffer(lifecycle_events, :continue)
 
-        ready = %{ready | semantic: semantic}
-        {:noreply, finish_public_stream(ready, :keep_upstream)}
+        case start_program_execution(ready, jobs, context) do
+          {:ok, ready} ->
+            {:noreply, ready}
 
-      {:provider_round, items, continuation_request, loop} ->
-        with {:ok, native_stream, meta, attempt_context, attempt_spec} <-
-               open_pre_round(state, continuation_request) do
-          semantic = new_semantic(state, meta, loop)
-          {semantic, events} = State.append_pre_round_items(semantic, items)
+          {:complete, outcomes, ready} ->
+            complete_program_execution(ready, context, outcomes)
 
-          ready =
-            ready_state(
-              state,
-              nil,
-              native_stream,
-              meta,
-              {events, :continue},
-              attempt_context,
-              attempt_spec
-            )
-
-          {:noreply, %{ready | semantic: semantic}}
-        else
-          {:error, reason} -> open_failed(state, reason)
+          {:error, reason, ready} ->
+            {:noreply, fail_program_execution(ready, reason)}
         end
     end
   end
@@ -225,88 +287,264 @@ defmodule Ankole.AIGateway.ResponseStream do
     )
   end
 
-  defp ready_state(
-         state,
-         loop,
-         native_stream,
-         meta,
-         pending_flush,
-         attempt_context,
-         attempt_spec
-       ) do
-    semantic = new_semantic(state, meta, loop)
+  defp begin_open_episode(state, kind, context, spec) when is_map(spec) do
+    token = make_ref()
+    timeout_ms = UniversalAIRequest.ready_timeout_ms(spec)
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+
+    deadline_timer =
+      Process.send_after(self(), {:response_stream_open_deadline, token}, timeout_ms)
+
+    opening = %{
+      token: token,
+      kind: kind,
+      context: context,
+      spec: spec,
+      native_stream: nil,
+      deadline_ms: deadline_ms,
+      deadline_timer: deadline_timer,
+      retry_timer: nil,
+      worker: nil
+    }
 
     state
-    |> Map.drop([:prepared_request, :request, :stateful, :subject_uid, :open_fun])
-    |> Map.merge(%{
-      phase: :ready,
-      owner_monitor: Process.monitor(state.receiver),
-      native_stream: native_stream,
-      meta: meta,
-      semantic: semantic,
-      round_open: round_open_fun(state.tool_loop),
-      attempt_context: attempt_context,
-      attempt_spec: attempt_spec,
-      credential_success_recorded?: false,
-      provider_output?: false,
-      outstanding_credit: 0,
-      pending_flush: pending_flush,
-      closing?: false,
-      heartbeat_timer: schedule_heartbeat(state.stateful)
-    })
+    |> Map.merge(%{phase: :opening, opening: opening, native_stream: nil})
+    |> start_open_candidate()
   end
 
-  defp open_failed(state, reason) do
-    state = log_failure_once(state, reason)
-    maybe_emit_open_failure(state.telemetry_spec, reason)
+  defp begin_custom_open(state, kind, fun) when is_function(fun, 0) do
+    token = make_ref()
+    timeout_ms = UniversalAIRequest.ready_timeout_ms(state.attempt_spec)
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
 
-    Process.send_after(
-      self(),
-      :response_stream_open_failure_shutdown,
-      @open_failure_shutdown_ms
-    )
+    deadline_timer =
+      Process.send_after(self(), {:response_stream_open_deadline, token}, timeout_ms)
 
-    failed_state =
+    owner = self()
+
+    case start_recovery_task(fn ->
+           result = safe_custom_open(fun)
+           send(owner, {:response_stream_custom_open, token, result})
+         end) do
+      {:ok, pid} ->
+        opening = %{
+          token: token,
+          kind: kind,
+          context: state.attempt_context,
+          spec: state.attempt_spec,
+          native_stream: nil,
+          deadline_ms: deadline_ms,
+          deadline_timer: deadline_timer,
+          retry_timer: nil,
+          worker: %{pid: pid, monitor: Process.monitor(pid), kind: :custom_open}
+        }
+
+        {:noreply, Map.merge(state, %{phase: :opening, opening: opening, native_stream: nil})}
+
+      {:error, reason} ->
+        _ = cancel_timer(deadline_timer)
+        finish_open_failure(state, {:stream_open_task_unavailable, reason})
+    end
+  end
+
+  defp start_open_candidate(%{opening: %{spec: spec} = opening} = state) do
+    case UniversalAIRequest.start_stream(spec, :websocket_text, receiver: self()) do
+      {:ok, native_stream} ->
+        opening = %{opening | native_stream: native_stream}
+        {:noreply, %{state | opening: opening}}
+
+      {:error, reason} ->
+        begin_open_recovery(state, reason)
+    end
+  end
+
+  defp begin_open_recovery(state, reason) do
+    state = cancel_open_candidate(state)
+    opening = state.opening
+
+    case opening.context do
+      %{} = context ->
+        token = opening.token
+        spec = opening.spec
+        opts = state.upstream_opts
+        owner = self()
+
+        case start_recovery_task(fn ->
+               result = CredentialAttempts.plan_retry(context, spec, reason, opts)
+               send(owner, {:response_stream_retry_planned, token, reason, result})
+             end) do
+          {:ok, pid} ->
+            worker = %{pid: pid, monitor: Process.monitor(pid), kind: :retry_plan}
+            {:noreply, %{state | opening: %{opening | worker: worker}}}
+
+          {:error, task_reason} ->
+            finish_open_failure(state, {:credential_retry_task_unavailable, task_reason})
+        end
+
+      _no_context ->
+        finish_open_failure(state, reason)
+    end
+  end
+
+  defp begin_round_open(state, kind, continuation_request) do
+    cond do
+      is_map(state.attempt_context) ->
+        case CredentialAttempts.build_round(state.attempt_context, continuation_request) do
+          {:ok, spec, context} -> begin_open_episode(state, kind, context, spec)
+          {:error, reason} -> finish_open_failure(state, reason)
+        end
+
+      is_function(state.round_open, 2) ->
+        fun = fn -> state.round_open.(continuation_request, state.upstream_opts) end
+        begin_custom_open(state, kind, fun)
+
+      true ->
+        finish_open_failure(state, :tool_search_round_open_unavailable)
+    end
+  rescue
+    error -> finish_open_failure(state, {:exception, error.__struct__, Exception.message(error)})
+  catch
+    :exit, reason -> finish_open_failure(state, {:exit, reason})
+  end
+
+  defp promote_open(
+         %{opening: %{deadline_ms: deadline_ms} = opening} = state,
+         native_stream,
+         meta,
+         context,
+         spec
+       ) do
+    if System.monotonic_time(:millisecond) >= deadline_ms do
+      # A ready message can outrun an already-due timer in a busy mailbox. The
+      # monotonic deadline, not message arrival order, owns admission.
+      state = %{state | opening: %{opening | native_stream: native_stream}}
+      finish_open_failure(state, ready_timeout_error())
+    else
+      complete_open(state, native_stream, meta, context, spec)
+    end
+  end
+
+  defp complete_open(state, native_stream, meta, context, spec) do
+    state = clear_opening(state)
+
+    state = %{
       state
-      |> Map.drop([:prepared_request, :request, :stateful, :subject_uid, :open_fun])
-      |> Map.put(:phase, {:open_failed, reason})
+      | phase: :ready,
+        public_open?: true,
+        native_stream: native_stream,
+        meta: meta,
+        attempt_context: context,
+        attempt_spec: spec,
+        credential_success_recorded?: false,
+        provider_output?: false,
+        native_done?: false
+    }
 
-    {:noreply, failed_state}
+    Enum.each(state.describe_waiters, fn from ->
+      GenServer.reply(from, {:ok, %__MODULE__{pid: self(), ref: state.ref}, meta})
+    end)
+
+    state = %{state | describe_waiters: []}
+
+    case issue_native_credit(state) do
+      {:ok, state} -> {:noreply, state}
+      {:error, reason, state} -> stop_after_retry_failure(state, reason)
+    end
   end
 
-  defp safe_round_open(round_open, continuation_request, upstream_opts) do
-    round_open.(continuation_request, upstream_opts)
+  defp finish_open_failure(state, reason) do
+    state = state |> cancel_open_candidate_if_present() |> clear_opening()
+
+    if state.public_open? do
+      stop_after_retry_failure(state, reason)
+    else
+      state = log_failure_once(state, reason)
+      maybe_emit_open_failure(state.telemetry_spec, reason)
+
+      had_waiters? = state.describe_waiters != []
+      Enum.each(state.describe_waiters, &GenServer.reply(&1, {:error, reason}))
+
+      state = %{state | phase: {:open_failed, reason}, describe_waiters: []}
+
+      if had_waiters? do
+        {:stop, :normal, state}
+      else
+        Process.send_after(
+          self(),
+          :response_stream_open_failure_shutdown,
+          @open_failure_shutdown_ms
+        )
+
+        {:noreply, state}
+      end
+    end
+  end
+
+  defp clear_opening(%{opening: nil} = state), do: state
+
+  defp clear_opening(%{opening: opening} = state) do
+    _ = cancel_timer(opening.deadline_timer)
+    _ = cancel_timer(opening.retry_timer)
+    :ok = cancel_open_worker(opening.worker)
+
+    %{state | opening: nil}
+  end
+
+  defp cancel_open_candidate_if_present(%{opening: nil} = state), do: state
+  defp cancel_open_candidate_if_present(state), do: cancel_open_candidate(state)
+
+  defp cancel_open_candidate(%{opening: %{native_stream: native_stream} = opening} = state) do
+    _ = cancel_native(native_stream)
+    :ok = cancel_open_worker(opening.worker)
+    %{state | opening: %{opening | native_stream: nil, worker: nil}}
+  end
+
+  defp cancel_open_worker(nil), do: :ok
+
+  defp cancel_open_worker(%{kind: :custom_open, pid: pid, monitor: monitor}) do
+    # A custom-open worker is owned entirely by this opening episode. Once that
+    # episode loses its owner or deadline, it has no independent work to finish.
+    _ = terminate_recovery_task(pid)
+    Process.demonitor(monitor, [:flush])
+    :ok
+  end
+
+  # Retry planning can include an OAuth refresh whose remote token rotation has
+  # already happened while the local credential transaction still needs to
+  # commit. The opening episode relinquishes its monitor, but must not kill that
+  # bounded settlement task and leave remote/local credential state split.
+  defp cancel_open_worker(%{monitor: monitor}) do
+    Process.demonitor(monitor, [:flush])
+    :ok
+  end
+
+  defp terminate_recovery_task(pid) do
+    Task.Supervisor.terminate_child(@recovery_task_supervisor, pid)
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp start_recovery_task(fun) do
+    Task.Supervisor.start_child(@recovery_task_supervisor, fun, restart: :temporary)
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp safe_custom_open(fun) do
+    fun.()
   rescue
     error -> {:error, {:exception, error.__struct__, Exception.message(error)}}
   catch
     :exit, reason -> {:error, {:exit, reason}}
   end
 
-  defp open_pre_round(state, continuation_request) do
-    case CredentialAttempts.pop(state.prepared_request) do
-      {%{} = context, _clean_spec} ->
-        CredentialAttempts.open_round(
-          context,
-          continuation_request,
-          :websocket_text,
-          state.upstream_opts
-        )
-
-      {nil, _clean_spec} ->
-        with round_open when is_function(round_open, 2) <- round_open_fun(state.tool_loop),
-             {:ok, native_stream, meta} <-
-               safe_round_open(round_open, continuation_request, state.upstream_opts) do
-          {:ok, native_stream, meta, nil, %{}}
-        else
-          nil -> {:error, :tool_search_round_open_unavailable}
-          {:error, _reason} = error -> error
-        end
-    end
+  @impl true
+  def handle_call(:describe, _from, %{public_open?: true} = state) do
+    {:reply, {:ok, %__MODULE__{pid: self(), ref: state.ref}, state.meta}, state}
   end
 
-  @impl true
-  def handle_call(:describe, _from, %{phase: :ready} = state) do
-    {:reply, {:ok, %__MODULE__{pid: self(), ref: state.ref}, state.meta}, state}
+  def handle_call(:describe, from, %{phase: :opening} = state) do
+    {:noreply, %{state | describe_waiters: [from | state.describe_waiters]}}
   end
 
   def handle_call(:describe, _from, %{phase: {:open_failed, reason}} = state) do
@@ -315,19 +553,30 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   # Pre-round events buffered during open flush on the consumer's first read,
   # so they cannot race the open handshake.
+  def handle_call({:read, 0}, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:read, count}, from, %{pending_flush: {events, status}} = state) do
     state = %{state | pending_flush: nil}
     send_events(state, events, status)
 
     case status do
       {:terminal, _outcome} -> {:reply, :ok, state}
-      :continue -> handle_call({:read, count}, from, state)
+      :continue when count > 1 -> handle_call({:read, count - 1}, from, state)
+      :continue -> {:reply, :ok, state}
     end
   end
 
   def handle_call({:read, _count}, _from, %{semantic: semantic} = state)
       when semantic.terminal? do
     {:reply, {:error, :response_stream_terminal}, state}
+  end
+
+  def handle_call({:read, count}, _from, %{program_task: %{} = _task} = state) do
+    {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
+  end
+
+  def handle_call({:read, count}, _from, %{native_stream: nil} = state) do
+    {:reply, :ok, Map.update!(state, :outstanding_credit, &(&1 + count))}
   end
 
   def handle_call({:read, count}, _from, state) do
@@ -348,23 +597,215 @@ defmodule Ankole.AIGateway.ResponseStream do
   end
 
   def handle_call({:cancel, reason}, _from, state) do
-    _ = cancel_native(state.native_stream)
-
-    {state, _events, _outcome} =
-      fail_stream(state, reason,
-        code: "response_stream_cancelled",
-        retryable: true
-      )
-
-    {:stop, :normal, :ok, %{state | closing?: true}}
+    {:stop, :normal, :ok, cancel_state(state, reason)}
   end
 
   @impl true
+  def handle_cast({:cancel, reason}, state) do
+    {:stop, :normal, cancel_state(state, reason)}
+  end
+
+  @impl true
+  def handle_info(
+        {:universal_ai_client, ref, :ready, meta},
+        %{opening: %{native_stream: %{ref: ref}} = opening} = state
+      ) do
+    promote_open(state, opening.native_stream, meta, opening.context, opening.spec)
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :error, reason},
+        %{opening: %{native_stream: %{ref: ref}}} = state
+      ) do
+    begin_open_recovery(state, UniversalAIRequest.normalize_stream_error(reason))
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :aborted},
+        %{opening: %{native_stream: %{ref: ref}}} = state
+      ) do
+    begin_open_recovery(state, :stream_aborted)
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :done, _summary},
+        %{opening: %{native_stream: %{ref: ref}}} = state
+      ) do
+    begin_open_recovery(state, %{
+      "code" => "provider_stream_closed_without_terminal",
+      "stage" => "open",
+      "message" => "provider stream closed before ready"
+    })
+  end
+
+  def handle_info(
+        {:response_stream_custom_open, token, {:ok, native_stream, meta}},
+        %{opening: %{token: token} = opening} = state
+      ) do
+    promote_open(state, native_stream, meta, opening.context, opening.spec)
+  end
+
+  def handle_info(
+        {:response_stream_custom_open, _stale_token, {:ok, native_stream, _meta}},
+        state
+      ) do
+    # The producing worker no longer belongs to the current opening episode,
+    # but the native candidate it returned still needs an explicit owner.
+    _ = cancel_native(native_stream)
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:response_stream_custom_open, token, {:error, reason}},
+        %{opening: %{token: token}} = state
+      ) do
+    begin_open_recovery(state, reason)
+  end
+
+  def handle_info(
+        {:response_stream_custom_open, token, invalid},
+        %{opening: %{token: token}} = state
+      ) do
+    finish_open_failure(state, {:invalid_stream_open_result, invalid})
+  end
+
+  def handle_info(
+        {:response_stream_retry_planned, token, _original_reason,
+         {:retry, context, spec, delay_ms}},
+        %{opening: %{token: token} = opening} = state
+      ) do
+    now_ms = System.monotonic_time(:millisecond)
+    remaining_ms = max(opening.deadline_ms - now_ms, 0)
+
+    if remaining_ms == 0 or delay_ms >= remaining_ms do
+      finish_open_failure(state, ready_timeout_error())
+    else
+      :ok = cancel_open_worker(opening.worker)
+
+      retry_timer =
+        Process.send_after(self(), {:response_stream_retry_due, token}, max(delay_ms, 0))
+
+      opening = %{
+        opening
+        | context: context,
+          spec: spec,
+          retry_timer: retry_timer,
+          worker: nil
+      }
+
+      {:noreply, %{state | opening: opening}}
+    end
+  end
+
+  def handle_info(
+        {:response_stream_retry_planned, token, _original_reason,
+         {:stop, final_reason, _context}},
+        %{opening: %{token: token}} = state
+      ) do
+    finish_open_failure(state, final_reason)
+  end
+
+  def handle_info(
+        {:response_stream_retry_planned, token, _original_reason, invalid},
+        %{opening: %{token: token}} = state
+      ) do
+    finish_open_failure(state, {:invalid_credential_retry_plan, invalid})
+  end
+
+  def handle_info(
+        {:response_stream_retry_due, token},
+        %{opening: %{token: token} = opening} = state
+      ) do
+    opening = %{opening | retry_timer: nil}
+    start_open_candidate(%{state | opening: opening})
+  end
+
+  def handle_info(
+        {:response_stream_open_deadline, token},
+        %{opening: %{token: token}} = state
+      ) do
+    finish_open_failure(state, ready_timeout_error())
+  end
+
+  def handle_info(
+        {:DOWN, monitor, :process, _pid, reason},
+        %{opening: %{worker: %{monitor: monitor}} = opening} = state
+      ) do
+    # The worker sends its result before exiting; an ordinary DOWN can therefore
+    # be ignored until that earlier message is processed. Abnormal termination
+    # has no result to consume and is a stable opening failure.
+    if reason == :normal do
+      {:noreply, %{state | opening: %{opening | worker: nil}}}
+    else
+      finish_open_failure(state, {:stream_open_worker_terminated, reason})
+    end
+  end
+
   def handle_info(
         {:universal_ai_client, ref, :chunk, _sequence, _kind, _chunk},
         %{native_stream: %{ref: ref}, semantic: %{terminal?: true}} = state
       ) do
     {:noreply, state}
+  end
+
+  # A local task can coexist with a native stream only after that provider
+  # round has produced its terminal fact. Drain any trailing native messages;
+  # the frozen local-effect context is the only fact the task may settle.
+  def handle_info(
+        {:universal_ai_client, ref, :chunk, _sequence, _kind, _chunk},
+        %{
+          native_stream: %{ref: ref},
+          program_task: %{}
+        } = state
+      ) do
+    {:noreply, consume_credit(state)}
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :done, summary},
+        %{
+          native_stream: %{ref: ref},
+          program_task: %{}
+        } = state
+      ) do
+    {:noreply, state |> emit_summary_once(summary) |> Map.put(:native_done?, true)}
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :error, _reason},
+        %{
+          native_stream: %{ref: ref},
+          program_task: %{}
+        } = state
+      ) do
+    {:noreply, %{state | native_done?: true}}
+  end
+
+  def handle_info(
+        {:universal_ai_client, ref, :aborted},
+        %{
+          native_stream: %{ref: ref},
+          program_task: %{}
+        } = state
+      ) do
+    {:noreply, %{state | native_done?: true}}
+  end
+
+  def handle_info(
+        {:program_execution, ref, outcomes},
+        %{program_task: %{ref: ref} = task} = state
+      ) do
+    Process.demonitor(task.monitor, [:flush])
+    complete_program_execution(%{state | program_task: nil}, task.context, outcomes)
+  end
+
+  def handle_info(
+        {:DOWN, monitor, :process, _pid, reason},
+        %{program_task: %{monitor: monitor}} = state
+      ) do
+    state = %{state | program_task: nil}
+
+    {:noreply, fail_program_execution(state, {:program_task_terminated, reason})}
   end
 
   def handle_info(
@@ -481,6 +922,8 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   def handle_info(:response_stream_shutdown, state) do
     _ = cancel_native(state.native_stream)
+    state = cancel_open_candidate_if_present(state)
+    :ok = cancel_program(state.program_task)
     {:stop, :normal, state}
   end
 
@@ -517,6 +960,8 @@ defmodule Ankole.AIGateway.ResponseStream do
       {:noreply, %{state | receiver: nil}}
     else
       _ = cancel_native(state.native_stream)
+      state = cancel_open_candidate_if_present(state)
+      :ok = cancel_program(state.program_task)
 
       {state, _events, _outcome} =
         fail_stream(state, "stream_consumer_terminated",
@@ -531,12 +976,12 @@ defmodule Ankole.AIGateway.ResponseStream do
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, %{native_stream: native_stream}) do
-    _ = cancel_native(native_stream)
+  def terminate(_reason, state) do
+    _ = cancel_native(Map.get(state, :native_stream))
+    _ = cancel_open_candidate_if_present(state)
+    :ok = cancel_program(Map.get(state, :program_task))
     :ok
   end
-
-  def terminate(_reason, _state), do: :ok
 
   defp observe_event(state, event, sequence) do
     case State.observe(state.semantic, event, sequence) do
@@ -549,6 +994,22 @@ defmodule Ankole.AIGateway.ResponseStream do
         state = %{state | semantic: semantic}
         send_events(state, events, :continue)
         continue_round(state, continuation_request)
+
+      {:ok, semantic, events, {:local, jobs, context}} ->
+        state = %{state | semantic: semantic}
+        maybe_send_events(state, events, :continue)
+
+        case start_program_execution(state, jobs, context) do
+          {:ok, state} ->
+            {:noreply, state}
+
+          {:complete, outcomes, state} ->
+            complete_program_execution(state, context, outcomes)
+
+          {:error, reason, state} ->
+            state = fail_program_execution(state, reason)
+            {:noreply, state}
+        end
 
       {:ok, semantic, events, {:terminal, outcome, upstream_action}} ->
         state =
@@ -580,43 +1041,121 @@ defmodule Ankole.AIGateway.ResponseStream do
     end
   end
 
+  defp start_program_execution(state, jobs, context) do
+    opts =
+      []
+      |> maybe_put_program_option(:runner, Map.get(state, :program_runner))
+      |> maybe_put_program_option(
+        :supervisor,
+        Map.get(state, :program_task_supervisor)
+      )
+
+    case ProgramExecution.start(self(), jobs, opts) do
+      {:ok, task} -> {:ok, %{state | program_task: Map.put(task, :context, context)}}
+      {:complete, outcomes} -> {:complete, outcomes, state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp complete_program_execution(state, context, outcomes) do
+    case State.complete_local_effect(state.semantic, context, outcomes) do
+      {:ok, semantic, events, {:round, continuation_request}} ->
+        state = %{state | semantic: semantic}
+        state = deliver_local_effect_events(state, events, :continue)
+        continue_round(state, continuation_request)
+
+      {:ok, semantic, events, {:terminal, outcome, upstream_action}} ->
+        state =
+          state
+          |> Map.put(:semantic, semantic)
+          |> log_terminal_failure_once(outcome)
+          |> finish_public_stream(upstream_action)
+
+        {:noreply, deliver_local_effect_events(state, events, {:terminal, outcome})}
+
+      {:error, semantic, reason} ->
+        {:noreply, fail_program_execution(%{state | semantic: semantic}, reason)}
+    end
+  end
+
+  defp deliver_local_effect_events(%{native_stream: nil} = state, events, status),
+    do: deliver_or_buffer(state, events, status)
+
+  defp deliver_local_effect_events(state, events, status) do
+    send_events(state, events, status)
+    state
+  end
+
+  defp deliver_or_buffer(state, events, status) do
+    {state, events} = prepend_pending_events(state, events)
+
+    if state.outstanding_credit > 0 do
+      send_events(state, events, status)
+      consume_credit(state)
+    else
+      %{state | pending_flush: {events, status}}
+    end
+  end
+
+  defp fail_program_execution(state, reason) do
+    code =
+      if reason == :program_runtime_busy,
+        do: "program_runtime_busy",
+        else: "program_runtime_failed"
+
+    {state, events, outcome} =
+      fail_stream(state, format_program_failure(reason),
+        code: code,
+        retryable: reason == :program_runtime_busy
+      )
+
+    {state, events} = prepend_pending_events(state, events)
+    state = finish_public_stream(state, :cancel_upstream)
+
+    if state.provider_output? or state.outstanding_credit > 0 do
+      send_events(state, events, {:terminal, outcome})
+      state
+    else
+      %{state | pending_flush: {events, {:terminal, outcome}}}
+    end
+  end
+
+  defp format_program_failure(reason) when is_binary(reason), do: reason
+  defp format_program_failure(reason), do: inspect(reason)
+
+  defp maybe_put_program_option(opts, _key, nil), do: opts
+  defp maybe_put_program_option(opts, key, value), do: Keyword.put(opts, key, value)
+
   defp reopen_stream(state, reason) do
     _ = cancel_native(state.native_stream)
+    token = make_ref()
+    timeout_ms = UniversalAIRequest.ready_timeout_ms(state.attempt_spec)
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
 
-    case CredentialAttempts.reopen(
-           state.attempt_context,
-           state.attempt_spec,
-           reason,
-           :websocket_text,
-           state.upstream_opts
-         ) do
-      {:ok, native_stream, meta, attempt_context, attempt_spec} ->
-        credit = max(state.outstanding_credit, 1)
+    deadline_timer =
+      Process.send_after(self(), {:response_stream_open_deadline, token}, timeout_ms)
 
-        case UniversalAIClient.read(native_stream, credit) do
-          :ok ->
-            {:noreply,
-             %{
-               state
-               | native_stream: native_stream,
-                 meta: meta,
-                 attempt_context: attempt_context,
-                 attempt_spec: attempt_spec,
-                 credential_success_recorded?: false,
-                 provider_output?: false,
-                 outstanding_credit: credit
-             }}
+    opening = %{
+      token: token,
+      kind: :reopen,
+      context: state.attempt_context,
+      spec: state.attempt_spec,
+      native_stream: nil,
+      deadline_ms: deadline_ms,
+      deadline_timer: deadline_timer,
+      retry_timer: nil,
+      worker: nil
+    }
 
-          {:error, read_reason} ->
-            stop_after_retry_failure(
-              state,
-              {:credential_retry_read_failed, read_reason}
-            )
-        end
+    state = %{
+      state
+      | phase: :opening,
+        opening: opening,
+        native_stream: nil,
+        outstanding_credit: max(state.outstanding_credit, 1)
+    }
 
-      {:error, final_reason} ->
-        stop_after_retry_failure(state, final_reason)
-    end
+    begin_open_recovery(state, UniversalAIRequest.normalize_stream_error(reason))
   end
 
   defp stop_after_retry_failure(state, reason) do
@@ -678,9 +1217,16 @@ defmodule Ankole.AIGateway.ResponseStream do
         failure_opts
       )
 
+    {state, events} = prepend_pending_events(state, events)
     send_events(state, events, {:terminal, outcome})
     {:stop, :normal, state}
   end
+
+  defp prepend_pending_events(%{pending_flush: {pending_events, _status}} = state, events) do
+    {%{state | pending_flush: nil}, pending_events ++ events}
+  end
+
+  defp prepend_pending_events(state, events), do: {state, events}
 
   defp retry_failure_details(classification) do
     classification
@@ -747,6 +1293,26 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   defp consume_credit(state), do: state
 
+  defp issue_native_credit(%{native_stream: native_stream, outstanding_credit: credit} = state)
+       when not is_nil(native_stream) and credit > 0 do
+    case UniversalAIClient.read(native_stream, credit) do
+      :ok -> {:ok, state}
+      {:error, reason} -> {:error, {:provider_round_read_failed, reason}, state}
+    end
+  end
+
+  defp issue_native_credit(state), do: {:ok, state}
+
+  defp ready_timeout_error do
+    {:universal_ai_request_failed,
+     %{
+       "code" => "universal_ai_stream_ready_timeout",
+       "stage" => "open",
+       "message" => "provider stream did not become ready before the open deadline",
+       "retryable" => true
+     }}
+  end
+
   defp finish_public_stream(state, upstream_action) do
     state = %{state | heartbeat_timer: cancel_timer(state.heartbeat_timer)}
 
@@ -765,75 +1331,17 @@ defmodule Ankole.AIGateway.ResponseStream do
   # cancel is a no-op safety release.
   defp continue_round(state, continuation_request) do
     _ = cancel_native(state.native_stream)
-
-    case open_round_stream(state, continuation_request) do
-      {:ok, native_stream, meta, attempt_context, attempt_spec} ->
-        credit = max(state.outstanding_credit, 1)
-
-        case UniversalAIClient.read(native_stream, credit) do
-          :ok ->
-            {:noreply,
-             %{
-               state
-               | native_stream: native_stream,
-                 meta: meta,
-                 attempt_context: attempt_context,
-                 attempt_spec: attempt_spec,
-                 credential_success_recorded?: false,
-                 provider_output?: false,
-                 outstanding_credit: credit
-             }}
-
-          {:error, reason} ->
-            fail_round(state, "tool_search_round_read_failed: #{inspect(reason)}")
-        end
-
-      {:error, reason} ->
-        fail_round(state, "tool_search_round_open_failed: #{inspect(reason)}")
-    end
-  end
-
-  defp open_round_stream(%{attempt_context: %{} = context} = state, continuation_request) do
-    CredentialAttempts.open_round(
-      context,
-      continuation_request,
-      :websocket_text,
-      Map.get(state, :upstream_opts, [])
-    )
-  end
-
-  defp open_round_stream(%{round_open: round_open} = state, continuation_request)
-       when is_function(round_open, 2) do
-    case round_open.(continuation_request, Map.get(state, :upstream_opts, [])) do
-      {:ok, native_stream, meta} -> {:ok, native_stream, meta, nil, %{}}
-      {:error, _reason} = error -> error
-    end
-  rescue
-    error -> {:error, {:exception, error.__struct__, Exception.message(error)}}
-  catch
-    :exit, reason -> {:error, {:exit, reason}}
-  end
-
-  defp open_round_stream(_state, _continuation_request),
-    do: {:error, :tool_search_round_open_unavailable}
-
-  defp fail_round(state, reason) do
-    {state, events, outcome} =
-      fail_stream(state, reason,
-        code: "tool_search_round_failed",
-        retryable: true
-      )
-
-    send_events(state, events, {:terminal, outcome})
-    {:stop, :normal, state}
+    begin_round_open(%{state | native_stream: nil}, :continuation, continuation_request)
   end
 
   defp round_open_fun(%{round_open: round_open}) when is_function(round_open, 2), do: round_open
   defp round_open_fun(_tool_loop), do: nil
 
-  # A pre-round respond path never opened a native stream.
+  # A providerless history resume never opened a native stream.
   defp cancel_native(nil), do: :ok
   defp cancel_native(native_stream), do: UniversalAIClient.cancel(native_stream)
+
+  defp cancel_program(program_task), do: ProgramExecution.cancel(program_task)
 
   defp record_credential_success(state, event) do
     state =
@@ -896,6 +1404,9 @@ defmodule Ankole.AIGateway.ResponseStream do
       {:ai_gateway_response_stream, state.ref, :events, events, status}
     )
   end
+
+  defp maybe_send_events(_state, [], :continue), do: :ok
+  defp maybe_send_events(state, events, status), do: send_events(state, events, status)
 
   defp emit_summary_once(%{telemetry_emitted?: true} = state, _summary), do: state
 
@@ -1092,12 +1603,76 @@ defmodule Ankole.AIGateway.ResponseStream do
     %{"max_tool_calls" => Map.get(request, "max_tool_calls") || Map.get(request, :max_tool_calls)}
   end
 
+  defp resolver_meta(spec) when is_map(spec) do
+    case Map.get(spec, :api_resolver) || Map.get(spec, "api_resolver") do
+      nil -> %{}
+      resolver -> %{"api_resolver" => resolver}
+    end
+  end
+
   defp decode_event(chunk) do
     case Ankole.JSON.decode(IO.iodata_to_binary(chunk)) do
       {:ok, %{} = event} -> {:ok, event}
       {:ok, _not_object} -> {:error, "event must be a JSON object"}
       {:error, reason} -> {:error, inspect(reason)}
     end
+  end
+
+  defp collect_next(stream, monitor, deadline, meta) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+    ref = stream.ref
+
+    case collect_read(stream, remaining) do
+      :ok ->
+        wait_remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+        receive do
+          {:ai_gateway_response_stream, ^ref, :events, _events, :continue} ->
+            collect_next(stream, monitor, deadline, meta)
+
+          {:ai_gateway_response_stream, ^ref, :events, _events, {:terminal, %{} = outcome}} ->
+            {:ok, outcome, meta}
+
+          {:DOWN, ^monitor, :process, _pid, reason} ->
+            {:error, {:response_stream_closed, reason}}
+        after
+          wait_remaining -> collect_timeout(stream)
+        end
+
+      {:error, :response_stream_collect_timeout} ->
+        collect_timeout(stream)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp collect_read(_stream, 0), do: {:error, :response_stream_collect_timeout}
+
+  defp collect_read(%__MODULE__{pid: pid}, timeout) do
+    GenServer.call(pid, {:read, 1}, timeout)
+  catch
+    :exit, {:timeout, _call} -> {:error, :response_stream_collect_timeout}
+    :exit, _reason -> {:error, :response_stream_closed}
+  end
+
+  defp collect_timeout(%__MODULE__{pid: pid}) do
+    GenServer.cast(pid, {:cancel, "synchronous_collector_timeout"})
+    {:error, :response_stream_collect_timeout}
+  end
+
+  defp cancel_state(state, reason) do
+    _ = cancel_native(state.native_stream)
+    state = cancel_open_candidate_if_present(state)
+    :ok = cancel_program(state.program_task)
+
+    {state, _events, _outcome} =
+      fail_stream(state, reason,
+        code: "response_stream_cancelled",
+        retryable: true
+      )
+
+    %{state | closing?: true}
   end
 
   defp schedule_heartbeat(%{message_id: _message_id}),
@@ -1117,8 +1692,20 @@ defmodule Ankole.AIGateway.ResponseStream do
     nil
   end
 
-  defp describe(pid) do
-    case safe_call(pid, :describe) do
+  defp describe(pid, timeout) do
+    result =
+      try do
+        GenServer.call(pid, :describe, timeout)
+      catch
+        :exit, {:timeout, _call} ->
+          GenServer.cast(pid, {:cancel, "synchronous_collector_timeout"})
+          {:error, :response_stream_collect_timeout}
+
+        :exit, _reason ->
+          {:error, :response_stream_closed}
+      end
+
+    case result do
       {:ok, %__MODULE__{}, _meta} = result -> result
       {:error, _reason} = error -> error
     end

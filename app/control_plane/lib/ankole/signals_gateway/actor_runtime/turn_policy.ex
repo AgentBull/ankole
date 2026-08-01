@@ -28,7 +28,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
              Keyword.get(opts, :request_context, %{})
            )
        }
-       |> maybe_put(:hosted_tools, hosted_tools(actor_key.agent_uid))}
+       |> maybe_put(:hosted_tools, hosted_tools(actor_key.agent_uid, model_ref))}
     end
   end
 
@@ -60,10 +60,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnPolicy do
     end
   end
 
-  defp hosted_tools(agent_uid) do
-    case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
-      {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
-      {:error, _reason} -> nil
+  defp hosted_tools(agent_uid, model_ref) do
+    if Providers.supports_native_image_generation?(model_ref) do
+      [%{"type" => "image_generation"}]
+    else
+      case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
+        {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
+        {:error, _reason} -> nil
+      end
     end
   end
 

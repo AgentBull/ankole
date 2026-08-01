@@ -3,6 +3,8 @@ defmodule Ankole.AIGateway.CompactionRender do
   Prompt rendering for AIGateway compaction.
   """
 
+  alias Ankole.AIGateway.ResponseItems
+
   @fallback_summarizer_context_tokens 131_072
   @min_render_budget_tokens 8_000
   @item_caps_tokens %{
@@ -31,19 +33,24 @@ defmodule Ankole.AIGateway.CompactionRender do
   def render_items(items, opts \\ []) when is_list(items) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
     budget_tokens = Keyword.get(opts, :budget_tokens)
-    call_refs = call_refs(items)
+    pair_keys = ResponseItems.resolved_pair_keys(items)
+    call_refs = call_refs(pair_keys)
+    total = length(items)
+    latest_start = total - ceil(total / 4) + 1
 
     blocks =
       items
+      |> Enum.zip(pair_keys)
       |> Enum.with_index(1)
-      |> Enum.map(fn {item, index} ->
-        text = item_text(item, caps: caps, call_ref: call_ref(item, call_refs))
+      |> Enum.map(fn {{item, pair_key}, index} ->
+        text = item_text(item, caps: caps, call_ref: Map.get(call_refs, pair_key))
+        text = item_block(index, text)
 
         %{
           index: index,
-          item: item,
-          text: item_block(index, text),
-          protected?: protected_item?(item, index, length(items))
+          text: text,
+          bytes: byte_size(text),
+          protected?: protected_item?(item, index, latest_start)
         }
       end)
 
@@ -130,6 +137,33 @@ defmodule Ankole.AIGateway.CompactionRender do
     "program_output call_ref=#{call_ref} status=#{status} result=#{result}"
   end
 
+  def item_text(%{"type" => "tool_search_call"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    execution = Map.get(item, "execution") || "unknown"
+
+    arguments =
+      Map.get(item, "arguments")
+      |> stringify()
+      |> truncate_text(cap(caps, :function_call_arguments))
+
+    "tool_search_call execution=#{execution} call_ref=#{call_ref} arguments=#{arguments}"
+  end
+
+  def item_text(%{"type" => "tool_search_output"} = item, opts) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    execution = Map.get(item, "execution") || "unknown"
+    status = Map.get(item, "status") || "unknown"
+
+    tools =
+      Map.get(item, "tools")
+      |> stringify()
+      |> truncate_text(cap(caps, :function_call_output))
+
+    "tool_search_output execution=#{execution} call_ref=#{call_ref} status=#{status} tools=#{tools}"
+  end
+
   def item_text(%{"type" => "reasoning"} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
 
@@ -142,7 +176,14 @@ defmodule Ankole.AIGateway.CompactionRender do
     if readable == "", do: "", else: "reasoning summary: #{readable}"
   end
 
-  def item_text(%{"type" => type}, _opts) when is_binary(type), do: "[#{type} omitted]"
+  def item_text(%{"type" => type} = item, opts) when is_binary(type) do
+    cond do
+      ResponseItems.call_item?(item) -> paired_item_text(item, opts, :call)
+      ResponseItems.output_item?(item) -> paired_item_text(item, opts, :output)
+      true -> "[#{type} omitted]"
+    end
+  end
+
   def item_text(item, _opts) when is_map(item) and map_size(item) > 0, do: "[item omitted]"
   def item_text(_item, _opts), do: ""
 
@@ -179,13 +220,14 @@ defmodule Ankole.AIGateway.CompactionRender do
   def truncate_text(text, cap_tokens)
       when is_binary(text) and is_integer(cap_tokens) and cap_tokens > 0 do
     cap_chars = cap_tokens * 4
+    text_length = String.length(text)
 
-    if String.length(text) <= cap_chars do
+    if text_length <= cap_chars do
       text
     else
       keep_head = floor(cap_chars * @head_ratio)
       keep_tail = max(cap_chars - keep_head, 0)
-      removed_chars = max(String.length(text) - keep_head - keep_tail, 0)
+      removed_chars = max(text_length - keep_head - keep_tail, 0)
       removed = text |> String.slice(keep_head, removed_chars) |> approx_tokens()
 
       String.slice(text, 0, keep_head) <>
@@ -213,31 +255,53 @@ defmodule Ankole.AIGateway.CompactionRender do
   defp apply_budget(blocks, nil), do: Enum.map(blocks, & &1.text)
 
   defp apply_budget(blocks, budget_tokens) when is_integer(budget_tokens) and budget_tokens > 0 do
-    if approx_tokens(render_blocks(blocks, MapSet.new())) <= budget_tokens do
+    rendered_bytes = joined_bytes(blocks)
+
+    if approx_tokens_for_bytes(rendered_bytes) <= budget_tokens do
       Enum.map(blocks, & &1.text)
     else
       blocks
       |> Enum.reject(& &1.protected?)
-      |> Enum.reduce_while(MapSet.new(), fn block, omitted ->
-        omitted = MapSet.put(omitted, block.index)
-        rendered = render_blocks(blocks, omitted)
+      |> Enum.reduce_while({MapSet.new(), rendered_bytes, nil, 0}, fn block, omission_state ->
+        omission_state = omit_block(block, omission_state)
+        {_omitted, bytes, _last_index, _run_count} = omission_state
 
-        if approx_tokens(rendered) <= budget_tokens do
-          {:halt, omitted}
+        if approx_tokens_for_bytes(bytes) <= budget_tokens do
+          {:halt, omission_state}
         else
-          {:cont, omitted}
+          {:cont, omission_state}
         end
       end)
-      |> then(&final_blocks(blocks, &1))
+      |> then(fn {omitted, _bytes, _last_index, _run_count} -> final_blocks(blocks, omitted) end)
     end
   end
 
   defp apply_budget(blocks, _budget_tokens), do: Enum.map(blocks, & &1.text)
 
-  defp render_blocks(blocks, omitted) do
-    blocks
-    |> final_blocks(omitted)
-    |> Enum.join("\n")
+  defp joined_bytes([]), do: 0
+
+  defp joined_bytes(blocks) do
+    Enum.reduce(blocks, -1, fn block, bytes -> bytes + block.bytes + 1 end)
+  end
+
+  defp approx_tokens_for_bytes(0), do: 0
+  defp approx_tokens_for_bytes(bytes), do: max(div(bytes, 4), 1)
+
+  defp omit_block(block, {omitted, bytes, last_index, run_count}) do
+    omitted = MapSet.put(omitted, block.index)
+
+    if last_index == block.index - 1 do
+      next_run_count = run_count + 1
+
+      bytes =
+        bytes - block.bytes - 1 - byte_size(elision_text(run_count)) +
+          byte_size(elision_text(next_run_count))
+
+      {omitted, bytes, block.index, next_run_count}
+    else
+      bytes = bytes - block.bytes + byte_size(elision_text(1))
+      {omitted, bytes, block.index, 1}
+    end
   end
 
   defp final_blocks(blocks, omitted) do
@@ -257,12 +321,12 @@ defmodule Ankole.AIGateway.CompactionRender do
   end
 
   defp flush_elision(parts, 0), do: parts
-  defp flush_elision(parts, count), do: ["...[#{count} older items elided]..." | parts]
+  defp flush_elision(parts, count), do: [elision_text(count) | parts]
 
-  defp protected_item?(item, index, total) do
-    latest_start = total - ceil(total / 4) + 1
-    index >= latest_start or user_message_item?(item)
-  end
+  defp elision_text(count), do: "...[#{count} older items elided]..."
+
+  defp protected_item?(item, index, latest_start),
+    do: index >= latest_start or user_message_item?(item)
 
   defp user_message_item?(%{"role" => "user", "type" => type}) when type in [nil, "message"],
     do: true
@@ -274,22 +338,36 @@ defmodule Ankole.AIGateway.CompactionRender do
 
   defp cap(caps, key), do: Map.get(caps, key) || Map.get(caps, Atom.to_string(key))
 
-  defp call_refs(items) do
-    Enum.reduce(items, %{}, fn item, refs ->
-      case item do
-        %{"call_id" => call_id} when is_binary(call_id) and call_id != "" ->
-          Map.put_new_lazy(refs, call_id, fn -> "call_#{map_size(refs) + 1}" end)
+  defp paired_item_text(item, opts, role) do
+    caps = Keyword.get(opts, :caps, @item_caps_tokens)
+    call_ref = Keyword.get(opts, :call_ref) || "(none)"
+    cap_key = if role == :call, do: :function_call_arguments, else: :function_call_output
 
-        _item ->
-          refs
-      end
-    end)
+    payload =
+      item
+      |> Map.drop([
+        "type",
+        "id",
+        "call_id",
+        "approval_request_id",
+        "caller",
+        "status"
+      ])
+      |> stringify()
+      |> truncate_text(cap(caps, cap_key))
+
+    "#{item["type"]} call_ref=#{call_ref} payload=#{payload}"
   end
 
-  defp call_ref(%{"call_id" => call_id}, refs) when is_binary(call_id),
-    do: Map.get(refs, call_id)
+  defp call_refs(pair_keys) do
+    Enum.reduce(pair_keys, %{}, fn
+      nil, refs ->
+        refs
 
-  defp call_ref(_item, _refs), do: nil
+      pair_key, refs ->
+        Map.put_new_lazy(refs, pair_key, fn -> "call_#{map_size(refs) + 1}" end)
+    end)
+  end
 
   defp reasoning_texts(items) when is_list(items) do
     Enum.flat_map(items, fn

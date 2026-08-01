@@ -770,7 +770,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert "image" in input_modalities
   end
 
-  test "turn start specs declare image generation only while the agent profile resolves" do
+  test "turn start specs declare image generation when the primary or fallback route supports it" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
@@ -826,6 +826,24 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
     refute Map.has_key?(turn_start_spec, :hosted_tools)
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-turn-native-image",
+               provider_kind: "openai",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openai-turn-native-image",
+               model: "gpt-5"
+             })
+
+    assert {:ok, turn_start_spec} = TurnPolicy.build_turn_start_spec(actor_key)
+    assert turn_start_spec.hosted_tools == [%{"type" => "image_generation"}]
   end
 
   test "turn start specs include scoped agent runtime policy without creating a default output cap" do

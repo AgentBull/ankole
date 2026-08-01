@@ -42,10 +42,12 @@ interface JSONRPCRequest {
 function handleMessage(message: JSONRPCRequest): void {
   if (message.id === undefined) return
   if (message.method === 'initialize') {
+    const responseBytes = Number(process.env.MCP_STDIO_RESPONSE_BYTES ?? 0)
     send(message.id, {
       protocolVersion: '2025-06-18',
       capabilities: { tools: {} },
       serverInfo: { name: 'ankole-test-stdio', version: '1.0.0' },
+      ...(responseBytes > 0 ? { oversized: 'x'.repeat(responseBytes) } : {}),
       ...(parityFixtureEnabled() ? { instructions: 'Use the parity market data catalog.' } : {})
     })
     return
@@ -105,6 +107,11 @@ function parityTools(): Array<Record<string, unknown>> {
         required: ['security_id'],
         examples: [{ security_id: '600519' }],
         $defs: { unused: { type: 'string' } }
+      },
+      outputSchema: {
+        type: 'object',
+        properties: { price: { type: 'number' } },
+        required: ['price']
       },
       annotations: { readOnlyHint: true }
     },

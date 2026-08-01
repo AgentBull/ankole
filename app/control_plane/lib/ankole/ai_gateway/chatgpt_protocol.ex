@@ -44,6 +44,16 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
       get_in(request, ["client_metadata", @lite_metadata_key]) == "true"
   end
 
+  @doc false
+  @spec codex_client?(map()) :: boolean()
+  def codex_client?(%{"headers" => headers}) when is_map(headers) do
+    Map.get(headers, "originator") == "codex_cli_rs" or
+      codex_user_agent?(Map.get(headers, "user-agent")) or
+      Map.get(headers, "x-openai-internal-codex-responses-lite") == "true"
+  end
+
+  def codex_client?(_request_context), do: false
+
   defp reject_store(%{"store" => true}), do: {:error, :chatgpt_subscription_store_forbidden}
   defp reject_store(_request), do: :ok
 
@@ -112,6 +122,11 @@ defmodule Ankole.AIGateway.ChatGPTProtocol do
       _tools -> Map.delete(request, "parallel_tool_calls")
     end
   end
+
+  defp codex_user_agent?(user_agent) when is_binary(user_agent),
+    do: String.starts_with?(user_agent, "codex_cli_rs/")
+
+  defp codex_user_agent?(_user_agent), do: false
 
   defp restore_standard_request(request) do
     input = Map.get(request, "input", [])

@@ -33,7 +33,7 @@ const enabledTools = [
 const disabledTools = ['denied-raw']
 
 describe('@ankole/agent-computer MCP Codex parity contract', () => {
-  it('projects the exact Codex 0.146 model-visible MCP surface', async () => {
+  it('matches the Codex 0.146 core MCP surface and preserves main-agent output schemas', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-mcp-codex-parity-'))
     const workspace = join(root, 'workspace')
     const codexHome = join(root, 'codex-home')
@@ -90,10 +90,19 @@ describe('@ankole/agent-computer MCP Codex parity contract', () => {
           toolSearchSurface(requests[1]!, 'mcp-parity-search-quote')
         ])
       )
+      expect(
+        namespaceTool(mainRequest as unknown as JSONObject, 'mcp__basic_server', 'tool_two_three')?.output_schema
+      ).toEqual({
+        type: 'object',
+        properties: { price: { type: 'number' } },
+        required: ['price']
+      })
       expect(toolTypes(mainRequest as unknown as JSONObject)).toContain('tool_search')
       expect(toolTypes(requests[0]!)).toContain('tool_search')
       expect(toolTypes(mainRequest as unknown as JSONObject)).toContain('programmatic_tool_calling')
-      expect(mainTools.every(tool => tool.allowedCallers?.includes('programmatic'))).toBe(true)
+      expect(mainTools.filter(tool => tool.allowedCallers?.includes('programmatic')).map(tool => tool.name)).toEqual([
+        'tool_two_three'
+      ])
       expect(
         mergeNamespaceSurfaces([
           toolSearchSurface(requests[1]!, 'mcp-parity-search-tools'),
@@ -254,6 +263,7 @@ function agentToolSet(tools: AgentTool[]): ToolSet {
         description: tool.description,
         parameters: tool.schema as z.ZodType,
         jsonSchema: tool.jsonSchema,
+        outputSchema: tool.outputSchema,
         namespace: tool.namespace,
         namespaceDescription: tool.namespaceDescription,
         deferLoading: tool.deferLoading,
@@ -319,6 +329,15 @@ function namespaceSurface(tools: unknown[]): MCPNamespaceSurface[] {
         .sort((left, right) => left.name.localeCompare(right.name))
     }))
     .sort((left, right) => left.name.localeCompare(right.name))
+}
+
+function namespaceTool(request: JSONObject, namespaceName: string, toolName: string): JSONObject | undefined {
+  const namespace = (Array.isArray(request.tools) ? request.tools : [])
+    .filter(isRecord)
+    .find(tool => tool.type === 'namespace' && tool.name === namespaceName)
+  return (namespace && Array.isArray(namespace.tools) ? namespace.tools : [])
+    .filter(isRecord)
+    .find(tool => tool.name === toolName)
 }
 
 function mergeNamespaceSurfaces(surfaces: MCPNamespaceSurface[][]): MCPNamespaceSurface[] {

@@ -40,8 +40,8 @@ export function parseOutputItems(
   errorMessage?: string,
   fallbackToolCalls: ResponseToolCall[] = []
 ): ModelCallResult {
-  const observedToolCalls: ResponseToolCall[] = [...fallbackToolCalls]
-  const seenToolCallIDs = new Set(observedToolCalls.map(responseToolCallKey).filter(Boolean))
+  const observedToolCalls: ResponseToolCall[] = []
+  const terminalToolCallKeys = new Set<string>()
   const textParts: string[] = []
 
   for (const item of output) {
@@ -63,11 +63,20 @@ export function parseOutputItems(
         // check below to turn the response into an error. Silently dropping
         // one here could make a malformed provider terminal look successful.
         observedToolCalls.push(call)
-      } else if (!seenToolCallIDs.has(id)) {
+      } else if (!terminalToolCallKeys.has(id)) {
         observedToolCalls.push(call)
-        seenToolCallIDs.add(id)
+        terminalToolCallKeys.add(id)
       }
     }
+  }
+
+  // A terminal Response is authoritative. Streamed done items are only a
+  // fallback for gateways that omit complete calls from terminal `output`.
+  // This prevents an older valid fragment from hiding a failed, malformed,
+  // or otherwise changed terminal call with the same caller-scoped identity.
+  for (const call of fallbackToolCalls) {
+    const id = responseToolCallKey(call)
+    if (!id || !terminalToolCallKeys.has(id)) observedToolCalls.push(call)
   }
 
   const incompleteToolCall = observedToolCalls.some(call => !completedToolCall(call))
@@ -83,7 +92,7 @@ export function parseOutputItems(
     toolCalls:
       toolCalls.length > 0
         ? toolCalls.map(call => ({
-            id: responseToolCallKey(call) || '',
+            id: responseToolCallID(call) || '',
             type: call.type === 'custom_tool_call' ? ('custom' as const) : ('function' as const),
             name: call.name,
             ...(call.namespace ? { namespace: call.namespace } : {}),
@@ -100,15 +109,24 @@ export function parseOutputItems(
   return { message, toolCalls, hasToolCalls: toolCalls.length > 0 }
 }
 
-function responseTerminalProjection(response: OpenAIResponse): { status?: StopReason; errorMessage?: string } {
+function responseTerminalProjection(response: OpenAIResponse): {
+  status?: StopReason
+  errorMessage?: string
+} {
   if (response.status === 'failed') {
-    return { status: 'error', errorMessage: terminalErrorMessage(response as unknown as JSONObject, {}) }
+    return {
+      status: 'error',
+      errorMessage: terminalErrorMessage(response as unknown as JSONObject, {})
+    }
   }
 
   if (response.status === 'incomplete') {
     const reason = stringValue(recordValue(response.incomplete_details)?.reason)
     if (reason === 'max_output_tokens') return { status: 'length' }
-    return { status: 'error', errorMessage: `LLM response incomplete reason=${reason || 'unknown'}` }
+    return {
+      status: 'error',
+      errorMessage: `LLM response incomplete reason=${reason || 'unknown'}`
+    }
   }
 
   return {}
@@ -123,7 +141,21 @@ function completedToolCall(call: ResponseToolCall): boolean {
     value.call_id.length > 0 &&
     typeof value.name === 'string' &&
     value.name.length > 0 &&
+    validToolCaller(value.caller) &&
     (call.type === 'custom_tool_call' ? typeof value.input === 'string' : typeof value.arguments === 'string')
+  )
+}
+
+function validToolCaller(value: unknown): boolean {
+  if (value === undefined || value === null) return true
+  const caller = recordValue(value)
+  if (!caller) return false
+  if (caller.type === 'direct') return Object.keys(caller).length === 1
+  return (
+    caller.type === 'program' &&
+    typeof caller.caller_id === 'string' &&
+    caller.caller_id.length > 0 &&
+    Object.keys(caller).length === 2
   )
 }
 
@@ -135,6 +167,22 @@ export function rememberToolCall(calls: Map<string, ResponseToolCall>, item: JSO
 }
 
 export function responseToolCallKey(
+  call: Pick<ResponseFunctionToolCall | ResponseCustomToolCall, 'call_id' | 'id'>
+): string | undefined {
+  const id = responseToolCallID(call)
+  if (!id) return undefined
+
+  const value = call as unknown as JSONObject
+  const caller = recordValue(value.caller)
+  const scope =
+    caller?.type === 'program' && typeof caller.caller_id === 'string' && caller.caller_id.length > 0
+      ? `program:${caller.caller_id}`
+      : 'direct'
+
+  return `${scope}\0${id}`
+}
+
+function responseToolCallID(
   call: Pick<ResponseFunctionToolCall | ResponseCustomToolCall, 'call_id' | 'id'>
 ): string | undefined {
   return call.call_id || call.id

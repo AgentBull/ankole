@@ -85,6 +85,98 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     assert artifact.expires_at
   end
 
+  test "suppresses delayed image completion when the matching done item exceeds the tool budget" do
+    agent = agent_fixture()
+
+    for added? <- [true, false], budget <- [:zero, :full] do
+      limit = if budget == :zero, do: 0, else: 1
+
+      state =
+        ResponseStreamState.new(
+          agent.principal.uid,
+          %{"max_tool_calls" => limit},
+          %{"api_resolver" => :openai_chat_completions}
+        )
+
+      {state, image_output_index} =
+        if budget == :full do
+          prior = %{
+            "type" => "response.output_item.done",
+            "sequence_number" => 0,
+            "output_index" => 0,
+            "item" => %{
+              "id" => "ws_#{UUIDv7.autogenerate()}",
+              "type" => "web_search_call",
+              "status" => "completed"
+            }
+          }
+
+          assert {:ok, state, [^prior], :continue} =
+                   ResponseStreamState.observe(state, prior, 0)
+
+          {state, 1}
+        else
+          {state, 0}
+        end
+
+      image_id = "ig_#{UUIDv7.autogenerate()}"
+
+      state =
+        if added? do
+          added = %{
+            "type" => "response.output_item.added",
+            "sequence_number" => 1,
+            "output_index" => image_output_index,
+            "item" => %{
+              "id" => image_id,
+              "type" => "image_generation_call",
+              "status" => "in_progress"
+            }
+          }
+
+          assert {:ok, state, [], :continue} =
+                   ResponseStreamState.observe(state, added, 1)
+
+          state
+        else
+          state
+        end
+
+      completed = %{
+        "type" => "response.image_generation_call.completed",
+        "sequence_number" => 2,
+        "item_id" => image_id,
+        "output_index" => image_output_index
+      }
+
+      done = %{
+        "type" => "response.output_item.done",
+        "sequence_number" => 3,
+        "output_index" => image_output_index,
+        "item" => %{
+          "id" => image_id,
+          "type" => "image_generation_call",
+          "status" => "completed",
+          "result" => @png_base64
+        }
+      }
+
+      assert {:ok, state, [], :continue} =
+               ResponseStreamState.observe(state, completed, 2)
+
+      assert {:ok, state, [], :continue} =
+               ResponseStreamState.observe(state, done, 3)
+
+      details = Ankole.AIGateway.MaxToolCalls.details(state.max_tool_calls)
+      assert details["observed"] == if(budget == :full, do: 1, else: 0)
+      assert details["overshoot"] == 0
+
+      refute Enum.any?(ResponseStreamState.outcome(state).public_items, fn item ->
+               item["id"] == image_id
+             end)
+    end
+  end
+
   test "never releases a terminal response while completed image bytes are missing" do
     agent = agent_fixture()
     image_id = "ig_#{UUIDv7.autogenerate()}"

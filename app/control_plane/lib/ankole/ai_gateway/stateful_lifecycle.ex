@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.RequestContext
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
   alias Ankole.AIGateway.UniversalAIRequest
@@ -32,10 +33,22 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   )
 
   @tool_result_record_db_retry_delays_ms [50, 100, 200, 400, 800, 1_600]
-  @tool_call_output_types %{
-    "function_call" => "function_call_output",
-    "custom_tool_call" => "custom_tool_call_output"
-  }
+  @provider_replay_id_required_types ~w(
+    code_interpreter_call
+    computer_call
+    file_search_call
+    image_generation_call
+    item_reference
+    local_shell_call
+    local_shell_call_output
+    mcp_approval_request
+    mcp_call
+    mcp_list_tools
+    program
+    program_output
+    reasoning
+    web_search_call
+  )
 
   # Stateful history replays as Responses items. Only these wires translate
   # bare client tool calls and outputs faithfully. Other wires cannot preserve
@@ -478,25 +491,22 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp recover_interrupted_tool_calls(history, current_input, _automatic_anchor) do
     history_items = Enum.flat_map(history, &message_content_items/1)
-    output_call_ids = paired_tool_call_output_ids(history_items ++ current_input)
+    output_pair_keys = paired_tool_call_output_keys(history_items ++ current_input)
 
-    interrupted_calls =
-      history_items
-      |> Enum.reduce([], fn
-        %{"type" => type, "call_id" => call_id} = item, acc
-        when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
-               call_id != "" ->
-          if not executable_tool_call_item?(item) or
-               MapSet.member?(output_call_ids, call_id) or
-               Enum.any?(acc, &(&1["call_id"] == call_id)) do
-            acc
-          else
-            acc ++ [item]
-          end
+    {interrupted_calls_rev, _seen_pairs} =
+      Enum.reduce(history_items, {[], MapSet.new()}, fn item, {calls, seen_pairs} ->
+        pair_key = ResponseItems.pair_key(item)
 
-        _item, acc ->
-          acc
+        if not recoverable_direct_tool_call?(item) or
+             MapSet.member?(output_pair_keys, pair_key) or
+             MapSet.member?(seen_pairs, pair_key) do
+          {calls, seen_pairs}
+        else
+          {[item | calls], MapSet.put(seen_pairs, pair_key)}
+        end
       end)
+
+    interrupted_calls = Enum.reverse(interrupted_calls_rev)
 
     recovered_outputs = Enum.map(interrupted_calls, &interrupted_tool_output/1)
     {recovered_outputs ++ current_input, Enum.map(interrupted_calls, & &1["call_id"])}
@@ -505,36 +515,34 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp message_content_items(%Message{content: content}) when is_list(content), do: content
   defp message_content_items(_message), do: []
 
-  defp paired_tool_call_output_ids(items) do
+  defp paired_tool_call_output_keys(items) do
     {_calls, outputs} =
       Enum.reduce(items, {%{}, MapSet.new()}, fn
-        %{"type" => type, "call_id" => call_id} = item, {calls, outputs}
-        when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
-               call_id != "" ->
-          if executable_tool_call_item?(item) do
-            call = %{
-              name: Map.get(item, "name"),
-              output_type: Map.get(@tool_call_output_types, type)
-            }
+        item, {calls, outputs} = acc ->
+          cond do
+            ResponseItems.client_call_item?(item) ->
+              case ResponseItems.pair_key(item) do
+                nil -> acc
+                pair_key -> {Map.put(calls, pair_key, item), outputs}
+              end
 
-            {Map.put(calls, call_id, call), outputs}
-          else
-            {calls, outputs}
+            ResponseItems.client_output_item?(item) ->
+              pair_key = ResponseItems.pair_key(item)
+
+              case Map.get(calls, pair_key) do
+                nil ->
+                  acc
+
+                call ->
+                  case ResponseItems.validate_client_call_output(call, item) do
+                    :ok -> {calls, MapSet.put(outputs, pair_key)}
+                    {:error, _reason} -> acc
+                  end
+              end
+
+            true ->
+              acc
           end
-
-        %{"type" => type, "call_id" => call_id} = item, {calls, outputs}
-        when type in ["function_call_output", "custom_tool_call_output"] and
-               is_binary(call_id) and call_id != "" ->
-          if Map.has_key?(calls, call_id) and
-               tool_result_type_matches?(item, calls[call_id]) and
-               not tool_result_name_mismatch?(item, calls[call_id].name) do
-            {calls, MapSet.put(outputs, call_id)}
-          else
-            {calls, outputs}
-          end
-
-        _item, acc ->
-          acc
       end)
 
     outputs
@@ -545,104 +553,105 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   # only the first output for that call is replayed. Legacy orphan/duplicate
   # rows therefore cannot keep poisoning every later continuation.
   defp canonical_tool_result_projection(items) do
-    {projected, _calls, _output_ids, quarantine} =
-      Enum.reduce(items, {[], %{}, MapSet.new(), %{}}, fn
-        %{"type" => type} = item, {projected, calls, output_ids, quarantine}
-        when type in ["function_call", "custom_tool_call"] ->
-          call_id = Map.get(item, "call_id")
-
+    {projected, _ledger, _projected_pairs, quarantine} =
+      Enum.reduce(items, {[], ResponseItems.new(), MapSet.new(), %{}}, fn
+        item, {projected, ledger, projected_pairs, quarantine} ->
           cond do
-            executable_tool_call_item?(item) ->
-              call = %{
-                executable?: true,
-                name: Map.get(item, "name"),
-                output_type: Map.get(@tool_call_output_types, type)
-              }
+            ResponseItems.call_item?(item) ->
+              project_call_item(item, projected, ledger, projected_pairs, quarantine)
 
-              {[item | projected], Map.put(calls, call_id, call), output_ids, quarantine}
-
-            is_binary(call_id) and call_id != "" ->
-              call = %{
-                executable?: false,
-                name: Map.get(item, "name"),
-                output_type: Map.get(@tool_call_output_types, type)
-              }
-
-              {projected, Map.put(calls, call_id, call), output_ids,
-               append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
+            ResponseItems.output_item?(item) ->
+              project_output_item(item, projected, ledger, projected_pairs, quarantine)
 
             true ->
-              {projected, calls, output_ids,
-               increment_quarantine_count(quarantine, "invalid_tool_call_count")}
+              {[item | projected], ledger, projected_pairs, quarantine}
           end
-
-        %{"type" => type} = item, {projected, calls, output_ids, quarantine}
-        when type in ["function_call_output", "custom_tool_call_output"] ->
-          call_id = Map.get(item, "call_id")
-
-          cond do
-            not is_binary(call_id) or call_id == "" ->
-              {projected, calls, output_ids,
-               increment_quarantine_count(quarantine, "invalid_call_id_count")}
-
-            not Map.has_key?(calls, call_id) ->
-              {projected, calls, output_ids,
-               append_quarantine_id(quarantine, "orphan_call_ids", call_id)}
-
-            not calls[call_id].executable? ->
-              {projected, calls, output_ids,
-               append_quarantine_id(quarantine, "non_executable_call_ids", call_id)}
-
-            not tool_result_type_matches?(item, calls[call_id]) ->
-              {projected, calls, output_ids,
-               append_quarantine_id(quarantine, "type_mismatch_call_ids", call_id)}
-
-            tool_result_name_mismatch?(item, calls[call_id].name) ->
-              {projected, calls, output_ids,
-               append_quarantine_id(quarantine, "name_mismatch_call_ids", call_id)}
-
-            MapSet.member?(output_ids, call_id) ->
-              {projected, calls, output_ids,
-               append_quarantine_id(quarantine, "duplicate_call_ids", call_id)}
-
-            true ->
-              {[item | projected], calls, MapSet.put(output_ids, call_id), quarantine}
-          end
-
-        item, {projected, calls, output_ids, quarantine} ->
-          {[item | projected], calls, output_ids, quarantine}
       end)
 
-    {Enum.reverse(projected), quarantine}
+    {Enum.reverse(projected), finalize_quarantine(quarantine)}
   end
 
-  defp executable_tool_call_item?(%{"type" => "function_call"} = item) do
-    Map.get(item, "status") in [nil, "completed"] and
-      is_binary(Map.get(item, "call_id")) and Map.get(item, "call_id") != "" and
-      is_binary(Map.get(item, "name")) and Map.get(item, "name") != "" and
-      is_binary(Map.get(item, "arguments"))
+  defp project_call_item(item, projected, ledger, projected_pairs, quarantine) do
+    case ResponseItems.reduce_with_key(ledger, item) do
+      {:ok, ledger, :inserted, pair_key} ->
+        if ResponseItems.executable_in_ledger?(ledger, item) do
+          {[item | projected], ledger, MapSet.put(projected_pairs, pair_key), quarantine}
+        else
+          {projected, ledger, projected_pairs, quarantine_non_executable_call(quarantine, item)}
+        end
+
+      {:ok, ledger, :duplicate, _pair_key} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "duplicate_call_ids", item)}
+
+      {:error, _reason} ->
+        {projected, ledger, projected_pairs,
+         increment_quarantine_count(quarantine, "invalid_tool_call_count")}
+    end
   end
 
-  defp executable_tool_call_item?(%{"type" => "custom_tool_call"} = item) do
-    Map.get(item, "status") in [nil, "completed"] and
-      is_binary(Map.get(item, "call_id")) and Map.get(item, "call_id") != "" and
-      is_binary(Map.get(item, "name")) and Map.get(item, "name") != "" and
-      is_binary(Map.get(item, "input"))
+  defp project_output_item(item, projected, ledger, projected_pairs, quarantine) do
+    case ResponseItems.reduce_with_key(ledger, item) do
+      {:ok, ledger, :inserted, pair_key} ->
+        case ResponseItems.call_for_pair(ledger, pair_key) do
+          nil ->
+            {projected, ledger, projected_pairs,
+             quarantine_pair_id(quarantine, "orphan_call_ids", item)}
+
+          call ->
+            if MapSet.member?(projected_pairs, pair_key) and
+                 ResponseItems.executable_in_ledger?(ledger, call) do
+              {[item | projected], ledger, projected_pairs, quarantine}
+            else
+              {projected, ledger, projected_pairs,
+               quarantine_pair_id(quarantine, "non_executable_call_ids", item)}
+            end
+        end
+
+      {:ok, ledger, :duplicate, _pair_key} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "duplicate_call_ids", item)}
+
+      {:error, {:orphan_call_output, _pair_key, _type}} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "orphan_call_ids", item)}
+
+      {:error, :orphan_server_tool_search_output} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "orphan_call_ids", item)}
+
+      {:error, {:mismatched_call_output, _pair_key, _expected_type}} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "type_mismatch_call_ids", item)}
+
+      {:error, {:mismatched_call_output_name, _pair_key}} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "name_mismatch_call_ids", item)}
+
+      {:error, {:conflicting_output_pair, _pair_key, _existing_type, _received_type}} ->
+        {projected, ledger, projected_pairs,
+         quarantine_pair_id(quarantine, "duplicate_call_ids", item)}
+
+      {:error, _reason} ->
+        {projected, ledger, projected_pairs,
+         increment_quarantine_count(quarantine, "invalid_call_id_count")}
+    end
   end
 
-  defp executable_tool_call_item?(_item), do: false
-
-  defp tool_result_type_matches?(item, call),
-    do: Map.get(item, "type") == Map.get(call, :output_type)
-
-  defp tool_result_name_mismatch?(item, call_name) do
-    output_name = Map.get(item, "name")
-    is_binary(output_name) and is_binary(call_name) and output_name != call_name
+  defp recoverable_direct_tool_call?(item) do
+    ResponseItems.client_call_item?(item) and
+      ResponseItems.executable_call?(item) and
+      match?({:call, :direct, _call_id}, ResponseItems.pair_key(item))
   end
 
   defp append_quarantine_id(quarantine, key, call_id) do
-    Map.update(quarantine, key, [call_id], fn call_ids ->
-      if call_id in call_ids, do: call_ids, else: call_ids ++ [call_id]
+    Map.update(quarantine, key, MapSet.new([call_id]), &MapSet.put(&1, call_id))
+  end
+
+  defp finalize_quarantine(quarantine) do
+    Map.new(quarantine, fn
+      {key, %MapSet{} = call_ids} -> {key, call_ids |> Enum.to_list() |> Enum.sort()}
+      entry -> entry
     end)
   end
 
@@ -650,9 +659,32 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     Map.update(quarantine, key, 1, &(&1 + 1))
   end
 
+  defp quarantine_non_executable_call(quarantine, item) do
+    case pair_reference(item) do
+      nil -> increment_quarantine_count(quarantine, "invalid_tool_call_count")
+      pair_id -> append_quarantine_id(quarantine, "non_executable_call_ids", pair_id)
+    end
+  end
+
+  defp quarantine_pair_id(quarantine, key, item) do
+    case pair_reference(item) do
+      nil -> increment_quarantine_count(quarantine, "invalid_call_id_count")
+      pair_id -> append_quarantine_id(quarantine, key, pair_id)
+    end
+  end
+
+  defp pair_reference(item) do
+    Enum.find_value(["call_id", "provider_call_id", "id"], fn key ->
+      case Map.get(item, key) do
+        value when is_binary(value) and value != "" -> value
+        _missing -> nil
+      end
+    end)
+  end
+
   defp interrupted_tool_output(%{"type" => type, "call_id" => call_id}) do
     %{
-      "type" => Map.fetch!(@tool_call_output_types, type),
+      "type" => ResponseItems.client_expected_output_type(type),
       "call_id" => call_id,
       "output" =>
         Ankole.JSON.encode!(%{
@@ -775,21 +807,27 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   # The message log stores durable Response items directly. Do not re-derive
   # history from the legacy row-level role hint. Provider-facing replay strips
-  # opaque upstream item ids because this gateway uses store=false upstream and
-  # owns continuation through its local `resp_*` chain.
+  # optional opaque item ids because this gateway uses store=false upstream and
+  # owns continuation through its local `resp_*` chain. Responses input items
+  # whose wire contract requires an id must keep it.
   defp messages_to_response_items(subject_uid, messages, input_modalities) do
     supports_image? = "image" in input_modalities
 
-    Enum.reduce_while(messages, {:ok, []}, fn message, {:ok, acc} ->
+    messages
+    |> Enum.reduce_while({:ok, []}, fn message, {:ok, chunks} ->
       case message_response_items(subject_uid, message) do
         {:ok, items} ->
           replay_items = Enum.map(items, &provider_replay_item(&1, supports_image?))
-          {:cont, {:ok, acc ++ replay_items}}
+          {:cont, {:ok, [replay_items | chunks]}}
 
         {:error, _reason} = error ->
           {:halt, error}
       end
     end)
+    |> case do
+      {:ok, chunks} -> {:ok, chunks |> Enum.reverse() |> List.flatten()}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp message_response_items(subject_uid, %Message{type: "checkpoint"} = message),
@@ -800,8 +838,24 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp message_response_items(_subject_uid, _message), do: {:ok, []}
 
-  defp provider_replay_item(%{"type" => "image_generation_call"} = item, _supports_image?),
-    do: item
+  defp provider_replay_item(%{"id" => id} = item, _supports_image?)
+       when is_binary(id) and id != "" and map_size(item) == 1,
+       do: Map.put(item, "type", "item_reference")
+
+  defp provider_replay_item(%{"id" => id, "type" => nil} = item, _supports_image?)
+       when is_binary(id) and id != "" and map_size(item) == 2,
+       do: Map.put(item, "type", "item_reference")
+
+  defp provider_replay_item(
+         %{"type" => "message", "role" => "assistant", "status" => status, "id" => id} = item,
+         _supports_image?
+       )
+       when status in ["in_progress", "completed", "incomplete"] and is_binary(id) and id != "",
+       do: item
+
+  defp provider_replay_item(%{"type" => type} = item, _supports_image?)
+       when type in @provider_replay_id_required_types,
+       do: item
 
   defp provider_replay_item(%{} = item, true), do: Map.delete(item, "id")
 
@@ -901,17 +955,20 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   defp response_content(%Message{content: content}) when is_list(content), do: content
   defp response_content(_message), do: []
 
-  defp input_item?(%{"type" => type})
-       when type in ["function_call_output", "custom_tool_call_output"],
-       do: true
-
-  defp input_item?(%{"type" => "message", "role" => role}) when role in @input_message_roles,
-    do: true
-
-  defp input_item?(%{"role" => role}) when role in @input_message_roles,
-    do: true
+  defp input_item?(item) when is_map(item) do
+    ResponseItems.client_output_item?(item) or input_message_item?(item)
+  end
 
   defp input_item?(_item), do: false
+
+  defp input_message_item?(%{"type" => "message", "role" => role})
+       when role in @input_message_roles,
+       do: true
+
+  defp input_message_item?(%{"role" => role}) when role in @input_message_roles,
+    do: true
+
+  defp input_message_item?(_item), do: false
 
   defp output_item?(item), do: not input_item?(item)
 

@@ -130,10 +130,22 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
 /// the JSON boundary keeps the NIF layer free of program semantics.
 #[cfg(feature = "program_runner")]
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn program_run_nif(request: Term<'_>) -> NIFResult<String> {
+pub fn program_run_nif(run_id: Term<'_>, request: Term<'_>) -> NIFResult<String> {
+    let run_id = decode_string(run_id, "run_id")?;
     let request = decode_string(request, "request")?;
 
-    crate::program_runner::run_json(&request).map_err(error_message)
+    crate::program_runner::run_json(&run_id, &request).map_err(error_message)
+}
+
+/// Cancels a native program even when DirtyCpu schedulers are occupied by V8.
+///
+/// The registry lookup and V8 thread-safe termination signal are bounded, so
+/// keeping this on a normal scheduler is both safe and required for liveness.
+#[cfg(feature = "program_runner")]
+#[rustler::nif]
+pub fn program_cancel_nif(run_id: Term<'_>) -> NIFResult<bool> {
+    let run_id = decode_string(run_id, "run_id")?;
+    crate::program_runner::cancel(&run_id).map_err(error_message)
 }
 
 /// Authorizes one exact action on one concrete resource from an encoded snapshot.

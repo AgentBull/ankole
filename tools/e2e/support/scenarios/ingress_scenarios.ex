@@ -528,7 +528,16 @@ defmodule Ankole.E2E.Scenarios.Ingress do
              )
 
     assert_actor_event_finished!(command_event.id)
-    refute Repo.get_by(OutboxEntry, source_actor_event_id: command_event.id)
+
+    delete_outbox =
+      Repo.get_by!(OutboxEntry,
+        source_actor_event_id: command_event.id,
+        operation: :delete
+      )
+
+    assert delete_outbox.status in [:created, :succeeded]
+    assert is_binary(delete_outbox.ai_message_id)
+    assert is_binary(delete_outbox.target_source_entry_id)
 
     retry_event = Repo.get!(ActorEvent, retry_event.id)
     assert retry_event.source_entry_id == "om_retry_1"
@@ -545,6 +554,18 @@ defmodule Ankole.E2E.Scenarios.Ingress do
 
     assert reply.text =~ "CHAOS_DIRECT_OK"
     assert_actor_event_completed!(retry_event.id)
+
+    assert Repo.get_by!(OutboxEntry,
+             agent_uid: delete_outbox.agent_uid,
+             binding_name: delete_outbox.binding_name,
+             outbound_key: delete_outbox.outbound_key
+           ).status == :succeeded
+
+    assert %{deleted: true} =
+             FakeFeishu.State.message(
+               fake_feishu.state,
+               delete_outbox.target_source_entry_id
+             )
 
     %{input: retry_event, reply: reply, message: message}
   end

@@ -13,9 +13,9 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   import Ankole.E2E.Scenarios.ScheduleAndTool,
     except: [
       run_checkback_tool_loop: 1,
-      run_checkback_fire: 1,
+      run_checkback_fire: 2,
       run_cron_tool_loop: 1,
-      run_cron_fire: 1
+      run_cron_fire: 2
     ]
 
   import Ankole.E2E.Scenarios.Skill

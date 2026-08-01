@@ -27,6 +27,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
@@ -36,10 +37,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   @orphaned_generating_grace_seconds 300
   @history_chain_max_depth 10_000
   @public_chain_max_depth 500
-  @tool_call_output_types %{
-    "function_call" => "function_call_output",
-    "custom_tool_call" => "custom_tool_call_output"
-  }
 
   # ───────────────────────────────────────────────────────────────
   # Public API
@@ -599,32 +596,34 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp reconcile_tool_result_items(%Message{} = anchor, request_items) do
     with {:ok, deduplicated_items} <- deduplicate_tool_result_items(request_items) do
       output_items = Enum.filter(deduplicated_items, &tool_call_output_item?/1)
-      output_call_ids = Enum.map(output_items, &Map.get(&1, "call_id"))
 
-      invalid_call_ids = Enum.filter(output_call_ids, &(not is_binary(&1) or &1 == ""))
-      anchor_calls = tool_calls_by_id(anchor.content)
-      executable_call_ids = executable_tool_call_ids(anchor_calls)
+      invalid_outputs = Enum.reject(output_items, &ResponseItems.valid_client_output?/1)
+      valid_outputs = output_items -- invalid_outputs
+      {anchor_calls, anchor_ledger} = tool_calls_by_pair(anchor.content)
+      executable_pair_keys = executable_tool_call_pair_keys(anchor_calls, anchor_ledger)
 
       orphan_call_ids =
-        output_call_ids
-        |> Enum.filter(&is_binary/1)
-        |> Enum.reject(&Map.has_key?(anchor_calls, &1))
+        valid_outputs
+        |> Enum.reject(&Map.has_key?(anchor_calls, ResponseItems.pair_key(&1)))
+        |> Enum.map(&Map.get(&1, "call_id"))
         |> Enum.uniq()
 
       non_executable_call_ids =
-        output_call_ids
-        |> Enum.filter(&is_binary/1)
+        valid_outputs
         |> Enum.filter(
-          &(Map.has_key?(anchor_calls, &1) and not MapSet.member?(executable_call_ids, &1))
+          &(Map.has_key?(anchor_calls, ResponseItems.pair_key(&1)) and
+              not MapSet.member?(executable_pair_keys, ResponseItems.pair_key(&1)))
         )
+        |> Enum.map(&Map.get(&1, "call_id"))
         |> Enum.uniq()
 
-      mismatched_output_types = mismatched_tool_result_types(output_items, anchor_calls)
-      mismatched_tool_names = mismatched_tool_result_names(output_items, anchor_calls)
+      mismatched_output_types = mismatched_tool_result_types(valid_outputs, anchor_calls)
+      mismatched_tool_names = mismatched_tool_result_names(valid_outputs, anchor_calls)
 
       cond do
-        invalid_call_ids != [] ->
-          {:quarantine, "invalid_call_id", %{"invalid_call_id_count" => length(invalid_call_ids)}}
+        invalid_outputs != [] ->
+          {:quarantine, "invalid_tool_call_output",
+           %{"invalid_output_count" => length(invalid_outputs)}}
 
         orphan_call_ids != [] ->
           {:quarantine, "orphan_tool_call_output", %{"orphan_call_ids" => orphan_call_ids}}
@@ -650,24 +649,25 @@ defmodule Ankole.AIGateway.StatefulResponses do
   defp deduplicate_tool_result_items(request_items) do
     request_items
     |> Enum.reduce_while({[], %{}}, fn
-      %{"type" => type, "call_id" => call_id} = item, {acc, seen}
-      when type in ["function_call_output", "custom_tool_call_output"] and
-             is_binary(call_id) and call_id != "" ->
-        case Map.fetch(seen, call_id) do
-          :error ->
-            {:cont, {[item | acc], Map.put(seen, call_id, item)}}
-
-          {:ok, ^item} ->
-            {:cont, {acc, seen}}
-
-          {:ok, _different_item} ->
-            {:halt,
-             {:quarantine, "conflicting_duplicate_tool_call_output",
-              %{"conflicting_call_ids" => [call_id]}}}
-        end
-
       item, {acc, seen} ->
-        {:cont, {[item | acc], seen}}
+        if ResponseItems.valid_client_output?(item) do
+          pair_key = ResponseItems.pair_key(item)
+
+          case Map.fetch(seen, pair_key) do
+            :error ->
+              {:cont, {[item | acc], Map.put(seen, pair_key, item)}}
+
+            {:ok, ^item} ->
+              {:cont, {acc, seen}}
+
+            {:ok, _different_item} ->
+              {:halt,
+               {:quarantine, "conflicting_duplicate_tool_call_output",
+                %{"conflicting_call_ids" => [Map.get(item, "call_id")]}}}
+          end
+        else
+          {:cont, {[item | acc], seen}}
+        end
     end)
     |> case do
       {items, _seen} -> {:ok, Enum.reverse(items)}
@@ -675,54 +675,48 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp tool_calls_by_id(items) when is_list(items) do
-    Map.new(items, fn
-      %{"type" => type, "call_id" => call_id} = item
-      when type in ["function_call", "custom_tool_call"] and is_binary(call_id) and
-             call_id != "" ->
-        {call_id, item}
+  defp tool_calls_by_pair(items) when is_list(items) do
+    Enum.reduce(items, {%{}, ResponseItems.new()}, fn item, {calls, ledger} = acc ->
+      if ResponseItems.call_item?(item) do
+        case ResponseItems.reduce_with_key(ledger, item) do
+          {:ok, ledger, _disposition, pair_key} ->
+            calls =
+              if ResponseItems.client_call_item?(item),
+                do: Map.put(calls, pair_key, item),
+                else: calls
 
-      _item ->
-        {nil, nil}
+            {calls, ledger}
+
+          {:error, _reason} ->
+            acc
+        end
+      else
+        acc
+      end
     end)
-    |> Map.delete(nil)
   end
 
-  defp tool_calls_by_id(_items), do: %{}
+  defp tool_calls_by_pair(_items), do: {%{}, ResponseItems.new()}
 
-  defp executable_tool_call_ids(anchor_calls) do
+  defp executable_tool_call_pair_keys(anchor_calls, anchor_ledger) do
     Enum.reduce(anchor_calls, MapSet.new(), fn
-      {call_id, call}, acc ->
-        if executable_tool_call?(call) do
-          MapSet.put(acc, call_id)
+      {pair_key, call}, acc ->
+        if ResponseItems.executable_in_ledger?(anchor_ledger, call) do
+          MapSet.put(acc, pair_key)
         else
           acc
         end
     end)
   end
 
-  defp executable_tool_call?(%{"type" => "function_call"} = call) do
-    Map.get(call, "status") in [nil, "completed"] and
-      is_binary(Map.get(call, "name")) and Map.get(call, "name") != "" and
-      is_binary(Map.get(call, "arguments"))
-  end
-
-  defp executable_tool_call?(%{"type" => "custom_tool_call"} = call) do
-    Map.get(call, "status") in [nil, "completed"] and
-      is_binary(Map.get(call, "name")) and Map.get(call, "name") != "" and
-      is_binary(Map.get(call, "input"))
-  end
-
-  defp executable_tool_call?(_call), do: false
-
   defp mismatched_tool_result_types(output_items, anchor_calls) do
     Enum.flat_map(output_items, fn item ->
       call_id = Map.get(item, "call_id")
-      call_type = get_in(anchor_calls, [call_id, "type"])
-      expected = Map.get(@tool_call_output_types, call_type)
+      call = Map.get(anchor_calls, ResponseItems.pair_key(item))
+      expected = call && ResponseItems.client_expected_output_type(call["type"])
       received = Map.get(item, "type")
 
-      if is_binary(expected) and received != expected do
+      if call && ResponseItems.validate_client_call_output(call, item) == {:error, :type_mismatch} do
         [%{"call_id" => call_id, "expected" => expected, "received" => received}]
       else
         []
@@ -734,9 +728,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
     Enum.flat_map(output_items, fn item ->
       call_id = Map.get(item, "call_id")
       output_name = Map.get(item, "name")
-      call_name = get_in(anchor_calls, [call_id, "name"])
+      call = Map.get(anchor_calls, ResponseItems.pair_key(item))
+      call_name = call && Map.get(call, "name")
 
-      if is_binary(output_name) and is_binary(call_name) and output_name != call_name do
+      if call && ResponseItems.validate_client_call_output(call, item) == {:error, :name_mismatch} do
         [%{"call_id" => call_id, "expected" => call_name, "received" => output_name}]
       else
         []
@@ -854,11 +849,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end)
   end
 
-  defp tool_call_output_item?(%{"type" => type})
-       when type in ["function_call_output", "custom_tool_call_output"],
-       do: true
-
-  defp tool_call_output_item?(_item), do: false
+  defp tool_call_output_item?(item), do: ResponseItems.client_output_item?(item)
 
   defp publish_tool_result_events(%Message{} = message, request_items) do
     request_items

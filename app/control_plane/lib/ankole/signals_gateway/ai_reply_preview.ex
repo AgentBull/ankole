@@ -508,25 +508,21 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       # choose `<silent_success/>`. Do not let those events open a visible card.
       silent_rich_pending:
         rich? and ScheduledTurn.silent_success_allowed?(event) and map_size(checkpoint) == 0,
-      input_superseded: false
+      input_superseded: false,
+      stopping: false
     }
 
     {:ok, state}
   end
 
   @impl GenServer
-  def handle_cast(:stop, state) do
-    shutdown_rich_task_now(state.rich_task)
+  def handle_cast(:stop, %{rich_task: nil} = state), do: finish_rich_stop(state)
 
-    state
-    |> Map.merge(%{
-      rich_task: nil,
-      rich_task_presentation: nil,
-      rich_retry_at: nil,
-      dirty: false
-    })
-    |> finish_rich_stop()
+  def handle_cast(:stop, state) do
+    {:noreply, %{state | stopping: true, rich_retry_at: nil, dirty: false}}
   end
+
+  def handle_cast(_message, %{stopping: true} = state), do: {:noreply, state}
 
   def handle_cast(:input_superseded, state) do
     {:noreply, show_input_superseded(state)}
@@ -565,6 +561,17 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   def handle_cast({:presentation_event, _event}, state), do: {:noreply, state}
 
   @impl GenServer
+  def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
+    Process.demonitor(ref, [:flush])
+    finish_rich_task(state, result)
+  end
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
+    finish_rich_task(state, {:error, {:reply_preview_task_exit, reason}})
+  end
+
+  def handle_info(_message, %{stopping: true} = state), do: {:noreply, state}
+
   def handle_info({:ai_gateway_event, event_type, event}, state) when is_map(event) do
     if event_matches_actor?(event, state) do
       handle_gateway_event(event_type, map_value(event, :payload) || %{}, state)
@@ -582,18 +589,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     else
       handle_plain_text_flush(state)
     end
-  end
-
-  def handle_info({ref, result}, %{rich_task: %Task{ref: ref}} = state) do
-    Process.demonitor(ref, [:flush])
-    state = finish_rich_sync(state, result)
-    {:noreply, state}
-  end
-
-  def handle_info({:DOWN, ref, :process, _pid, reason}, %{rich_task: %Task{ref: ref}} = state) do
-    result = {:error, {:reply_preview_task_exit, reason}}
-    state = finish_rich_sync(state, result)
-    {:noreply, state}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -750,7 +745,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   @impl GenServer
   def terminate(_reason, state) do
-    shutdown_rich_task_now(state.rich_task)
     _ = Events.unsubscribe(state.subject_uid, state.conversation_id)
     :ok
   end
@@ -820,7 +814,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
     end
   end
 
-  defp maybe_start_rich_sync(%{dirty: true, rich_task: nil, preview_disabled: false} = state) do
+  defp maybe_start_rich_sync(
+         %{
+           dirty: true,
+           rich_task: nil,
+           preview_disabled: false,
+           stopping: false
+         } = state
+       ) do
     if rich_retry_due?(state.rich_retry_at) do
       presentation = state.presentation
 
@@ -922,6 +923,14 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   defp finish_rich_sync(state, result),
     do: finish_rich_sync(state, {:error, {:invalid_reply_preview_sync_result, result}})
 
+  defp finish_rich_task(%{stopping: true} = state, result) do
+    state
+    |> finish_rich_sync(result)
+    |> finish_rich_stop()
+  end
+
+  defp finish_rich_task(state, result), do: {:noreply, finish_rich_sync(state, result)}
+
   defp rich_retryable?({:reply_delivery, :operator_action_required, _error}), do: false
   defp rich_retryable?({:cardkit_plain_text_fallback, _error}), do: false
   defp rich_retryable?(_reason), do: true
@@ -1001,13 +1010,6 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
          dirty: false
      }}
   end
-
-  defp shutdown_rich_task_now(%Task{} = task) do
-    _ = Task.shutdown(task, :brutal_kill)
-    :ok
-  end
-
-  defp shutdown_rich_task_now(_task), do: :ok
 
   defp handle_tool_activity(%{silent_success_allowed: true} = state, _stage, _payload),
     do: state

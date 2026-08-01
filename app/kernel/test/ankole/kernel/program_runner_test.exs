@@ -1,5 +1,5 @@
 defmodule Ankole.Kernel.ProgramRunnerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.Kernel.ProgramRunner
 
@@ -32,6 +32,18 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
     assert resumed.output == [%{kind: "text", value: "1700"}]
   end
 
+  test "preserves null arguments across pause and replay" do
+    program = ~s|const data = await tools.market(null); text(data.price);|
+
+    assert {:ok, %{status: :pending, pending_calls: [%{name: "market", arguments: nil}]}} =
+             ProgramRunner.run(program, ["market"], [])
+
+    memo = [%{"name" => "market", "arguments" => nil, "output" => %{"price" => 1700}}]
+
+    assert {:ok, %{status: :completed, output: [%{kind: "text", value: "1700"}]}} =
+             ProgramRunner.run(program, ["market"], memo)
+  end
+
   test "program failures surface the thrown error" do
     assert {:ok, outcome} = ProgramRunner.run(~s|throw new Error("boom");|, [], [])
 
@@ -42,5 +54,13 @@ defmodule Ankole.Kernel.ProgramRunnerTest do
   test "invalid requests return an error instead of raising" do
     assert {:error, reason} = ProgramRunner.run("text(1)", [], [%{"bad" => "memo"}])
     assert reason =~ "invalid program run request"
+  end
+
+  test "cancelling before native registration does not poison a later run" do
+    run_id = ProgramRunner.new_run_id()
+    assert :ok = ProgramRunner.cancel(run_id)
+
+    assert {:ok, %{status: :completed, output: [%{value: "late"}]}} =
+             ProgramRunner.run(run_id, ~s|text("late");|, [], [])
   end
 end

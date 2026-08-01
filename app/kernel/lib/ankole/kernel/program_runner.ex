@@ -14,6 +14,8 @@ defmodule Ankole.Kernel.ProgramRunner do
 
   alias Ankole.Kernel
 
+  @type run_id :: String.t()
+
   @type memo_entry :: %{
           required(String.t()) => term()
         }
@@ -21,8 +23,9 @@ defmodule Ankole.Kernel.ProgramRunner do
   @type outcome :: %{
           required(:status) => :completed | :pending | :failed,
           required(:output) => [%{kind: String.t(), value: String.t()}],
-          required(:pending_calls) => [%{name: String.t(), arguments: map()}],
-          required(:error) => String.t() | nil
+          required(:pending_calls) => [%{name: String.t(), arguments: term()}],
+          required(:error) => String.t() | nil,
+          required(:error_code) => String.t() | nil
         }
 
   @doc """
@@ -32,21 +35,26 @@ defmodule Ankole.Kernel.ProgramRunner do
   program. `memo` entries answer replayed calls in order:
   `%{"name" => name, "arguments" => args, "output" => output}`.
   """
-  @spec run(String.t(), [String.t()], [memo_entry()], keyword()) ::
+  @spec run(String.t(), [String.t()], [memo_entry()]) ::
           {:ok, outcome()} | {:error, String.t()}
-  def run(program, tools, memo, opts \\ [])
+  def run(program, tools, memo)
       when is_binary(program) and is_list(tools) and is_list(memo) do
-    request =
-      %{
-        "program" => program,
-        "tools" => tools,
-        "memo" => memo
-      }
-      |> put_option("timeout_ms", Keyword.get(opts, :timeout_ms))
-      |> put_option("heap_limit_bytes", Keyword.get(opts, :heap_limit_bytes))
+    run(new_run_id(), program, tools, memo)
+  end
+
+  @doc false
+  @spec run(run_id(), String.t(), [String.t()], [memo_entry()]) ::
+          {:ok, outcome()} | {:error, String.t()}
+  def run(run_id, program, tools, memo)
+      when is_binary(run_id) and is_binary(program) and is_list(tools) and is_list(memo) do
+    request = %{
+      "program" => program,
+      "tools" => tools,
+      "memo" => memo
+    }
 
     with {:ok, request_json} <- Torque.encode(request),
-         outcome_json when is_binary(outcome_json) <- Kernel.program_run_nif(request_json),
+         outcome_json when is_binary(outcome_json) <- Kernel.program_run_nif(run_id, request_json),
          {:ok, outcome} <- Torque.decode(outcome_json) do
       {:ok, decode_outcome(outcome)}
     else
@@ -55,8 +63,20 @@ defmodule Ankole.Kernel.ProgramRunner do
     end
   end
 
-  defp put_option(request, _key, nil), do: request
-  defp put_option(request, key, value), do: Map.put(request, key, value)
+  @doc false
+  @spec new_run_id() :: run_id()
+  def new_run_id, do: Kernel.gen_uuid()
+
+  @doc "Cancels the matching execution when it is currently running."
+  @spec cancel(run_id()) :: :ok | {:error, String.t()}
+  def cancel(run_id) when is_binary(run_id) do
+    case Kernel.program_cancel_nif(run_id) do
+      found when is_boolean(found) -> :ok
+      {:error, reason} when is_binary(reason) -> {:error, reason}
+      {:error, reason} -> {:error, inspect(reason)}
+      result -> {:error, "invalid program cancellation result: #{inspect(result)}"}
+    end
+  end
 
   defp decode_outcome(outcome) do
     %{
@@ -68,8 +88,9 @@ defmodule Ankole.Kernel.ProgramRunner do
       pending_calls:
         outcome
         |> Map.get("pending_calls", [])
-        |> Enum.map(&%{name: &1["name"], arguments: &1["arguments"] || %{}}),
-      error: outcome["error"]
+        |> Enum.map(&%{name: &1["name"], arguments: Map.get(&1, "arguments")}),
+      error: outcome["error"],
+      error_code: outcome["error_code"]
     }
   end
 
