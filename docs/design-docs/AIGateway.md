@@ -220,8 +220,8 @@ the upstream compact endpoint.
 The provider prepares the Codex protocol as follows:
 
 - It removes downstream-only and unsupported request fields, including caller
-  `metadata` and `max_output_tokens`, before dispatch. AIGateway still stores
-  metadata locally.
+  `metadata`, `max_output_tokens`, and `truncation`, before dispatch. AIGateway
+  still stores metadata locally and applies its own history limits.
 - It converts standard string input to one user message because the Codex
   endpoint accepts only an input-item list.
 - It supplies an empty `instructions` value when the client omits it.
@@ -235,8 +235,9 @@ The provider prepares the Codex protocol as follows:
 - It sends the required content, accept, beta, connection, originator, and user
   agent headers.
 - It uses the account ID stored in the selected credential.
-- It supports both POST SSE and upstream WebSocket `response.create`. An
-  oversized WebSocket message maps to HTTP 413.
+- It always streams upstream. A complete-response caller collects the terminal
+  Response from POST SSE. A streaming WebSocket caller uses upstream WebSocket
+  `response.create`. An oversized WebSocket message maps to HTTP 413.
 
 The kernel returns only safe provider response headers to the control plane.
 It keeps the `x-codex-*` rate-limit family and `cf-mitigated`, which lets the
@@ -443,6 +444,11 @@ Tool Search uses one synthesized provider function and exposes
 executes the search in AIGateway. Client mode returns the search call to the
 caller. Both modes preserve one public response lifecycle across later provider
 rounds.
+
+A nonempty provider terminal output remains authoritative. If the terminal
+omits output after complete output-item events, the loop uses the raw items from
+that provider round to decide local execution. It clears these temporary items
+before the next provider round.
 
 Programmatic tool calls run in a fresh bare V8 isolate. The program has no Node,
 filesystem, or network API. It runs until it finishes or reaches its first
