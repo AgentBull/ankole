@@ -1214,7 +1214,8 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
       operation: operation,
       signal_channel_id: event.signal_channel_id,
       provider_thread_id: event.provider_thread_id,
-      reply_to_source_entry_id: if(operation == :reply, do: event.source_entry_id),
+      reply_to_source_entry_id:
+        if(operation == :reply, do: ActorEvent.reply_anchor_source_entry_id(event)),
       target_source_entry_id: Keyword.get(opts, :target_source_entry_id),
       # Source table: preview side effects are caused by this actor_events.id.
       source_actor_event_id: event.id,

@@ -13,6 +13,11 @@ defmodule Ankole.SignalsGateway.Projection do
 
   @tombstone_ttl_seconds 24 * 60 * 60
   @entry_brain_store_routes_key "_ankole_brain_store_routes"
+  @attachment_id_sequence "signal_gateway_attachment_id_seq"
+  @attachment_id_min 10_000
+  @attachment_id_max 9_007_199_254_740_991
+  @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref user_files_relative_path agent_computer_path)
+  @attachment_materialization_fields ~w(attachment_id agent_computer_path user_files_relative_path xxh3_128 size size_bytes bytes)
 
   def maybe_upsert_channel(_repo, %{signal_channel_id: nil}, _now), do: {:ok, nil}
   def maybe_upsert_channel(repo, fact, now), do: upsert_channel(repo, fact, now)
@@ -112,18 +117,22 @@ defmodule Ankole.SignalsGateway.Projection do
   # path, not carried on a plain receive.
   def mirror_receive_entry(repo, fact, now) do
     with :ok <- lock_entry(repo, fact) do
-      attrs = receive_entry_attrs(fact, now)
+      entry =
+        repo.get_by(Entry,
+          signal_channel_id: fact.signal_channel_id,
+          source_entry_id: fact.source_entry_id
+        )
 
-      case repo.get_by(Entry,
-             signal_channel_id: fact.signal_channel_id,
-             source_entry_id: fact.source_entry_id
-           ) do
+      case entry do
         %Entry{} = entry ->
           case stale_provider_time?(entry.provider_time, fact.provider_time) do
             true ->
               {:ok, entry}
 
             false ->
+              fact = put_attachment_ids(repo, fact, entry.attachments)
+              attrs = receive_entry_attrs(fact, now)
+
               entry
               |> Entry.changeset(%{
                 attrs
@@ -136,11 +145,98 @@ defmodule Ankole.SignalsGateway.Projection do
           end
 
         nil ->
+          fact = put_attachment_ids(repo, fact, [])
+          attrs = receive_entry_attrs(fact, now)
+
           %Entry{}
           |> Entry.changeset(attrs)
           |> repo.insert()
       end
     end
+  end
+
+  defp put_attachment_ids(repo, fact, existing_attachments) do
+    attachments =
+      fact.attachments
+      |> List.wrap()
+      |> Enum.with_index()
+      |> Enum.map(fn {attachment, index} ->
+        put_attachment_id(repo, attachment, index, List.wrap(existing_attachments))
+      end)
+
+    Map.put(fact, :attachments, attachments)
+  end
+
+  defp put_attachment_id(repo, attachment, index, existing_attachments)
+       when is_map(attachment) do
+    attachment_id =
+      existing_attachment_id(attachment, index, existing_attachments) ||
+        materialized_attachment_id(attachment) ||
+        next_attachment_id(repo)
+
+    Map.put(attachment, "attachment_id", attachment_id)
+  end
+
+  defp put_attachment_id(_repo, attachment, _index, _existing_attachments), do: attachment
+
+  defp existing_attachment_id(attachment, index, existing_attachments) do
+    identity = attachment_identity(attachment)
+
+    matching_attachment =
+      if identity do
+        Enum.find(existing_attachments, &(attachment_identity(&1) == identity))
+      else
+        existing_attachment = Enum.at(existing_attachments, index)
+
+        if attachment_descriptor(existing_attachment) == attachment_descriptor(attachment),
+          do: existing_attachment
+      end
+
+    valid_attachment_id(matching_attachment)
+  end
+
+  defp attachment_identity(attachment) when is_map(attachment) do
+    Enum.find_value(@attachment_identity_fields, fn field ->
+      case Map.get(attachment, field) do
+        value when is_binary(value) and value != "" -> {field, value}
+        _missing_or_invalid -> nil
+      end
+    end)
+  end
+
+  defp attachment_identity(_attachment), do: nil
+
+  defp attachment_descriptor(attachment) when is_map(attachment),
+    do: Map.drop(attachment, @attachment_materialization_fields)
+
+  defp attachment_descriptor(_attachment), do: nil
+
+  defp materialized_attachment_id(%{"agent_computer_path" => path} = attachment)
+       when is_binary(path) do
+    case valid_attachment_id(attachment) do
+      attachment_id when is_integer(attachment_id) ->
+        if String.contains?(path, "/user-files/inbox/#{attachment_id}/"),
+          do: attachment_id
+
+      _missing_or_invalid ->
+        nil
+    end
+  end
+
+  defp materialized_attachment_id(_attachment), do: nil
+
+  defp valid_attachment_id(%{"attachment_id" => attachment_id})
+       when is_integer(attachment_id) and attachment_id >= @attachment_id_min and
+              attachment_id <= @attachment_id_max,
+       do: attachment_id
+
+  defp valid_attachment_id(_attachment), do: nil
+
+  defp next_attachment_id(repo) do
+    %{rows: [[attachment_id]]} =
+      SQL.query!(repo, "SELECT nextval('#{@attachment_id_sequence}')", [])
+
+    attachment_id
   end
 
   def receive_entry_attrs(fact, now) do

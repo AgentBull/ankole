@@ -733,17 +733,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnRetry do
   end
 
   defp update_observed_messages(data, removed_source_entry_id) do
-    case Map.get(data, "observed_messages") do
-      messages when is_list(messages) ->
-        Map.put(
-          data,
-          "observed_messages",
-          Enum.reject(messages, &(&1["source_entry_id"] == removed_source_entry_id))
-        )
+    Enum.reduce(["observed_messages", "backdrop_messages", "unreplied_messages"], data, fn key,
+                                                                                           data ->
+      case Map.get(data, key) do
+        messages when is_list(messages) ->
+          Map.put(
+            data,
+            key,
+            Enum.reject(messages, &(&1["source_entry_id"] == removed_source_entry_id))
+          )
 
-      _value ->
-        data
-    end
+        _value ->
+          data
+      end
+    end)
   end
 
   defp update_ambient_batch(%{"ambient_batch" => batch} = data, entries, now)

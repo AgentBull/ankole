@@ -24,12 +24,12 @@ import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
 import { materializeAgentPluginSkillOverlays, prepareAgentPlugins } from './agent-plugin-materializer'
 import { assertCodexJobProjectResumeState, codexJobProjectLocation, prepareCodexJobProject } from './job-project'
-import { resolveCodexJobMCPServers } from './mcp-config'
 import { parentInputToolSpec } from './parent-input'
 import { materializeCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection } from './projection'
 import { materializeCodexJobRuntimeFiles, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../skills/effective-skill'
+import { createDirectMCPTools, loadEnabledSkillMCPServers, materializeMCPorterConfig } from '../../tools/mcp'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -85,10 +85,10 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     rpc: opts.rpc
   })
   opts.abortSignal?.throwIfAborted()
-  const mcpServers = await resolveCodexJobMCPServers({
+  const mcpServers = await loadEnabledSkillMCPServers({
     enabledSkills: [...enabledSkills, ...agentPluginSkills],
     skillRoots,
-    turn: turnStart.turn
+    runtime: 'background_job'
   })
   opts.abortSignal?.throwIfAborted()
   const runtimeConfig = await resolveCodexRuntimeConfig({
@@ -104,7 +104,6 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   })
   materializeCodexJobProjectConfig({
     projectRoot: jobProject.root,
-    mcpServers,
     pluginsEnabled: backgroundAgentPlugins.length > 0,
     runtimeConfig
   })
@@ -118,6 +117,17 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   const workerEnv = await resolveWorkerEnv(turnStart, opts.rpc)
   opts.abortSignal?.throwIfAborted()
   const codexWorkerEnv = withoutBrowserMaterialSourceEnv(workerEnv)
+  const directMCPTools = await createDirectMCPTools({
+    artifactRoot: join(jobProject.root, 'artifacts', 'generated-charts'),
+    workerEnv: codexWorkerEnv,
+    abortSignal: opts.abortSignal,
+    onCatalogUnavailable: failure =>
+      opts.logger?.warning('worker.direct_mcp_catalog_unavailable', 'Direct MCP catalog is unavailable', {
+        server: failure.serverName,
+        error: failure.message
+      })
+  })
+  opts.abortSignal?.throwIfAborted()
   const baseWebTools = await createTurnWebTools({
     aiGateway: projectionAIGateway,
     renderedFetchRuntimeConfig,
@@ -128,6 +138,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   opts.abortSignal?.throwIfAborted()
   const projectedTools = [
     ...baseWebTools,
+    ...directMCPTools,
     // Brain attributes job-issued memory operations to the job because the
     // turn fence session is the job session; no extra scope payload is needed.
     ...createMemoryTools({
@@ -144,6 +155,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     skillRoots,
     rpc: opts.rpc
   })
+  const mcporterConfig = materializeMCPorterConfig(mcpServers)
   let browserRuntimeMaterial: MaterializedBrowserRuntime | undefined
   let sandbox: ReturnType<typeof codexAppServerSandboxSpec>
   try {
@@ -161,12 +173,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       project: jobProject,
       materialized,
       runtimeFiles,
-      workerEnv: codexWorkerEnv,
+      workerEnv: { ...codexWorkerEnv, ...mcporterConfig.env },
       runtimeEnv: opts.runtimeEnv,
       ...(browserRuntimeMaterial ? { browserRuntime: browserSandboxRuntime(browserRuntimeMaterial) } : {})
     })
   } catch (error) {
     await browserRuntimeMaterial?.cleanup().catch(() => undefined)
+    mcporterConfig.cleanup()
     runtimeFiles.cleanup()
     throw error
   }
@@ -183,6 +196,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     }
     try {
       runtimeFiles.cleanup()
+    } catch (error) {
+      firstError ??= error
+    }
+    try {
+      mcporterConfig.cleanup()
     } catch (error) {
       firstError ??= error
     }

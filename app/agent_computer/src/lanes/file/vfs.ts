@@ -36,7 +36,7 @@ export type ListResult = {
   entries: ListEntry[]
 }
 
-export function statPath(config: WorkerConfig, state: FileTransferState, frames: Buffer[]): StatResult {
+export async function statPath(config: WorkerConfig, state: FileTransferState, frames: Buffer[]): Promise<StatResult> {
   const address = parseVirtualPathFrame(frames[3], 'stat path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
   const lexicalFilePath = resolveFileAddress(config, address)
@@ -56,7 +56,7 @@ export function statPath(config: WorkerConfig, state: FileTransferState, frames:
     modifiedUnixMs: Math.floor(stat.mtimeMs),
     fingerprint:
       stat.isFile() && fingerprint === 'xxh3_128'
-        ? fileFingerprint(state, address.root, address.relativePath, filePath)
+        ? await fileFingerprint(state, address.root, address.relativePath, filePath)
         : ''
   }
 }

@@ -47,7 +47,7 @@ Each Skill contains at least one `SKILL.md` file with YAML frontmatter. It can a
 
 The Agent first sees the name and description. It loads the full instructions and required resources only after a task matches.
 
-A Skill explains how to complete a kind of work. When the workflow needs live data, authentication, or a controlled action, the Skill can guide the Agent through MCP tools supplied by the Skill or Agent Plugin.
+A Skill explains how to complete a kind of work. When the workflow needs live data, authentication, or a controlled action, the Skill can select an MCP domain tool and call it through mcporter. The MCP catalog is not a second model-visible tool registry.
 
 #### Ankole extension: select the Skill execution surface
 

@@ -7,7 +7,7 @@ import { compactActivityPath } from '../activity-summary'
 import type { ComputerToolContext } from './context'
 
 const ReplyAttachmentParams = z.object({
-  path: z.string().min(1).describe('File path under the current Agent Home user-files directory.'),
+  path: z.string().min(1).describe('File path under the cross-session user files directory.'),
   name: z.string().min(1).optional().describe('Display filename for the outbound attachment.'),
   mimeType: z.string().min(1).optional().describe('MIME type for the outbound attachment.')
 })

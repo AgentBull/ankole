@@ -176,11 +176,17 @@ defmodule Ankole.SignalsGatewayOutboxMirrorTest do
       assert succeeded.status == :succeeded
       assert succeeded.payload == materialized_payload
 
-      assert Repo.get_by!(
-               Entry,
-               signal_channel_id: "lark:chat:group-a",
-               source_entry_id: "bot-file-msg-1"
-             ).attachments == materialized_payload["attachments"]
+      assert [%{"attachment_id" => attachment_id} = mirrored_attachment] =
+               Repo.get_by!(
+                 Entry,
+                 signal_channel_id: "lark:chat:group-a",
+                 source_entry_id: "bot-file-msg-1"
+               ).attachments
+
+      assert attachment_id >= 10_000
+
+      assert Map.delete(mirrored_attachment, "attachment_id") ==
+               hd(materialized_payload["attachments"])
     end
 
     test "post-like success without provider entry id does not synthesize mirror identity" do

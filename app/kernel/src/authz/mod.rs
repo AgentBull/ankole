@@ -4,7 +4,11 @@
 //! Principals, groups, grants, or request context from PostgreSQL or any host
 //! runtime state.
 
-#![allow(dead_code, unused_imports)]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "N-API, NIF, and host-neutral tests use different AuthZ exports"
+)]
 
 pub(crate) mod cel;
 mod decision;

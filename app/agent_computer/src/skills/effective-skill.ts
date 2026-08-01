@@ -55,10 +55,7 @@ export function skillAvailableInRuntime(skill: RuntimeSkillSummary, runtime: Ank
   return declared === 'any' || declared === runtime
 }
 
-export function resolveSkillFilesystemRoot(
-  skill: RuntimeSkillSummary,
-  input: { skillRoots: SkillFileRoots; turn?: ActorTurnRef }
-): string {
+export function resolveSkillFilesystemRoot(skill: RuntimeSkillSummary, input: { skillRoots: SkillFileRoots }): string {
   const relativePath = normalizeSkillRelativePath(skill.relativePath || skill.skillName)
   const sourceKind = skill.sourceKind || 'builtin'
   if (sourceKind === 'builtin') {
@@ -77,7 +74,6 @@ export function resolveSkillFilesystemRoot(
   }
 
   if (sourceKind === 'installed') {
-    if (!input.turn) throw new Error('installed skill requires an actor turn')
     return join(input.skillRoots.agentInstalledSkillsRoot, relativePath)
   }
 

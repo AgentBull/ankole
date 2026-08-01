@@ -11,6 +11,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.SignalsGateway.ActorRuntime
   alias Ankole.SignalsGateway.ActorRuntime.SessionController
+  alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Bindings
   alias Ankole.SignalsGateway.Entry
@@ -32,6 +33,16 @@ defmodule Ankole.SignalsGateway do
   @spec append_actor_event(map()) :: {:ok, ActorEvent.t()} | {:error, term()}
   def append_actor_event(attrs) when is_map(attrs) do
     Repo.transact(fn repo -> append_actor_event_in_tx(repo, attrs) end)
+  end
+
+  @doc """
+  Returns the stable Agent Home workspace identity for one actor session.
+  """
+  @spec ensure_actor_session_workspace(String.t(), String.t()) ::
+          {:ok, Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkspace.t()}
+          | {:error, term()}
+  def ensure_actor_session_workspace(agent_uid, session_id) do
+    SessionWorkspaces.ensure(agent_uid, session_id)
   end
 
   @doc """

@@ -65,7 +65,7 @@ Agent Home 位于 `/agents/<agent-key>`，其中包含以下共享资源：
 - `SOUL.md`、`MISSION.md` 和 `DESIGN.md`
 - `user-files`：用户产物
 - `installed-skills`：供执行进程使用的已安装 Skill 副本
-- `sessions/<base64url-session-id>`：各 Session 的工作区
+- `sessions/<workspace-id>`：各 Session 的工作区，ID 由 PostgreSQL 从 10000 开始分配
 - `jobs/<job-id>`：各 BackgroundAgentJob 的工作区
 
 Session 与 Job 的工作区都是 Agent Home 的子目录。`/workspace` 不是 Agent 路径。
@@ -234,6 +234,7 @@ tools/e2e/run --brain-real-llm
 | [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | Skill 怎样连接 MCP 服务以及怎样保护凭据 |
+| [Direct MCP Tools](design-docs/DirectMCPTools.md) | 内置 MCP 模型工具及其运行时投影 |
 | [Web tools](design-docs/WebTools.md) | 网页搜索、正文读取和浏览器后备路径 |
 | [I18n](design-docs/I18n.md) | 语言选择和翻译文件 |
 | [Logger](design-docs/Logger.md) | 结构化日志契约 |

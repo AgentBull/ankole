@@ -57,8 +57,13 @@ export interface WebURLFacts {
   hostClass?: 'metadata' | 'private' | 'public' | null
 }
 
-/** Computes the non-cryptographic XXH3 128-bit observation fingerprint. */
-export declare function xxh3File128Hex(path: string): string
+/**
+ * Computes the non-cryptographic XXH3 128-bit observation fingerprint.
+ *
+ * File I/O and hashing run on a libuv worker thread so a large file cannot
+ * block the Bun event loop.
+ */
+export declare function xxh3File128Hex(path: string): Promise<string>
 
 /** Computes the non-cryptographic XXH3 128-bit fingerprint for a UTF-8 string. */
 export declare function xxh3String128Hex(input: string): string

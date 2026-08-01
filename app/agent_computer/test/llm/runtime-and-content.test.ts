@@ -303,6 +303,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
 
   it('extracts active steer text from the mailbox actor event', () => {
     const turnStart = {
+      workspace_id: 10_000,
       turn: {
         actor: { agent_uid: 'agent-1', session_id: 'session-1' },
         activation_uid: 'activation-1',
@@ -554,7 +555,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         type: 'text',
         text: [
           '<agent_environment_info>',
-          'send_at: 2026-07-04 10:03:04 (Asia/Shanghai)',
+          'send_at: 2026-07-04 10:03',
           'speaker: Alice',
           '</agent_environment_info>'
         ].join('\n')
@@ -599,7 +600,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       }
     })
 
-    expect(dm).toEqual(['send_at: 2026-07-04T02:03:04.000Z'])
+    expect(dm).toEqual(['send_at: 2026-07-04 02:03'])
     expect(chatbotGroup).toEqual(['speaker: Alice (chatbot)'])
     expect(opaqueAuthorGroup).toEqual([])
   })
@@ -612,7 +613,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         id: 'conversation-1',
         key: 'session-1',
         startedAt: '2026-07-15T01:00:00Z',
-        timezone: 'Asia/Shanghai'
+        timezone: 'Asia/Shanghai',
+        originChannel: { adapter: 'lark', kind: 'im_dm', label: '陈伯汉' }
       },
       soul: 'Be precise.',
       mission: 'Help with research.',
@@ -623,10 +625,10 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       skills: [{ skillName: 'financial-data', description: 'Read current market data.' }]
     })
     const options = {
+      userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
-      currentChannel: { kind: 'external_dm' as const, platform: 'feishu' },
       availableToolNames: ['memory_search', 'skill_view']
     }
 
@@ -637,7 +639,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         id: 'conversation-2',
         key: 'session-1',
         startedAt: '2026-07-15T01:00:00Z',
-        timezone: 'UTC'
+        timezone: 'UTC',
+        originChannel: { adapter: 'lark', kind: 'im_group', label: '策略讨论' }
       },
       soul: 'Be precise.',
       mission: 'Help with research.',
@@ -649,16 +652,19 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
     const changedOptions = {
       ...options,
-      agentConversationContext: changedContext,
-      currentChannel: { kind: 'external_group' as const, platform: 'feishu' }
+      agentConversationContext: changedContext
     }
 
-    expect(instructions).toContain('Asia/Shanghai')
+    expect(instructions).toContain('Current timezone: Asia/Shanghai')
+    expect(instructions).toContain('Conversation started at: 2026-07-15 09:00')
+    expect(instructions).toContain('Conversation started in: Lark / Feishu DM with 陈伯汉')
     expect(instructions).toContain('Prefer concise evidence.')
     expect(instructions).toContain('financial-data')
     expect(instructions).not.toContain('Use cobalt only in visual artifacts.')
     const changedInstructions = buildAgentSystemPrompt(changedOptions)
     expect(changedInstructions).not.toBe(instructions)
+    expect(changedInstructions).toContain('Conversation started at: 2026-07-15 01:00')
+    expect(changedInstructions).toContain('Conversation started in: Lark / Feishu Group Chat "策略讨论"')
     expect(instructions.indexOf('<completion_contract>')).toBeLessThan(instructions.indexOf('<runtime_context>'))
     expect(instructions.indexOf('<runtime_context>')).toBeLessThan(instructions.indexOf('<durable_context>'))
   })
@@ -682,6 +688,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
 
     const instructions = buildAgentSystemPrompt({
+      userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
@@ -715,7 +722,6 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
 
     const instructions = buildAgentSystemPrompt({
-      agentHome: '/agents/agent-1',
       userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart: turnStartForTest() as TurnStart,
@@ -729,9 +735,8 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(instructions.split(memoryDefinition)).toHaveLength(2)
   })
 
-  it('lists Agent filesystem paths only in the runtime context', () => {
+  it('lists only the model-usable filesystem paths in the runtime context', () => {
     const instructions = buildAgentSystemPrompt({
-      agentHome: '/agents/agent-1',
       userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart: turnStartForTest() as TurnStart,
@@ -742,18 +747,16 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     })
     const tools = instructions.slice(instructions.indexOf('<tools>'), instructions.indexOf('</tools>') + 8)
 
-    expect(instructions).toContain('Agent Home: /agents/agent-1')
+    expect(instructions).not.toContain('Agent Home:')
     expect(instructions).toContain('Current workspace: /agents/agent-1/sessions/session-1')
     expect(instructions).toContain('Cross-session user files: /agents/agent-1/user-files')
-    expect(instructions).toContain(
-      'Agent documents: /agents/agent-1/SOUL.md, /agents/agent-1/MISSION.md, /agents/agent-1/DESIGN.md'
-    )
     expect(tools).not.toContain('/agents/agent-1')
   })
 
   it('states the hosted image delivery contract only when that tool is projected', () => {
     const turnStart = turnStartForTest() as TurnStart
     const options = {
+      userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: create(AgentConversationContextResponseSchema, {
@@ -796,6 +799,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       conversation: { id: 'conversation-1', key: 'session-1', timezone: 'Asia/Shanghai' }
     })
     const instructions = buildAgentSystemPrompt({
+      userFilesRoot: '/agents/agent-1/user-files',
       workspaceRoot: '/agents/agent-1/sessions/session-1',
       turnStart,
       agentConversationContext: context,
@@ -818,7 +822,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       const parts = content as ContentPart[]
       expect(parts[0]).toEqual({
         type: 'text',
-        text: `Please inspect this.\n\nAttachments:\n- photo.png: type=image, path=${imagePath}`
+        text: `Please inspect this.\n\nAttachment:\n- ${imagePath}`
       })
       expect(parts[1]!.type).toBe('image')
       const imagePart = parts[1] as Extract<ContentPart, { type: 'image' }>
@@ -862,7 +866,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
       const replyText = (parts[0] as Extract<ContentPart, { type: 'text' }>).text
       expect(replyText).not.toContain('parent-image')
       expect(replyText).toContain('role: human')
-      expect(replyText).toContain(`path=${imagePath}`)
+      expect(replyText).toContain(`- ${imagePath}`)
       expect(parts[1]!.type).toBe('image')
     })
   })
@@ -898,7 +902,7 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
         { workspaceRoot }
       )
 
-      expect(content).toContain(`path=${imagePath}`)
+      expect(content).toContain(`- ${imagePath}`)
       expect(content).toContain('The current model cannot directly view the attached image content')
       expect(content).not.toContain('data:image/png;base64,')
     })
@@ -919,36 +923,44 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(fallbackBodies).toHaveLength(0)
   })
 
-  it('projects shared channel context as a separate provenance-preserving model message', () => {
-    const messages = channelContextModelMessages({
-      data: {
-        channel_context: {
-          messages: [
-            {
-              role: 'human',
-              speaker: 'Alice',
-              sent_at: '2026-07-15T05:08:00Z',
-              text: '这个排版为什么能做这么好？',
-              source_entry_id: 'msg-prior-question'
-            },
-            {
-              role: 'agent',
-              speaker: 'Research Agent',
-              sent_at: '2026-07-15T05:09:00Z',
-              text: '是按既有技能和现场内容一起组织的。',
-              source_entry_id: 'msg-other-agent-answer'
-            }
-          ]
+  it('projects shared channel context in local minutes without operational references', () => {
+    const messages = channelContextModelMessages(
+      {
+        data: {
+          channel_context: {
+            messages: [
+              {
+                role: 'human',
+                speaker: 'chenbohan',
+                sent_at: '2026-07-29T20:19:21.639350Z',
+                text: '考虑如何结合我们正在做的 smart beta 策略',
+                source_entry_id: 'msg-prior-question'
+              },
+              {
+                role: 'agent',
+                speaker: 'ankole-internal',
+                sent_at: '2026-07-30T15:16:43.719734Z',
+                text: 'Agent 的 primary 模型档案当前不可用，请管理员完成配置后重试。（actor-event::019fb399-69b4-7e60-a3c8-9b5cbd46534c）',
+                source_entry_id: 'msg-agent-notice'
+              }
+            ]
+          }
         }
-      }
-    })
+      },
+      { timezone: 'Asia/Shanghai' }
+    )
 
     expect(messages).toHaveLength(1)
     expect(messages[0]!.role).toBe('user')
-    expect(messages[0]!.content).toContain('Alice')
-    expect(messages[0]!.content).toContain('这个排版为什么能做这么好？')
-    expect(messages[0]!.content).toContain('Research Agent')
-    expect(messages[0]!.content).toContain('是按既有技能和现场内容一起组织的。')
+    expect(messages[0]!.content).toContain(
+      '[2026-07-30 04:19] [human] chenbohan: 考虑如何结合我们正在做的 smart beta 策略'
+    )
+    expect(messages[0]!.content).toContain(
+      '[2026-07-30 23:16] [agent] ankole-internal: Agent 的 primary 模型档案当前不可用，请管理员完成配置后重试。'
+    )
+    expect(messages[0]!.content).not.toContain('actor-event::')
+    expect(messages[0]!.content).not.toContain('T20:19:21')
+    expect(messages[0]!.content).not.toContain('Asia/Shanghai')
     expect(messages[0]!.content).not.toContain('msg-prior-question')
     expect(messages[0]!.content).not.toContain('source_entry_id')
   })

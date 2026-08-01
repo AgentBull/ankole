@@ -38,6 +38,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
+  alias Ankole.SignalsGateway.ActorRuntime.SignalChannelBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillOverlayBroker
   alias Ankole.SignalsGateway.ActorRuntime.SkillRegistryBroker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
@@ -142,6 +143,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
       {ScheduleRPCBroker, :handle_cron_remove, :turn_write, FabricProto.ScheduleCronTargetRequest},
     "schedule.cron.run" =>
       {ScheduleRPCBroker, :handle_cron_run, :turn_write, FabricProto.ScheduleCronRunRequest},
+    "signal_channel.ambient_judgment.record" =>
+      {SignalChannelBroker, :handle_ambient_judgment_record, :turn_write,
+       FabricProto.AmbientJudgmentRecordRequest},
+    "signal_channel.standing_orders.set" =>
+      {SignalChannelBroker, :handle_standing_orders_set, :turn_write,
+       FabricProto.SignalChannelStandingOrdersSetRequest},
     "webhook.endpoint.create" =>
       {WebhookRPCBroker, :handle_create, :turn_write, FabricProto.WebhookEndpointCreateRequest},
     "webhook.endpoint.list" =>

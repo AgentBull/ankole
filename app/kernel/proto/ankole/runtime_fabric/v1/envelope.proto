@@ -137,6 +137,8 @@ message TurnStart {
   // Trusted ephemeral facts for this execution. These variables never come
   // from operator WorkerEnv rows and use the ANKOLE_RUNTIME_ namespace.
   map<string, string> runtime_env = 6;
+  // PostgreSQL-owned model-visible directory name under the Agent's sessions tree.
+  uint64 workspace_id = 7;
 }
 
 message TurnModelRef {

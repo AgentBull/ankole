@@ -35,6 +35,9 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     field :signal_channel_id, :string
     field :provider_thread_id, :string
     field :source_entry_id, :string
+    # Ambient attribution: when the recognizer accepts an asked_by message,
+    # replies anchor to that entry instead of the batch tail source_entry_id.
+    field :ambient_asked_source_entry_id, :string
     field :reply_preview_source_entry_id, :string
     field :reply_preview_checkpoint, :map
     field :reply_preview_sequence_high_water, :integer, default: 0
@@ -69,6 +72,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :signal_channel_id,
       :provider_thread_id,
       :source_entry_id,
+      :ambient_asked_source_entry_id,
       :reply_preview_source_entry_id,
       :reply_preview_checkpoint,
       :reply_preview_sequence_high_water,
@@ -92,6 +96,7 @@ defmodule Ankole.SignalsGateway.ActorEvent do
       :signal_channel_id,
       :provider_thread_id,
       :source_entry_id,
+      :ambient_asked_source_entry_id,
       :reply_preview_source_entry_id,
       :type,
       :input_state,
@@ -132,6 +137,14 @@ defmodule Ankole.SignalsGateway.ActorEvent do
     |> check_constraint(:input_state, name: :actor_events_input_state_check)
     |> check_constraint(:turn_outcome, name: :actor_events_turn_outcome_check)
     |> check_constraint(:final_response_id, name: :actor_events_completion_anchor_check)
+  end
+
+  @doc """
+  Returns the entry a provider-visible reply for this event anchors to.
+  """
+  @spec reply_anchor_source_entry_id(t()) :: String.t() | nil
+  def reply_anchor_source_entry_id(%__MODULE__{} = event) do
+    event.ambient_asked_source_entry_id || event.source_entry_id
   end
 
   @doc false

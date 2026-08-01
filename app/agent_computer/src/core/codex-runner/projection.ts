@@ -34,53 +34,92 @@ export function buildCodexJobProjection(input: {
 }): CodexJobProjection {
   const tools = new Map<string, AgentTool>()
   const dynamicTools: DynamicToolSpec[] = []
+  const namespaces = new Map<
+    string,
+    {
+      description: string
+      toolNames: Set<string>
+      tools: Extract<DynamicToolSpec, { type: 'namespace' }>['tools']
+    }
+  >()
   const quarantinedTools: string[] = []
 
   for (const tool of input.tools) {
-    if (!(input.allowedToolNames ?? codexJobToolNames).has(tool.name)) continue
+    if (!tool.namespace && !(input.allowedToolNames ?? codexJobToolNames).has(tool.name)) continue
+    const projectedName = qualifiedToolName(tool.namespace, tool.name)
     try {
-      const inputSchema = zodToJSONSchema(tool.schema)
-      dynamicTools.push({
-        type: 'function',
-        name: tool.name,
-        description: tool.description,
-        inputSchema: inputSchema as unknown as JSONValue
-      })
-      tools.set(tool.name, tool)
+      const inputSchema = (tool.jsonSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
+      if (tool.namespace) {
+        const existing = namespaces.get(tool.namespace)
+        const description = tool.namespaceDescription ?? tool.namespace
+        if (existing && existing.description !== description) {
+          throw new Error(`Dynamic namespace ${tool.namespace} has conflicting descriptions`)
+        }
+        const namespace = existing ?? { description, toolNames: new Set<string>(), tools: [] }
+        if (namespace.toolNames.has(tool.name)) throw new Error(`Duplicate dynamic tool ${projectedName}`)
+        namespace.toolNames.add(tool.name)
+        namespace.tools.push({
+          type: 'function',
+          name: tool.name,
+          description: tool.description,
+          inputSchema,
+          ...(tool.deferLoading === undefined ? {} : { deferLoading: tool.deferLoading })
+        })
+        namespaces.set(tool.namespace, namespace)
+      } else {
+        dynamicTools.push({
+          type: 'function',
+          name: tool.name,
+          description: tool.description,
+          inputSchema,
+          ...(tool.deferLoading === undefined ? {} : { deferLoading: tool.deferLoading })
+        })
+      }
+      tools.set(toolLookupKey(tool.namespace ?? null, tool.name), tool)
     } catch (error) {
-      quarantinedTools.push(tool.name)
-      input.onAudit?.('dynamic_tool_quarantined', { tool: tool.name, error: errorMessage(error) })
+      quarantinedTools.push(projectedName)
+      input.onAudit?.('dynamic_tool_quarantined', { tool: projectedName, error: errorMessage(error) })
     }
+  }
+
+  for (const [name, namespace] of namespaces) {
+    dynamicTools.push({
+      type: 'namespace',
+      name,
+      description: namespace.description,
+      tools: namespace.tools
+    })
   }
 
   return {
     dynamicTools,
     quarantinedTools,
     async handleToolCall(params, signal) {
-      const tool = tools.get(params.tool)
+      const projectedName = qualifiedToolName(params.namespace, params.tool)
+      const tool = tools.get(toolLookupKey(params.namespace, params.tool))
       if (!tool) {
-        return dynamicToolFailure(`Dynamic tool is unavailable: ${params.tool}`)
+        return dynamicToolFailure(`Dynamic tool is unavailable: ${projectedName}`)
       }
 
       const parsed = tool.schema.safeParse(params.arguments)
       if (!parsed.success) {
         input.onAudit?.('dynamic_tool_invalid_arguments', {
-          tool: params.tool,
+          tool: projectedName,
           call_id: params.callId,
           issues: parsed.error.issues as unknown as JSONObject
         })
-        return dynamicToolFailure(`Invalid arguments for ${params.tool}: ${parsed.error.message}`)
+        return dynamicToolFailure(`Invalid arguments for ${projectedName}: ${parsed.error.message}`)
       }
 
-      input.onAudit?.('dynamic_tool_started', { tool: params.tool, call_id: params.callId })
+      input.onAudit?.('dynamic_tool_started', { tool: projectedName, call_id: params.callId })
       try {
         const result = await tool.execute(params.callId, parsed.data, signal)
-        input.onAudit?.('dynamic_tool_completed', { tool: params.tool, call_id: params.callId, success: true })
+        input.onAudit?.('dynamic_tool_completed', { tool: projectedName, call_id: params.callId, success: true })
         return { contentItems: dynamicToolContentItems(result), success: true }
       } catch (error) {
         const message = boundedText(errorMessage(error))
         input.onAudit?.('dynamic_tool_completed', {
-          tool: params.tool,
+          tool: projectedName,
           call_id: params.callId,
           success: false,
           error: message
@@ -89,6 +128,14 @@ export function buildCodexJobProjection(input: {
       }
     }
   }
+}
+
+function toolLookupKey(namespace: string | null, tool: string): string {
+  return `${namespace ?? ''}\u0000${tool}`
+}
+
+function qualifiedToolName(namespace: string | null | undefined, tool: string): string {
+  return namespace ? `${namespace}.${tool}` : tool
 }
 
 function dynamicToolContentItems(result: {

@@ -2,7 +2,8 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import {
   AutomationJobRunRequestSchema,
-  AutomationJobRunResponseSchema
+  AutomationJobRunResponseSchema,
+  RuntimeSkillSummarySchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { DurabilityClass, Lane, RPCRequestSchema, type Envelope } from '../src/fabric/envelope_proto'
 import { handleWorkerRPCRequest, rpcMethods } from '../src/lanes/rpc_lane'
@@ -18,7 +19,14 @@ describe('automation job worker RPC', () => {
       directoryPath: '/agents/agent-1/automation/test',
       label: 'Test consumer',
       eventJson: new TextEncoder().encode('{}'),
-      timeoutMs: 600_000
+      timeoutMs: 600_000,
+      skills: [
+        create(RuntimeSkillSummarySchema, {
+          skillName: 'bullx-financial-data',
+          sourceKind: 'builtin',
+          relativePath: 'bullx-financial-data'
+        })
+      ]
     })
 
     await handleWorkerRPCRequest(
@@ -35,7 +43,8 @@ describe('automation job worker RPC', () => {
           expect(request).toMatchObject({
             automationJobRunId: '1000',
             automationJobId: '1001',
-            agentUid: 'agent-1'
+            agentUid: 'agent-1',
+            skills: [expect.objectContaining({ skillName: 'bullx-financial-data' })]
           })
           return {
             status: 'succeeded',

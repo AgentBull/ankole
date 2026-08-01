@@ -56,13 +56,13 @@ Agent 在 Agent Computer Worker 上运行命令、调用 MCP 服务或执行后�
 
 ## 什么时候生效
 
-修改环境变量不会改变已经开始的回合。新值会在 Agent 的下一个回合注入，也会供之后启动的后台 Agent 任务使用。
+修改环境变量不会改变已经开始的执行。新值会在 Agent 的下一个回合、后续 Background Agent Job execution 和后续 Automation Job attempt 中注入。
 
 如果 Agent 没有拿到预期的值，请依次检查：
 
-1. 变量名称与 Skill、脚本或 MCP 配置中的名称完全一致；名称区分大小写。
+1. 变量名称与 Skill、脚本或 `bearer_token_env_var` 声明中的名称完全一致；名称区分大小写。
 2. 目标 Agent 是否存在同名专用值。专用值会覆盖全局值。
 3. 变量是否显示为“未设置”。
 4. 修改后是否开始了新的 Agent 回合。
 
-MCP 服务使用 `bearer_token_env_var` 时，配置中只填写环境变量名称，token 本身保存在这里。具体配置方式见 [MCP](../mcp/)。
+MCP-backed Skill 使用 `bearer_token_env_var` 时，只填写环境变量名称，token 本身保存在这里。声明合同见 [MCP](../mcp/)。

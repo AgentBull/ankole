@@ -13,7 +13,7 @@ defmodule Ankole.Kernel.RuntimeFabric do
   alias Ankole.Kernel
   alias Ankole.RuntimeFabric.V1.Envelope
 
-  @protocol_version 3
+  @protocol_version 4
 
   @type router :: reference()
 

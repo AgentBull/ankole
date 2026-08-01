@@ -21,6 +21,13 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.generate_key() =~ ~r/\A[0-9a-f]{64}\z/
   end
 
+  test "any_ascii/1 transliterates Unicode and preserves ASCII" do
+    assert NativeKernel.any_ascii("Alpha九宫格因子分域.md") ==
+             "AlphaJiuGongGeYinZiFenYu.md"
+
+    assert NativeKernel.any_ascii("report-2026_07.pdf") == "report-2026_07.pdf"
+  end
+
   test "web_url_facts/1 parses and classifies web URLs" do
     assert %{scheme: "https", host: "example.com", host_class: :public} =
              NativeKernel.web_url_facts("https://Example.COM/page")
@@ -248,6 +255,7 @@ defmodule Ankole.KernelTest do
          %V1.TurnStart{
            turn: actor_turn_ref(),
            actor_event: actor_event_envelope(),
+           workspace_id: 10_000,
            model_ref: %V1.TurnModelRef{
              profile: "chat",
              provider_id: "openrouter-main",
@@ -305,7 +313,8 @@ defmodule Ankole.KernelTest do
         {:turn_start,
          %V1.TurnStart{
            turn: actor_turn_ref(),
-           actor_event: actor_event_envelope()
+           actor_event: actor_event_envelope(),
+           workspace_id: 10_000
          }}
     }
 
@@ -349,9 +358,10 @@ defmodule Ankole.KernelTest do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v3.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v4.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
+    assert turn_start.workspace_id == 10_000
     assert turn_start.model_ref.max_completion_tokens == 32_000
     assert turn_start.turn.actor.agent_uid == "agent-1"
     assert Torque.decode!(turn_start.actor_event.payload_json) == %{"text" => "PING"}
@@ -359,7 +369,7 @@ defmodule Ankole.KernelTest do
     assert with_field.protocol_version == RuntimeFabric.protocol_version()
 
     # Older bytes remain structurally decodable, but the native transport
-    # rejects them before an old worker can be admitted against typed RPC v3.
+    # rejects them before an old worker can be admitted against typed RPC v4.
     legacy =
       golden_dir |> Path.join("turn_start.v1.bin") |> File.read!() |> V1.Envelope.decode!()
 
@@ -375,7 +385,7 @@ defmodule Ankole.KernelTest do
     assert pre_field_start.model_ref.max_completion_tokens == nil
 
     worker_ready =
-      golden_dir |> Path.join("worker_ready.v3.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("worker_ready.v4.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:worker_ready,
             %V1.AgentComputerWorkerReady{
@@ -1013,7 +1023,8 @@ defmodule Ankole.KernelTest do
         {:turn_start,
          %V1.TurnStart{
            turn: actor_turn_ref(),
-           actor_event: actor_event_envelope()
+           actor_event: actor_event_envelope(),
+           workspace_id: 10_000
          }}
     }
   end

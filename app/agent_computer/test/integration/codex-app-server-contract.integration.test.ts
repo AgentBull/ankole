@@ -455,7 +455,6 @@ test ! -e ./AGENTS.override.md
     })
     materializeCodexJobProjectConfig({
       projectRoot: project.root,
-      mcpServers: [],
       pluginsEnabled: false,
       runtimeConfig
     })

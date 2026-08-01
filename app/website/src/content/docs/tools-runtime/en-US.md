@@ -7,7 +7,7 @@ order: 120
 
 During a turn, the worker assembles the set of tools the model can call, converts each tool's schema to JSON Schema the model sees, and dispatches each function call the model makes back to the tool's `execute` function. This page documents that runtime: the `AgentTool` contract, how the per-turn tool set is assembled, how schemas are collected, and how the loop dispatches a call. It builds on [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
-The decisive property, stated up front: tools are **assembled per turn, not statically registered**. Each turn builds its tool set from the categories the turn needs — computer, web, brain, schedule, MCP, background jobs — and the set is fresh for each turn, because the available skills, MCP servers, and worker environment can change between turns. There is no global tool registry; there is a per-turn collection.
+The decisive property, stated up front: tools are **assembled per turn**. Each turn builds its final tool set from computer, web, brain, schedule, background jobs, and other current sources. There is no Agent-owned global tool set. MCP-backed Skills use the computer command tool and mcporter. A small release registry can contribute trusted Direct MCP tools to the per-turn collection.
 
 ## The AgentTool contract
 
@@ -18,6 +18,9 @@ Every tool implements the `AgentTool` interface. The fields the runtime cares ab
 | `name` | string | the tool name the model sees and calls |
 | `description` | string | what the tool does — the model reads this to decide whether to call |
 | `schema` | Zod schema | the input parameters, validated before `execute` runs |
+| `jsonSchema` | JSON Schema (optional) | a live external schema used instead of a generated Zod schema |
+| `namespace` / `namespaceDescription` | string (optional) | groups related external tools under one provider namespace |
+| `deferLoading` | boolean (optional) | keeps a child schema behind Tool Search until selected |
 | `executionMode` | `'parallel' \| 'sequential'` | whether the tool can run alongside others in the same response |
 | `isReadOnly` / `isDestructive` | boolean | metadata for activity reporting and safety checks |
 | `describeActivity` | function | builds a short human-readable label from validated params (for progress) |
@@ -35,7 +38,6 @@ tools = [
   createTodoTool(...),
   ...createComputerTools({...}),
   ...webTools,
-  ...mcpTools,
   ...brainTools,
   ...scheduleTools,
   ...backgroundAgentJobTools,
@@ -47,11 +49,12 @@ Each category creator is a function that returns one or more `AgentTool` objects
 
 The per-turn assembly is what makes the tool set dynamic:
 
-- **MCP tools** are created from the agent's enabled skills' `openai.yaml` declarations — a different set of enabled skills produces a different set of MCP servers, and thus a different set of MCP tools.
+- **Skill knowledge** is projected from the Agent's current enabled Skills. An MCP-backed Skill selects a domain tool and uses the existing computer command tool to call mcporter.
+- **Direct MCP tools** come from the trusted Worker release registry. The worker lists the bounded live catalog and adds only the release allowlist as deferred namespace children.
 - **Web tools** are created from the worker's `web_search`/`web_fetch` provider availability — if the profiles are unbound, the tools are absent.
 - **Background job tools** are created from the turn's context — only available when the turn supports spawning jobs.
 
-This is why the tool set is not a static registry: it reflects what the agent can actually do on this turn, with this configuration.
+The final tool set is still a per-turn result. The Direct MCP registry is one release input to that result, not an Agent capability database or a ready connection pool.
 
 ## Schema collection
 
@@ -67,7 +70,7 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 }
 ```
 
-The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. The model sees the tool names, the descriptions, and the JSON Schema for each tool's parameters, and decides which to call.
+The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. A Direct MCP tool keeps the live catalog JSON Schema instead of converting its permissive execution Zod record. Deferred children remain behind Tool Search until selected.
 
 When the model returns a function call, its arguments arrive as a JSON string. `validateToolArguments` parses the string against the tool's Zod schema, with a bounded repair ladder for malformed arguments (truncated JSON, code-fenced JSON, unbalanced objects). A tool's `execute` never receives raw model output — it receives schema-validated params.
 
@@ -90,5 +93,5 @@ It is not a tool-authoring tutorial — a new tool is an `AgentTool` object retu
 
 - For the loop that dispatches tool calls, read [The agent loop](../agent-loop/).
 - For the Agent Computer Worker that runs the tools, read [Agent Computer Worker](../agent-computer-worker/).
-- For MCP tools (created from skill declarations), read the [MCP server reference](../mcp/).
+- For MCP execution dependencies behind Skills, read the [MCP server reference](../mcp/).
 - For the skills that carry MCP dependencies, read [Writing a skill](../writing-a-skill/).

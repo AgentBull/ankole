@@ -58,6 +58,12 @@ defmodule Ankole.Kernel do
   def aead_encrypt(_plaintext, _key), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Transliterates Unicode text to an ASCII approximation.
+  """
+  @spec any_ascii(String.t()) :: String.t()
+  def any_ascii(_input), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Authorizes one exact action on one concrete resource.
 
   The snapshot must contain every Principal, group, grant, resource, action, and

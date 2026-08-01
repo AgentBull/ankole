@@ -501,6 +501,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
   defp sanitize_segment(value) when is_binary(value) do
     value
+    |> Ankole.Kernel.any_ascii()
     |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
     |> String.trim("_")
     |> case do

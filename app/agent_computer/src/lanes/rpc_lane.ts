@@ -71,10 +71,12 @@ import {
   ScheduleCheckBackLaterUpdateRequestSchema,
   ScheduleCronAddRequestSchema,
   ScheduleCronListRequestSchema,
+  AmbientJudgmentRecordRequestSchema,
   ScheduleCronRunRequestSchema,
   ScheduleCronRunsRequestSchema,
   ScheduleCronTargetRequestSchema,
   ScheduleCronUpdateRequestSchema,
+  SignalChannelStandingOrdersSetRequestSchema,
   SkillOverlayAppendRequestSchema,
   SkillOverlayReplaceRequestSchema,
   SkillOverlayResolveRequestSchema,
@@ -137,6 +139,8 @@ export const rpcMethods = {
   scheduleCronResume: 'schedule.cron.resume',
   scheduleCronRemove: 'schedule.cron.remove',
   scheduleCronRun: 'schedule.cron.run',
+  signalChannelAmbientJudgmentRecord: 'signal_channel.ambient_judgment.record',
+  signalChannelStandingOrdersSet: 'signal_channel.standing_orders.set',
   webhookEndpointCreate: 'webhook.endpoint.create',
   webhookEndpointList: 'webhook.endpoint.list',
   webhookEndpointCancel: 'webhook.endpoint.cancel',
@@ -202,6 +206,8 @@ export const rpcOperationMeta = {
   [rpcMethods.scheduleCronResume]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCronRemove]: { scope: 'turn', effect: 'write' },
   [rpcMethods.scheduleCronRun]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.signalChannelAmbientJudgmentRecord]: { scope: 'turn', effect: 'write' },
+  [rpcMethods.signalChannelStandingOrdersSet]: { scope: 'turn', effect: 'write' },
   [rpcMethods.webhookEndpointCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.webhookEndpointList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.webhookEndpointCancel]: { scope: 'turn', effect: 'write' },
@@ -342,6 +348,14 @@ export const rpcSchemas = {
     response: JSONPassthroughResponseSchema
   },
   [rpcMethods.scheduleCronRun]: { request: ScheduleCronRunRequestSchema, response: JSONPassthroughResponseSchema },
+  [rpcMethods.signalChannelAmbientJudgmentRecord]: {
+    request: AmbientJudgmentRecordRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
+  [rpcMethods.signalChannelStandingOrdersSet]: {
+    request: SignalChannelStandingOrdersSetRequestSchema,
+    response: JSONPassthroughResponseSchema
+  },
   [rpcMethods.webhookEndpointCreate]: {
     request: WebhookEndpointCreateRequestSchema,
     response: JSONPassthroughResponseSchema
@@ -401,6 +415,7 @@ export type RPCRequester = <M extends ControlPlaneOwnedRPCMethod>(
 export type ScheduleRPCMethod = Extract<RPCMethod, `schedule.${string}`>
 export type MemoryRPCMethod = Extract<RPCMethod, `memory${string}`>
 export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
+export type SignalChannelRPCMethod = Extract<RPCMethod, `signal_channel.${string}`>
 export type AutomationJobManagementRPCMethod =
   | typeof rpcMethods.automationJobCreate
   | typeof rpcMethods.automationJobList
@@ -427,6 +442,11 @@ export type WebhookRPCRequester = <M extends WebhookRPCMethod>(
   payload: RPCRequestInit<M>
 ) => Promise<JSONObject>
 
+export type SignalChannelRPCRequester = <M extends SignalChannelRPCMethod>(
+  method: M,
+  payload: RPCRequestInit<M>
+) => Promise<JSONObject>
+
 export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMethod>(
   method: M,
   payload: RPCRequestInit<M>
@@ -447,6 +467,12 @@ export function memoryRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): Memor
 
 export function webhookRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): WebhookRPCRequester {
   // Every webhook method is turn-scoped; same discharge limit as above.
+  return async (method, payload) =>
+    passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
+}
+
+export function signalChannelRPCRequester(rpc: RPCRequester, turn: ActorTurnRef): SignalChannelRPCRequester {
+  // Every signal_channel method is turn-scoped; same discharge limit as above.
   return async (method, payload) =>
     passthroughJSON(await rpc(method, payload, { turn } as RPCFrame<typeof method>), method)
 }
@@ -723,6 +749,7 @@ export type {
   BackgroundAgentJobListResponse,
   BackgroundAgentJobMessageResultResponse,
   BackgroundAgentJobMessageSendResponse,
+  ConversationChannel,
   BackgroundAgentJobRespawnResponse,
   BackgroundAgentJobResponse,
   BackgroundAgentJobResultRef,

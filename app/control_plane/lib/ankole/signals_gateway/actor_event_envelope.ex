@@ -43,7 +43,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
       binding
       |> actor_envelope(fact, type, channel, entry, now)
       |> maybe_channel_context(type, attrs, fact)
-      |> maybe_ambient_batch_payload(repo, type, attrs, fact, now)
+      |> maybe_ambient_batch_payload(repo, type, attrs, fact, channel, now)
 
     attrs = Map.put(attrs, :payload, payload)
 
@@ -74,10 +74,11 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
          "im.message.may_intervene",
          attrs,
          %{finalized_batch_id: _batch_id, batch_entries: entries},
+         channel,
          now
        )
        when is_list(entries) do
-    refresh_ambient_batch_payload(payload, repo, attrs, entries, now)
+    refresh_ambient_batch_payload(payload, repo, attrs, entries, channel, now)
   end
 
   defp maybe_ambient_batch_payload(
@@ -86,14 +87,18 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
          _type,
          _attrs,
          %{finalized_batch_id: _batch_id},
+         _channel,
          _now
        ),
        do: payload
 
-  defp maybe_ambient_batch_payload(payload, _repo, _type, _attrs, _fact, _now), do: payload
+  defp maybe_ambient_batch_payload(payload, _repo, _type, _attrs, _fact, _channel, _now),
+    do: payload
 
-  defp refresh_ambient_batch_payload(payload, repo, attrs, entries, now) do
-    observed_messages = ChannelContext.observed_messages(attrs, entries)
+  defp refresh_ambient_batch_payload(payload, repo, attrs, entries, channel, now) do
+    judged_until = ambient_judged_until(channel)
+    observed_messages = ChannelContext.ambient_delta_messages(attrs, entries, judged_until)
+    backdrop_messages = ChannelContext.ambient_backdrop_messages(attrs, judged_until)
     unreplied_messages = ChannelContext.unreplied_messages(attrs, entries)
     scene_fingerprint = ChannelContext.ambient_scene_fingerprint(repo, attrs.signal_channel_id)
 
@@ -101,6 +106,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     |> put_in(["data", "entry"], batch_entry_summary(entries))
     |> put_in(["data", "entries"], entries)
     |> put_in(["data", "observed_messages"], observed_messages)
+    |> put_in(["data", "backdrop_messages"], backdrop_messages)
     |> put_in(["data", "unreplied_messages"], unreplied_messages)
     |> put_in(["data", "ambient_batch"], %{
       "size" => length(entries),
@@ -152,7 +158,7 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
           "session_id" => Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id),
           "binding_name" => binding.name
         },
-        "channel" => channel_payload(channel),
+        "channel" => channel_payload(channel, binding),
         "entry" => entry_payload(entry || fact, fact),
         "entries" => Map.get(fact, :batch_entries),
         "mentions" => Map.get(fact, :mentions),
@@ -175,19 +181,32 @@ defmodule Ankole.SignalsGateway.ActorEventEnvelope do
     }
   end
 
-  defp channel_payload(nil), do: nil
+  defp channel_payload(nil, _binding), do: nil
 
-  defp channel_payload(%Channel{} = channel) do
+  defp channel_payload(%Channel{} = channel, binding) do
     %{
       "id" => channel.id,
       "kind" => Atom.to_string(channel.kind),
       "reply_mode" => Atom.to_string(channel.reply_mode),
       "name" => channel.name,
-      "visibility" => channel.visibility
+      "visibility" => channel.visibility,
+      "standing_orders" => active_standing_orders(channel, binding)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  # Standing orders drive behavior only where ambient intervention is allowed;
+  # on other bindings the stored text stays inert and invisible to the model.
+  defp active_standing_orders(%Channel{} = channel, %{
+         unaddressed_group_message_policy: :may_intervene
+       }),
+       do: channel.ambient_standing_orders
+
+  defp active_standing_orders(_channel, _binding), do: nil
+
+  defp ambient_judged_until(%Channel{ambient_judged_until: judged_until}), do: judged_until
+  defp ambient_judged_until(_channel), do: nil
 
   defp lifecycle_payload(%{lifecycle_kind: lifecycle_kind} = fact)
        when not is_nil(lifecycle_kind) do

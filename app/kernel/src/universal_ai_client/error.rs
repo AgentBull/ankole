@@ -5,6 +5,13 @@ use crate::common::KernelError;
 
 pub const PROVIDER_BODY_EXCERPT_LIMIT: usize = 4096;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum RetryDisposition {
+    #[default]
+    Terminal,
+    CredentialPool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum StreamErrorCode {
     ProviderTerminalRejected,
@@ -35,6 +42,8 @@ pub struct StreamError {
     pub provider_body_excerpt: Option<Box<str>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub provider_headers: Vec<(String, String)>,
+    #[serde(skip)]
+    retry_disposition: RetryDisposition,
 }
 
 impl StreamError {
@@ -50,7 +59,18 @@ impl StreamError {
             provider_status: None,
             provider_body_excerpt: None,
             provider_headers: Vec::new(),
+            retry_disposition: RetryDisposition::Terminal,
         }
+    }
+
+    pub(crate) fn retry_through_credential_pool(mut self) -> Self {
+        self.retry_disposition = RetryDisposition::CredentialPool;
+        self
+    }
+
+    pub(crate) fn can_retry_through_credential_pool(&self) -> bool {
+        self.retry_disposition == RetryDisposition::CredentialPool
+            || matches!(self.provider_status, Some(401 | 429 | 500..=599))
     }
 
     pub fn provider_status(mut self, status: u16) -> Self {
@@ -149,5 +169,21 @@ impl std::fmt::Display for StreamError {
 impl From<StreamError> for KernelError {
     fn from(error: StreamError) -> Self {
         KernelError::new(error.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_disposition_stays_out_of_the_host_error_contract() {
+        let error = StreamError::new("transport_failed", "connect", "connection failed")
+            .retry_through_credential_pool();
+        let json = error.to_json();
+
+        assert!(error.can_retry_through_credential_pool());
+        assert_eq!(json["code"], "transport_failed");
+        assert!(json.get("retry_disposition").is_none());
     }
 }

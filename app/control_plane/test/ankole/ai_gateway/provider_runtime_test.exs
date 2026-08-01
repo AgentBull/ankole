@@ -24,6 +24,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AppConfigure
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.ActorRuntime.RPCLane
   alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
   alias Ankole.SignalsGateway.ActorRuntime.TurnPolicy
@@ -996,7 +997,35 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                documents["design"]["content_hash"]
              )
 
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
+    channel_id = "lark:context"
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.insert!(%Channel{
+      id: channel_id,
+      kind: :im_group,
+      reply_mode: :entry,
+      name: "策略讨论",
+      metadata: %{"domain" => "feishu"},
+      raw_payload: %{},
+      first_seen_at: now,
+      last_seen_at: now
+    })
+
+    {route, turn} = assign_worker_route(agent.uid, "signal-channel:#{channel_id}")
+
+    Conversation
+    |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "signal-channel:#{channel_id}")
+    |> Conversation.changeset(%{
+      metadata: %{
+        "brain" => %{
+          "visibility" => "shared",
+          "channel_id" => channel_id,
+          "channel_kind" => "im_group"
+        }
+      }
+    })
+    |> Repo.update!()
+
     mixed_case_turn = %{turn | actor: %{turn.actor | agent_uid: " #{String.upcase(agent.uid)} "}}
 
     assert {:ok, context_envelope} =
@@ -1018,7 +1047,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
 
     assert context_payload.agent.display_name == agent.display_name
     assert context_payload.agent.role == "Research Analyst"
-    assert context_payload.conversation.key == "signal-channel:context"
+    assert context_payload.conversation.key == "signal-channel:#{channel_id}"
+    assert context_payload.conversation.origin_channel.adapter == "lark"
+    assert context_payload.conversation.origin_channel.kind == "im_group"
+    assert context_payload.conversation.origin_channel.label == "策略讨论"
     assert context_payload.mission == "Own the next-turn research workflow."
     assert context_payload.soul == "Be exact, calm, and evidence-led."
     assert context_payload.design == "Use cobalt accents and generous whitespace."

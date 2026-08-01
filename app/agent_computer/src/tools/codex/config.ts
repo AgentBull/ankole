@@ -74,6 +74,19 @@ enabled = true
 [features.multi_agent_v2]
 enabled = true
 hide_spawn_agent_metadata = true
+
+# Codex builds these skills into its binary. Keep them out of Worker sessions.
+[[skills.config]]
+name = "skill-creator"
+enabled = false
+
+[[skills.config]]
+name = "plugin-creator"
+enabled = false
+
+[[skills.config]]
+name = "skill-installer"
+enabled = false
 `
   const normalizedBaseURL = baseURL.replace(/\/+$/, '')
   return `model_provider = "ankole_aigateway"

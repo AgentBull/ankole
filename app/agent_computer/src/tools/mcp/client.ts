@@ -1,47 +1,51 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { CallToolResultSchema, ListToolsResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js'
-import { injectableWorkerEnv } from '../computer/env'
-import { assertMCPResourceLimit, MCP_RESOURCE_LIMITS, type MCPServerConfig } from './config'
+import {
+  CallToolResultSchema,
+  ListToolsResultSchema,
+  type CallToolResult,
+  type Tool
+} from '@modelcontextprotocol/sdk/types.js'
+import type { DirectStdioMCPServer } from './direct-registry'
 import { compareCodePointStrings } from './ordering'
 
-const MAX_LIST_PAGES = 20
-const MAX_TOOLS_PER_SERVER = 256
-const MAX_TOOL_SCHEMA_BYTES = 64 * 1024
-const MAX_CATALOG_BYTES = 512 * 1024
+const maxListPages = 20
+const maxToolsPerServer = 256
+const maxToolSchemaBytes = 64 * 1024
+const maxCatalogBytes = 512 * 1024
+const maxCallArgumentBytes = 2 * 1024 * 1024
+const maxStdioMessageBytes = 72 * 1024 * 1024
 
-export interface MCPClientOperationOptions {
-  workerEnv?: Record<string, string>
-  signal?: AbortSignal
-  timeoutMs: number
-}
-
-export type MCPListedTool = Pick<
+export type DirectMCPListedTool = Pick<
   Tool,
   'name' | 'title' | 'description' | 'inputSchema' | 'outputSchema' | 'annotations' | '_meta'
 >
 
-export interface MCPServerCatalog {
+export interface DirectMCPServerCatalog {
   instructions?: string
-  tools: MCPListedTool[]
+  tools: DirectMCPListedTool[]
 }
 
-/** Lists and validates one server's complete bounded tool catalog. */
-export async function listMCPServerCatalog(
-  server: MCPServerConfig,
-  options: MCPClientOperationOptions
-): Promise<MCPServerCatalog> {
-  return await withEphemeralMCPClient(server, options, async (client, signal) => {
-    const tools: MCPListedTool[] = []
+export interface DirectMCPClientOptions {
+  workerEnv?: Record<string, string>
+  signal?: AbortSignal
+}
+
+/** Lists one release-defined Direct MCP server through a fresh stdio process. */
+export async function listDirectMCPServerCatalog(
+  server: DirectStdioMCPServer,
+  options: DirectMCPClientOptions = {}
+): Promise<DirectMCPServerCatalog> {
+  return await withDirectMCPClient(server, options, async (client, signal) => {
+    const tools: DirectMCPListedTool[] = []
     const names = new Set<string>()
     let cursor: string | undefined
 
-    for (let page = 0; page < MAX_LIST_PAGES; page++) {
+    for (let page = 0; page < maxListPages; page += 1) {
       const result = await client.request(
         { method: 'tools/list', params: cursor ? { cursor } : {} },
         ListToolsResultSchema,
-        { signal, timeout: options.timeoutMs }
+        { signal, timeout: server.timeoutMs }
       )
 
       for (const tool of result.tools) {
@@ -50,8 +54,8 @@ export async function listMCPServerCatalog(
           JSON.stringify({ inputSchema: tool.inputSchema, outputSchema: tool.outputSchema }),
           'utf8'
         )
-        if (schemaBytes > MAX_TOOL_SCHEMA_BYTES) {
-          throw new Error(`MCP server ${server.name} returned an oversized schema for tool ${tool.name}`)
+        if (schemaBytes > maxToolSchemaBytes) {
+          throw new Error(`Direct MCP server ${server.name} returned an oversized schema for tool ${tool.name}`)
         }
         names.add(tool.name)
         tools.push({
@@ -63,137 +67,105 @@ export async function listMCPServerCatalog(
           ...(tool.annotations ? { annotations: tool.annotations } : {}),
           ...(tool._meta ? { _meta: tool._meta } : {})
         })
-        if (tools.length > MAX_TOOLS_PER_SERVER) {
-          throw new Error(`MCP server ${server.name} exceeds the ${MAX_TOOLS_PER_SERVER}-tool catalog limit`)
+        if (tools.length > maxToolsPerServer) {
+          throw new Error(`Direct MCP server ${server.name} exceeds the ${maxToolsPerServer}-tool catalog limit`)
         }
       }
 
       cursor = result.nextCursor
       if (!cursor) {
-        const sorted = tools.sort((left, right) => compareCodePointStrings(left.name, right.name))
-        const instructions = client.getInstructions()
-        const catalog: MCPServerCatalog = {
-          ...(instructions !== undefined ? { instructions } : {}),
-          tools: sorted
+        const catalog: DirectMCPServerCatalog = {
+          ...(client.getInstructions() !== undefined ? { instructions: client.getInstructions() } : {}),
+          tools: tools.sort((left, right) => compareCodePointStrings(left.name, right.name))
         }
-        if (Buffer.byteLength(JSON.stringify(catalog), 'utf8') > MAX_CATALOG_BYTES) {
-          throw new Error(`MCP server ${server.name} exceeds the ${MAX_CATALOG_BYTES}-byte catalog limit`)
+        if (Buffer.byteLength(JSON.stringify(catalog), 'utf8') > maxCatalogBytes) {
+          throw new Error(`Direct MCP server ${server.name} exceeds the ${maxCatalogBytes}-byte catalog limit`)
         }
         return catalog
       }
     }
 
-    throw new Error(`MCP server ${server.name} exceeds the ${MAX_LIST_PAGES}-page catalog limit`)
+    throw new Error(`Direct MCP server ${server.name} exceeds the ${maxListPages}-page catalog limit`)
   })
 }
 
-/** Calls exactly one already-selected MCP tool over a fresh connection. */
-export async function callMCPServerTool(
-  server: MCPServerConfig,
+/** Calls one selected Direct MCP tool through a fresh stdio process. */
+export async function callDirectMCPServerTool(
+  server: DirectStdioMCPServer,
   toolName: string,
   args: Record<string, unknown>,
-  options: MCPClientOperationOptions
-): Promise<unknown> {
-  return await withEphemeralMCPClient(server, options, async (client, signal) => {
+  options: DirectMCPClientOptions = {}
+): Promise<CallToolResult> {
+  const argumentBytes = Buffer.byteLength(JSON.stringify(args), 'utf8')
+  if (argumentBytes > maxCallArgumentBytes) {
+    throw new Error(`Direct MCP tool arguments exceed ${maxCallArgumentBytes} bytes; aggregate or downsample the data`)
+  }
+
+  return await withDirectMCPClient(server, options, async (client, signal) => {
     return await client.request(
       { method: 'tools/call', params: { name: toolName, arguments: args } },
       CallToolResultSchema,
-      { signal, timeout: options.timeoutMs }
+      { signal, timeout: server.timeoutMs }
     )
   })
 }
 
-async function withEphemeralMCPClient<T>(
-  server: MCPServerConfig,
-  options: MCPClientOperationOptions,
+async function withDirectMCPClient<T>(
+  server: DirectStdioMCPServer,
+  options: DirectMCPClientOptions,
   operation: (client: Client, signal: AbortSignal) => Promise<T>
 ): Promise<T> {
-  const budget = operationBudget(options.signal, options.timeoutMs)
+  const budget = operationBudget(options.signal, server.timeoutMs)
   const client = new Client({ name: 'ankole-agent-computer', version: '1.0.0' })
-  let operationFailed = false
+  let failed = false
 
   try {
-    const transport = createTransport(server, options.workerEnv)
-    await client.connect(transport, { signal: budget.signal, timeout: options.timeoutMs })
+    await client.connect(createTransport(server, options.workerEnv), {
+      signal: budget.signal,
+      timeout: server.timeoutMs
+    })
     return await operation(client, budget.signal)
   } catch (error) {
-    operationFailed = true
+    failed = true
     throw error
   } finally {
     budget.cleanup()
-    if (operationFailed) {
-      try {
-        await client.close()
-      } catch {
-        // Preserve the transport/operation failure; close has no stronger fact.
-      }
-    } else {
-      await client.close()
-    }
+    if (failed) await client.close().catch(() => undefined)
+    else await client.close()
   }
 }
 
-function createTransport(server: MCPServerConfig, workerEnv?: Record<string, string>) {
-  if (server.transport === 'streamable_http') {
-    const token = server.bearerTokenEnvVar ? resolvedWorkerEnv(workerEnv)[server.bearerTokenEnvVar] : undefined
-    if (server.bearerTokenEnvVar && !token) {
-      throw new Error(`MCP server ${server.name} requires WorkerEnv variable ${server.bearerTokenEnvVar}`)
-    }
-
-    return new StreamableHTTPClientTransport(new URL(server.url), {
-      fetch: boundedMCPHTTPFetch,
-      ...(token ? { requestInit: { headers: { Authorization: `Bearer ${token}` } } } : {})
-    })
+function createTransport(server: DirectStdioMCPServer, workerEnv?: Record<string, string>): StdioClientTransport {
+  const env = getDefaultEnvironment()
+  for (const name of server.environmentVariables ?? []) {
+    const value = workerEnv?.[name]
+    if (!value) throw new Error(`Direct MCP server ${server.name} requires WorkerEnv variable ${name}`)
+    env[name] = value
   }
 
   return new StdioClientTransport({
-    command: '/bin/sh',
-    args: ['-lc', server.command],
-    env: { ...getDefaultEnvironment(), ...resolvedWorkerEnv(workerEnv) },
+    command: server.command,
+    args: server.args,
+    cwd: server.cwd,
+    env,
     stderr: 'ignore',
-    maxBufferSize: MCP_RESOURCE_LIMITS.stdioMessageBytes
+    maxBufferSize: maxStdioMessageBytes
   })
-}
-
-async function boundedMCPHTTPFetch(url: string | URL, init?: RequestInit): Promise<Response> {
-  const response = await fetch(url, init)
-  if (!response.body) return response
-
-  let receivedBytes = 0
-  const body = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        receivedBytes += chunk.byteLength
-        assertMCPResourceLimit('transport HTTP response', receivedBytes, MCP_RESOURCE_LIMITS.httpResponseBytes, 'byte')
-        controller.enqueue(chunk)
-      }
-    })
-  )
-
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers
-  })
-}
-
-function resolvedWorkerEnv(workerEnv?: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(injectableWorkerEnv(workerEnv))
 }
 
 function operationBudget(
   parent: AbortSignal | undefined,
   timeoutMs: number
-): {
-  signal: AbortSignal
-  cleanup: () => void
-} {
+): { signal: AbortSignal; cleanup: () => void } {
   const controller = new AbortController()
-  const abortFromParent = () => controller.abort(parent?.reason ?? new Error('MCP operation aborted'))
+  const abortFromParent = () => controller.abort(parent?.reason ?? new Error('Direct MCP operation aborted'))
   if (parent?.aborted) abortFromParent()
   else parent?.addEventListener('abort', abortFromParent, { once: true })
 
-  const timer = setTimeout(() => controller.abort(new Error(`MCP operation timed out after ${timeoutMs}ms`)), timeoutMs)
+  const timer = setTimeout(
+    () => controller.abort(new Error(`Direct MCP operation timed out after ${timeoutMs}ms`)),
+    timeoutMs
+  )
   return {
     signal: controller.signal,
     cleanup: () => {

@@ -34,7 +34,7 @@ The lock order through acceptance is fixed — channel, then session, then actor
 
 The gateway accepts four concrete kinds through `Ingress`, and each maps to a normalized actor-facing contract:
 
-- **Entry** — a message or post arriving in a channel. The primary wake path. The IM entry policy decides whether an unaddressed group message produces a `may_intervene` event (the agent is allowed to speak up) or an `addressed` event (the agent was called directly).
+- **Entry** — a message or post arriving in a channel. The primary wake path. The IM entry policy decides whether an unaddressed group message produces a `may_intervene` event (the agent is allowed to speak up) or an `addressed` event (the agent was called directly). For how the intervention judgment behaves, reply attribution, and channel standing orders, see [Ambient intervention](../ambient-intervention/).
 - **Entry removed** — a provider delete or recall. The actor-facing contract is always `signal.entry.removed`; the provider-native lifecycle name is kept only for diagnostics.
 - **Reaction** — an emoji or vote change on an existing entry. Updates the mirror only; never wakes an actor. A reaction on an entry the gateway never mirrored is ignored (`:ignored_unknown_entry`), not treated as an error.
 - **Action** — a provider-raised interaction such as a card button click. Goes through reply-interaction de-duplication: a duplicate click returns `:duplicate_action`, a stale one returns `:stale_action`, and an accepted one becomes a `signal.action.invoked` event.

@@ -1,85 +1,111 @@
 ---
 title: MCP server 参考
-description: Model Context Protocol server 如何声明与加载——openai.yaml 依赖模型、两种传输、超时，以及已启用 skill 如何贡献 server。
+description: Skill-backed 与发布内置 Direct MCP 如何进入 Main、Background 和 Automation 执行。
 section: Reference
 order: 201
 ---
 
-Ankole agent 能在一个回合里把 Model Context Protocol（MCP）server 当工具调用。本页是 MCP server 如何声明、支持哪些传输、以及 agent 所见的 server 集合如何构建的参考。
+Ankole 有两种 MCP 接入方式。Skill-backed server 在 Skill 选好一个领域工具后，把 MCP 用作调用协议；发布内置的 Direct MCP server 则提供小型的模型可见工具面。
 
-先把决定性的性质说清楚：MCP server 不在 agent 层配置。它们在 skill 的 `openai.yaml` 里作为工具依赖声明，agent 看到的是它**已启用** skill 的 MCP server 并集。没有单独的“agent MCP 配置”文件——skill 是唯一的注册来源。
+Skill MCP 依赖不会注册成模型原生工具，Agent 也不会直接收到它们的完整 MCP catalog。这样，Skill 是唯一的路由中心，不会出现第二套工具选择面。
 
-## server 在哪里声明
+## 声明依赖
 
-一个 skill 在它的 `openai.yaml` 元数据里的 `dependencies.tools` 下声明 MCP 依赖。每一项有 `type: mcp`、一个 `value`（server 名）、可选的 `description`、一个 `transport`，以及传输相关字段。一个 skill 最多声明 64 个依赖。
+在 Skill 的 `openai.yaml` 中，把 MCP 依赖写在 `dependencies.tools` 下：
 
 ```yaml
-# 在某个 skill 的 openai.yaml 里
 dependencies:
   tools:
     - type: mcp
       value: my-http-server
-      description: "查询工具"
+      description: "查询服务"
       transport: streamable_http
       url: https://mcp.example.com/mcp
       bearer_token_env_var: MCP_HTTP_TOKEN
-      timeout_ms: 60000
+      enabled_tools:
+        - lookup
+
     - type: mcp
       value: my-stdio-server
       transport: stdio
-      command: npx -y @example/mcp-server
-      timeout_ms: 120000
+      command: bunx --bun @example/mcp-server
+      disabled_tools:
+        - delete_record
 ```
 
-一个回合跑起来时，Agent Computer Worker 从每一个已启用的 skill 加载 MCP 声明，按 server 名去重，并启动这些 server。声明同一个 server 名的两个 skill 贡献一个 server，两个 skill 都记为来源。
-
-## 两种传输
-
-MCP 依赖是两种传输之一，schema 严格——属于一种传输的字段在另一种上会被拒绝。
+一个 Skill 最多声明 64 个依赖。schema 是严格的：未知字段或属于另一种 transport 的字段会被拒绝。
 
 ### `streamable_http`
 
-经 HTTP 访问的远程 server。字段：
-
 | 字段 | 含义 |
-|---|---|
-| `url` | server 的 HTTP URL（校验为 URL） |
-| `bearer_token_env_var` | 一个环境变量的名字，其值作为 bearer token 发送 |
-| `timeout_ms` | 可选请求超时 |
+| --- | --- |
+| `url` | HTTP 或 HTTPS server URL |
+| `bearer_token_env_var` | 保存 bearer token 的环境变量名称 |
+| `enabled_tools` | 可选的原始工具名 allowlist |
+| `disabled_tools` | 可选的原始工具名 denylist |
 
-`streamable_http` 用于需要 token 的托管 MCP server。YAML 中只填写保存 token 的环境变量名称，token 本身留在 Console 的[环境变量](../worker-env/)中，不会写进 Skill。
+token 值放在 Console 的[环境变量](../worker-env/)中。Skill 只保存变量名。
 
 ### `stdio`
 
-作为子进程启动的本地 server。字段：
-
 | 字段 | 含义 |
-|---|---|
-| `command` | 启动 server 的命令行（1–1024 字符） |
-| `timeout_ms` | 可选请求超时 |
+| --- | --- |
+| `command` | 启动 server 的受信命令行 |
+| `enabled_tools` | 可选的原始工具名 allowlist |
+| `disabled_tools` | 可选的原始工具名 denylist |
 
-`stdio` 用于以可执行文件或 `npx` 风格包分发的 MCP server。server 在回合使用 MCP 期间作为 worker 的子进程运行。
+Agent Computer 通过 `/bin/sh -lc` 运行命令。stdio 只用于受信、第一方 server 命令。
 
-## 超时
+声明不设置调用超时。Skill 或 Automation 脚本在每次 mcporter list 或 call 时传入 `--timeout`。
 
-默认 MCP 超时是 360,000 毫秒（六分钟），最小 100 毫秒。当某个 server 需要比默认值更多或更少的时间时，在依赖上设 `timeout_ms`。超过超时的工具调用会被取消，于是行为异常的 MCP server 不能无限拖住一个回合。
+## 启用集合与冲突
 
-## server 名
+一次执行获得当前已启用 Skills 的 MCP 依赖并集。两个 Skill 只有在连接、description 和 filters 完全相同时才能使用同一个 server 名；冲突会让执行准备失败。
 
-server 名 1–1024 字符，去除首尾空白，不含控制字符。它是模型看到的键，也是加载器去重的键，所以一个稳定、可描述的名字要紧：重命名一个 server，模型会丢失对它的任何缓存理解；意图指向同一 server 的两个 skill 必须用同一个名字才会被合并。
+`ankole-runtime` 控制哪个模型能读到 Skill。Main Agent 使用 `any` 和 `main` Skills；Background Agent Job 使用 `any` 和 `background_job` Skills。Automation Job 不运行模型，所以它读取当前全部 enabled Skills 的依赖，不按 `ankole-runtime` 过滤。
 
-## 启用集合如何构建
+禁用一个 Skill 后，它的依赖会从下一次 turn、Background execution 或 Automation attempt 中消失。
 
-加载器读取 agent 已启用的每个 skill 的 `openai.yaml`——不是部署自带的每个 skill。声明但未在该 agent 上启用的 skill 不贡献 MCP server。启用一个声明了 MCP server 的 skill，让那些 server 在 agent 下一个回合可用；禁用它则移除它们。这让 MCP 界面成为 agent 有效能力的投影，而非一个运维者要单独管理的第二配置界面。
+## 生成 mcporter 配置
 
-加载器为贡献每个声明的实际已启用 skill 元数据文件计算一个 generation 哈希，于是能判断集合何时发生了实质性变化，并按需重启 server。
+Agent Computer 为每次执行写一个唯一的 `0600` 配置，并把路径注入为 `MCPORTER_CONFIG`。配置总是包含 `imports: []`，所以 mcporter 不会合并 Agent Home、项目、Codex、编辑器或宿主机配置。执行结束时文件会被删除。
 
-## Ankole 里的 MCP 不是什么
+配置只包含连接事实和凭据变量名，不包含 WorkerEnv secret value。
 
-它不是挂载任意长时服务的地方。MCP server 是回合调用的工具；它们按回合的节奏启动、回答、停止。它不是绕过权限边界的途径——agent 以自身身份、在自身权限下调用 MCP 工具。它也不按 agent 配置；skill 是注册来源，所以启用和禁用 skill 就是运维者改变 agent 所见 MCP server 集合的方式。
+Main Agent 通过 command tool 调用 mcporter；Background Agent Job 通过 Codex terminal 调用；Automation Job 在 `main.ts` 中用 `Bun.spawn` 调用。
+
+## 发布内置 Direct MCP
+
+Direct MCP server 随 Agent Computer Worker 发布，不来自 Agent 设置或 Skill。Main Agent 把它的工具作为 deferred Responses namespace 使用；Background Agent Job 把同一组工具作为 deferred Codex dynamic namespace 使用。
+
+每个 Automation attempt 的按次 `MCPORTER_CONFIG` 也会包含全部 Direct MCP server。这保证能力一致，不表示平台预测脚本会使用它。Agent Computer 不增加运行时启用或禁用规则。生成配置不会启动 server；只有模型工具或脚本发起调用时才建立连接。
+
+Flint Chart 是第一个 Direct MCP 集成。它通过 `bunx --bun --no-install` 使用 Worker 镜像中的 `flint-chart-mcp` 依赖，只暴露静态 PNG、SVG、Vega-Lite 编译与校验，默认 PNG，并禁用 Map 和 Choropleth。它不暴露 Flint MCP App。Direct MCP 注册是受信的发布合同，不是用户扩展面。
+
+## 只选择并调用一个工具
+
+Skill 必须先选择一个领域工具。只有需要当前 schema 时，才检查这个工具：
+
+```bash
+mcporter list 'my-http-server.lookup' --schema --json --timeout 360000
+```
+
+参数对象通过 stdin 传入，不要把 JSON 插值进 shell 文本：
+
+```bash
+mcporter call 'my-http-server.lookup' --json - --output json --timeout 360000 < /absolute/path/arguments.json
+```
+
+Automation 脚本使用同样的 argv，把 JSON 写入子进程 stdin，检查 exit code，然后解析 stdout。
+
+## 安全边界
+
+MCP output 是不可信输入。Skill 与 mcporter 路径不再提供 Ankole 旧原生路径的 output-schema 校验、MCP annotation 调度、tool-level approval UI，也不会按全部 WorkerEnv secrets 清洗结果。该路径用于受信、第一方 MCP Skills。远端 credential scope 仍是真正的读写权限边界。
+
+Main 与 Background 的原生 Direct MCP 路径会校验 protocol result envelope 和声明的 output schema，限制结果，并只清洗该发布记录声明的 WorkerEnv 值。Automation 保留现有的脚本自管 mcporter 结果合同，不增加这层原生清洗。每个发布记录还必须定义自己的数据访问与产物合同。
 
 ## 下一步
 
-- 声明 MCP 依赖的 skill，读 [Agent Library](../agent-library/) 开发者页。
-- 配置 `bearer_token_env_var` 所使用的值，读[环境变量](../worker-env/)。
-- 在一个回合里跑 MCP 工具的 worker，读 [Agent Computer Worker](../agent-computer-worker/) 开发者页。
+- 编写 Skill 指引见[编写 Skill](../writing-a-skill/)。
+- 配置 bearer token 见[环境变量](../worker-env/)。
+- 使用已启用能力见[使用 MCP](../using-mcp/)。

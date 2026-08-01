@@ -57,13 +57,24 @@ does not change the event.
 `Ankole.AutomationJobs.Jobs.ExecuteRun` is the Oban wake edge. It claims the run
 under a row lock, increases the attempt count, and gives the attempt a new UUID.
 It then calls one admitted Agent Computer worker through the worker-owned
-`automation_job.run` RuntimeFabric RPC.
+`automation_job.run` RuntimeFabric RPC. Each attempt resolves the Agent's
+current enabled Skills and sends their existing `RuntimeSkillSummary`
+projection with the request. The request does not copy `SKILL.md` or MCP
+connection declarations.
 
 The Worker checks the directory and `main.ts` through `realpath` again. Both
 must stay inside the current Agent Home. It resolves the latest Agent WorkerEnv
-and does not add turn-local human identity or turn CLI sockets. It runs
-`main.ts` with Bun in the existing bubblewrap sandbox, with the job directory as
-the working directory.
+and resolves the request's Skill summaries through the current builtin,
+internal, and Agent-installed roots. It combines those Skill MCP dependencies
+with every release-defined Direct MCP server. It writes one `0600` mcporter
+config with `imports: []`, injects its path as `MCPORTER_CONFIG`, and removes it
+when the attempt ends. Direct MCP records have no Automation eligibility gate.
+Config generation does not start a server; `main.ts` starts one only when it
+calls mcporter. Automation does not read Skill instructions; `main.ts` contains
+the selected tool, arguments, bounds, and result checks. The Worker does not
+add turn-local human identity or turn CLI sockets. It runs `main.ts` with Bun
+in the existing bubblewrap sandbox, with the job directory as the working
+directory.
 
 The run limit is ten minutes. Runs of one job can overlap. Automation Jobs does
 not add a mutex or a scheduler. The script owns any state and must make a repeat

@@ -1,9 +1,12 @@
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "napi-rs discovers exports through generated registration code"
+)]
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JSONValue;
-use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::authz;
@@ -219,9 +222,31 @@ pub fn web_url_facts(url: String) -> Result<WebURLFacts> {
 }
 
 /// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
-#[napi(js_name = "xxh3File128Hex")]
-pub fn js_xxh3_file_128_hex(path: String) -> Result<String> {
-    common::xxh3_128_file_hex(Path::new(&path)).map_err(napi_error)
+///
+/// File I/O and hashing run on a libuv worker thread so a large file cannot
+/// block the Bun event loop.
+#[napi(js_name = "xxh3File128Hex", ts_return_type = "Promise<string>")]
+pub fn js_xxh3_file_128_hex(path: String) -> AsyncTask<XXH3FileHashTask> {
+    AsyncTask::new(XXH3FileHashTask {
+        path: PathBuf::from(path),
+    })
+}
+
+pub struct XXH3FileHashTask {
+    path: PathBuf,
+}
+
+impl Task for XXH3FileHashTask {
+    type Output = String;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        common::xxh3_128_file_hex(&self.path).map_err(napi_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
+    }
 }
 
 /// Computes the non-cryptographic XXH3 128-bit fingerprint for a UTF-8 string.

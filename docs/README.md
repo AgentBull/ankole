@@ -71,7 +71,7 @@ resources:
 - `SOUL.md`, `MISSION.md`, and `DESIGN.md`
 - `user-files` for user artifacts
 - `installed-skills` for copies of installed Skills that the worker can use
-- `sessions/<base64url-session-id>` for Session workspaces
+- `sessions/<workspace-id>` for Session workspaces; PostgreSQL allocates IDs from 10000
 - `jobs/<job-id>` for private BackgroundAgentJob workspaces
 
 Agent Home contains Session and Job workspaces. `/workspace` is not an
@@ -243,6 +243,7 @@ credentials. The dedicated Brain real-model suite is not part of `--all`.
 | [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | MCP Skill execution and secrets |
+| [Direct MCP Tools](design-docs/DirectMCPTools.md) | Release-defined MCP model tools and runtime projection |
 | [Web tools](design-docs/WebTools.md) | Web search, fetch, and rendered fallback |
 | [I18n](design-docs/I18n.md) | Language selection and translation files |
 | [Logger](design-docs/Logger.md) | Structured log format |

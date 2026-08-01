@@ -35,6 +35,8 @@ An automation job is a deterministic script that consumes a trigger instead of w
 
 The Agent creates one directory inside its Agent Home, adds `main.ts`, checks its setup and non-SDK branches by hand, and registers the directory with `create-automation-job-cli`. The Worker resolves the directory and entrypoint through real paths at registration and at every run. It executes the current files with Bun, so an edit takes effect without another registration.
 
+Each attempt receives the latest Agent WorkerEnv and an invocation-scoped `MCPORTER_CONFIG` generated from the current enabled Skills plus every release-defined Direct MCP server. This is one static capability set; the Worker does not predict which server the script will use. The script can call one selected MCP tool with mcporter and stdin JSON. Automation does not read Skill instructions, and it does not use a persistent Agent Home mcporter config.
+
 The run SDK provides `context()` and `emitEvent(payload)`. `context().event` is the same CloudEvents envelope that a direct trigger would append as an ActorEvent. A script can finish without an emission for a silent success, or call `emitEvent` one or more times to append durable `automation_job.emitted` events to the owner session.
 
 `context()` and `emitEvent` exist only inside a platform run. A direct `bun main.ts` run can check the setup and branches that do not call these functions. After registration, use a test trigger for every SDK branch and inspect its durable run. `emitEvent` does not fall back to stdout: its promise resolves only after the ActorEvent is durable.

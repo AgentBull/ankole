@@ -102,6 +102,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
           'memory_update',
           'memory_browse',
           'memory_health_check',
+          'mcp__flint_chart',
           'request_parent_input'
         ]
       })
@@ -256,6 +257,11 @@ describe('@ankole/agent-computer Codex job runner', () => {
       mkdirSync(root, { recursive: true })
       writeFileSync(join(root, 'SKILL.md'), `---\nname: ${name}\ndescription: Test.\n---\n`)
     }
+    mkdirSync(join(fixture.root, 'builtin-skills', 'job-any', 'agents'), { recursive: true })
+    writeFileSync(
+      join(fixture.root, 'builtin-skills', 'job-any', 'agents', 'openai.yaml'),
+      'dependencies:\n  tools:\n    - type: mcp\n      value: job-data\n      transport: streamable_http\n      url: https://mcp.example.test/rpc\n'
+    )
     const opts = options(fixture.root, statusUpdates, [], undefined, undefined, undefined, [jobAny, mainOnly])
 
     try {
@@ -264,6 +270,15 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'job-any'))).toBe(true)
       expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'main-only'))).toBe(false)
+      const runtimeEnv = JSON.parse(
+        readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
+      ) as Record<string, string>
+      expect(runtimeEnv.MCPORTER_CONFIG).toStartWith('/var/share/ankole-mcporter-')
+      expect(JSON.parse(runtimeEnv.MCPORTER_CONFIG_CONTENT)).toMatchObject({
+        imports: [],
+        mcpServers: { 'job-data': { baseUrl: 'https://mcp.example.test/rpc' } }
+      })
+      expect(existsSync(runtimeEnv.MCPORTER_CONFIG)).toBe(false)
     } finally {
       fixture.cleanup()
     }
@@ -783,6 +798,7 @@ function response(): BackgroundAgentJobResponse {
 
 function turnStart(): TurnStart {
   return {
+    workspace_id: 10_000,
     turn: {
       actor: { agent_uid: 'agent-1', session_id: `job:${jobID}` },
       activation_uid: 'activation-1',
@@ -819,6 +835,7 @@ function messageTurnStart(): TurnStart {
   const actorEventID = '00000000-0000-0000-0000-000000000002'
 
   return {
+    workspace_id: base.workspace_id,
     turn: { ...base.turn, actor_event_id: actorEventID },
     actor_event: {
       actor_event_id: actorEventID,
@@ -895,7 +912,9 @@ writeFileSync('browser-env.json', JSON.stringify({
   ANKOLE_BROWSER_MATERIAL: process.env.ANKOLE_BROWSER_MATERIAL,
   ANKOLE_BROWSER_ARTIFACT_ROOT: process.env.ANKOLE_BROWSER_ARTIFACT_ROOT,
   BROWSER_BACKEND_JSON: process.env.BROWSER_BACKEND_JSON,
-  SAFE_VALUE: process.env.SAFE_VALUE
+  SAFE_VALUE: process.env.SAFE_VALUE,
+  MCPORTER_CONFIG: process.env.MCPORTER_CONFIG,
+  MCPORTER_CONFIG_CONTENT: process.env.MCPORTER_CONFIG ? readFileSync(process.env.MCPORTER_CONFIG, 'utf8') : undefined
 }))
 let buffer = ''
 let turnCount = 0

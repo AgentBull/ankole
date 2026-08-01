@@ -5,6 +5,7 @@ import {
   lstatSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync
@@ -56,20 +57,55 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
  * alias or symlink is needed because the model sees the real Agent Home paths.
  */
 export function prepareTurnWorkspace(config: WorkerConfig, turnStart: TurnStart): string {
-  return prepareActorWorkspace(config, turnStart.turn.actor)
+  return prepareActorWorkspace(config, turnStart.turn.actor, turnStart.workspace_id)
 }
 
 export function prepareActorWorkspace(
   config: Pick<WorkerConfig, 'agentsRoot'>,
-  actor: { agent_uid: string; session_id: string }
+  actor: { agent_uid: string; session_id: string },
+  workspaceID: number
 ): string {
   prepareAgentHome(config.agentsRoot, actor.agent_uid)
-  const sessionRoot = sessionWorkspacePath(config.agentsRoot, actor.agent_uid, actor.session_id)
+  const sessionRoot = sessionWorkspacePath(config.agentsRoot, actor.agent_uid, workspaceID)
+  migrateLegacySessionWorkspace(config.agentsRoot, actor, sessionRoot)
 
   mkdirSync(sessionRoot, { recursive: true })
   mkdirSync(join(sessionRoot, 'temp'), { recursive: true })
 
   return sessionRoot
+}
+
+/**
+ * Moves the former Base64URL directory on first access.
+ *
+ * Remove this migration after every retained Agent Home has completed one
+ * post-v4 turn or has been checked for legacy session directories.
+ */
+function migrateLegacySessionWorkspace(
+  agentsRoot: string,
+  actor: { agent_uid: string; session_id: string },
+  sessionRoot: string
+): void {
+  if (!actor.session_id) throw new Error('Session ID is required to migrate its legacy workspace')
+  const legacyKey = Buffer.from(actor.session_id, 'utf8').toString('base64url')
+  const legacyRoot = join(agentHomePaths(agentsRoot, actor.agent_uid).sessions, legacyKey)
+  if (legacyRoot === sessionRoot) return
+
+  if (existsSync(sessionRoot) && existsSync(legacyRoot)) {
+    throw new Error(`Session workspace migration conflict: both ${legacyRoot} and ${sessionRoot} exist`)
+  }
+
+  if (!existsSync(sessionRoot) && existsSync(legacyRoot)) {
+    try {
+      renameSync(legacyRoot, sessionRoot)
+    } catch (error) {
+      if (!existsSync(sessionRoot) || existsSync(legacyRoot)) throw error
+    }
+  }
+
+  if (existsSync(sessionRoot) && existsSync(legacyRoot)) {
+    throw new Error(`Session workspace migration conflict: both ${legacyRoot} and ${sessionRoot} exist`)
+  }
 }
 
 export function prepareAgentHome(agentsRoot: string, agentUID: string) {

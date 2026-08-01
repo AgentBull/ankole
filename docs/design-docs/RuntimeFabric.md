@@ -207,7 +207,8 @@ admission here.
 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` defines the message
 structure.
 The generated package namespace remains `ankole.runtime_fabric.v1`.
-The envelope header currently requires protocol version 3.
+The envelope header must use the current protocol version owned by the Rust
+kernel.
 
 The runtimes generate codecs from the same file:
 
@@ -220,7 +221,7 @@ A sidecar hash pins the source and generator inputs.
 
 The Rust kernel checks every envelope before sending and after receiving it:
 
-- `protocol_version` must equal 3.
+- `protocol_version` must equal the kernel's current `PROTOCOL_VERSION`.
 - `message_id`, lane, durability, and body must exist.
 - The body fixes its lane and durability class.
 - Turn and RPC envelopes require a correlation ID.
@@ -303,6 +304,7 @@ The message contains these main values:
 
 - An `ActorTurnRef` turn fence.
 - One durable ActorEvent envelope.
+- The PostgreSQL-owned numeric Session workspace ID.
 - The selected model reference.
 - Current request context.
 - Hosted tool configuration.
@@ -310,6 +312,11 @@ The message contains these main values:
 
 Request context contains current request details, not conversation history.
 AIGateway builds model history for each Response.
+
+The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
+It starts at 10000 and stays stable for one `{agent_uid, session_id}` pair.
+Protocol version 4 requires this field so a mixed-version worker cannot create
+a different directory.
 
 Turn runtime environment names use the `ANKOLE_RUNTIME_` prefix. These values
 are not WorkerEnv configuration. The control plane derives them from the current
@@ -446,6 +453,7 @@ The registry currently contains these method families:
 - Background Agent Job lifecycle and trajectory.
 - Brain memory operations.
 - Schedule operations.
+- Signal channel ambient judgments and standing orders.
 - Installed Skill observations.
 - Skill overlay resolve, append, and replace operations.
 
@@ -503,8 +511,12 @@ Each path begins with the Agent key and its canonical directory.
 For example:
 
 ```text
-/user_files/<agent-key>/user-files/inbox/file.png
+/user_files/<agent-key>/user-files/inbox/10000/file.png
 ```
+
+When an adapter limits a filename to ASCII, it first uses the native AnyAscii
+transliterator and then removes unsafe filename characters. This keeps readable
+Latin filenames instead of replacing each non-ASCII word with underscores.
 
 The internal `agent_home_documents` root accepts only these files:
 
@@ -570,10 +582,11 @@ even when the message does not wake an Agent.
 The current inbound path is:
 
 1. A provider adapter receives a resource reference or byte stream.
-2. The control plane records a pending provider observation in PostgreSQL.
+2. The control plane assigns a numeric attachment ID and records a pending
+   provider observation in PostgreSQL.
 3. The adapter writes bytes through `Ankole.WorkerFiles.put`.
-4. The adapter replaces the pending observation with the real Agent Home path
-   or a failed materialization state.
+4. The adapter replaces the pending observation with the real cross-session
+   user-files path or a failed materialization state.
 
 The current path does not ask a worker to fetch an arbitrary provider URL.
 

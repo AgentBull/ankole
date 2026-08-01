@@ -1,6 +1,7 @@
 defmodule Ankole.SignalsGatewayIngressTest do
   use Ankole.DataCase, async: false
 
+  alias Ecto.Adapters.SQL
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.AIGateway.Conversations
@@ -93,6 +94,82 @@ defmodule Ankole.SignalsGatewayIngressTest do
       assert Projection.entry_brain_store_route(entry, agent.uid) == "shared"
       assert Repo.aggregate(ActorEvent, :count) == 0
       assert Repo.aggregate(InboundBatch, :count) == 1
+    end
+
+    test "attachments get stable PostgreSQL numeric IDs starting at 10000" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :record_only)
+
+      assert %{rows: [[10_000, 1, 9_007_199_254_740_991]]} =
+               SQL.query!(Repo, """
+               SELECT start_value, increment_by, max_value
+               FROM pg_sequences
+               WHERE schemaname = current_schema()
+                 AND sequencename = 'signal_gateway_attachment_id_seq'
+               """)
+
+      attachment = %{
+        provider_ref: "lark:file:file_1",
+        provider: "lark",
+        file_key: "file_1",
+        name: "Alpha九宫格因子分域.md"
+      }
+
+      assert {:ok, %{signal_entry: first_entry, inbound_batch: first_batch}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{attachments: [attachment]}),
+                 now: @base_time
+               )
+
+      assert [%{"attachment_id" => attachment_id}] = first_entry.attachments
+      assert attachment_id >= 10_000
+
+      assert attachment_id ==
+               first_batch.entries
+               |> List.first()
+               |> get_in(["attachments", Access.at(0), "attachment_id"])
+
+      materialized_attachment =
+        attachment
+        |> Map.put(:attachment_id, attachment_id)
+        |> Map.put(
+          :agent_computer_path,
+          "/agents/#{agent.uid}/user-files/inbox/#{attachment_id}/AlphaJiuGongGeYinZiFenYu.md"
+        )
+
+      assert {:ok, %{signal_entry: refreshed_entry}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-attachment-materialized",
+                   attachments: [materialized_attachment],
+                   provider_time: DateTime.add(@base_time, 1, :second)
+                 }),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert [%{"attachment_id" => ^attachment_id}] = refreshed_entry.attachments
+
+      assert {:ok, %{signal_entry: second_entry}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   source_event_id: "evt-attachment-2",
+                   source_entry_id: "msg-attachment-2",
+                   attachments: [
+                     %{attachment | provider_ref: "lark:file:file_2", file_key: "file_2"}
+                   ],
+                   provider_time: DateTime.add(@base_time, 2, :second)
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert [%{"attachment_id" => second_attachment_id}] = second_entry.attachments
+      assert second_attachment_id > attachment_id
     end
 
     test "the entry mirror keeps each agent's Brain store from ingress time" do
@@ -936,11 +1013,14 @@ defmodule Ankole.SignalsGatewayIngressTest do
                  now: @base_time
                )
 
-      assert %Entry{attachments: [^attachment]} =
+      assert %Entry{attachments: [%{"attachment_id" => attachment_id} = stored_attachment]} =
                Repo.get_by!(Entry,
                  signal_channel_id: "lark:chat:group-a",
                  source_entry_id: "msg-agent-a-parent"
                )
+
+      assert attachment_id >= 10_000
+      assert Map.delete(stored_attachment, "attachment_id") == attachment
 
       assert {:ok, %{status: :accepted}} =
                Ingress.emit_entry(

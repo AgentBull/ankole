@@ -152,11 +152,14 @@ async fn open_http_stream_with_mode(
     let response = timeout(upstream.timeout.first_byte_duration(), request.send())
         .await
         .map_err(|_| {
-            TransportAttemptError::terminal(StreamError::new(
-                "first_byte_timeout",
-                "connect",
-                "upstream first byte timeout",
-            ))
+            TransportAttemptError::terminal(
+                StreamError::new(
+                    "first_byte_timeout",
+                    "connect",
+                    "upstream first byte timeout",
+                )
+                .retry_through_credential_pool(),
+            )
         })?
         .map_err(|reason| {
             let error = StreamError::new(
@@ -168,7 +171,7 @@ async fn open_http_stream_with_mode(
                 ),
             );
             if reason.is_connect() {
-                TransportAttemptError::retryable(error)
+                TransportAttemptError::retryable(error.retry_through_credential_pool())
             } else {
                 TransportAttemptError::terminal(error)
             }
@@ -215,6 +218,7 @@ async fn collect_http_body(
                 "read",
                 "upstream response body total timeout",
             )
+            .retry_through_credential_pool()
         })?,
         None => collect.await,
     }
@@ -234,6 +238,7 @@ async fn collect_http_body_until_idle(
                 "read",
                 "upstream response body idle timeout",
             )
+            .retry_through_credential_pool()
         })?;
 
         let Some(next) = next else {
@@ -246,6 +251,7 @@ async fn collect_http_body_until_idle(
                 "read",
                 format!("upstream response body read failed: {reason}"),
             )
+            .retry_through_credential_pool()
         })?;
 
         if collected.len().saturating_add(bytes.len()) > max_response_bytes {
@@ -365,6 +371,7 @@ pub async fn open_websocket(
             "connect",
             "upstream WebSocket timeout",
         )
+        .retry_through_credential_pool()
     })?
     .map_err(websocket_connect_error)?;
 
@@ -393,7 +400,8 @@ fn websocket_connect_error(reason: WebSocketError) -> StreamError {
             "websocket_connect_failed",
             "connect",
             format!("upstream WebSocket connection failed: {reason}"),
-        ),
+        )
+        .retry_through_credential_pool(),
     }
 }
 
@@ -682,6 +690,52 @@ fn parse_same_authority_h3_alt_svc(value: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::universal_ai_client::spec::{TimeoutSpec, UpstreamKind};
+
+    #[tokio::test]
+    async fn exhausted_connect_failure_stays_retryable_for_the_credential_pool() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let upstream = UpstreamSpec {
+            kind: UpstreamKind::HTTPSSE,
+            method: "GET".to_string(),
+            url: format!("http://{address}/unavailable"),
+            headers: Vec::new(),
+            body: None,
+            websocket_initial_messages: Vec::new(),
+            timeout: TimeoutSpec {
+                connect_ms: 100,
+                first_byte_ms: 100,
+                idle_ms: 100,
+                total_ms: None,
+            },
+            transport: TransportSpec {
+                http_versions: vec![HTTPVersionPreference::H1],
+                compression: Vec::new(),
+                proxy: None,
+            },
+        };
+
+        let Err(error) = open_http_stream_for_upstream(&upstream).await else {
+            panic!("closed local port must reject the connection");
+        };
+
+        assert_eq!(error.code, "transport_failed");
+        assert!(error.can_retry_through_credential_pool());
+    }
+
+    #[test]
+    fn terminal_transport_failure_does_not_enter_the_credential_pool() {
+        let error = TransportAttemptError::terminal(StreamError::new(
+            "transport_failed",
+            "connect",
+            "request construction failed",
+        ))
+        .error;
+
+        assert!(!error.can_retry_through_credential_pool());
+    }
 
     #[test]
     fn websocket_http_rejection_keeps_provider_status_without_body() {

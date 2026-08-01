@@ -106,6 +106,13 @@ downloads through WorkerFiles. It submits `complete` or `failed` with the same
 source entry ID. A failed download keeps the provider reference without a local
 file.
 
+SignalsGateway assigns the attachment's numeric ID before the download. A
+successful download uses
+`/agents/<agent-key>/user-files/inbox/<attachment-id>/<filename>`. The native
+kernel uses AnyAscii to transliterate the provider filename before the adapter
+restricts it to safe ASCII filename characters. Provider message IDs and file
+keys remain stored adapter details; they do not appear in the filesystem path.
+
 The pending observation time is the attachment settle anchor. A slow download
 does not move the 1,200 millisecond quiet window. SignalsGateway can wait up to
 four seconds for materialization before it releases pending work. If the final

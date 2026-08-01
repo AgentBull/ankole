@@ -13,9 +13,8 @@ defmodule Ankole.AgentHomePathsTest do
     for vector <- vectors["valid"] do
       assert AgentHomePaths.home(vector["agent_uid"]) == vector["home"]
       assert AgentHomePaths.codex_home(vector["agent_uid"]) == vector["codex_home"]
-      assert AgentHomePaths.session_key(vector["session_id"]) == vector["session_key"]
 
-      assert AgentHomePaths.session_workspace(vector["agent_uid"], vector["session_id"]) ==
+      assert AgentHomePaths.session_workspace(vector["agent_uid"], vector["workspace_id"]) ==
                vector["session_workspace"]
 
       assert AgentHomePaths.job_workspace(vector["agent_uid"], vector["job_id"]) ==
@@ -25,6 +24,12 @@ defmodule Ankole.AgentHomePathsTest do
     for agent_uid <- vectors["invalid_agent_uids"] do
       assert {:error, :invalid_agent_home_uid} = AgentHomePaths.validate_agent_uid(agent_uid)
       assert_raise ArgumentError, fn -> AgentHomePaths.home(agent_uid) end
+    end
+
+    for workspace_id <- vectors["invalid_workspace_ids"] do
+      assert_raise ArgumentError, fn ->
+        AgentHomePaths.session_workspace("agent-1", workspace_id)
+      end
     end
 
     for job_id <- vectors["invalid_job_ids"] do

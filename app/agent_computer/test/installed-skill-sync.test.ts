@@ -117,6 +117,7 @@ function tempRoot(name: string): string {
 
 function turnStartFor(agentUID: string): TurnStart {
   return {
+    workspace_id: 10_000,
     turn: {
       actor: {
         agent_uid: agentUID,

@@ -15,8 +15,8 @@ The worker receives context from the control plane through two paths, each carry
 
 | Channel | What it carries | When |
 |---|---|---|
-| `turn_start.request_context` | agent-loop settings (`ai_agent.max_iterations`, `max_output_tokens`, `inactivity_timeout_ms`), turn-local facts (the signal, the channel, the kind of turn) | embedded in the TurnStart envelope, before the loop begins |
-| `AgentConversationContextBroker` RPC | durable Agent documents (`SOUL`/`MISSION`/`DESIGN`), enabled skills, Brain snapshot (pinned memo + channel entry), instance timezone, agent profile | fetched by the worker at loop start, through an RPC over RuntimeFabric |
+| `turn_start.request_context` | agent-loop settings (`ai_agent.max_iterations`, `max_output_tokens`, `inactivity_timeout_ms`) and turn-local facts (the signal and the kind of turn) | embedded in the TurnStart envelope, before the loop begins |
+| `AgentConversationContextBroker` RPC | durable Agent documents (`SOUL`/`MISSION`/`DESIGN`), enabled skills, Brain snapshot (pinned memo + channel entry), conversation origin channel, instance timezone, agent profile | fetched by the worker at loop start, through an RPC over RuntimeFabric |
 
 The split is deliberate: turn-local facts travel on `turn_start` because they change every turn; conversation-scoped context is fetched by the worker through the broker because it is stable across turns within a conversation and the broker caches it. The broker's moduledoc is explicit: "This RPC intentionally does not return transcript messages or turn-local request context. Transcript history is owned by AIGateway; turn-local facts travel on `turn_start`."
 
@@ -33,6 +33,10 @@ The split is deliberate: turn-local facts travel on `turn_start` because they ch
 ### Brain snapshot
 
 `Brain.Snapshot.get_or_create/1` resolves the conversation's Brain scope and returns a snapshot: the agent's pinned memo (`agent_context`) and the channel's durable context (`group_context`). These are saved context entries — durable facts the agent was told to remember — not the full Brain knowledge base. The snapshot is a projection, not a query; recall (the full search) happens through Brain tools during the loop, not through this snapshot.
+
+### Conversation origin channel
+
+`SignalsGateway.ConversationChannel` projects the provider channel declared by the AIGateway conversation. It reads a group label from the current channel mirror and a DM label from the peer Principal. It reports the `lark` adapter as one Lark / Feishu surface; the adapter domain only selects the API server. The broker sends this projection through `ConversationInfo.origin_channel`, so an internal wakeup does not lose the conversation origin when its ActorEvent payload has no channel object.
 
 ### Agent settings (from AppConfigure)
 
@@ -52,7 +56,7 @@ These belong to the actor turn, not to any individual model response, so they ri
 2. **Durable Agent documents** — `SOUL`, `MISSION`, and `DESIGN`, rendered from the broker's response.
 3. **Durable context** — the Brain snapshot's pinned memo and channel entry, rendered with guidance ("Use an item only if it remains valid… otherwise ignore it").
 4. **Skills** — the enabled skill descriptions, telling the model what it can reach for.
-5. **Channel and runtime context** — the current channel, the workspace paths, the available tool names.
+5. **Channel and runtime context** — the conversation origin channel, the workspace paths, the available tool names.
 
 The worker re-renders the full prompt every turn from current PostgreSQL-backed context — it does not trust a cached version. AIGateway retains prior request instructions for audit, but the turn renders the current state.
 

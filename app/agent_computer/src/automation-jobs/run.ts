@@ -8,6 +8,12 @@ import { resolveAgentWorkerEnv } from '../core/turns/worker_env'
 import { bubblewrapArgv } from '../tools/computer/bubblewrap'
 import { commandEnv } from '../tools/computer/env'
 import {
+  loadEnabledSkillMCPServers,
+  materializeMCPorterConfig,
+  registeredDirectMCPServers,
+  type MaterializedMCPorterConfig
+} from '../tools/mcp'
+import {
   rpcMethods,
   type AutomationJobRunRequest,
   type AutomationJobRunResponse,
@@ -48,30 +54,56 @@ export async function runAutomationJob(
 
   const workerEnv = await resolveAgentWorkerEnv(request.agentUid, opts.rpc)
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
-  const emitBridge = startEmitBridge(request, opts.rpc)
+  let mcporterConfig: MaterializedMCPorterConfig
 
   try {
-    writeFileSync(
-      contextPath,
-      JSON.stringify({
-        event: execution.event,
-        job: {
-          id: Number(request.automationJobId),
-          label: request.label
-        }
-      }),
-      { mode: 0o600, flag: 'wx' }
-    )
+    const skillMCPServers = await loadEnabledSkillMCPServers({
+      enabledSkills: request.skills,
+      skillRoots: {
+        builtinSkillsRoot: opts.config.builtinSkillsRoot,
+        agentInstalledSkillsRoot: execution.agentInstalledSkillsRoot,
+        ...(opts.config.internalSkillsRoot ? { internalSkillsRoot: opts.config.internalSkillsRoot } : {})
+      }
+    })
+    mcporterConfig = materializeMCPorterConfig([...skillMCPServers, ...registeredDirectMCPServers()])
+  } catch (error) {
+    return failedResult(errorMessage(error))
+  }
 
-    return await runProcess(request, execution, workerEnv, contextPath, emitBridge.socketPath)
+  try {
+    const emitBridge = startEmitBridge(request, opts.rpc)
+    try {
+      writeFileSync(
+        contextPath,
+        JSON.stringify({
+          event: execution.event,
+          job: {
+            id: Number(request.automationJobId),
+            label: request.label
+          }
+        }),
+        { mode: 0o600, flag: 'wx' }
+      )
+
+      return await runProcess(
+        request,
+        execution,
+        { ...workerEnv, ...mcporterConfig.env },
+        contextPath,
+        emitBridge.socketPath
+      )
+    } finally {
+      emitBridge.close()
+      if (existsSync(contextPath)) unlinkSync(contextPath)
+    }
   } finally {
-    emitBridge.close()
-    if (existsSync(contextPath)) unlinkSync(contextPath)
+    mcporterConfig.cleanup()
   }
 }
 
 type ValidatedExecution = {
   agentHome: string
+  agentInstalledSkillsRoot: string
   directoryPath: string
   event: Record<string, unknown>
 }
@@ -100,7 +132,7 @@ function validateExecution(request: AutomationJobRunRequest, config: WorkerConfi
   const event = jsonObjectFromBytes(request.eventJson, 'automation_job.run event_json')
   if (!event) throw new Error('automation job trigger event is missing')
 
-  return { agentHome, directoryPath, event }
+  return { agentHome, agentInstalledSkillsRoot: paths.installedSkills, directoryPath, event }
 }
 
 async function runProcess(

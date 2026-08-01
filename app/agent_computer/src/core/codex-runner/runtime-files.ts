@@ -117,9 +117,7 @@ async function materializeSkills(
   return await Promise.all(
     enabledSkills.map(async skill => {
       assertValidSkillName(skill.skillName)
-      const sourcePath = realpathSync(
-        resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots!, turn: input.turn })
-      )
+      const sourcePath = realpathSync(resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots! }))
       if (!statSync(sourcePath).isDirectory()) throw new Error(`skill source is not a directory: ${skill.skillName}`)
       const sourceSkillPath = join(sourcePath, 'SKILL.md')
       if (!existsSync(sourceSkillPath)) throw new Error(`enabled skill is missing SKILL.md: ${skill.skillName}`)

@@ -442,7 +442,7 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
       assert channel.metadata == %{"topic" => "incidents"}
     end
 
-    test "attachments must already be materialized before gateway persistence" do
+    test "attachments reject runtime and host-only paths before gateway persistence" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
 
@@ -482,10 +482,23 @@ defmodule Ankole.SignalsGatewayLifecycleTest do
                  now: @base_time
                )
 
-      assert entry.attachments == [
-               %{"name" => "report.pdf", "provider_ref" => "lark:file:file-1"},
-               %{"agent_computer_path" => "/agents/#{agent.uid}/user-files/report.pdf"}
-             ]
+      assert [provider_attachment, local_attachment] = entry.attachments
+
+      assert %{
+               "attachment_id" => provider_attachment_id,
+               "name" => "report.pdf",
+               "provider_ref" => "lark:file:file-1"
+             } = provider_attachment
+
+      expected_path = "/agents/#{agent.uid}/user-files/report.pdf"
+
+      assert %{
+               "attachment_id" => local_attachment_id,
+               "agent_computer_path" => ^expected_path
+             } = local_attachment
+
+      assert provider_attachment_id >= 10_000
+      assert local_attachment_id > provider_attachment_id
     end
   end
 

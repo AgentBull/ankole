@@ -40,10 +40,13 @@ Writing the script
   - The script can use CLIs and APIs freely and owns any state it needs;
     the platform stores nothing between runs. Runs can overlap and
     deliveries can repeat, so write handling a rerun cannot corrupt.
-  - Data behind an MCP server is reachable without you: the mcporter CLI
-    is in the image, reads ~/.mcporter/mcporter.json from the Agent Home,
-    and Bun Shell runs it from the script — await $\`mcporter call
-    server.tool(...)\`. mcporter --help documents commands and config.
+  - Data declared by an enabled Skill is reachable through the mcporter CLI.
+    Each run receives a generated MCPORTER_CONFIG and the current Agent
+    WorkerEnv; do not create or read a persistent Agent Home config. Use
+    Bun.spawn argv for mcporter call server.tool --json - --output json,
+    write one JSON object to stdin, check the exit code, and parse stdout.
+    Inspect only a selected tool with mcporter list server.tool --schema
+    --json when its current schema is needed.
 
 Registering and evolving
   Before registration, run the script by hand to check its setup and every

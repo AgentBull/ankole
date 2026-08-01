@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import { Buffer } from 'node:buffer'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import * as kernel from '../index.js'
 
 describe('@ankole/kernel', () => {
@@ -58,6 +60,22 @@ describe('@ankole/kernel', () => {
 
   it('computes string XXH3 fingerprints through the Bun bridge', () => {
     expect(kernel.xxh3String128Hex('TestCase')).toBe('7b16fe7c3e492b87d9615265f0856cec')
+  })
+
+  it('computes file XXH3 fingerprints on an async native worker', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-kernel-hash-'))
+    const path = join(root, 'input.txt')
+    const input = 'native file fingerprint'
+
+    try {
+      writeFileSync(path, input)
+      const pending = kernel.xxh3File128Hex(path)
+
+      expect(pending).toBeInstanceOf(Promise)
+      expect(await pending).toBe(kernel.xxh3String128Hex(input))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('hashes binary data through the shared generic hash contract', () => {
@@ -166,8 +184,12 @@ describe('@ankole/kernel', () => {
   })
 
   it('validates host-encoded envelope bytes as the single semantic checker', () => {
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v3.bin'))
-    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v3.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v4.bin'))
+    kernel.runtimeFabricValidateEnvelope(goldenBytes('worker_ready.v4.bin'))
+
+    expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v3.bin'))).toThrow(
+      /unsupported runtime fabric protocol version: 3/
+    )
 
     expect(() => kernel.runtimeFabricValidateEnvelope(goldenBytes('turn_start.v2.bin'))).toThrow(
       /unsupported runtime fabric protocol version: 2/
@@ -225,5 +247,5 @@ function goldenBytes(name: string): Buffer {
 }
 
 function goldenWorkerReadyBytes(): Buffer {
-  return goldenBytes('worker_ready.v3.bin')
+  return goldenBytes('worker_ready.v4.bin')
 }

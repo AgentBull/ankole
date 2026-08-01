@@ -13,7 +13,7 @@ metadata:
 
 This skill consumes the current Agent's `DESIGN.md`. It does not create, edit, lint, diff, or export that document.
 
-Read `~/DESIGN.md` completely with `read_file` before applying the internal VIS. It resolves to the real uppercase file in the current Agent Home. Treat it as read-only; operators manage it through Ankole Console.
+Read `~/DESIGN.md` completely with `read_file` before applying the internal VIS. It resolves to the real uppercase file for the current Agent. Treat it as read-only; operators manage it through Ankole Console.
 
 Use this routing contract:
 

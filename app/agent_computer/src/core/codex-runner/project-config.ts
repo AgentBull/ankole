@@ -1,7 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { parse, stringify } from 'smol-toml'
-import { DEFAULT_MCP_TIMEOUT_MS, type MCPServerConfig } from '../../tools/mcp/config'
 import type { CodexRuntimeConfig } from '../../tools/codex/runtime-config'
 
 type TomlTable = Record<string, unknown>
@@ -16,7 +15,6 @@ export type MaterializedCodexJobProjectConfig = {
  */
 export function materializeCodexJobProjectConfig(input: {
   projectRoot: string
-  mcpServers: MCPServerConfig[]
   pluginsEnabled: boolean
   runtimeConfig: CodexRuntimeConfig
 }): MaterializedCodexJobProjectConfig {
@@ -24,7 +22,7 @@ export function materializeCodexJobProjectConfig(input: {
   const config = readToml(path)
 
   applyRuntimeConfig(config, input.runtimeConfig)
-  applyMCPServers(config, input.mcpServers)
+  delete config.mcp_servers
   applyRunnerSafety(config, input.pluginsEnabled)
   atomicWrite(path, stringify(config))
 
@@ -41,37 +39,6 @@ function applyRuntimeConfig(config: TomlTable, runtime: CodexRuntimeConfig): voi
 
   delete config.model_provider
   delete config.service_tier
-}
-
-function applyMCPServers(config: TomlTable, servers: MCPServerConfig[]): void {
-  if (servers.length === 0) {
-    delete config.mcp_servers
-    return
-  }
-
-  const materialized: TomlTable = {}
-  for (const server of [...servers].sort((left, right) => compareCodePoints(left.name, right.name))) {
-    if (Object.hasOwn(materialized, server.name)) {
-      throw new Error(`duplicate Codex MCP server after Skill resolution: ${server.name}`)
-    }
-    materialized[server.name] =
-      server.transport === 'streamable_http'
-        ? {
-            url: server.url,
-            ...(server.bearerTokenEnvVar ? { bearer_token_env_var: server.bearerTokenEnvVar } : {}),
-            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000,
-            ...(server.enabledTools ? { enabled_tools: server.enabledTools } : {}),
-            ...(server.disabledTools ? { disabled_tools: server.disabledTools } : {})
-          }
-        : {
-            command: '/bin/sh',
-            args: ['-lc', server.command],
-            tool_timeout_sec: (server.timeoutMs ?? DEFAULT_MCP_TIMEOUT_MS) / 1000,
-            ...(server.enabledTools ? { enabled_tools: server.enabledTools } : {}),
-            ...(server.disabledTools ? { disabled_tools: server.disabledTools } : {})
-          }
-  }
-  config.mcp_servers = materialized
 }
 
 function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
@@ -131,8 +98,4 @@ function atomicWrite(path: string, content: string): void {
   writeFileSync(temporary, content, { mode: 0o600 })
   renameSync(temporary, path)
   chmodSync(path, 0o600)
-}
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }

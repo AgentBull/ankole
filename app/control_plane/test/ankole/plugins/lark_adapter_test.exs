@@ -1222,6 +1222,100 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(ActorEvent, :count) == 0
     end
 
+    test "materializes attachments under their numeric ID with an AnyAscii filename" do
+      parent = self()
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+      config = chat_config()
+      consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
+
+      put_tenant_token(config)
+      on_exit(fn -> delete_tenant_token(config) end)
+
+      stub_lark_requests(parent, fn request ->
+        assert request.request_path ==
+                 "/open-apis/im/v1/messages/om_any_ascii/resources/file_any_ascii"
+
+        {:binary, 200, "attachment"}
+      end)
+
+      route = "lark-inbound-attachment-#{System.unique_integer([:positive])}"
+      worker = insert_ready_worker!(route)
+      route_auth = %{route: route, worker_id: worker.worker_id}
+      {:ok, stored} = Agent.start_link(fn -> %{path: nil, chunks: []} end)
+
+      :ok =
+        Broker.register_local_worker(route, fn
+          {:file_transfer_lane, [protocol, "WRITE_OPEN", transfer_id, path, _original_size]} ->
+            Agent.update(stored, &%{&1 | path: path, chunks: []})
+
+            FileTransferLane.handle_worker_frame(route_auth, [
+              protocol,
+              "WRITE_READY",
+              transfer_id,
+              u64(4 * 1024 * 1024)
+            ])
+
+          {:file_transfer_lane, [protocol, "DATA", transfer_id, _sequence, _offset, _eof, chunk]} ->
+            Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
+
+            FileTransferLane.handle_worker_frame(route_auth, [
+              protocol,
+              "CREDIT",
+              transfer_id,
+              u64(byte_size(chunk))
+            ])
+
+          {:file_transfer_lane, [protocol, "WRITE_COMMIT", transfer_id]} ->
+            path = Agent.get(stored, & &1.path)
+            send(parent, {:materialized_attachment_path, path})
+
+            FileTransferLane.handle_worker_frame(route_auth, [
+              protocol,
+              "WRITE_COMMITTED",
+              transfer_id,
+              path,
+              u64(byte_size("attachment")),
+              "8db84f6b892cfa6bdad930c907ecb808"
+            ])
+        end)
+
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_any_ascii",
+              "message_type" => "file",
+              "content" => ~s({"file_key":"file_any_ascii","file_name":"Alpha九宫格因子分域_研究方案.md"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert [attachment] = entry.attachments
+      attachment_id = attachment["attachment_id"]
+      assert is_integer(attachment_id) and attachment_id >= 10_000
+
+      expected_relative_path =
+        "inbox/#{attachment_id}/AlphaJiuGongGeYinZiFenYu_YanJiuFangAn.md"
+
+      assert attachment["user_files_relative_path"] == expected_relative_path
+
+      assert attachment["agent_computer_path"] ==
+               "/agents/#{agent.uid}/user-files/#{expected_relative_path}"
+
+      expected_lane_path = "/user_files/#{agent.uid}/user-files/#{expected_relative_path}"
+      assert_receive {:materialized_attachment_path, ^expected_lane_path}
+
+      refute String.contains?(attachment["agent_computer_path"], "om_any_ascii")
+      refute String.contains?(attachment["agent_computer_path"], "file_any_ascii")
+    end
+
     test "attachment receipt is durable before the provider download starts" do
       parent = self()
       %{principal: agent_a} = agent_fixture()
@@ -1282,9 +1376,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              end)
 
       assert Enum.all?(results, fn %{signal_entry: entry} ->
-               entry.metadata["attachment_materialization"]["state"] == "failed" and
-                 entry.attachments == [
+               case entry.attachments do
+                 [
                    %{
+                     "attachment_id" => attachment_id,
                      "download_type" => "file",
                      "file_key" => "file_pending",
                      "name" => "pending.pdf",
@@ -1294,6 +1389,12 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                      "source_message_id" => "om_pending_file"
                    }
                  ]
+                 when is_integer(attachment_id) and attachment_id >= 10_000 ->
+                   entry.metadata["attachment_materialization"]["state"] == "failed"
+
+                 _other ->
+                   false
+               end
              end)
     end
 
@@ -2407,6 +2508,9 @@ defmodule Ankole.Plugins.LarkAdapterTest do
             conn
             |> Plug.Conn.put_status(status)
             |> Req.Test.json(response)
+
+          {:binary, status, response} ->
+            Plug.Conn.send_resp(conn, status, response)
         end
       end
     end)
@@ -2476,6 +2580,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       metadata: %{"runtime" => "test"}
     })
   end
+
+  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
 
   defp receive_event do
     %Event{

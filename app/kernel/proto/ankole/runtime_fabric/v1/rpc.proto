@@ -71,11 +71,18 @@ message AgentProfile {
   string role = 2;
 }
 
+message ConversationChannel {
+  string adapter = 1;
+  string kind = 2;
+  string label = 3;
+}
+
 message ConversationInfo {
   string id = 1;
   string key = 2;
   string started_at = 3;
   string timezone = 4;
+  ConversationChannel origin_channel = 5;
 }
 
 message BrainSnapshotEntry {
@@ -522,6 +529,23 @@ message WebhookEndpointTargetRequest {
   string webhook_endpoint_id = 1;
 }
 
+// ===== signal channel (requests typed, responses model-facing passthrough) =====
+
+message AmbientJudgmentRecordRequest {
+  string decision = 1; // intervene | silent
+  string reason = 2;
+  // The batch message the recognizer attributed the wake to; empty means the
+  // wake is proactive. The worker validates the id against the judged batch
+  // and sets asked_by_degraded when a proposed id fails that validation.
+  string asked_by_source_entry_id = 3;
+  bool asked_by_degraded = 4;
+}
+
+message SignalChannelStandingOrdersSetRequest {
+  // Full replacement text of the channel standing orders; empty clears them.
+  string orders = 1;
+}
+
 // ===== automation job =====
 
 message AutomationJobCreateRequest {
@@ -561,6 +585,7 @@ message AutomationJobRunRequest {
   bytes event_json = 6;
   uint32 timeout_ms = 7;
   string automation_job_id = 8;
+  repeated RuntimeSkillSummary skills = 9;
 }
 
 message AutomationJobRunResponse {

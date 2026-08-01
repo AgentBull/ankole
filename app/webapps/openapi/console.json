@@ -910,6 +910,19 @@
         "title": "BrainSourceCaptureRequest",
         "type": "object"
       },
+      "SignalChannelStandingOrdersWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "orders": {
+            "description": "Full replacement standing-orders text; empty clears them.",
+            "maxLength": 4000,
+            "type": "string"
+          }
+        },
+        "required": ["orders"],
+        "title": "SignalChannelStandingOrdersWriteRequest",
+        "type": "object"
+      },
       "WorkerEnvUpdateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1780,6 +1793,13 @@
         "title": "BackgroundAgentJobTurnUsage",
         "type": "object"
       },
+      "SignalChannelStandingOrdersResponse": {
+        "additionalProperties": false,
+        "properties": { "standing_orders": { "$ref": "#/components/schemas/SignalChannelStandingOrdersItem" } },
+        "required": ["standing_orders"],
+        "title": "SignalChannelStandingOrdersResponse",
+        "type": "object"
+      },
       "BackgroundAgentJobTurnUsageBreakdown": {
         "additionalProperties": false,
         "properties": {
@@ -1945,6 +1965,19 @@
         "properties": { "message": { "type": "string" }, "path": { "nullable": true, "type": "string" } },
         "required": ["message"],
         "title": "ConsoleApiErrorDetail",
+        "type": "object"
+      },
+      "SignalChannelStandingOrdersItem": {
+        "additionalProperties": false,
+        "properties": {
+          "channel_id": { "type": "string" },
+          "channel_name": { "nullable": true, "type": "string" },
+          "orders": { "nullable": true, "type": "string" },
+          "set_by": { "nullable": true, "type": "string" },
+          "updated_at": { "format": "date-time", "nullable": true, "type": "string" }
+        },
+        "required": ["channel_id"],
+        "title": "SignalChannelStandingOrdersItem",
         "type": "object"
       },
       "WorkerFileUploadRequest": {
@@ -2947,6 +2980,79 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Preview active Principals matching a computed group condition",
         "tags": ["AuthZ"]
+      }
+    },
+    "/api/v1/signal-channels/{channel_id}/standing-orders": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.show_channel_standing_orders",
+        "parameters": [
+          { "description": "", "in": "path", "name": "channel_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignalChannelStandingOrdersResponse" } }
+            },
+            "description": "Standing orders"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read the standing orders of one signal channel",
+        "tags": ["Signal Bindings"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.SignalBindingController.put_channel_standing_orders",
+        "parameters": [
+          { "description": "", "in": "path", "name": "channel_id", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SignalChannelStandingOrdersWriteRequest" } }
+          },
+          "description": "Standing orders",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SignalChannelStandingOrdersResponse" } }
+            },
+            "description": "Standing orders"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid value"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Replace the standing orders of one signal channel",
+        "tags": ["Signal Bindings"]
       }
     },
     "/api/v1/brain/audit-log/{audit_id}/restorations": {

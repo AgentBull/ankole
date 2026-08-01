@@ -34,7 +34,7 @@ SignalsGateway 是共享工作的入口。一条聊天消息、一个 webhook、
 
 网关通过 `Ingress` 接受四种具体类型，每一种都映射到一种归一化的、面向 actor 的契约：
 
-- **条目（entry）**——一条消息或帖子到达某个 channel。这是主要的唤醒路径。IM 条目策略决定一条未被 @ 的群消息是产生 `may_intervene` 事件（允许 agent 主动插话），还是 `addressed` 事件（agent 被直接点名）。
+- **条目（entry）**——一条消息或帖子到达某个 channel。这是主要的唤醒路径。IM 条目策略决定一条未被 @ 的群消息是产生 `may_intervene` 事件（允许 agent 主动插话），还是 `addressed` 事件（agent 被直接点名）。主动介入的判断行为、回复归因与频道常驻指令，见[群聊主动介入](../ambient-intervention/)。
 - **条目移除（entry removed）**——provider 的删除或撤回。面向 actor 的契约始终是 `signal.entry.removed`；provider 原生的生命周期名称只留作诊断用。
 - **表情反应（reaction）**——对某个已有条目的 emoji 或投票变化。只更新镜像，永远不唤醒 actor。如果反应指向一个网关从未镜像过的条目，它会被忽略（`:ignored_unknown_entry`），而不被当成错误。
 - **动作（action）**——provider 上发起的一次交互，比如卡片按钮点击。会经过回复交互去重：重复的点击返回 `:duplicate_action`，过期的返回 `:stale_action`，被接受的则变成 `signal.action.invoked` 事件。

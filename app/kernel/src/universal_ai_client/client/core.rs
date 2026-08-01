@@ -1,25 +1,23 @@
-use std::collections::VecDeque;
-use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
-use downstream::{DownstreamChunk, DownstreamEncoder};
-use error::StreamError;
 use futures_util::future::{AbortHandle, Abortable};
-use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
-use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::error::CapacityError;
-use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
 
-pub use spec::{
-    DownstreamKind, ModelRequestSpec, RawRequestSpec, APIResolverKind, StreamLimits,
-    StreamSpec, UpstreamKind,
+use super::stream::{
+    command_send_error, decode_raw_response_body, decode_response_body, run_stream,
+    send_aborted_once,
+};
+use crate::common::{KernelError, KernelResult};
+use crate::universal_ai_client::{
+    api_resolver, error::StreamError, hosted_responses, request_builder, runtime, transport,
 };
 
-use crate::common::{KernelError, KernelResult};
+pub use crate::universal_ai_client::spec::{
+    APIResolverKind, DownstreamKind, ModelRequestSpec, RawRequestSpec, StreamLimits, StreamSpec,
+    UpstreamKind,
+};
 
 pub type EventSink = Arc<dyn Fn(StreamEvent) + Send + Sync + 'static>;
 
@@ -37,7 +35,7 @@ pub enum StreamEvent {
 }
 
 #[derive(Debug)]
-enum StreamCommand {
+pub(in crate::universal_ai_client) enum StreamCommand {
     Demand(u64),
     Cancel,
 }
@@ -49,6 +47,14 @@ pub struct StreamHandle {
     abort_handle: AbortHandle,
     sink: EventSink,
     aborted_sent: Arc<AtomicBool>,
+}
+
+impl std::fmt::Debug for StreamHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StreamHandle")
+            .finish_non_exhaustive()
+    }
 }
 
 impl StreamHandle {
@@ -134,7 +140,9 @@ async fn run_model_request(spec: ModelRequestSpec) -> Result<Value, StreamError>
     run_model_request_once(spec).await
 }
 
-pub(super) async fn run_model_request_once(spec: ModelRequestSpec) -> Result<Value, StreamError> {
+pub(in crate::universal_ai_client) async fn run_model_request_once(
+    spec: ModelRequestSpec,
+) -> Result<Value, StreamError> {
     let upstream = request_builder::prepare_model_upstream(&spec)?;
     let response = transport::send_http_request(&upstream, spec.limits.max_response_bytes).await?;
     if !(200..300).contains(&response.status) {
@@ -149,10 +157,8 @@ pub(super) async fn run_model_request_once(spec: ModelRequestSpec) -> Result<Val
     }
 
     let body = decode_response_body(&response.body)?;
-    let mut resolver = api_resolver::APIResolver::new(
-        spec.api_resolver,
-        spec.response_context.clone(),
-    );
+    let mut resolver =
+        api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let normalized_body = resolver.normalize_body(response.status, body)?;
 
     Ok(json!({

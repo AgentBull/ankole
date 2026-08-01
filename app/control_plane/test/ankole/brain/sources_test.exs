@@ -293,7 +293,7 @@ defmodule Ankole.Brain.SourcesTest do
 
     model_path = get_in(attrs, [:payload, "data", "retained_source", "path"])
     assert model_path == "/agents/#{relative_path}"
-    assert String.starts_with?(model_path, "/agents/#{ctx.owner.uid}/sessions/")
+    assert model_path =~ ~r|^/agents/#{ctx.owner.uid}/sessions/[1-9][0-9]*/source/manual\.md$|
 
     assert get_in(attrs, [:payload, "data", "retained_source", "byte_size"]) ==
              byte_size("# Manual")

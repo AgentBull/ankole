@@ -43,6 +43,7 @@ fn accepts_and_round_trips_turn_start() {
                 "human-alice".into(),
             )]
             .into(),
+            workspace_id: 10_000,
         }),
     );
 
@@ -51,6 +52,17 @@ fn accepts_and_round_trips_turn_start() {
 
     let decoded = proto::Envelope::decode(bytes.as_slice()).expect("turn_start must decode");
     assert_eq!(decoded, envelope);
+}
+
+#[test]
+fn rejects_turn_start_without_a_model_safe_workspace_id() {
+    let mut envelope = golden_turn_start(None);
+    if let Some(proto::envelope::Body::TurnStart(turn_start)) = envelope.body.as_mut() {
+        turn_start.workspace_id = 9_999;
+    }
+
+    let error = validate_error(envelope);
+    assert!(error.contains("workspace_id must be a model-safe integer starting at 10000"));
 }
 
 #[test]
@@ -207,6 +219,7 @@ fn rejects_body_lane_and_durability_mismatches() {
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
             runtime_env: Default::default(),
+            workspace_id: 10_000,
         }),
     ));
     assert!(wrong_turn_start_lane.contains("turn_start must use lane LANE_TURN"));
@@ -237,6 +250,7 @@ fn rejects_model_ref_with_zero_max_completion_tokens() {
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
             runtime_env: Default::default(),
+            workspace_id: 10_000,
         }),
     ));
 
@@ -302,7 +316,7 @@ fn accepts_rpc_request_and_rejects_correlation_mismatch() {
         "rpc-conversation-context-1",
         RPCLane,
         proto::DurabilityClass::ControlEphemeral,
-        RPCRequestBody(proto::RPCRequest {
+        RPCRequestBody(proto::RpcRequest {
             request_id: "rpc-conversation-context-1".into(),
             method: "agent_conversation.context.resolve".into(),
             deadline_unix_ms: 1_782_300_001_000,
@@ -316,7 +330,7 @@ fn accepts_rpc_request_and_rejects_correlation_mismatch() {
         "other",
         RPCLane,
         proto::DurabilityClass::ControlEphemeral,
-        RPCResponseBody(proto::RPCResponse {
+        RPCResponseBody(proto::RpcResponse {
             request_id: "rpc-1".into(),
             payload: b"\x0a\x02ok".to_vec(),
         }),
@@ -338,6 +352,7 @@ fn turn_lane_bodies_require_correlation_id() {
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
             runtime_env: Default::default(),
+            workspace_id: 10_000,
         }),
     ));
 
@@ -504,7 +519,7 @@ fn rejects_decoded_protobuf_missing_required_nested_fields() {
         "rpc-1",
         RPCLane,
         proto::DurabilityClass::ControlEphemeral,
-        RPCRequestBody(proto::RPCRequest {
+        RPCRequestBody(proto::RpcRequest {
             request_id: "rpc-1".into(),
             ..Default::default()
         }),
@@ -618,6 +633,7 @@ fn golden_turn_start(max_completion_tokens: Option<u32>) -> proto::Envelope {
             request_context_json: br#"{"kind":"schedule","silent_success_allowed":true}"#.to_vec(),
             hosted_tools_json: br#"[{"type":"image_generation"}]"#.to_vec(),
             runtime_env: Default::default(),
+            workspace_id: 10_000,
         }),
     )
 }
@@ -646,12 +662,12 @@ fn regenerate_golden_envelope_fixtures() {
     std::fs::create_dir_all(&dir).expect("golden dir");
 
     std::fs::write(
-        dir.join("turn_start.v3.bin"),
+        dir.join("turn_start.v4.bin"),
         golden_turn_start(Some(32_000)).encode_to_vec(),
     )
     .expect("turn_start fixture");
     std::fs::write(
-        dir.join("worker_ready.v3.bin"),
+        dir.join("worker_ready.v4.bin"),
         golden_worker_ready().encode_to_vec(),
     )
     .expect("worker_ready fixture");
@@ -660,7 +676,7 @@ fn regenerate_golden_envelope_fixtures() {
 #[test]
 fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
     let with_field =
-        std::fs::read(golden_dir().join("turn_start.v3.bin")).expect("turn_start fixture");
+        std::fs::read(golden_dir().join("turn_start.v4.bin")).expect("turn_start fixture");
     validate_envelope_bytes(&with_field).expect("turn_start fixture must validate");
     assert_eq!(
         proto::Envelope::decode(with_field.as_slice()).expect("turn_start fixture decodes"),
@@ -668,7 +684,7 @@ fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
     );
 
     let worker_ready =
-        std::fs::read(golden_dir().join("worker_ready.v3.bin")).expect("worker_ready fixture");
+        std::fs::read(golden_dir().join("worker_ready.v4.bin")).expect("worker_ready fixture");
     validate_envelope_bytes(&worker_ready).expect("worker_ready fixture must validate");
     assert_eq!(
         proto::Envelope::decode(worker_ready.as_slice()).expect("worker_ready fixture decodes"),
@@ -677,7 +693,31 @@ fn golden_fixtures_stay_valid_and_decode_to_the_expected_structs() {
 
     // Older versions remain structurally decodable by Protobuf, but the semantic
     // validator must reject them before an old worker can enter the ready pool or
-    // exchange typed RPC payloads with a version 3 control plane.
+    // exchange typed RPC payloads with a version 4 control plane.
+    let version_3_turn =
+        std::fs::read(golden_dir().join("turn_start.v3.bin")).expect("version 3 turn fixture");
+    assert_eq!(
+        proto::Envelope::decode(version_3_turn.as_slice())
+            .expect("version 3 turn fixture decodes structurally")
+            .protocol_version,
+        3
+    );
+    assert!(
+        validate_envelope_bytes(&version_3_turn)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 3")
+    );
+
+    let version_3_worker =
+        std::fs::read(golden_dir().join("worker_ready.v3.bin")).expect("version 3 worker fixture");
+    assert!(
+        validate_envelope_bytes(&version_3_worker)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported runtime fabric protocol version: 3")
+    );
+
     let version_2_turn =
         std::fs::read(golden_dir().join("turn_start.v2.bin")).expect("version 2 turn fixture");
     assert_eq!(

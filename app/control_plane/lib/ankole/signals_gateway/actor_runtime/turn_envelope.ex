@@ -52,6 +52,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
          %FabricProto.TurnStart{
            turn: TurnRef.to_proto(turn_ref),
            actor_event: actor_event_envelope(actor_event),
+           workspace_id: turn_workspace_id(turn_start_spec),
            model_ref: turn_model_ref(turn_start_spec),
            request_context_json: Torque.encode!(turn_request_context(turn_start_spec)),
            hosted_tools_json: json_bytes(turn_hosted_tools(turn_start_spec)),
@@ -141,6 +142,18 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelope do
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil
+
+  defp turn_workspace_id(turn_start_spec) do
+    case map_get(turn_start_spec, :workspace_id) do
+      workspace_id
+      when is_integer(workspace_id) and workspace_id in 10_000..9_007_199_254_740_991 ->
+        workspace_id
+
+      workspace_id ->
+        raise ArgumentError,
+              "invalid turn session workspace id: #{inspect(workspace_id)}"
+    end
+  end
 
   defp turn_request_context(turn_start_spec) do
     map_get(turn_start_spec, :request_context) || %{}

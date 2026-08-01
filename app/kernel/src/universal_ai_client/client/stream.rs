@@ -1,4 +1,26 @@
-async fn run_stream(
+use std::collections::VecDeque;
+use std::future::Future;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{Value, json};
+use tokio::sync::mpsc;
+use tokio::time::timeout;
+use tokio_tungstenite::tungstenite::error::CapacityError;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
+
+use super::core::{EventSink, StreamCommand, StreamEvent};
+use crate::common::KernelError;
+use crate::universal_ai_client::downstream::{DownstreamChunk, DownstreamEncoder};
+use crate::universal_ai_client::error::StreamError;
+use crate::universal_ai_client::spec::{StreamLimits, StreamSpec, UpstreamKind};
+use crate::universal_ai_client::{
+    api_resolver, hosted_responses, request_builder, transport, wire,
+};
+
+pub(super) async fn run_stream(
     spec: StreamSpec,
     command_rx: mpsc::Receiver<StreamCommand>,
     sink: EventSink,
@@ -140,7 +162,8 @@ async fn run_http_stream(
                     }
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string());
+                            StreamError::new("upstream_read_failed", "read", reason.to_string())
+                                .retry_through_credential_pool();
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -203,7 +226,8 @@ async fn run_http_stream(
                             "idle_timeout",
                             "read",
                             "upstream stream idle timeout",
-                        );
+                        )
+                        .retry_through_credential_pool();
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -283,7 +307,8 @@ async fn run_http_stream(
                     },
                     Ok(Some(Err(reason))) => {
                         let error =
-                            StreamError::new("upstream_read_failed", "read", reason.to_string());
+                            StreamError::new("upstream_read_failed", "read", reason.to_string())
+                                .retry_through_credential_pool();
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -308,7 +333,8 @@ async fn run_http_stream(
                             "idle_timeout",
                             "read",
                             "upstream eventstream idle timeout",
-                        );
+                        )
+                        .retry_through_credential_pool();
                         finish_after_ready_error(delivery, &mut resolver, error).await;
                         return;
                     }
@@ -489,7 +515,8 @@ async fn run_websocket_stream(
             }
             Err(_) => {
                 let error =
-                    StreamError::new("idle_timeout", "read", "upstream WebSocket idle timeout");
+                    StreamError::new("idle_timeout", "read", "upstream WebSocket idle timeout")
+                        .retry_through_credential_pool();
                 finish_after_ready_error(delivery, &mut resolver, error).await;
                 return;
             }
@@ -507,7 +534,8 @@ fn websocket_read_error(reason: WebSocketError) -> StreamError {
             )
             .provider_status(413)
         }
-        reason => StreamError::new("websocket_read_failed", "read", reason.to_string()),
+        reason => StreamError::new("websocket_read_failed", "read", reason.to_string())
+            .retry_through_credential_pool(),
     }
 }
 
@@ -605,8 +633,8 @@ async fn wait_for_open_websocket(
     }
 }
 
-struct Delivery {
-    command_rx: mpsc::Receiver<StreamCommand>,
+pub(in crate::universal_ai_client) struct Delivery {
+    pub(in crate::universal_ai_client) command_rx: mpsc::Receiver<StreamCommand>,
     sink: EventSink,
     encoder: DownstreamEncoder,
     pending: VecDeque<DownstreamChunk>,
@@ -619,7 +647,7 @@ struct Delivery {
 }
 
 impl Delivery {
-    fn new(
+    pub(in crate::universal_ai_client) fn new(
         command_rx: mpsc::Receiver<StreamCommand>,
         sink: EventSink,
         encoder: DownstreamEncoder,
@@ -646,7 +674,10 @@ impl Delivery {
         }
     }
 
-    async fn push_events_bounded(&mut self, events: Vec<Value>) -> bool {
+    pub(in crate::universal_ai_client) async fn push_events_bounded(
+        &mut self,
+        events: Vec<Value>,
+    ) -> bool {
         for event in events {
             let chunk = self.encoder.encode_event(&event);
 
@@ -719,7 +750,7 @@ impl Delivery {
         }
     }
 
-    fn flush_pending_available(&mut self) {
+    pub(in crate::universal_ai_client) fn flush_pending_available(&mut self) {
         while self.credit > 0 && !self.pending.is_empty() {
             self.deliver_next_chunk();
         }
@@ -756,7 +787,7 @@ impl Delivery {
         });
     }
 
-    async fn finish_done(mut self, summary: Value) {
+    pub(in crate::universal_ai_client) async fn finish_done(mut self, summary: Value) {
         let _ = self.finish_done_pending(summary).await;
     }
 
@@ -778,7 +809,7 @@ impl Delivery {
             .await;
     }
 
-    async fn finish_error_events_with_metadata(
+    pub(in crate::universal_ai_client) async fn finish_error_events_with_metadata(
         mut self,
         events: Vec<Value>,
         error: StreamError,
@@ -803,7 +834,7 @@ impl Delivery {
         }
     }
 
-    async fn finish_native_error_with_metadata(
+    pub(in crate::universal_ai_client) async fn finish_native_error_with_metadata(
         mut self,
         error: StreamError,
         metadata: Option<Value>,
@@ -817,7 +848,10 @@ impl Delivery {
         }
     }
 
-    fn handle_command(&mut self, command: Option<StreamCommand>) -> bool {
+    pub(in crate::universal_ai_client) fn handle_command(
+        &mut self,
+        command: Option<StreamCommand>,
+    ) -> bool {
         match command {
             Some(StreamCommand::Demand(count)) => {
                 self.credit = self.credit.saturating_add(count);
@@ -853,7 +887,7 @@ async fn flush_resolver_events(
     }
 }
 
-fn command_send_error(error: mpsc::error::TrySendError<StreamCommand>) -> KernelError {
+pub(super) fn command_send_error(error: mpsc::error::TrySendError<StreamCommand>) -> KernelError {
     match error {
         mpsc::error::TrySendError::Full(_) => {
             KernelError::new("universal AI client command queue is full")
@@ -864,7 +898,7 @@ fn command_send_error(error: mpsc::error::TrySendError<StreamCommand>) -> Kernel
     }
 }
 
-fn decode_response_body(body: &[u8]) -> Result<Value, StreamError> {
+pub(super) fn decode_response_body(body: &[u8]) -> Result<Value, StreamError> {
     sonic_rs::from_slice::<Value>(body).map_err(|reason| {
         StreamError::new(
             "invalid_upstream_response",
@@ -876,7 +910,7 @@ fn decode_response_body(body: &[u8]) -> Result<Value, StreamError> {
     })
 }
 
-fn decode_raw_response_body(body: &[u8]) -> Value {
+pub(super) fn decode_raw_response_body(body: &[u8]) -> Value {
     sonic_rs::from_slice::<Value>(body).unwrap_or_else(|_| {
         String::from_utf8(body.to_vec())
             .map(Value::String)
@@ -884,7 +918,7 @@ fn decode_raw_response_body(body: &[u8]) -> Value {
     })
 }
 
-fn send_aborted_once(sink: &EventSink, aborted_sent: &AtomicBool) {
+pub(super) fn send_aborted_once(sink: &EventSink, aborted_sent: &AtomicBool) {
     if !aborted_sent.swap(true, Ordering::SeqCst) {
         sink(StreamEvent::Aborted);
     }

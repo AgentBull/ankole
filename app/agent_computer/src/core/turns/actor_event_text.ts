@@ -4,15 +4,11 @@ import {
   firstNumber,
   firstString,
   isRecord,
-  match,
   objectPath,
-  P,
   stringArg
 } from '@pleisto/active-support'
 import type { JsonObject as JSONObject } from '@pleisto/active-support'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
-import type { TurnStart } from '../../lanes/actor_lane'
-import type { CurrentChannelContext } from '../../prompts/system_prompt'
 import { backgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 
 const REPLY_REFERENCE_TEXT_MAX_CHARS = 24_000
@@ -65,8 +61,10 @@ export function actorEventText(payload: JSONObject | undefined, fallbackType: st
 
   const attachments = attachmentText(payload)
   const replyReference = replyReferenceText(payload)
-  const base = text || emptyTextFallback(payload, fallbackType, attachments !== undefined, replyReference !== undefined)
-  const current = attachments ? `${base}\n\nAttachments:\n${attachments}` : base
+  const base = text || emptyTextFallback(payload, fallbackType, attachments?.count ?? 0, replyReference !== undefined)
+  const current = attachments
+    ? `${base}\n\n${attachments.count === 1 ? 'Attachment' : 'Attachments'}:\n${attachments.text}`
+    : base
 
   return replyReference ? `${replyReference}\n\nCurrent message:\n${current}` : current
 }
@@ -103,7 +101,9 @@ function replyReferenceText(payload: JSONObject | undefined): string | undefined
     role ? `role: ${role}` : undefined,
     authorLabel ? `author: ${authorLabel}` : undefined,
     quotedText ? `text:\n${quotedText}` : undefined,
-    quotedAttachments ? `attachments:\n${quotedAttachments}` : undefined,
+    quotedAttachments
+      ? `${quotedAttachments.count === 1 ? 'attachment' : 'attachments'}:\n${quotedAttachments.text}`
+      : undefined,
     !quotedText && !quotedAttachments ? 'content: [no visible text or attachments]' : undefined,
     '</reply_reference>'
   ]
@@ -131,13 +131,14 @@ function boundedReplyText(text: string | undefined): string | undefined {
 function emptyTextFallback(
   payload: JSONObject | undefined,
   fallbackType: string,
-  hasAttachments: boolean,
+  attachmentCount: number,
   hasReplyReference: boolean
 ): string {
   if (fallbackType !== 'im.message.addressed') return `Handle actor event of type ${fallbackType}.`
 
   const speaker = entrySpeaker(payload)
-  if (hasAttachments) return `${speaker} sent the attached files without any message text.`
+  if (attachmentCount === 1) return `${speaker} sent an attachment without any message text.`
+  if (attachmentCount > 1) return `${speaker} sent ${attachmentCount} attachments without any message text.`
   if (hasReplyReference) return `${speaker} replied without adding any message text.`
 
   return [
@@ -290,27 +291,6 @@ export function statefulTruncationFromActorEventPayload(payload: JSONObject | un
 }
 
 /**
- * Builds the current-channel summary used by the system prompt.
- *
- * The worker projects channel facts for model context only; SignalsGateway and
- * the control plane still own provider routing and reply semantics.
- */
-export function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChannelContext | undefined {
-  const input = turnStart.actor_event
-  const channel = objectPath(input.payload_json, ['data', 'channel'])
-  const kind = channelKind(stringArg(channel, 'kind'))
-  const name = stringArg(channel, 'name') ?? stringArg(channel, 'title')
-  const platform = sourcePlatform(input.payload_json)
-  if (!kind && !name && !platform) return undefined
-
-  return {
-    ...(name ? { name } : {}),
-    ...(platform ? { platform } : {}),
-    kind: kind ?? 'external_room'
-  }
-}
-
-/**
  * Renders a delayed self-wakeup into concise model input.
  */
 function checkBackLaterInputText(payload: JSONObject | undefined): string {
@@ -456,73 +436,56 @@ function escapeWebhookReceiptCloseTag(text: string): string {
 }
 
 /**
- * Maps provider channel kinds to the smaller prompt-facing channel vocabulary.
- */
-function channelKind(kind: string | undefined): CurrentChannelContext['kind'] | undefined {
-  return match(kind)
-    .with('im_dm', () => 'external_dm' as const)
-    .with('im_group', () => 'external_group' as const)
-    .with(undefined, () => undefined)
-    .otherwise(() => 'external_room')
-}
-
-/**
- * Extracts the provider/platform name from a signal URI.
- */
-function sourcePlatform(payload: JSONObject | undefined): string | undefined {
-  const source = deepString(payload, ['source'])
-  if (!source?.startsWith('signal://')) return undefined
-  const withoutScheme = source.slice('signal://'.length)
-  const separatorIndex = withoutScheme.indexOf('/')
-  return separatorIndex >= 0 ? withoutScheme.slice(0, separatorIndex) : withoutScheme
-}
-
-/**
  * Renders attachment metadata into text when the model cannot directly inspect
  * the file bytes.
  */
-function attachmentText(payload: JSONObject | undefined): string | undefined {
+function attachmentText(payload: JSONObject | undefined): AttachmentText | undefined {
   return attachmentLines(arrayPath(payload, ['data', 'entry', 'attachments']))
 }
 
-function attachmentLines(attachments: unknown[]): string | undefined {
+type AttachmentText = {
+  count: number
+  text: string
+}
+
+function attachmentLines(attachments: unknown[]): AttachmentText | undefined {
   if (attachments.length === 0) return undefined
 
-  return (
-    attachments
-      .map((attachment, index) => attachmentLine(attachment, index))
-      .filter((line): line is string => line !== undefined)
-      .join('\n') || undefined
-  )
+  const lines = attachments
+    .map((attachment, index) => attachmentLine(attachment, index))
+    .filter((line): line is string => line !== undefined)
+
+  return lines.length > 0 ? { count: lines.length, text: lines.join('\n') } : undefined
 }
 
 /**
- * Formats one attachment line while preserving whether the file was
- * materialized into the worker workspace.
+ * Formats one attachment as a usable path and a human-readable byte size.
  */
 function attachmentLine(value: unknown, index: number): string | undefined {
   if (!isRecord(value)) return undefined
 
   const name = firstString(value, ['name', 'filename', 'file_name', 'title'])
-  const type = firstString(value, ['resource_type', 'mime_type', 'content_type', 'download_type'])
   const path = firstString(value, ['agent_computer_path', 'file_path', 'path'])
   const hasProviderReference = Boolean(
     firstString(value, ['provider_ref', 'provider_file_id', 'provider_uri', 'blob_ref', 'storage_ref'])
   )
   const size = firstNumber(value, ['size', 'size_bytes', 'bytes'])
-  const details: string[] = []
+  const sizeText = humanFileSize(size)
 
-  if (type) details.push(`type=${type}`)
-  if (size !== undefined) details.push(`size=${size}`)
-  match([path, hasProviderReference] as const)
-    .with([P.string, P._], ([path]) => {
-      details.push(`path=${path}`)
-    })
-    .with([P._, true], () => {
-      details.push('not_materialized_in_workspace=true')
-    })
-    .otherwise(() => undefined)
+  if (path) return `- ${path}${sizeText ? ` (${sizeText})` : ''}`
+  if (!name && !hasProviderReference && !sizeText) return undefined
 
-  if (details.length === 0 && !name) return undefined
-  return `- ${name || `attachment ${index + 1}`}: ${details.join(', ')}`
+  const label = name || `attachment ${index + 1}`
+  const details = [sizeText, 'not available locally'].filter(Boolean)
+  return `- ${label}${details.length > 0 ? ` (${details.join('; ')})` : ''}`
+}
+
+function humanFileSize(size: number | undefined): string | undefined {
+  if (size === undefined || !Number.isFinite(size) || size < 0) return undefined
+  if (size < 1024) return `${size} ${size === 1 ? 'byte' : 'bytes'}`
+
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']
+  const exponent = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length)
+  const value = size / 1024 ** exponent
+  return `${value.toFixed(1).replace(/\.0$/, '')} ${units[exponent - 1]}`
 }

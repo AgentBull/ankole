@@ -22,6 +22,7 @@ defmodule Ankole.SignalsGateway.ChannelContext do
   @channel_context_max_rows 20
   @channel_context_max_tokens 2_000
   @ambient_observation_max_rows 80
+  @ambient_backdrop_max_rows 10
 
   @doc """
   Hashes the bounded provider-visible room scene used to admit ambient work.
@@ -73,23 +74,71 @@ defmodule Ankole.SignalsGateway.ChannelContext do
   end
 
   @doc """
-  Returns the observed messages visible to one ambient batch.
-  """
-  def observed_messages(attrs, entries) do
-    case batch_boundary(attrs, entries) do
-      nil ->
-        batch_observed_messages(entries)
+  Returns the not-yet-judged messages one ambient batch must consider.
 
-      boundary ->
-        attrs
-        |> recall_signal_observed_messages(boundary)
-        |> Kernel.++(batch_observed_messages(entries))
-        |> Enum.reject(&is_nil/1)
-        |> dedupe_observed_messages()
-        |> Enum.sort_by(&observed_sort_key/1)
-        |> Enum.take(@ambient_observation_max_rows)
-    end
+  The window is every mirrored channel message after the channel ambient
+  cursor (newest #{@ambient_observation_max_rows} rows), merged with the
+  triggering batch itself so mirror lag cannot hide a batch entry. With no
+  cursor the window is simply the newest mirrored rows. Messages a superseded
+  ambient event never judged stay in this window until a judgment advances
+  the cursor past them.
+  """
+  def ambient_delta_messages(
+        %{signal_channel_id: signal_channel_id} = attrs,
+        entries,
+        judged_until
+      )
+      when is_binary(signal_channel_id) do
+    attrs
+    |> recall_entries_after(judged_until)
+    |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+    |> Kernel.++(batch_observed_messages(entries))
+    |> Enum.reject(&is_nil/1)
+    |> dedupe_observed_messages()
+    |> Enum.sort_by(&observed_sort_key/1)
+    |> Enum.take(-@ambient_observation_max_rows)
   end
+
+  def ambient_delta_messages(_attrs, entries, _judged_until), do: batch_observed_messages(entries)
+
+  @doc """
+  Returns already-judged messages immediately at or before the ambient cursor.
+
+  They give the recognizer continuity across checks without re-offering the
+  messages for judgment.
+  """
+  def ambient_backdrop_messages(_attrs, nil), do: []
+
+  def ambient_backdrop_messages(
+        %{signal_channel_id: signal_channel_id} = attrs,
+        %DateTime{} = judged_until
+      )
+      when is_binary(signal_channel_id) do
+    Entry
+    |> where([entry], entry.signal_channel_id == ^signal_channel_id)
+    |> where(
+      [entry],
+      fragment(
+        "COALESCE(?, ?, ?) <= ?",
+        entry.provider_time,
+        entry.last_seen_at,
+        entry.inserted_at,
+        ^judged_until
+      )
+    )
+    |> order_by([entry],
+      desc:
+        fragment("COALESCE(?, ?, ?)", entry.provider_time, entry.last_seen_at, entry.inserted_at),
+      desc: entry.document_id
+    )
+    |> limit(@ambient_backdrop_max_rows)
+    |> Repo.all()
+    |> Enum.reverse()
+    |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def ambient_backdrop_messages(_attrs, _judged_until), do: []
 
   @doc """
   Returns the current finalized batch as observed-message rows.
@@ -151,37 +200,34 @@ defmodule Ankole.SignalsGateway.ChannelContext do
     end
   end
 
-  defp recall_signal_observed_messages(attrs, boundary) do
+  defp recall_entries_after(attrs, judged_until) do
     Entry
-    |> where([entry], entry.signal_channel_id == ^boundary.signal_channel_id)
-    |> where(
-      [entry],
-      fragment(
-        "COALESCE(?, ?, ?) >= ?",
-        entry.provider_time,
-        entry.last_seen_at,
-        entry.inserted_at,
-        ^boundary.start_at
-      )
-    )
-    |> where(
-      [entry],
-      fragment(
-        "COALESCE(?, ?, ?) <= ?",
-        entry.provider_time,
-        entry.last_seen_at,
-        entry.inserted_at,
-        ^boundary.end_at
-      )
-    )
+    |> where([entry], entry.signal_channel_id == ^attrs.signal_channel_id)
+    |> entries_after_cursor(judged_until)
     |> order_by([entry],
-      asc:
+      desc:
         fragment("COALESCE(?, ?, ?)", entry.provider_time, entry.last_seen_at, entry.inserted_at),
-      asc: entry.document_id
+      desc: entry.document_id
     )
     |> limit(@ambient_observation_max_rows)
     |> Repo.all()
-    |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+    |> Enum.reverse()
+  end
+
+  defp entries_after_cursor(query, nil), do: query
+
+  defp entries_after_cursor(query, %DateTime{} = judged_until) do
+    where(
+      query,
+      [entry],
+      fragment(
+        "COALESCE(?, ?, ?) > ?",
+        entry.provider_time,
+        entry.last_seen_at,
+        entry.inserted_at,
+        ^judged_until
+      )
+    )
   end
 
   defp entries_before_boundary(boundary, limit) do
@@ -347,7 +393,11 @@ defmodule Ankole.SignalsGateway.ChannelContext do
 
   defp signal_entry_provider_thread_id(%Entry{} = entry), do: entry.provider_thread_id
 
-  defp speaker_name(author) when is_map(author) do
+  @doc """
+  Returns the display name of one entry author map.
+  """
+  @spec speaker_name(term()) :: String.t()
+  def speaker_name(author) when is_map(author) do
     optional_text(author, :display_name) ||
       optional_text(author, :fullName) ||
       optional_text(author, :userName) ||
@@ -357,7 +407,7 @@ defmodule Ankole.SignalsGateway.ChannelContext do
       "unknown speaker"
   end
 
-  defp speaker_name(_author), do: "unknown speaker"
+  def speaker_name(_author), do: "unknown speaker"
 
   defp parse_iso8601(%DateTime{} = datetime), do: datetime
 

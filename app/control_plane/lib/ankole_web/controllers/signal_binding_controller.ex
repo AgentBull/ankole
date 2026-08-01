@@ -9,6 +9,7 @@ defmodule AnkoleWeb.SignalBindingController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.AmbientCuration
   alias Ankole.SignalsGateway.Binding
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
@@ -18,6 +19,8 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingUpdateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersWriteRequest
 
   tags(["Signal Bindings"])
   security([%{"consoleBearer" => []}])
@@ -100,6 +103,36 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
+  operation(:show_channel_standing_orders,
+    summary: "Read the standing orders of one signal channel",
+    parameters: [
+      channel_id: [in: :path, type: :string, required: true]
+    ],
+    responses: [
+      ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:put_channel_standing_orders,
+    summary: "Replace the standing orders of one signal channel",
+    parameters: [
+      channel_id: [in: :path, type: :string, required: true]
+    ],
+    request_body:
+      {"Standing orders", "application/json", SignalChannelStandingOrdersWriteRequest,
+       required: true},
+    responses: [
+      ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
+      unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
+      forbidden: {"Forbidden", "application/json", ErrorEnvelope},
+      not_found: {"Not found", "application/json", ErrorEnvelope},
+      unprocessable_entity: {"Invalid value", "application/json", ErrorEnvelope}
+    ]
+  )
+
   def adapters(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read"),
          {:ok, adapters} <- SignalsGateway.list_adapters() do
@@ -164,6 +197,51 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
+  def show_channel_standing_orders(conn, params) do
+    with {:ok, channel_id} <- text_param(params, "channel_id"),
+         :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "read"),
+         {:ok, standing_orders} <- AmbientCuration.channel_standing_orders(channel_id) do
+      json(conn, %{standing_orders: standing_orders_json(standing_orders)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def put_channel_standing_orders(conn, params) do
+    with {:ok, channel_id} <- text_param(params, "channel_id"),
+         :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "update"),
+         {:ok, orders} <- text_body_param(conn.body_params, "orders"),
+         {:ok, standing_orders} <-
+           AmbientCuration.put_channel_standing_orders(
+             channel_id,
+             orders,
+             conn.assigns.current_principal_uid
+           ) do
+      json(conn, %{standing_orders: standing_orders_json(standing_orders)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp standing_orders_json(standing_orders) do
+    %{
+      channel_id: standing_orders.channel_id,
+      channel_name: standing_orders.channel_name,
+      orders: standing_orders.orders,
+      set_by: standing_orders.set_by,
+      updated_at: standing_orders.updated_at
+    }
+  end
+
+  # Unlike text_param, an empty string is a valid value here: it clears the
+  # standing orders.
+  defp text_body_param(params, key) when is_map(params) do
+    case Map.get(params, param_atom(key), Map.get(params, key)) do
+      value when is_binary(value) -> {:ok, value}
+      _value -> {:error, {:missing_param, key}}
+    end
+  end
+
   defp signal_binding_json(%{binding: %Binding{} = binding, config_key: config_key}) do
     %{
       agent_uid: binding.agent_uid,
@@ -214,6 +292,8 @@ defmodule AnkoleWeb.SignalBindingController do
   defp param_atom("adapter_id"), do: :adapter_id
   defp param_atom("binding_name"), do: :binding_name
   defp param_atom("target_agent_uid"), do: :target_agent_uid
+  defp param_atom("channel_id"), do: :channel_id
+  defp param_atom("orders"), do: :orders
 
   defp authorize_binding_update(conn, agent_uid, agent_uid) do
     ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update")

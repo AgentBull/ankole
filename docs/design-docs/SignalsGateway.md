@@ -39,6 +39,7 @@ Each ID below identifies a different thing:
 | --- | --- |
 | `source_event_id` | One provider or internal input event |
 | `source_entry_id` | One provider message, post, or comment |
+| `attachment_id` | One PostgreSQL-owned attachment key, stored in entry attachment JSON |
 | `actor_events.id` | One Ankole work item |
 | `ai_message_id` | One stored AIGateway message |
 
@@ -243,10 +244,12 @@ Neutral text keeps a 600 millisecond settle window. An attachment does not make
 an otherwise neutral group message address the Agent.
 
 An adapter that must fetch attachment bytes first writes a pending attachment
-observation. A later observation with the same source entry ID replaces it with
-`complete` or `failed`. The attachment window starts at the pending observation,
-not after the download. An open batch waits for all pending attachments, with a
-four second materialization cap.
+observation. While it holds the existing entry lock, SignalsGateway assigns each
+new attachment a PostgreSQL sequence ID that starts at 10000. A later
+observation with the same source entry ID and provider reference reuses that ID
+and replaces the pending state with `complete` or `failed`. The attachment
+window starts at the pending observation, not after the download. An open batch
+waits for all pending attachments, with a four second materialization cap.
 
 An addressed batch accepts at most eight entries.
 Its normal text budget is 4,000 characters.
@@ -263,6 +266,37 @@ binding policy, and scene hash.
 
 ActorRuntime completes stale events without calling a model. It also skips an
 older event when a newer event covers the same Session and channel.
+
+### Ambient Judgments and the Channel Cursor
+
+The Worker recognizer reports each `may_intervene` decision through the
+`signal_channel.ambient_judgment.record` RPC operation before the visible turn
+starts or the event completes silently. One transaction stores the judgment
+row, advances the channel `ambient_judged_until` cursor to the batch
+watermark, and applies an accepted `asked_by` attribution.
+
+The ambient payload splits observations at the cursor. `observed_messages`
+holds only messages after the cursor, merged with the triggering batch.
+`backdrop_messages` holds up to ten already-judged rows for continuity. A
+superseded event never judges its messages; they stay in the next event's
+`observed_messages` window.
+
+An accepted `asked_by` names one mirrored human message in the judged batch.
+The control plane stores it on the ActorEvent, and outbound replies anchor to
+that entry instead of the batch tail. A failed validation records a degraded
+attribution and the wake stays proactive.
+
+### Channel Standing Orders
+
+A channel row can hold member-set standing orders: durable free-text policy
+for proactive behavior in that room. Any channel member sets or clears them
+through the Agent with the `set_channel_standing_orders` tool, which records
+the asking author; the console reads and writes them through the
+signal-channel standing-orders endpoints. Orders drive behavior only on
+bindings whose group message mode is `may_intervene`: only there do envelope
+payloads carry them, the recognizer prompt renders them as room policy, and
+the main turn shows them beside the channel context. On other bindings the
+stored text stays inert.
 
 ## Deliver Work to an Agent
 

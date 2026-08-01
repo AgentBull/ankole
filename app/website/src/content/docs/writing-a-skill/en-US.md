@@ -10,7 +10,7 @@ Skills and Control Plane Plugins both extend Ankole, but they solve different pr
 | Requirement | Use |
 |---|---|
 | Teach an Agent how to perform a type of work | Skill |
-| Give an Agent MCP tools and usage instructions | Skill |
+| Give an Agent an MCP-backed workflow and usage instructions | Skill |
 | Add an IdP, chat adapter, or Provider kind | Control Plane Plugin |
 | Add control-plane settings or a supervised service | Control Plane Plugin |
 
@@ -18,12 +18,13 @@ A Skill is a set of files that an Agent reads. It does not require a new control
 
 ## Write a Skill
 
-A Skill is a directory with `SKILL.md`. It can also contain references, templates, and `openai.yaml`:
+A Skill is a directory with `SKILL.md`. It can also contain references, templates, and `agents/openai.yaml`:
 
 ```text
 my-skill/
 ├── SKILL.md
-├── openai.yaml
+├── agents/
+│   └── openai.yaml
 ├── reference.md
 └── templates/
 ```
@@ -62,7 +63,7 @@ Link each reference and template by name from `SKILL.md`. The Agent reads these 
 
 ### Declare MCP dependencies
 
-Declare an MCP tool in `openai.yaml`:
+Declare an MCP execution dependency in `agents/openai.yaml`:
 
 ```yaml
 dependencies:
@@ -74,7 +75,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-The Agent sees this tool only while the Skill is enabled. See [MCP reference](../mcp/) for all fields.
+The dependency is available only while the Skill is enabled. It is not registered as a native model tool. In `SKILL.md`, name the domain tools and selection rules, tell the Agent to inspect only the selected tool with `mcporter list server.tool --schema --json`, and call it with JSON on stdin. See [MCP reference](../mcp/) for the complete contract.
 
 ### Verify the Skill
 

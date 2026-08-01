@@ -8,6 +8,7 @@
 //! state machine live paired in `api_resolver/<protocol>.rs`.
 
 mod api_resolver;
+mod client;
 mod downstream;
 mod error;
 mod hosted_responses;
@@ -17,6 +18,8 @@ mod spec;
 mod transport;
 mod wire;
 
-include!("client/core.rs");
-include!("client/stream.rs");
-include!("client/tests.rs");
+pub use client::{
+    APIResolverKind, DownstreamKind, EventSink, ModelRequestSpec, RawRequestSpec, StreamEvent,
+    StreamHandle, StreamLimits, StreamSpec, UpstreamKind, send_model_request, send_raw_request,
+    start_stream,
+};

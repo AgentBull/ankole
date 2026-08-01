@@ -417,6 +417,7 @@ function toolNamed(tools: AgentTool[], name: string): AgentTool {
 
 function turnStartForMemoryTool(): TurnStart {
   return {
+    workspace_id: 10_000,
     turn: {
       actor: { agent_uid: 'agent-1', session_id: 'session-1' },
       activation_uid: 'activation-1',

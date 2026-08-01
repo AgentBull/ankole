@@ -52,6 +52,7 @@ export type ActorEventEnvelope = {
 export type TurnStart = {
   turn: ActorTurnRef
   actor_event: ActorEventEnvelope
+  workspace_id: number
   model_ref?: TurnModelRef | null
   hosted_tools?: TurnHostedTool[]
   request_context?: JSONObject
@@ -105,10 +106,15 @@ export function turnStartFromEnvelope(envelope: Envelope): TurnStart {
   }
 
   const hostedTools = turnHostedToolsFromBytes(turnStart.hostedToolsJson)
+  const workspaceID = safeNumberFromBigInt(turnStart.workspaceId, 'turn_start.workspace_id')
+  if (workspaceID < 10_000) {
+    throw new Error('turn_start.workspace_id must be a model-safe integer starting at 10000')
+  }
 
   return {
     turn: actorTurnRefFromProto(turnStart.turn, 'turn_start.turn'),
     actor_event: actorEventFromProto(turnStart.actorEvent),
+    workspace_id: workspaceID,
     model_ref: turnStart.modelRef ? turnModelRefFromProto(turnStart.modelRef) : undefined,
     request_context: jsonObjectFromBytes(turnStart.requestContextJson, 'turn_start.request_context_json'),
     runtime_env: { ...turnStart.runtimeEnv },

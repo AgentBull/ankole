@@ -546,7 +546,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   end
 
   defp sanitize(value) when is_binary(value) do
-    case value |> String.replace(~r/[^A-Za-z0-9._-]+/, "_") |> String.trim("_") do
+    case value
+         |> Ankole.Kernel.any_ascii()
+         |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
+         |> String.trim("_") do
       "" -> "unnamed"
       segment -> String.slice(segment, 0, 160)
     end

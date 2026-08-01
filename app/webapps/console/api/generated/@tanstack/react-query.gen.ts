@@ -127,6 +127,8 @@ import {
   ankoleWebSignalBindingControllerDelete,
   ankoleWebSignalBindingControllerIndex,
   ankoleWebSignalBindingControllerPutBinding,
+  ankoleWebSignalBindingControllerPutChannelStandingOrders,
+  ankoleWebSignalBindingControllerShowChannelStandingOrders,
   ankoleWebSignalBindingControllerUpdateBinding,
   ankoleWebWebhookEndpointControllerDelete,
   ankoleWebWebhookEndpointControllerIndex,
@@ -490,6 +492,12 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingError,
   AnkoleWebSignalBindingControllerPutBindingResponse,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersData,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersError,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersError,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse,
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingError,
   AnkoleWebSignalBindingControllerUpdateBindingResponse,
@@ -1167,6 +1175,61 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembersMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAuthZGroupControllerPreviewComputedMembers({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebSignalBindingControllerShowChannelStandingOrdersQueryKey = (
+  options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData>
+) => createQueryKey('ankoleWebSignalBindingControllerShowChannelStandingOrders', options)
+
+/**
+ * Read the standing orders of one signal channel
+ */
+export const ankoleWebSignalBindingControllerShowChannelStandingOrdersOptions = (
+  options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData>
+) =>
+  queryOptions<
+    AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse,
+    AnkoleWebSignalBindingControllerShowChannelStandingOrdersError,
+    AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse,
+    ReturnType<typeof ankoleWebSignalBindingControllerShowChannelStandingOrdersQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebSignalBindingControllerShowChannelStandingOrders({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebSignalBindingControllerShowChannelStandingOrdersQueryKey(options)
+  })
+
+/**
+ * Replace the standing orders of one signal channel
+ */
+export const ankoleWebSignalBindingControllerPutChannelStandingOrdersMutation = (
+  options?: Partial<Options<AnkoleWebSignalBindingControllerPutChannelStandingOrdersData>>
+): UseMutationOptions<
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersError,
+  Options<AnkoleWebSignalBindingControllerPutChannelStandingOrdersData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse,
+    AnkoleWebSignalBindingControllerPutChannelStandingOrdersError,
+    Options<AnkoleWebSignalBindingControllerPutChannelStandingOrdersData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebSignalBindingControllerPutChannelStandingOrders({
         ...options,
         ...fnOptions,
         throwOnError: true

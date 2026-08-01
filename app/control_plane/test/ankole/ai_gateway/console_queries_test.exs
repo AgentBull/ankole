@@ -56,9 +56,14 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       assert projection.signal_adapter == nil
     end
 
-    test "prefers the captured channel name for signal-channel rooms" do
+    test "uses the group name and lark adapter instead of the server domain" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
-      channel_fixture("lark:oc_named", kind: :im_group, name: "Ankole 用户群")
+
+      channel_fixture("lark:oc_named",
+        kind: :im_group,
+        name: "Ankole 用户群",
+        metadata: %{"domain" => "feishu"}
+      )
 
       conversation =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_named", %{
@@ -79,10 +84,10 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
       assert projection.signal_adapter == "lark"
     end
 
-    test "falls back to the peer display name for unnamed DM channels" do
+    test "uses the peer display name instead of a DM channel name" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
       %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Boris"})
-      channel_fixture("lark:oc_dm", kind: :im_dm, name: nil)
+      channel_fixture("lark:oc_dm", kind: :im_dm, name: "Provider DM")
 
       conversation =
         conversation_fixture(agent.uid, "signal-channel:lark:oc_dm", %{
@@ -100,6 +105,7 @@ defmodule Ankole.AIGateway.ConsoleQueriesTest do
 
       assert projection.display_name == "Boris"
       assert projection.channel_kind == "im_dm"
+      assert projection.signal_adapter == "lark"
     end
 
     test "falls back to the bare peer uid when the peer has no display name" do

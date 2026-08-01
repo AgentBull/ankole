@@ -1736,6 +1736,71 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule SignalChannelStandingOrdersWriteRequest do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalChannelStandingOrdersWriteRequest",
+        type: :object,
+        properties: %{
+          orders: %Schema{
+            type: :string,
+            maxLength: 4000,
+            description: "Full replacement standing-orders text; empty clears them."
+          }
+        },
+        required: [:orders],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalChannelStandingOrdersItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalChannelStandingOrdersItem",
+        type: :object,
+        properties: %{
+          channel_id: %Schema{type: :string},
+          channel_name: %Schema{type: :string, nullable: true},
+          orders: %Schema{type: :string, nullable: true},
+          set_by: %Schema{type: :string, nullable: true},
+          updated_at: %Schema{type: :string, format: :"date-time", nullable: true}
+        },
+        required: [:channel_id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule SignalChannelStandingOrdersResponse do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "SignalChannelStandingOrdersResponse",
+        type: :object,
+        properties: %{
+          standing_orders: SignalChannelStandingOrdersItem
+        },
+        required: [:standing_orders],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule ScheduleCronWriteRequest do
     @moduledoc false
 

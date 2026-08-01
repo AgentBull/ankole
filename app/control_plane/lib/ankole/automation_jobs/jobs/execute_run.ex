@@ -12,8 +12,10 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
       states: :incomplete
     ]
 
+  alias Ankole.AIAgent.Library
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
@@ -60,18 +62,9 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   defp do_perform(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
 
   defp dispatch_attempt(job, run, oban_attempt, max_attempts) do
-    request = %FabricProto.AutomationJobRunRequest{
-      automation_job_run_id: Integer.to_string(run.id),
-      automation_job_id: Integer.to_string(job.id),
-      attempt_id: run.attempt_id,
-      agent_uid: job.agent_uid,
-      directory_path: job.directory_path,
-      label: job.label,
-      event_json: Torque.encode!(run.event),
-      timeout_ms: @run_timeout_ms
-    }
-
-    with {:ok, route} <- WorkerPool.file_worker_route(),
+    with {:ok, skills} <- Library.skills_for_system_prompt(job.agent_uid),
+         request = run_request(job, run, skills),
+         {:ok, route} <- WorkerPool.file_worker_route(),
          {:ok, payload} <-
            Broker.request_rpc(
              route,
@@ -101,6 +94,20 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
           max_attempts
         )
     end
+  end
+
+  defp run_request(job, run, skills) do
+    %FabricProto.AutomationJobRunRequest{
+      automation_job_run_id: Integer.to_string(run.id),
+      automation_job_id: Integer.to_string(job.id),
+      attempt_id: run.attempt_id,
+      agent_uid: job.agent_uid,
+      directory_path: job.directory_path,
+      label: job.label,
+      event_json: Torque.encode!(run.event),
+      timeout_ms: @run_timeout_ms,
+      skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1)
+    }
   end
 
   defp handle_infrastructure_failure(run, reason, attempt, max_attempts) do

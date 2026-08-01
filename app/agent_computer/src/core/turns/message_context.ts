@@ -34,7 +34,8 @@ export function actorEventEnvironmentInfoLines(
   const lines: string[] = []
 
   const sendAt = stringValue(entry.provider_time) ?? stringValue(payload?.time)
-  if (sendAt) lines.push(`send_at: ${formatTimestamp(sendAt, opts.timezone ?? undefined)}`)
+  const formattedSendAt = sendAt ? formatConversationTime(sendAt, opts.timezone || 'UTC') : undefined
+  if (formattedSendAt) lines.push(`send_at: ${formattedSendAt}`)
 
   if (stringValue(channel.kind) === 'im_group') {
     const speaker = speakerLabel(author)
@@ -136,26 +137,27 @@ function speakerLabel(author: JSONObject): string | undefined {
 }
 
 /**
- * Formats provider timestamps in the conversation timezone when available.
+ * Formats an instant to minute precision in the conversation timezone.
+ * The system prompt declares the timezone once for all message timestamps.
  */
-function formatTimestamp(value: string, timezone?: string): string {
+export function formatConversationTime(value: string, timezone: string): string | undefined {
   const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime()) || !timezone) return value
+  if (Number.isNaN(parsed.getTime())) return undefined
+
   try {
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
-      second: '2-digit',
       hourCycle: 'h23'
     }).formatToParts(parsed)
     const part = (type: string) => parts.find(item => item.type === type)?.value ?? '00'
-    return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}:${part('second')} (${timezone})`
+    return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
   } catch {
-    return value
+    return undefined
   }
 }
 

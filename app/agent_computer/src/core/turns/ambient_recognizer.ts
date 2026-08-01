@@ -10,7 +10,6 @@ import {
 } from '@pleisto/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
-import { currentChannelFromTurnStart } from './actor_event_text'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
 import type { AgentConversationContextResponse } from '../../lanes/rpc_lane'
 
@@ -21,7 +20,24 @@ export interface AmbientRecognizerInput {
   agentConversationContext: AgentConversationContextResponse
 }
 
+/**
+ * Outcome of validating the recognizer's asked_by proposal against the judged
+ * batch. Only an accepted attribution may become a reply anchor; a degraded
+ * one is recorded for observability and the wake stays proactive.
+ */
+export type AskedByResolution =
+  | { state: 'none' }
+  | { state: 'accepted'; sourceEntryID: string; speaker: string; text: string }
+  | { state: 'degraded'; sourceEntryID: string }
+
+export interface AmbientRecognizerDecision {
+  intervene: boolean
+  reason: string
+  askedBy: AskedByResolution
+}
+
 export interface AmbientRecognizerResult {
+  decision: AmbientRecognizerDecision
   messages: Message[]
 }
 
@@ -37,11 +53,11 @@ export async function recognizeAmbientIntervention(
 ): Promise<AmbientRecognizerResult> {
   const turnStart = input.turnStart
   const context = input.agentConversationContext
-  const currentChannel = currentChannelFromTurnStart(turnStart)
+  const originChannel = context.conversation?.originChannel
   const timezone = context.conversation?.timezone ?? 'UTC'
   const displayName = context.agent?.displayName ?? turnStart.turn.actor.agent_uid
   const currentTime = (opts?.currentTime ?? new Date()).toISOString()
-  const conversationHistory = ambientConversationHistory(input, timezone, currentTime)
+  const window = ambientObservationWindow(input, timezone, currentTime)
 
   const result = await callModel(input.model, {
     instructions: buildAmbientRecognizerSystemPrompt({
@@ -53,10 +69,13 @@ export async function recognizeAmbientIntervention(
       userMessage(
         buildAmbientRecognizerUserPrompt({
           brainSnapshot: context.brainSnapshot,
-          conversationHistory,
+          standingOrders: standingOrdersFromPayload(turnStart),
+          backdrop: window.backdrop.map(transcriptLine),
+          newMessages: window.delta.map(deltaTranscriptLine),
+          unrepliedCount: unrepliedCountFromPayload(turnStart),
           currentTime: formatZonedDateTime(currentTime, timezone),
-          groupName: currentChannel?.name,
-          platform: currentChannel?.platform,
+          groupName: originChannel?.label || undefined,
+          adapter: originChannel?.adapter || undefined,
           timezone
         })
       )
@@ -67,20 +86,66 @@ export async function recognizeAmbientIntervention(
     abortSignal: opts?.abortSignal
   })
 
-  const decision = parseAmbientDecision(assistantText(result.message))
-  if (!decision.intervene) return { messages: [] }
-
-  return {
-    messages: [
-      userMessage(
-        [
-          'Ambient recognizer decision: intervene.',
-          `Reason: ${decision.reason || 'The current observed messages need a visible reply.'}`,
-          'Use the group conversation from this ambient turn as the task and write the visible group reply now.'
-        ].join('\n')
-      )
-    ]
+  const parsed = parseAmbientDecision(assistantText(result.message))
+  const askedBy = parsed.intervene ? resolveAskedBy(parsed.askedBy, window.delta) : { state: 'none' as const }
+  const decision: AmbientRecognizerDecision = {
+    intervene: parsed.intervene,
+    reason: parsed.reason,
+    askedBy
   }
+
+  if (!decision.intervene) return { decision, messages: [] }
+
+  return { decision, messages: [userMessage(interventionFraming(decision))] }
+}
+
+/**
+ * Validates the model's asked_by proposal against the not-yet-judged messages.
+ *
+ * The attribution is accepted only when it names a human message in the judged
+ * batch whose speaker is still the latest human speaker; a reply anchored to
+ * an older ask after the room moved on reads as noise, so that case degrades
+ * to a proactive wake.
+ */
+export function resolveAskedBy(proposed: string | undefined, delta: TranscriptMessage[]): AskedByResolution {
+  const sourceEntryID = proposed
+    ?.trim()
+    .replace(/^\[?id:/, '')
+    .replace(/\]$/, '')
+    .trim()
+  if (!sourceEntryID) return { state: 'none' }
+
+  const humans = delta.filter(message => message.role === 'human' && message.text.trim() !== '')
+  const asking = humans.find(message => message.sourceEntryID === sourceEntryID)
+  if (!asking) return { state: 'degraded', sourceEntryID }
+
+  const newest = humans[humans.length - 1]
+  if (!newest || newest.speaker !== asking.speaker) return { state: 'degraded', sourceEntryID }
+
+  return { state: 'accepted', sourceEntryID, speaker: asking.speaker, text: asking.text }
+}
+
+function interventionFraming(decision: AmbientRecognizerDecision): string {
+  const lines = [
+    'Ambient recognizer decision: intervene.',
+    `Reason: ${decision.reason || 'The current observed messages need a visible reply.'}`
+  ]
+
+  if (decision.askedBy.state === 'accepted') {
+    lines.push(
+      `You are answering ${decision.askedBy.speaker}, who asked: ${truncateQuote(decision.askedBy.text)}`,
+      'The platform anchors your visible reply to that message; answer it directly.'
+    )
+  } else {
+    lines.push('Use the group conversation from this ambient turn as the task and write the visible group reply now.')
+  }
+
+  return lines.join('\n')
+}
+
+function truncateQuote(text: string): string {
+  const trimmed = text.trim()
+  return trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed
 }
 
 const ambientDecisionTextFormat = {
@@ -98,37 +163,68 @@ const ambientDecisionTextFormat = {
         should_proactively_speak: {
           type: 'boolean',
           description: 'True when the agent should proactively speak in the group; false when it should stay silent.'
+        },
+        asked_by: {
+          type: ['string', 'null'],
+          description:
+            'When speaking because one NEW message directly asks or addresses the agent, the id tag of that message. Null for proactive wakes.'
         }
       },
-      required: ['reason', 'should_proactively_speak'],
+      required: ['reason', 'should_proactively_speak', 'asked_by'],
       additionalProperties: false
     }
   }
 } as const
 
-function ambientConversationHistory(input: AmbientRecognizerInput, timezone: string, currentTime: string): string {
+/**
+ * The judged observation window: `delta` holds not-yet-judged messages and
+ * `backdrop` holds already-judged context rows supplied by the control plane.
+ */
+function ambientObservationWindow(
+  input: AmbientRecognizerInput,
+  timezone: string,
+  currentTime: string
+): { delta: TranscriptMessage[]; backdrop: TranscriptMessage[] } {
   const payload = input.turnStart.actor_event.payload_json
   const currentDate = formatZonedDate(currentTime, timezone)
-  const rawMessages = [
+  const toTranscript = (values: unknown[]): TranscriptMessage[] =>
+    dedupeTranscriptMessages(
+      values
+        .map((value, index) => transcriptMessage(value, index, timezone, currentDate))
+        .filter((message): message is TranscriptMessage => message !== undefined)
+    ).sort((a, b) => a.sortTime - b.sortTime || a.index - b.index)
+
+  const delta = toTranscript(arrayPath(payload, ['data', 'observed_messages']))
+  if (delta.length > 0) {
+    return { delta, backdrop: toTranscript(arrayPath(payload, ['data', 'backdrop_messages'])) }
+  }
+
+  // Older event payloads carry no cursor split; fall back to the merged shape.
+  const fallback = [
     ...arrayPath(payload, ['data', 'channel_context', 'messages']),
-    ...arrayPath(payload, ['data', 'unreplied_messages']),
-    ...arrayPath(payload, ['data', 'observed_messages'])
+    ...arrayPath(payload, ['data', 'unreplied_messages'])
   ]
-  const visibleMessages = rawMessages.length > 0 ? rawMessages : input.historyMessages
-
-  const messages = visibleMessages
-    .map((value, index) => transcriptMessage(value, index, timezone, currentDate))
-    .filter((message): message is TranscriptMessage => message !== undefined)
-
-  return dedupeTranscriptMessages(messages)
-    .sort((a, b) => a.sortTime - b.sortTime || a.index - b.index)
-    .map(transcriptLine)
-    .join('\n')
+  return {
+    delta: toTranscript(fallback.length > 0 ? fallback : input.historyMessages),
+    backdrop: []
+  }
 }
 
-type TranscriptMessage = {
+function standingOrdersFromPayload(turnStart: TurnStart): string | undefined {
+  const payload = turnStart.actor_event.payload_json
+  const channel = recordValue(recordValue(payload?.data)?.channel)
+  const orders = firstString(channel ?? {}, ['standing_orders'])?.trim()
+  return orders ? orders : undefined
+}
+
+function unrepliedCountFromPayload(turnStart: TurnStart): number {
+  return arrayPath(turnStart.actor_event.payload_json, ['data', 'unreplied_messages']).length
+}
+
+export type TranscriptMessage = {
   index: number
   key: string
+  sourceEntryID?: string
   role: 'agent' | 'human'
   sortTime: number
   speaker: string
@@ -150,10 +246,12 @@ function transcriptMessage(
   const sentAt = firstString(value, ['sent_at', 'provider_time', 'time'])
   const parsedTime = sentAt ? new Date(sentAt) : undefined
   const sortTime = parsedTime && !Number.isNaN(parsedTime.getTime()) ? parsedTime.getTime() : Number.MAX_SAFE_INTEGER
+  const sourceEntryID = firstString(value, ['source_entry_id'])
 
   return {
     index,
     key: transcriptMessageKey(value, index),
+    ...(sourceEntryID ? { sourceEntryID } : {}),
     role: transcriptRole(value),
     sortTime,
     speaker: firstString(value, ['speaker', 'display_name', 'name']) ?? speakerFromAuthor(value) ?? 'Unknown',
@@ -186,6 +284,12 @@ function dedupeTranscriptMessages(messages: TranscriptMessage[]): TranscriptMess
 
 function transcriptLine(message: TranscriptMessage): string {
   return `- ${message.time} [${message.role}] ${message.speaker}: ${message.text}`
+}
+
+// Only human rows carry an id tag: they are the only valid asked_by targets.
+function deltaTranscriptLine(message: TranscriptMessage): string {
+  if (message.role !== 'human' || !message.sourceEntryID) return transcriptLine(message)
+  return `- [id:${message.sourceEntryID}] ${message.time} [${message.role}] ${message.speaker}: ${message.text}`
 }
 
 function formatZonedDateTime(value: string, timezone: string): string {
@@ -241,11 +345,13 @@ function zonedDateTimeParts(
 /**
  * Parses the recognizer's structured JSON decision.
  */
-function parseAmbientDecision(text: string): { intervene: boolean; reason: string } {
+function parseAmbientDecision(text: string): { intervene: boolean; reason: string; askedBy?: string } {
   const parsed = parseJSONObject(text)
+  const askedBy = stringArg(parsed, 'asked_by')
   return {
     intervene: parsed.should_proactively_speak === true,
-    reason: stringArg(parsed, 'reason') ?? ''
+    reason: stringArg(parsed, 'reason') ?? '',
+    ...(askedBy ? { askedBy } : {})
   }
 }
 

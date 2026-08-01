@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "runtime_fabric_napi_peer"
 required-features = ["napi"]
 
+[lints.clippy]
+allow_attributes_without_reason = "deny"
+large_stack_arrays = "deny"
+undocumented_unsafe_blocks = "deny"
+
 [features]
 default = []
 napi = ["dep:napi", "dep:napi-derive"]
@@ -35,6 +40,7 @@ universal_ai_client_ring = [
 ]
 
 [dependencies]
+any_ascii = "0.3.3"
 base64-simd = "0.8.0"
 blake3 = "1.8.5"
 bytes = { version = "1.12.1", optional = true }

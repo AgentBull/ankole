@@ -90,11 +90,12 @@ defmodule Ankole.AIGateway.ToolSearch do
         declared_search? or client_search_history?(history)
 
       projection_required? =
-        Enum.any?(contracts, fn contract ->
-          contract.deferred? or
-            not is_nil(contract.namespace) or
-            contract.allowed_callers != ["direct"]
-        end)
+        settled_program_history?(history) or
+          Enum.any?(contracts, fn contract ->
+            contract.deferred? or
+              not is_nil(contract.namespace) or
+              contract.allowed_callers != ["direct"]
+          end)
 
       with :ok <-
              validate_managed_history(
@@ -477,13 +478,20 @@ defmodule Ankole.AIGateway.ToolSearch do
     end)
   end
 
-  defp validate_managed_history(%ResponseItems.History{entries: entries}, search_managed?, ptc) do
+  defp validate_managed_history(
+         %ResponseItems.History{entries: entries} = history,
+         search_managed?,
+         ptc
+       ) do
+    settled_program_history? = settled_program_history?(history)
+
     Enum.reduce_while(entries, :ok, fn %{item: item}, :ok ->
       cond do
         search_history_item?(item) and not search_managed? ->
           {:halt, {:error, {:invalid_tool_search_history, :declaration_missing}}}
 
-        program_history_item?(item) and not PTC.enabled?(ptc) ->
+        program_history_item?(item) and not PTC.enabled?(ptc) and
+            not settled_program_history? ->
           {:halt, {:error, {:invalid_program, :declaration_missing}}}
 
         true ->
@@ -491,6 +499,13 @@ defmodule Ankole.AIGateway.ToolSearch do
       end
     end)
   end
+
+  defp settled_program_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
+    groups = ResponseItems.program_groups(ledger)
+    groups != [] and Enum.all?(groups, & &1.output)
+  end
+
+  defp settled_program_history?(_history), do: false
 
   defp client_search_history?(%ResponseItems.History{entries: entries}) do
     search_items =

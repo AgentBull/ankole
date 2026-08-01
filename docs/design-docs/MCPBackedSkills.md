@@ -1,269 +1,218 @@
 # MCP-Backed Skills
 
-An enabled Skill can give an Agent access to an MCP server. The Skill declares
-that server in `agents/openai.yaml`. No other file registers MCP servers.
+This document specifies Skill-backed MCP dependencies. Release-defined servers
+that are direct model tool providers use the separate
+[Direct MCP Tools](DirectMCPTools.md) contract.
 
-The main Agent and Background Agent Jobs read the same declaration format, but
-each process opens its own connection.
+An MCP dependency is an execution adapter for a Skill. It is not a second
+model-visible tool registry. An enabled Skill declares the connection in
+`agents/openai.yaml`, explains tool selection in `SKILL.md`, and calls the
+server through the pinned `mcporter` CLI.
 
-## Who Does What
+`agents/openai.yaml` is the only registration source for Skill-backed MCP.
+Ankole does not keep an Agent-level Skill MCP registry, a persistent mcporter
+config, or a native Skill MCP projection for the main Agent or Codex.
 
-- `SKILL.md` tells the Agent when and how to use the server.
-- `agents/openai.yaml` gives the stable connection settings.
-- The control plane enables Skills and stores encrypted operator credentials.
-- WorkerEnv sends the needed variables to one Agent turn.
-- Agent Computer runs MCP calls for the main Agent.
-- Codex runs MCP calls inside a Background Agent Job.
-- The remote server defines its tools and returns their results.
+## Ownership
 
-The main Agent and Jobs never share an MCP connection. Ankole has no separate
-MCP registry or worker-side configuration database.
+- `SKILL.md` tells a model when to use the capability, which tool to select,
+  and how to read the result.
+- `agents/openai.yaml` stores the stable server name, transport, endpoint or
+  command, credential variable name, and tool filters.
+- The control plane owns the current enabled Skill set and encrypted operator
+  credentials.
+- Agent Computer resolves the current Skill declarations and writes one
+  invocation-scoped mcporter config.
+- WorkerEnv supplies credential values to the current execution.
+- `mcporter` opens the MCP connection, reads a selected tool schema, and calls
+  the selected tool.
+- The MCP server validates input, enforces its permissions, and returns the
+  result.
 
-## Declare a Server in a Skill
+The model chooses a tool from Skill knowledge. MCP is only the protocol used to
+make the selected call.
 
-The loader accepts MCP entries only under `dependencies.tools`.
-Each entry must use `type: "mcp"`.
+## Declaration
+
+The loader accepts MCP entries only under `dependencies.tools`. Each entry must
+use `type: mcp`.
 
 ```yaml
 dependencies:
   tools:
-    - type: "mcp"
-      value: "remote-data"
+    - type: mcp
+      value: remote-data
       description: "Remote data service"
-      transport: "streamable_http"
-      url: "https://example.com/mcp"
-      bearer_token_env_var: "REMOTE_DATA_API_KEY"
-      timeout_ms: 360000
+      transport: streamable_http
+      url: https://example.com/mcp
+      bearer_token_env_var: REMOTE_DATA_API_KEY
+      enabled_tools:
+        - quote
+        - announcements
 
-    - type: "mcp"
-      value: "local-tool"
-      transport: "stdio"
-      command: "/opt/local-tool/bin/server --stdio"
+    - type: mcp
+      value: local-data
+      transport: stdio
+      command: /opt/local-data/bin/server --stdio
+      disabled_tools:
+        - delete_record
 ```
 
-`value` names the server. `description` is optional. `transport` selects
-`streamable_http` or `stdio`.
+`value` is the mcporter server name. `description` is optional. `transport`
+must be `streamable_http` or `stdio`.
 
-An HTTP entry requires an HTTP or HTTPS `url`. It can also set
-`bearer_token_env_var`, `timeout_ms`, `enabled_tools`, and `disabled_tools`.
-The bearer field names an environment variable; it never contains the secret.
+A `streamable_http` entry requires an HTTP or HTTPS `url`. It can set
+`bearer_token_env_var`, `enabled_tools`, and `disabled_tools`. The bearer field
+contains an environment variable name. It must never contain a secret value.
 
-A stdio entry requires a `command` and can set `timeout_ms`, `enabled_tools`,
-and `disabled_tools`. It cannot define a URL or bearer variable.
+A `stdio` entry requires `command`. It can set `enabled_tools` and
+`disabled_tools`. It cannot set `url` or `bearer_token_env_var`. Agent Computer
+starts it through `/bin/sh -lc` because the declaration is trusted,
+first-party configuration.
 
-Tool filters contain raw MCP tool names. `enabled_tools` is an allowlist.
-`disabled_tools` is a denylist and wins when one raw name occurs in both lists.
-
-The timeout must be an integer of at least 100 milliseconds.
-Ankole does not set a maximum timeout below the JavaScript safe integer limit.
+The declaration does not set a call timeout. Each Skill or Automation script
+must pass an explicit `--timeout` value to mcporter that matches its workflow.
 
 The loader rejects unknown fields, malformed entries, and metadata larger than
-64 KiB. One Skill can declare at most 64 MCP servers. A metadata symlink cannot
-leave the Skill directory.
+64 KiB. One Skill can declare at most 64 dependencies. One execution can read
+at most 128 enabled Skills and 32 distinct MCP servers. A metadata symlink
+cannot leave its Skill directory.
 
-If the file or `dependencies.tools` is absent, the Skill declares no MCP server.
+If `agents/openai.yaml` or `dependencies.tools` is absent, the Skill declares
+no MCP dependency.
 
-## Decide Which Declarations Apply
+## Selection and Conflicts
 
-The optional `ankole-runtime` field in `SKILL.md` controls which process can use
-the Skill. An absent field and `any` permit both processes. `main` permits only
-the main Agent. `background_job` permits only Background Agent Jobs.
+The optional `ankole-runtime` Skill metadata controls model instruction
+visibility. An absent value and `any` permit the main Agent and Background
+Agent Jobs. `main` permits only the main Agent. `background_job` permits only
+Background Agent Jobs.
 
-The main Agent loads MCP declarations from `any` and `main` Skills. Job
-preparation loads declarations from selected `any` and `background_job` Skills.
-An invalid value rejects the Skill source.
+The main Agent loads dependencies from `any` and `main` Skills. A Background
+Agent Job loads dependencies from its selected `any` and `background_job`
+Skills, including selected Agent Plugin member Skills.
 
-`value` identifies a server. Several Skills can declare the same server only
-when every connection field matches, including the description and timeout.
-Ankole then records all source Skill names.
+Automation Jobs do not run a model and do not read Skill instructions. For
+each attempt, the control plane sends the current enabled Skill summaries to
+Agent Computer. Agent Computer loads all MCP dependencies from that set without
+an `ankole-runtime` filter. This does not add an `automation_job` Skill runtime.
 
-If any field differs, Ankole reports a conflict and stops preparation. It does
-not guess which Skill should win.
+Several Skills can declare the same server name only when all connection,
+description, and filter fields match. Ankole then records all source Skill
+names. If a field differs, setup fails. Ankole does not choose a winner.
 
-## Use MCP from the Main Agent
+`enabled_tools` is an exact raw-name allowlist. `disabled_tools` is an exact
+raw-name denylist. When both fields exist, Agent Computer writes the allowlist
+after it removes all denied names. This preserves the rule that the denylist
+wins and avoids an invalid mcporter config with both filter modes.
 
-Agent Computer reads each enabled server catalog and gives AIGateway one
-Responses namespace for each server. The namespace contains the real MCP tools.
-Each child function has `defer_loading: true`, so its schema is not in the
-model context until Tool Search selects it.
+## Per-Execution Config
 
-A runtime failure while Agent Computer reads one server catalog removes only
-that server from the current turn and writes a bounded warning. Other MCP
-servers and the Agent turn continue. Agent Computer does not cache the failure,
-so a later turn tries the server again. An invalid local declaration or a
-conflict between declarations still rejects turn preparation because no
-unambiguous server contract exists.
+Agent Computer writes a unique JSON file under `/var/share` with mode `0600`.
+It injects the file path as `MCPORTER_CONFIG` and removes the file when the
+execution ends. It writes a config even when the server set is empty.
 
-AIGateway owns search for the main Agent. It uses the official `tool_search`
-surface, searches the deferred child functions, returns the matching namespace
-children in `tool_search_output`, and maps the selected namespaced function
-call back to the exact server and raw tool. Agent Computer validates the
-arguments as a JSON object before it opens a new connection and invokes the raw
-tool. The MCP server owns validation against its declared input schema, as it
-does when Codex calls it directly.
+The generated file always contains `imports: []`. The explicit
+`MCPORTER_CONFIG` path and this empty import list prevent mcporter from reading
+an Agent Home, project, Codex, editor, or host MCP config.
 
-Every model-visible MCP child permits `direct` calls. A child also permits
-`programmatic` calls only when MCP marks it read-only and not destructive. The
-main Agent declares the official `programmatic_tool_calling` tool when at least
-one visible binding permits that caller. The declaration permits bounded
-parallel execution. A direct-only turn does not send an empty program tool. A
-missing or unsafe annotation keeps execution direct and sequential.
+An HTTP entry becomes `baseUrl` plus `bearerTokenEnv`. A stdio entry becomes
+`command: /bin/sh` plus `args: [-lc, <declared command>]`. Credential values are
+not read while the file is generated and cannot enter the file.
 
-The `mcp` `list`, `describe`, and `call` meta-tool does not exist. The model
-sees the official namespace, Tool Search, and child function items.
+Each execution receives a fresh view:
 
-## Match the Codex 0.146 MCP Surface
+| Execution | Skill source | Config lifetime | Call owner |
+| --- | --- | --- | --- |
+| Main Agent | Current conversation Skill summaries | One text turn | Main Agent command tool |
+| Background Agent Job | Current selected standalone and Plugin Skills | One prepared Codex execution | Codex terminal |
+| Automation Job | Current enabled Agent Skill summaries | One Automation attempt | `main.ts` |
 
-The same MCP registration and server response must expose the same
-model-visible tool set in the main Agent and in Codex 0.146. This includes each
-namespace, child name, description, input schema, visibility decision, filter
-decision, collision result, and call failure shape. Search ownership can differ
-because it does not change this contract.
+The file can also contain release-defined Direct MCP servers. Those entries do
+not come from Skills and follow [Direct MCP Tools](DirectMCPTools.md).
 
-Agent Computer keeps raw server and tool names for filters and calls. It
-projects model names with the Codex 0.146 rules:
+Background Job project config removes any existing `mcp_servers` table. A
+workspace template or resumed project cannot restore the old native Codex MCP
+path.
 
-- Replace each character other than an ASCII letter, digit, or underscore with
-  an underscore.
-- Prefix a server namespace with `mcp__`.
-- Ignore a repeated raw tool identity.
-- Add the Codex 12-hex SHA-1 suffix when sanitized identities collide.
-- Keep the complete flattened name, `namespace__child`, at 64 characters or
-  fewer. Shorten with the same hash suffix when needed.
+## Model Call Contract
 
-The worker uses the MCP initialize instructions as the namespace description.
-It lowers the MCP input schema with the Codex rules. These rules replace
-`const` with `enum`, supply missing object properties and array items, remove
-unreachable definitions and unsupported fields, and compact schemas larger
-than the Codex limit. It omits a tool when the schema cannot be lowered. When
-the server declares an output schema, Agent Computer carries it through Tool
-Search and uses it to decode and validate program replay results.
+A Skill must identify one tool before it asks the server for a schema. It must
+not list the full catalog as a discovery step. When the current schema is
+needed, use:
 
-An absent or non-array `_meta.ui.visibility` value makes a tool visible. An
-array value must contain `model`. Agent Computer applies `enabled_tools` first
-and `disabled_tools` second against raw names.
+```bash
+mcporter list 'server-name.tool-name' --schema --json --timeout 360000
+```
 
-Main-Agent Tool Search returns at most eight results by default. Its bilingual
-BM25 corpus contains the flattened canonical name, canonical child name, raw
-tool name, raw server name, tool title, tool description, MCP initialize
-instructions, and root input-schema property names. AIGateway removes the
-private corpus field before it sends or returns a public tool spec.
+Write the argument object to a temporary JSON file. Then call the selected tool
+through stdin so quotes, Unicode text, and shell characters are not
+interpolated:
 
-When an MCP tool declares an output schema, a successful call returns only the
-validated `structuredContent` value to the model. A call without an output
-schema, or a call with `isError: true`, returns a bounded envelope that keeps
-`content`, `structuredContent`, and `isError`. A connection, transport, or
-protocol failure becomes the same error envelope instead of changing the public
-function-call protocol.
+```bash
+mcporter call 'server-name.tool-name' --json - --output json --timeout 360000 < /absolute/path/arguments.json
+```
 
-## Use MCP from a Background Agent Job
+The model must remove the temporary argument file after the call. It must check
+the process exit code before it parses stdout.
 
-Job preparation writes the same selected MCP declarations into Codex
-configuration. Codex 0.146 uses its native Tool Search implementation to load
-the deferred MCP child functions. It exposes the selected child as a namespaced
-function call and invokes it through the official Codex MCP client.
+An Automation script must use `Bun.spawn` with the same argv. It writes one
+JSON object to the child stdin, checks the exit code, and parses stdout. It must
+not create a persistent mcporter config.
 
-AIGateway serves a full Codex model card with `supports_search_tool: true`.
-This setting enables Codex Tool Search without adding an Ankole MCP meta-tool.
-Agent Computer also enables Codex native code mode, so a Job can call selected
-MCP tools from isolated JavaScript. Codex code mode is a client-side mechanism,
-not the Responses API `programmatic_tool_calling` wire type.
+## Failure Contract
 
-Codex owns the Job-side projection. Agent Computer mirrors that pinned
-projection for the main Agent instead of sharing its implementation. A
-differential integration test registers one real stdio fixture in both paths,
-runs Codex 0.146 Tool Search, and compares the loaded tool specs with the main
-Agent catalog.
+An invalid Skill summary, inaccessible Skill root, malformed declaration, or
+server conflict fails setup before a user command or Automation script starts.
+A missing bearer variable, connection error, protocol error, invalid argument,
+or server error fails the mcporter process. The caller must keep the diagnostic
+and must not treat partial stdout as a successful result.
 
-## Limit and Cache Tool Catalogs
+Main command output, Codex terminal output, and Automation stdout and stderr
+remain bounded by their existing execution contracts. Skills must set server
+pagination and result-size bounds that fit those contracts.
 
-A main-Agent turn reads at most 128 enabled Skills and 32 distinct MCP servers.
-A complete model surface contains at most 512 child tools and 2 MiB of
-namespace, description, schema, and search data.
+Agent Computer does not fetch an MCP catalog during setup. Config generation
+does not open a network connection or start a stdio server. A connection exists
+only while a mcporter list or call process uses it.
 
-A catalog can contain at most 20 pages and 256 tools.
-One tool schema can use at most 64 KiB.
-The complete catalog can use at most 512 KiB.
+## Security and Deliberate Limits
 
-The worker process caches successful catalogs for five minutes.
-The least-recently-used cache contains at most 32 entries.
+WorkerEnv provides credentials to the same trusted sandbox that runs the model
+command or Automation script. The generated file stores only environment
+variable names. A missing variable diagnostic must name the variable and must
+not print a credential value.
 
-The cache key includes:
+The server output is untrusted input. Removing the native MCP client also
+removes these client-side guarantees:
 
-- all nonsecret connection settings
-- the current versions of source Skill metadata
-- the identity of the current credential
+- MCP output-schema validation.
+- MCP annotation mapping to programmatic callers or parallel scheduling.
+- Native tool-level activity and approval UI.
+- MCP-result redaction against all WorkerEnv secret values.
 
-A changed declaration or credential creates a new cache entry. The cache does
-not store failures, and concurrent turns do not share an unfinished load.
+The last item removes a defense against a server that accidentally returns a
+secret and lets command output enter persistent history. Ankole accepts this
+narrower contract for trusted, first-party MCP Skills. The secret already
+exists in the same sandbox, and the config still stores only its variable
+name. Do not use this contract for an untrusted third-party server without a
+separate security review.
 
-Before caching, Agent Computer checks catalog text and object keys for secret
-WorkerEnv values. If it finds one, it rejects that server catalog and omits the
-server from the current turn instead of changing the server schema.
+The real write boundary is the remote credential scope. Tool filters and Skill
+instructions guide trusted code; they do not create a security boundary. If an
+Automation Job needs less authority than the main Agent, give it a different
+credential identity or do not expose that dependency to the Agent.
 
-## Open a New Connection for Each Operation
+## Authoring Rules
 
-Each catalog load or tool call creates a new official MCP SDK client. Agent
-Computer closes it when the operation ends.
-
-The HTTP transport rejects a response body above 2 MiB before the SDK buffers
-it for JSON parsing.
-
-HTTP transport can read a bearer token from WorkerEnv. Stdio transport runs the
-declared command through `/bin/sh -lc` with the safe SDK environment and allowed
-WorkerEnv values.
-
-The main Agent uses the server `timeout_ms` value. It uses the 360-second
-default when the declaration has no timeout.
-
-The caller abort signal covers connection, discovery, and tool calls.
-
-Job preparation writes the server timeout as Codex `tool_timeout_sec`.
-It uses the 360-second default when the Skill has no timeout.
-
-## Treat Server Output as Untrusted
-
-Agent Computer limits description, schema, result, error, nesting, collection,
-and string sizes. A complete model result cannot exceed 64 KiB. It removes
-binary and control characters. It truncates fields with declared limits and
-rejects a complete result that is too large.
-
-It removes WorkerEnv secrets from result values and object keys. MCP output
-remains untrusted input to the model.
-
-## Keep Credentials out of Skills
-
-A Skill can store endpoints, commands, and credential variable names. It must
-never store a credential value.
-
-Credential values must not appear in these locations:
-
-- `SKILL.md`.
-- `agents/openai.yaml`.
-- Agent files.
-- Shell commands.
-- Logs.
-- Tool details.
-- Catalog caches.
-
-The control plane supplies credentials through WorkerEnv for one turn. A
-missing bearer variable reports only its name. The model must not ask a user to
-paste a credential into chat or a file.
-
-WorkerEnv never injects reserved worker identity or bootstrap variables.
-
-Ankole does not install OAuth credentials interactively. That flow first needs
-a credential ownership contract that names the component which stores and
-refreshes the credential.
-
-## Write Clear Skill Instructions
-
-Name the server and the tools that handle common requests. Explain when the
-Agent must search for a less common tool. Do not tell the Agent to call the old
-`mcp` meta-tool.
-
-Explain data freshness, warnings, partial results, and provider behavior in the
-Skill.
-
-Do not add an MCP CLI, daemon, host configuration import, or second declaration
-file.
+- Keep one domain Skill for one server or one cohesive workflow.
+- Put business routing, freshness, pagination, warnings, and partial-result
+  rules in `SKILL.md`.
+- Put only connection facts and exact tool filters in `agents/openai.yaml`.
+- Inspect only the selected tool schema.
+- Use stdin JSON for calls. Do not put argument JSON or secrets in shell text.
+- Do not add a generic mcporter Skill, a generated server CLI, a daemon, a
+  persistent config, or a second declaration file without production evidence
+  that requires it.
+- Do not use this document to force a small release-defined model tool provider
+  behind a Skill. Review that server against the Direct MCP criteria instead.

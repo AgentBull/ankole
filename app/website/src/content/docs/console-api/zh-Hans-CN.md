@@ -71,6 +71,8 @@ agent 是这样一个单位：运维者围绕它配置其它一切：
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 移除路由规则 |
+| `GET` | `/signal-channels/:channel_id/standing-orders` | 读取一个频道的常驻指令 |
+| `PUT` | `/signal-channels/:channel_id/standing-orders` | 替换一个频道的常驻指令 |
 
 禁用一个 binding 会停止新信号唤醒它的 agent，而不删除这个 binding。
 

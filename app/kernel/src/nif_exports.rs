@@ -124,6 +124,13 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
+/// Transliterates Unicode text to an ASCII approximation.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn any_ascii(input: Term<'_>) -> NIFResult<String> {
+    let input = decode_string(input, "input")?;
+    Ok(common::any_ascii(&input))
+}
+
 /// Runs one PTC program to completion or to its next pending tool-call batch.
 ///
 /// DirtyCpu because one call owns a V8 isolate for up to the program timeout;

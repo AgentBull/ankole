@@ -69,6 +69,8 @@ A signal routing rule (`Signal Binding` in the API schema) connects a provider a
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | Create or replace a routing rule |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | Update a routing rule |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | Remove a routing rule |
+| `GET` | `/signal-channels/:channel_id/standing-orders` | Read one channel's standing orders |
+| `PUT` | `/signal-channels/:channel_id/standing-orders` | Replace one channel's standing orders |
 
 Disabling a binding stops new signals from waking its agent without deleting the binding.
 

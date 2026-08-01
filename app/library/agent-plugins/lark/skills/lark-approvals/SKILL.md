@@ -1,7 +1,7 @@
 ---
 name: lark-approvals
 version: 1.2.0
-description: "飞书审批：以当前 Turn 发起人的身份查询和处理审批待办、已办和实例，搜索可发起审批定义、查看定义详情、上传附件并发起原生审批实例。也用于整理发票或收据压缩包，并在用户点击同意后提交报销。审批待办不是飞书任务；非审批类待办走 lark-oa。不负责创建审批定义；三方审批定义不走原生提单。"
+description: "Feishu approvals: Query and process pending and completed approval tasks and approval instances as the human who started the current Turn. Search for approval definitions that the user can initiate, view definition details, upload attachments, and create native approval instances. Also use this Skill to process invoice or receipt archives and submit reimbursement requests after the user confirms. Approval tasks are not Feishu Tasks; use lark-oa for non-approval to-dos. Create approval definitions outside this Skill. Submit third-party approval definitions through their external links instead of the native flow."
 default_enabled: true
 category: productivity
 tags: [lark, feishu, approval, workflow]

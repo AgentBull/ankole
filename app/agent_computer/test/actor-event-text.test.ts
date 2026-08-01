@@ -72,7 +72,8 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
               {
                 name: 'strategy.pdf',
                 resource_type: 'file',
-                agent_computer_path: '/agents/agent-1/user-files/inbox/strategy.pdf'
+                agent_computer_path: '/agents/agent-1/user-files/inbox/10000/strategy.pdf',
+                size: 36_473
               }
             ]
           }
@@ -81,9 +82,37 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
       'im.message.addressed'
     )
 
-    expect(text).toContain('Alice sent the attached files without any message text.')
-    expect(text).toContain('Attachments:')
-    expect(text).toContain('strategy.pdf')
+    expect(text).toContain('Alice sent an attachment without any message text.')
+    expect(text).toContain('Attachment:')
+    expect(text).toContain('/agents/agent-1/user-files/inbox/10000/strategy.pdf (35.6 KiB)')
+    expect(text).not.toContain('type=file')
+    expect(text).not.toContain('size=')
+    expect(text).not.toContain('path=')
+  })
+
+  it('does not expose provider attachment IDs when materialization fails', () => {
+    const text = actorEventText(
+      {
+        data: {
+          entry: {
+            author: { name: 'Alice' },
+            attachments: [
+              {
+                name: 'pending.pdf',
+                resource_type: 'file',
+                provider_ref: 'lark:file:file_v3_00146_internal',
+                file_key: 'file_v3_00146_internal'
+              }
+            ]
+          }
+        }
+      },
+      'im.message.addressed'
+    )
+
+    expect(text).toContain('- pending.pdf (not available locally)')
+    expect(text).not.toContain('file_v3_00146_internal')
+    expect(text).not.toContain('resource_type')
   })
 
   it('keeps the generic fallback for other empty events', () => {
@@ -154,7 +183,7 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
                 {
                   name: 'strategy.pdf',
                   resource_type: 'file',
-                  agent_computer_path: '/agents/agent-1/user-files/inbox/strategy.pdf'
+                  agent_computer_path: '/agents/agent-1/user-files/inbox/10000/strategy.pdf'
                 }
               ]
             }
@@ -164,10 +193,10 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
       'im.message.addressed'
     )
 
-    expect(text).toContain('attachments:')
+    expect(text).toContain('attachment:')
     expect(text).toContain('strategy.pdf')
     expect(text).toContain('Alice replied without adding any message text.')
-    expect(text).not.toContain('Alice sent the attached files')
+    expect(text).not.toContain('Alice sent an attachment')
   })
 })
 

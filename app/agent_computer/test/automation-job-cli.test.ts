@@ -135,10 +135,8 @@ describe('automation job CLI', () => {
     expect(normalized).toContain('A run with no emitEvent call is a silent, completed consumption')
     expect(normalized).toContain('Runs can overlap and deliveries can repeat')
     expect(normalized).toContain('These SDK functions exist only in a platform run')
-    expect(normalized).toContain(
-      'the mcporter CLI is in the image, reads ~/.mcporter/mcporter.json from the Agent Home'
-    )
-    expect(normalized).toContain('mcporter --help documents commands and config')
+    expect(normalized).toContain('Each run receives a generated MCPORTER_CONFIG and the current Agent WorkerEnv')
+    expect(normalized).toContain('Bun.spawn argv for mcporter call server.tool --json - --output json')
     expect(normalized).toContain('After registration, use a test trigger to check each SDK branch')
     expect(normalized).toContain('whatever is on disk at fire time is what runs')
     expect(normalized).toContain('Cancel the triggers that point at a job before cancelling the job')

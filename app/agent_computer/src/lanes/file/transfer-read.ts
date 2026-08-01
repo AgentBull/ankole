@@ -53,7 +53,7 @@ export async function handleReadOpen(
       transferID,
       address.virtualPath,
       u64Frame(stableStat.size),
-      fingerprint === 'none' ? '' : fileFingerprint(context.state, address.root, address.relativePath, filePath)
+      fingerprint === 'none' ? '' : await fileFingerprint(context.state, address.root, address.relativePath, filePath)
     ])
   } catch (error) {
     handleReadAbort(context, transferID)

@@ -1,7 +1,11 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { AutomationJobRunRequestSchema } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  AutomationJobRunRequestSchema,
+  RuntimeSkillSummarySchema
+} from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { jsonBytes, jsonObjectFromBytes } from '../../src/fabric/envelope_proto'
 import { runAutomationJob } from '../../src/automation-jobs/run'
 import { rpcMethods, type RPCRequester } from '../../src/lanes/rpc_lane'
@@ -50,9 +54,113 @@ await emitEvent({ observed: ctx.event.data.value, job_id: ctx.job.id })
     expect(emitted).toEqual([{ observed: 42, job_id: 1001 }])
   })
 
+  it('always provides release-defined Direct MCP servers without starting them', async () => {
+    const fixture = runFixture(`
+const configPath = process.env.MCPORTER_CONFIG
+if (!configPath) throw new Error("MCPORTER_CONFIG is missing")
+const config = await Bun.file(configPath).json()
+console.log(JSON.stringify({ configPath, flint: config.mcpServers["flint-chart"] }))
+`)
+    root = fixture.root
+
+    const result = await runAutomationJob(request(fixture.directory, {}), {
+      config: fixture.config,
+      rpc: rpcStub([])
+    })
+
+    expect(result.status).toBe('succeeded')
+    const output = JSON.parse(result.stdout)
+    expect(output.flint).toEqual({
+      description:
+        'Create, validate, compile, and render static charts with Flint and Vega-Lite. Use inline data.values. PNG is the default. SVG is optional. Map and Choropleth are not supported.',
+      command: 'bun',
+      args: ['/repo/app/agent_computer/src/tools/mcp/flint-chart-server.ts'],
+      cwd: '/repo/app/agent_computer',
+      allowedTools: ['compile_chart', 'list_chart_types', 'render_chart', 'validate_chart']
+    })
+    expect(existsSync(output.configPath)).toBe(false)
+  })
+
+  it('lets an Automation script call a release-defined Direct MCP server through mcporter', async () => {
+    const fixture = runFixture(`
+const proc = Bun.spawn(
+  ["mcporter", "call", "flint-chart.list_chart_types", "--json", "-", "--output", "json", "--timeout", "60000"],
+  { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
+)
+proc.stdin.write(JSON.stringify({ backend: "vegalite" }))
+proc.stdin.end()
+const [exitCode, stdout, stderr] = await Promise.all([
+  proc.exited,
+  new Response(proc.stdout).text(),
+  new Response(proc.stderr).text()
+])
+if (exitCode !== 0) throw new Error(stderr || \`mcporter exited with code \${exitCode}\`)
+console.log(stdout)
+`)
+    root = fixture.root
+
+    const result = await runAutomationJob(request(fixture.directory, {}), {
+      config: fixture.config,
+      rpc: rpcStub([])
+    })
+
+    expect(result.status).toBe('succeeded')
+    const chartTypes = JSON.parse(result.stdout).flatMap((catalog: { chartTypes: Array<{ chartType: string }> }) =>
+      catalog.chartTypes.map(entry => entry.chartType)
+    )
+    expect(chartTypes).not.toContain('Map')
+    expect(chartTypes).not.toContain('Choropleth')
+  })
+
+  it('calls an enabled Skill MCP dependency through the generated MCPorter config', async () => {
+    const fixture = runFixture(`
+const proc = Bun.spawn(
+  ["mcporter", "call", "fixture-data.stdio_echo", "--json", "-", "--output", "json", "--timeout", "10000"],
+  { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
+)
+proc.stdin.write(JSON.stringify({ text: "复杂参数 with \\\"quotes\\\"" }))
+proc.stdin.end()
+const [exitCode, stdout, stderr] = await Promise.all([
+  proc.exited,
+  new Response(proc.stdout).text(),
+  new Response(proc.stderr).text()
+])
+if (exitCode !== 0) throw new Error(stderr || \`mcporter exited with code \${exitCode}\`)
+console.log(JSON.stringify({ config: process.env.MCPORTER_CONFIG, result: JSON.parse(stdout) }))
+`)
+    root = fixture.root
+    const fixtureServer = '/repo/app/agent_computer/test/fixtures/mcp-stdio-server.ts'
+    writeInstalledSkill(fixture, fixtureServer)
+
+    const result = await runAutomationJob(
+      create(AutomationJobRunRequestSchema, {
+        ...request(fixture.directory, {}),
+        skills: [
+          create(RuntimeSkillSummarySchema, {
+            skillName: 'fixture-data',
+            sourceKind: 'installed',
+            relativePath: 'fixture-data'
+          })
+        ]
+      }),
+      {
+        config: fixture.config,
+        rpc: rpcStub([])
+      }
+    )
+
+    expect(result.status).toBe('succeeded')
+    const output = JSON.parse(result.stdout)
+    expect(output.config).toStartWith('/var/share/ankole-mcporter-')
+    expect(output.result).toMatchObject({
+      content: [{ type: 'text', text: 'stdio response' }]
+    })
+    expect(existsSync(output.config)).toBe(false)
+  })
+
   it('treats a script exception as one terminal script result', async () => {
     const fixture = runFixture(`
-console.log("before failure")
+console.log(JSON.stringify({ config: process.env.MCPORTER_CONFIG, marker: "before failure" }))
 throw new Error("source schema changed")
 `)
     root = fixture.root
@@ -67,11 +175,13 @@ throw new Error("source schema changed")
     expect(result.error).toContain('source schema changed')
     expect(result.stdout).toContain('before failure')
     expect(result.stderr).toContain('source schema changed')
+    expect(existsSync(JSON.parse(result.stdout).config)).toBe(false)
   })
 
   it('kills a hung script at the supplied resource deadline', async () => {
     const fixture = runFixture('await new Promise(() => {})\n')
     root = fixture.root
+    const configsBefore = mcporterConfigNames()
 
     const result = await runAutomationJob(
       {
@@ -89,6 +199,7 @@ throw new Error("source schema changed")
       exitCode: 124,
       error: 'automation job timed out after 50 ms'
     })
+    expect(mcporterConfigNames()).toEqual(configsBefore)
   })
 })
 
@@ -117,6 +228,15 @@ function runFixture(source: string): {
       maxConcurrentTurns: 4
     }
   }
+}
+
+function writeInstalledSkill(fixture: ReturnType<typeof runFixture>, fixtureServer: string): void {
+  const agentsRoot = join(fixture.config.agentsRoot, 'agent-1', 'installed-skills', 'fixture-data', 'agents')
+  mkdirSync(agentsRoot, { recursive: true })
+  writeFileSync(
+    join(agentsRoot, 'openai.yaml'),
+    `dependencies:\n  tools:\n    - type: mcp\n      value: fixture-data\n      transport: stdio\n      command: bun ${fixtureServer}\n`
+  )
 }
 
 function request(directoryPath: string, data: Record<string, unknown>) {
@@ -152,4 +272,10 @@ function rpcStub(emitted: unknown[]): RPCRequester {
   }
 
   return requester as unknown as RPCRequester
+}
+
+function mcporterConfigNames(): string[] {
+  return readdirSync('/var/share')
+    .filter(name => name.startsWith('ankole-mcporter-'))
+    .sort()
 }

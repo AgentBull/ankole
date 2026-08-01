@@ -253,7 +253,7 @@ function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsO
     throw new Error('skill_view requires worker skill source roots')
   }
 
-  return resolveSkillFilesystemRoot(skill, { skillRoots: opts.skillRoots, turn: opts.turn })
+  return resolveSkillFilesystemRoot(skill, { skillRoots: opts.skillRoots })
 }
 
 /**

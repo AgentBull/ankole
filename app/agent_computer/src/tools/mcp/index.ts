@@ -1,7 +1,14 @@
-export { createMCPTools, type CreateMCPToolsOptions } from './mcp-tool'
+export { loadEnabledSkillMCPServers, type MCPServerConfig } from './config'
+export { registeredDirectMCPServers, type DirectStdioMCPServer } from './direct-registry'
 export {
-  loadEnabledSkillMCPServers,
-  MCP_RESOURCE_LIMITS,
-  mcpServerConnectionIdentity,
-  type MCPServerConfig
-} from './config'
+  createDirectMCPTools,
+  type CreateDirectMCPToolsOptions,
+  type DirectMCPCatalogUnavailable
+} from './direct-tools'
+export {
+  materializeMCPorterConfig,
+  MCPORTER_CONFIG_ENV,
+  renderMCPorterConfig,
+  type MaterializedMCPorterConfig,
+  type MCPorterConfiguredServer
+} from './mcporter-config'

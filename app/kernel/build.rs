@@ -9,7 +9,7 @@ fn main() {
     prost_build::Config::new()
         .type_attribute(
             ".ankole.runtime_fabric.v1.Envelope.body",
-            "#[allow(clippy::large_enum_variant)]",
+            "#[allow(clippy::large_enum_variant, reason = \"boxing a generated envelope variant would allocate on every host call\")]",
         )
         .compile_protos(
             &["proto/ankole/runtime_fabric/v1/envelope.proto"],

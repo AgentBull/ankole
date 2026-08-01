@@ -29,9 +29,9 @@ defmodule Ankole.AgentHomePaths do
   @spec installed_skills(String.t()) :: String.t()
   def installed_skills(agent_uid), do: join_agent(agent_uid, ["installed-skills"])
 
-  @spec session_workspace(String.t(), String.t()) :: String.t()
-  def session_workspace(agent_uid, session_id),
-    do: join_agent(agent_uid, ["sessions", session_key(session_id)])
+  @spec session_workspace(String.t(), pos_integer()) :: String.t()
+  def session_workspace(agent_uid, workspace_id),
+    do: join_agent(agent_uid, ["sessions", workspace_key!(workspace_id)])
 
   @spec job_workspace(String.t(), pos_integer()) :: String.t()
   def job_workspace(agent_uid, job_id)
@@ -52,22 +52,24 @@ defmodule Ankole.AgentHomePaths do
   def installed_skills_lane_path(agent_uid, relative_path),
     do: lane_path(agent_uid, "installed-skills", relative_path)
 
-  @spec session_lane_path(String.t(), String.t(), String.t()) :: String.t()
-  def session_lane_path(agent_uid, session_id, relative_path),
-    do: lane_path(agent_uid, "sessions/#{session_key(session_id)}", relative_path)
+  @spec session_lane_path(String.t(), pos_integer(), String.t()) :: String.t()
+  def session_lane_path(agent_uid, workspace_id, relative_path),
+    do: lane_path(agent_uid, "sessions/#{workspace_key!(workspace_id)}", relative_path)
 
   @spec document_lane_path(String.t(), String.t()) :: String.t()
   def document_lane_path(agent_uid, kind),
     do: Path.join(safe_agent_uid!(agent_uid), Map.fetch!(@documents, kind))
 
-  @spec session_key(String.t()) :: String.t()
-  def session_key(session_id) when is_binary(session_id) and byte_size(session_id) > 0,
-    do: Base.url_encode64(session_id, padding: false)
-
-  def session_key(_session_id), do: raise(ArgumentError, "session id is required")
-
   defp join_agent(agent_uid, suffix),
     do: Path.join([@agents_root, safe_agent_uid!(agent_uid) | suffix])
+
+  defp workspace_key!(workspace_id)
+       when is_integer(workspace_id) and workspace_id in 10_000..9_007_199_254_740_991,
+       do: Integer.to_string(workspace_id)
+
+  defp workspace_key!(_workspace_id),
+    do:
+      raise(ArgumentError, "session workspace id must be a model-safe integer starting at 10000")
 
   defp lane_path(agent_uid, root, relative_path) do
     relative_path = String.trim_leading(relative_path, "/")

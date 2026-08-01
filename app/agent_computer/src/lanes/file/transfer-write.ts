@@ -101,7 +101,7 @@ export async function handleWriteCommit(context: FileTransferContext, transferID
     if (transfer.address.root === 'agent_home_documents') {
       await chmod(transfer.targetPath, 0o444)
     }
-    fingerprint = fileFingerprint(
+    fingerprint = await fileFingerprint(
       context.state,
       transfer.address.root,
       transfer.address.relativePath,

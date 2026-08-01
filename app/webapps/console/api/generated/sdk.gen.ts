@@ -353,6 +353,12 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingErrors,
   AnkoleWebSignalBindingControllerPutBindingResponses,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersData,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
   AnkoleWebSignalBindingControllerUpdateBindingData,
   AnkoleWebSignalBindingControllerUpdateBindingErrors,
   AnkoleWebSignalBindingControllerUpdateBindingResponses,
@@ -920,6 +926,62 @@ export const ankoleWebAuthZGroupControllerPreviewComputedMembers = <ThrowOnError
       }
     ],
     url: '/api/v1/principal-groups/computed-member-previews',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Read the standing orders of one signal channel
+ */
+export const ankoleWebSignalBindingControllerShowChannelStandingOrders = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
+    AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/signal-channels/{channel_id}/standing-orders',
+    ...options
+  })
+
+/**
+ * Replace the standing orders of one signal channel
+ */
+export const ankoleWebSignalBindingControllerPutChannelStandingOrders = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerPutChannelStandingOrdersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
+    AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/signal-channels/{channel_id}/standing-orders',
     ...options,
     headers: {
       'Content-Type': 'application/json',

@@ -10,7 +10,7 @@ Skill 和 Control Plane Plugin 都能扩展 Ankole，但它们解决的问题不
 | 需要增加什么 | 选择 |
 |---|---|
 | 教 Agent 怎样完成某类工作 | Skill |
-| 给 Agent 提供 MCP 工具及其使用方法 | Skill |
+| 给 Agent 提供 MCP-backed 工作流及其使用方法 | Skill |
 | 增加身份源、聊天适配器或 Provider 类型 | Control Plane Plugin |
 | 增加控制面配置项或受监督后台进程 | Control Plane Plugin |
 
@@ -18,12 +18,13 @@ Skill 是 Agent 读取的文件，不需要重新编译控制面。Control Plane
 
 ## 编写 Skill
 
-一个 Skill 是包含 `SKILL.md` 的目录，也可以带参考资料、模板和 `openai.yaml`：
+一个 Skill 是包含 `SKILL.md` 的目录，也可以带参考资料、模板和 `agents/openai.yaml`：
 
 ```text
 my-skill/
 ├── SKILL.md
-├── openai.yaml
+├── agents/
+│   └── openai.yaml
 ├── reference.md
 └── templates/
 ```
@@ -62,7 +63,7 @@ platforms: [linux]
 
 ### 声明 MCP 依赖
 
-需要 MCP 工具时，在 `openai.yaml` 中声明：
+需要 MCP 能力时，在 `agents/openai.yaml` 中声明执行依赖：
 
 ```yaml
 dependencies:
@@ -74,7 +75,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-Agent 只有在启用这个 Skill 时才会看到相应工具。完整字段见 [MCP 参考](../mcp/)。
+只有启用该 Skill 时，这个依赖才可用；它不会注册成模型原生工具。在 `SKILL.md` 中写明领域工具和选择规则，只用 `mcporter list server.tool --schema --json` 检查已选工具，并用 stdin JSON 调用。完整合同见 [MCP 参考](../mcp/)。
 
 ### 验证 Skill
 

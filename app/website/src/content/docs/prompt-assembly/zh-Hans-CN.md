@@ -15,8 +15,8 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 
 | 通道 | 携带什么 | 何时 |
 |---|---|---|
-| `turn_start.request_context` | agent 循环设置（`ai_agent.max_iterations`、`max_output_tokens`、`inactivity_timeout_ms`）、回合局部事实（信号、channel、回合种类） | 嵌入 TurnStart 信封，循环开始前 |
-| `AgentConversationContextBroker` RPC | Agent 长期文档（`SOUL`/`MISSION`/`DESIGN`）、已启用 skill、Brain 快照（pinned memo + channel 条目）、安装时区、agent profile | worker 在循环开始时经 RuntimeFabric RPC 获取 |
+| `turn_start.request_context` | agent 循环设置（`ai_agent.max_iterations`、`max_output_tokens`、`inactivity_timeout_ms`）和回合局部事实（信号、回合种类） | 嵌入 TurnStart 信封，循环开始前 |
+| `AgentConversationContextBroker` RPC | Agent 长期文档（`SOUL`/`MISSION`/`DESIGN`）、已启用 skill、Brain 快照（pinned memo + channel 条目）、会话起始 channel、安装时区、agent profile | worker 在循环开始时经 RuntimeFabric RPC 获取 |
 
 划分是刻意的：回合局部事实走 `turn_start`，因为它们每回合变；会话范围上下文由 worker 经 broker 获取，因为它在一会话内跨回合稳定且 broker 缓存它。broker 模块文档明确："此 RPC 刻意不返回转写消息或回合局部请求上下文。转写历史归 AIGateway；回合局部事实走 `turn_start`。"
 
@@ -33,6 +33,10 @@ worker 通过两条路径从控制面接收上下文，各携带一类数据：
 ### Brain 快照
 
 `Brain.Snapshot.get_or_create/1` 解析会话的 Brain scope 并返回快照：agent 的 pinned memo（`agent_context`）和 channel 的持久上下文（`group_context`）。这些是已保存的上下文条目——agent 被告知记住的持久事实——不是完整 Brain 知识库。快照是投影，不是查询；召回（完整搜索）在循环中通过 Brain 工具发生，不通过此快照。
+
+### 会话起始 channel
+
+`SignalsGateway.ConversationChannel` 投影 AIGateway conversation 声明的 provider channel。群聊 label 来自当前 Channel 镜像，DM label 来自对端 Principal。`lark` adapter 统一表示 Lark / Feishu；adapter domain 只选择 API server。broker 通过 `ConversationInfo.origin_channel` 传递该投影，所以 ActorEvent payload 没有 channel object 时，内部唤醒也不会丢失会话起始 channel。
 
 ### Agent 设置（来自 AppConfigure）
 
@@ -52,7 +56,7 @@ worker 上的 `system_prompt.ts` 构建最终 prompt。其模块文档说明了�
 2. **Agent 长期文档**——`SOUL`、`MISSION`、`DESIGN`，从 broker 响应渲染。
 3. **持久上下文**——Brain 快照的 pinned memo 和 channel 条目，带指引渲染（"仅当条目仍然有效时使用……否则忽略"）。
 4. **Skill**——已启用 skill 的描述，告诉模型可以够到什么。
-5. **Channel 与运行时上下文**——当前 channel、工作空间路径、可用工具名。
+5. **Channel 与运行时上下文**——会话起始 channel、工作空间路径、可用工具名。
 
 worker 每回合从当前 PostgreSQL-backed 上下文重新渲染完整 prompt——它不信任缓存版本。AIGateway 保留先前请求指令供审计，但回合渲染当前状态。
 

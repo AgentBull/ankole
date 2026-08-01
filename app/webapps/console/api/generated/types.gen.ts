@@ -729,6 +729,16 @@ export type BrainSourceCaptureRequest = {
 }
 
 /**
+ * SignalChannelStandingOrdersWriteRequest
+ */
+export type SignalChannelStandingOrdersWriteRequest = {
+  /**
+   * Full replacement standing-orders text; empty clears them.
+   */
+  orders: string
+}
+
+/**
  * WorkerEnvUpdateRequest
  */
 export type WorkerEnvUpdateRequest = {
@@ -1440,6 +1450,13 @@ export type BackgroundAgentJobTurnUsage = {
 }
 
 /**
+ * SignalChannelStandingOrdersResponse
+ */
+export type SignalChannelStandingOrdersResponse = {
+  standing_orders: SignalChannelStandingOrdersItem
+}
+
+/**
  * BackgroundAgentJobTurnUsageBreakdown
  */
 export type BackgroundAgentJobTurnUsageBreakdown = {
@@ -1583,6 +1600,17 @@ export type ConsoleApiErrorDetail = {
   message: string
   path?: string | null
   [key: string]: unknown
+}
+
+/**
+ * SignalChannelStandingOrdersItem
+ */
+export type SignalChannelStandingOrdersItem = {
+  channel_id: string
+  channel_name?: string | null
+  orders?: string | null
+  set_by?: string | null
+  updated_at?: string | null
 }
 
 /**
@@ -2556,6 +2584,87 @@ export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses = {
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersResponse =
   AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses[keyof AnkoleWebAuthZGroupControllerPreviewComputedMembersResponses]
+
+export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersData = {
+  body?: never
+  path: {
+    channel_id: string
+  }
+  query?: never
+  url: '/api/v1/signal-channels/{channel_id}/standing-orders'
+}
+
+export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersError =
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors]
+
+export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses = {
+  /**
+   * Standing orders
+   */
+  200: SignalChannelStandingOrdersResponse
+}
+
+export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse =
+  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses]
+
+export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersData = {
+  /**
+   * Standing orders
+   */
+  body: SignalChannelStandingOrdersWriteRequest
+  path: {
+    channel_id: string
+  }
+  query?: never
+  url: '/api/v1/signal-channels/{channel_id}/standing-orders'
+}
+
+export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid value
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersError =
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors]
+
+export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses = {
+  /**
+   * Standing orders
+   */
+  200: SignalChannelStandingOrdersResponse
+}
+
+export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse =
+  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses]
 
 export type AnkoleWebBrainControllerRestoreAuditData = {
   body?: never

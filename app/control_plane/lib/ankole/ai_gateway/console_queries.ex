@@ -15,9 +15,8 @@ defmodule Ankole.AIGateway.ConsoleQueries do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Principals
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Channel
+  alias Ankole.SignalsGateway.ConversationChannel
 
   require Ankole.BackgroundAgentJobs
 
@@ -134,7 +133,7 @@ defmodule Ankole.AIGateway.ConsoleQueries do
       id: conversation.id,
       subject_uid: conversation.subject_uid,
       conversation_key: conversation.conversation_key,
-      kind: conversation_kind(conversation),
+      kind: conversation_kind(conversation, decoration),
       display_name: Map.get(decoration, :display_name),
       channel_kind: Map.get(decoration, :channel_kind),
       signal_adapter: Map.get(decoration, :signal_adapter),
@@ -146,30 +145,25 @@ defmodule Ankole.AIGateway.ConsoleQueries do
     }
   end
 
-  # Page-local decoration: one grouped count over the page's conversations plus
-  # one batched channel/principal lookup, so a 100-row page costs three extra
-  # queries rather than two per row. The count constrains both columns of the
+  # Page-local decoration uses one grouped count and one shared channel
+  # projection. The count constrains both columns of the
   # `(subject_uid, conversation_id)` messages index.
   defp decorate_conversations([]), do: %{}
 
   defp decorate_conversations(conversations) do
     counts = message_counts(conversations)
-    channels = channels_by_id(conversations)
-    peers = peers_by_uid(conversations)
+    channels = ConversationChannel.resolve_many(conversations)
 
     Map.new(conversations, fn conversation ->
-      channel =
-        case conversation_channel_id(conversation) do
-          channel_id when is_binary(channel_id) -> Map.get(channels, channel_id)
-          _missing -> nil
-        end
+      channel = Map.get(channels, conversation.id, %{})
 
       {conversation.id,
        %{
          message_count: Map.get(counts, conversation.id, 0),
-         display_name: resolve_display_name(conversation, channel, peers),
-         channel_kind: signal_channel_kind(conversation, channel),
-         signal_adapter: signal_adapter(conversation)
+         display_name: Map.get(channel, :label),
+         channel_kind: signal_channel_value(channel, :kind),
+         signal_adapter: signal_channel_value(channel, :adapter),
+         signal_origin?: Map.get(channel, :signal_origin?, false)
        }}
     end)
   end
@@ -186,131 +180,22 @@ defmodule Ankole.AIGateway.ConsoleQueries do
     |> Map.new()
   end
 
-  defp channels_by_id(conversations) do
-    channel_ids =
-      conversations
-      |> Enum.map(&conversation_channel_id/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    Channel
-    |> where([channel], channel.id in ^channel_ids)
-    |> Repo.all()
-    |> Map.new(&{&1.id, &1})
-  end
-
-  defp peers_by_uid(conversations) do
-    peer_uids =
-      conversations
-      |> Enum.map(&conversation_peer_uid/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
-    Principal
-    |> where([principal], principal.uid in ^peer_uids)
-    |> select([principal], {principal.uid, principal.display_name})
-    |> Repo.all()
-    |> Map.new()
-  end
-
   # Display kind derived from the key constructors (signal ingress, background
   # jobs, dreaming runs, managed Responses conversations). Custom adapter
   # session ids for channel-backed chats still read as "signal" through the
   # brain scope declaration.
-  defp conversation_kind(%Conversation{} = conversation) do
+  defp conversation_kind(%Conversation{} = conversation, decoration) do
     case conversation.conversation_key do
       "signal-channel:" <> _rest -> "signal"
       "brain.dreaming:" <> _rest -> "dreaming"
       key when BackgroundAgentJobs.is_job_session_id(key) -> "job"
       "stateful-responses-api:" <> _rest -> "responses_api"
-      _custom -> if signal_channel_backed?(conversation), do: "signal", else: "custom"
+      _custom -> if Map.get(decoration, :signal_origin?, false), do: "signal", else: "custom"
     end
   end
 
-  defp signal_channel_backed?(%Conversation{} = conversation) do
-    is_binary(get_in(conversation.metadata || %{}, ["brain", "channel_id"]))
-  end
-
-  # The DM/group tag and the adapter only describe signal rooms; dreaming runs
-  # and jobs reference channels for brain scope, not as chat rooms.
-  defp signal_channel_kind(%Conversation{} = conversation, channel) do
-    if conversation_kind(conversation) == "signal" do
-      case channel do
-        %Channel{kind: kind} -> Atom.to_string(kind)
-        _missing -> conversation_channel_kind(conversation)
-      end
-    end
-  end
-
-  defp signal_adapter(%Conversation{} = conversation) do
-    if conversation_kind(conversation) == "signal" do
-      case conversation_channel_id(conversation) do
-        channel_id when is_binary(channel_id) -> adapter_segment(channel_id)
-        _missing -> nil
-      end
-    end
-  end
-
-  defp adapter_segment(channel_id) do
-    case String.split(channel_id, ":", parts: 2) do
-      [adapter, _rest] -> adapter
-      _unsegmented -> nil
-    end
-  end
-
-  # A `signal-channel:*` room mirrors one provider channel: prefer the captured
-  # channel name. DM channels rarely carry a provider-side name, so fall back
-  # to the peer principal's display name, then the bare peer uid. Other key
-  # kinds (`job:`, managed conversations) have no label.
-  defp resolve_display_name(%Conversation{} = conversation, channel, peers) do
-    dm? =
-      conversation_channel_kind(conversation) == "im_dm" or
-        match?(%Channel{kind: :im_dm}, channel)
-
-    case channel do
-      %Channel{name: name} when is_binary(name) ->
-        name
-
-      _unnamed ->
-        if dm?, do: conversation |> conversation_peer_uid() |> peer_label(peers), else: nil
-    end
-  end
-
-  defp conversation_channel_id(%Conversation{} = conversation) do
-    case get_in(conversation.metadata || %{}, ["brain", "channel_id"]) do
-      channel_id when is_binary(channel_id) ->
-        channel_id
-
-      _missing ->
-        case conversation.conversation_key do
-          "signal-channel:" <> channel_id -> channel_id
-          _other -> nil
-        end
-    end
-  end
-
-  defp conversation_channel_kind(%Conversation{} = conversation) do
-    case get_in(conversation.metadata || %{}, ["brain", "channel_kind"]) do
-      kind when is_binary(kind) -> kind
-      _missing -> nil
-    end
-  end
-
-  defp conversation_peer_uid(%Conversation{} = conversation) do
-    case get_in(conversation.metadata || %{}, ["brain", "peer_uid"]) do
-      peer_uid when is_binary(peer_uid) -> peer_uid
-      _missing -> nil
-    end
-  end
-
-  defp peer_label(nil, _peers), do: nil
-
-  defp peer_label(peer_uid, peers) do
-    case Map.get(peers, peer_uid) do
-      name when is_binary(name) -> name
-      _missing -> peer_uid
-    end
-  end
+  defp signal_channel_value(%{signal_origin?: true} = channel, key), do: Map.get(channel, key)
+  defp signal_channel_value(_channel, _key), do: nil
 
   defp maybe_filter_subject_uid(query, nil), do: query
 

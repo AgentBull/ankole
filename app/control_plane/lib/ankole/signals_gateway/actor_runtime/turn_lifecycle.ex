@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.SessionWorkspaces
   alias Ankole.SignalsGateway.ActorRuntime.TurnEnvelope
   alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
   alias Ankole.SignalsGateway.ActorRuntime.TurnStartFailure
@@ -67,6 +68,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now),
            :ok <- run_admission_in_tx(repo, opts),
            {:ok, turn_start_spec} <- turn_start_spec_result,
+           {:ok, workspace} <-
+             SessionWorkspaces.ensure_in_tx(repo, actor_key.agent_uid, actor_key.session_id),
+           turn_start_spec = Map.put(turn_start_spec, :workspace_id, workspace.id),
            {:ok, activation} <- ensure_activation(repo, actor_key, assignment, now, opts),
            {:ok, conversation} <-
              ensure_and_lock_turn_conversation_in_tx(repo, actor_key, actor_event, opts),

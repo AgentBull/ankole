@@ -232,13 +232,23 @@ The Job's `.codex/config.toml` contains project settings, not shared Codex state
 The runner marks the exact Job path as trusted for that process.
 
 Agent-level configuration contains stable worker and provider defaults. Job
-configuration contains model, reasoning, Plugin, MCP, and safety choices.
+configuration contains model, reasoning, Plugin, and safety choices. Agent
+Computer supplies MCP-backed Skill dependencies through an invocation-scoped
+`MCPORTER_CONFIG`, not through Codex project configuration.
+
+Release-defined Direct MCP servers use a different projection. Agent Computer
+lists their live catalogs and gives Codex deferred dynamic namespace tools.
+Agent Computer executes the selected child through its MCP client and returns
+text, image content, and artifact paths. It does not write these servers to
+Codex project `mcp_servers` or the Skill mcporter config. See
+[Direct MCP Tools](DirectMCPTools.md).
 
 Agent Computer enables Codex native code mode for each Job. Code mode gives a
 Job one isolated JavaScript executor that can call eligible local tools,
-including namespaced MCP tools. It is the Codex client-side programmatic
-calling path. It is not the Responses API `programmatic_tool_calling` wire
-type, which Codex 0.146 does not consume.
+but MCP-backed Skills do not enter that tool registry. A Job follows the Skill
+and runs mcporter through its terminal. Code mode remains the Codex client-side
+programmatic calling path for eligible local tools. It is not the Responses API
+`programmatic_tool_calling` wire type, which Codex 0.146 does not consume.
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
@@ -492,7 +502,7 @@ available:
 
 - Agent Codex Home sharing and cross-Agent separation.
 - Real Job cwd and model-visible path equality.
-- Plugin, Skill, overlay, MCP, and resume behavior.
+- Plugin, Skill, overlay, MCP-backed Skill, and resume behavior.
 - Create, respawn, list, details, send, stop, waiting, recovery, and wakeups.
 - Terminal-source checks, linear respawn, exact thread and Workspace reuse, and
   missing-Workspace errors.

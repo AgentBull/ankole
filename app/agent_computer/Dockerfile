@@ -65,7 +65,7 @@ ARG LARK_CLI_VERSION=v1.0.69
 ARG BROWSER_NODE_VERSION
 ARG TARGETARCH
 ARG ANKOLE_RELEASE_REVISION=development
-ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=3
+ARG ANKOLE_RUNTIME_FABRIC_PROTOCOL_VERSION=4
 
 WORKDIR /repo
 
@@ -156,6 +156,7 @@ RUN set -eux; \
   chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli; \
   ! command -v node; \
   bun --version >/dev/null; \
+  test "$(cd /repo/app/agent_computer && bunx --bun --no-install flint-chart-mcp --version)" = "0.4.1"; \
   test "$(/opt/ankole-browser/node/bin/node --version)" = "v${BROWSER_NODE_VERSION}"; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \
   ankole-browser --help >/dev/null; \

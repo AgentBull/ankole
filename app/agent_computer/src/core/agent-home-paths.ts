@@ -45,13 +45,11 @@ export function agentHomePaths(agentsRoot: string, agentUID: string): AgentHomeP
   }
 }
 
-export function encodeSessionKey(sessionID: string): string {
-  if (!sessionID) throw new Error('Session ID is required before it can own a workspace')
-  return Buffer.from(sessionID, 'utf8').toString('base64url')
-}
-
-export function sessionWorkspacePath(agentsRoot: string, agentUID: string, sessionID: string): string {
-  return join(agentHomePaths(agentsRoot, agentUID).sessions, encodeSessionKey(sessionID))
+export function sessionWorkspacePath(agentsRoot: string, agentUID: string, workspaceID: number): string {
+  if (!Number.isSafeInteger(workspaceID) || workspaceID < 10_000) {
+    throw new Error('Session workspace ID must be a model-safe integer starting at 10000')
+  }
+  return join(agentHomePaths(agentsRoot, agentUID).sessions, String(workspaceID))
 }
 
 export function jobWorkspacePath(agentsRoot: string, agentUID: string, jobID: string): string {

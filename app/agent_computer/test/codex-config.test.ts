@@ -45,6 +45,11 @@ describe('@ankole/agent-computer Codex config', () => {
       expect(materialized.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE).toBe('codex_cli_rs')
       expect(config.features.code_mode.enabled).toBe(true)
       expect(config.features.multi_agent_v2.enabled).toBe(true)
+      expect(config.skills.config).toEqual([
+        { name: 'skill-creator', enabled: false },
+        { name: 'plugin-creator', enabled: false },
+        { name: 'skill-installer', enabled: false }
+      ])
 
       const overlappingJob = materializeCodexConfig({
         agentsRoot,

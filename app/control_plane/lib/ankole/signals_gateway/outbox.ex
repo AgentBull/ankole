@@ -794,7 +794,7 @@ defmodule Ankole.SignalsGateway.Outbox do
       operation: operation,
       signal_channel_id: actor_event.signal_channel_id,
       provider_thread_id: actor_event.provider_thread_id,
-      reply_to_source_entry_id: actor_event.source_entry_id,
+      reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(actor_event),
       # Source table: source_actor_event_id stores the actor_events.id that
       # caused this provider-visible side effect.
       source_actor_event_id: actor_event.id,
@@ -826,7 +826,7 @@ defmodule Ankole.SignalsGateway.Outbox do
         with {:ok, operation} <- outbox_operation_for_actor_event(actor_event, repo) do
           attrs =
             if operation == :reply do
-              %{reply_to_source_entry_id: actor_event.source_entry_id}
+              %{reply_to_source_entry_id: ActorEvent.reply_anchor_source_entry_id(actor_event)}
             else
               %{}
             end

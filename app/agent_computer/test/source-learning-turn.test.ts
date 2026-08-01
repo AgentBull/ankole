@@ -164,10 +164,11 @@ async function sourceWorkspace(content: string) {
   return { agentHome, workspace, turnStart: turnStartFor(bytes, path) }
 }
 
-function turnStartFor(bytes: Buffer, path = '/agents/agent-1/sessions/session-1/source/manual.md'): TurnStart {
+function turnStartFor(bytes: Buffer, path = '/agents/agent-1/sessions/10000/source/manual.md'): TurnStart {
   const actorEventID = '00000000-0000-0000-0000-000000000123'
 
   return {
+    workspace_id: 10_000,
     turn: {
       actor: { agent_uid: 'agent-1', session_id: 'source-session' },
       activation_uid: 'activation-1',

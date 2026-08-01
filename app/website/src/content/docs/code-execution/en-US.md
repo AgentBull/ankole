@@ -37,14 +37,14 @@ Everything the agent reads and writes lives under `/agents`, laid out per agent 
 ├── DESIGN.md
 ├── user-files/
 ├── installed-skills/
-├── sessions/<base64url-session-id>/
+├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
     ├── .ankole/skills/
     └── temp/
 ```
 
-`SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces, and `jobs/` holds separate Background Agent Job workspaces.
+`SOUL.md`, `MISSION.md`, and `DESIGN.md` are durable documents in the [Agent Library](../agent-library/). The first two define responsibility and behavior. `DESIGN.md` is the design system for visual work. `installed-skills/` holds Agent Skills. `sessions/` holds conversation workspaces with stable PostgreSQL-owned numeric IDs that start at 10000, and `jobs/` holds separate Background Agent Job workspaces.
 
 ## Jupyter live kernel for iterative Python
 

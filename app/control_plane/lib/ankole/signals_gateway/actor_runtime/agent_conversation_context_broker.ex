@@ -14,6 +14,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.SignalsGateway.ConversationChannel, as: ConversationChannelProjection
   alias Ankole.SignalsGateway.ActorRuntime.RPCWire
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SystemConfig
@@ -42,7 +43,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
          mission_content_hash: mission["content_hash"],
          design_content_hash: design["content_hash"],
          brain_snapshot: brain_snapshot_message(brain_snapshot),
-         skills: Enum.map(skills, &skill_summary/1)
+         skills: Enum.map(skills, &RPCWire.runtime_skill_summary/1)
        }}
     else
       {:error, reason} -> error(ctx.request_id, reason)
@@ -54,9 +55,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
       id: conversation.id,
       key: conversation.conversation_key,
       started_at: datetime(conversation.inserted_at) || "",
-      timezone: timezone
+      timezone: timezone,
+      origin_channel: conversation |> ConversationChannelProjection.origin() |> origin_channel()
     }
   end
+
+  defp origin_channel(%{} = channel) do
+    %FabricProto.ConversationChannel{
+      adapter: channel.adapter || "",
+      kind: channel.kind || "",
+      label: channel.label || ""
+    }
+  end
+
+  defp origin_channel(_channel), do: nil
 
   defp agent_profile(agent_uid) do
     case Repo.get(Principal, agent_uid) do
@@ -94,33 +106,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker do
   end
 
   defp snapshot_entry(_entry), do: nil
-
-  defp skill_summary(skill) do
-    metadata = RPCWire.map_value(skill, "metadata", %{})
-
-    %FabricProto.RuntimeSkillSummary{
-      skill_name: RPCWire.text(skill, "skill_name") || "",
-      description: RPCWire.text(skill, "description", trim: false) || "",
-      default_enabled: boolean_or_nil(RPCWire.value(skill, "default_enabled")),
-      source_kind: RPCWire.text(skill, "source_kind") || "",
-      agent_plugin_id: RPCWire.text(skill, "agent_plugin_id") || "",
-      relative_path: RPCWire.text(skill, "relative_path") || "",
-      skill_root: RPCWire.text(skill, "skill_root") || "",
-      metadata_json: encode_optional_json(metadata),
-      category: RPCWire.text(skill, "category") || "",
-      tags_json: encode_optional_json(RPCWire.value(skill, "tags")),
-      skill_uri: RPCWire.text(skill, "skill_uri") || "",
-      has_agent_overlay: RPCWire.value(skill, "has_agent_overlay") == true
-    }
-  end
-
-  defp boolean_or_nil(value) when is_boolean(value), do: value
-  defp boolean_or_nil(_value), do: nil
-
-  defp encode_optional_json(nil), do: ""
-  defp encode_optional_json(value) when value == %{}, do: ""
-  defp encode_optional_json(value) when value == [], do: ""
-  defp encode_optional_json(value), do: Torque.encode!(value)
 
   defp installation_timezone do
     case SystemConfig.timezone() do

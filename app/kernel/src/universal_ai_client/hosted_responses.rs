@@ -10,13 +10,13 @@ use tokio::time::{Instant as TokioInstant, timeout, timeout_at};
 use uuid::Uuid as UUID;
 
 use super::api_resolver;
+use super::client::{Delivery, EventSink, StreamCommand};
 use super::downstream::DownstreamEncoder;
 use super::error::{PROVIDER_BODY_EXCERPT_LIMIT, StreamError};
 use super::spec::{
     DownstreamKind, HostedImageGenerationSpec, HostedToolsSpec, ModelRequestSpec,
     PreparedHTTPRequestSpec, RequestLimits, ResponseContext, StreamSpec,
 };
-use super::{Delivery, EventSink, StreamCommand};
 
 mod events;
 mod public_error;
@@ -334,7 +334,7 @@ pub(super) async fn run_hosted_stream(
                 .await;
         }
         Err(error) => {
-            let pool_retryable = hosted_pool_retryable(&error);
+            let pool_retryable = error.can_retry_through_credential_pool();
             let error = redact_hosted_error(error);
 
             if pool_retryable && no_public_hosted_progress(&streamed_output) {
@@ -389,24 +389,6 @@ pub(super) async fn run_hosted_stream(
 
 fn no_public_hosted_progress(output: &StreamedHostedOutput) -> bool {
     output.items.is_empty() && output.active_image.is_none() && output.partial_images == 0
-}
-
-fn hosted_pool_retryable(error: &StreamError) -> bool {
-    matches!(error.provider_status, Some(401 | 429 | 500..=599))
-        || matches!(
-            error.code.as_str(),
-            "connect_timeout"
-                | "first_byte_timeout"
-                | "idle_timeout"
-                | "request_timeout"
-                | "total_timeout"
-                | "transport_error"
-                | "response_body_read_failed"
-                | "upstream_connect_failed"
-                | "upstream_read_failed"
-                | "websocket_connect_failed"
-                | "websocket_read_failed"
-        )
 }
 
 fn hosted_failure_metadata(
@@ -477,6 +459,7 @@ fn hosted_total_timeout_error() -> StreamError {
         "hosted_responses",
         "hosted response exceeded the total request timeout",
     )
+    .retry_through_credential_pool()
 }
 
 async fn deliver_hosted_progress_before_deadline(
@@ -635,7 +618,7 @@ async fn execute_hosted(
         round_spec.response_context.request = Value::Object(private_request.clone());
         round_spec.response_context.stream = Some(false);
 
-        let wrapper = super::run_model_request_once(round_spec).await?;
+        let wrapper = super::client::run_model_request_once(round_spec).await?;
         let body = wrapper.get("body").cloned().ok_or_else(|| {
             StreamError::new(
                 "invalid_main_model_response",
@@ -1455,7 +1438,7 @@ async fn call_image(
         .await;
     }
 
-    let wrapper = super::run_model_request_once(spec).await?;
+    let wrapper = super::client::run_model_request_once(spec).await?;
     let body = wrapper.get("body").ok_or_else(|| {
         StreamError::new(
             "invalid_image_response",
@@ -1580,6 +1563,7 @@ async fn call_streaming_image(
                     "image_generation",
                     "image provider stream idle timeout",
                 )
+                .retry_through_credential_pool()
             })?;
 
         match next {
@@ -1605,7 +1589,8 @@ async fn call_streaming_image(
                     "response_body_read_failed",
                     "image_generation",
                     format!("image provider stream read failed: {reason}"),
-                ));
+                )
+                .retry_through_credential_pool());
             }
             None => {
                 for event in parser.finish()? {
@@ -1760,6 +1745,9 @@ fn ingest_image_stream_data(
                     .unwrap_or("image_generation_failed"),
             };
             let mut stream_error = StreamError::new(code, "image_generation", message);
+            if code == "total_timeout" {
+                stream_error = stream_error.retry_through_credential_pool();
+            }
             if let Some(status) = provider_status {
                 stream_error = stream_error.provider_status(status);
             }
@@ -2575,8 +2563,6 @@ mod tests {
 
     #[test]
     fn decoded_image_and_public_response_limits_accept_the_exact_boundary_only() {
-        assert_eq!(DEFAULT_MAX_DECODED_IMAGE_BYTES, 50 * 1024 * 1024);
-
         let exact_image = STANDARD.encode_to_string(vec![7_u8; 1_024]);
         assert_eq!(validate_image_base64(&exact_image, 1_024).unwrap(), 1_024);
 

@@ -6,6 +6,7 @@ import { resolveCodexRuntimeConfig } from '../src/tools/codex/runtime-config'
 
 function turnStart(modelRef: TurnStart['model_ref']): TurnStart {
   return {
+    workspace_id: 10_000,
     turn: {
       actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
       activation_uid: 'activation-1',

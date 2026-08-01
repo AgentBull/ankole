@@ -43,7 +43,7 @@ import {
 import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
-import { prepareTurnWorkspace } from '../src/worker/workspace'
+import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { startTurnProgress, turnFailureDetails, type ActiveTurn } from '../src/worker/active_turns'
@@ -78,7 +78,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(ready.body.case).toBe('workerReady')
     expect(heartbeat.body.case).toBe('workerHeartbeat')
     expect(capacity.body.case).toBe('workerCapacity')
-    expect(envelopeProtocolVersion).toBe(3)
+    expect(envelopeProtocolVersion).toBe(4)
     expect(ready.protocolVersion).toBe(envelopeProtocolVersion)
     expect(ready.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
     expect(heartbeat.body.value).toMatchObject({ incarnationId: 'incarnation-a' })
@@ -227,6 +227,7 @@ describe('@ankole/agent-computer runtime', () => {
       mkdirSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles, { recursive: true })
 
       const workspaceRoot = prepareTurnWorkspace(config, {
+        workspace_id: 10_000,
         turn: {
           actor: { agent_uid: 'agent-1', session_id: 'session-1' },
           activation_uid: 'activation-1',
@@ -248,8 +249,48 @@ describe('@ankole/agent-computer runtime', () => {
         }
       })
 
+      expect(workspaceRoot).toBe(join(config.agentsRoot, 'agent-1', 'sessions', '10000'))
       expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
       expect(existsSync(agentHomePaths(config.agentsRoot, 'agent-1').userFiles)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('moves the legacy Base64URL workspace into its numeric Session directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-migration-'))
+
+    try {
+      const config = workerConfigForRoot(root)
+      const actor = { agent_uid: 'agent-1', session_id: 'provider:chat/a' }
+      const legacyRoot = join(
+        agentHomePaths(config.agentsRoot, actor.agent_uid).sessions,
+        Buffer.from(actor.session_id, 'utf8').toString('base64url')
+      )
+      mkdirSync(legacyRoot, { recursive: true })
+      writeFileSync(join(legacyRoot, 'retained.txt'), 'keep me')
+
+      const workspaceRoot = prepareActorWorkspace(config, actor, 10_000)
+
+      expect(workspaceRoot).toBe(join(config.agentsRoot, 'agent-1', 'sessions', '10000'))
+      expect(readFileSync(join(workspaceRoot, 'retained.txt'), 'utf8')).toBe('keep me')
+      expect(existsSync(legacyRoot)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when both legacy and numeric Session directories exist', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-conflict-'))
+
+    try {
+      const config = workerConfigForRoot(root)
+      const actor = { agent_uid: 'agent-1', session_id: 'provider:chat/a' }
+      const sessions = agentHomePaths(config.agentsRoot, actor.agent_uid).sessions
+      mkdirSync(join(sessions, Buffer.from(actor.session_id, 'utf8').toString('base64url')), { recursive: true })
+      mkdirSync(join(sessions, '10000'), { recursive: true })
+
+      expect(() => prepareActorWorkspace(config, actor, 10_000)).toThrow('Session workspace migration conflict')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -280,6 +321,7 @@ describe('@ankole/agent-computer runtime', () => {
           body: {
             case: 'turnStart',
             value: create(TurnStartSchema, {
+              workspaceId: 10_000n,
               actorEvent: create(ActorEventEnvelopeSchema, {
                 actorEventId: '00000000-0000-0000-0000-000000000001',
                 queueSequence: 1n,
@@ -300,6 +342,7 @@ describe('@ankole/agent-computer runtime', () => {
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
+            workspaceId: 10_000n,
             turn: actorTurnRefToProto(actorTurnRef()),
             actorEvent: create(ActorEventEnvelopeSchema, {
               actorEventId: '00000000-0000-0000-0000-000000000001',
@@ -325,6 +368,7 @@ describe('@ankole/agent-computer runtime', () => {
         body: {
           case: 'turnStart',
           value: create(TurnStartSchema, {
+            workspaceId: 10_000n,
             turn: actorTurnRefToProto(actorTurnRef()),
             actorEvent: create(ActorEventEnvelopeSchema, {
               actorEventId: '00000000-0000-0000-0000-000000000001',

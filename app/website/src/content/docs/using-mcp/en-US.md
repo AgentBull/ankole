@@ -1,78 +1,40 @@
 ---
-title: Using MCP servers
-description: How an Ankole agent uses Model Context Protocol servers as tools — where a server is declared, the two transports, the default timeout, why the agent sees a server only when the skill that declares it is enabled, and how an operator changes which MCP servers an agent sees.
+title: Use an MCP-backed Skill
+description: How an enabled Skill routes an Agent or Automation script to an MCP server through mcporter.
 section: Developer guide
 order: 123
 ---
 
-Model Context Protocol (MCP) servers are how an Ankole agent calls an external tool service during a turn — a lookup API, a local command server, a hosted knowledge base. This page is the operator view of MCP in use: what an MCP server is to the agent, where it is declared, the two transports, and how the set of servers an agent sees is built. It is the use-side companion to the [MCP server reference](../mcp/).
+Ankole uses MCP behind Skills. The Skill owns domain routing and result rules. The pinned mcporter CLI owns protocol discovery and calls for the one tool that the Skill selects.
 
-The decisive property, stated up front: MCP servers are not configured at the agent level. They are declared as tool dependencies inside a skill's `openai.yaml`, and an agent sees the union of MCP servers from its **enabled** skills. There is no separate "agent MCP config" — the skill is the only registration source, so enabling and disabling skills is how you change which MCP servers an agent sees.
+For an Agent-specific domain integration, do not register an MCP server directly on the Agent. Enable the Skill that declares it. Disabling that Skill removes the dependency from the next execution. Release-defined Direct MCP tools are a separate platform contract and need no Skill.
 
-## What an MCP server is to the agent
+## Main Agent and Background Agent Job
 
-To the agent, an MCP server is a set of tools. The model sees the server's tools in the turn's tool set, calls them like any other tool, and gets results back. The agent does not know the transport, the URL, or the command — those are declared in the skill, not shown to the model. The worker config in `app/agent_computer/src/tools/mcp/` loads the declarations, starts the servers, and exposes their tools.
+Ask the Agent for the business result, not for an MCP tool name. The Agent reads the matching Skill, chooses one tool, and inspects only that tool's current schema when needed. It then calls mcporter with a JSON argument object on stdin.
 
-This is the same projection model the [Agent Library](../agent-library/) uses elsewhere: the effective capability surface is what the agent actually sees, and it is built from enabled skills, not from a second configuration surface an operator has to manage.
+The Main Agent uses its command tool. A Background Agent Job uses its Codex terminal. Neither path exposes the complete MCP catalog as native model tools.
 
-## Where a server is declared
+## Automation Job
 
-A skill declares its MCP dependencies in its `openai.yaml`, under `dependencies.tools`. Each entry has `type: mcp`, a `value` (the server name), an optional `description`, a `transport`, and transport-specific fields. A skill may declare up to 64 dependencies.
+An Automation Job does not read Skill instructions. The Agent that writes `main.ts` must encode the selected tool, arguments, bounds, and result checks in the script.
 
-```yaml
-# inside a skill's openai.yaml
-dependencies:
-  tools:
-    - type: mcp
-      value: my-http-server
-      description: "Lookup tool"
-      transport: streamable_http
-      url: https://mcp.example.com/mcp
-      bearer_token_env_var: MCP_HTTP_TOKEN
-      timeout_ms: 60000
-    - type: mcp
-      value: my-stdio-server
-      transport: stdio
-      command: npx -y @example/mcp-server
-      timeout_ms: 120000
-```
+Each Automation attempt receives the current enabled Skill dependencies and release-defined Direct MCP servers through `MCPORTER_CONFIG`, plus the latest Agent WorkerEnv. Call mcporter with `Bun.spawn`, write JSON to stdin, check the exit code, and parse stdout. Do not create `~/.mcporter/mcporter.json`.
 
-When a turn runs, the Agent Computer Worker loads the MCP declarations from every enabled skill, deduplicates by server name, and starts the servers. Two skills that declare the same server name contribute one server, with both skills recorded as the source.
+## Credentials
 
-## The two transports
+The Skill stores a credential variable name such as `MCP_HTTP_TOKEN`. Configure its value in [Environment variables](../worker-env/). The generated config contains the variable name, not its value.
 
-An MCP dependency is one of two transports, and the schema is strict — a field that belongs to one transport is rejected on the other.
+If a variable is missing, the call fails. Do not paste a token into chat, a Skill, a script, an argument file, or a shell command.
 
-- **`streamable_http`** — a remote server reached over HTTP. It takes a `url`, a `bearer_token_env_var` (the name of the environment variable whose value is sent as the bearer token), and an optional `timeout_ms`. Use it for hosted MCP servers that require a token. Put only the environment variable name in the YAML. Store the token in [Environment variables](../worker-env/) in the Console, not in the Skill.
-- **`stdio`** — a local server started as a subprocess. It takes a `command` (1–1024 characters) and an optional `timeout_ms`. Use it for MCP servers shipped as executables or `npx`-style packages. The server runs as a child process of the worker for the duration of the turn's MCP use.
+## Failures and result bounds
 
-## Timeouts
+An invalid declaration or conflicting server definition fails before the model command or Automation script starts. Transport, protocol, argument, and server errors produce a nonzero mcporter exit.
 
-The default MCP timeout is 360,000 ms (six minutes). The minimum is 100 ms. Set `timeout_ms` on a dependency when a server needs more or less than the default. A tool call that exceeds the timeout is cancelled, so a misbehaving MCP server cannot stall a turn indefinitely. Pick the timeout by the worst realistic latency of the server, not by a guess; a server that sometimes takes 90 seconds should not be given a 60-second budget.
+Command and Automation logs are bounded. Follow the Skill's pagination, freshness, warning, and partial-result rules. A successful process exit does not prove that a business result is complete.
 
-## How the enabled set is built
+## References
 
-The loader reads the `openai.yaml` of every skill the agent has **enabled** — not every skill the deployment instance ships. A skill that is declared but not enabled on the agent contributes no MCP servers. Enabling a skill that declares MCP servers makes those servers available on the agent's next turn; disabling it removes them.
-
-A generation hash is computed from the actual enabled skill metadata files that contribute each declaration, so the loader can tell when the set has materially changed and restart servers as needed. The consequence for the operator: the MCP surface tracks the agent's effective capabilities exactly. There is no drift between "what skills are on" and "what MCP servers are loaded."
-
-## How to change which servers an agent sees
-
-Because the skill is the only registration source, the operator's lever is skill enablement, through the [Agent Library](../agent-library/) default-then-override model:
-
-1. **Add or remove a server** by authoring or editing the skill that declares it. See [Writing a skill](../writing-a-skill/).
-2. **Turn a server on for an agent** by enabling the skill that declares it. A builtin skill with `default_enabled: true` already contributes its servers to every agent.
-3. **Turn a server off for an agent** by narrowing (disabling) the skill that declares it.
-
-For an HTTP server that needs a token, first store the token in [Environment variables](../worker-env/) in the Console. The `bearer_token_env_var` in the YAML contains only the variable name. The server cannot use the token if the variable is unset.
-
-## What the operator does not touch
-
-The transport wiring, the server start/stop lifecycle, and the deduplication-by-name are the loader's job, not flags an operator sets. A server name is 1–1024 characters, trimmed, with no control characters — it is the key the model sees and the key the loader deduplicates on, so rename a server and the model loses any cached understanding of it, and two skills that intend the same server must use the same name to be merged. Those are constraints to respect when authoring the skill, not runtime knobs.
-
-## Next steps
-
-- For the full schema, transports, and loader behavior, read the [MCP server reference](../mcp/).
-- For the catalog and enablement model that decides which skills — and therefore which MCP servers — are on, read the [Agent Library](../agent-library/) developer page.
-- For how to author a skill that declares an MCP dependency, read [Writing a skill](../writing-a-skill/).
-- To configure the value that `bearer_token_env_var` uses, read [Environment variables](../worker-env/).
+- [MCP server reference](../mcp/) defines declaration and runtime behavior.
+- [Writing a Skill](../writing-a-skill/) shows the authoring shape.
+- [Environment variables](../worker-env/) defines credential storage.

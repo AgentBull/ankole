@@ -43,7 +43,9 @@ defmodule Ankole.Brain.SourceLearning do
          run_id = Ankole.Ecto.UUIDv7.autogenerate(),
          session_id = "brain-source:#{source.id}:#{run_id}",
          filename = source_filename(source),
-         relative_path = workspace_relative_path(agent_uid, session_id, filename),
+         {:ok, workspace} <-
+           SignalsGateway.ensure_actor_session_workspace(agent_uid, session_id),
+         relative_path = workspace_relative_path(agent_uid, workspace.id, filename),
          :ok <- materialize(content, relative_path, opts),
          {:ok, actor_event} <-
            append_event(
@@ -52,6 +54,7 @@ defmodule Ankole.Brain.SourceLearning do
              agent_uid,
              run_id,
              session_id,
+             workspace.id,
              filename,
              curation_guide,
              opts
@@ -136,6 +139,7 @@ defmodule Ankole.Brain.SourceLearning do
          agent_uid,
          run_id,
          session_id,
+         workspace_id,
          filename,
          curation_guide,
          opts
@@ -145,7 +149,7 @@ defmodule Ankole.Brain.SourceLearning do
 
     virtual_path =
       Path.join(
-        AgentHomePaths.session_workspace(agent_uid, session_id),
+        AgentHomePaths.session_workspace(agent_uid, workspace_id),
         "source/#{filename}"
       )
 
@@ -263,8 +267,8 @@ defmodule Ankole.Brain.SourceLearning do
     %{"visibility" => "channel", "channel_id" => channel_id, "channel_kind" => "im_group"}
   end
 
-  defp workspace_relative_path(owner_uid, session_id, filename) do
-    AgentHomePaths.session_lane_path(owner_uid, session_id, "source/#{filename}")
+  defp workspace_relative_path(owner_uid, workspace_id, filename) do
+    AgentHomePaths.session_lane_path(owner_uid, workspace_id, "source/#{filename}")
   end
 
   defp source_filename(source) do

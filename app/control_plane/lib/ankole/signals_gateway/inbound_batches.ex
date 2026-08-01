@@ -1054,6 +1054,9 @@ defmodule Ankole.SignalsGateway.InboundBatches do
 
   defp inbound_batch_entry(fact, mirror_entry, policy, type, now) do
     attrs = Projection.receive_entry_attrs(fact, now)
+    attachments = if mirror_entry, do: mirror_entry.attachments, else: fact.attachments
+    document_id = if mirror_entry, do: mirror_entry.document_id, else: attrs.document_id
+    content_hash = if mirror_entry, do: mirror_entry.content_hash, else: attrs.content_hash
 
     %{
       "agent_uid" => fact.agent_uid,
@@ -1068,7 +1071,7 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       "sender_key" => fact.sender_key,
       "text" => fact.text,
       "formatted_content" => fact.formatted_content,
-      "attachments" => fact.attachments,
+      "attachments" => attachments,
       "links" => fact.links,
       "author" => fact.author,
       "mentions" => fact.mentions,
@@ -1077,8 +1080,8 @@ defmodule Ankole.SignalsGateway.InboundBatches do
       "provider_time" => datetime_iso8601(fact.provider_time),
       "sent_at" => datetime_iso8601(fact.provider_time) || DateTime.to_iso8601(now),
       "received_at" => DateTime.to_iso8601(now),
-      "document_id" => attrs.document_id,
-      "content_hash" => attrs.content_hash,
+      "document_id" => document_id,
+      "content_hash" => content_hash,
       "explicit" => type == "im.message.addressed",
       "policy" => Atom.to_string(policy),
       "mirrored" => not is_nil(mirror_entry),

@@ -41,7 +41,8 @@ Tools are the local actions the model can drive during a loop. The worker ships 
 - **Brain** — the recall and knowledge tools that reach back into long-term memory.
 - **Memory, schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
 - **Codex** — the CodexRunner job tools, for work delegated to a Background Agent Job.
-- **Library and MCP** — access to the agent's enabled skills and to native MCP servers.
+- **Library and mcporter** — access to enabled Skills and invocation-scoped MCP dependency configs.
+- **Direct MCP** — release-defined deferred namespace tools, with bounded live catalogs and local artifact handling.
 - **Background Agent Job** — the handoff tools that create or continue durable jobs.
 
 Every tool result the worker produces is recorded through AIGateway as a function-call output, not committed directly. The model sees the result; the control plane decides what is durable.
@@ -58,14 +59,14 @@ The durable shared writable runtime mount is `/agents`, laid out per actor key:
 ├── DESIGN.md
 ├── user-files/
 ├── installed-skills/
-├── sessions/<base64url-session-id>/
+├── sessions/<workspace-id>/
 └── jobs/<job-id>/
     ├── .codex/config.toml
     ├── .ankole/skills/
     └── temp/
 ```
 
-The model sees the absolute container path. The Worker does not translate paths. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. The [Agent Library](../agent-library/) manages all three. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces.
+The model sees the absolute container path. The Worker does not translate paths. `SOUL.md` and `MISSION.md` define Agent behavior and responsibility. `DESIGN.md` is the design system for visual work. The [Agent Library](../agent-library/) manages all three. `installed-skills/`, `sessions/`, and `jobs/` hold Skills, conversation workspaces, and Background Agent Job workspaces. PostgreSQL assigns each Session a stable numeric workspace ID that starts at 10000.
 
 ## Streaming and progress
 

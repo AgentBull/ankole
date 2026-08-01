@@ -397,6 +397,7 @@ describe('schedule tools', () => {
 
 function turnStartForScheduleTool(opts: { cronOrigin?: boolean } = {}): TurnStart {
   return {
+    workspace_id: 10_000,
     turn: {
       actor: { agent_uid: 'agent-1', session_id: 'session-1' },
       activation_uid: 'activation-1',

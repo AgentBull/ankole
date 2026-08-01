@@ -57,9 +57,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AIGatewayRetryCommandTest do
     assert retry_entry["retry_of_actor_event_id"] == input.id
     assert retry_entry["retry_reason"] == "command.retry"
 
-    assert retry_entry["attachments"] == [
-             %{"name" => "evidence.pdf", "provider_ref" => "lark:file:file-1"}
-           ]
+    assert [
+             %{
+               "attachment_id" => attachment_id,
+               "name" => "evidence.pdf",
+               "provider_ref" => "lark:file:file-1"
+             }
+           ] = retry_entry["attachments"]
+
+    assert attachment_id >= 10_000
 
     assert %DateTime{} = Repo.get!(ActorEvent, retry_command.id).completed_at
 

@@ -1,3 +1,8 @@
+//! Bounded ZeroMQ transport for RuntimeFabric envelopes and file frames.
+//!
+//! One Rust thread owns each socket. Host bindings submit commands and receive
+//! typed events without operating ZeroMQ sockets directly.
+
 mod auth;
 mod config;
 mod dealer;

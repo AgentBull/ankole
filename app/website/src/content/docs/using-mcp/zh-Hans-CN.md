@@ -1,78 +1,40 @@
 ---
-title: 使用 MCP server
-description: Ankole agent 如何把 Model Context Protocol server 当工具用——server 声明在哪、两种传输、默认超时、为什么 agent 只在声明它的 skill 启用时才看得到 server，以及运维如何改变 agent 看得到的 MCP server。
+title: 使用 MCP-backed Skill
+description: 已启用的 Skill 如何通过 mcporter 把 Agent 或 Automation 脚本路由到 MCP server。
 section: Developer guide
 order: 123
 ---
 
-Model Context Protocol（MCP）server 是 Ankole agent 在一个回合里调用外部工具服务的方式——一个查询 API、一个本地命令 server、一个托管的知识库。本页是 MCP 使用中的运维视角：server 对 agent 是什么、声明在哪、两种传输、agent 看得到的 server 集合怎么拼成。它是 [MCP server 参考](../mcp/)的使用侧配套。
+Ankole 把 MCP 放在 Skill 背后使用。Skill 负责领域路由和结果规则；固定版本的 mcporter CLI 只负责发现并调用 Skill 已选中的那个工具。
 
-先把决定性的性质说清楚：MCP server 不在 agent 层配置。它声明在 skill 的 `openai.yaml` 里，作为工具依赖；agent 看到的是它**已启用** skill 的 MCP server 的并集。没有单独的"agent MCP 配置"——skill 是唯一的注册源，所以开关 skill 就是你改变 agent 看到哪些 MCP server 的方式。
+对于 Agent 自己的领域集成，不要在 Agent 上直接注册 MCP server。启用声明该依赖的 Skill；禁用 Skill 后，依赖会从下一次执行中消失。发布内置 Direct MCP 工具是独立的平台合同，不需要 Skill。
 
-## server 对 agent 是什么
+## Main Agent 与 Background Agent Job
 
-对 agent 来说，一个 MCP server 就是一组工具。模型在回合的工具集里看到这个 server 的工具，像调别的工具一样调它们，拿回结果。agent 不知道传输、URL 或命令——那些声明在 skill 里，不给模型看。`app/agent_computer/src/tools/mcp/` 里的 worker 配置负责加载声明、拉起 server、暴露它们的工具。
+向 Agent 提出业务数据需求，不要让用户选择 MCP 工具名。Agent 读取匹配的 Skill，先选择一个工具，只在必要时检查这个工具的当前 schema，然后用 stdin JSON 调用 mcporter。
 
-这跟 [Agent Library](../agent-library/) 别处用的投影模型一样：有效能力面是 agent 实际看得到的东西，由已启用的 skill 拼成，而不是运维得另管的第二套配置面。
+Main Agent 使用 command tool；Background Agent Job 使用 Codex terminal。两条路径都不会把完整 MCP catalog 暴露成模型原生工具。
 
-## server 声明在哪
+## Automation Job
 
-skill 在它的 `openai.yaml` 的 `dependencies.tools` 下声明 MCP 依赖。每条带 `type: mcp`、一个 `value`（server 名）、可选的 `description`、一个 `transport`，以及传输相关的字段。一个 skill 最多声明 64 条依赖。
+Automation Job 不读取 Skill 指引。编写 `main.ts` 的 Agent 必须把已选工具、参数、边界和结果检查写进脚本。
 
-```yaml
-# skill 的 openai.yaml 内
-dependencies:
-  tools:
-    - type: mcp
-      value: my-http-server
-      description: "Lookup tool"
-      transport: streamable_http
-      url: https://mcp.example.com/mcp
-      bearer_token_env_var: MCP_HTTP_TOKEN
-      timeout_ms: 60000
-    - type: mcp
-      value: my-stdio-server
-      transport: stdio
-      command: npx -y @example/mcp-server
-      timeout_ms: 120000
-```
+每个 Automation attempt 都会通过 `MCPORTER_CONFIG` 获得当前 enabled Skills 的依赖和发布内置 Direct MCP server，并获得最新 Agent WorkerEnv。脚本使用 `Bun.spawn` 调 mcporter，把 JSON 写入 stdin，检查 exit code，再解析 stdout。不要创建 `~/.mcporter/mcporter.json`。
 
-一个回合跑起来时，Agent Computer Worker 从每个已启用 skill 加载 MCP 声明，按 server 名去重，拉起 server。两个声明了同名 server 的 skill 贡献一个 server，两个 skill 都记为来源。
+## 凭据
 
-## 两种传输
+Skill 只保存 `MCP_HTTP_TOKEN` 这样的凭据变量名。变量值在 Console 的[环境变量](../worker-env/)中配置。生成配置只包含变量名，不包含值。
 
-一条 MCP 依赖是两种传输之一，schema 很严——属于一种的字段放到另一种上会被拒。
+变量缺失时调用会失败。不要把 token 粘贴进聊天、Skill、脚本、参数文件或 shell command。
 
-- **`streamable_http`**——通过 HTTP 访问的远程 server。带 `url`、`bearer_token_env_var`（一个环境变量的名字，其值作为 bearer token 发出）、可选的 `timeout_ms`。用于需要 token 的托管 MCP server。YAML 中只填写环境变量名称，token 本身保存在 Console 的[环境变量](../worker-env/)中，不会写进 Skill。
-- **`stdio`**——作为子进程拉起的本地 server。带 `command`（1–1024 字符）和可选的 `timeout_ms`。用于以可执行文件或 `npx` 风格包分发的 MCP server。server 作为 worker 的子进程跑，存活到本次回合的 MCP 用完为止。
+## 失败与结果边界
 
-## 超时
+声明无效或同名 server 冲突时，执行会在模型命令或 Automation 脚本启动前失败。transport、protocol、argument 或 server 错误会让 mcporter 以非零状态退出。
 
-默认 MCP 超时是 360,000 ms（六分钟）。下限 100 ms。当某个 server 需要比默认更多或更少时，在依赖上设 `timeout_ms`。超过超时的工具调用会被取消，所以一个行为不端的 MCP server 拖不死一个回合。按 server 最坏的现实延迟挑超时，不要瞎猜——一个偶尔要 90 秒的 server 不该给 60 秒预算。
+command 与 Automation 日志都有上限。必须遵守 Skill 的分页、时效、warning 和 partial-result 规则；process 成功退出不等于业务结果完整。
 
-## 启用集怎么拼成
+## 参考
 
-加载器读 agent **已启用**的每个 skill 的 `openai.yaml`——不是安装出厂的每个 skill。一个声明了但没在该 agent 上启用的 skill 不贡献 MCP server。启用一个声明了 MCP server 的 skill，那些 server 在 agent 下一个回合就可用；禁用它就把它们移走。
-
-加载器从实际贡献每条声明的已启用 skill 元数据文件算出一个生成哈希，于是能判断集合何时发生实质变化、并按需重启 server。对运维的含义：MCP 面精确跟随 agent 的有效能力。"哪些 skill 开着"和"加载了哪些 MCP server"之间不会漂移。
-
-## 如何改变 agent 看得到的 server
-
-因为 skill 是唯一的注册源，运维的杠杆就是 skill 启用，走 [Agent Library](../agent-library/) 的 default-then-override 模型：
-
-1. **增删一个 server**——改声明它的那个 skill。见 [Writing a skill](../writing-a-skill/)。
-2. **为 agent 开一个 server**——启用声明它的 skill。一个 `default_enabled: true` 的内置 skill 已经把它的 server 贡献给每个 agent。
-3. **为 agent 关一个 server**——收窄（禁用）声明它的 skill。
-
-对于需要 token 的 HTTP server，请先在 Console 的[环境变量](../worker-env/)中保存 token。YAML 里的 `bearer_token_env_var` 只填写变量名称；如果没有设置这个变量，server 将无法使用该 token。
-
-## 运维不该碰的东西
-
-传输接线、server 起/停生命周期、按名去重，都是加载器的活，不是运维设的开关。server 名是 1–1024 字符、去首尾空白、无控制字符——它是模型看到的名字，也是加载器去重的键，所以一改名，模型对它的缓存认知就丢了；两个 skill 想指向同一个 server，必须用同名才会被合并。这些是写 skill 时要守的约束，不是运行时旋钮。
-
-## 下一步
-
-- 完整 schema、传输、加载器行为，读 [MCP server 参考](../mcp/)。
-- 决定哪些 skill——进而哪些 MCP server——开着的目录与启用模型，读 [Agent Library](../agent-library/) 开发者页。
-- 如何写一个声明 MCP 依赖的 skill，读 [Writing a skill](../writing-a-skill/)。
-- 配置 `bearer_token_env_var` 所使用的值，读[环境变量](../worker-env/)。
+- [MCP server 参考](../mcp/)定义声明和运行语义。
+- [编写 Skill](../writing-a-skill/)说明作者契约。
+- [环境变量](../worker-env/)定义凭据存储。

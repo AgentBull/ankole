@@ -13,7 +13,7 @@ const CommandParams = z
       .string()
       .optional()
       .describe(
-        'Working directory for this command. Use a real absolute Agent Home path or a workspace-relative path.'
+        'Working directory for this command. Use one of the provided absolute paths or a path relative to the current workspace.'
       ),
     timeout: z
       .number()

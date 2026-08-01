@@ -338,6 +338,7 @@ fn turn_start_envelope_bytes() -> Vec<u8> {
             request_context_json: Vec::new(),
             hosted_tools_json: Vec::new(),
             runtime_env: Default::default(),
+            workspace_id: 10_000,
         })),
     }
     .encode_to_vec()

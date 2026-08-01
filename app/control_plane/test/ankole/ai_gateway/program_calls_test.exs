@@ -369,6 +369,54 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
       assert output["output"] =~ "completed"
     end
 
+    test "settled program history remains readable after the current PTC surface disappears" do
+      tools = [market_tool(["programmatic"])]
+      {_provider_request, initial_plan} = plan!(request(tools))
+      code = "const quote = await tools.market({}); text(quote.price);"
+
+      input =
+        [program_item("prog_old", code, initial_plan.ptc.program.bindings)] ++
+          function_pair("prog_old", "prog_old_c0", "market", %{}, ~s({"price":1700})) ++
+          [
+            %{
+              "type" => "program_output",
+              "call_id" => "prog_old",
+              "status" => "completed",
+              "result" => "1700"
+            }
+          ]
+
+      current_request = %{"model" => "gpt-5.6", "tools" => [], "input" => input}
+
+      assert {:ok, provider_request, plan} = ToolSearch.plan(current_request)
+      refute plan.ptc.enabled?
+      assert plan.ptc.program == nil
+      assert provider_request["tools"] == []
+
+      assert [call, output] = provider_request["input"]
+      assert call["type"] == "function_call"
+      assert call["name"] == "program"
+      assert call["call_id"] == "prog_old"
+      assert output["type"] == "function_call_output"
+      assert output["call_id"] == "prog_old"
+      assert output["output"] =~ "completed"
+    end
+
+    test "unsettled program history still requires the current PTC declaration" do
+      tools = [market_tool(["programmatic"])]
+      {_provider_request, initial_plan} = plan!(request(tools))
+      code = "const quote = await tools.market({}); text(quote.price);"
+
+      current_request = %{
+        "model" => "gpt-5.6",
+        "tools" => [],
+        "input" => [program_item("prog_unsettled", code, initial_plan.ptc.program.bindings)]
+      }
+
+      assert {:error, {:invalid_program, :declaration_missing}} =
+               ToolSearch.plan(current_request)
+    end
+
     test "multiple unsettled programs are frozen and resumed together" do
       tools = [market_tool(["programmatic"])]
       {_provider_request, initial_plan} = plan!(request(tools))

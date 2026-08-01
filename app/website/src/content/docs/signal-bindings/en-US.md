@@ -36,7 +36,7 @@ The Console shows only the modes that the selected Channel Provider supports:
 
 Slack, Microsoft Teams, Lark, and Feishu support all three modes. DingTalk and WeCom can receive only group messages that explicitly address the bot, so the Console offers only the first mode for them. WeCom has many more limits than this one (no recall, no files in groups, the Agent cannot start a conversation), so we do not recommend it as your first channel. See [WeCom adapter limits](../adapters-wecom/).
 
-**May intervene** does not make the Agent reply to every message. It lets the Agent decide when to speak. If it speaks too often, first tighten its role instructions.
+**May intervene** does not make the Agent reply to every message. It lets the Agent decide when to speak, and each message is judged once. To tell the Agent when to speak in one group, give it a channel standing order right in that group (for example "only speak when CI turns red"). If it still speaks too often, first tighten the standing orders or its role instructions. See [Ambient intervention](../ambient-intervention/) for the judgment behavior and standing orders.
 
 Use **Addressed messages only** for a group that needs question-and-answer behavior only.
 

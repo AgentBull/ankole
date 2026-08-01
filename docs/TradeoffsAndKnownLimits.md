@@ -57,7 +57,8 @@ Workers report file and Skill changes through explicit protocols.
 ## Sessions Separate Work, Not All Agent Data
 
 A Session uses the Actor identity `{agent_uid, session_id}` and runs in
-`/agents/<agent-key>/sessions/<session-key>`.
+`/agents/<agent-key>/sessions/<workspace-id>`. PostgreSQL assigns the stable
+model-visible workspace ID from 10000; it does not replace the Actor identity.
 
 Each Session has its own current directory, live processes, and temporary data.
 The sandbox also mounts the complete Agent Home, so Sessions for the same Agent
@@ -239,8 +240,9 @@ time. A Job does not keep old package bytes or Skill versions.
 Skill discovery combines enabled built-in Skills, Plugin Skills, and installed
 Skills. It does not depend on the Control Plane Plugin system.
 
-The `mcp` tool appears only when an enabled Skill declares a valid MCP server.
-An MCP call has its own time limit and does not create background work.
+An enabled MCP-backed Skill calls its selected server through the foreground
+`mcporter` CLI. Each call has an explicit time limit and does not create
+background work.
 
 ## RuntimeEvents Uses One Scheduler per Node
 

@@ -40,6 +40,15 @@ pub struct RouterHandle {
     stop: Arc<AtomicBool>,
 }
 
+impl std::fmt::Debug for RouterHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RouterHandle")
+            .field("endpoint", &self.endpoint)
+            .finish_non_exhaustive()
+    }
+}
+
 impl RouterHandle {
     /// Returns the endpoint actually bound by the ROUTER socket.
     pub fn endpoint(&self) -> &str {

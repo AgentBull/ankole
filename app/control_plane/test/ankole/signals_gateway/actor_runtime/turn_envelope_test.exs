@@ -9,6 +9,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
   test "projects only the declared image generation hosted tool" do
     envelope =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{},
         hosted_tools: [%{"type" => "image_generation"}]
@@ -24,6 +25,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
   test "omits hosted tools when the turn policy did not declare one" do
     envelope =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{}
       })
@@ -35,6 +37,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
   test "carries the model output-token ceiling as a typed field" do
     envelope =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        workspace_id: 10_000,
         model_ref: Map.put(model_ref(), "max_completion_tokens", 32_000),
         request_context: %{}
       })
@@ -44,6 +47,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
 
     without_limit =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{}
       })
@@ -55,12 +59,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnEnvelopeTest do
   test "carries trusted turn runtime environment values" do
     envelope =
       TurnEnvelope.turn_start(turn_ref(), actor_event(), [], %{
+        workspace_id: 10_000,
         model_ref: model_ref(),
         request_context: %{},
         runtime_env: %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"}
       })
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
+    assert turn_start.workspace_id == 10_000
 
     assert turn_start.runtime_env == %{
              "ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => "human-alice"

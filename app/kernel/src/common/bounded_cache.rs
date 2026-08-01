@@ -1,4 +1,7 @@
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "feature-gated host builds use different cache operations"
+)]
 
 use std::collections::HashMap;
 use std::hash::Hash;

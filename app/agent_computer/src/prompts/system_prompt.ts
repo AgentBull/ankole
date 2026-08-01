@@ -11,32 +11,18 @@
  */
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { TurnStart } from '../lanes/actor_lane'
-import type { AgentConversationContextResponse, RuntimeSkillSummary } from '../lanes/rpc_lane'
-import { match } from '@pleisto/active-support'
+import type { AgentConversationContextResponse, ConversationChannel, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 import { formatAgentDurableContext } from './durable_context'
 import { ankoleSkillRuntime } from '../skills/effective-skill'
+import { signalAdapterDisplayName } from './signal_adapter'
 
 export type BuildAgentSystemPromptOptions = {
-  agentHome?: string
-  userFilesRoot?: string
+  userFilesRoot: string
   workspaceRoot: string
   turnStart: TurnStart
   agentConversationContext?: AgentConversationContextResponse
-  currentChannel?: CurrentChannelContext
   availableToolNames?: string[]
-}
-
-/**
- * Describes where the conversation originated so the prompt can tell the model
- * what kind of surface it is acting on. Schedule-origin turns are represented
- * through RuntimeFabric request context rather than by pretending they are a
- * provider-authored channel message.
- */
-export type CurrentChannelContext = {
-  kind: 'external_dm' | 'external_group' | 'external_room'
-  name?: string
-  platform?: string
 }
 
 /**
@@ -85,26 +71,23 @@ function missionSection(mission: string): string {
  * agent identity, timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
-  const agentHome = opts.agentHome ?? opts.workspaceRoot
-  const userFilesRoot = opts.userFilesRoot ?? `${agentHome}/user-files`
   const timezone = opts.agentConversationContext?.conversation?.timezone || 'UTC'
   const lines = [
     '<runtime_context>',
     `Agent UID: ${opts.turnStart.turn.actor.agent_uid}`,
     `Agent display name: ${agentDisplayName(opts)}`,
-    `Agent Home: ${agentHome}`,
     `Current workspace: ${opts.workspaceRoot}`,
-    `Cross-session user files: ${userFilesRoot}`,
-    `Agent documents: ${agentHome}/SOUL.md, ${agentHome}/MISSION.md, ${agentHome}/DESIGN.md`,
+    `Cross-session user files: ${opts.userFilesRoot}`,
     `Current timezone: ${timezone}`
   ]
   const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
   const startedAt = parseDate(opts.agentConversationContext?.conversation?.startedAt)
-  if (startedAt) lines.push(`Conversation started date: ${formatZonedDate(timezone, startedAt)}`)
+  if (startedAt) lines.push(`Conversation started at: ${formatZonedDateTime(timezone, startedAt)}`)
 
-  if (opts.currentChannel) lines.push(`Conversation started channel: ${formatCurrentChannel(opts.currentChannel)}`)
+  const originChannel = opts.agentConversationContext?.conversation?.originChannel
+  if (originChannel) lines.push(`Conversation started in: ${formatConversationChannel(originChannel)}`)
 
   lines.push('</runtime_context>')
   return lines.join('\n')
@@ -237,7 +220,7 @@ Current worker-image baseline: Python 3.12-compatible tooling via the agent Pyth
 
 Tool processes can receive task-scoped credentials and unrelated runtime secrets. These values authorize external systems; they are not diagnostic data. Use only credentials named by the task or a loaded Skill. If one is missing, report the configuration blocker; do not enumerate the environment or credential stores, and never print secret values.
 
-Persistence model: Cross-session user files preserve uploads and deliverables. Agent-installed Skills persist in the installed-skills directory under Agent Home. The listed Agent documents are read-only projections of PostgreSQL state. Use the current workspace's temp directory for scratch data.
+Persistence model: Cross-session user files preserve uploads and deliverables. Agent-installed Skills persist across sessions and are accessed through the Skill tools. Agent documents are read-only projections of PostgreSQL state. Use the current workspace's temp directory for scratch data.
 
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
@@ -289,31 +272,16 @@ function isSkillPromptEntry(skill: SkillPromptEntry | null): skill is SkillPromp
 }
 
 /**
- * Formats current channel context into a compact prompt phrase.
+ * Formats the control-plane conversation-channel projection.
  */
-function formatCurrentChannel(channel: CurrentChannelContext): string {
-  return match(channel)
-    .with({ kind: 'external_dm' }, channel => {
-      const label = platformLabel(channel.platform, 'DM')
-      return channel.name ? `${label} with ${channel.name}` : label
-    })
-    .with({ kind: 'external_group' }, channel => {
-      const label = platformLabel(channel.platform, 'Group Chat')
-      return channel.name ? `${label} "${channel.name}"` : label
-    })
-    .with({ kind: 'external_room' }, channel => {
-      const label = platformLabel(channel.platform, 'Channel')
-      return channel.name ? `${label} "${channel.name}"` : label
-    })
-    .exhaustive()
-}
+function formatConversationChannel(channel: ConversationChannel): string {
+  const adapter = signalAdapterDisplayName(channel.adapter)
+  const label = channel.label.trim()
+  const noun = channel.kind === 'im_dm' ? 'DM' : channel.kind === 'im_group' ? 'Group Chat' : 'Channel'
+  const surface = adapter ? `${adapter} ${noun}` : noun
 
-/**
- * Adds a provider/platform prefix when available.
- */
-function platformLabel(platform: string | undefined, noun: string): string {
-  const brand = platform === 'feishu' ? 'Feishu' : platform === 'lark' ? 'Lark' : platform
-  return brand ? `${brand} ${noun}` : noun
+  if (!label) return surface
+  return channel.kind === 'im_dm' ? `${surface} with ${label}` : `${surface} "${label}"`
 }
 
 /**
@@ -326,20 +294,22 @@ function parseDate(value: string | null | undefined): Date | undefined {
 }
 
 /**
- * Formats an instant as `YYYY-MM-DD` in the configured timezone. Intl is used
- * instead of manual offset math so DST and historical timezone changes are not
- * approximated.
+ * Formats an instant to minute precision in the configured timezone. Intl is
+ * used so DST and historical timezone changes are not approximated.
  */
-function formatZonedDate(timezone: string, at: Date): string {
+function formatZonedDateTime(timezone: string, at: Date): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
-    day: '2-digit'
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
   }).formatToParts(at)
 
   const value = (type: string) => parts.find(part => part.type === type)?.value ?? '00'
-  return `${value('year')}-${value('month')}-${value('day')}`
+  return `${value('year')}-${value('month')}-${value('day')} ${value('hour')}:${value('minute')}`
 }
 
 /**

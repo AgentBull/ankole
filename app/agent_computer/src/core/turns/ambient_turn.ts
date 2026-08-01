@@ -1,17 +1,19 @@
 /**
  * Ambient may-intervene handler.
  *
- * Runs the ambient recognizer and, if intervention is recommended, starts a
- * text turn with the intervention prompt.
+ * Runs the ambient recognizer, reports the judgment to the control plane, and
+ * only when intervention is recommended starts a text turn with the
+ * intervention prompt.
  */
 
 import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { arrayPath } from '@pleisto/active-support'
-import { recognizeAmbientIntervention } from './ambient_recognizer'
+import { recognizeAmbientIntervention, type AmbientRecognizerDecision } from './ambient_recognizer'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { runTextTurnLoop } from './text_turn'
 import { resolveAgentConversationContext } from './turn_context'
+import { rpcMethods } from '../../lanes/rpc_lane'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
@@ -21,7 +23,9 @@ const AMBIENT_RECOGNIZER_TIMEOUT_MS = 30_000
  * to the normal text-turn path with extra context.
  *
  * Silent ambient observations complete as no-ops so normal chat traffic does not
- * force the agent to speak.
+ * force the agent to speak. Every decision is reported to the control plane,
+ * which stores the judgment, advances the channel ambient cursor, and applies
+ * an accepted asked_by attribution as the reply anchor.
  */
 export async function runAmbientMayInterveneHandler(
   turnStart: TurnStart,
@@ -48,6 +52,8 @@ export async function runAmbientMayInterveneHandler(
     { abortSignal: recognizerTimeout.signal }
   ).finally(() => recognizerTimeout.cleanup())
 
+  await recordAmbientJudgment(turnStart, opts, recognition.decision)
+
   if (recognition.messages.length === 0) {
     return { kind: 'noop_completed', reason: 'ambient_silent' }
   }
@@ -60,6 +66,40 @@ export async function runAmbientMayInterveneHandler(
   })
 
   return result
+}
+
+/**
+ * Reports the recognizer decision over the RPC lane.
+ *
+ * The judgment write also advances the channel cursor and sets the reply
+ * anchor, but a failed report must not consume or block the turn: the cursor
+ * heals on the next judgment and the anchor merely falls back to the batch
+ * tail, so the failure is logged and the turn continues.
+ */
+async function recordAmbientJudgment(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions,
+  decision: AmbientRecognizerDecision
+): Promise<void> {
+  const askedBy = decision.askedBy
+
+  try {
+    await opts.rpc(
+      rpcMethods.signalChannelAmbientJudgmentRecord,
+      {
+        decision: decision.intervene ? 'intervene' : 'silent',
+        reason: decision.reason,
+        askedBySourceEntryId: askedBy.state === 'none' ? '' : askedBy.sourceEntryID,
+        askedByDegraded: askedBy.state === 'degraded'
+      },
+      { turn: turnStart.turn }
+    )
+  } catch (error) {
+    opts.logger?.warning('worker.ambient_judgment_record_failed', 'ambient judgment record failed', {
+      actor_event_id: turnStart.turn.actor_event_id,
+      error: error instanceof Error ? error.message : String(error)
+    })
+  }
 }
 
 /**

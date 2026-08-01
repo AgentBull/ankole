@@ -128,6 +128,88 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       success: false
     })
   })
+
+  it('projects Direct MCP tools as deferred namespaces with their catalog schema', async () => {
+    const inputSchema = {
+      type: 'object',
+      properties: { chart_spec: { type: 'object' } },
+      required: ['chart_spec']
+    }
+    const directTool: AgentTool = {
+      name: 'render_chart',
+      description: 'Render a static chart.',
+      schema: z.record(z.string(), z.unknown()),
+      jsonSchema: inputSchema,
+      namespace: 'mcp__flint_chart',
+      namespaceDescription: 'Static Flint charts.',
+      deferLoading: true,
+      isReadOnly: true,
+      isDestructive: false,
+      describeActivity: () => 'Render chart',
+      async execute() {
+        return {
+          content: [
+            { type: 'text', text: 'Artifact path: /tmp/chart.png' },
+            { type: 'image', image: Uint8Array.from([137, 80, 78, 71]), mimeType: 'image/png' }
+          ],
+          details: { format: 'png' }
+        }
+      }
+    }
+
+    const projection = buildCodexJobProjection({ tools: [directTool], allowedToolNames: new Set() })
+    expect(projection.dynamicTools).toEqual([
+      {
+        type: 'namespace',
+        name: 'mcp__flint_chart',
+        description: 'Static Flint charts.',
+        tools: [
+          {
+            type: 'function',
+            name: 'render_chart',
+            description: 'Render a static chart.',
+            inputSchema,
+            deferLoading: true
+          }
+        ]
+      }
+    ])
+
+    const result = await projection.handleToolCall(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'call-direct-mcp',
+        namespace: 'mcp__flint_chart',
+        tool: 'render_chart',
+        arguments: { chart_spec: {} }
+      },
+      new AbortController().signal
+    )
+    expect(result).toEqual({
+      contentItems: [
+        { type: 'inputText', text: 'Artifact path: /tmp/chart.png' },
+        { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw==' }
+      ],
+      success: true
+    })
+
+    const wrongNamespace = await projection.handleToolCall(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        callId: 'call-direct-mcp-flat',
+        namespace: null,
+        tool: 'render_chart',
+        arguments: { chart_spec: {} }
+      },
+      new AbortController().signal
+    )
+    expect(wrongNamespace).toEqual({
+      contentItems: [{ type: 'inputText', text: 'Dynamic tool is unavailable: render_chart' }],
+      success: false
+    })
+  })
 })
 
 function tool(name: string, schema: z.ZodType, execute: (params: unknown) => string): AgentTool {

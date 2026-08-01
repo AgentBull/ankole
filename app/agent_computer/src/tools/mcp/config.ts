@@ -1,9 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { createHash } from 'node:crypto'
 import { parse } from 'yaml'
 import { z } from 'zod'
-import type { ActorTurnRef } from '../../lanes/actor_lane'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
   normalizeEnabledSkill,
@@ -16,18 +14,10 @@ import { utf8ByteLength } from '../../common/text-sanitize'
 import { compareCodePointStrings } from './ordering'
 
 const MAX_METADATA_BYTES = 64 * 1024
+const MAX_ENABLED_SKILLS = 128
+const MAX_ENABLED_SERVERS = 32
 const MAX_DEPENDENCIES_PER_SKILL = 64
 const MAX_FILTERED_TOOLS_PER_SERVER = 256
-export const MCP_RESOURCE_LIMITS = {
-  enabledSkills: 128,
-  enabledServers: 32,
-  modelVisibleTools: 512,
-  modelToolCatalogBytes: 2 * 1024 * 1024,
-  httpResponseBytes: 2 * 1024 * 1024,
-  stdioMessageBytes: 2 * 1024 * 1024
-} as const
-export const DEFAULT_MCP_TIMEOUT_MS = 360_000
-export const MINIMUM_MCP_TIMEOUT_MS = 100
 const ServerName = z
   .string()
   .trim()
@@ -38,7 +28,6 @@ const ServerName = z
   })
 const Description = z.string().trim().min(1).max(1024)
 const EnvironmentVariableName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
-const TimeoutMilliseconds = z.number().int().min(MINIMUM_MCP_TIMEOUT_MS).max(Number.MAX_SAFE_INTEGER)
 const ToolFilter = z.array(z.string().min(1).max(1024)).max(MAX_FILTERED_TOOLS_PER_SERVER)
 const HTTPURL = z
   .string()
@@ -54,7 +43,6 @@ const StreamableHTTPDependency = z
     url: HTTPURL,
     command: z.never().optional(),
     bearer_token_env_var: EnvironmentVariableName.optional(),
-    timeout_ms: TimeoutMilliseconds.optional(),
     enabled_tools: ToolFilter.optional(),
     disabled_tools: ToolFilter.optional()
   })
@@ -69,7 +57,6 @@ const StdioDependency = z
     command: z.string().trim().min(1).max(1024),
     url: z.never().optional(),
     bearer_token_env_var: z.never().optional(),
-    timeout_ms: TimeoutMilliseconds.optional(),
     enabled_tools: ToolFilter.optional(),
     disabled_tools: ToolFilter.optional()
   })
@@ -92,12 +79,9 @@ type ParsedMCPDependency = z.output<typeof MCPDependency>
 interface MCPServerBase {
   name: string
   description?: string
-  timeoutMs?: number
   enabledTools?: string[]
   disabledTools?: string[]
   sourceSkills: string[]
-  /** Hash of the actual enabled Skill metadata files contributing this declaration. */
-  generation: string
 }
 
 export interface StreamableHTTPMCPServer extends MCPServerBase {
@@ -116,50 +100,45 @@ export type MCPServerConfig = StreamableHTTPMCPServer | StdioMCPServer
 export interface LoadEnabledSkillMCPServersInput {
   enabledSkills: Array<RuntimeSkillSummary | string>
   skillRoots?: SkillFileRoots
-  turn?: ActorTurnRef
   runtime?: AnkoleSkillExecutionRuntime
 }
 
 /**
  * Loads the MCP declarations owned by enabled, inline Skills.
  *
- * `agents/openai.yaml` is the only accepted registration source. Skills for a
- * different Ankole runtime are excluded before any metadata file is read.
+ * `agents/openai.yaml` is the only accepted registration source. When the
+ * caller selects a runtime, Skills for other runtimes are excluded before any
+ * metadata file is read.
  */
 export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServersInput): Promise<MCPServerConfig[]> {
-  const runtime = input.runtime ?? 'main'
   const skills = input.enabledSkills
     .map(normalizeEnabledSkill)
     .filter((skill): skill is RuntimeSkillSummary => skill !== undefined)
-    .filter(skill => skillAvailableInRuntime(skill, runtime))
+    .filter(skill => input.runtime === undefined || skillAvailableInRuntime(skill, input.runtime))
     .sort((left, right) => compareCodePointStrings(left.skillName, right.skillName))
 
-  assertMCPResourceLimit('aggregate enabled Skills', skills.length, MCP_RESOURCE_LIMITS.enabledSkills, 'count')
+  assertMCPResourceLimit('aggregate enabled Skills', skills.length, MAX_ENABLED_SKILLS)
 
   if (skills.length === 0) return []
-  if (!input.skillRoots) throw new Error('enabled inline Skills require worker skill source roots for MCP discovery')
+  if (!input.skillRoots) {
+    throw new Error('enabled inline Skills require worker skill source roots for MCP dependency resolution')
+  }
 
   const declarations = await Promise.all(
     skills.map(async skill => {
-      const skillRoot = resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots!, turn: input.turn })
+      const skillRoot = resolveSkillFilesystemRoot(skill, { skillRoots: input.skillRoots! })
       return await readSkillMCPDependencies(skill.skillName, skillRoot)
     })
   )
 
-  const servers = new Map<string, { server: MCPServerConfig; sourceGenerations: Map<string, string> }>()
-  for (const { skillName, generation, dependencies } of declarations) {
+  const servers = new Map<string, MCPServerConfig>()
+  for (const { skillName, dependencies } of declarations) {
     for (const dependency of dependencies) {
       const candidate = serverConfigFromDependency(skillName, dependency)
-      const accumulated = servers.get(candidate.name)
-      const existing = accumulated?.server
+      const existing = servers.get(candidate.name)
       if (!existing) {
-        assertMCPResourceLimit(
-          'aggregate enabled servers',
-          servers.size + 1,
-          MCP_RESOURCE_LIMITS.enabledServers,
-          'count'
-        )
-        servers.set(candidate.name, { server: candidate, sourceGenerations: new Map([[skillName, generation]]) })
+        assertMCPResourceLimit('aggregate enabled servers', servers.size + 1, MAX_ENABLED_SERVERS)
+        servers.set(candidate.name, candidate)
         continue
       }
 
@@ -170,37 +149,26 @@ export async function loadEnabledSkillMCPServers(input: LoadEnabledSkillMCPServe
       }
 
       existing.sourceSkills = [...new Set([...existing.sourceSkills, skillName])].sort(compareCodePointStrings)
-      accumulated.sourceGenerations.set(skillName, generation)
     }
   }
 
-  return [...servers.values()]
-    .map(({ server, sourceGenerations }) => ({
-      ...server,
-      generation: digest(
-        [...sourceGenerations.entries()]
-          .sort(([left], [right]) => compareCodePointStrings(left, right))
-          .map(([skillName, generation]) => `${skillName}:${generation}`)
-          .join('\n')
-      )
-    }))
-    .sort((left, right) => compareCodePointStrings(left.name, right.name))
+  return [...servers.values()].sort((left, right) => compareCodePointStrings(left.name, right.name))
 }
 
-export function assertMCPResourceLimit(subject: string, actual: number, limit: number, unit: 'count' | 'byte'): void {
-  if (actual > limit) throw new Error(`MCP ${subject} exceeds the ${limit}-${unit} limit`)
+function assertMCPResourceLimit(subject: string, actual: number, limit: number): void {
+  if (actual > limit) throw new Error(`MCP ${subject} exceeds the ${limit}-count limit`)
 }
 
 async function readSkillMCPDependencies(
   skillName: string,
   skillRoot: string
-): Promise<{ skillName: string; generation: string; dependencies: ParsedMCPDependency[] }> {
+): Promise<{ skillName: string; dependencies: ParsedMCPDependency[] }> {
   const metadataPath = resolve(skillRoot, 'agents/openai.yaml')
   let content: string
   try {
     content = await readFile(metadataPath, 'utf8')
   } catch (error) {
-    if (isMissingFileError(error)) return { skillName, generation: digest('missing'), dependencies: [] }
+    if (isMissingFileError(error)) return { skillName, dependencies: [] }
     throw new Error(`failed to read MCP metadata for Skill ${skillName}: ${errorMessage(error)}`)
   }
 
@@ -227,7 +195,7 @@ async function readSkillMCPDependencies(
     throw new Error(`invalid MCP dependency for Skill ${skillName}${location}: ${issue?.message ?? 'invalid metadata'}`)
   }
 
-  return { skillName, generation: digest(content), dependencies: parsed.data.dependencies?.tools ?? [] }
+  return { skillName, dependencies: parsed.data.dependencies?.tools ?? [] }
 }
 
 function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDependency): MCPServerConfig {
@@ -238,11 +206,9 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
       transport: dependency.transport,
       url: dependency.url,
       ...(dependency.bearer_token_env_var ? { bearerTokenEnvVar: dependency.bearer_token_env_var } : {}),
-      ...(dependency.timeout_ms !== undefined ? { timeoutMs: dependency.timeout_ms } : {}),
       ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
       ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),
-      sourceSkills: [skillName],
-      generation: ''
+      sourceSkills: [skillName]
     }
   }
 
@@ -251,16 +217,14 @@ function serverConfigFromDependency(skillName: string, dependency: ParsedMCPDepe
     ...(dependency.description ? { description: dependency.description } : {}),
     transport: dependency.transport,
     command: dependency.command,
-    ...(dependency.timeout_ms !== undefined ? { timeoutMs: dependency.timeout_ms } : {}),
     ...(dependency.enabled_tools ? { enabledTools: dependency.enabled_tools } : {}),
     ...(dependency.disabled_tools ? { disabledTools: dependency.disabled_tools } : {}),
-    sourceSkills: [skillName],
-    generation: ''
+    sourceSkills: [skillName]
   }
 }
 
-/** Stable non-secret connection identity used for conflict and cache keys. */
-export function mcpServerConnectionIdentity(server: MCPServerConfig): string {
+/** Stable non-secret connection identity used for declaration conflicts. */
+function serverConnectionIdentity(server: MCPServerConfig): string {
   return JSON.stringify(
     server.transport === 'streamable_http'
       ? {
@@ -269,7 +233,6 @@ export function mcpServerConnectionIdentity(server: MCPServerConfig): string {
           transport: server.transport,
           url: server.url,
           bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
-          timeoutMs: server.timeoutMs ?? null,
           enabledTools: normalizedToolFilter(server.enabledTools),
           disabledTools: normalizedToolFilter(server.disabledTools)
         }
@@ -278,7 +241,6 @@ export function mcpServerConnectionIdentity(server: MCPServerConfig): string {
           description: server.description ?? null,
           transport: server.transport,
           command: server.command,
-          timeoutMs: server.timeoutMs ?? null,
           enabledTools: normalizedToolFilter(server.enabledTools),
           disabledTools: normalizedToolFilter(server.disabledTools)
         }
@@ -287,14 +249,6 @@ export function mcpServerConnectionIdentity(server: MCPServerConfig): string {
 
 function normalizedToolFilter(tools: string[] | undefined): string[] | null {
   return tools ? [...new Set(tools)].sort(compareCodePointStrings) : null
-}
-
-function serverConnectionIdentity(server: MCPServerConfig): string {
-  return mcpServerConnectionIdentity(server)
-}
-
-function digest(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
 }
 
 function isMissingFileError(error: unknown): boolean {

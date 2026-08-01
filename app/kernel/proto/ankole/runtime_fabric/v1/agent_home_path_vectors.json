@@ -2,26 +2,25 @@
   "agents_root": "/agents",
   "valid": [
     {
-      "agent_uid": "agent-1",
-      "session_id": "provider:chat/a",
-      "session_key": "cHJvdmlkZXI6Y2hhdC9h",
+      "agent_uid": "ankole-internal",
+      "workspace_id": 10000,
       "job_id": 1000,
-      "home": "/agents/agent-1",
-      "codex_home": "/agents/agent-1/.codex",
-      "session_workspace": "/agents/agent-1/sessions/cHJvdmlkZXI6Y2hhdC9h",
-      "job_workspace": "/agents/agent-1/jobs/1000"
+      "home": "/agents/ankole-internal",
+      "codex_home": "/agents/ankole-internal/.codex",
+      "session_workspace": "/agents/ankole-internal/sessions/10000",
+      "job_workspace": "/agents/ankole-internal/jobs/1000"
     },
     {
       "agent_uid": "a.b_c-9",
-      "session_id": "飞书:oc_123",
-      "session_key": "6aOe5LmmOm9jXzEyMw",
+      "workspace_id": 9007199254740991,
       "job_id": 9007199254740991,
       "home": "/agents/a.b_c-9",
       "codex_home": "/agents/a.b_c-9/.codex",
-      "session_workspace": "/agents/a.b_c-9/sessions/6aOe5LmmOm9jXzEyMw",
+      "session_workspace": "/agents/a.b_c-9/sessions/9007199254740991",
       "job_workspace": "/agents/a.b_c-9/jobs/9007199254740991"
     }
   ],
   "invalid_agent_uids": ["", "Agent-1", "agent/1", "agent 1", ".agent", "-agent", "agent:1"],
+  "invalid_workspace_ids": [9999, 9007199254740992, "10000", "workspace-10000"],
   "invalid_job_ids": [999, 9007199254740992, "019f7a43-22ad-7000-8000-000000000001", "job_1.test"]
 }

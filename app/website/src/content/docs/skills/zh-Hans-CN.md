@@ -45,7 +45,7 @@ Ankole Skill 兼容 <a href="https://agentskills.io/specification" target="_blan
 
 每个 Skill 至少包含一个带 YAML frontmatter 的 `SKILL.md`，也可以包含 `scripts/`、`references/` 和 `assets/`。Agent 先看到名称和描述，任务匹配后才读取完整说明和所需资源。
 
-Skill 适合表达“这类工作应该怎样做”。需要实时数据、身份验证或受控操作时，它也可以指导 Agent 使用 Agent Plugin 或 Skill 提供的 MCP 工具。
+Skill 适合表达“这类工作应该怎样做”。需要实时数据、身份验证或受控操作时，它可以选择一个 MCP 领域工具，再通过 mcporter 调用；MCP catalog 不会成为第二套模型可见工具注册表。
 
 #### Ankole 扩展：选择 Skill 的执行位置
 

@@ -145,7 +145,8 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
         proto::envelope::Body::TurnStart(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_start.turn")?;
             validate_actor_event(payload.actor_event.as_ref(), "turn_start.actor_event")?;
-            validate_optional_model_ref(payload.model_ref.as_ref(), "turn_start.model_ref")
+            validate_optional_model_ref(payload.model_ref.as_ref(), "turn_start.model_ref")?;
+            validate_session_workspace_id(payload.workspace_id)
         }
         proto::envelope::Body::MailboxUpdated(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "mailbox_updated.turn")?;
@@ -329,6 +330,16 @@ fn validate_turn_completion_outcome(outcome: i32) -> KernelResult<()> {
 fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {
     if value == 0 {
         return Err(KernelError::new(format!("{field} must be greater than 0")));
+    }
+
+    Ok(())
+}
+
+fn validate_session_workspace_id(value: u64) -> KernelResult<()> {
+    if !(10_000..=9_007_199_254_740_991).contains(&value) {
+        return Err(KernelError::new(
+            "turn_start.workspace_id must be a model-safe integer starting at 10000",
+        ));
     }
 
     Ok(())

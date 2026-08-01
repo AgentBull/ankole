@@ -11,6 +11,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCWire do
 
   @type error_message_style :: :default | :tuple_reason | :inspect_tuple_reason | :tuple_inspect
 
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+
   @doc """
   Reads a possibly string-keyed or atom-keyed value without creating atoms.
   """
@@ -48,6 +50,28 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCWire do
       value when is_map(value) -> value
       _value -> default
     end
+  end
+
+  @doc """
+  Projects one library Skill record into the shared RuntimeFabric summary.
+  """
+  def runtime_skill_summary(skill) when is_map(skill) do
+    metadata = map_value(skill, "metadata", %{})
+
+    %FabricProto.RuntimeSkillSummary{
+      skill_name: text(skill, "skill_name") || "",
+      description: text(skill, "description", trim: false) || "",
+      default_enabled: boolean_or_nil(value(skill, "default_enabled")),
+      source_kind: text(skill, "source_kind") || "",
+      agent_plugin_id: text(skill, "agent_plugin_id") || "",
+      relative_path: text(skill, "relative_path") || "",
+      skill_root: text(skill, "skill_root") || "",
+      metadata_json: encode_optional_json(metadata),
+      category: text(skill, "category") || "",
+      tags_json: encode_optional_json(value(skill, "tags")),
+      skill_uri: text(skill, "skill_uri") || "",
+      has_agent_overlay: value(skill, "has_agent_overlay") == true
+    }
   end
 
   @doc """
@@ -115,6 +139,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCWire do
     do: "#{reason}: #{inspect(details)}"
 
   def error_message(reason, _style), do: inspect(reason)
+
+  defp boolean_or_nil(value) when is_boolean(value), do: value
+  defp boolean_or_nil(_value), do: nil
+
+  defp encode_optional_json(nil), do: ""
+  defp encode_optional_json(value) when value == %{}, do: ""
+  defp encode_optional_json(value) when value == [], do: ""
+  defp encode_optional_json(value), do: Torque.encode!(value)
 
   defp atom_key_value(map, key) do
     Map.get(map, String.to_existing_atom(key))

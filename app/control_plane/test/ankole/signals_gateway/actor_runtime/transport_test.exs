@@ -655,7 +655,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       route = unique_route()
       expected_protocol = Ankole.Kernel.RuntimeFabric.protocol_version()
 
-      assert expected_protocol == 3
+      assert expected_protocol == 4
 
       assert {:error, {:unsupported_runtime_fabric_protocol, 1, ^expected_protocol}} =
                ActorRuntime.admit_worker_ready(

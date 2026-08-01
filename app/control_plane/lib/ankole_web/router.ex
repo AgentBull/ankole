@@ -312,6 +312,14 @@ defmodule AnkoleWeb.Router do
            SignalBindingController,
            :delete
 
+    get "/signal-channels/:channel_id/standing-orders",
+        SignalBindingController,
+        :show_channel_standing_orders
+
+    put "/signal-channels/:channel_id/standing-orders",
+        SignalBindingController,
+        :put_channel_standing_orders
+
     get "/agents/:agent_uid/sessions", AgentSessionController, :index
 
     get "/agents/:agent_uid/sessions/:session_id/cron-schedules",

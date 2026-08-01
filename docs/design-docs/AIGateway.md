@@ -463,6 +463,13 @@ also have direct declarations. Their schemas already exist in the provider tool
 array. It embeds the full contract only for programmatic-only bindings, because
 the model has no other way to receive those schemas.
 
+A settled program call and output remain readable provider history when a
+later request has no PTC declaration. This can occur when a release, Skill
+change, or temporary tool-catalog failure removes the last programmatic
+binding. AIGateway projects the completed pair without adding a new program
+tool. An unsettled program still requires the PTC declaration and its frozen
+bindings before AIGateway can resume it.
+
 A first-party OpenAI Responses request keeps Tool Search and Programmatic Tool
 Calling provider-native. A ChatGPT Subscription request does the same only
 when the inbound protocol identifies a real Codex client. The ChatGPT Codex

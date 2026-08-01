@@ -7,6 +7,8 @@ use xxhash_rust::xxh3::{Xxh3, xxh3_128};
 use crate::common::crypto::parse_hex_32;
 use crate::common::{KernelError, KernelResult};
 
+const FILE_HASH_BUFFER_BYTES: usize = 64 * 1024;
+
 /// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
 ///
 /// This is for change detection and file observations. It is intentionally not
@@ -19,7 +21,7 @@ pub fn xxh3_128_hex(input: &[u8]) -> String {
 pub fn xxh3_128_file_hex(path: &Path) -> KernelResult<String> {
     let mut file = File::open(path).map_err(|error| KernelError::new(error.to_string()))?;
     let mut hasher = Xxh3::new();
-    let mut buffer = [0_u8; 1024 * 1024];
+    let mut buffer = vec![0_u8; FILE_HASH_BUFFER_BYTES];
 
     loop {
         let read = file

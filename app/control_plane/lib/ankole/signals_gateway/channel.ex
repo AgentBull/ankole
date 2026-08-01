@@ -38,6 +38,14 @@ defmodule Ankole.SignalsGateway.Channel do
     field :first_seen_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
 
+    # Operator- or member-set standing orders for ambient behavior in this
+    # channel, and the watermark up to which ambient batches were judged.
+    # These are runtime channel policy and cursor state, not provider facts.
+    field :ambient_standing_orders, :string
+    field :ambient_standing_orders_set_by, :string
+    field :ambient_standing_orders_updated_at, :utc_datetime_usec
+    field :ambient_judged_until, :utc_datetime_usec
+
     has_many :entries, Entry, foreign_key: :signal_channel_id, references: :id
 
     timestamps()

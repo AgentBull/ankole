@@ -58,13 +58,13 @@ Select **Reveal** only when you must check the current value. If you turn off **
 
 ## When changes take effect
 
-A change does not alter a turn that has already started. The new value is available from the Agent's next turn and to Background Agent Jobs that start later.
+A change does not alter an execution that has already started. The new value is available to the Agent's next turn, later Background Agent Job executions, and later Automation Job attempts.
 
 If the Agent does not receive the expected value, check these items in order:
 
-1. The name exactly matches the name in the Skill, script, or MCP configuration. Names are case-sensitive.
+1. The name exactly matches the name in the Skill, script, or `bearer_token_env_var` declaration. Names are case-sensitive.
 2. Whether the Agent has a value with the same name. An Agent value overrides a global value.
 3. The variable does not show **Unset**.
 4. A new Agent turn started after the change.
 
-For an MCP server that uses `bearer_token_env_var`, put only the environment variable name in the MCP configuration. Store the token here. See [MCP](../mcp/) for the MCP configuration.
+For an MCP-backed Skill, put only the environment variable name in `bearer_token_env_var`. Store the token here. See [MCP](../mcp/) for the declaration contract.

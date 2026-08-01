@@ -62,7 +62,7 @@ async function dispatchFrame(context: FileTransferContext, frames: Buffer[]): Pr
       .with('READ_ABORT', () => handleReadAbort(context, transferID))
       .with('CREDIT', () => sendReadData(context, transferID, frames))
       .with('STAT', async () => {
-        const result = statPath(context.config, context.state, frames)
+        const result = await statPath(context.config, context.state, frames)
         await sendFrame(context.sender, [
           'STAT_OK',
           transferID,

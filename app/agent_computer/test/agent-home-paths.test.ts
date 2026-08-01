@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   agentHomePaths,
-  encodeSessionKey,
   insideAgentHome,
   jobWorkspacePath,
   resolveAgentHomePath,
@@ -23,8 +22,7 @@ describe('Agent Home paths', () => {
       agents_root: string
       valid: Array<{
         agent_uid: string
-        session_id: string
-        session_key: string
+        workspace_id: number
         job_id: number
         home: string
         codex_home: string
@@ -32,6 +30,7 @@ describe('Agent Home paths', () => {
         job_workspace: string
       }>
       invalid_agent_uids: string[]
+      invalid_workspace_ids: Array<string | number>
       invalid_job_ids: Array<string | number>
     }
 
@@ -39,8 +38,7 @@ describe('Agent Home paths', () => {
       const paths = agentHomePaths(vectors.agents_root, vector.agent_uid)
       expect(paths.home).toBe(vector.home)
       expect(paths.codexHome).toBe(vector.codex_home)
-      expect(encodeSessionKey(vector.session_id)).toBe(vector.session_key)
-      expect(sessionWorkspacePath(vectors.agents_root, vector.agent_uid, vector.session_id)).toBe(
+      expect(sessionWorkspacePath(vectors.agents_root, vector.agent_uid, vector.workspace_id)).toBe(
         vector.session_workspace
       )
       expect(jobWorkspacePath(vectors.agents_root, vector.agent_uid, String(vector.job_id))).toBe(vector.job_workspace)
@@ -48,6 +46,11 @@ describe('Agent Home paths', () => {
 
     for (const agentUID of vectors.invalid_agent_uids) {
       expect(() => agentHomePaths(vectors.agents_root, agentUID)).toThrow('Agent UID must match')
+    }
+    for (const workspaceID of vectors.invalid_workspace_ids) {
+      expect(() => sessionWorkspacePath(vectors.agents_root, 'agent-1', workspaceID as number)).toThrow(
+        'Session workspace ID'
+      )
     }
     for (const jobID of vectors.invalid_job_ids) {
       expect(() => jobWorkspacePath(vectors.agents_root, 'agent-1', String(jobID))).toThrow('background Agent Job id')
@@ -64,11 +67,8 @@ describe('Agent Home paths', () => {
     expect(jobWorkspacePath('/agents', 'agent-1', '1000')).toBe('/agents/agent-1/jobs/1000')
   })
 
-  it('uses unpadded Base64URL Session keys without collisions', () => {
-    expect(encodeSessionKey('provider:chat/a')).toBe('cHJvdmlkZXI6Y2hhdC9h')
-    expect(sessionWorkspacePath('/agents', 'agent-1', 'provider:chat/a')).toBe(
-      '/agents/agent-1/sessions/cHJvdmlkZXI6Y2hhdC9h'
-    )
+  it('uses the PostgreSQL-owned numeric Session workspace ID', () => {
+    expect(sessionWorkspacePath('/agents', 'agent-1', 10_000)).toBe('/agents/agent-1/sessions/10000')
   })
 
   it('rejects unsafe Agent UIDs, traversal, and absolute paths outside Agent Home', () => {

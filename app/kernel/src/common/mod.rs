@@ -11,6 +11,7 @@ mod jwt;
 mod phone;
 mod search;
 mod token;
+mod transliteration;
 mod web_url;
 mod zstd_block;
 
@@ -24,6 +25,7 @@ pub use jwt::{jwt_sign, jwt_sign_pem, jwt_verify, jwt_verify_jwk};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::estimate_o200k_base_tokens;
+pub use transliteration::any_ascii;
 pub use web_url::{HostClass, WebURLFacts, web_url_facts};
 pub use zstd_block::{zstd_compress_block, zstd_decompress_block};
 

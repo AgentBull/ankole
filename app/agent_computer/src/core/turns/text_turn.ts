@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
@@ -5,6 +6,7 @@ import { createComputerTools } from '../../tools/computer'
 import { createSkillTools, type SkillFileRoots } from '../../tools/library/skill-tools'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import { createScheduleTools } from '../../tools/schedule/schedule-tools'
+import { createStandingOrdersTools } from '../../tools/channel/standing-orders-tool'
 import { createTodoTool, TodoStore } from '../../tools/todo/todo-tool'
 import { createCreateBackgroundJobTool } from '../../tools/background-agent-job/create-background-job'
 import { createListBackgroundJobsTool } from '../../tools/background-agent-job/list-background-jobs'
@@ -14,10 +16,15 @@ import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent
 import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
-import { createMCPTools } from '../../tools/mcp'
+import {
+  createDirectMCPTools,
+  loadEnabledSkillMCPServers,
+  materializeMCPorterConfig,
+  type MaterializedMCPorterConfig
+} from '../../tools/mcp'
 import type { AgentTool } from '../types'
 import { assistantText, userMessage } from '../llm'
-import { currentChannelFromTurnStart, statefulTruncationFromActorEventPayload } from './actor_event_text'
+import { statefulTruncationFromActorEventPayload } from './actor_event_text'
 import { actorEventUserContent } from './actor_event_content'
 import { channelContextModelMessages } from './channel_context'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
@@ -33,7 +40,7 @@ import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from './rendered_fetch_runtime_config'
 import { resolveWorkerEnv } from './worker_env'
 import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
-import { memoryRPCRequester, rpcMethods, scheduleRPCRequester } from '../../lanes/rpc_lane'
+import { memoryRPCRequester, rpcMethods, scheduleRPCRequester, signalChannelRPCRequester } from '../../lanes/rpc_lane'
 import { withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
 
 const silentSuccessMarker = '<silent_success/>'
@@ -53,6 +60,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     sourceSignal: opts.abortSignal,
     inactivityTimeoutMs: runtimePolicy.inactivityTimeoutMs
   })
+  let mcporterConfig: MaterializedMCPorterConfig | undefined
   try {
     if (!modelRef) {
       throw new Error('worker run is missing a real model_ref')
@@ -71,6 +79,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     if (!aiGatewayConversationID) {
       throw new Error('agent conversation context is missing AIGateway conversation id')
     }
+    const conversationTimezone = agentConversationContext.conversation?.timezone || 'UTC'
     const actorEvent = turnStart.actor_event
     const learningTurn =
       actorEvent.type === 'brain.source.learn'
@@ -100,26 +109,29 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         'rendered fetch runtime config'
       )
       const workerEnv = await turnActivity.runStep(resolveWorkerEnv(turnStart, opts.rpc), 'worker env')
-      const toolWorkerEnv = withoutBrowserMaterialSourceEnv(workerEnv)
       const skillRoots = skillRootsFromOptions(opts)
-      const mcpTools = await turnActivity.runStep(
-        createMCPTools({
+      const mcpServers = await turnActivity.runStep(
+        loadEnabledSkillMCPServers({
           enabledSkills: agentConversationContext.skills ?? [],
           skillRoots,
-          turn: turnStart.turn,
-          workerEnv: toolWorkerEnv,
-          abortSignal: turnActivity.signal,
-          onCatalogUnavailable: failure => {
-            opts.logger?.warning('worker.mcp_catalog_unavailable', 'worker MCP catalog unavailable', {
-              actor_event_id: turnStart.turn.actor_event_id,
-              mcp_server_name: failure.serverName,
-              source_skills: failure.sourceSkills,
-              error_message: failure.message,
-              ...(failure.code ? { error_code: failure.code } : {})
-            })
-          }
+          runtime: 'main'
         }),
-        'MCP tools availability'
+        'Skill MCP dependencies'
+      )
+      mcporterConfig = materializeMCPorterConfig(mcpServers)
+      const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
+      const directMCPTools = await turnActivity.runStep(
+        createDirectMCPTools({
+          artifactRoot: join(opts.userFilesRoot, 'generated-charts'),
+          workerEnv: withoutBrowserMaterialSourceEnv(workerEnv),
+          abortSignal: turnActivity.signal,
+          onCatalogUnavailable: failure =>
+            opts.logger?.warning('worker.direct_mcp_catalog_unavailable', 'Direct MCP catalog is unavailable', {
+              server: failure.serverName,
+              error: failure.message
+            })
+        }),
+        'Direct MCP tool availability'
       )
       const webTools = await turnActivity.runStep(
         createTurnWebTools({
@@ -152,12 +164,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           turnStart,
           requestScheduleRPC: scheduleRPCRequester(opts.rpc, turnStart.turn)
         }),
+        ...createStandingOrdersTools({
+          turnStart,
+          requestSignalChannelRPC: signalChannelRPCRequester(opts.rpc, turnStart.turn)
+        }),
         ...createMemoryTools({
           turnStart,
           requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
         }),
+        ...directMCPTools,
         ...webTools,
-        ...mcpTools,
         createClarifyTool(),
         ...backgroundAgentJobTools,
         ...createSkillTools(opts.workspaceRoot, {
@@ -180,18 +196,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     })
 
     const promptOptions = {
-      agentHome: opts.agentHome,
       userFilesRoot: opts.userFilesRoot,
       workspaceRoot: opts.workspaceRoot,
       turnStart,
       agentConversationContext,
-      currentChannel: currentChannelFromTurnStart(turnStart),
       availableToolNames: tools.map(tool => tool.name)
     }
     const systemPrompt = buildAgentSystemPrompt(promptOptions)
     const prompt = prependEnvironmentInfoLinesToUserMessage(userPrompt, [
       ...actorEventEnvironmentInfoLines(actorEvent.payload_json, {
-        timezone: agentConversationContext.conversation?.timezone
+        timezone: conversationTimezone
       }),
       ...turnRequestEnvironmentInfoLines(turnStart)
     ])
@@ -199,7 +213,11 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const latest = await runAgentLoop({
       model,
       systemPrompt,
-      messages: [...channelContextModelMessages(actorEvent.payload_json), prompt, ...(opts.extraMessages ?? [])],
+      messages: [
+        ...channelContextModelMessages(actorEvent.payload_json, { timezone: conversationTimezone }),
+        prompt,
+        ...(opts.extraMessages ?? [])
+      ],
       modelInputModalities: modelRef.input_modalities,
       visionFallbackModel,
       maxTokens: runtimePolicy.maxOutputTokens,
@@ -228,6 +246,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     const replyText = assistantText(latest.message)
     return textTurnResultFromAssistantReply(turnStart, replyText, latest.responseID, latest.outcome)
   } finally {
+    mcporterConfig?.cleanup()
     turnActivity.cleanup()
   }
 }

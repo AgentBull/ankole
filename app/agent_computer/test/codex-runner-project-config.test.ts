@@ -38,6 +38,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
         '[features.multi_agent_v2]',
         'enabled = false',
         'max_concurrent_threads_per_session = 99',
+        '',
+        '[mcp_servers.stale-template-server]',
+        'url = "https://stale.example.test/mcp"',
         ''
       ].join('\n')
     )
@@ -46,27 +49,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       const materialized = materializeCodexJobProjectConfig({
         projectRoot: root,
         pluginsEnabled: true,
-        runtimeConfig: aigatewayRuntime(),
-        mcpServers: [
-          {
-            name: 'remote-data',
-            generation: 'remote-generation',
-            sourceSkills: ['research'],
-            transport: 'streamable_http',
-            url: 'https://mcp.example.test/rpc',
-            bearerTokenEnvVar: 'REMOTE_DATA_TOKEN',
-            timeoutMs: 480_000,
-            enabledTools: ['quote', 'news'],
-            disabledTools: ['news']
-          },
-          {
-            name: 'local-data',
-            generation: 'local-generation',
-            sourceSkills: ['research'],
-            transport: 'stdio',
-            command: 'bun run /repo/tools/local-mcp.ts'
-          }
-        ]
+        runtimeConfig: aigatewayRuntime()
       })
       const config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
 
@@ -86,20 +69,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         max_concurrent_threads_per_session: 99
       })
       expect(config.agents).toBeUndefined()
-      expect(config.mcp_servers).toEqual({
-        'local-data': {
-          command: '/bin/sh',
-          args: ['-lc', 'bun run /repo/tools/local-mcp.ts'],
-          tool_timeout_sec: 360
-        },
-        'remote-data': {
-          url: 'https://mcp.example.test/rpc',
-          bearer_token_env_var: 'REMOTE_DATA_TOKEN',
-          tool_timeout_sec: 480,
-          enabled_tools: ['quote', 'news'],
-          disabled_tools: ['news']
-        }
-      })
+      expect(config.mcp_servers).toBeUndefined()
       expect(readFileSync(configPath, 'utf8')).not.toContain('secret-value')
     } finally {
       rmSync(root, { recursive: true, force: true })
@@ -115,8 +85,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         materializeCodexJobProjectConfig({
           projectRoot: root,
           pluginsEnabled: false,
-          runtimeConfig: aigatewayRuntime(),
-          mcpServers: []
+          runtimeConfig: aigatewayRuntime()
         })
       ).toThrow('invalid Codex project config')
     } finally {
@@ -130,8 +99,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
       materializeCodexJobProjectConfig({
         projectRoot: root,
         pluginsEnabled: false,
-        runtimeConfig: aigatewayRuntime(),
-        mcpServers: []
+        runtimeConfig: aigatewayRuntime()
       })
       const config = parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
       expect(config.features.plugins).toBe(false)

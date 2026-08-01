@@ -1,5 +1,29 @@
 # Changelog
 
+## Version 0.54.0 (2026-08-02)
+
+- Add per-channel ambient curation. Store every ambient recognizer decision as a durable judgment with its reason, advance a per-channel judged-until cursor, and split ambient observations into not-yet-judged New Messages and already-judged Earlier Context rows so each message is judged once. Let the recognizer attribute a wake to the asking message; a validated attribution anchors the visible reply to that message and a failed validation degrades to a proactive wake on record. Add member-set channel standing orders through the new `set_channel_standing_orders` Worker tool and console standing-orders endpoints; orders activate only on bindings whose group message mode is `may_intervene`, and active orders render in the recognizer prompt and the main turn channel context. Add the `signal_channel.ambient_judgment.record` and `signal_channel.standing_orders.set` RPC operations, and remove retracted entries from backdrop and unreplied payload rows on turn retry. Fill the planned Website ambient-intervention user guide in both locales, and point the signal-bindings, SignalsGateway, and Console API pages at the new judgment, attribution, and standing-orders behavior.
+
+- Translate the `lark-approvals` Skill description into English while preserving its human identity, reimbursement confirmation, approval routing, and native submission boundaries.
+
+- Use the conversation timezone once in the Worker system prompt, then render the conversation start, current message time, and quoted shared-channel times as local `YYYY-MM-DD HH:mm` values without seconds or repeated timezone labels. Remove `actor-event` operational references from quoted Agent notices, and remove the duplicate Agent document path list from runtime context.
+
+- Give each Actor Session a stable PostgreSQL-owned numeric workspace ID that starts at 10000, and use `/agents/<agent-key>/sessions/<workspace-id>` as its model-visible path. Carry the ID through required RuntimeFabric v4 `turn_start` envelopes. On first access, atomically move a legacy Base64URL Session directory to the numeric path, and fail if both paths contain competing state.
+
+- Project one PostgreSQL-backed conversation origin channel through RuntimeFabric for both the main system prompt and ambient recognition. Use the current group name or DM peer Principal label, keep Lark and Feishu as one adapter surface, and remove Worker fallbacks to turn-local ActorEvent channel payloads.
+
+- Disable the Codex-bundled `skill-creator`, `plugin-creator`, and `skill-installer` skills in the materialized Worker Codex configuration.
+
+- Make MCP-backed Skills Skill-first across the main Agent, Background Agent Jobs, and Automation Jobs. Resolve each enabled Skill's connection declaration into one invocation-scoped `mcporter` config, inject the current WorkerEnv, and remove the config when the execution ends. Send current Skill summaries with Automation attempts, remove native Main and Codex MCP projections and their direct SDK dependency, reject stale Codex `mcp_servers`, and update the BullX proposal, normative contract, runtime guidance, Website, and regression coverage. Record the native Main and Codex BullX selection baseline before deleting the old path.
+
+- Add release-defined Direct MCP tools as the narrow exception to Skill-first MCP. Project one bounded live catalog as deferred namespace tools for the main Agent and Background Codex, and add the same static server records to every Automation attempt without runtime eligibility gates. Ship Flint Chart 0.4.1 and the MCP SDK in the Worker image, launch the local server with `bunx`, restrict it to inline-data Vega-Lite, expose only static PNG or SVG rendering plus validation, discovery, and Vega-Lite compilation, default renders to PNG, reject Map and Choropleth, persist native chart artifacts, and document and test the shared registry, policy proxy, runtime projections, and real render path.
+
+- Keep settled Programmatic Tool Calling history readable when a later release, Skill change, or temporary tool-catalog failure removes the current PTC declaration. Project the completed program pair without exposing a new program tool, and continue to reject an unsettled program unless the request supplies its declaration and frozen bindings.
+
+- Give inbound attachments stable PostgreSQL numeric IDs starting at 10000, and materialize Lark files under `/agents/<agent-key>/user-files/inbox/<attachment-id>/<AnyAscii-filename>` without provider IDs in the path. Use the native AnyAscii transliterator before every adapter's ASCII filename filter, render human-readable file sizes instead of raw attachment metadata, and remove the redundant Agent Home line from the Worker system prompt.
+
+- Carry AIGateway credential-pool retry eligibility as typed kernel state instead of reconstructing it from provider error strings, and preserve eligible pre-output connection failures after HTTP transport fallback. Run native file fingerprint I/O on a worker thread with a bounded heap buffer. Make the Rust RuntimeFabric protocol version the declared owner, check its Elixir, TypeScript, and image metadata mirrors, replace the UniversalAIClient `include!` graph with real modules, keep one generated Rust RPC type path, and enforce reasons for lint exceptions plus stack and unsafe-block documentation guards.
+
 ## Version 0.53.1 (2026-08-01)
 
 - Keep complete-response callers on the ChatGPT Subscription protocol that the Codex endpoint accepts. AIGateway now opens the required upstream SSE stream and collects its terminal Response, removes the unsupported `truncation` field with the existing ChatGPT-only request cleanup, and leaves OpenAI, OpenRouter, and other providers on their current request path.

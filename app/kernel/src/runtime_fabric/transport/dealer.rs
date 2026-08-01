@@ -33,6 +33,14 @@ pub struct DealerHandle {
     inner: Arc<DealerHandleInner>,
 }
 
+impl std::fmt::Debug for DealerHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DealerHandle")
+            .finish_non_exhaustive()
+    }
+}
+
 // Async N-API receive tasks need to hold a temporary clone while JS continues
 // using the worker transport. The underlying DEALER must therefore be closed by
 // the last shared handle, not by every clone that leaves a native worker thread.
