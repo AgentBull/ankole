@@ -2104,7 +2104,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     assert summarizer_request.body["model"] == "gpt-compact-light"
     assert summarizer_request.body["store"] == false
-    assert summarizer_request.body["max_output_tokens"] == 8_192
+    refute Map.has_key?(summarizer_request.body, "max_output_tokens")
     assert summarizer_request.body["reasoning"] == %{"effort" => "low"}
     assert summarizer_input =~ "first user message with enough detail"
     assert summarizer_input =~ "first assistant answer"

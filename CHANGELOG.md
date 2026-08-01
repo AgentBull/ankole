@@ -1,5 +1,11 @@
 # Changelog
 
+## Version 0.52.2 (2026-08-01)
+
+- Remove `max_output_tokens` from ChatGPT Subscription requests. The Codex upstream rejects this field, so automatic long-conversation compaction now reaches the summarizer instead of failing with HTTP 400. Keep the output cap for providers that support it.
+
+- Document the WeCom gateway requirement for canonical WebSocket Upgrade header names in the bot client and adapter design. The implementation and strict connection regression remain owned by Version 0.52.1.
+
 ## Version 0.52.1 (2026-07-31)
 
 - Fix WeCom AI-bot WebSocket handshakes against the provider gateway by preserving the conventional RFC 6455 Header casing during the HTTP/1.1 upgrade. Add strict regression coverage for the connection path.

@@ -26,9 +26,10 @@ defmodule WeComOpenAPI.Bot.Client do
   stops with `{:shutdown, :connection_contended}` instead of fighting — the
   official SDK does the same. Plain socket loss still reconnects with backoff.
 
-  Design note: `Mint.WebSocket` is process-less by design — it covers the
-  upgrade handshake and frame codec and leaves the process model, reconnects,
-  and backoff to its caller, so the GenServer plumbing here is that contract.
+  Design note: `Mint.WebSocket` is process-less by design. It validates the
+  upgrade response and handles the frame codec. This client builds the HTTP/1
+  upgrade request because the WeCom gateway requires canonical header names.
+  The caller still owns the process model, reconnects, and backoff.
   `DingTalkOpenAPI.Stream.Client` shares the Mint plumbing shape on purpose;
   everything above it (auth frame vs ticket registration, ack correlation vs
   ack emission) diverges, so no shared abstraction is extracted.

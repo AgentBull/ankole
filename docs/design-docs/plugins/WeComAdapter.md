@@ -71,7 +71,10 @@ The client opens the WebSocket, authenticates in-band with the bot
 credentials, and sends a heartbeat every 30 seconds. All outbound frames wait
 for their acknowledgement, correlated by `req_id`. Replies to one `req_id` go
 out one at a time, because their acknowledgements are only attributable by
-that `req_id`.
+that `req_id`. The WeCom gateway requires the exact WebSocket Upgrade header
+names `Upgrade`, `Connection`, `Sec-WebSocket-Version`, and
+`Sec-WebSocket-Key`. It returns HTTP 404 when a client sends these names in
+lowercase, so the client preserves their canonical case in the HTTP/1 request.
 
 WeCom permits one live connection for each bot. When a second consumer
 connects, the platform disconnects the first one and announces it with a

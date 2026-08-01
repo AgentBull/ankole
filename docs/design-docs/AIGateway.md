@@ -218,7 +218,8 @@ response storage.
 The provider prepares the Codex protocol as follows:
 
 - It removes downstream-only and unsupported request fields, including caller
-  `metadata`, before dispatch. AIGateway still stores that metadata locally.
+  `metadata` and `max_output_tokens`, before dispatch. AIGateway still stores
+  metadata locally.
 - It converts standard string input to one user message because the Codex
   endpoint accepts only an input-item list.
 - It supplies an empty `instructions` value when the client omits it.

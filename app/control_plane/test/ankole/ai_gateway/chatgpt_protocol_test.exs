@@ -9,6 +9,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
     request = %{
       "model" => "gpt-5.6-sol",
       "generate" => true,
+      "max_output_tokens" => 8_192,
       "metadata" => %{"actor_event_id" => "event-1"},
       "prompt_cache_retention" => "24h",
       "safety_identifier" => "unsafe-upstream-field",
@@ -39,6 +40,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
              })
 
     refute Map.has_key?(prepared, "generate")
+    refute Map.has_key?(prepared, "max_output_tokens")
     refute Map.has_key?(prepared, "metadata")
     refute Map.has_key?(prepared, "prompt_cache_retention")
     refute Map.has_key?(prepared, "safety_identifier")
