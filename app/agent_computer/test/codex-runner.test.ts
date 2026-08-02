@@ -61,6 +61,7 @@ type FakeCodexBehavior = {
   successfulSteer?: boolean
   steerCompletionRace?: boolean
   interruptCompletionRace?: boolean
+  mcpStartupFailure?: { name: string; error: string }
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -102,9 +103,9 @@ describe('@ankole/agent-computer Codex job runner', () => {
           'memory_update',
           'memory_browse',
           'memory_health_check',
-          'mcp__flint_chart',
           'request_parent_input'
-        ]
+        ],
+        mcp_server_names: []
       })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('agent_plugins')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('input_snapshots_materialized')
@@ -268,6 +269,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       await runCodexJob(turnStart(), opts)
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+      expect(parsedJSON(statusUpdates[0]?.metadataJson)?.mcp_server_names).toEqual(['job-data'])
       expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'job-any'))).toBe(true)
       expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'main-only'))).toBe(false)
       const runtimeEnv = JSON.parse(
@@ -279,6 +281,41 @@ describe('@ankole/agent-computer Codex job runner', () => {
         mcpServers: { 'job-data': { baseUrl: 'https://mcp.example.test/rpc' } }
       })
       expect(existsSync(runtimeEnv.MCPORTER_CONFIG)).toBe(false)
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('reports an optional native MCP startup failure without failing the Job', async () => {
+    const fixture = prepareFixture('done without optional MCP', {
+      mcpStartupFailure: {
+        name: 'optional-server',
+        error: `Optional MCP server failed to start: ${'x'.repeat(3_000)}`
+      }
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const warnings: Array<{ event: string; message: string; fields?: JSONObject }> = []
+    const opts = options(fixture.root, statusUpdates, [])
+    opts.logger = {
+      info() {},
+      warning(event, message, fields) {
+        warnings.push({ event, message, fields })
+      }
+    }
+
+    try {
+      await runCodexJob(turnStart(), opts)
+
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toMatchObject({
+        event: 'worker.codex_mcp_server_unavailable',
+        message: 'Codex MCP server is unavailable',
+        fields: { server: 'optional-server', status: 'failed' }
+      })
+      const error = String(warnings[0]?.fields?.error)
+      expect(new TextEncoder().encode(error).byteLength).toBeLessThanOrEqual(2_048)
+      expect(error).toEndWith('...[truncated]')
     } finally {
       fixture.cleanup()
     }
@@ -930,6 +967,7 @@ const discoveredSkills = ${JSON.stringify(behavior.discoveredSkills ?? [])}
 const successfulSteer = ${JSON.stringify(behavior.successfulSteer)}
 const steerCompletionRace = ${JSON.stringify(behavior.steerCompletionRace)}
 const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRace)}
+const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
@@ -949,7 +987,12 @@ function handle(message) {
     return write({ id: message.id, result: { data: [{ cwd: message.params.cwds[0], skills: discoveredSkills.map(name => ({ name, path: '/skills/' + name, enabled: true })), errors: [] }] } })
   }
   if (message.method === 'thread/start') {
-    return write({ id: message.id, result: { thread: { id: 'thread-1' } } })
+    write({ id: message.id, result: { thread: { id: 'thread-1' } } })
+    if (mcpStartupFailure) {
+      write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-1', name: mcpStartupFailure.name, status: 'starting', error: null, failureReason: null } })
+      write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-1', name: mcpStartupFailure.name, status: 'failed', error: mcpStartupFailure.error, failureReason: null } })
+    }
+    return
   }
   if (message.method === 'thread/resume') {
     if (resumeError) {

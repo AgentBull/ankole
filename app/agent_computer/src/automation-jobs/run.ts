@@ -7,12 +7,7 @@ import { pathIsWithin } from '../core/path-boundary'
 import { resolveAgentWorkerEnv } from '../core/turns/worker_env'
 import { bubblewrapArgv } from '../tools/computer/bubblewrap'
 import { commandEnv } from '../tools/computer/env'
-import {
-  loadEnabledSkillMCPServers,
-  materializeMCPorterConfig,
-  registeredDirectMCPServers,
-  type MaterializedMCPorterConfig
-} from '../tools/mcp'
+import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../tools/mcp'
 import {
   rpcMethods,
   type AutomationJobRunRequest,
@@ -65,7 +60,7 @@ export async function runAutomationJob(
         ...(opts.config.internalSkillsRoot ? { internalSkillsRoot: opts.config.internalSkillsRoot } : {})
       }
     })
-    mcporterConfig = materializeMCPorterConfig([...skillMCPServers, ...registeredDirectMCPServers()])
+    mcporterConfig = materializeMCPorterConfig(skillMCPServers)
   } catch (error) {
     return failedResult(errorMessage(error))
   }

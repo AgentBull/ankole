@@ -7,7 +7,7 @@ order: 123
 
 Ankole uses MCP behind Skills. The Skill owns domain routing and result rules. The pinned mcporter CLI owns protocol discovery and calls for the one tool that the Skill selects.
 
-For an Agent-specific domain integration, do not register an MCP server directly on the Agent. Enable the Skill that declares it. Disabling that Skill removes the dependency from the next execution. Release-defined Direct MCP tools are a separate platform contract and need no Skill.
+For an Agent-specific domain integration, do not register an MCP server directly on the Agent. Enable the Skill that declares it. Disabling that Skill removes the dependency from the next execution.
 
 ## Main Agent and Background Agent Job
 
@@ -19,7 +19,7 @@ The Main Agent uses its command tool. A Background Agent Job uses its Codex term
 
 An Automation Job does not read Skill instructions. The Agent that writes `main.ts` must encode the selected tool, arguments, bounds, and result checks in the script.
 
-Each Automation attempt receives the current enabled Skill dependencies and release-defined Direct MCP servers through `MCPORTER_CONFIG`, plus the latest Agent WorkerEnv. Call mcporter with `Bun.spawn`, write JSON to stdin, check the exit code, and parse stdout. Do not create `~/.mcporter/mcporter.json`.
+Each Automation attempt receives the current enabled Skill dependencies through `MCPORTER_CONFIG`, plus the latest Agent WorkerEnv. Call mcporter with `Bun.spawn`, write JSON to stdin, check the exit code, and parse stdout. Do not create `~/.mcporter/mcporter.json`.
 
 ## Credentials
 

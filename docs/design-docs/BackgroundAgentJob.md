@@ -236,12 +236,11 @@ configuration contains model, reasoning, Plugin, and safety choices. Agent
 Computer supplies MCP-backed Skill dependencies through an invocation-scoped
 `MCPORTER_CONFIG`, not through Codex project configuration.
 
-Release-defined Direct MCP servers use a different projection. Agent Computer
-lists their live catalogs and gives Codex deferred dynamic namespace tools.
-Agent Computer executes the selected child through its MCP client and returns
-text, image content, and artifact paths. It does not write these servers to
-Codex project `mcp_servers` or the Skill mcporter config. See
-[Direct MCP Tools](DirectMCPTools.md).
+Job preparation removes `mcp_servers` from workspace project configuration.
+No bundled native MCP server is currently installed. If a concrete capability
+adds one, Codex must own the Background connection and expose it through native
+MCP. Agent Computer must not project an `mcp__` namespace through dynamic tools.
+See [MCP-backed Skills](MCPBackedSkills.md#model-visible-mcp-boundary).
 
 Agent Computer enables Codex native code mode for each Job. Code mode gives a
 Job one isolated JavaScript executor that can call eligible local tools,

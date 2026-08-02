@@ -165,8 +165,8 @@ defmodule Ankole.Brain.RPCBroker do
 
   defp entry_selector(request) do
     case {presence(request.entry_id), presence(request.name)} do
-      {entry_id, _name} when is_binary(entry_id) -> {:ok, entry_id}
-      {nil, name} when is_binary(name) -> {:ok, name}
+      {entry_id, _name} when is_binary(entry_id) -> {:ok, %{entry_id: entry_id}}
+      {nil, name} when is_binary(name) -> {:ok, %{name: name}}
       _missing -> {:error, {:missing, "entry_id_or_name"}}
     end
   end

@@ -11,7 +11,27 @@ import type { JsonValue as JSONValue } from '../../tools/codex/generated/protoco
 
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
-export const codexJobToolNames = new Set([
+const codexDynamicToolNameMaxLength = 128
+const codexDynamicNamespaceMaxLength = 64
+const codexDynamicNamespaceDescriptionMaxLength = 1_024
+const codexDynamicIdentifierPattern = /^[A-Za-z0-9_-]+$/
+const codexReservedResponsesNamespaces = new Set([
+  'api_tool',
+  'browser',
+  'computer',
+  'container',
+  'file_search',
+  'functions',
+  'image_gen',
+  'multi_tool_use',
+  'python',
+  'python_user_visible',
+  'submodel_delegator',
+  'terminal',
+  'tool_search',
+  'web'
+])
+export const codexJobToolPaths = new Set([
   'web_search',
   'web_fetch',
   'memory_search',
@@ -29,7 +49,7 @@ export type CodexJobProjection = {
 
 export function buildCodexJobProjection(input: {
   tools: AgentTool[]
-  allowedToolNames?: ReadonlySet<string>
+  allowedToolPaths?: ReadonlySet<string>
   onAudit?: (eventType: string, payload: JSONObject) => void
 }): CodexJobProjection {
   const tools = new Map<string, AgentTool>()
@@ -45,11 +65,14 @@ export function buildCodexJobProjection(input: {
   const quarantinedTools: string[] = []
 
   for (const tool of input.tools) {
-    if (!tool.namespace && !(input.allowedToolNames ?? codexJobToolNames).has(tool.name)) continue
     const projectedName = qualifiedToolName(tool.namespace, tool.name)
+    if (!(input.allowedToolPaths ?? codexJobToolPaths).has(projectedName)) continue
     try {
+      assertCodexDynamicToolIdentity(tool)
+      const lookupKey = toolLookupKey(tool.namespace ?? null, tool.name)
+      if (tools.has(lookupKey)) throw new Error(`Duplicate dynamic tool ${projectedName}`)
       const inputSchema = (tool.jsonSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
-      if (tool.namespace) {
+      if (tool.namespace !== undefined) {
         const existing = namespaces.get(tool.namespace)
         const description = tool.namespaceDescription ?? tool.namespace
         if (existing && existing.description !== description) {
@@ -67,6 +90,9 @@ export function buildCodexJobProjection(input: {
         })
         namespaces.set(tool.namespace, namespace)
       } else {
+        if (tool.deferLoading === true) {
+          throw new Error(`Deferred dynamic tool must include a namespace: ${tool.name}`)
+        }
         dynamicTools.push({
           type: 'function',
           name: tool.name,
@@ -75,7 +101,7 @@ export function buildCodexJobProjection(input: {
           ...(tool.deferLoading === undefined ? {} : { deferLoading: tool.deferLoading })
         })
       }
-      tools.set(toolLookupKey(tool.namespace ?? null, tool.name), tool)
+      tools.set(lookupKey, tool)
     } catch (error) {
       quarantinedTools.push(projectedName)
       input.onAudit?.('dynamic_tool_quarantined', { tool: projectedName, error: errorMessage(error) })
@@ -135,7 +161,43 @@ function toolLookupKey(namespace: string | null, tool: string): string {
 }
 
 function qualifiedToolName(namespace: string | null | undefined, tool: string): string {
-  return namespace ? `${namespace}.${tool}` : tool
+  return namespace === undefined || namespace === null ? tool : `${namespace}.${tool}`
+}
+
+/** Matches the dynamic-tool identity boundary in the pinned Codex 0.146 app-server. */
+function assertCodexDynamicToolIdentity(tool: AgentTool): void {
+  assertCodexDynamicIdentifier(tool.name, 'tool name', codexDynamicToolNameMaxLength)
+  if (reservedMCPIdentity(tool.name)) throw new Error(`Dynamic tool name is reserved: ${tool.name}`)
+  if (tool.namespace === undefined) return
+
+  assertCodexDynamicIdentifier(tool.namespace, 'tool namespace', codexDynamicNamespaceMaxLength)
+  const description = tool.namespaceDescription ?? tool.namespace
+  if ([...description].length > codexDynamicNamespaceDescriptionMaxLength) {
+    throw new Error(
+      `Dynamic tool namespace description must be at most ${codexDynamicNamespaceDescriptionMaxLength} characters`
+    )
+  }
+  if (reservedMCPIdentity(tool.namespace)) {
+    throw new Error(`Dynamic tool namespace is reserved: ${tool.namespace}`)
+  }
+  if (codexReservedResponsesNamespaces.has(tool.namespace)) {
+    throw new Error(`Dynamic tool namespace collides with a reserved Responses API namespace: ${tool.namespace}`)
+  }
+}
+
+function assertCodexDynamicIdentifier(value: string, label: string, maxLength: number): void {
+  if (!value) throw new Error(`Dynamic ${label} must not be empty`)
+  if (value.trim() !== value) throw new Error(`Dynamic ${label} has leading or trailing whitespace: ${value}`)
+  if (!codexDynamicIdentifierPattern.test(value)) {
+    throw new Error(`Dynamic ${label} must match ^[a-zA-Z0-9_-]+$ for the Responses API: ${value}`)
+  }
+  if ([...value].length > maxLength) {
+    throw new Error(`Dynamic ${label} must be at most ${maxLength} characters for the Responses API: ${value}`)
+  }
+}
+
+function reservedMCPIdentity(value: string): boolean {
+  return value === 'mcp' || value.startsWith('mcp__')
 }
 
 function dynamicToolContentItems(result: {

@@ -1,11 +1,11 @@
 ---
 title: MCP server 参考
-description: Skill-backed 与发布内置 Direct MCP 如何进入 Main、Background 和 Automation 执行。
+description: Skill-backed MCP 依赖如何进入 Main、Background 与 Automation 执行。
 section: Reference
 order: 201
 ---
 
-Ankole 有两种 MCP 接入方式。Skill-backed server 在 Skill 选好一个领域工具后，把 MCP 用作调用协议；发布内置的 Direct MCP server 则提供小型的模型可见工具面。
+Ankole 把 MCP 放在 Skill 背后用于领域集成。平台不保留 Agent 级 MCP 注册表，也不保留持久 mcporter 配置。
 
 Skill MCP 依赖不会注册成模型原生工具，Agent 也不会直接收到它们的完整 MCP catalog。这样，Skill 是唯一的路由中心，不会出现第二套工具选择面。
 
@@ -74,13 +74,9 @@ Agent Computer 为每次执行写一个唯一的 `0600` 配置，并把路径注
 
 Main Agent 通过 command tool 调用 mcporter；Background Agent Job 通过 Codex terminal 调用；Automation Job 在 `main.ts` 中用 `Bun.spawn` 调用。
 
-## 发布内置 Direct MCP
+## 模型可见的原生 MCP 边界
 
-Direct MCP server 随 Agent Computer Worker 发布，不来自 Agent 设置或 Skill。Main Agent 把它的工具作为 deferred Responses namespace 使用；Background Agent Job 把同一组工具作为 deferred Codex dynamic namespace 使用。
-
-每个 Automation attempt 的按次 `MCPORTER_CONFIG` 也会包含全部 Direct MCP server。这保证能力一致，不表示平台预测脚本会使用它。Agent Computer 不增加运行时启用或禁用规则。生成配置不会启动 server；只有模型工具或脚本发起调用时才建立连接。
-
-Flint Chart 是第一个 Direct MCP 集成。它通过 `bunx --bun --no-install` 使用 Worker 镜像中的 `flint-chart-mcp` 依赖，只暴露静态 PNG、SVG、Vega-Lite 编译与校验，默认 PNG，并禁用 Map 和 Choropleth。它不暴露 Flint MCP App。Direct MCP 注册是受信的发布合同，不是用户扩展面。
+Ankole 当前不内置模型可见的 MCP server。未来的具体集成必须让 Main 与 Background 暴露相同的 `mcp__<server>` namespace、工具名、description 与 deferred loading 行为。Ankole 把 server JSON Schema 原样交给两个 runtime。Main 使用自己的 Responses tool owner；Background 使用 Codex native MCP，并让 Codex 自己负责该 projection。平台不会改写一侧 schema 来模仿另一侧，也不会为未来场景预先增加空注册表或通用本地 MCP loader。
 
 ## 只选择并调用一个工具
 
@@ -101,8 +97,6 @@ Automation 脚本使用同样的 argv，把 JSON 写入子进程 stdin，检查 
 ## 安全边界
 
 MCP output 是不可信输入。Skill 与 mcporter 路径不再提供 Ankole 旧原生路径的 output-schema 校验、MCP annotation 调度、tool-level approval UI，也不会按全部 WorkerEnv secrets 清洗结果。该路径用于受信、第一方 MCP Skills。远端 credential scope 仍是真正的读写权限边界。
-
-Main 与 Background 的原生 Direct MCP 路径会校验 protocol result envelope 和声明的 output schema，限制结果，并只清洗该发布记录声明的 WorkerEnv 值。Automation 保留现有的脚本自管 mcporter 结果合同，不增加这层原生清洗。每个发布记录还必须定义自己的数据访问与产物合同。
 
 ## 下一步
 

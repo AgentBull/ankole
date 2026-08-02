@@ -8,6 +8,7 @@ import {
 } from '../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   chmodSync,
+  appendFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,9 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { CodexAppServerClient } from '../../src/tools/codex/app-server-client'
 import type { HooksListResponse } from '../../src/tools/codex/generated/protocol/v2/HooksListResponse'
+import type { ListMcpServerStatusResponse } from '../../src/tools/codex/generated/protocol/v2/ListMcpServerStatusResponse'
+import type { McpServerToolCallResponse } from '../../src/tools/codex/generated/protocol/v2/McpServerToolCallResponse'
+import type { ThreadStartResponse } from '../../src/tools/codex/generated/protocol/v2/ThreadStartResponse'
 import { materializeCodexConfig } from '../../src/tools/codex/config'
 import { codexAppServerSandboxSpec } from '../../src/tools/codex/sandbox'
 import { materializeCodexJobRuntimeFiles, renderCodexJobAgents } from '../../src/core/codex-runner/runtime-files'
@@ -381,6 +385,8 @@ grep -q '# PPTX' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
 grep -q 'PG_OVERLAY_MARKER' ${jobProjectRoot}/.ankole/skills/pptx/SKILL.md
 grep -q '^name: pdf$' /repo/app/library/skills/pdf/SKILL.md
 grep -q '^model = "gpt-5.6-sol"$' ${jobProjectRoot}/.codex/config.toml
+grep -q 'native-fixture' ${jobProjectRoot}/.codex/config.toml
+grep -q 'broken-optional' ${jobProjectRoot}/.codex/config.toml
 grep -q '^model_provider = "ankole_aigateway"$' \${CODEX_HOME}/config.toml
 test -n "\${ANKOLE_AIGATEWAY_MODEL_BINDING:-}"
 printf 'command path works\n' > ${jobProjectRoot}/command-probe.txt
@@ -458,6 +464,7 @@ test ! -e ./AGENTS.override.md
       pluginsEnabled: false,
       runtimeConfig
     })
+    appendOptionalMCPFixtures(project.root)
     let realClient: CodexAppServerClient | undefined
 
     try {
@@ -487,6 +494,7 @@ test ! -e ./AGENTS.override.md
       else process.env.ANKOLE_CODEX_BINARY = previousCodexBinary
       const realSandbox = codexAppServerSandboxSpec({ project, materialized, runtimeFiles })
       const stderrChunks: string[] = []
+      const mcpStartupFailures: Array<Record<string, unknown>> = []
       realClient = new CodexAppServerClient({
         cwd: realSandbox.cwd,
         env: realSandbox.env,
@@ -494,6 +502,10 @@ test ! -e ./AGENTS.override.md
         onNotification: message => {
           if (message.method === '$stderr' && typeof (message.params as { text?: unknown })?.text === 'string') {
             stderrChunks.push((message.params as { text: string }).text)
+          }
+          if (message.method === 'mcpServer/startupStatus/updated') {
+            const params = message.params as Record<string, unknown>
+            if (params.status === 'failed') mcpStartupFailures.push(params)
           }
         }
       })
@@ -515,17 +527,45 @@ test ! -e ./AGENTS.override.md
           cwd: realSandbox.codexCwd,
           approvalPolicy: 'never',
           sandbox: 'danger-full-access'
-        })) as {
-          instructionSources: string[]
-          model: string
-          modelProvider: string
-          reasoningEffort: string | null
-        }
+        })) as ThreadStartResponse
         expect(thread.instructionSources.some(path => path.endsWith('/AGENTS.md'))).toBe(true)
         expect(thread.instructionSources).toHaveLength(1)
         expect(thread.model).toBe('gpt-5.6-sol')
         expect(thread.modelProvider).toBe('ankole_aigateway')
         expect(thread.reasoningEffort).toBe('xhigh')
+
+        const mcpStatus = (await realClient.request('mcpServerStatus/list', {
+          threadId: thread.thread.id,
+          detail: 'toolsAndAuthOnly'
+        })) as ListMcpServerStatusResponse
+        expect(mcpStatus.data.find(server => server.name === 'native-fixture')).toMatchObject({
+          name: 'native-fixture',
+          serverInfo: { name: 'ankole-test-stdio', version: '1.0.0' }
+        })
+        expect(Object.keys(mcpStatus.data.find(server => server.name === 'native-fixture')?.tools ?? {})).toEqual([
+          'stdio_echo'
+        ])
+        expect(mcpStatus.data.find(server => server.name === 'broken-optional')).toMatchObject({
+          name: 'broken-optional',
+          serverInfo: null,
+          tools: {}
+        })
+        expect(mcpStartupFailures).toContainEqual(
+          expect.objectContaining({
+            threadId: thread.thread.id,
+            name: 'broken-optional',
+            status: 'failed'
+          })
+        )
+
+        const echo = (await realClient.request('mcpServer/tool/call', {
+          threadId: thread.thread.id,
+          server: 'native-fixture',
+          tool: 'stdio_echo',
+          arguments: { text: 'native Codex MCP' }
+        })) as McpServerToolCallResponse
+        expect(echo.isError).not.toBe(true)
+        expect(echo.content).toEqual([{ type: 'text', text: 'stdio response' }])
       } catch (error) {
         throw new Error(`${error instanceof Error ? error.message : String(error)}\n${stderrChunks.join('')}`)
       }
@@ -536,8 +576,33 @@ test ! -e ./AGENTS.override.md
       runtimeFiles.cleanup()
       rmSync(root, { recursive: true, force: true })
     }
-  }, 20_000)
+  }, 60_000)
 })
+
+function appendOptionalMCPFixtures(projectRoot: string): void {
+  appendFileSync(
+    join(projectRoot, '.codex', 'config.toml'),
+    [
+      '',
+      '[mcp_servers.native-fixture]',
+      'command = "bun"',
+      'args = ["/repo/app/agent_computer/test/fixtures/mcp-stdio-server.ts"]',
+      'cwd = "/repo/app/agent_computer"',
+      'required = false',
+      'tool_timeout_sec = 10',
+      'enabled_tools = ["stdio_echo"]',
+      '',
+      '[mcp_servers.broken-optional]',
+      'command = "/ankole-test-missing-mcp-command"',
+      'args = []',
+      `cwd = ${JSON.stringify(projectRoot)}`,
+      'required = false',
+      'tool_timeout_sec = 1',
+      'enabled_tools = ["unused"]',
+      ''
+    ].join('\n')
+  )
+}
 
 function protocolFiles(root: string): string[] {
   return readdirSync(root, { recursive: true, withFileTypes: true })

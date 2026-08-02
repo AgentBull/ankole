@@ -129,45 +129,46 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
   })
 
-  it('projects Direct MCP tools as deferred namespaces with their catalog schema', async () => {
+  it('projects an explicitly allowed Background namespace without bypassing its allowlist', async () => {
+    let called = false
     const inputSchema = {
       type: 'object',
-      properties: { chart_spec: { type: 'object' } },
-      required: ['chart_spec']
+      properties: { metric: { type: 'string' } },
+      required: ['metric']
     }
-    const directTool: AgentTool = {
-      name: 'render_chart',
-      description: 'Render a static chart.',
+    const namespacedTool: AgentTool = {
+      name: 'inspect_data',
+      description: 'Inspect one metric.',
       schema: z.record(z.string(), z.unknown()),
       jsonSchema: inputSchema,
-      namespace: 'mcp__flint_chart',
-      namespaceDescription: 'Static Flint charts.',
+      namespace: 'analysis_tools',
+      namespaceDescription: 'Data analysis tools.',
       deferLoading: true,
       isReadOnly: true,
       isDestructive: false,
-      describeActivity: () => 'Render chart',
+      describeActivity: () => 'Inspect data',
       async execute() {
-        return {
-          content: [
-            { type: 'text', text: 'Artifact path: /tmp/chart.png' },
-            { type: 'image', image: Uint8Array.from([137, 80, 78, 71]), mimeType: 'image/png' }
-          ],
-          details: { format: 'png' }
-        }
+        called = true
+        return { content: [{ type: 'text', text: 'inspected' }], details: {} }
       }
     }
 
-    const projection = buildCodexJobProjection({ tools: [directTool], allowedToolNames: new Set() })
+    expect(buildCodexJobProjection({ tools: [namespacedTool], allowedToolPaths: new Set() }).dynamicTools).toEqual([])
+
+    const projection = buildCodexJobProjection({
+      tools: [namespacedTool],
+      allowedToolPaths: new Set(['analysis_tools.inspect_data'])
+    })
     expect(projection.dynamicTools).toEqual([
       {
         type: 'namespace',
-        name: 'mcp__flint_chart',
-        description: 'Static Flint charts.',
+        name: 'analysis_tools',
+        description: 'Data analysis tools.',
         tools: [
           {
             type: 'function',
-            name: 'render_chart',
-            description: 'Render a static chart.',
+            name: 'inspect_data',
+            description: 'Inspect one metric.',
             inputSchema,
             deferLoading: true
           }
@@ -179,38 +180,72 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       {
         threadId: 'thread-1',
         turnId: 'turn-1',
-        callId: 'call-direct-mcp',
-        namespace: 'mcp__flint_chart',
-        tool: 'render_chart',
-        arguments: { chart_spec: {} }
+        callId: 'call-background-namespace',
+        namespace: 'analysis_tools',
+        tool: 'inspect_data',
+        arguments: { metric: 'revenue' }
       },
       new AbortController().signal
     )
-    expect(result).toEqual({
-      contentItems: [
-        { type: 'inputText', text: 'Artifact path: /tmp/chart.png' },
-        { type: 'inputImage', imageUrl: 'data:image/png;base64,iVBORw==' }
-      ],
-      success: true
+    expect(result).toEqual({ contentItems: [{ type: 'inputText', text: 'inspected' }], success: true })
+    expect(called).toBe(true)
+  })
+
+  it('quarantines only identities that the pinned Codex dynamic-tool boundary rejects', () => {
+    const audit: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const tools = [
+      namespacedTool('analysis_tools', 'inspect_data'),
+      namespacedTool('mcp__native_data', 'lookup_metric'),
+      namespacedTool('functions', 'lookup_record')
+    ]
+    const projection = buildCodexJobProjection({
+      tools,
+      allowedToolPaths: new Set([
+        'analysis_tools.inspect_data',
+        'mcp__native_data.lookup_metric',
+        'functions.lookup_record'
+      ]),
+      onAudit: (event, payload) => audit.push({ event, payload })
     })
 
-    const wrongNamespace = await projection.handleToolCall(
+    expect(projection.dynamicTools).toEqual([
       {
-        threadId: 'thread-1',
-        turnId: 'turn-1',
-        callId: 'call-direct-mcp-flat',
-        namespace: null,
-        tool: 'render_chart',
-        arguments: { chart_spec: {} }
-      },
-      new AbortController().signal
-    )
-    expect(wrongNamespace).toEqual({
-      contentItems: [{ type: 'inputText', text: 'Dynamic tool is unavailable: render_chart' }],
-      success: false
-    })
+        type: 'namespace',
+        name: 'analysis_tools',
+        description: 'analysis_tools tools',
+        tools: [
+          {
+            type: 'function',
+            name: 'inspect_data',
+            description: 'Inspect data.',
+            inputSchema: { type: 'object', properties: {} },
+            deferLoading: true
+          }
+        ]
+      }
+    ])
+    expect(projection.quarantinedTools).toEqual(['mcp__native_data.lookup_metric', 'functions.lookup_record'])
+    expect(audit.map(entry => entry.event)).toEqual(['dynamic_tool_quarantined', 'dynamic_tool_quarantined'])
   })
 })
+
+function namespacedTool(namespace: string, name: string): AgentTool {
+  return {
+    name,
+    description: 'Inspect data.',
+    schema: z.object({}),
+    jsonSchema: { type: 'object', properties: {} },
+    namespace,
+    namespaceDescription: `${namespace} tools`,
+    deferLoading: true,
+    isReadOnly: true,
+    isDestructive: false,
+    describeActivity: () => 'Inspect data',
+    async execute() {
+      return { content: [{ type: 'text', text: 'inspected' }], details: {} }
+    }
+  }
+}
 
 function tool(name: string, schema: z.ZodType, execute: (params: unknown) => string): AgentTool {
   return {

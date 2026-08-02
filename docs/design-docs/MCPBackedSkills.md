@@ -1,8 +1,7 @@
 # MCP-Backed Skills
 
-This document specifies Skill-backed MCP dependencies. Release-defined servers
-that are direct model tool providers use the separate
-[Direct MCP Tools](DirectMCPTools.md) contract.
+This document specifies Skill-backed MCP dependencies and the shared boundary
+for a future model-visible MCP integration.
 
 An MCP dependency is an execution adapter for a Skill. It is not a second
 model-visible tool registry. An enabled Skill declares the connection in
@@ -128,12 +127,31 @@ Each execution receives a fresh view:
 | Background Agent Job | Current selected standalone and Plugin Skills | One prepared Codex execution | Codex terminal |
 | Automation Job | Current enabled Agent Skill summaries | One Automation attempt | `main.ts` |
 
-The file can also contain release-defined Direct MCP servers. Those entries do
-not come from Skills and follow [Direct MCP Tools](DirectMCPTools.md).
+Background Job project config removes any existing `mcp_servers` table.
+Skill-backed dependencies do not enter that table. A workspace template or
+resumed project cannot inject a native Codex MCP server.
 
-Background Job project config removes any existing `mcp_servers` table. A
-workspace template or resumed project cannot restore the old native Codex MCP
-path.
+## Model-Visible MCP Boundary
+
+Ankole does not currently ship a bundled model-visible MCP server. If a
+concrete capability adds one, it must align observable behavior without
+copying Codex internals:
+
+- The main Agent uses the `mcp__<server>` namespace, original tool names and
+  descriptions, and deferred Tool Search.
+- A Background Agent Job configures the server through Codex native
+  `mcp_servers`. Agent Computer must not convert it into a dynamic tool.
+- Both paths must expose the same model-visible namespace, tools, and loading
+  behavior. Each runtime keeps its own execution owner.
+- Ankole passes the standard server JSON Schema into each runtime unchanged.
+  Main projects it through Responses. Background lets Codex own its native MCP
+  projection. An adapter must not delete or rewrite constraints to imitate the
+  other runtime's implementation details.
+
+Codex reserves the `mcp__` prefix for native MCP. The Background dynamic-tool
+projection quarantines that prefix, but it still accepts explicitly allowed
+non-MCP namespaces. A future integration adds its concrete server owner and
+tests; it does not add an empty registry or a general local MCP loader.
 
 ## Model Call Contract
 
@@ -214,5 +232,6 @@ credential identity or do not expose that dependency to the Agent.
 - Do not add a generic mcporter Skill, a generated server CLI, a daemon, a
   persistent config, or a second declaration file without production evidence
   that requires it.
-- Do not use this document to force a small release-defined model tool provider
-  behind a Skill. Review that server against the Direct MCP criteria instead.
+- Do not add a general local MCP loader or bundled server registry. A new
+  domain integration uses this Skill contract unless a concrete capability has
+  an explicit, reviewed model-visible contract and real runtime owner.

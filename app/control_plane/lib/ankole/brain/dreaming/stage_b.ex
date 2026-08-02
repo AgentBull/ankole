@@ -1154,11 +1154,14 @@ defmodule Ankole.Brain.Dreaming.StageB do
     |> Enum.map(& &1["query"])
     |> Enum.uniq()
     |> Enum.reduce_while({:ok, %{}}, fn query, {:ok, acc} ->
-      with {:ok, %{"results" => results}} <-
+      with {:ok, exact_contexts} <- exact_topic_context(scope, query),
+           {:ok, %{"results" => results}} <-
              Brain.search(scope, %{"query" => query, "layer" => "knowledge", "limit" => 10}),
-           {:ok, contexts} <- open_entry_ids(scope, Enum.map(results, & &1["entry_id"])) do
+           {:ok, ranked_contexts} <- open_entry_ids(scope, Enum.map(results, & &1["entry_id"])) do
         contexts =
-          Enum.reject(contexts, fn context ->
+          (exact_contexts ++ ranked_contexts)
+          |> Enum.uniq_by(&get_in(&1, ["entry", "id"]))
+          |> Enum.reject(fn context ->
             get_in(context, ["entry", "properties", "source_mirror"]) == true
           end)
 
@@ -1167,6 +1170,15 @@ defmodule Ankole.Brain.Dreaming.StageB do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp exact_topic_context(scope, query) do
+    case Knowledge.open(scope, %{name: query}, block_limit: :all) do
+      {:ok, projection} -> {:ok, [projection_context(projection)]}
+      {:error, :not_found} -> {:ok, []}
+      {:error, {:ambiguous_entry_selector, _details}} -> {:ok, []}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp open_entry_ids(scope, entry_ids) do

@@ -297,6 +297,50 @@ defmodule Ankole.Brain.RuntimeTest do
     assert page_two["next_block_cursor"] == nil
   end
 
+  test "memory_open returns alias collisions as a model-visible ambiguity" do
+    %{principal: agent} = agent_fixture()
+    session_id = "brain-rpc-alias-collision"
+
+    {:ok, _conversation} =
+      Conversations.ensure_conversation(agent.uid, session_id,
+        metadata: %{"brain" => %{"visibility" => "shared"}}
+      )
+
+    turn = turn_ref(agent.uid, session_id)
+
+    for name <- ["First RPC topic", "Second RPC topic"] do
+      assert {:ok, _created} =
+               RPCBroker.handle_update(
+                 turn,
+                 %FabricProto.MemoryUpdateRequest{
+                   operation:
+                     {:create_entry,
+                      %FabricProto.MemoryCreateEntry{
+                        name: name,
+                        type: "topic",
+                        aliases: ["RPC shared alias"]
+                      }}
+                 },
+                 rpc_ctx("brain-create-#{name}")
+               )
+    end
+
+    assert {:error, error} =
+             RPCBroker.handle_open(
+               turn,
+               %FabricProto.MemoryOpenRequest{name: "RPC shared alias"},
+               rpc_ctx("brain-open-alias-collision")
+             )
+
+    assert error["code"] == "ambiguous_entry_selector"
+    assert error["details_json"]["selector"] == "RPC shared alias"
+
+    assert Enum.sort(error["details_json"]["matches"]) == [
+             "First RPC topic",
+             "Second RPC topic"
+           ]
+  end
+
   test "source-learning RPC only admits blocks cited to its retained source" do
     %{principal: agent} = agent_fixture()
     session_id = "brain-source-learning-rpc"

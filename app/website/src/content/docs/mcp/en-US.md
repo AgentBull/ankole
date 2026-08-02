@@ -1,11 +1,11 @@
 ---
 title: MCP server reference
-description: How Skill-backed and release-defined Direct MCP servers enter Main, Background, and Automation executions.
+description: How Skill-backed MCP dependencies enter Main, Background, and Automation executions.
 section: Reference
 order: 201
 ---
 
-Ankole has two MCP integration modes. A Skill-backed server uses MCP as a call protocol after the Skill selects one domain tool. A release-defined Direct MCP server supplies a small model-visible tool surface.
+Ankole uses MCP behind Skills for domain integrations. It does not keep an Agent-level MCP registry or a persistent mcporter config.
 
 Skill MCP dependencies are not registered as native model tools. The Agent does not receive their complete MCP catalogs. This keeps the Skill as the routing owner and avoids a second tool-selection surface.
 
@@ -74,13 +74,9 @@ The file contains only connection facts and credential variable names. It never 
 
 Main Agents call mcporter through the command tool. Background Agent Jobs call it through the Codex terminal. Automation Jobs call it from `main.ts` with `Bun.spawn`.
 
-## Release-defined Direct MCP
+## Native model-visible MCP boundary
 
-A Direct MCP server is part of the Agent Computer Worker release. It does not come from Agent settings or a Skill. The Main Agent receives its tools as a deferred Responses namespace. A Background Agent Job receives the same tools as a deferred Codex dynamic namespace.
-
-Every Automation attempt also receives each Direct MCP server in its invocation-scoped `MCPORTER_CONFIG`. This is capability parity, not a prediction that the script will use the server. Agent Computer does not add a runtime enable or disable rule. Config generation does not start a server; a connection starts only when a model tool or script calls it.
-
-Flint Chart is the first Direct MCP integration. It uses the local `flint-chart-mcp` dependency through `bunx --bun --no-install`, exposes static PNG and SVG rendering plus Vega-Lite compilation and validation, defaults to PNG, and disables Map and Choropleth. It does not expose the Flint MCP App. Direct MCP registration is a trusted release contract, not a user extension surface.
+No bundled model-visible MCP server currently ships with Ankole. A future concrete integration must use the same `mcp__<server>` namespace, tool names, descriptions, and deferred loading behavior in Main and Background. Ankole passes the server JSON Schema into each runtime unchanged. Main uses its Responses tool owner; Background uses Codex native MCP and lets Codex own that projection. Ankole does not rewrite one runtime's schema to imitate the other, and it does not add an empty registry or a general local MCP loader for this future case.
 
 ## Select and call one tool
 
@@ -101,8 +97,6 @@ An Automation script uses the same argv, writes JSON to the child stdin, checks 
 ## Security limits
 
 MCP output is untrusted input. The Skill and mcporter path does not provide Ankole's former native output-schema validation, MCP annotation scheduling, tool-level approval UI, or result redaction against every WorkerEnv secret. Use it for trusted, first-party MCP Skills. The remote credential scope remains the real read or write permission boundary.
-
-The native Main and Background Direct MCP path validates protocol result envelopes and declared output schemas, bounds results, and redacts only the WorkerEnv values declared by that release record. Automation keeps its existing script-owned mcporter result contract and does not add this native redaction. The release must also define its data-access and artifact contract.
 
 ## Next steps
 

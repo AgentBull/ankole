@@ -7,7 +7,7 @@ order: 120
 
 During a turn, the worker assembles the set of tools the model can call, converts each tool's schema to JSON Schema the model sees, and dispatches each function call the model makes back to the tool's `execute` function. This page documents that runtime: the `AgentTool` contract, how the per-turn tool set is assembled, how schemas are collected, and how the loop dispatches a call. It builds on [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
-The decisive property, stated up front: tools are **assembled per turn**. Each turn builds its final tool set from computer, web, brain, schedule, background jobs, and other current sources. There is no Agent-owned global tool set. MCP-backed Skills use the computer command tool and mcporter. A small release registry can contribute trusted Direct MCP tools to the per-turn collection.
+The decisive property, stated up front: tools are **assembled per turn**. Each turn builds its final tool set from computer, web, brain, schedule, background jobs, and other current sources. There is no Agent-owned global tool set. MCP-backed Skills use the computer command tool and mcporter.
 
 ## The AgentTool contract
 
@@ -50,11 +50,10 @@ Each category creator is a function that returns one or more `AgentTool` objects
 The per-turn assembly is what makes the tool set dynamic:
 
 - **Skill knowledge** is projected from the Agent's current enabled Skills. An MCP-backed Skill selects a domain tool and uses the existing computer command tool to call mcporter.
-- **Direct MCP tools** come from the trusted Worker release registry. The worker lists the bounded live catalog and adds only the release allowlist as deferred namespace children.
 - **Web tools** are created from the worker's `web_search`/`web_fetch` provider availability — if the profiles are unbound, the tools are absent.
 - **Background job tools** are created from the turn's context — only available when the turn supports spawning jobs.
 
-The final tool set is still a per-turn result. The Direct MCP registry is one release input to that result, not an Agent capability database or a ready connection pool.
+The final tool set is still a per-turn result, not an Agent capability database or a ready connection pool.
 
 ## Schema collection
 
@@ -70,7 +69,7 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 }
 ```
 
-The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. A Direct MCP tool keeps the live catalog JSON Schema instead of converting its permissive execution Zod record. Deferred children remain behind Tool Search until selected.
+The collected schemas — one per tool, plus the tool name and description — are sent to the model in the Responses request. When a concrete external adapter supplies `jsonSchema`, Ankole sends that schema unchanged at its boundary instead of generating one from Zod; constraints such as `minimum` and `maximum` remain intact there. A separate native runtime owns any later projection. Deferred children remain behind Tool Search until selected.
 
 When the model returns a function call, its arguments arrive as a JSON string. `validateToolArguments` parses the string against the tool's Zod schema, with a bounded repair ladder for malformed arguments (truncated JSON, code-fenced JSON, unbalanced objects). A tool's `execute` never receives raw model output — it receives schema-validated params.
 

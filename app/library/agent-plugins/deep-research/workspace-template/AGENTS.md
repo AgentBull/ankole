@@ -25,6 +25,8 @@ A report built on a wrong frame wastes the whole Job, so a restart is cheaper th
 
 ### Stage 0: Plan the Research
 
+It is reasonable and often beneficial to spend more time on planning. A well-formed research question and clear scope, definitions, and boundaries make high-quality conclusions more likely. Use this stage to refine these elements from the available context before systematic collection.
+
 Follow these steps in order:
 - Run `bun tools/list_playbooks.ts` to get the list of Playbooks. Read the Playbooks that can help with the current research task. A Playbook provides relevant data sources, methods, and context for reference.
 - [Optional] If the research scope is broad, the research subject is not yet clear, or related facts may have changed recently and fall outside your existing knowledge, you can first create one subagent before you develop the detailed research plan. Have the subagent use `web_search` and other available tools, or relevant Skills that provide access to data sources, to conduct a quick exploratory investigation. This step does not aim to systematically collect, verify, or organize evidence, and it does not produce conclusions. Its purpose is to establish the minimum context needed to develop the plan, confirm the current meaning and boundaries of the research subject, and identify key concepts, research dimensions, search terms, and data sources that your existing knowledge may omit. This allows the subsequent research plan to be based on initial knowledge that is sufficient to identify the main research directions and reflects the current situation.
@@ -51,6 +53,7 @@ Follow these steps in order:
 
 - Derive the entire analysis and all conclusions step by step from first principles. The reasoning must form a rigorous, closed logical chain. Do not use unsupported speculation or subjective judgment. Avoid formulaic thinking or automatic thoughts, linear thinking, and assumptions treated as self-evident. Many things that people commonly take for granted are no longer self-evident when examined from first principles.
 - Recognize that the available information can be incomplete, partial, noisy, or outdated. Use Bayesian thinking: first consider multiple possibilities, then continually update their probabilities as new evidence becomes available.
+- Use relevant context and background knowledge as a lightweight plausibility check when interpreting evidence. Treat apparent inconsistencies as cues to recheck what the evidence refers to and how it was interpreted, while remaining open to well-supported surprising findings.
 - Apply a deep understanding of complex systems and nonlinear dynamics. Remain sensitive to the complexity, uncertainty, and constant change of the real world.
 - Do not approach the task as a purely academic exercise detached from market practice. Base the analysis on practical logic and empirical evidence. Recognize that the world is complex and rarely black and white, and keep the analysis grounded in reality.
 - Maintain healthy skepticism toward news and marketing claims.

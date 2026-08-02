@@ -2,9 +2,8 @@
 
 Agent Computer is the Bun + TypeScript Worker runtime for Ankole actor turns.
 It runs model loops, foreground computer tools, Skill access, invocation-scoped
-mcporter configuration, release-defined Direct MCP tools, CodexRunner Jobs,
-Automation Jobs, browser routing, and Worker-side RuntimeFabric lanes inside
-the Linux Worker image.
+mcporter configuration, CodexRunner Jobs, Automation Jobs, browser routing, and
+Worker-side RuntimeFabric lanes inside the Linux Worker image.
 
 This package is not a standalone local CLI. The image contract supplies native
 kernel bindings, bubblewrap, Chromium, Python/Jupyter/document tooling,
@@ -104,12 +103,9 @@ The main Agent has foreground `command`, `read_file`, `replace`, `patch`, and
 and BackgroundAgentJob surfaces. Host execution is never exposed; model-facing
 commands run through bubblewrap.
 
-Skill-backed MCP stays behind the Skill and mcporter. Release-defined Direct
-MCP servers contribute deferred namespace tools to Main and CodexRunner. Each
-Automation attempt receives the same Direct server records in its temporary
-mcporter config without a runtime enable or disable gate. The first record runs
-the local Flint Chart dependency with `bunx`, restricts it to Vega-Lite, and
-produces static PNG, SVG, or Vega-Lite artifacts.
+Skill-backed MCP stays behind the Skill and mcporter. Each execution receives
+only the dependencies declared by its current enabled Skills, through one
+invocation-scoped config that the Worker removes when the execution ends.
 
 The command tool defaults to a 180-second foreground budget. Persistent or
 asynchronous work uses `background_agent_job`. Jobs have no total wall-clock

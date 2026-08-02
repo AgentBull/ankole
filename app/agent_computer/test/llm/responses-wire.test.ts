@@ -202,8 +202,11 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
           parameters: z.record(z.string(), z.unknown()),
           jsonSchema: {
             type: 'object',
-            properties: { symbol: { type: 'string' } },
-            required: ['symbol'],
+            properties: {
+              symbol: { type: 'string' },
+              window_days: { type: 'number', minimum: 1, maximum: 365 }
+            },
+            required: ['symbol', 'window_days'],
             additionalProperties: false
           },
           namespace: 'mcp__finance',
@@ -228,8 +231,11 @@ describe('@ankole/agent-computer llm helpers: Responses HTTP and WebSocket wire 
             description: 'Query one stock price.',
             parameters: {
               type: 'object',
-              properties: { symbol: { type: 'string' } },
-              required: ['symbol'],
+              properties: {
+                symbol: { type: 'string' },
+                window_days: { type: 'number', minimum: 1, maximum: 365 }
+              },
+              required: ['symbol', 'window_days'],
               additionalProperties: false
             },
             strict: false,

@@ -8,7 +8,6 @@ import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtim
 import {
   loadEnabledSkillMCPServers,
   materializeMCPorterConfig,
-  registeredDirectMCPServers,
   renderMCPorterConfig,
   type MCPServerConfig
 } from '../src/tools/mcp'
@@ -87,29 +86,6 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
     second.cleanup()
     expect(existsSync(first.path)).toBe(false)
     expect(existsSync(second.path)).toBe(false)
-  })
-
-  it('renders release-defined Direct MCP servers without a runtime eligibility gate', () => {
-    const [flint] = registeredDirectMCPServers()
-    expect(flint).toBeDefined()
-
-    expect(JSON.parse(renderMCPorterConfig([flint!]))).toEqual({
-      mcpServers: {
-        'flint-chart': {
-          description:
-            'Create, validate, compile, and render static charts with Flint and Vega-Lite. Use inline data.values. PNG is the default. SVG is optional. Map and Choropleth are not supported.',
-          command: 'bun',
-          args: ['/repo/app/agent_computer/src/tools/mcp/flint-chart-server.ts'],
-          cwd: '/repo/app/agent_computer',
-          allowedTools: ['compile_chart', 'list_chart_types', 'render_chart', 'validate_chart']
-        }
-      },
-      imports: []
-    })
-
-    expect(() => renderMCPorterConfig([flint!, { ...flint!, namespace: 'mcp__other' }])).toThrow(
-      'duplicate MCPorter server: flint-chart'
-    )
   })
 
   it('loads installed Skill declarations without a turn and filters only when a runtime is selected', async () => {

@@ -109,7 +109,7 @@ AuthZ 根据主体、权限组、资源、动作和条件在运行时作出授�
 
 Control Plane Plugins 把 IdP、聊天渠道和其他控制面能力接入实例。Agent Plugins 为 Agent 增加工具和工作区模板；Skills 则描述完成某类工作的步骤，并可以限定只在主 Agent 或后台任务中出现。
 
-外部 MCP server 以 Skill 为单位接入：Skill 声明连接，Worker 在执行时按次生成配置，执行结束即回收，模型不面对一份常驻的全量 MCP 工具清单。发布内置的少量 Direct MCP 工具（例如图表渲染）是唯一例外，随 Worker 发布并以受限目录直接投影给模型。
+外部 MCP server 以 Skill 为单位接入：Skill 声明连接，Worker 在执行时按次生成配置，执行结束即回收，模型不面对一份常驻的全量 MCP 工具清单。
 
 参见[主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/)和 [MCP server 参考](../mcp/)。
 

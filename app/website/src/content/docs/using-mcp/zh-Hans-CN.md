@@ -7,7 +7,7 @@ order: 123
 
 Ankole 把 MCP 放在 Skill 背后使用。Skill 负责领域路由和结果规则；固定版本的 mcporter CLI 只负责发现并调用 Skill 已选中的那个工具。
 
-对于 Agent 自己的领域集成，不要在 Agent 上直接注册 MCP server。启用声明该依赖的 Skill；禁用 Skill 后，依赖会从下一次执行中消失。发布内置 Direct MCP 工具是独立的平台合同，不需要 Skill。
+对于 Agent 自己的领域集成，不要在 Agent 上直接注册 MCP server。启用声明该依赖的 Skill；禁用 Skill 后，依赖会从下一次执行中消失。
 
 ## Main Agent 与 Background Agent Job
 
@@ -19,7 +19,7 @@ Main Agent 使用 command tool；Background Agent Job 使用 Codex terminal。�
 
 Automation Job 不读取 Skill 指引。编写 `main.ts` 的 Agent 必须把已选工具、参数、边界和结果检查写进脚本。
 
-每个 Automation attempt 都会通过 `MCPORTER_CONFIG` 获得当前 enabled Skills 的依赖和发布内置 Direct MCP server，并获得最新 Agent WorkerEnv。脚本使用 `Bun.spawn` 调 mcporter，把 JSON 写入 stdin，检查 exit code，再解析 stdout。不要创建 `~/.mcporter/mcporter.json`。
+每个 Automation attempt 都会通过 `MCPORTER_CONFIG` 获得当前 enabled Skills 的依赖，并获得最新 Agent WorkerEnv。脚本使用 `Bun.spawn` 调 mcporter，把 JSON 写入 stdin，检查 exit code，再解析 stdout。不要创建 `~/.mcporter/mcporter.json`。
 
 ## 凭据
 

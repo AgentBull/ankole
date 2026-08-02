@@ -3,18 +3,42 @@ import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 
 const RawChoice = z.union([
-  z.string().trim().min(1).max(200).describe('Choice label.'),
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe('A short label that identifies the choice without rereading the question.'),
   z.object({
-    label: z.string().trim().min(1).max(200).describe('Short choice label.'),
-    description: z.string().trim().min(1).max(500).optional().describe('What selecting this choice means.')
+    label: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe('A short label that identifies the choice without rereading the question.'),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe('The result or tradeoff of selecting this choice.')
   })
 ])
 const ClarifyParams = z.object({
-  question: z.string().trim().min(1).max(2_000).describe('One concrete question for the user.'),
+  question: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2_000)
+    .describe('One self-contained question with only the context needed to answer it.'),
   choices: z
     .array(RawChoice)
+    .min(2)
     .max(4)
-    .describe('Up to four materially distinct choices. The UI adds Other/free input automatically.')
+    .describe(
+      'Two to four materially different choices. Omit this field for an open-ended question. Include a no-action choice when the user may decline the action.'
+    )
     .optional()
 })
 
@@ -29,8 +53,9 @@ type ClarifyDetails = {
 }
 
 const DESCRIPTION = [
-  'Ask the user one decision question when ambiguity materially changes the result.',
-  'Use for real tradeoffs, missing requirements, and post-task feedback; do not ask when a safe low-risk default is available.',
+  'Ask the user one question only when the answer is necessary to choose the intended result or next action.',
+  'Use the request and prior conversation before asking. Do not ask about a preference the user already gave or when a safe low-risk default is available.',
+  'For post-task feedback, ask only when the answer will decide whether to accept, revise, or continue the work.',
   'On success it returns the normalized question and choices, records them durably, and ends the current turn. Do not emit another answer or call more tools; the user reply arrives as the next user message.'
 ].join('\n')
 

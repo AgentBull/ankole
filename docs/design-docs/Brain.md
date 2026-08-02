@@ -175,7 +175,10 @@ RuntimeFabric exposes these tools:
 - `memory_search` searches chat messages and knowledge entries.
 - `memory_browse` expands a turn-local `source_N` result or continues with a
   turn-local `page_N` reference.
-- `memory_open` opens one knowledge entry by its canonical name or alias.
+- `memory_open` opens one knowledge entry by its canonical name or alias. The
+  preferred store is selected first, an exact canonical name wins over an alias
+  in that store, and a colliding alias fails as ambiguous instead of selecting
+  one entry silently.
 - `memory_update` changes current knowledge through versioned operations.
 - `memory_health_check` reads the same health query group as the Console status
   surface.
@@ -196,8 +199,8 @@ supply another author.
 
 `memory_search` runs all enabled routes under one fixed deadline:
 
-1. Knowledge keyword ranking combines entry and block BM25 results into one
-   column.
+1. Knowledge keyword ranking combines exact whole-query name and alias matches
+   with entry and block BM25 results into one column.
 2. Knowledge vector ranking searches block embeddings.
 3. Chat keyword ranking searches SignalsGateway messages.
 4. Chat vector ranking searches episode embeddings.
@@ -237,7 +240,8 @@ Brain expands results after ranking:
 - A threaded message expands its reply graph and provider thread.
 - A message without a thread expands up to two chronological neighbors on each
   side.
-- An entry returns its fields and matching block snippets.
+- An entry returns its fields and matching block snippets. A matched block stays
+  in the snippet even when earlier blocks would exhaust that candidate's cap.
 
 Expansion retains all hit anchors. One candidate has a hard token cap so a long
 thread cannot remove all other candidates. With the default 2,000-token result
@@ -326,8 +330,9 @@ ActorEvent types do not enter the Stage B scan.
 
 Stage B separates each store before it calls a model. A locator selects material
 and related topics. A curator reads only selected material and current related
-knowledge. Private evidence cannot enter another private store, shared
-knowledge, or Skill notes.
+knowledge. An exact locator topic includes the existing entry before ranked
+search adds related entries. Private evidence cannot enter another private
+store, shared knowledge, or Skill notes.
 
 The curator follows these rules:
 

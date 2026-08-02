@@ -234,7 +234,6 @@ tools/e2e/run --brain-real-llm
 | [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | Skill 怎样连接 MCP 服务以及怎样保护凭据 |
-| [Direct MCP Tools](design-docs/DirectMCPTools.md) | 内置 MCP 模型工具及其运行时投影 |
 | [Web tools](design-docs/WebTools.md) | 网页搜索、正文读取和浏览器后备路径 |
 | [I18n](design-docs/I18n.md) | 语言选择和翻译文件 |
 | [Logger](design-docs/Logger.md) | 结构化日志契约 |

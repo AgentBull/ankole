@@ -29,6 +29,7 @@ defmodule Ankole.Brain.Knowledge do
   @mechanical_operations ~w(create_entry delete_block)
   @default_limit 50
   @max_limit 200
+  @selector_match_limit 20
   @max_bulk_restore 10_000
 
   @type actor :: %{
@@ -94,7 +95,7 @@ defmodule Ankole.Brain.Knowledge do
   def apply_mechanical_operation(_scope, _operation, _metadata, _opts),
     do: {:error, :invalid_arguments}
 
-  @doc "Opens an entry by UUID or exact name and renders its current projection."
+  @doc "Opens an entry by UUID, exact canonical name, or unambiguous alias."
   @spec open(Scope.t(), map() | String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def open(scope, selector, opts \\ [])
 
@@ -923,30 +924,38 @@ defmodule Ankole.Brain.Knowledge do
   end
 
   defp fetch_entry_for_read(repo, scope, selector, opts) do
-    query =
+    base_query =
       Entry
       |> scope_entries(scope)
       |> maybe_where(:store_key, Keyword.get(opts, :store_key))
-      |> prefer_scope_store(scope)
 
-    case selector_value(selector) do
+    case entry_selector(selector) do
       nil ->
         nil
 
-      selector ->
-        case Ecto.UUID.cast(selector) do
+      {:entry_id, entry_id} ->
+        case Ecto.UUID.cast(entry_id) do
           {:ok, id} ->
-            repo.one(from entry in query, where: entry.id == ^id, limit: 1)
+            base_query
+            |> prefer_scope_store(scope)
+            |> then(fn query ->
+              repo.one(from entry in query, where: entry.id == ^id, limit: 1)
+            end)
 
           :error ->
-            repo.one(
-              from entry in query,
-                where:
-                  entry.name == ^selector or
-                    fragment("? = ANY(?)", ^selector, entry.aliases),
-                limit: 1
-            )
+            {:error, {:invalid_field, :entry_id}}
         end
+
+      {:name, name} ->
+        base_query
+        |> prefer_scope_store(scope, name)
+        |> where(
+          [entry],
+          entry.name == ^name or fragment("? = ANY(?)", ^name, entry.aliases)
+        )
+        |> limit(^@selector_match_limit)
+        |> repo.all()
+        |> select_named_entry(name)
     end
   end
 
@@ -1296,9 +1305,21 @@ defmodule Ankole.Brain.Knowledge do
     end
   end
 
-  defp selector_value(%{} = selector), do: value(selector, :entry_id) || value(selector, :name)
-  defp selector_value(selector) when is_binary(selector), do: selector
-  defp selector_value(_selector), do: nil
+  defp entry_selector(%{} = selector) do
+    case {value(selector, :entry_id), value(selector, :name)} do
+      {entry_id, _name} when is_binary(entry_id) -> {:entry_id, entry_id}
+      {nil, name} when is_binary(name) -> {:name, name}
+      _missing -> nil
+    end
+  end
+
+  defp entry_selector(selector) when is_binary(selector) do
+    if byte_size(selector) == 36 and match?({:ok, _id}, Ecto.UUID.cast(selector)),
+      do: {:entry_id, selector},
+      else: {:name, selector}
+  end
+
+  defp entry_selector(_selector), do: nil
 
   defp scope_entries(query, %Scope{readable_store_keys: :all, owner_uid: owner_uid}) do
     shared_owner_uid = Scope.shared_owner_uid()
@@ -1475,6 +1496,55 @@ defmodule Ankole.Brain.Knowledge do
       asc: entry.store_key,
       asc: entry.id
     )
+  end
+
+  defp prefer_scope_store(query, %Scope{writable_store_key: writable}, selector)
+       when is_binary(writable) do
+    order_by(query, [entry],
+      asc:
+        fragment(
+          "CASE WHEN ? = ? THEN 0 WHEN ? = 'shared' THEN 1 ELSE 2 END",
+          entry.store_key,
+          ^writable,
+          entry.store_key
+        ),
+      asc: entry.store_key,
+      asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", entry.name, ^selector),
+      asc: entry.id
+    )
+  end
+
+  defp prefer_scope_store(query, %Scope{writable_store_key: nil}, selector) do
+    order_by(query, [entry],
+      asc: fragment("CASE WHEN ? = 'shared' THEN 0 ELSE 1 END", entry.store_key),
+      asc: entry.store_key,
+      asc: fragment("CASE WHEN ? = ? THEN 0 ELSE 1 END", entry.name, ^selector),
+      asc: entry.id
+    )
+  end
+
+  defp select_named_entry([], _selector), do: nil
+
+  defp select_named_entry([%Entry{name: selector} = exact | _matches], selector), do: exact
+
+  defp select_named_entry([%Entry{} = first | rest], selector) do
+    same_store_matches =
+      Enum.take_while(rest, fn entry ->
+        entry.owner_uid == first.owner_uid and entry.store_key == first.store_key
+      end)
+
+    case same_store_matches do
+      [] ->
+        first
+
+      matches ->
+        {:error,
+         {:ambiguous_entry_selector,
+          %{
+            selector: selector,
+            matches: Enum.map([first | matches], & &1.name)
+          }}}
+    end
   end
 
   defp block_limit(:all), do: {:ok, :all}

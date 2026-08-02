@@ -12,7 +12,7 @@ The decisive property, stated up front: the todo list is ephemeral and per-sessi
 ## What each tool is
 
 - **`todo`** (`tools/todo/todo-tool.ts`, line 182) — manage the task list for the current session. Use it for complex tasks with three or more steps, or when the user provides multiple tasks. List order is priority. Only one item is `in_progress` at a time. Mark items completed the moment they are done; if something fails, cancel it and add a revised item.
-- **`clarify`** (`tools/clarify/clarify-tool.ts`, line 39) — ask the user one decision question when an ambiguity materially changes the result. Use it for real tradeoffs, missing requirements, and post-task feedback. Do not ask when a safe low-risk default is available. On success it returns the normalized question and choices, records them durably, and ends the current turn.
+- **`clarify`** (`tools/clarify/clarify-tool.ts`) — ask the user one question only when the answer is necessary to choose the intended result or next action. The agent first uses the request and prior conversation, and it does not ask about a preference you already gave or when a safe low-risk default is available. On success it records the normalized question and choices durably and ends the current turn.
 
 The todo list lives in a `TodoStore` that is scoped to the session. It is working state, not a record. Four states are allowed: `pending`, `in_progress`, `completed`, `cancelled`.
 
@@ -28,7 +28,7 @@ What the todo list is not: it is not a durable plan, and it is not a way to hand
 
 ## When the agent uses clarify
 
-`clarify` is for the one question whose answer genuinely forks the result. The contract is narrow on purpose. The agent asks one question, takes optional choices (each at most 500 characters), and then stops. On a successful call three things happen:
+`clarify` is for the one question whose answer is necessary to choose the intended result or next action. The contract is narrow on purpose. The agent asks one self-contained question and either accepts an open-ended answer or presents two to four materially different choices. Each choice identifies its result or tradeoff, and an action that you can decline includes a no-action choice. The agent then stops. On a successful call three things happen:
 
 - the normalized question and choices are recorded durably, so the decision is traceable later;
 - the current turn ends — the agent emits no further answer and calls no further tools;
@@ -36,7 +36,7 @@ What the todo list is not: it is not a durable plan, and it is not a way to hand
 
 This means a `clarify` call is a clean hand-back, not a pause in a longer turn. You answer in your own time, and the turn that continues is a new turn that begins with your answer.
 
-When the agent should not ask: when a safe, low-risk default is available. If the agent can pick a reasonable path and tell you what it picked, it should pick — not interrupt you. Reserve `clarify` for real tradeoffs, missing requirements, and post-task feedback, where guessing wrong would force a rework.
+Before the agent asks, it uses your request and prior conversation. It does not repeat a preference you already gave, and it does not interrupt you when a safe, low-risk default is available. It asks for post-task feedback only when your answer decides whether to accept, revise, or continue the work.
 
 ## How clarify connects to background jobs
 

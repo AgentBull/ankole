@@ -42,7 +42,6 @@ worker 拥有循环的终止和本地的迭代预算。它**不**拥有历史扩
 - **Memory、schedule、todo、clarify**——agent 用来规划、推迟、提问的那些较小的结构化工具。
 - **Codex**——CodexRunner 任务工具，用于把工作委派给一个后台 Agent 任务。
 - **Library 与 mcporter**——访问 enabled Skills，以及按次生成的 MCP dependency 配置。
-- **Direct MCP**——发布内置的 deferred namespace 工具，带有界实时 catalog 和本地产物处理。
 - **Background Agent Job**——创建或续接持久任务的交接工具。
 
 worker 产出的每一次工具结果，都作为 function-call 输出通过 AIGateway 记录，而不是直接提交。模型看到结果；控制面决定什么才持久。

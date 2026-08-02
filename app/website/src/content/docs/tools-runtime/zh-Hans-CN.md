@@ -7,7 +7,7 @@ order: 120
 
 一个回合中，worker 组装模型可调用的工具集，把每个工具的 schema 转成模型看到的 JSON Schema，并把模型发出的每次 function call 分发回工具的 `execute` 函数。本页文档化该运行时：`AgentTool` 契约、按回合工具集如何组装、schema 如何收集、循环如何分发一次调用。它建立在 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/) 之上。
 
-先把决定性的性质说清楚：工具**按回合组装**。每个回合从 computer、web、brain、schedule、后台任务和其他当前来源构建最终工具集。没有 Agent 自己拥有的全局工具集。MCP-backed Skill 使用已有 computer command tool 和 mcporter；一个小型发布注册表可以向按回合集合贡献受信的 Direct MCP 工具。
+先把决定性的性质说清楚：工具**按回合组装**。每个回合从 computer、web、brain、schedule、后台任务和其他当前来源构建最终工具集。没有 Agent 自己拥有的全局工具集。MCP-backed Skill 使用已有 computer command tool 和 mcporter。
 
 ## AgentTool 契约
 
@@ -50,11 +50,10 @@ tools = [
 按回合组装是让工具集动态的原因：
 
 - **Skill 知识**来自 Agent 当前 enabled Skills。MCP-backed Skill 先选择领域工具，再用已有 computer command tool 调用 mcporter。
-- **Direct MCP 工具**来自受信的 Worker 发布注册表。worker 读取有界的实时 catalog，只把发布 allowlist 作为 deferred namespace children 加入。
 - **Web 工具**从 worker 的 `web_search`/`web_fetch` provider 可用性创建——profile 未绑则工具缺席。
 - **后台任务工具**从回合上下文创建——仅在回合支持派生任务时可用。
 
-最终工具集仍是按回合得到的结果。Direct MCP 注册表只是这个结果的一个发布输入，不是 Agent capability database，也不是预先连接的进程池。
+最终工具集仍是按回合得到的结果，不是 Agent capability database 或预先连接的进程池。
 
 ## Schema 收集
 
@@ -70,7 +69,7 @@ export function zodToJSONSchema(schema: z.ZodType): JSONObject {
 }
 ```
 
-收集的 schema——每个工具一个，加工具名和描述——在 Responses 请求中发给模型。Direct MCP 工具保留实时 catalog JSON Schema，不从它宽松的执行 Zod record 转换。Deferred child 在被选中前留在 Tool Search 后面。
+收集的 schema——每个工具一个，加工具名和描述——在 Responses 请求中发给模型。具体外部 adapter 提供 `jsonSchema` 时，Ankole 在自己的边界原样发送该 schema，不从 Zod 重新生成；`minimum`、`maximum` 等约束在该边界保持不变。后续若经过另一套 native runtime，由该 runtime 自己负责 projection。Deferred child 在被选中前留在 Tool Search 后面。
 
 模型返回 function call 时，参数以 JSON 字符串到达。`validateToolArguments` 把字符串按工具的 Zod schema 解析，对畸形参数（截断的 JSON、代码围栏 JSON、不平衡对象）带一个有界修复阶梯。工具的 `execute` 永远不接收原始模型输出——它接收 schema 已校验的参数。
 

@@ -35,7 +35,7 @@ Automation job 是确定性脚本消费者。Checkback、cron schedule 或 webho
 
 Agent 在自己的 Agent Home 内创建独立目录,写入 `main.ts`,手工验证运行环境与不调用 SDK 的分支,再用 `create-automation-job-cli` 注册。Worker 在注册时和每次运行时都解析 realpath,确认目录和入口仍位于 Agent Home 内。运行时直接执行磁盘上的当前文件,所以修改脚本无需重新注册。
 
-每个 attempt 都会获得最新 Agent WorkerEnv,以及从当前 enabled Skills 和全部发布内置 Direct MCP server 按次生成的 `MCPORTER_CONFIG`。这是同一份静态能力集;Worker 不预测脚本会使用哪个 server。脚本可以通过 mcporter 和 stdin JSON 调用一个已选 MCP 工具。Automation 不读 Skill instructions,也不使用 Agent Home 持久 mcporter 配置。
+每个 attempt 都会获得最新 Agent WorkerEnv,以及从当前 enabled Skills 按次生成的 `MCPORTER_CONFIG`。Worker 不预测脚本会使用哪个 server。脚本可以通过 mcporter 和 stdin JSON 调用一个已选 MCP 工具。Automation 不读 Skill instructions,也不使用 Agent Home 持久 mcporter 配置。
 
 运行 SDK 提供 `context()` 与 `emitEvent(payload)`。`context().event` 是该触发器直接投递时会写入 ActorEvent 的同一 CloudEvents 信封。脚本不调用 `emitEvent` 即静默成功;调用一次或多次则向归属会话持久写入 `automation_job.emitted`。
 

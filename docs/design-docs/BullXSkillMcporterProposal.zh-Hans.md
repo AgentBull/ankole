@@ -3,9 +3,8 @@
 状态：**已实现，待 PR 评审和真实 BullX 新路径验收；不是规范性合同**
 日期：2026-08-02
 
-范围说明：本文只决定 BullX Financial Data 的 Skill-first 路径，不是“所有 MCP 都必须经 Skill”的
-平台规则。Flint Chart 这类小型、内聚且以实时 schema 作为最佳模型接口的内置能力，按
-[Direct MCP Tools](DirectMCPTools.md) 直接投影；它不改变 BullX 的决定。
+范围说明：本文只决定 BullX Financial Data 的 Skill-first 路径。现行平台合同见
+[MCP-Backed Skills](MCPBackedSkills.md)。
 
 实现后的运行合同已收敛到 [MCP-Backed Skills](MCPBackedSkills.md)。本文保留背景、方案比较、删除前原生
 基线、实施范围和改变决定的条件，供同事评审这次迁移为何成立以及实现是否忠实。
@@ -449,9 +448,9 @@ Agent 依赖”混为一谈。
 - Main Agent 的 `createMCPTools` 调用和 `...mcpTools` 模型工具注入。
 - `tools/mcp/mcp-tool.ts` 的 namespace projection、Tool Search corpus、caller 和 PTC 映射。
 - 原生 MCP catalog cache、SDK client、Codex schema lowering 和仅为该路径存在的 tests。
-- Codex project config 的 `[mcp_servers]` materialization。
+- Codex project config 中 Skill MCP declarations 的 materialization。
 - Main/Codex native MCP differential parity test。
-- Agent Computer 对 `@modelcontextprotocol/sdk` 的直接 dependency；mcporter 继续由 Worker base image 锁定。
+- BullX 对 Agent Computer MCP SDK client 的依赖；mcporter 继续由 Worker base image 锁定。
 - Automation help 中关于持久 `~/.mcporter/mcporter.json` 的错误说明。
 
 删除前必须用 `rg` 证明这些模块没有其他真实 caller。若出现真实调用方，评审其合同，不增加无期限
@@ -474,11 +473,11 @@ compatibility branch。
 | --- | --- | --- |
 | 声明解析和配置生成 | `app/agent_computer/src/tools/mcp/config.ts`、`mcporter-config.ts` | 严格声明、冲突、filters、`imports: []`、0600 和清理 |
 | Main Agent | `app/agent_computer/src/core/turns/text_turn.ts` | 不再投影 MCP tools，只向 command sandbox 注入配置 |
-| Background Agent Job | `app/agent_computer/src/core/codex-runner/setup.ts`、`project-config.ts` | 注入同一配置，并删除模板或恢复项目中的 `mcp_servers` |
+| Background Agent Job | `app/agent_computer/src/core/codex-runner/setup.ts`、`project-config.ts` | 注入同一 Skill mcporter 配置，并删除模板或恢复项目中的 `mcp_servers` |
 | Automation Control Plane | `rpc.proto`、`ExecuteRun`、`RPCWire` | 每个 attempt 投影当前 enabled Skill summaries，不复制 Skill 内容 |
 | Automation Worker | `app/agent_computer/src/automation-jobs/run.ts` | 用 Agent roots 解析声明，在脚本启动前失败并在结束后清理 |
 | BullX 模型路由 | `internals/skills/bullx-financial-data/` | 精确工具选择、单工具 schema、stdin JSON 和结果完整性 |
-| 删除面 | `app/agent_computer/src/tools/mcp/` 和 Codex MCP materializer | 原生 SDK client、catalog、schema lowering、tool projection 和 parity tests 均无残留 caller |
+| 删除面 | `app/agent_computer/src/tools/mcp/` 和 Codex MCP materializer | BullX 原生 catalog、schema lowering、tool projection 和 parity tests 均无残留 caller |
 
 `internals/` 是独立 Git 仓库。评审和合并时必须同时跟踪主仓 diff 与 internals diff；任何只包含一侧的
 部署都不是本方案支持的过渡态。
@@ -504,7 +503,7 @@ compatibility branch。
 
 ### 11.3 Codex Background Agent Job
 
-- `.codex/config.toml` 不包含 `mcp_servers`。
+- `.codex/config.toml` 不包含 Skill 声明的 BullX `mcp_servers`。
 - Job 仍获得完整 BullX Skill。
 - Codex 通过 terminal 和 mcporter 完成同一只读 fixture 调用。
 - 恢复 Job 后重新生成当前配置，不依赖旧 project 中的声明副本。

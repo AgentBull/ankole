@@ -1721,6 +1721,40 @@ defmodule Ankole.Brain.StageBTest do
     refute Map.has_key?(context["entry"], "lock_version")
   end
 
+  test "an exact locator topic is present in the curator knowledge context" do
+    %{principal: agent} = agent_fixture()
+    _message = task_outcome_material!(agent.uid, "stage-b-exact-topic", "anchor topic update")
+    {:ok, scope} = Scope.for_store(agent.uid, "self")
+    _entry_id = create_knowledge_entry!(scope, agent.uid, "⚓")
+    test_pid = self()
+
+    configure_model!(
+      agent,
+      fn request ->
+        send(test_pid, {:exact_topic_payload, request_payload(request)})
+        response_summary(empty_plan())
+      end,
+      locator: fn request ->
+        [material] = request_payload(request)["material_index"]
+
+        response_summary(%{
+          "material_refs" => [material["material_ref"]],
+          "topics" => [
+            %{
+              "query" => "⚓",
+              "material_refs" => [material["material_ref"]]
+            }
+          ]
+        })
+      end
+    )
+
+    configure_dreaming!(agent.uid, agent.uid)
+    assert {:ok, %{status: :completed}} = StageB.run(agent.uid)
+    assert_receive {:exact_topic_payload, payload}, 1_000
+    assert Enum.any?(payload["current_knowledge"], &(get_in(&1, ["entry", "name"]) == "⚓"))
+  end
+
   test "curator operations use the exact projection fence supplied by the server" do
     %{principal: agent} = agent_fixture()
 

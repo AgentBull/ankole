@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { runAgentLoop } from '../agent-loop'
 import { buildAgentSystemPrompt } from '../../prompts/system_prompt'
@@ -16,12 +15,7 @@ import { createShowBackgroundJobDetailsTool } from '../../tools/background-agent
 import { createStopBackgroundJobTool } from '../../tools/background-agent-job/stop-background-job'
 import { createClarifyTool } from '../../tools/clarify/clarify-tool'
 import { createSourceLearningTurnTools } from '../../tools/brain/source-learning-turn'
-import {
-  createDirectMCPTools,
-  loadEnabledSkillMCPServers,
-  materializeMCPorterConfig,
-  type MaterializedMCPorterConfig
-} from '../../tools/mcp'
+import { loadEnabledSkillMCPServers, materializeMCPorterConfig, type MaterializedMCPorterConfig } from '../../tools/mcp'
 import type { AgentTool } from '../types'
 import { assistantText, userMessage } from '../llm'
 import { statefulTruncationFromActorEventPayload } from './actor_event_text'
@@ -120,19 +114,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       )
       mcporterConfig = materializeMCPorterConfig(mcpServers)
       const toolWorkerEnv = { ...withoutBrowserMaterialSourceEnv(workerEnv), ...mcporterConfig.env }
-      const directMCPTools = await turnActivity.runStep(
-        createDirectMCPTools({
-          artifactRoot: join(opts.userFilesRoot, 'generated-charts'),
-          workerEnv: withoutBrowserMaterialSourceEnv(workerEnv),
-          abortSignal: turnActivity.signal,
-          onCatalogUnavailable: failure =>
-            opts.logger?.warning('worker.direct_mcp_catalog_unavailable', 'Direct MCP catalog is unavailable', {
-              server: failure.serverName,
-              error: failure.message
-            })
-        }),
-        'Direct MCP tool availability'
-      )
       const webTools = await turnActivity.runStep(
         createTurnWebTools({
           aiGateway,
@@ -172,7 +153,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           turnStart,
           requestMemoryRPC: memoryRPCRequester(opts.rpc, turnStart.turn)
         }),
-        ...directMCPTools,
         ...webTools,
         createClarifyTool(),
         ...backgroundAgentJobTools,

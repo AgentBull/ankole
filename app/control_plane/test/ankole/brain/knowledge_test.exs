@@ -217,6 +217,37 @@ defmodule Ankole.Brain.KnowledgeTest do
     assert {:ok, %{entry: %Entry{id: ^shared_id}}} = Knowledge.open(dm_scope, "张经理")
   end
 
+  test "an exact canonical name wins over an older alias in the same store", ctx do
+    {_alias_owner_id, _version} =
+      create_entry(ctx.shared_scope, ctx.actor, "Earlier topic", "topic",
+        aliases: ["Canonical topic"]
+      )
+
+    {canonical_id, _version} =
+      create_entry(ctx.shared_scope, ctx.actor, "Canonical topic", "topic")
+
+    assert {:ok, %{entry: %Entry{id: ^canonical_id}}} =
+             Knowledge.open(ctx.shared_scope, "Canonical topic")
+  end
+
+  test "a colliding alias fails with the matching canonical names", ctx do
+    {_first_id, _version} =
+      create_entry(ctx.shared_scope, ctx.actor, "First canonical topic", "topic",
+        aliases: ["RPC shared alias"]
+      )
+
+    {_second_id, _version} =
+      create_entry(ctx.shared_scope, ctx.actor, "Second canonical topic", "topic",
+        aliases: ["RPC shared alias"]
+      )
+
+    assert {:error,
+            {:ambiguous_entry_selector, %{selector: "RPC shared alias", matches: matches}}} =
+             Knowledge.open(ctx.shared_scope, "RPC shared alias")
+
+    assert Enum.sort(matches) == ["First canonical topic", "Second canonical topic"]
+  end
+
   test "invalid structured identifiers fail without raising", ctx do
     assert {:error, {:invalid_field, :entry_id}} =
              Knowledge.apply_operations(

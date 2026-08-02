@@ -42,7 +42,6 @@ Tools are the local actions the model can drive during a loop. The worker ships 
 - **Memory, schedule, todo, clarify** — the smaller structured tools an agent uses to plan, defer, and ask.
 - **Codex** — the CodexRunner job tools, for work delegated to a Background Agent Job.
 - **Library and mcporter** — access to enabled Skills and invocation-scoped MCP dependency configs.
-- **Direct MCP** — release-defined deferred namespace tools, with bounded live catalogs and local artifact handling.
 - **Background Agent Job** — the handoff tools that create or continue durable jobs.
 
 Every tool result the worker produces is recorded through AIGateway as a function-call output, not committed directly. The model sees the result; the control plane decides what is durable.

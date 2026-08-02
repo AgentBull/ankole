@@ -12,16 +12,12 @@ defmodule Ankole.Brain.Recall.Knowledge do
   def keyword_candidates(%Scope{} = scope, request) do
     query = normalize_query(request.query)
 
-    if query == "" do
-      {:ok, []}
-    else
-      with {:ok, entry_hits} <- entry_bm25(scope, request, query),
-           {:ok, block_hits} <- block_bm25(scope, request, query) do
-        entry_hits
-        |> fuse_keyword_hits(block_hits)
-        |> hydrate_candidates()
-        |> then(&{:ok, &1})
-      end
+    with {:ok, exact_hits} <- exact_entry_hits(scope, request),
+         {:ok, entry_hits, block_hits} <- bm25_hits(scope, request, query) do
+      exact_hits
+      |> fuse_keyword_hits(entry_hits, block_hits)
+      |> hydrate_candidates()
+      |> then(&{:ok, &1})
     end
   end
 
@@ -56,11 +52,16 @@ defmodule Ankole.Brain.Recall.Knowledge do
           (subvector($1::vector, 1, 4000)::halfvec(4000)),
         b.id
       LIMIT $11
+    ), best_per_entry AS MATERIALIZED (
+      SELECT DISTINCT ON (entry_id)
+             entry_id, block_id, body, occurred_at,
+             1 - (embedding <=> $1) AS score
+      FROM nearest
+      ORDER BY entry_id, embedding <=> $1, block_id
     )
-    SELECT entry_id, block_id, body, occurred_at,
-           1 - (embedding <=> $1) AS score
-    FROM nearest
-    ORDER BY embedding <=> $1, block_id
+    SELECT entry_id, block_id, body, occurred_at, score
+    FROM best_per_entry
+    ORDER BY score DESC, block_id
     LIMIT $12
     """
 
@@ -92,7 +93,6 @@ defmodule Ankole.Brain.Recall.Knowledge do
             "occurred_at_value" => updated_at
           }
         end)
-        |> Enum.uniq_by(& &1["candidate_id"])
         |> hydrate_candidates()
         |> then(&{:ok, &1})
 
@@ -111,13 +111,7 @@ defmodule Ankole.Brain.Recall.Knowledge do
         |> order_by([block], asc: block.position, asc: block.id)
         |> Repo.all()
 
-      body =
-        blocks
-        |> Enum.map(fn block ->
-          "[block #{block.position}] #{block.author_kind}\n#{block.body}"
-        end)
-        |> Enum.join("\n\n")
-        |> cap_text(token_cap)
+      body = snippet(blocks, candidate["matched_block_id"], token_cap)
 
       candidate
       |> Map.put("name", entry.name)
@@ -142,6 +136,59 @@ defmodule Ankole.Brain.Recall.Knowledge do
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join("\n")
+  end
+
+  defp bm25_hits(_scope, _request, ""), do: {:ok, [], []}
+
+  defp bm25_hits(scope, request, query) do
+    with {:ok, entry_hits} <- entry_bm25(scope, request, query),
+         {:ok, block_hits} <- block_bm25(scope, request, query) do
+      {:ok, entry_hits, block_hits}
+    end
+  end
+
+  defp exact_entry_hits(scope, request) do
+    {all_private, private_stores, shared?} = store_filter(request.store_keys)
+    shared_owner_uid = Scope.shared_owner_uid()
+
+    sql = """
+    SELECT e.id::text, e.updated_at
+    FROM brain_entries e
+    WHERE (
+        (e.owner_uid = $2 AND ($3::boolean OR e.store_key = ANY($4::text[]))) OR
+        ($5::boolean AND e.owner_uid = $6 AND e.store_key = 'shared')
+      )
+      AND ($7::text IS NULL OR e.type = $7)
+      AND ($8::text IS NULL OR EXISTS (
+        SELECT 1 FROM brain_entry_blocks author_block
+        WHERE author_block.entry_id = e.id
+          AND author_block.author_kind = $8::brain_author_kind
+      ))
+      AND (e.name = $1 OR $1 = ANY(e.aliases))
+    ORDER BY CASE WHEN e.name = $1 THEN 0 ELSE 1 END, e.updated_at DESC, e.id
+    LIMIT $9
+    """
+
+    case Repo.query(sql, [
+           request.query,
+           scope.owner_uid,
+           all_private,
+           private_stores,
+           shared?,
+           shared_owner_uid,
+           request.entry_type,
+           request.author_kind,
+           request.limit * 8
+         ]) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Enum.map(rows, fn [entry_id, updated_at] ->
+           %{entry_id: entry_id, updated_at: updated_at}
+         end)}
+
+      {:error, reason} ->
+        {:error, {:brain_entry_exact_match_failed, reason}}
+    end
   end
 
   defp entry_bm25(scope, request, query) do
@@ -193,19 +240,33 @@ defmodule Ankole.Brain.Recall.Knowledge do
     shared_owner_uid = Scope.shared_owner_uid()
 
     sql = """
-    SELECT b.entry_id::text, b.id::text, b.body, GREATEST(e.updated_at, b.updated_at),
-           pdb.score(b.id) AS score
-    FROM brain_entry_blocks b
-    JOIN brain_entries e ON e.id = b.entry_id
-    WHERE (
-        (b.owner_uid = $2 AND ($3::boolean OR b.store_key = ANY($4::text[]))) OR
-        ($5::boolean AND b.owner_uid = $6 AND b.store_key = 'shared')
-      )
-      AND ($7::text IS NULL OR e.type = $7)
-      AND ($8::text IS NULL OR b.author_kind = $8::brain_author_kind)
-      AND b.body @@@ $1
-    ORDER BY score DESC NULLS LAST, b.updated_at DESC, b.id
-    LIMIT $9
+    WITH ranked AS MATERIALIZED (
+      SELECT b.entry_id::text AS entry_id,
+             b.id::text AS block_id,
+             b.body,
+             GREATEST(e.updated_at, b.updated_at) AS occurred_at,
+             pdb.score(b.id) AS score
+      FROM brain_entry_blocks b
+      JOIN brain_entries e ON e.id = b.entry_id
+      WHERE (
+          (b.owner_uid = $2 AND ($3::boolean OR b.store_key = ANY($4::text[]))) OR
+          ($5::boolean AND b.owner_uid = $6 AND b.store_key = 'shared')
+        )
+        AND ($7::text IS NULL OR e.type = $7)
+        AND ($8::text IS NULL OR b.author_kind = $8::brain_author_kind)
+        AND b.body @@@ $1
+      ORDER BY score DESC NULLS LAST, b.updated_at DESC, b.id
+      LIMIT $9
+    ), best_per_entry AS MATERIALIZED (
+      SELECT DISTINCT ON (entry_id)
+             entry_id, block_id, body, occurred_at, score
+      FROM ranked
+      ORDER BY entry_id, score DESC NULLS LAST, occurred_at DESC, block_id
+    )
+    SELECT entry_id, block_id, body, occurred_at, score
+    FROM best_per_entry
+    ORDER BY score DESC NULLS LAST, occurred_at DESC, block_id
+    LIMIT $10
     """
 
     case Repo.query(sql, [
@@ -217,6 +278,7 @@ defmodule Ankole.Brain.Recall.Knowledge do
            shared_owner_uid,
            request.entry_type,
            request.author_kind,
+           request.limit * 32,
            request.limit * 8
          ]) do
       {:ok, %{rows: rows}} ->
@@ -236,17 +298,35 @@ defmodule Ankole.Brain.Recall.Knowledge do
     end
   end
 
-  defp fuse_keyword_hits(entry_hits, block_hits) do
+  defp fuse_keyword_hits(exact_hits, entry_hits, block_hits) do
+    exact_ids = exact_hits |> Enum.map(& &1.entry_id) |> Enum.uniq()
     entry_ids = entry_hits |> Enum.map(& &1.entry_id) |> Enum.uniq()
     block_ids = block_hits |> Enum.map(& &1.entry_id) |> Enum.uniq()
 
     data =
-      Enum.reduce(entry_hits, %{}, fn hit, acc ->
+      Enum.reduce(exact_hits, %{}, fn hit, acc ->
         Map.put_new(acc, hit.entry_id, %{
           "entry_id" => hit.entry_id,
-          "occurred_at_value" => hit.updated_at,
-          "bm25_entry_score" => hit.score
+          "occurred_at_value" => hit.updated_at
         })
+      end)
+
+    data =
+      Enum.reduce(entry_hits, data, fn hit, acc ->
+        Map.update(
+          acc,
+          hit.entry_id,
+          %{
+            "entry_id" => hit.entry_id,
+            "occurred_at_value" => hit.updated_at,
+            "bm25_entry_score" => hit.score
+          },
+          fn current ->
+            current
+            |> Map.put("bm25_entry_score", hit.score)
+            |> Map.update("occurred_at_value", hit.updated_at, &latest(&1, hit.updated_at))
+          end
+        )
       end)
 
     data =
@@ -271,7 +351,7 @@ defmodule Ankole.Brain.Recall.Knowledge do
         )
       end)
 
-    [entry_ids, block_ids]
+    [exact_ids, entry_ids, block_ids]
     |> Ankole.Kernel.reciprocal_rank_fusion()
     |> Enum.map(fn %{"id" => entry_id, "score" => score} ->
       data
@@ -322,6 +402,58 @@ defmodule Ankole.Brain.Recall.Knowledge do
 
   defp maybe_author(query, nil), do: query
   defp maybe_author(query, kind), do: where(query, [block], block.author_kind == ^kind)
+
+  defp snippet(blocks, nil, token_cap), do: blocks |> render_blocks() |> cap_text(token_cap)
+
+  defp snippet(blocks, matched_block_id, token_cap) do
+    rendered = Enum.map(blocks, &render_block/1)
+
+    case Enum.find_index(blocks, &(&1.id == matched_block_id)) do
+      nil ->
+        rendered |> Enum.join("\n\n") |> cap_text(token_cap)
+
+      anchor_index ->
+        anchor = Enum.at(rendered, anchor_index)
+        anchor_tokens = Ankole.Kernel.estimate_o200k_base_tokens(anchor)
+
+        if anchor_tokens > token_cap do
+          cap_text(anchor, token_cap)
+        else
+          separator_tokens = Ankole.Kernel.estimate_o200k_base_tokens("\n\n")
+
+          {selected, _tokens} =
+            rendered
+            |> Enum.with_index()
+            |> Enum.reject(fn {_text, index} -> index == anchor_index end)
+            |> Enum.sort_by(fn {_text, index} -> {abs(index - anchor_index), index} end)
+            |> Enum.reduce({MapSet.new([anchor_index]), anchor_tokens}, fn {text, index},
+                                                                           {selected, tokens} ->
+              next_tokens =
+                tokens + separator_tokens + Ankole.Kernel.estimate_o200k_base_tokens(text)
+
+              if next_tokens <= token_cap do
+                {MapSet.put(selected, index), next_tokens}
+              else
+                {selected, tokens}
+              end
+            end)
+
+          body =
+            rendered
+            |> Enum.with_index()
+            |> Enum.filter(fn {_text, index} -> MapSet.member?(selected, index) end)
+            |> Enum.map(&elem(&1, 0))
+            |> Enum.join("\n\n")
+
+          if Ankole.Kernel.estimate_o200k_base_tokens(body) <= token_cap, do: body, else: anchor
+        end
+    end
+  end
+
+  defp render_blocks(blocks), do: blocks |> Enum.map(&render_block/1) |> Enum.join("\n\n")
+
+  defp render_block(block),
+    do: "[block #{block.position}] #{block.author_kind}\n#{block.body}"
 
   defp cap_text(text, cap) when is_binary(text) and is_integer(cap) and cap > 0 do
     if Ankole.Kernel.estimate_o200k_base_tokens(text) <= cap do

@@ -3,7 +3,6 @@ import { chmodSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import type { MCPServerConfig } from './config'
-import type { DirectStdioMCPServer } from './direct-registry'
 import { compareCodePointStrings } from './ordering'
 
 export const MCPORTER_CONFIG_ENV = 'MCPORTER_CONFIG'
@@ -25,10 +24,10 @@ type MCPorterServer = {
   blockedTools?: string[]
 }
 
-export type MCPorterConfiguredServer = MCPServerConfig | DirectStdioMCPServer
+export type MCPorterConfiguredServer = MCPServerConfig
 
-/** Renders one deterministic config from Skill dependencies and Direct MCP servers. */
-export function renderMCPorterConfig(servers: MCPorterConfiguredServer[]): string {
+/** Renders one deterministic config from Skill dependencies. */
+export function renderMCPorterConfig(servers: readonly MCPorterConfiguredServer[]): string {
   const mcpServers: Record<string, MCPorterServer> = {}
 
   for (const server of [...servers].sort((left, right) => compareCodePointStrings(left.name, right.name))) {
@@ -45,20 +44,12 @@ export function renderMCPorterConfig(servers: MCPorterConfiguredServer[]): strin
             ...(server.bearerTokenEnvVar ? { bearerTokenEnv: server.bearerTokenEnvVar } : {}),
             ...filters
           }
-        : 'namespace' in server
-          ? {
-              description: server.description,
-              command: server.command,
-              args: server.args,
-              cwd: server.cwd,
-              ...filters
-            }
-          : {
-              ...(server.description ? { description: server.description } : {}),
-              command: '/bin/sh',
-              args: ['-lc', server.command],
-              ...filters
-            }
+        : {
+            ...(server.description ? { description: server.description } : {}),
+            command: '/bin/sh',
+            args: ['-lc', server.command],
+            ...filters
+          }
   }
 
   return `${JSON.stringify({ mcpServers, imports: [] }, null, 2)}\n`
@@ -66,7 +57,7 @@ export function renderMCPorterConfig(servers: MCPorterConfiguredServer[]): strin
 
 /** Writes one invocation-scoped config that disables ambient MCP imports. */
 export function materializeMCPorterConfig(
-  servers: MCPorterConfiguredServer[],
+  servers: readonly MCPorterConfiguredServer[],
   options: { directory?: string } = {}
 ): MaterializedMCPorterConfig {
   const path = join(options.directory ?? WORKER_SHARE_ROOT, `ankole-mcporter-${randomUUID()}.json`)
@@ -92,7 +83,7 @@ export function materializeMCPorterConfig(
 
 function mcpToolFilters(server: MCPorterConfiguredServer): Pick<MCPorterServer, 'allowedTools' | 'blockedTools'> {
   const allowed = normalizedToolNames(server.enabledTools)
-  const blocked = normalizedToolNames('disabledTools' in server ? server.disabledTools : undefined)
+  const blocked = normalizedToolNames(server.disabledTools)
 
   if (allowed !== undefined) {
     const blockedNames = new Set(blocked ?? [])
@@ -101,6 +92,6 @@ function mcpToolFilters(server: MCPorterConfiguredServer): Pick<MCPorterServer, 
   return blocked === undefined ? {} : { blockedTools: blocked }
 }
 
-function normalizedToolNames(names: string[] | undefined): string[] | undefined {
+function normalizedToolNames(names: readonly string[] | undefined): string[] | undefined {
   return names === undefined ? undefined : [...new Set(names)].sort(compareCodePointStrings)
 }

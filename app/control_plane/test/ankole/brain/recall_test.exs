@@ -642,6 +642,138 @@ defmodule Ankole.Brain.RecallTest do
     assert excluded["results"] == []
   end
 
+  test "whole-query alias matching returns every collision even when BM25 has no terms" do
+    %{principal: agent} = agent_fixture()
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
+
+    entries =
+      for name <- ["Harbor operations", "Release checkpoint"] do
+        create_entry_with_blocks(scope, agent.uid, name, [], :agent, aliases: ["⚓"])
+      end
+
+    assert {:ok, result} =
+             Brain.search(scope, %{"query" => "⚓", "layer" => "knowledge", "limit" => 2})
+
+    assert result["results"]
+           |> MapSet.new(& &1["entry_id"])
+           |> MapSet.equal?(MapSet.new(entries, & &1.id))
+  end
+
+  test "block BM25 pools one best hit per entry before applying its route limit" do
+    %{principal: agent} = agent_fixture()
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
+
+    dense =
+      create_entry_with_blocks(
+        scope,
+        agent.uid,
+        "Dense block entry",
+        Enum.map(1..20, &"BLOCK_POOL_ANCHOR #{&1}"),
+        :agent
+      )
+
+    sparse =
+      create_entry_with_block(
+        scope,
+        agent.uid,
+        "Sparse block entry",
+        "BLOCK_POOL_ANCHOR " <> String.duplicate("lower density context ", 300),
+        :agent
+      )
+
+    assert {:ok, result} =
+             Brain.search(scope, %{
+               "query" => "BLOCK_POOL_ANCHOR",
+               "layer" => "knowledge",
+               "limit" => 2
+             })
+
+    assert result["results"]
+           |> MapSet.new(& &1["entry_id"])
+           |> MapSet.equal?(MapSet.new([dense.id, sparse.id]))
+  end
+
+  test "knowledge vectors pool one best block per entry before applying their route limit" do
+    %{principal: agent} = agent_fixture()
+    configure_recall_embedding!(agent)
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
+
+    dense =
+      create_entry_with_blocks(
+        scope,
+        agent.uid,
+        "Dense vector entry",
+        Enum.map(1..20, &"Dense semantic block #{&1}"),
+        :agent
+      )
+
+    sparse =
+      create_entry_with_block(
+        scope,
+        agent.uid,
+        "Sparse vector entry",
+        "A separate semantic block",
+        :agent
+      )
+
+    EntryBlock
+    |> where([block], block.entry_id == ^dense.id)
+    |> Repo.update_all(
+      set: [
+        embedding: Ankole.Brain.Embedding.storage_vector([1.0, 0.0]),
+        embedding_dimensions: 2,
+        embedding_model_agent_uid: agent.uid,
+        embedding_state: :synced
+      ]
+    )
+
+    EntryBlock
+    |> where([block], block.entry_id == ^sparse.id)
+    |> Repo.update_all(
+      set: [
+        embedding: Ankole.Brain.Embedding.storage_vector([0.9, 0.1]),
+        embedding_dimensions: 2,
+        embedding_model_agent_uid: agent.uid,
+        embedding_state: :synced
+      ]
+    )
+
+    assert {:ok, result} =
+             Brain.search(scope, %{
+               "query" => "semantic pool probe",
+               "layer" => "knowledge",
+               "limit" => 2
+             })
+
+    assert result["results"]
+           |> MapSet.new(& &1["entry_id"])
+           |> MapSet.equal?(MapSet.new([dense.id, sparse.id]))
+  end
+
+  test "knowledge expansion retains a late matched block inside the candidate cap" do
+    %{principal: agent} = agent_fixture()
+    {:ok, scope} = Scope.for_store(agent.uid, "shared")
+
+    entry =
+      create_entry_with_blocks(
+        scope,
+        agent.uid,
+        "Late anchor entry",
+        [
+          String.duplicate("oversized earlier context ", 1_000),
+          "LATE_BLOCK_ANCHOR exact evidence"
+        ],
+        :agent
+      )
+
+    assert {:ok, result} =
+             Brain.search(scope, %{"query" => "LATE_BLOCK_ANCHOR", "layer" => "knowledge"})
+
+    hit = Enum.find(result["results"], &(&1["entry_id"] == entry.id))
+    assert hit["snippet"] =~ "[block 1]"
+    assert hit["snippet"] =~ "LATE_BLOCK_ANCHOR exact evidence"
+  end
+
   test "search response obeys the hard result token budget" do
     %{principal: agent} = agent_fixture()
     {:ok, scope} = Scope.for_store(agent.uid, "shared")
@@ -739,24 +871,38 @@ defmodule Ankole.Brain.RecallTest do
   end
 
   defp create_entry_with_block(scope, actor_uid, name, body, author_kind) do
+    create_entry_with_blocks(scope, actor_uid, name, [body], author_kind)
+  end
+
+  defp create_entry_with_blocks(scope, actor_uid, name, bodies, author_kind, opts \\ []) do
     assert {:ok, %{results: [%{entry_id: entry_id, entry_lock_version: 1}]}} =
              Knowledge.apply_operations(
                scope,
-               %{operation: "create_entry", name: name, type: "topic", summary: ""},
-               %{kind: author_kind, uid: actor_uid}
-             )
-
-    assert {:ok, _result} =
-             Knowledge.apply_operations(
-               scope,
                %{
-                 operation: "append_block",
-                 entry_id: entry_id,
-                 expected_entry_lock_version: 1,
-                 body: body
+                 operation: "create_entry",
+                 name: name,
+                 type: "topic",
+                 summary: "",
+                 aliases: Keyword.get(opts, :aliases, [])
                },
                %{kind: author_kind, uid: actor_uid}
              )
+
+    Enum.reduce(bodies, 1, fn body, version ->
+      assert {:ok, %{results: [%{entry_lock_version: next_version}]}} =
+               Knowledge.apply_operations(
+                 scope,
+                 %{
+                   operation: "append_block",
+                   entry_id: entry_id,
+                   expected_entry_lock_version: version,
+                   body: body
+                 },
+                 %{kind: author_kind, uid: actor_uid}
+               )
+
+      next_version
+    end)
 
     Knowledge.open(scope, entry_id, block_limit: :all) |> elem(1) |> Map.fetch!(:entry)
   end

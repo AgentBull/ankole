@@ -243,7 +243,6 @@ credentials. The dedicated Brain real-model suite is not part of `--all`.
 | [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | MCP Skill execution and secrets |
-| [Direct MCP Tools](design-docs/DirectMCPTools.md) | Release-defined MCP model tools and runtime projection |
 | [Web tools](design-docs/WebTools.md) | Web search, fetch, and rendered fallback |
 | [I18n](design-docs/I18n.md) | Language selection and translation files |
 | [Logger](design-docs/Logger.md) | Structured log format |

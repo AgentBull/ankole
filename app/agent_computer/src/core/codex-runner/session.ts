@@ -2,6 +2,7 @@ import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-sup
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { errorMessage } from '../../common/errors'
+import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { jsonBytes } from '../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../lanes/actor_lane'
 import {
@@ -42,6 +43,7 @@ import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
 
 const steerPollIntervalMs = 250
+const maxMCPStartupErrorBytes = 2_048
 
 export async function runCodexJobSession(input: PreparedCodexJobExecution): Promise<TurnHandlerResult> {
   return new CodexJobSession(input).run()
@@ -545,6 +547,23 @@ class CodexJobSession {
     if (projection.type !== 'ignored') {
       this.input.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
     }
+
+    if (
+      message.method === 'mcpServer/startupStatus/updated' &&
+      params.status === 'failed' &&
+      (!this.runtimeThreadID || isLeadNotification)
+    ) {
+      const server = stringValue(params.name) ?? 'unknown'
+      const failureReason = stringValue(params.failureReason)
+      const failure = boundedMCPStartupError(stringValue(params.error) ?? 'Codex MCP server failed to start')
+      this.input.opts.logger?.warning('worker.codex_mcp_server_unavailable', 'Codex MCP server is unavailable', {
+        server,
+        status: 'failed',
+        ...(failureReason ? { failure_reason: failureReason } : {}),
+        error: failure
+      })
+    }
+
     if (!isLeadNotification) return
 
     if (message.method === 'error') {
@@ -725,6 +744,13 @@ class CodexJobSession {
     }, steerPollIntervalMs)
     this.steerTimer.unref?.()
   }
+}
+
+function boundedMCPStartupError(value: string): string {
+  const sanitized = sanitizeBinaryOutput(value)
+  if (utf8ByteLength(sanitized) <= maxMCPStartupErrorBytes) return sanitized
+  const suffix = '...[truncated]'
+  return `${truncateUTF8Safe(sanitized, maxMCPStartupErrorBytes - utf8ByteLength(suffix))}${suffix}`
 }
 
 export async function configureCodexSkills(

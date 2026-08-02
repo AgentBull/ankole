@@ -23,6 +23,7 @@ describe('@ankole/agent-computer Deep Research Playbook discovery', () => {
     expect(result.stderr).toBe('')
     expect(result.stdout.trim().split('\n')).toEqual([
       'Available Playbooks:',
+      '- academic-verify (playbooks/AcademicVerify.md): Use when the requested research deliverable verifies a specified academic claim, study, paper, or citation by tracing it through the original publication, methodology, source data, publication status, and independent replication.',
       '- ach (playbooks/ACH.md): Use when an important forecast or diagnosis must compare plausible explanations under incomplete, noisy, conflicting, or possibly deceptive information.',
       '- analogical-foresight (playbooks/AnalogicalForesight.md): Use when historical cases can reveal mechanisms, variables, and tests for a defined uncertainty in a forward-looking analysis.'
     ])

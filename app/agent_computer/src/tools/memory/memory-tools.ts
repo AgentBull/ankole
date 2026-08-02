@@ -262,7 +262,7 @@ export function createMemoryOpenTool(
   return {
     name: 'memory_open',
     description:
-      'Open one curated current entry by its canonical name or alias. The result uses the canonical entry name, permanent block positions, and semantic relation triples. Open every entry and block immediately before updating it. store=current prefers the conversation store over self and shared entries with the same name.',
+      'Open one curated current entry by its canonical name or alias. A canonical name wins over an alias in the preferred store; a colliding alias returns an ambiguity error, so retry with one of the canonical names. The result uses the canonical entry name, permanent block positions, and semantic relation triples. Open every entry and block immediately before updating it. store=current prefers the conversation store over self and shared entries with the same name.',
     schema: MemoryOpenParams,
     executionMode: 'sequential',
     isReadOnly: true,
