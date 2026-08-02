@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { BackgroundAgentJobTurnUpsertResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ActorTurnRef } from '../src/lanes/actor_lane'

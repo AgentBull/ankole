@@ -1,4 +1,4 @@
-import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { sanitizeBinaryOutput, truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import type { ActorTurnRef } from '../../lanes/actor_lane'
 import { jsonBytes } from '../../fabric/envelope_proto'

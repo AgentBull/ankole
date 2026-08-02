@@ -20,6 +20,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
   alias Ankole.RuntimeEvents
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
@@ -184,6 +186,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
         load: %{"active_turns" => worker_capacity.active_turns},
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
       })
+    end
+  end
+
+  @doc """
+  Removes an authenticated worker from placement while its active turns drain.
+
+  The worker, its assignments, and its activations keep their route fences, so
+  terminal writes and RPC acknowledgements remain valid until process exit.
+  """
+  @spec handle_control_shutdown(FabricProto.ControlShutdown.t(), String.t() | map()) ::
+          {:ok, AgentComputerWorker.t()} | {:error, term()}
+  def handle_control_shutdown(
+        %FabricProto.ControlShutdown{} = control_shutdown,
+        authenticated_route
+      ) do
+    with {:ok, auth} <- authenticated_route(authenticated_route),
+         {:ok, reason} <- required_text(control_shutdown.reason, "reason") do
+      now = DateTime.utc_now(:microsecond)
+
+      Repo.transact(fn repo ->
+        case worker_by_route(repo, auth.route) do
+          %AgentComputerWorker{} = worker ->
+            with :ok <- authenticated_worker_matches(auth, worker.worker_id),
+                 :ok <- worker_can_drain(worker),
+                 {:ok, worker} <- mark_worker_draining(repo, worker, reason),
+                 :ok <- mark_worker_fences_draining(repo, worker, now) do
+              {:ok, worker}
+            end
+
+          nil ->
+            {:error, :worker_not_ready}
+        end
+      end)
     end
   end
 
@@ -454,6 +489,40 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAdmission do
     |> where([worker], worker.transport_route == ^route)
     |> lock("FOR UPDATE")
     |> repo.one()
+  end
+
+  defp worker_can_drain(%AgentComputerWorker{status: status})
+       when status in ["ready", "draining"],
+       do: :ok
+
+  defp worker_can_drain(%AgentComputerWorker{}), do: {:error, :worker_not_ready}
+
+  defp mark_worker_draining(repo, worker, reason) do
+    capacity = Map.put(worker.capacity || %{}, "available_turn_slots", 0)
+    metadata = Map.put(worker.metadata || %{}, "drain_reason", reason)
+
+    worker
+    |> AgentComputerWorker.changeset(%{
+      status: "draining",
+      capacity: capacity,
+      metadata: metadata
+    })
+    |> repo.update()
+    |> notify_worker_stale_deadline(repo)
+  end
+
+  defp mark_worker_fences_draining(repo, worker, now) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.worker_id == ^worker.worker_id)
+    |> where([assignment], assignment.status == "assigned")
+    |> repo.update_all(set: [status: "draining", updated_at: now])
+
+    ActorSessionActivation
+    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
+    |> where([activation], activation.status in ["starting", "active"])
+    |> repo.update_all(set: [status: "draining", updated_at: now])
+
+    :ok
   end
 
   defp lock_worker_by_id(repo, worker_id) do

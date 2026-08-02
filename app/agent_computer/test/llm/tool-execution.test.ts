@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
 import { runAgentLoop } from '../../src/core/agent-loop'
 import type { ReplyPresentationEvent } from '../../src/core/types'

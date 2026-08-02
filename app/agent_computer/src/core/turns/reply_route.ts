@@ -1,4 +1,4 @@
-import { compactRecord, deepString } from '@pleisto/active-support'
+import { compactRecord, deepString } from '@agentbull/active-support'
 import type { ActorEventEnvelope, TurnStart } from '../../lanes/actor_lane'
 
 export type ReplyRoute = {

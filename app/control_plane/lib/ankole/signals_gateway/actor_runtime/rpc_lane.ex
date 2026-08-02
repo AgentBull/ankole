@@ -34,6 +34,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.Schedule.RPCBroker, as: ScheduleRPCBroker
   alias Ankole.SignalsGateway.ActorRuntime.AgentConversationContextBroker
   alias Ankole.SignalsGateway.ActorRuntime.AgentPluginBroker
+  alias Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionBroker
   alias Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
   alias Ankole.SignalsGateway.ActorRuntime.AppConfigureBroker
   alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker
@@ -47,7 +48,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
   alias Ankole.SignalsGateway.Webhooks.RPCBroker, as: WebhookRPCBroker
 
   @typedoc "Authorization scope of one operation; turn scopes carry the WorkerRouteAuth effect."
-  @type scope :: :worker_agent | :turn_read | :turn_write
+  @type scope :: :worker_agent | :turn_read | :turn_write | :turn_complete
 
   @typedoc "Frame facts handed to every broker beside the decoded request."
   @type ctx :: %{route: String.t(), request_id: String.t()}
@@ -58,6 +59,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "agent_conversation.context.resolve" =>
       {AgentConversationContextBroker, :handle_request, :turn_read,
        FabricProto.AgentConversationContextRequest},
+    "actor_turn.complete" =>
+      {ActorTurnCompletionBroker, :handle_complete, :turn_complete,
+       FabricProto.ActorTurnCompleteRequest},
     "app_configure.resolve" =>
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
     "agent_plugin.list" =>
@@ -240,6 +244,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
           apply(module, function, [presence(request.agent_uid), payload, ctx])
         end
 
+      {:ok, {module, function, :turn_complete, request_mod}} ->
+        with {:ok, turn_ref} <- request_turn_ref(request, ctx),
+             :ok <- authorize_turn_completion(turn_ref, ctx),
+             {:ok, payload} <- decode_payload(request_mod, request.payload, ctx) do
+          apply(module, function, [turn_ref, payload, ctx])
+        end
+
       {:ok, {module, function, scope, request_mod}} ->
         with {:ok, turn_ref} <- request_turn_ref(request, ctx),
              :ok <- authorize_turn(turn_ref, ctx, scope_effect(scope)),
@@ -269,6 +280,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
 
   defp authorize_turn(turn_ref, ctx, effect) do
     case WorkerRouteAuth.authorize_turn_route(turn_ref, ctx.route, effect) do
+      :ok -> :ok
+      {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
+    end
+  end
+
+  defp authorize_turn_completion(turn_ref, ctx) do
+    case WorkerRouteAuth.authorize_turn_completion_route(turn_ref, ctx.route) do
       :ok -> :ok
       {:error, reason} -> {:error, auth_error_payload(ctx, reason)}
     end

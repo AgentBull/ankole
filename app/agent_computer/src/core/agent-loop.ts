@@ -19,7 +19,7 @@ import {
   safeJsonParse as safeJSONParse,
   safeJsonStringify as safeJSONStringify,
   type JsonObject as JSONObject
-} from '@pleisto/active-support'
+} from '@agentbull/active-support'
 import { withRetry } from '../common/async'
 import { errorMessage } from '../common/errors'
 import {
@@ -475,7 +475,7 @@ async function executeParallelToolCalls(
 ): Promise<ExecutedToolCall[]> {
   signal?.throwIfAborted()
 
-  const results = new Array<ExecutedToolCall>(toolCalls.length)
+  const results: ExecutedToolCall[] = []
   const workerCount = Math.min(MAX_PARALLEL_TOOL_EXECUTIONS, toolCalls.length)
   let nextIndex = 0
   let failure: { reason: unknown } | undefined
@@ -907,10 +907,10 @@ function toolCallFailureKey(toolCall: ToolCall, kind: string, args: unknown): st
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== 'string') return args
-  return safeJSONParse(args).match(
-    value => value,
-    () => args
-  )
+  return safeJSONParse(args).match({
+    ok: value => value,
+    err: () => args
+  })
 }
 
 function scrubVolatileToolArguments(value: unknown): unknown {

@@ -1,6 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { parse } from 'yaml'
+import { YAML } from 'bun'
 import { z } from 'zod'
 import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import {
@@ -183,7 +183,7 @@ async function readSkillMCPDependencies(
 
   let raw: unknown
   try {
-    raw = parse(content, { maxAliasCount: 20, strict: true, uniqueKeys: true })
+    raw = YAML.parse(content)
   } catch (error) {
     throw new Error(`invalid agents/openai.yaml for Skill ${skillName}: ${errorMessage(error)}`)
   }

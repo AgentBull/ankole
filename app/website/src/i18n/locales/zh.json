@@ -95,7 +95,7 @@
   "capabilities.multi.title": "业务职能优先",
   "capabilities.multi.body": "一项窄职能可以由一个 Agent 承担，也可以由多个 Agent 分工。权限、工具、记忆和对外身份始终有明确边界；多 Agent 执行是可选实现方式。",
   "capabilities.enterprise.title": "对接企业身份与 IM",
-  "capabilities.enterprise.body": "飞书、Slack、钉钉、Teams、Google Workspace 都是一等适配器。身份来自你现有的 IdP，出站身份、权限与审计均与企业目录保持一致。",
+  "capabilities.enterprise.body": "飞书、Slack、钉钉、Teams、企业微信、Google Workspace 都是一等适配器。身份来自你现有的 IdP，出站身份、权限与审计均与企业目录保持一致。",
   "usecases.title": "每项业务职能，都有结果指标",
   "usecases.subtitle": "工作可以数字化完成，能产出可检查的交付物，并有明确的业务结果。下面六项是示例，不是完整清单。",
   "usecases.col.function": "业务职能",

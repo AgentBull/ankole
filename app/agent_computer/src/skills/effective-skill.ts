@@ -1,6 +1,6 @@
 import { join, normalize } from 'node:path'
 import { create } from '@bufbuild/protobuf'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { ActorTurnRef } from '../lanes/actor_lane'
 import { rpcMethods, RuntimeSkillSummarySchema, type RPCRequester, type RuntimeSkillSummary } from '../lanes/rpc_lane'

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { ReplyPresentationEvent } from '../../core/types'
 import { jsonToolResult } from '../../core/tool-result'

@@ -1,5 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import { isRecord } from '@pleisto/active-support'
+import { isRecord } from '@agentbull/active-support'
 import {
   ActorKeySchema,
   ActorTurnRefSchema,
@@ -10,7 +10,7 @@ import {
   type Envelope,
   type TurnModelRefMessage
 } from '../fabric/envelope_proto'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 /**
  * Durable turn fence echoed by every worker reply.

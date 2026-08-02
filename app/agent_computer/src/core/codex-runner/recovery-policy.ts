@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 export type CodexRecoveryFailure = 'transient' | 'context_overflow' | 'unknown_session' | 'terminal'
 export type CodexRecoveryStage = 'resume' | 'turn'

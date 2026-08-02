@@ -298,6 +298,35 @@ export const identityTabs = [
         ]
       }
     ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'WeCom sign-in or API calls report error 60020',
+        symptom: 'The QR scan does not return to Ankole, or saving the configuration reports an untrusted IP with code 60020.',
+        cause: 'WeCom requires server calls to come from a registered trusted IP. The self-built app and Contacts sync each keep their own trusted-IP list, and a missing egress IP is rejected.',
+        resolution: [
+          'Give the Ankole deployment a fixed egress IP and add it to the self-built app trusted-IP list.',
+          'Add the same IP to the separate Contacts-sync trusted-IP list.',
+          'Confirm the sign-in redirect domain is a trusted domain of the self-built app.'
+        ]
+      },
+      {
+        question: 'WeCom sign-in works, but names or the whole directory are missing',
+        symptom: 'Members can enter the Console, but Principals have no names, or directory sync stays empty.',
+        cause: 'Since June 2022 the ordinary app secret no longer returns member names and other profile fields. Sync requires the dedicated secret from Management tools → Contacts sync.',
+        resolution: [
+          'Enable Contacts API sync in the WeCom console and enter the dedicated secret in the Identity Provider.',
+          'Register a trusted IP for that secret as well.',
+          'WeCom sends no realtime directory events. Run a full sync after changes, or wait for the periodic sync.'
+        ],
+        links: [
+          { href: '../quickstart/#2-set-up-the-identity-provider-first', label: 'Configure the WeCom IdP in Quick start' }
+        ]
+      }
+    ]
   }
 ]
 
@@ -443,13 +472,19 @@ export const channelTabs = [
         ]
       },
       {
-        question: 'Why can DingTalk not show Ankole custom cards?',
-        symptom: 'The Agent can reply, but the message cannot use the same custom card layout and interactions as other platforms.',
-        cause: 'As of July 2026, DingTalk does not support the custom card messages that Ankole needs. This is a platform limit, not a bad cardTemplate, credential, or routing rule.',
+        question: 'DingTalk replies stay plain Markdown. How do I get streaming cards?',
+        symptom: 'The Agent replies, but every message is plain text without the streaming AI card.',
+        cause: 'DingTalk cards are template-hosted. Replies stay plain Markdown when cardTemplateId on the routing rule is empty, the template is not published to the app that owns the robot, or DingTalk rejected the card content.',
         resolution: [
-          'Do not rotate credentials or card templates to troubleshoot this behavior.',
-          'Continue with addressed_only when the available DingTalk message format is sufficient.',
-          'Use Slack, Teams, or Lark/Feishu when custom cards and complete group context are important.'
+          'Build the AI card template as shown in the advanced section of the DingTalk tab in Quick start, and paste its id into cardTemplateId on the routing rule.',
+          'When a card is blank or keeps its writing indicator after the reply ends, bind the card container status variable to flowStatus and publish the template again.',
+          'A reply that arrives once as a card and later as plain text is the intended fallback after a permanent rejection. The reply is still delivered; check the control-plane logs for param.contentUnsafe or param.cardNotExist.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Build the DingTalk AI card template in Quick start'
+          }
         ]
       },
       {
@@ -470,6 +505,45 @@ export const channelTabs = [
           'Create another internal DingTalk app when the second Agent needs a separate bot identity.',
           'Use its new Client ID and Client Secret in a new routing rule.',
           'If you only want to change the target Agent, disable the old route before you enable the new one.'
+        ]
+      }
+    ]
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    issues: [
+      {
+        question: 'Is it a fault when WeCom ignores group messages without an @mention?',
+        symptom: 'Direct messages and explicit @mentions can start the Agent, but ordinary group messages, group images, and group files never enter Ankole.',
+        cause: 'No. WeCom delivers only direct messages and group messages that explicitly @-mention the AI bot, and group @-messages carry only text and mixed text-image content.',
+        resolution: [
+          'Use an explicit @mention for every group test. The only group mode is addressed_only.',
+          'Use Lark/Feishu, Slack, or Teams when the Agent needs complete group context or files shared in groups.'
+        ]
+      },
+      {
+        question: 'Scheduled reminders never arrive in WeCom',
+        symptom: 'The Agent replies when a user writes first, but proactive messages such as schedule results are not delivered.',
+        cause: 'WeCom requires the user to message the bot in that conversation first. The Agent cannot start a fresh conversation.',
+        resolution: [
+          'Have each recipient send the bot one message first to unlock proactive delivery for that conversation.',
+          'The reply window after an inbound message is 24 hours; after that only the proactive path remains.'
+        ]
+      },
+      {
+        question: 'The WeCom connection keeps dropping, or chat identities never match the directory',
+        symptom: 'The connection opens and then drops, or chat users can never join directory and sign-in identities.',
+        cause: 'The platform allows exactly one long connection per bot, so another program with the same Bot ID kicks the connection. A bot that was not created by a corp super administrator delivers encrypted user ids.',
+        resolution: [
+          'Make sure no other program uses the same Bot ID. When Ankole gets kicked, it parks and waits instead of fighting for the line.',
+          'The bot must be created by a corp super administrator; otherwise delete it and recreate it with a super administrator account.'
+        ],
+        links: [
+          {
+            href: '../quickstart/#4-connect-a-chat-channel-and-create-its-signal-routing-rule',
+            label: 'Configure the WeCom channel in Quick start'
+          }
         ]
       }
     ]

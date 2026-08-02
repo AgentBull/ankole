@@ -1,4 +1,4 @@
-import { recordValue } from '@pleisto/active-support'
+import { recordValue } from '@agentbull/active-support'
 import { Input, TableCell, TableRow, toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'

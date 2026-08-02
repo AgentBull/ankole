@@ -79,58 +79,53 @@ Runtime 建立在五个技术判断上：
 
 ## 架构
 
+这张图只表达所有权和持久化边界，不罗列每一次内部调用。
+
 ```mermaid
 flowchart TB
-  subgraph Entry["一等入口"]
-    direction LR
-    Work["共享工作<br/>chat · webhook · 定时任务"]
-    Clients["AI API 客户端<br/>应用 · 企业系统 · SDK"]
-    Ops["运维者<br/>Console · API"]
+  External["外部系统与运维者<br/>工作渠道 · Webhook · AI API 客户端<br/>Console · API · SSO · 目录"]
+
+  subgraph Control["Control Plane · 单一逻辑状态与协调边界"]
+    direction TB
+    Platform["主体 / AuthZ / 配置<br/>Control Plane Plugins"]
+    SG["SignalsGateway<br/>渠道入口 · Webhook 接入 · 交付"]
+    Schedule["Schedule<br/>Checkback · Cron"]
+    Runtime["Actor Runtime<br/>session 生命周期 · 准入 · 恢复"]
+    Jobs["持久工作控制<br/>后台 Agent 任务 · Automation Job"]
+    Brain["Brain<br/>长期记忆 · 召回 · Dreaming"]
+    AI["AIGateway<br/>模型路由 · conversation · 凭证"]
   end
 
-  SG["SignalsGateway<br/>共享工作入口 / 交付<br/>Control Plane"]
-  Platform["主体 / AuthZ<br/>配置 / Control Plane Plugins<br/>Control Plane"]
-  Runtime["Actor Runtime<br/>长时 session / 恢复<br/>Control Plane"]
-  Main["主 agents<br/>model loop · tools · skills<br/>Agent Computer"]
-  Brain["Brain<br/>长程记忆<br/>精选知识 · 召回<br/>dreaming · 人工监督"]
-  Delegate["Background Agent Job<br/>持久 · 可恢复工作<br/>Control Plane"]
-  AI["AIGateway<br/>统一的外部 + agent AI API<br/>无状态调用 · 有状态 conversation"]
-  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · 独立 Skills<br/>Agent Computer"]
-  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+  Fabric["RuntimeFabric<br/>实时 actor traffic · bounded RPC · worker 文件<br/>不保存持久状态"]
+  Workers["Agent Computer Worker 池 · 1…N<br/>主 Agent turn · 后台 Job / Codex · Automation 脚本<br/>tools · Skills · MCP · browser · terminal"]
+  Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  subgraph Storage["持久性边界"]
-    direction LR
-    PG[("PostgreSQL<br/>全部持久语义事实")]
-    Workspace[("共享 workspace<br/>产物 · 可恢复文件")]
-  end
+  PG[("PostgreSQL · 持久性边界<br/>持久语义事实")]
+  Home[("共享 Agent Home · 持久性边界<br/>workspace · 产物 · 可恢复文件")]
 
-  Work --> SG --> Runtime
-  Ops --> Platform --> Runtime
-  Runtime -->|"RuntimeFabric · 实时执行"| Main
-  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
-  Main -->|"agent AI 调用"| AI
-  Main -->|"长期上下文"| Brain
-  Brain -->|"模型能力"| AI
-  Main -->|"创建 Job"| Delegate
-  Delegate -->|"隔离执行"| Task
-  AI --> Providers
-
-  Runtime -.-> PG
-  AI -.-> PG
-  Brain -.-> PG
-  Delegate -.-> PG
-  Main -.-> Workspace
-  Task -.-> Workspace
+  External -->|"输入与管理"| Control
+  SG -->|"ActorEvent"| Runtime
+  Schedule -->|"ActorEvent"| Runtime
+  SG -->|"绑定的 Webhook"| Jobs
+  Schedule -->|"绑定的触发器"| Jobs
+  Platform --> Runtime
+  Control -->|"实时执行"| Fabric
+  Fabric <--> Workers
+  Workers -->|"AIGateway API"| Control
+  Control -->|"经 AIGateway 调用"| Providers
+  Control -.-> PG
+  Workers -.-> Home
 ```
 
 整体上：
 
-- **三个一等入口。** 共享工作从 SignalsGateway 进入，应用和企业系统直接调用 AIGateway，运维者通过 Console 和 API 管理系统。AIGateway 不是只给 worker 使用的内部代理。
+- **一套控制面拥有状态和协调权。** 主体与 AuthZ、SignalsGateway、Schedule、Actor Runtime、Job 生命周期、Brain 和 AIGateway 都在 Elixir/OTP 中作出持久决策，语义事实写入 PostgreSQL。
+- **触发器的所有者彼此分开。** SignalsGateway 负责渠道与 Webhook 接入，Schedule 负责 Checkback 和 Cron。触发器默认唤醒 Actor session；绑定 Automation Job 后，则创建一条持久的 Automation Job run。
+- **Worker 提供可替换的执行资源。** 一台或多台 Agent Computer Worker 运行主 Agent turn、后台 Job/Codex turn 和 Automation 脚本。RuntimeFabric 承载实时 actor traffic、bounded RPC 和 worker 文件操作，但不是持久队列。
 - **AIGateway 是统一 AI 边界。** 它提供兼容 OpenResponses 的 HTTP、SSE 和 WebSocket API，同时支持无状态请求和按主体隔离的有状态会话。LLM、Embedding、Rerank、Web Search 和 Web Fetch 都通过同一个 Provider 路由面解析，上游凭证始终留在控制面。
-- **Actor 把持久工作与执行资源分开。** Actor Runtime 拥有长时 session 与恢复语义；可替换的 Agent Computer worker 负责 model loop、tools、skills 和 sandbox。
 - **Brain 是长期记忆。** 它统一当前知识、原始聊天召回、dreaming 和人工监督。PostgreSQL 关系行才是事实，Markdown 和注入上下文都只是投影。
-- **后台 Agent 任务是持久工作，不是一个子进程。** Job 能跨 worker 故障恢复，可以继续、等待输入，并在状态变化时唤醒 owner 会话。它只保存一个可选的 Workspace Template；CodexRunner 每次运行都加载 Agent 当前启用的全部 Agent Plugin，以及允许 Background Agent Job 使用的已启用 Skill，并只投影刻意收窄的平台 tools。
-- **持久性分成两类。** PostgreSQL 拥有语义事实；共享 workspace 保存被这些状态引用的产物和可恢复文件。RuntimeFabric 只负责实时传输，共享 Rust kernel 在进程内提供 transport 和 AI data-plane primitives。
+- **两类 Job 提供不同保证。** 后台 Agent 任务是可恢复、可等待输入的交互式模型工作；Automation Job 是 Agent 拥有的确定性脚本，每次消费触发器都会形成持久 run，并可向归属 session 发出事件。
+- **持久性分成两类。** PostgreSQL 拥有语义事实；共享 Agent Home 保存 workspace、产物和可恢复文件。RuntimeFabric 和 Worker 进程状态都可以重建。
 
 ## 当前状态
 

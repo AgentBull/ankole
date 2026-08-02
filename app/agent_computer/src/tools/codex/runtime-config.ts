@@ -1,7 +1,7 @@
 import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
 import type { AIGatewayAPIKeyRequester } from '../../core/turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 export const CODEX_MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 

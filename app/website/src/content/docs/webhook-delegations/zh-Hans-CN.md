@@ -66,7 +66,7 @@ Standing delivery 可以创建多条消费者记录。消费者以外部系统�
 
 Agent 创建 endpoint 时可以传入 `--automation-job-id <id>`。被接受的 `webhook.received` 信封会成为持久 automation job run 的 `context().event`，而不是直接唤醒会话。脚本可以静默丢弃无关回执，也可以在完成确定性检查后调用 `emitEvent`。
 
-回执仍是不可信输入。脚本必须从权威来源复核有后果的事实，并让重复 delivery 无害。如果处理需要记忆、判断或对话，继续直接唤醒 Agent。SDK 与失败合同见 [Worker CLI 能力](../cli-capabilities/)。
+回执仍是不可信输入。脚本必须从权威来源复核有后果的事实，并让重复 delivery 无害。如果处理需要记忆、判断或对话，继续直接唤醒 Agent。介绍见 [Automation Job](../automation-jobs/)，SDK 与失败合同见 [Worker CLI 能力](../cli-capabilities/)。
 
 ## Console
 

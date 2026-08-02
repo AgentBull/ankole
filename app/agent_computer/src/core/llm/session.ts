@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { Buffer } from 'node:buffer'
-import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { ResponsesWS } from 'openai/resources/responses/ws'
 import { ResponsesWSBase } from 'openai/resources/responses/ws-base'
 import type { ResponseCreateParams, ResponseOutputItem } from 'openai/resources/responses/responses'

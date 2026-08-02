@@ -35,7 +35,7 @@ OTP supervision trees give Agents, connections, and Jobs separate failure domain
 
 ### A Worker is the Agent's work computer
 
-An Agent Computer Worker runs model loops, tools, Skills, browsers, terminals, and file operations. It does not create durable domain state on its own. It accepts work from the control plane and commits execution results back to it.
+An Agent Computer Worker runs model loops, tools, Skills, browsers, terminals, and file operations, and it also executes automation job script runs. It does not create durable domain state on its own. It accepts work from the control plane and commits execution results back to it.
 
 One Worker can serve several Agents, and each Agent still runs in a separate lightweight sandbox. Give an Agent a dedicated Worker when it needs stronger isolation.
 
@@ -56,6 +56,12 @@ A group chat can process only messages that address the Agent, record unaddresse
 SignalsGateway stores a received message and its source before it wakes the Agent. It also creates traceable delivery state before an adapter sends a reply.
 
 A temporary provider failure cannot confuse “what Ankole decided to send” with “what the provider accepted.”
+
+### A trigger can wake an Agent or run a script
+
+Cron, Checkback, and webhook endpoints are the three triggers in one system. Each trigger wakes an Agent conversation by default, and each can instead bind an automation job: a deterministic script that the Agent writes. The trigger event stays the same; only the consumer changes.
+
+The script completes mechanical checks silently, and every run leaves an inspectable record. When judgment is needed, it sends an event back to the owner conversation through `emitEvent`, and the Agent verifies and acts. The model therefore never idles in a polling loop. See [Automation Jobs](../automation-jobs/).
 
 ### Actor Runtime manages long-running sessions
 
@@ -107,6 +113,8 @@ AIGateway supports calls that store no history and stateful conversations that c
 
 Workers do not implement a separate lifecycle for each Provider.
 
+When the tool catalog is large, a model can search tools on demand through Tool Search, or submit one program that calls many tools inside a restricted sandbox and returns only the results. A Provider with native support passes these calls through, and AIGateway supplies the same capability in the gateway for every other Provider. One Provider can also hold several credentials as a pool, including account credentials such as a ChatGPT subscription. Failure attribution, retries, and usage records stay per credential.
+
 See [AIGateway](../ai-gateway/) and [Add an LLM Provider](../adding-a-provider/).
 
 ## Enterprise identity, access, and extensions
@@ -121,7 +129,9 @@ Control Plane Plugins connect IdPs, chat channels, and other control-plane capab
 
 Skills describe how to do a type of work and can be limited to the main Agent or Background Agent Jobs.
 
-See [Principals and permission groups](../principal-and-groups/), [Signal routing rules](../signal-bindings/), and [Agent Library](../skills/).
+External MCP servers enter through Skills. A Skill declares its connection, the Worker generates a per-execution configuration and removes it when the execution ends, and the model never faces one resident list of every MCP tool. The small release-defined Direct MCP tool set, such as chart rendering, is the only exception: it ships with the Worker and projects a bounded catalog to the model directly.
+
+See [Principals and permission groups](../principal-and-groups/), [Signal routing rules](../signal-bindings/), [Agent Library](../skills/), and the [MCP server reference](../mcp/).
 
 ## Durability boundaries
 

@@ -3,19 +3,34 @@ import type { ActorTurnRef } from '../lanes/actor_lane'
 import { actorTurnRefToProto } from '../lanes/actor_lane'
 import {
   createEnvelope,
+  ControlShutdownSchema,
   DurabilityClass,
   envelopeHeader,
   jsonBytes,
   Lane,
   TurnAcceptedSchema,
-  TurnCompletedSchema,
-  TurnCompletionOutcome,
   TurnErrorSchema,
   TurnNoopCompletedSchema,
   WorkerProgressSchema,
   type Envelope
 } from './envelope_proto'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
+
+/**
+ * Reports that this worker has stopped accepting new turns and is draining its
+ * existing tasks. The control plane keeps the route live for terminal writes.
+ */
+export function controlShutdownEnvelope(reason: string): Envelope {
+  const messageID = `control-shutdown-${crypto.randomUUID()}`
+
+  return createEnvelope({
+    ...envelopeHeader(messageID, Lane.CONTROL, DurabilityClass.CONTROL_EPHEMERAL),
+    body: {
+      case: 'controlShutdown',
+      value: create(ControlShutdownSchema, { reason })
+    }
+  })
+}
 
 /**
  * Builds the acceptance fence for a received turn revision.
@@ -90,38 +105,6 @@ export function turnNoopCompletedEnvelope(
     body: {
       case: 'turnNoopCompleted',
       value: create(TurnNoopCompletedSchema, { turn: actorTurnRefToProto(turn), reason })
-    }
-  })
-}
-
-/**
- * Reports the final response selected by the worker-owned Agent loop.
- *
- * A completed model response is not itself an Actor turn terminal. Only the
- * loop driver can emit this envelope after it has decided no further model or
- * tool iteration is needed.
- */
-export function turnCompletedEnvelope(
-  turn: ActorTurnRef,
-  finalResponseID: string,
-  outcome: 'loop_finished' | 'iteration_exhausted',
-  correlationID?: string
-): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(
-      `turn-completed-${crypto.randomUUID()}`,
-      Lane.TURN,
-      DurabilityClass.CONTROL_REPLAYABLE,
-      correlationID
-    ),
-    body: {
-      case: 'turnCompleted',
-      value: create(TurnCompletedSchema, {
-        turn: actorTurnRefToProto(turn),
-        finalResponseId: finalResponseID,
-        outcome:
-          outcome === 'loop_finished' ? TurnCompletionOutcome.LOOP_FINISHED : TurnCompletionOutcome.ITERATION_EXHAUSTED
-      })
     }
   })
 }

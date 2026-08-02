@@ -1154,6 +1154,97 @@ export const identityTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    summary:
+      'A self-built app carries the QR sign-in, and the dedicated Contacts-sync secret imports members and departments through periodic full sync. Sign-in and directory API calls both require a fixed egress IP.',
+    prerequisites: [
+      'A WeCom corp super administrator account',
+      'An Ankole deployment with a fixed egress IP',
+      'A member account in the corp for the first sign-in'
+    ],
+    basic: {
+      title: 'Set up the WeCom IdP',
+      steps: [
+        {
+          title: 'Copy the callback URL from Ankole',
+          body: [
+            'Open https://<ANKOLE_HOST>/setup and enter the activation code. Select WeCom Adapter on the plugin page, save the selection, and then select WeCom.',
+            'Keep Configuration ID (Provider ID) as wecom-main. Use Copy to copy the login callback URL.'
+          ]
+        },
+        {
+          title: 'Record the Corp ID',
+          body: ['Open the WeCom admin console. Go to My Company → Company information and copy the Corp ID.'],
+          links: [
+            {
+              label: 'Open the WeCom admin console',
+              href: 'https://work.weixin.qq.com/wework_admin/'
+            }
+          ]
+        },
+        {
+          title: 'Create a self-built app with its trusted domain and trusted IP',
+          body: [
+            'Go to App Management → Self-built → Create app. Open the app details and copy the AgentId and Secret.',
+            'On the same page, set two values: add the Ankole domain as the trusted domain for web authorization, and add the deployment egress IP to the trusted-IP list.'
+          ],
+          caution:
+            'A missing trusted-IP entry fails sign-in and API calls with error 60020. A missing trusted domain blocks the redirect after the QR scan.'
+        },
+        {
+          title: 'Enable Contacts sync and record its dedicated secret',
+          body: [
+            'Go to Security & Administration → Management tools → Contacts sync. Enable API sync, copy the dedicated secret, and register its own trusted IP.',
+            'Since June 2022 the ordinary app secret no longer returns member names and other profile fields. Without this dedicated secret, directory sync is unavailable and signed-in users keep bare user ids.'
+          ]
+        },
+        {
+          title: 'Enter the WeCom values in Ankole',
+          bullets: [
+            'Corp ID: the value from Company information',
+            'Self-built app AgentId / Secret: the two values from the app details',
+            'Contacts-sync Secret: the dedicated secret from the Contacts sync page'
+          ],
+          body: [
+            'Keep Enable login and Sync directory on. Select Validate configuration and sign in, and complete the WeCom QR sign-in.'
+          ]
+        },
+        {
+          title: 'Confirm sign-in and the first sync',
+          body: [
+            'The first signed-in member becomes the first root administrator. Open Console → Identity Providers, select wecom-main, and run a full sync.',
+            'Check Principals and Principal groups for the members and departments.'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Sync cadence, trusted IPs, and sign-in only',
+      summary: 'WeCom sends no realtime directory events. Changes converge through periodic full sync.',
+      steps: [
+        {
+          title: 'Run a full sync after directory changes',
+          body: [
+            'WeCom does not push directory changes to Ankole. After you add members or change departments, run a full sync in Console → Identity Providers, or wait for the next periodic sync.'
+          ]
+        },
+        {
+          title: 'Update both trusted-IP lists when the egress IP changes',
+          body: [
+            'The self-built app and Contacts sync each keep their own trusted-IP list. After a migration or egress-IP change, update both lists, or sign-in and sync both fail with error 60020.'
+          ]
+        },
+        {
+          title: 'Use sign-in without directory sync',
+          body: [
+            'Turn off Sync directory and the Contacts-sync secret becomes optional. Signed-in Principals then keep bare WeCom account ids without names or department groups.'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1532,16 +1623,59 @@ export const channelTabs = [
             {
               name: 'cardTemplateId',
               description:
-                'AI card template id for streaming card replies. Leave it empty for the first test; see the DingTalk AI card replies guide to build the template.'
+                'AI card template id for streaming card replies. Leave it empty for the first test; the advanced section below shows how to build the template.'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: 'Multiple Agents and identity settings',
-      summary: 'Expand when you plan several DingTalk Agents or also use DingTalk as an identity source.',
+      title: 'AI card template, multiple Agents, and identity settings',
+      summary:
+        'Expand when you want streaming AI card replies, plan several DingTalk Agents, or also use DingTalk as an identity source.',
       steps: [
+        {
+          title: 'Create the AI card template and add its variables',
+          body: [
+            'DingTalk cards are template-hosted: the layout lives on the DingTalk card platform, and Ankole only writes values into a fixed set of variables. Build one template per DingTalk organization; budget about twenty minutes for the first one. Before you start, the Agent must already reply with plain text, and the app needs the interactive card instance write and AI card streaming update permissions.',
+            'Open the DingTalk developer console → Card Platform → New template and choose the AI card category. Only this category has the AI card container, which draws the writing indicator and the finished and failed states. Add each variable below with exactly this name; a name that does not match leaves its area empty on every reply.'
+          ],
+          fields: [
+            { name: 'flowStatus', description: 'Text. The card state: 2 while writing, 3 when done, 5 when failed.' },
+            { name: 'state', description: 'Text. One status line, such as the running tool label.' },
+            { name: 'answer', description: 'Markdown (streaming). The reply body, rewritten in full on every frame.' },
+            { name: 'thought', description: 'Markdown. The transient thinking draft, blanked when the reply ends.' },
+            { name: 'plan', description: 'Text. The plan and its completed-of-total count.' },
+            { name: 'activity', description: 'Text. Running tool calls, blanked when the reply ends.' },
+            { name: 'results', description: 'Text. One line per structured result.' },
+            { name: 'receipts', description: 'Text. One line per recorded side effect.' },
+            { name: 'actions', description: 'Text. A JSON list of buttons, empty when the Agent asks nothing.' },
+            { name: 'meta', description: 'Text. Trigger, card number, counts, elapsed time.' }
+          ]
+        },
+        {
+          title: 'Lay out the components and bind the card state',
+          body: [
+            'Put the components in this order inside the AI card container: meta and state as small text at the top; plan as text; thought and activity each in a folded area; answer as the main Markdown block with its content variable type set to Markdown and streaming enabled — it is the only block Ankole updates at streaming speed; results and receipts as text; actions bound to the action area, passing each button value through unchanged.',
+            'Select the AI card container and bind its flow-status variable (flowStatusVar) to flowStatus. Keep the writing and failed states enabled.'
+          ],
+          caution:
+            'This binding is what makes the card display anything at all: the container reads flowStatus to choose which state to draw. A container whose status variable is unbound stays in its initial state forever and often renders an empty body.'
+        },
+        {
+          title: 'Publish the template, enter the id, and verify',
+          body: [
+            'Associate the template with the enterprise-internal app that owns the robot, publish it, copy the template id, and paste it into cardTemplateId on the routing rule. The change applies to the next reply; there is nothing to restart.',
+            'To verify, send a message that produces several sentences: a card must appear and grow while the Agent writes, and when the reply ends the indicator stops and the thinking and activity areas are blanked. Then ask something that needs a decision — a button must appear, and pressing it continues the turn; a stale button that no longer answers a pending question is ignored. A long reply seals a card at about 2.5 KB and continues on a new one, each card is a new message in the conversation, and rich structures such as tables render as text. All of this is expected under the platform limits.'
+          ],
+          bullets: [
+            'The card is blank, or keeps a writing indicator after the reply ends: the container status variable is not bound to flowStatus. Bind it and publish again.',
+            'One area is always empty: that variable name does not match the table, or the component is not bound to it.',
+            'The answer appears only at the end or not at all: the answer block is not a Markdown streaming block.',
+            'Replies are plain Markdown messages: the template id is empty, the template is not published to this app, or DingTalk rejected the card content — check the control-plane logs for param.contentUnsafe or param.cardNotExist. When the card path fails permanently, the reply degrades to plain Markdown once and is still delivered.',
+            'Buttons appear but pressing one does nothing: the action area does not pass each button value through unchanged.'
+          ]
+        },
         {
           title: 'Respect the connection ownership rules',
           bullets: [
@@ -1562,6 +1696,95 @@ export const channelTabs = [
               description: 'Share it with the DingTalk IdP only when both records represent the same organization.'
             }
           ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'wecom',
+    label: 'WeCom',
+    summary:
+      'A WeCom AI bot sends and receives messages over one outbound long connection, so you do not need a public message webhook. The platform allows exactly one long connection per bot.',
+    alert: {
+      title: 'WeCom is the most limited chat channel',
+      body: [
+        'In a group, the Agent receives only messages that explicitly @-mention the bot. Images, voice, files, and video arrive in direct messages only, and a voice message arrives as the platform transcript only. Sent messages cannot be recalled, edited, or given emoji reactions. The Agent cannot start a fresh conversation: the user must message the bot first, and the reply window after an inbound message is 24 hours. Streaming replies work only when replying to a user, one streaming message must finish within 10 minutes so long answers split, and sends are limited to about 30 messages per minute per conversation. A card button can change only within 5 seconds after a click. There is no realtime directory sync.',
+        'Every limit comes from the platform itself and Ankole cannot work around it. The long-term memory system also builds context only from the message fragments the Agent receives. Prefer Lark/Feishu, Slack, Teams, or DingTalk when possible.'
+      ]
+    },
+    prerequisites: [
+      'A WeCom corp super administrator who can create the AI bot',
+      'A test conversation'
+    ],
+    basic: {
+      title: 'Prepare a WeCom bot',
+      steps: [
+        {
+          title: 'Create the AI bot as a corp super administrator',
+          body: [
+            'Open the WeCom admin console, create the AI bot in API mode, and record the Bot ID and the Secret shown next to it.'
+          ],
+          caution:
+            'The bot must be created by a corp super administrator. Otherwise the user ids in messages are encrypted and can never join the directory or sign-in identities.'
+        },
+        {
+          title: 'Do not share the bot with another program',
+          body: [
+            'The platform allows exactly one long connection per bot. If another program connects with the same Bot ID, each connection kicks the other. When Ankole gets kicked, it parks and waits instead of fighting for the line.'
+          ]
+        },
+        {
+          title: 'Collect the Console fields',
+          fields: [
+            {
+              name: 'botId',
+              description: 'The AI bot Bot ID.'
+            },
+            {
+              name: 'secret',
+              description: 'The long-connection secret shown next to the Bot ID.'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: 'The only mode WeCom can deliver for group messages.'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: 'Proactive delivery, identity mapping, and multiple Agents',
+      summary: 'Before the Agent can speak first, the user must message the bot in that conversation once.',
+      steps: [
+        {
+          title: 'Unlock proactive delivery',
+          body: [
+            'Proactive messages, such as scheduled-job results, reach only conversations the user has activated. Have each user send the bot one message first; the Agent cannot start a fresh conversation. Proactive sends deliver one complete Markdown message without streaming.'
+          ]
+        },
+        {
+          title: 'Set the identity mapping fields',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'wecom-main',
+              description: 'Share it with the WeCom IdP only when both records represent the same corp.'
+            },
+            {
+              name: 'userName',
+              value: '企业微信 / WeCom',
+              description: 'The name shown on outbound bot messages.'
+            }
+          ]
+        },
+        {
+          title: 'Use a separate bot for each Agent',
+          bullets: [
+            'One Agent can have at most one enabled WeCom binding.',
+            'One Bot ID can be bound to only one Agent.'
+          ],
+          body: ['Create a separate AI bot for each additional Agent.']
         }
       ]
     }
@@ -1589,7 +1812,7 @@ export const signalAdvanced = {
         }
       ],
       caution:
-        'The provider must deliver those messages. DingTalk supports addressed_only only. Slack and Lark need extra events or scopes before they can observe a whole room.'
+        'The provider must deliver those messages. DingTalk and WeCom support addressed_only only. Slack and Lark need extra events or scopes before they can observe a whole room.'
     },
     {
       title: 'Use confidential memory only for a sensitive channel',
@@ -1630,7 +1853,7 @@ This page defines the terms used in Ankole user documentation and interfaces. Th
 | **Private deployment instance** | One complete Ankole system that an enterprise deploys and manages | Instance |
 | **Principal** | A person, Agent, or system service that can have an identity and permissions in Ankole | Principal |
 | **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
-| **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, or DingTalk | Platform |
+| **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, or WeCom | Platform |
 | **Channel Provider** | One chat application or bot configuration that receives messages and sends Agent replies | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
 | **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
@@ -1671,7 +1894,7 @@ Like Hermes Agent and OpenClaw, Ankole connects to chat channels. It also connec
 | **Identity Provider (IdP)** | Console SSO and the employees, contacts, organization structure, and permission groups synchronized from the enterprise directory | `/setup` first, then **Console → Identity Providers** |
 | **Channel Provider** | The IM app or bot that receives messages and sends Agent replies | **Console → Signal Routing** |
 
-The identity source and chat channel can use different platforms. Employees can sign in through Google Workspace and talk to the Agent in Slack. Entra ID can supply identity while Lark, Slack, DingTalk, or Teams carries the conversation.
+The identity source and chat channel can use different platforms. Employees can sign in through Google Workspace and talk to the Agent in Slack. Entra ID can supply identity while Lark, Slack, DingTalk, Teams, or WeCom carries the conversation.
 
 ### Complete the setup for your IdP
 
@@ -1734,7 +1957,7 @@ In the Console, open **Signal Routing → New routing rule** and set:
 | Field | What to choose |
 |---|---|
 | **Target Agent** | The Agent you created in step 3 |
-| **Adapter** | Slack, Teams, Lark/Feishu, or DingTalk |
+| **Adapter** | Slack, Teams, Lark/Feishu, DingTalk, or WeCom |
 | **Rule name** | A stable name such as `slack-main` or `lark-main` |
 | **Group message mode** | Start with `addressed_only` |
 | **Confidential memory** | Leave off for the first test |
@@ -1755,7 +1978,7 @@ Save the rule. The list must show it as enabled. If the form rejects a credentia
 
 ## 5. Talk to the Agent in the IM
 
-Add the bot to a test conversation. For Slack, Teams, Lark/Feishu, or DingTalk group chat, start with an explicit @-mention:
+Add the bot to a test conversation. In a group chat, start with an explicit @-mention:
 
 > @Ankole What can you do, and which team are you serving?
 

@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { batch, createModel, signal } from '@preact/signals-react'
 
 export type IdentitySetupDraft = {

@@ -5,7 +5,7 @@ ARG MYSQL_VERSION=9.7.2
 # digest-pinned official image as the source, and copy only the client executable.
 FROM mysql:${MYSQL_VERSION}@sha256:257388edf9c84dbc04c763625446d5f3fa6ed60d1b0873bc552c614ba0a7ab4e AS mysql-client-source
 
-FROM oven/bun:1.3.14
+FROM oven/bun:canary
 
 WORKDIR /repo
 
@@ -24,6 +24,7 @@ ARG RUST_TOOLCHAIN=1.97.1
 ARG CODEX_VERSION=0.146.0
 ARG MCPORTER_VERSION=0.12.3
 ARG OFFICECLI_VERSION=v1.0.143
+ARG PDF_INSPECTOR_VERSION=0.1.7
 ARG TYPST_VERSION=v0.15.1
 ARG TARGETARCH
 
@@ -91,6 +92,18 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   && rustc --version \
   && cargo --version
 
+# pdf-inspector publishes no prebuilt binaries, so its `detect-pdf` and
+# `pdf2md` CLIs build from crates.io here. `--root /usr/local` keeps them on
+# the sandbox-visible PATH instead of /root/.cargo/bin. The CLIs have no
+# `--version`, so the check classifies a generated PDF.
+RUN cargo install pdf-inspector --version "${PDF_INSPECTOR_VERSION}" --locked --root /usr/local \
+    --bin detect-pdf --bin pdf2md \
+  && rm -rf /root/.cargo/registry /root/.cargo/git \
+  && gs -o /tmp/pdf-inspector-check.pdf -sDEVICE=pdfwrite -c showpage \
+  && detect-pdf /tmp/pdf-inspector-check.pdf --json | jq -e '.pdf_type' >/dev/null \
+  && test -x /usr/local/bin/pdf2md \
+  && rm -f /tmp/pdf-inspector-check.pdf
+
 RUN set -eux; \
   installed=0; \
   for attempt in 1 2 3; do \
@@ -152,6 +165,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
   && for attempt in 1 2 3; do \
     if /usr/local/bin/uv pip install --python /opt/ankole-python/bin/python \
       blake3 \
+      colorlog \
       defusedxml \
       duckdb \
       imageio \
@@ -165,23 +179,36 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
       nano-pdf \
       nbformat \
       numpy \
+      omegaconf \
       opencv-python-headless \
       openpyxl \
+      openvino \
       pandas \
       pillow \
       polars \
       pyarrow \
+      pyclipper \
       pydantic \
       python-docx \
       python-pptx \
+      pyyaml \
       requests \
       scipy \
+      shapely \
+      six \
+      tqdm \
       websocket-client; then \
       break; \
     fi; \
     if [ "$attempt" = "3" ]; then exit 1; fi; \
     sleep $((attempt * 10)); \
   done \
+  # rapidocr installs without dependency resolution: its manifest demands the
+  # GUI opencv-python while the image carries opencv-python-headless, and its
+  # remaining dependencies are on the list above. The pin also fixes the
+  # ModelScope tag its model downloads resolve through.
+  && /usr/local/bin/uv pip install --python /opt/ankole-python/bin/python \
+    --no-deps rapidocr==3.9.2 \
   && find /opt/ankole-python/bin -maxdepth 1 -type f -perm /111 -exec ln -sf {} /usr/local/bin/ \; \
   && rm -f /usr/local/bin/python /usr/local/bin/python3 \
   && printf '%s\n' '#!/usr/bin/env sh' 'exec /opt/ankole-python/bin/python "$@"' > /usr/local/bin/python \
@@ -244,6 +271,40 @@ RUN set -eux; \
   fc-match 'IBM Plex Mono' | grep -F 'IBMPlexMonoSCHalf'; \
   fc-match 'ChillJinshuSong' | grep -F 'ChillJinshuSong'; \
   rm -rf "${font_assets_dir}"
+
+# Bake the PP-OCRv6 medium models into the rapidocr package directory and
+# prove the OpenVINO path with one rendered-text round trip, so a Job never
+# downloads models or discovers a broken engine at run time. Keep the params
+# aligned with app/library/skills/ocr/scripts/ocr.py.
+RUN <<'OCR_SMOKE'
+set -eu
+cat > /tmp/ocr-smoke.py <<'PY'
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageFont
+from rapidocr import EngineType, ModelType, OCRVersion, RapidOCR
+
+font_path = sorted(Path("/usr/share/fonts/truetype/ibm-plex-sans-sc").glob("*.ttf"))[0]
+image = Image.new("RGB", (860, 130), "white")
+draw = ImageDraw.Draw(image)
+draw.text((30, 30), "Ankole OCR 烟测 2026", font=ImageFont.truetype(str(font_path), 56), fill="black")
+image.save("/tmp/ocr-smoke.png")
+
+engine = RapidOCR(params={
+    "Det.engine_type": EngineType.OPENVINO,
+    "Det.ocr_version": OCRVersion.PPOCRV6,
+    "Det.model_type": ModelType.MEDIUM,
+    "Cls.engine_type": EngineType.OPENVINO,
+    "Rec.engine_type": EngineType.OPENVINO,
+    "Rec.ocr_version": OCRVersion.PPOCRV6,
+    "Rec.model_type": ModelType.MEDIUM,
+})
+text = "".join(engine("/tmp/ocr-smoke.png", use_cls=True).txts or [])
+assert "OCR" in text and "2026" in text, f"OCR smoke failed: {text!r}"
+PY
+python /tmp/ocr-smoke.py
+rm -f /tmp/ocr-smoke.py /tmp/ocr-smoke.png
+OCR_SMOKE
 
 RUN set -eux; \
   case "${TARGETARCH:-$(uname -m)}" in \

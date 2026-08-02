@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { match, P, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { match, P, type JsonObject as JSONObject } from '@agentbull/active-support'
 import type {
   ResponseCreateParams,
   ResponseInputItem,

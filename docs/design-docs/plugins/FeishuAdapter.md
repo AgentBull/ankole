@@ -182,10 +182,14 @@ The card is shared in a group, so every member who can see the card can also see
 the submitted answer. A superseded card removes the controls without showing an
 answer.
 
-The renderer aims to stay below 24 KiB and 160 elements. It emits at most five
-native table components per card, and renders later table results as Markdown
-rows without discarding their labels or values. It splits Markdown into source
-pages of about 12 KiB without changing the stored Markdown.
+The renderer aims to stay below 24 KiB and 160 elements. Native table
+components and answer Markdown tables share one budget of five tables per
+card, and one Markdown element holds at most four tables, because Feishu
+counts both forms against its card limits. Table results above the budget
+render as Markdown rows without discarding their labels or values. It splits
+Markdown into source pages of about 12 KiB with at most four answer tables,
+without changing the stored Markdown. Page boundaries depend only on the
+answer prefix, so a growing answer never moves a sealed boundary.
 
 Only the final open card can show temporary thought, progress, or actions.
 Closed cards do not change. If later output would change a closed card, the
@@ -193,8 +197,13 @@ final outbox sends a consistent fallback instead.
 
 The stream lease is nine minutes. A known closed-stream error reopens the active
 stream. A missing card or an element-topology conflict replaces the active
-message with one complete card without sending a second message. Authentication
-and permission errors require operator action.
+message with one complete card without sending a second message. When a
+refreshed answer spans more pages than the persisted chain, refresh seals the
+active card with a whole-message patch and creates the missing page cards.
+Authentication and permission errors require operator action. A recovery
+refresh that fails with a not-retryable error records a blocked
+`recovery_state` on the checkpoint and stops; an operator update to the
+binding requeues blocked previews together with blocked outbox replies.
 
 Preview updates can disappear. The final assistant reply remains in the outbox.
 SignalsGateway records that reply only after the provider confirms it.

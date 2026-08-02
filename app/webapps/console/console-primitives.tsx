@@ -1,6 +1,6 @@
 import { Alert, AlertDescription, AlertTitle } from '@ankole/uikit'
 import { RiErrorWarningLine } from '@remixicon/react'
-import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { format, type Locale } from 'date-fns'
 import { enUS, zhCN } from 'date-fns/locale'
 import type { ReactNode } from 'react'

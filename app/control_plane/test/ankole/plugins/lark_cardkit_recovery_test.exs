@@ -9,6 +9,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
+  alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -217,6 +218,83 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     persisted = Repo.get!(ActorEvent, event.id)
     assert persisted.reply_preview_checkpoint["streaming_state"] == "closed"
     refute persisted.reply_preview_cleanup_at
+  end
+
+  test "a refreshed answer over the page table budget completes the card chain", %{event: event} do
+    answer =
+      Enum.map_join(1..6, "\n\n", fn index ->
+        "| 指标#{index} | 值 |\n| --- | --- |\n| a | #{index} |"
+      end)
+
+    presentation = ReplyPresentation.terminal(ReplyPresentation.new(), "completed", answer)
+
+    checkpoint = %{
+      "schema_version" => 1,
+      "adapter" => "lark",
+      "card_id" => "card-blocked",
+      "message_id" => "message-blocked",
+      "message_uuid" => "message-uuid",
+      "streaming_state" => "open",
+      "stream_deadline_at" => "2026-07-14T02:00:00.000000Z",
+      "element_ids" => ["state", "answer"],
+      "presentation" => ReplyPresentation.checkpoint(presentation),
+      "refresh_pending" => true,
+      "refresh_reason" => "terminal_recovery"
+    }
+
+    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    parent = self()
+
+    request_fun = fn
+      _client, :patch, "im/v1/messages/:message_id", opts ->
+        send(parent, {:patched, opts})
+        {:ok, %{"data" => %{"message_id" => opts[:path_params][:message_id]}}}
+
+      _client, :post, "cardkit/v1/cards", opts ->
+        send(parent, {:card_created, opts})
+        {:ok, %{"data" => %{"card_id" => "card-tail"}}}
+
+      _client, :post, "im/v1/messages/:message_id/reply", opts ->
+        send(parent, {:tail_sent, opts})
+        {:ok, %{"data" => %{"message_id" => "message-tail"}}}
+
+      _client, :post, "im/v1/messages", opts ->
+        send(parent, {:tail_sent, opts})
+        {:ok, %{"data" => %{"message_id" => "message-tail"}}}
+    end
+
+    assert {:ok, _result} =
+             CardKit.refresh(
+               %Request{
+                 actor_event: stored,
+                 presentation: presentation,
+                 previous_presentation: checkpoint["presentation"],
+                 checkpoint: checkpoint,
+                 mode: :terminal
+               },
+               client: :recording_client,
+               request_fun: request_fun
+             )
+
+    assert_receive {:patched, patch_opts}
+    assert patch_opts[:path_params] == %{message_id: "message-blocked"}
+    sealed_card = Ankole.JSON.decode!(patch_opts[:body][:content])
+
+    sealed_answer =
+      Enum.find(get_in(sealed_card, ["body", "elements"]), &(&1["element_id"] == "answer"))
+
+    assert MarkdownSegmenter.count_tables(sealed_answer["content"]) == 4
+
+    assert_receive {:card_created, _create_opts}
+    assert_receive {:tail_sent, _send_opts}
+
+    refreshed = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+    cards = CardChain.cards(refreshed)
+    assert length(cards) == 2
+    assert Enum.map_join(cards, & &1["answer_source"]) == answer
+    assert Enum.all?(cards, &(&1["streaming_state"] == "closed"))
+    assert refreshed["streaming_state"] == "closed"
+    refute Map.has_key?(refreshed, "refresh_pending")
   end
 
   test "refresh freezes an accepted answer by replacing the same message", %{

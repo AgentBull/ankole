@@ -1,4 +1,4 @@
-import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
 import { zodToJSONSchema } from '../llm/tool-schema'
 import type { DynamicToolCallParams } from '../../tools/codex/generated/protocol/v2/DynamicToolCallParams'

@@ -18,7 +18,7 @@ import {
 } from '@ankole/uikit'
 import { RiArrowDownSLine } from '@remixicon/react'
 import { useEffect, useId, useRef, useState } from 'react'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import i18n from './i18n'
 
 export type LocalizedText = Record<string, string> | null | undefined

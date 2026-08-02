@@ -1,4 +1,4 @@
-import { arrayPath, firstString, isRecord, stringArg, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { arrayPath, firstString, isRecord, stringArg, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { type UserMessage, userMessage } from '../llm'
 import { formatConversationTime } from './message_context'
 

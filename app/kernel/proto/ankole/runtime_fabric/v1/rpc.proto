@@ -26,6 +26,21 @@ message JSONPassthroughResponse {
   bytes body_json = 1;
 }
 
+// ===== actor turn completion =====
+
+// Completion is a terminal write. The turn fence stays on the RPC frame so a
+// retry can carry the same durable completion anchor with a new request id.
+message ActorTurnCompleteRequest {
+  string final_response_id = 1;
+  string outcome = 2; // loop_finished | iteration_exhausted
+}
+
+message ActorTurnCompleteResponse {
+  string status = 1; // turn_completed | turn_canceled | already_completed
+  string final_response_id = 2;
+  string outcome = 3;
+}
+
 // ===== worker_agent scope =====
 
 message AIGatewayAPIKeyRequest {}

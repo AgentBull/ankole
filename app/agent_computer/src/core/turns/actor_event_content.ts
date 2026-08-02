@@ -1,11 +1,11 @@
 import { stat } from 'node:fs/promises'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnModelRef } from '../../lanes/actor_lane'
 import { assertExistingPathWithin, workspacePhysicalRoots } from '../real-path-boundary'
 import { resolveAgentHomePath } from '../agent-home-paths'
 import type { ContentPart, ModelConfig } from '../llm'
 import { imageSummaryBlock, modelImageAdaptation, responseImageUnavailableText, type ModelImageSource } from '../vision'
-import { arrayPath, firstString, isRecord } from '@pleisto/active-support'
+import { arrayPath, firstString, isRecord } from '@agentbull/active-support'
 import { actorEventText } from './actor_event_text'
 
 /**

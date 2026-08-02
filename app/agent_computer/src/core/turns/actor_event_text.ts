@@ -6,8 +6,8 @@ import {
   isRecord,
   objectPath,
   stringArg
-} from '@pleisto/active-support'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+} from '@agentbull/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'
 import { backgroundAgentJobPathHandoff } from '../background-agent-job-handoff'
 

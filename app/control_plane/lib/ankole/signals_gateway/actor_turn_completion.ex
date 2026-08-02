@@ -3,9 +3,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   Commits one explicit Agent Computer turn completion into SignalsGateway.
 
   A terminal LLM Response is only immutable input to this operation. The
-  worker's `turn_completed` envelope is the sole declaration that the Agent
-  loop has ended; this module then validates runtime fences and atomically
-  commits provider outbox intents plus ActorEvent consumption.
+  worker's completion RPC is the declaration that the Agent loop has ended;
+  this module then validates runtime fences and atomically commits provider
+  outbox intents plus ActorEvent consumption. The legacy `turn_completed`
+  envelope delegates to the same owner during rolling deployment.
   """
 
   import Ecto.Query, warn: false
@@ -29,10 +30,17 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   @spec handle(FabricProto.TurnCompleted.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def handle(%FabricProto.TurnCompleted{} = payload, opts \\ []) do
-    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn),
-         {:ok, final_response_id} <- required_text(payload.final_response_id),
+    with {:ok, turn_ref} <- TurnRef.from_proto(payload.turn) do
+      handle(turn_ref, payload.final_response_id, payload.outcome, opts)
+    end
+  end
+
+  @spec handle(TurnRef.t(), String.t(), String.t() | atom(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def handle(%TurnRef{} = turn_ref, final_response_id, outcome, opts) when is_list(opts) do
+    with {:ok, final_response_id} <- required_text(final_response_id),
          :ok <- validate_final_response_id(final_response_id),
-         {:ok, outcome} <- completion_outcome(payload.outcome) do
+         {:ok, outcome} <- completion_outcome(outcome) do
       case completed_actor_event(turn_ref) do
         %ActorEvent{} = event ->
           with :ok <- validate_completion_anchor(event, final_response_id, outcome) do
@@ -266,9 +274,10 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         {:error, mismatch}
 
       not Enum.any?(deliveries, fn delivery ->
-        delivery.actor_event_id == turn_ref.actor_event_id and delivery.state == "accepted"
+        delivery.actor_event_id == turn_ref.actor_event_id and
+            delivery.state in ["sent", "accepted"]
       end) ->
-        {:error, :main_delivery_not_accepted}
+        {:error, :main_delivery_not_received}
 
       true ->
         {:ok, deliveries}
@@ -399,7 +408,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp completion_event_ids(main_event, deliveries, turn_ref) do
     accepted_event_ids =
       deliveries
-      |> Enum.filter(&(&1.state == "accepted" and &1.revision <= turn_ref.revision))
+      |> Enum.filter(&(&1.state in ["sent", "accepted"] and &1.revision <= turn_ref.revision))
       |> Enum.map(& &1.actor_event_id)
       |> Enum.uniq()
 
@@ -470,7 +479,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
         set: [
           state: "superseded",
           superseded_at: now,
-          error: %{"reason" => "turn_completed_before_acceptance"},
+          error: %{"reason" => "turn_completion_subsumed_acceptance"},
           updated_at: now
         ]
       )
@@ -505,6 +514,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
 
   defp completion_outcome(:TURN_COMPLETION_OUTCOME_ITERATION_EXHAUSTED),
     do: {:ok, "iteration_exhausted"}
+
+  defp completion_outcome("loop_finished"), do: {:ok, "loop_finished"}
+  defp completion_outcome("iteration_exhausted"), do: {:ok, "iteration_exhausted"}
 
   defp completion_outcome(_outcome), do: {:error, :invalid_turn_completion_outcome}
 

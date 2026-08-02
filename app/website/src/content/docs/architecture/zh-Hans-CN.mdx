@@ -33,7 +33,7 @@ OTP 监督树把不同 Agent、连接和后台任务分成独立的故障域。�
 
 ### Worker 是 Agent 的工作电脑
 
-Agent Computer Worker 负责运行模型循环、工具、Skills、浏览器、终端和文件操作。它不自行发明持久业务状态，而是接受控制面的调度，并把执行结果提交回控制面。
+Agent Computer Worker 负责运行模型循环、工具、Skills、浏览器、终端和文件操作，也执行 automation job 的脚本运行。它不自行发明持久业务状态，而是接受控制面的调度，并把执行结果提交回控制面。
 
 一台 Worker 可以服务多个 Agent，每个 Agent 仍运行在独立的轻量沙盒中。需要更强隔离时，可以给一个 Agent 分配专用 Worker。增加 Worker 可以扩展并发能力，也能把不同安全等级的工作放到不同节点。
 
@@ -48,6 +48,12 @@ RuntimeFabric 通过 ZeroMQ 连接控制面与 Worker，传递唤醒、插话、
 群聊可以只处理明确提及 Agent 的消息，也可以记录没有 @Agent 的对话，或允许 Agent 判断是否主动介入。具体能力取决于聊天平台和信号路由规则。
 
 SignalsGateway 会先保存收到的消息及其来源，再唤醒 Agent。回复也会先形成可追踪的投递状态，再由适配器发回聊天平台。因此，第三方接口短暂失败不会把“已经决定回复什么”和“是否成功发出”混为一件事。
+
+### 触发器可以唤醒 Agent，也可以运行脚本
+
+Cron、Checkback 和 webhook endpoint 是同一体系里的三种触发器。每个触发器默认唤醒一个 Agent 会话，也可以绑定一个 automation job：一段由 Agent 编写的确定性脚本。触发事件保持不变，改变的只是收件人。
+
+脚本静默完成机械检查，每次运行留下可查的记录；需要判断时，它经 `emitEvent` 把事件发回归属会话，再由 Agent 复核和行动。模型因此不必为轮询空转。参见 [Automation Job](../automation-jobs/)。
 
 ### Actor Runtime 管理长时会话
 
@@ -91,6 +97,8 @@ AIGateway 把模型能力与 Agent 执行解耦。主 Agent、后台任务、Bra
 
 AIGateway 同时支持不保存历史的调用和可以继续的有状态会话。它负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，Worker 不需要为每家 Provider 重写一套生命周期。
 
+工具目录很大时，模型可以经 Tool Search 按需检索工具，或提交一段程序，在受限沙盒中成批调用工具后只带回结果。原生支持这些能力的 Provider 直接透传；其余 Provider 由 AIGateway 在网关内补齐同一能力。一个 Provider 还可以配置多个凭证组成凭据池（包括 ChatGPT 订阅这类账号凭证），失败归属、重试和用量记录都按单个凭证计。
+
 参见 [AIGateway](../ai-gateway/)和[添加 LLM Provider](../adding-a-provider/)。
 
 ## 企业身份、权限与扩展
@@ -101,7 +109,9 @@ AuthZ 根据主体、权限组、资源、动作和条件在运行时作出授�
 
 Control Plane Plugins 把 IdP、聊天渠道和其他控制面能力接入实例。Agent Plugins 为 Agent 增加工具和工作区模板；Skills 则描述完成某类工作的步骤，并可以限定只在主 Agent 或后台任务中出现。
 
-参见[主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)和 [Agent 能力库](../skills/)。
+外部 MCP server 以 Skill 为单位接入：Skill 声明连接，Worker 在执行时按次生成配置，执行结束即回收，模型不面对一份常驻的全量 MCP 工具清单。发布内置的少量 Direct MCP 工具（例如图表渲染）是唯一例外，随 Worker 发布并以受限目录直接投影给模型。
+
+参见[主体与权限组](../principal-and-groups/)、[信号路由规则](../signal-bindings/)、[Agent 能力库](../skills/)和 [MCP server 参考](../mcp/)。
 
 ## 持久化边界
 

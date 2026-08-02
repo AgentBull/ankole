@@ -884,18 +884,20 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
           String.t(),
           String.t(),
           String.t(),
-          DateTime.t()
+          DateTime.t(),
+          keyword()
         ) :: {:ok, map()} | {:error, term()}
   def retract_visible_turn_suffix_in_tx(
         repo,
         subject_uid,
         conversation_key,
         actor_event_id,
-        %DateTime{} = now
+        %DateTime{} = now,
+        opts \\ []
       ) do
     case active_conversation_for_update(repo, subject_uid, conversation_key) do
       %Conversation{} = conversation ->
-        retract_visible_turn_suffix(repo, conversation, actor_event_id, now)
+        retract_visible_turn_suffix(repo, conversation, actor_event_id, now, opts)
 
       nil ->
         {:ok, suffix_retraction_noop(:conversation_not_found)}
@@ -903,7 +905,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
   end
 
   @doc """
-  Loads and validates the immutable Responses facts named by `turn_completed`.
+  Loads and validates the immutable Responses facts named by turn completion.
 
   The database read happens before the Actor transaction. Terminal AIGateway
   rows are immutable, while the later Actor transaction owns all fence checks
@@ -1148,7 +1150,13 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
     end
   end
 
-  defp retract_visible_turn_suffix(repo, %Conversation{} = conversation, actor_event_id, now) do
+  defp retract_visible_turn_suffix(
+         repo,
+         %Conversation{} = conversation,
+         actor_event_id,
+         now,
+         opts
+       ) do
     with {:ok, responses} <-
            AIGateway.list_conversation_responses_in_tx(
              repo,
@@ -1167,7 +1175,7 @@ defmodule Ankole.SignalsGateway.AIGatewayLink do
             conversation.subject_uid,
             conversation.id,
             Enum.map(suffix, &response_id/1),
-            reason: "command.retry",
+            reason: Keyword.get(opts, :reason, "command.retry"),
             retracted_at: now
           )
       end

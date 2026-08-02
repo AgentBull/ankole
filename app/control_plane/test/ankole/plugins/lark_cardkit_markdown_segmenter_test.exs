@@ -71,4 +71,53 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitMarkdownSegmenterTest do
     assert [%{source: "", content: " ", start_byte: 0, end_byte: 0}] =
              MarkdownSegmenter.pages("")
   end
+
+  test "six Markdown tables below the byte budget split into table-budget pages" do
+    table = "| Name | Value |\n| --- | --- |\n| A | 1 |\n\n"
+    markdown = String.duplicate(table, 6)
+
+    pages = MarkdownSegmenter.pages(markdown)
+
+    assert length(pages) == 2
+    assert Enum.map_join(pages, & &1.source) == markdown
+    assert Enum.map(pages, &MarkdownSegmenter.count_tables(&1.content)) == [4, 2]
+  end
+
+  test "pipe rows inside a code fence never count as tables" do
+    markdown = """
+    ```text
+    | Name | Value |
+    | --- | --- |
+    ```
+
+    | Name | Value |
+    | --- | --- |
+    | A | 1 |
+    """
+
+    assert MarkdownSegmenter.count_tables(markdown) == 1
+    assert length(MarkdownSegmenter.pages(markdown)) == 1
+  end
+
+  test "growing an answer never moves an earlier page boundary" do
+    blocks =
+      Enum.map(1..40, fn index ->
+        case rem(index, 3) do
+          0 -> "| K#{index} | V |\n| --- | --- |\n| a | #{index} |\n\n"
+          1 -> "第 #{index} 段：分页边界必须只取决于答案前缀。\n\n"
+          2 -> "```elixir\nIO.puts(#{index})\n```\n\n"
+        end
+      end)
+
+    full_pages = MarkdownSegmenter.pages(Enum.join(blocks), max_bytes: 512)
+    assert length(full_pages) > 2
+
+    for cut <- 1..(length(blocks) - 1) do
+      prefix = blocks |> Enum.take(cut) |> Enum.join()
+      settled = MarkdownSegmenter.pages(prefix, max_bytes: 512) |> Enum.drop(-1)
+
+      assert Enum.map(settled, & &1.source) ==
+               full_pages |> Enum.take(length(settled)) |> Enum.map(& &1.source)
+    end
+  end
 end

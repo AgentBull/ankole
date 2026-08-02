@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 import { errorMessage } from '../../common/errors'
 import { truncateUTF8Safe, utf8ByteLength } from '../../common/text-sanitize'

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { TurnStart } from '../src/lanes/actor_lane'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonFromBytes } from '../src/fabric/envelope_proto'
 import { zodToJSONSchema } from '../src/core/llm/tool-schema'
 import { rpcMethods, type ScheduleRPCMethod } from '../src/lanes/rpc_lane'

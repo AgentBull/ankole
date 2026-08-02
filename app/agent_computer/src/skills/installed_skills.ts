@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { parse } from 'yaml'
+import { YAML } from 'bun'
 import type { AnkoleSkillRuntime } from './effective-skill'
 import type { InstalledSkillObservation } from './types'
 
@@ -169,7 +169,7 @@ function skillFrontmatter(
   }
 
   try {
-    const value: unknown = parse(match[1] ?? '')
+    const value: unknown = YAML.parse(match[1] ?? '')
     if (value === null || value === undefined) return {}
     if (typeof value === 'object' && !Array.isArray(value)) return value as SkillFrontmatter
   } catch (error) {

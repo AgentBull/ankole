@@ -1,4 +1,4 @@
-import { recordValue } from '@pleisto/active-support'
+import { recordValue } from '@agentbull/active-support'
 import type { CreatableComboboxOption } from '@ankole/uikit'
 import type {
   AiGatewayProviderItem as AIGatewayProviderItem,

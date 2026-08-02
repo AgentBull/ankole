@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { arrayPath, deepString, firstString, isRecord, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { arrayPath, deepString, firstString, isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { TurnStart } from '../../lanes/actor_lane'

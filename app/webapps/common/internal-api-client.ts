@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 type InternalAPIRequestOptions = {
   body?: JSONObject

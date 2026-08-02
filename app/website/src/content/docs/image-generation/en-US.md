@@ -2,7 +2,7 @@
 title: Image generation
 description: Select an image model for an Agent and generate or edit images in chat.
 section: User guide
-order: 22
+order: 24
 ---
 
 Enable image generation when an Agent must make illustrations, concept art, or visual drafts. The user stays in the same chat, and the Agent returns each generated image as an attachment. If the selected model accepts reference images, the Agent can also edit an existing image.

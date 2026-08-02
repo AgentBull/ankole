@@ -304,6 +304,13 @@ defmodule Ankole.SignalsGateway.Actors do
     |> where([event], not is_nil(event.reply_preview_checkpoint))
     |> where(
       [event],
+      fragment(
+        "COALESCE(?->'recovery_state'->>'state', '') <> 'blocked'",
+        event.reply_preview_checkpoint
+      )
+    )
+    |> where(
+      [event],
       (((event.input_state == "open" and is_nil(event.completed_at)) or
           not is_nil(event.completed_at)) and
          fragment(
@@ -318,6 +325,47 @@ defmodule Ankole.SignalsGateway.Actors do
     |> order_by([event], asc: event.inserted_at)
     |> Repo.all()
   end
+
+  @doc """
+  Requeues reply previews that a not-retryable provider error blocked.
+
+  An operator update to the binding is the explicit requeue signal: it clears
+  the blocked `recovery_state` marker, and the checkpoint notification lets
+  the recovery scan attempt the preview again.
+  """
+  @spec wake_blocked_reply_previews(String.t(), String.t()) :: :ok | {:error, term()}
+  def wake_blocked_reply_previews(agent_uid, binding_name)
+      when is_binary(agent_uid) and is_binary(binding_name) do
+    Repo.transact(fn repo ->
+      ActorEvent
+      |> where([event], event.agent_uid == ^agent_uid)
+      |> where([event], event.binding_name == ^binding_name)
+      |> where(
+        [event],
+        fragment(
+          "?->'recovery_state'->>'state' = 'blocked'",
+          event.reply_preview_checkpoint
+        )
+      )
+      |> lock("FOR UPDATE")
+      |> repo.all()
+      |> Enum.reduce_while({:ok, :ok}, fn event, acc ->
+        checkpoint = Map.delete(event.reply_preview_checkpoint, "recovery_state")
+
+        case put_reply_preview_checkpoint_in_tx(repo, event, checkpoint) do
+          {:ok, _event} -> {:cont, acc}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end)
+    |> case do
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def wake_blocked_reply_previews(_agent_uid, _binding_name),
+    do: {:error, :invalid_signal_binding}
 
   @doc false
   @spec reply_preview_runtime_event(ActorEvent.t()) :: {String.t(), map()}

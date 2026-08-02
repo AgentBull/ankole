@@ -1,9 +1,9 @@
-import { match, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { match, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers, type ReplyPresentationEvent } from './core'
 import {
+  controlShutdownEnvelope,
   turnAcceptedEnvelope,
-  turnCompletedEnvelope,
   turnErrorEnvelope,
   turnNoopCompletedEnvelope,
   workerProgressEnvelope
@@ -42,6 +42,8 @@ import {
 import { startWebhookCLIBridge } from './cli/webhooks/webhook-cli-bridge'
 import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-job-cli-bridge'
 import { runAutomationJob } from './automation-jobs/run'
+import { WorkerDrainState } from './worker/drain'
+import { completeTurnWithAck, TurnCompletionRejectedError } from './worker/turn_completion'
 
 const heartbeatIntervalMs = 15_000
 
@@ -69,6 +71,7 @@ async function runWorker(): Promise<void> {
   const sendFileFrame = fabric.sendFileFrame
   const rpcClient = new RuntimeRPCClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
+  const drain = new WorkerDrainState()
   const fileLane = createFileTransferLane(config, sendFileFrame)
   const browserRuntime = new BrowserRuntime({
     runtimeRoot: '/tmp/ankole-agent-computer',
@@ -92,11 +95,9 @@ async function runWorker(): Promise<void> {
         ...(event.urlHost === undefined ? {} : { url_host: event.urlHost })
       })
   })
-  let stopping = false
-
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      stopping = true
+      drain.begin(signal.toLowerCase())
     })
   }
 
@@ -110,8 +111,28 @@ async function runWorker(): Promise<void> {
     })
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
+    let shutdownReported = false
 
-    while (!stopping) {
+    for (;;) {
+      if (!drain.acceptsTurns && !shutdownReported) {
+        try {
+          await sendEnvelope(controlShutdownEnvelope(drain.reason ?? 'process_shutdown'))
+          shutdownReported = true
+          workerLogger.notice('worker.draining', 'worker draining active tasks', {
+            reason: drain.reason,
+            active_tasks: drain.activeTaskCount,
+            active_turns: activeTurns.size
+          })
+        } catch (error) {
+          workerLogger.warning('worker.drain_report_failed', 'worker drain report failed', {
+            reason: drain.reason,
+            error: errorValue(error)
+          })
+        }
+      }
+
+      if (!drain.shouldContinue) break
+
       if (Date.now() >= nextHeartbeatAt) {
         await sendHeartbeat(
           sendEnvelope,
@@ -133,7 +154,7 @@ async function runWorker(): Promise<void> {
         envelope_type: envelope.body.case,
         message_id: envelope.messageId
       })
-      await handleEnvelope(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, envelope)
+      await handleEnvelope(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, drain, envelope)
     }
   } finally {
     try {
@@ -201,6 +222,7 @@ async function handleEnvelope(
   sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRPCClient,
   activeTurns: Map<string, ActiveTurn>,
+  drain: WorkerDrainState,
   envelope: Envelope
 ): Promise<void> {
   const body = envelope.body
@@ -213,21 +235,23 @@ async function handleEnvelope(
       rpcClient.resolve(value)
     })
     .with({ case: 'rpcRequest' }, ({ value }) => {
-      void handleWorkerRPCRequest(sendEnvelope, value, {
-        runAutomationJob: request =>
-          runAutomationJob(request, {
-            config,
-            rpc: throwingRPCRequester(rpcClient)
+      drain.track(
+        handleWorkerRPCRequest(sendEnvelope, value, {
+          runAutomationJob: request =>
+            runAutomationJob(request, {
+              config,
+              rpc: throwingRPCRequester(rpcClient)
+            })
+        }).catch(error => {
+          workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
+            method: value.method,
+            error: errorValue(error)
           })
-      }).catch(error => {
-        workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
-          method: value.method,
-          error: errorValue(error)
         })
-      })
+      )
     })
     .with({ case: 'turnStart' }, () =>
-      startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, envelope)
+      startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, drain, envelope)
     )
     .with({ case: 'mailboxUpdated' }, () => handleMailboxUpdated(sendEnvelope, activeTurns, envelope))
     .with({ case: 'turnControl' }, () => handleTurnControl(activeTurns, envelope))
@@ -247,6 +271,7 @@ async function startTurn(
   sendEnvelope: EnvelopeSender,
   rpcClient: RuntimeRPCClient,
   activeTurns: Map<string, ActiveTurn>,
+  drain: WorkerDrainState,
   envelope: Envelope
 ): Promise<void> {
   const turnStart = turnStartFromEnvelope(envelope)
@@ -258,6 +283,16 @@ async function startTurn(
   })
 
   const activeKey = turnKey(turnStart.turn)
+
+  if (!drain.acceptsTurns) {
+    await sendEnvelope(
+      turnErrorEnvelope(turnStart.turn, 'worker_draining', 'worker is draining', correlationID, {
+        runtime: 'bun',
+        retryable: true
+      })
+    )
+    return
+  }
 
   if (activeTurns.has(activeKey)) {
     await sendEnvelope(
@@ -293,13 +328,15 @@ async function startTurn(
   await sendEnvelope(turnAcceptedEnvelope(turnStart.turn, correlationID))
   await sendEnvelope(workerCapacityEnvelope(config, availableTurnSlots(config, activeTurns), activeTurns.size))
 
-  void runActiveTurnTask(config, browserRuntime, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
-    workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
-      actor_event_id: turnStart.turn.actor_event_id,
-      error: errorValue(error),
-      operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+  drain.track(
+    runActiveTurnTask(config, browserRuntime, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
+      workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
+        actor_event_id: turnStart.turn.actor_event_id,
+        error: errorValue(error),
+        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+      })
     })
-  })
+  )
 }
 
 /**
@@ -349,6 +386,15 @@ async function runActiveTurnTask(
         operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
       })
       return
+    }
+
+    if (error instanceof TurnCompletionRejectedError) {
+      workerLogger.error('worker.turn_completion_rejected', 'worker turn completion was rejected', {
+        actor_event_id: turnStart.turn.actor_event_id,
+        error: errorValue(error),
+        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+      })
+      throw error
     }
 
     const message = error instanceof Error ? error.message : String(error)
@@ -442,9 +488,15 @@ async function runActiveTurn(
       return
     }
 
-    await sendEnvelope(
-      turnCompletedEnvelope(turnStart.turn, result.finalResponseID, result.outcome, active.correlationID)
-    )
+    await completeTurnWithAck(rpcClient, turnStart.turn, result.finalResponseID, result.outcome, {
+      onRetry: (attempt, error) => {
+        workerLogger.warning('worker.turn_completion_retry', 'worker turn completion acknowledgement missing', {
+          actor_event_id: turnStart.turn.actor_event_id,
+          attempt,
+          error: errorValue(error)
+        })
+      }
+    })
   } finally {
     automationJobCLI.close()
     webhookCLI.close()

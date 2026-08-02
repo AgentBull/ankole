@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.20
 
 ARG ELIXIR_IMAGE=elixir:1.20.1-otp-28-slim
-ARG BUN_IMAGE=oven/bun:1.3.14
+ARG BUN_IMAGE=oven/bun:canary
 ARG RUNNER_IMAGE=debian:trixie-slim
 
 FROM ${BUN_IMAGE} AS bun

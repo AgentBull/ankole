@@ -7,7 +7,7 @@ import {
   safeJsonStringify as safeJSONStringify,
   stringArg,
   type JsonObject as JSONObject
-} from '@pleisto/active-support'
+} from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
 import { assistantText, callModel, type Message, type ModelConfig, userMessage } from '../llm'
@@ -376,8 +376,8 @@ function parseJSONObject(text: string): JSONObject {
 
 function parseJSONRecord(text: string): JSONObject | undefined {
   const parsed = safeJSONParse(text)
-  return parsed.match(
-    value => recordValue(value) ?? {},
-    () => undefined
-  )
+  return parsed.match({
+    ok: value => recordValue(value) ?? {},
+    err: () => undefined
+  })
 }

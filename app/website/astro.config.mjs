@@ -26,6 +26,8 @@ export default defineConfig({
         '@': fileURLToPath(new URL('./src', import.meta.url))
       }
     },
-    plugins: [tailwindcss()]
+    // The isolated install links @tailwindcss/vite against its own vite copy,
+    // so its Plugin type does not unify with the vite type Astro compiles against.
+    plugins: [/** @type {any} */ (tailwindcss())]
   }
 })

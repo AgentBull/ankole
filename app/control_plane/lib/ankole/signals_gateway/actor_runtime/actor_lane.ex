@@ -6,6 +6,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorLane do
   module resolves its actor key, checks the worker route against the durable
   turn fence, and invokes the matching ActorRuntime transition with the
   generated payload struct.
+
+  `turn_completed` is a rolling-deployment compatibility input. Current
+  workers use the typed completion RPC, which reaches the same domain owner.
   """
 
   alias Ankole.Logging

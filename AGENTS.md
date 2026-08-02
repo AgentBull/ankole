@@ -119,9 +119,9 @@ Before adding a dependency in any ecosystem, confirm that an existing workspace 
 
 Use Bun as the TypeScript runtime, package manager, installer, and script launcher (`bun`, `bun install`, `bun run`, and `bunx`). Run package-declared test and build tools through Bun and do not replace them solely because of this rule; when a package declares no alternative, default to `bun test` and `bun build`. TypeScript dependency changes use `bun install` and update the committed `bun.lock`. Bun loads `.env` automatically, so do not add `dotenv`.
 
-### `@pleisto/active-support`
+### `@agentbull/active-support`
 
-Use `@pleisto/active-support` as the general-purpose utility library where it is already available; adding it follows the dependency rule above. It provides Lodash-style helpers and re-exports `ts-pattern`; use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers.
+Use `@agentbull/active-support` as the general-purpose utility library where it is already available; adding it follows the dependency rule above. It provides Lodash-style helpers and re-exports `ts-pattern`; use `match().with().exhaustive()` for complex branching and `ms('24h')`-style duration helpers.
 
 ## Project boundaries
 

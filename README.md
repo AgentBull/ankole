@@ -81,58 +81,53 @@ That is the technical bet: actor model for long-lived work identity, OTP for fai
 
 ## Architecture
 
+This diagram shows ownership and durability boundaries. It does not show every internal call.
+
 ```mermaid
 flowchart TB
-  subgraph Entry["Entry surfaces"]
-    direction LR
-    Work["Shared work<br/>chat · webhooks · schedules"]
-    Clients["AI API clients<br/>apps · enterprise systems · SDKs"]
-    Ops["Operators<br/>Console · APIs"]
+  External["External systems and operators<br/>channels · webhooks · AI API clients<br/>Console · APIs · SSO · directory"]
+
+  subgraph Control["Control Plane · one logical state and coordination boundary"]
+    direction TB
+    Platform["Principal / AuthZ / configuration<br/>Control Plane Plugins"]
+    SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
+    Schedule["Schedule<br/>checkbacks · cron"]
+    Runtime["Actor Runtime<br/>session lifecycle · admission · recovery"]
+    Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
+    Brain["Brain<br/>long-term memory · recall · dreaming"]
+    AI["AIGateway<br/>model routing · conversations · credentials"]
   end
 
-  SG["SignalsGateway<br/>shared-work ingress / delivery<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>configuration / Control Plane Plugins<br/>Control Plane"]
-  Runtime["Actor Runtime<br/>long-running sessions / recovery<br/>Control Plane"]
-  Main["Main agents<br/>model loops · tools · skills<br/>Agent Computer"]
-  Brain["Brain<br/>long-term memory<br/>curated knowledge · recall<br/>dreaming · oversight"]
-  Delegate["Background Agent Job<br/>durable · resumable work<br/>Control Plane"]
-  AI["AIGateway<br/>unified external + agent AI API<br/>stateless calls · stateful conversations"]
-  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · standalone Skills<br/>Agent Computer"]
-  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+  Fabric["RuntimeFabric<br/>live actor traffic · bounded RPC · worker files<br/>not durable storage"]
+  Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turns · Background Job / Codex · Automation scripts<br/>tools · Skills · MCP · browser · terminal"]
+  Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  subgraph Storage["Durability boundary"]
-    direction LR
-    PG[("PostgreSQL<br/>all durable semantic truth")]
-    Workspace[("Shared workspace<br/>artifacts · resumable files")]
-  end
+  PG[("PostgreSQL · durability boundary<br/>durable semantic truth")]
+  Home[("Shared Agent Home · durability boundary<br/>workspaces · artifacts · resumable files")]
 
-  Work --> SG --> Runtime
-  Ops --> Platform --> Runtime
-  Runtime -->|"RuntimeFabric · live execution"| Main
-  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
-  Main -->|"agent AI calls"| AI
-  Main -->|"long-term context"| Brain
-  Brain -->|"model capabilities"| AI
-  Main -->|"create Job"| Delegate
-  Delegate -->|"isolated execution"| Task
-  AI --> Providers
-
-  Runtime -.-> PG
-  AI -.-> PG
-  Brain -.-> PG
-  Delegate -.-> PG
-  Main -.-> Workspace
-  Task -.-> Workspace
+  External -->|"inputs and administration"| Control
+  SG -->|"ActorEvent"| Runtime
+  Schedule -->|"ActorEvent"| Runtime
+  SG -->|"bound webhook"| Jobs
+  Schedule -->|"bound trigger"| Jobs
+  Platform --> Runtime
+  Control -->|"live execution"| Fabric
+  Fabric <--> Workers
+  Workers -->|"AIGateway API"| Control
+  Control -->|"provider calls through AIGateway"| Providers
+  Control -.-> PG
+  Workers -.-> Home
 ```
 
 At a high level:
 
-- **Three first-class entry surfaces.** Shared work enters through SignalsGateway, applications and enterprise systems call AIGateway directly, and operators use the Console and APIs. AIGateway is not merely an internal worker proxy.
+- **One control plane owns state and coordination.** Principal/AuthZ, SignalsGateway, Schedule, Actor Runtime, Job lifecycles, Brain, and AIGateway make durable decisions in Elixir/OTP. PostgreSQL stores their semantic facts.
+- **Trigger owners stay separate.** SignalsGateway owns channel and webhook admission. Schedule owns checkbacks and cron. Each trigger wakes an Actor session by default or creates a durable Automation Job run when it has a binding.
+- **Workers provide replaceable execution.** A pool of one or more Agent Computer Workers runs Main Agent turns, Background Job/Codex turns, and Automation scripts. RuntimeFabric carries live actor traffic, bounded RPC, and worker-file operations; it is not a durable queue.
 - **AIGateway is the unified AI boundary.** Its OpenResponses-compatible HTTP, SSE, and WebSocket API supports stateless requests and Principal-scoped stateful conversations. It resolves models across LLM, embedding, rerank, web-search, and web-fetch providers while upstream credentials remain in the control plane.
-- **Actors separate durable work from execution.** Actor Runtime owns long-running session and recovery semantics; replaceable Agent Computer workers run model loops, tools, skills, and sandboxes.
 - **Brain is long-term memory.** It combines curated current knowledge, source-chat recall, dreaming, and human oversight. PostgreSQL rows are truth; Markdown and injected context are projections.
-- **Background Agent Jobs are durable work, not child processes.** A Job survives worker loss, can resume or wait for input, and wakes its owner when it changes state. It stores one optional workspace template; on each run, CodexRunner loads every Agent Plugin currently enabled for the Agent and each enabled Skill that permits Background Agent Jobs, then exposes a deliberately narrow platform-tool projection.
-- **Durability has two forms.** PostgreSQL owns semantic truth; the shared workspace holds artifacts and resumable files referenced by that state. RuntimeFabric is live transport only, with the shared Rust kernel providing in-process transport and AI data-plane primitives.
+- **The two Job types make different promises.** A Background Agent Job is interactive, model-driven work that can resume and wait for input. An Automation Job is an Agent-owned deterministic script; each trigger consumption is a durable run that can emit an event to its owner session.
+- **Durability has two forms.** PostgreSQL owns semantic truth. Shared Agent Home storage holds workspaces, artifacts, and resumable files. RuntimeFabric and Worker process state are rebuildable.
 
 ## Current Status
 

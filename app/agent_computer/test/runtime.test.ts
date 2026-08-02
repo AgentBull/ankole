@@ -1,6 +1,6 @@
 import { create, toJson as toJSON } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   existsSync,
   mkdirSync,
@@ -30,7 +30,6 @@ import {
   Lane,
   MailboxUpdatedSchema,
   RPCRequestSchema,
-  TurnCompletionOutcome,
   TurnStartSchema,
   type Envelope
 } from '../src/fabric/envelope_proto'
@@ -41,7 +40,7 @@ import {
   workerReadyEnvelope
 } from '../src/worker/config'
 import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
-import { turnCompletedEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
+import { controlShutdownEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareActorWorkspace, prepareTurnWorkspace } from '../src/worker/workspace'
 import { actorTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
@@ -179,17 +178,13 @@ describe('@ankole/agent-computer runtime', () => {
     expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
   })
 
-  it('emits response-backed turn completion as replayable turn control', () => {
-    const turn = actorTurnRef()
-    const envelope = turnCompletedEnvelope(turn, 'resp_final_1', 'iteration_exhausted', 'turn-start-1')
+  it('reports process drain as ephemeral control traffic', () => {
+    const envelope = controlShutdownEnvelope('sigterm')
 
-    expect(envelope.lane).toBe(Lane.TURN)
-    expect(envelope.durability).toBe(DurabilityClass.CONTROL_REPLAYABLE)
-    expect(envelope.correlationId).toBe('turn-start-1')
-    if (envelope.body.case !== 'turnCompleted') throw new Error('expected turnCompleted body')
-    expect(envelope.body.value.turn).toEqual(actorTurnRefToProto(turn))
-    expect(envelope.body.value.finalResponseId).toBe('resp_final_1')
-    expect(envelope.body.value.outcome).toBe(TurnCompletionOutcome.ITERATION_EXHAUSTED)
+    expect(envelope.lane).toBe(Lane.CONTROL)
+    expect(envelope.durability).toBe(DurabilityClass.CONTROL_EPHEMERAL)
+    if (envelope.body.case !== 'controlShutdown') throw new Error('expected controlShutdown body')
+    expect(envelope.body.value.reason).toBe('sigterm')
     expect(validatedBytes(envelope)).toBeInstanceOf(Buffer)
   })
 

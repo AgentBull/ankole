@@ -1,4 +1,4 @@
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../lanes/actor_lane'
 import { rpcMethods, type RPCRequester } from '../lanes/rpc_lane'
 import { scanInstalledSkills } from './installed_skills'

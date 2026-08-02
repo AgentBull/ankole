@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isRecord } from '@pleisto/active-support'
+import { isRecord } from '@agentbull/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { jsonToolResult } from '../../core/tool-result'
 

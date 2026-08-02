@@ -6,7 +6,7 @@ that Ankole needs after a restart.
 
 The connection carries three groups of messages:
 
-- Actor messages start, steer, stop, and complete Agent turns.
+- Actor messages start, steer, stop, and report non-response terminal states.
 - RPC messages ask another process to read or change Ankole data.
 - File messages read or change files on a worker.
 
@@ -92,7 +92,7 @@ The Bun adapter handles:
 - decoding of generated envelopes
 - calls to kernel validation
 - separation of envelopes from file frames
-- orderly shutdown of the `DEALER`
+- worker drain before shutdown of the `DEALER`
 
 The adapter does not schedule Actors or decide when a turn ends.
 
@@ -180,6 +180,12 @@ a fresh `incarnation_id`.
 Ready, heartbeat, and capacity messages contain both identifiers.
 The control plane also records the authenticated route.
 
+On process shutdown, the worker sends `control_shutdown` to the control plane.
+This direction means "the worker process is shutting down." The control plane
+marks the worker, its assignments, and its live activations as `draining`. It
+does not release their turn fences. A draining worker receives no new turns but
+can finish terminal writes and receive RPC responses.
+
 A new incarnation replaces the old process for the same worker ID. One
 transaction releases the old assignments and invalidates their turn fences.
 
@@ -259,7 +265,7 @@ version 1 messages.
 The Protobuf protocol uses four technical lanes:
 
 - `LANE_CONTROL` carries worker lifecycle and turn control.
-- `LANE_TURN` carries turn start, acceptance, and completion.
+- `LANE_TURN` carries turn start, acceptance, no-op completion, and errors.
 - `LANE_PROGRESS` carries progress observations.
 - `LANE_RPC` carries RPC requests and results.
 
@@ -282,9 +288,13 @@ The actor lane carries these common messages:
 - `turn_accepted`
 - `turn_control`
 - `worker_progress`
-- `turn_completed`
 - `turn_noop_completed`
 - `turn_error`
+
+`turn_completed` remains accepted as a rolling-deployment compatibility input.
+Current workers use the `actor_turn.complete` RPC. The compatibility input can
+be removed after all supported deployments have crossed the first paired
+control-plane and worker release that uses this RPC.
 
 Worker capacity has one scheduling representation. `worker_ready`,
 `worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
@@ -396,7 +406,8 @@ because replay could repeat an external write.
 
 ### Complete a Turn
 
-`turn_completed` contains the final Response ID and one outcome.
+The worker calls the turn-scoped `actor_turn.complete` RPC with the final
+Response ID and one outcome.
 
 - `loop_finished` means the worker loop ended normally.
 - `iteration_exhausted` means the local iteration budget ended.
@@ -404,7 +415,9 @@ because replay could repeat an external write.
 Neither outcome proves the broader user task succeeded.
 
 SignalsGateway checks that the Response chain did not change. It then completes
-the ActorEvent and stores the replies in one transaction.
+the ActorEvent and stores the replies in one transaction. Completion is stronger
+than `turn_accepted`, so it can commit a delivery that is still `sent`. This
+removes a race between the actor-lane acceptance task and the RPC task.
 
 The same commit clears the current ActorEvent and briefly keeps the Session on
 the worker for possible follow-up work.
@@ -412,8 +425,24 @@ the worker for possible follow-up work.
 AIGateway completion closes one Response only.
 It does not complete the actor event.
 
-RuntimeFabric sends no completion acknowledgement. If the commit fails, the
-ActorEvent stays open and ActorRuntime can try again.
+The RPC response acknowledges the durable commit. The worker does not release
+its active turn until it receives this response. If the response is lost after
+commit, the worker repeats the request. The completed ActorEvent stores the
+Response ID and outcome, so the repeated request returns `already_completed`
+after its live delivery fences have been cleared.
+
+On `SIGTERM` or `SIGINT`, the worker first sends `control_shutdown`, rejects new
+turns, and keeps its RuntimeFabric receive loop open while active tasks wait for
+completion responses. Kubernetes can still end the process at its external
+termination deadline; drain does not claim an unbounded shutdown guarantee.
+
+If a worker disappears before a completion commit, ActorRuntime checks the
+AIGateway output before it makes the ActorEvent ready again. A suffix containing
+only message and reasoning items is replay-safe: ActorRuntime retracts that
+visible suffix, fails any generating Response, and retries the event. A suffix
+that contains a tool call, tool result, or another effect-bearing item is not
+replayed. ActorRuntime dead-letters the event and commits a provider-visible
+failure notice for manual recovery.
 
 A turn with no reply uses `turn_noop_completed`. Silence alone never completes
 a turn. A worker failure uses `turn_error` and the normal retry path.
@@ -430,7 +459,7 @@ Each registry row defines:
 
 - the method name
 - its authorization scope
-- whether a turn method reads or writes
+- whether a turn method reads, writes, or completes a turn
 - the request message type
 - the response message type
 
@@ -441,12 +470,15 @@ Turn-scoped frames carry `ActorTurnRef` outside the payload.
 Worker-agent frames carry a trusted `agent_uid` outside the payload.
 
 The server authorizes the outer frame before it decodes the business payload.
-The payload does not repeat identity or request IDs.
+The completion effect also accepts an idempotent retry from the same worker and
+activation after the ActorEvent has completed. The payload does not repeat
+identity or request IDs.
 
 The registry currently contains these method families:
 
 - Agent conversation context.
 - Agent Plugin catalog.
+- Actor turn completion.
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.
 - Automation job management, execution, and event emission.
@@ -594,7 +626,7 @@ The ordinary outbound path is:
 
 1. The worker creates a file under the Agent `user-files` directory.
 2. The model calls `reply_attachment` with that real path.
-3. Agent Computer sends `turn_completed` with the final Response ID.
+3. Agent Computer calls `actor_turn.complete` with the final Response ID.
 4. SignalsGateway validates structured attachment outputs.
 5. The actor completion transaction inserts attachment outbox intents.
 6. The provider adapter reads and uploads the file.

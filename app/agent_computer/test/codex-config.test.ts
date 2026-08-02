@@ -1,9 +1,9 @@
 import { create } from '@bufbuild/protobuf'
+import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parse } from 'smol-toml'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { codexConfigCLIOverrides, materializeCodexConfig } from '../src/tools/codex/config'
 import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
@@ -36,7 +36,10 @@ describe('@ankole/agent-computer Codex config', () => {
         agentUID: 'agent-1',
         runtime: aigatewayRuntime()
       })
-      const config = parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<string, any>
+      const config = TOML.parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<
+        string,
+        any
+      >
       expect(materialized.agentHome).toBe(join(agentsRoot, 'agent-1'))
       expect(materialized.codexHome).toBe(join(agentsRoot, 'agent-1', '.codex'))
       expect(materialized.env.HOME).toBe(materialized.agentHome)
@@ -75,7 +78,7 @@ describe('@ankole/agent-computer Codex config', () => {
     const override = codexConfigCLIOverrides(projectRoot).at(-1)
 
     expect(override).toBeDefined()
-    expect(parse(override!)).toEqual({ projects: { [projectRoot]: { trust_level: 'trusted' } } })
+    expect(TOML.parse(override!)).toEqual({ projects: { [projectRoot]: { trust_level: 'trusted' } } })
   })
 
   it('keeps the shared AIGateway provider model-free and sends the frozen binding through one process header', () => {
@@ -86,7 +89,10 @@ describe('@ankole/agent-computer Codex config', () => {
         agentUID: 'agent-1',
         runtime: aigatewayRuntime()
       })
-      const config = parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<string, any>
+      const config = TOML.parse(readFileSync(join(materialized.codexHome, 'config.toml'), 'utf8')) as Record<
+        string,
+        any
+      >
       const binding = JSON.parse(
         Buffer.from(materialized.env.ANKOLE_AIGATEWAY_MODEL_BINDING!, 'base64url').toString('utf8')
       )

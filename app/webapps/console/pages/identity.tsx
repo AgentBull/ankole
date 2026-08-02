@@ -11,7 +11,7 @@ import {
   TableRow,
   toast
 } from '@ankole/uikit'
-import { recordValue } from '@pleisto/active-support'
+import { recordValue } from '@agentbull/active-support'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiRefreshLine } from '@remixicon/react'

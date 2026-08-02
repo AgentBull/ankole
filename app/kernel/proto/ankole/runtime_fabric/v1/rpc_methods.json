@@ -1,5 +1,12 @@
 [
   {
+    "method": "actor_turn.complete",
+    "scope": "turn",
+    "effect": "complete",
+    "request_type": "ankole.runtime_fabric.v1.ActorTurnCompleteRequest",
+    "response_type": "ankole.runtime_fabric.v1.ActorTurnCompleteResponse"
+  },
+  {
     "method": "agent_conversation.context.resolve",
     "scope": "turn",
     "effect": "read",

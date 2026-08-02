@@ -2,7 +2,7 @@
 title: 图像生成
 description: 为 Agent 选择图像模型，并在聊天中生成或修改图片。
 section: User guide
-order: 22
+order: 24
 ---
 
 需要制作配图、概念图或视觉草稿时，可以为 Agent 启用图像生成。配置完成后，用户仍在原来的聊天窗口里提出要求，Agent 会把生成的图片作为附件发回。若所选模型支持参考图，还可以让 Agent 在原图上继续修改。

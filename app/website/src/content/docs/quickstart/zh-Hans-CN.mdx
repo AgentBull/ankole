@@ -1141,6 +1141,96 @@ export const identityTabs = [
         }
       ]
     }
+  },
+  {
+    value: 'wecom',
+    label: '企业微信',
+    summary:
+      '用企业自建应用完成扫码登录，用「通讯录同步」的专用 Secret 周期性同步成员与部门。登录和通讯录接口都要求固定出口 IP。',
+    prerequisites: [
+      '企业微信超级管理员账号',
+      '出口 IP 固定的 Ankole 部署',
+      '用于首次登录的本企业成员账号'
+    ],
+    basic: {
+      title: '配置企业微信 IdP',
+      steps: [
+        {
+          title: '先从 Ankole 复制回调地址',
+          body: [
+            '打开 https://<ANKOLE_HOST>/setup，输入 activation code。在插件页勾选「企业微信适配器」并保存，然后选择企业微信。',
+            '「配置 ID（Provider ID）」保持 wecom-main。使用页面上的「复制」按钮复制登录回调地址。'
+          ]
+        },
+        {
+          title: '记录企业 ID',
+          body: ['打开企业微信管理后台，进入「我的企业 → 企业信息」，复制企业 ID（CorpID）。'],
+          links: [
+            {
+              label: '打开企业微信管理后台',
+              href: 'https://work.weixin.qq.com/wework_admin/'
+            }
+          ]
+        },
+        {
+          title: '创建自建应用，并配置可信域名和可信 IP',
+          body: [
+            '进入「应用管理 → 自建 → 创建应用」。创建后打开应用详情，复制 AgentId 和 Secret。',
+            '在同一页设置两项：「网页授权及 JS-SDK」可信域名填 Ankole 的域名；「企业可信 IP」填部署的固定出口 IP。'
+          ],
+          caution: '缺少可信 IP 时，登录和接口调用会报错 60020。可信域名不含回调地址的域名时，扫码后无法回跳。'
+        },
+        {
+          title: '开启通讯录同步，并取得专用 Secret',
+          body: [
+            '进入「安全与管理 → 管理工具 → 通讯录同步」，开启 API 接口同步，复制这里的专用 Secret，并配置它自己的可信 IP。',
+            '自 2022 年 6 月起，普通应用 Secret 拿不到成员姓名等字段。不配置这个专用 Secret，就无法同步通讯录，登录主体也没有姓名。'
+          ]
+        },
+        {
+          title: '把企业微信配置填回 Ankole',
+          bullets: [
+            '企业 ID（CorpID）：「企业信息」中的企业 ID',
+            '自建应用 AgentId / Secret：应用详情中的两个值',
+            '通讯录同步 Secret：「通讯录同步」页面的专用 Secret'
+          ],
+          body: [
+            '确认「启用登录」和「同步通讯录」已开启，然后选择「验证配置并登录」，用企业微信扫码完成登录。'
+          ]
+        },
+        {
+          title: '确认登录和首次同步',
+          body: [
+            '登录成功后，当前成员会成为第一位 root 管理员。打开 Console → 身份源提供商，选择 wecom-main，再选择「运行全量同步」。',
+            '同步完成后，在主体和权限组中确认成员与部门已经出现。'
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '同步节奏、可信 IP 与只做登录',
+      summary: '企业微信没有实时通讯录事件，变更靠周期性全量同步收敛。',
+      steps: [
+        {
+          title: '目录变化后运行全量同步',
+          body: [
+            '企业微信不向 Ankole 推送通讯录变更。新增成员或调整部门后，在 Console → 身份源提供商中重新运行全量同步，或等待下一次周期同步。'
+          ]
+        },
+        {
+          title: '出口 IP 变化时更新两处可信 IP',
+          body: [
+            '自建应用和通讯录同步的可信 IP 各配各的。部署迁移或出口 IP 变化后，两处都要更新，否则登录和同步会同时报 60020。'
+          ]
+        },
+        {
+          title: '只做登录',
+          body: [
+            '关闭「同步通讯录」后，通讯录同步 Secret 不再必填。此时登录主体只有企业微信账号 ID，没有姓名，也没有部门权限组。'
+          ]
+        }
+      ]
+    }
   }
 ]
 
@@ -1513,16 +1603,58 @@ export const channelTabs = [
             {
               name: 'cardTemplateId',
               description:
-                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建模板见「钉钉 AI 卡片回复」。'
+                '流式卡片回复用的 AI 卡片模板 id。首次测试可以留空；搭建步骤见下方「高级设置」。'
             }
           ]
         }
       ]
     },
     advanced: {
-      title: '多个 Agent 与身份设置',
-      summary: '要为多个 Agent 配置钉钉机器人，或需要同时接入钉钉身份源时，再看这里。',
+      title: '搭建 AI 卡片模板、多个 Agent 与身份设置',
+      summary: '要让回复以流式 AI 卡片呈现、为多个 Agent 配置机器人，或同时接入钉钉身份源时，再看这里。',
       steps: [
+        {
+          title: '创建 AI 卡片模板，并添加变量',
+          body: [
+            '钉钉卡片是模板托管的：版式保存在钉钉卡片平台上，Ankole 只往一组固定变量里写值。为一个钉钉组织搭一份模板即可，第一次大约需要二十分钟。前提：Agent 已能用纯文本回复，应用具备互动卡片实例写入和 AI 卡片流式更新权限。',
+            '打开钉钉开发者后台 → 卡片平台 → 新建模板，选择「AI 卡片」类别；只有这个类别带 AI 卡片容器，由它绘制输入指示、完成态和出错态。按下表逐个添加模板变量，名称必须完全一致；名称不一致时，对应区域在每次回复里都是空的。'
+          ],
+          fields: [
+            { name: 'flowStatus', description: '文本。卡片状态：书写中 2、完成 3、失败 5。' },
+            { name: 'state', description: '文本。一行状态，例如正在运行的工具名。' },
+            { name: 'answer', description: 'Markdown（流式）。回复正文，每一帧全量重写。' },
+            { name: 'thought', description: 'Markdown。临时思考草稿，回复结束时清空。' },
+            { name: 'plan', description: '文本。执行计划与完成计数。' },
+            { name: 'activity', description: '文本。正在执行的工具调用，回复结束时清空。' },
+            { name: 'results', description: '文本。每条结构化结果一行。' },
+            { name: 'receipts', description: '文本。每条已记录的副作用一行。' },
+            { name: 'actions', description: '文本。按钮的 JSON 列表；Agent 不反问时为空。' },
+            { name: 'meta', description: '文本。触发原因、卡片序号、计数、耗时。' }
+          ]
+        },
+        {
+          title: '排布组件，并绑定卡片状态',
+          body: [
+            '在 AI 卡片容器内按顺序放组件：meta 与 state 用小号文本放顶部；plan 用文本组件；thought 和 activity 各放进一个折叠区；answer 作为主 Markdown 组件，把内容变量类型设为 markdown 并开启流式，它是唯一按流式频率更新的组件；results 与 receipts 用文本组件；actions 绑定到操作区，并原样透传每个按钮的 value。',
+            '选中 AI 卡片容器，把它的流程状态变量（flowStatusVar）绑定到 flowStatus，保持书写态与失败态启用。'
+          ],
+          caution:
+            '这条绑定决定卡片是否显示得出内容：容器靠读取 flowStatus 选择绘制哪个状态。状态变量未绑定的容器会永远停在初始状态，而且经常渲染出空白正文。'
+        },
+        {
+          title: '发布模板，填入 id 并验证',
+          body: [
+            '把模板关联到持有机器人的企业内部应用并发布，复制模板 id，填进路由规则的 cardTemplateId 并保存。改动在下一次回复生效，无需重启任何组件。',
+            '验证：发一条能产出好几句话的消息，应出现边写边显示的卡片；回复结束后输入指示停止，思考区与活动区清空。再问一个需要你做决定的问题，此时必须出现按钮，点击后本轮继续；不再对应待答问题的旧按钮会被忽略。长回复约每 2.5 KB 封口一张卡片、在新卡片上继续，卡片始终是会话中的一条新消息，表格等富结构以文本呈现，这些都是平台限制下的预期行为。'
+          ],
+          bullets: [
+            '卡片空白，或回复结束后仍显示输入指示：容器状态变量没有绑定 flowStatus，重新绑定并发布。',
+            '某个区域始终为空：变量名与上表不一致，或组件没有绑定到它。',
+            '答案只在最后出现或完全不出现：answer 组件不是 markdown 流式组件。',
+            '回复是普通 Markdown 消息：模板 id 为空、模板未发布到本应用，或钉钉拒绝了卡片内容，查控制面日志中的 param.contentUnsafe 或 param.cardNotExist。卡片路径永久失败时，本次回复一次性降级为普通 Markdown，回复仍会送达。',
+            '按钮出现但点击无反应：操作区没有原样透传按钮的 value。'
+          ]
+        },
         {
           title: '为每个 Agent 使用独立机器人',
           bullets: [
@@ -1543,6 +1675,95 @@ export const channelTabs = [
               description: '聊天连接和钉钉 IdP 对应同一个组织时，两处配置才填写同一个值。'
             }
           ]
+        }
+      ]
+    }
+  },
+  {
+    value: 'wecom',
+    label: '企业微信',
+    summary:
+      '企业微信智能机器人通过一条出站长连接收发消息，不需要公网消息 webhook。平台强制每个机器人只允许一条长连接。',
+    alert: {
+      title: '企业微信是限制最多的聊天渠道',
+      body: [
+        '群聊里 Agent 只能收到明确 @ 机器人的消息；图片、语音、文件和视频只有单聊能收到，语音只有平台转写的文字。发出的消息无法撤回、无法编辑，也不能加表情回应。Agent 不能主动开启新会话：用户必须先在该会话给机器人发过消息，收到消息后的回复窗口为 24 小时。流式回复只在回复用户时可用，单条限时 10 分钟，长回答会拆成多条；发消息限频约每会话每分钟 30 条。交互卡片在用户点击后只有 5 秒更新窗口。通讯录变更没有实时同步。',
+        '这些限制全部来自平台本身，Ankole 无法绕过；长期记忆也只能从 Agent 收到的消息片段中积累上下文。条件允许时，请优先选择飞书 / Lark、Slack、Teams 或钉钉。'
+      ]
+    },
+    prerequisites: [
+      '能创建智能机器人的企业微信超级管理员',
+      '一个测试会话'
+    ],
+    basic: {
+      title: '准备企业微信机器人',
+      steps: [
+        {
+          title: '用超级管理员创建智能机器人',
+          body: [
+            '打开企业微信管理后台，创建 API 模式的智能机器人，记录 Bot ID 和与它同页展示的 Secret。'
+          ],
+          caution:
+            '机器人必须由企业超级管理员创建。否则消息里的用户 ID 是加密形态，永远无法与通讯录和登录身份对应。'
+        },
+        {
+          title: '不要让其他程序共用这个机器人',
+          body: [
+            '平台强制每个机器人只允许一条长连接。如果别的程序用同一个 Bot ID 连接，双方会互相顶掉；Ankole 检测到被顶掉后会停下等待，不会反复抢线。'
+          ]
+        },
+        {
+          title: '准备 Console 字段',
+          fields: [
+            {
+              name: 'botId',
+              description: '智能机器人的 Bot ID。'
+            },
+            {
+              name: 'secret',
+              description: '与 Bot ID 同页展示的长连接专用 Secret。'
+            },
+            {
+              name: 'group_message_mode',
+              value: 'addressed_only',
+              description: '企业微信群聊只支持此模式。'
+            }
+          ]
+        }
+      ]
+    },
+    advanced: {
+      title: '主动推送、身份映射与多个 Agent',
+      summary: 'Agent 要主动开口，用户必须先在该会话给机器人发过消息。',
+      steps: [
+        {
+          title: '解锁主动推送',
+          body: [
+            '计划任务结果等主动消息只能发进用户已经激活的会话。让每位使用者先给机器人发一条消息；全新会话无法由 Agent 先发起。主动推送一次性发送完整 Markdown，不使用流式。'
+          ]
+        },
+        {
+          title: '设置身份映射字段',
+          fields: [
+            {
+              name: 'platformSubjectNamespace',
+              value: 'wecom-main',
+              description: '聊天连接和企业微信 IdP 对应同一家企业时，两处配置填写同一个值。'
+            },
+            {
+              name: 'userName',
+              value: '企业微信 / WeCom',
+              description: '机器人发送消息时显示的名称。'
+            }
+          ]
+        },
+        {
+          title: '为每个 Agent 使用独立机器人',
+          bullets: [
+            '一个 Agent 同时只能启用一个企业微信 binding。',
+            '同一个 Bot ID 不能绑定给多个 Agent。'
+          ],
+          body: ['每多接入一个 Agent，都要创建一个独立的智能机器人。']
         }
       ]
     }
@@ -1570,7 +1791,7 @@ export const signalAdvanced = {
         }
       ],
       caution:
-        '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
+        '聊天平台必须先把群消息发给 Ankole，这些模式才会生效。钉钉和企业微信只支持 addressed_only；Slack 和飞书还要添加额外的事件或权限，才能读取群里所有消息。'
     },
     {
       title: '只有敏感会话才启用机密记忆',
@@ -1611,7 +1832,7 @@ export const signalAdvanced = {
 | **私有化部署实例** | 一家企业自行部署并管理的一套完整 Ankole 系统 | 实例 |
 | **主体（Principal）** | Ankole 中可以拥有身份和权限的人、Agent 或系统服务 | 主体 |
 | **身份源提供商（Identity Provider，IdP）** | 为 Console 提供单点登录，并向 Ankole 同步员工、通讯录和组织架构的外部身份源 | IdP |
-| **聊天平台** | Slack、Teams、飞书 / Lark 或钉钉等承载会话的外部平台 | 平台 |
+| **聊天平台** | Slack、Teams、飞书 / Lark、钉钉或企业微信等承载会话的外部平台 | 平台 |
 | **聊天渠道（Channel Provider）** | 接入 Ankole 的一套聊天应用或机器人配置，用来接收消息和发送 Agent 回复 | 聊天渠道 |
 | **信号路由规则（Signal Binding）** | 决定把哪个信号源收到的消息或事件交给哪个 Agent | 路由规则 |
 | **大语言模型提供商（LLM Provider）** | 保存模型服务地址、凭证和可用模型的配置 | 模型提供商 |
@@ -1652,7 +1873,7 @@ Ankole 的核心设计目标是服务企业内部的私有化部署。每家企�
 | **IdP** | Console 的 SSO 登录，以及员工、通讯录、组织架构和权限组的同步 | 先在 `/setup`，之后在 **Console → 身份源提供商** |
 | **聊天渠道** | 接收 IM 消息并发送 Agent 回复 | 在 **Console → 信号路由** 中配置 |
 
-身份源和聊天渠道也可以来自不同平台。例如，员工通过 Google Workspace 登录 Console，但在 Slack 中与 Agent 对话；也可以使用 Entra ID 登录，把聊天放在飞书、Slack、钉钉或 Teams。
+身份源和聊天渠道也可以来自不同平台。例如，员工通过 Google Workspace 登录 Console，但在 Slack 中与 Agent 对话；也可以使用 Entra ID 登录，把聊天放在飞书、Slack、钉钉、Teams 或企业微信。
 
 ### 按所选 IdP 完成首次设置
 
@@ -1715,7 +1936,7 @@ Agent 的模型档案只保存模型引用，因此要先添加模型提供商�
 | 字段 | 如何选择 |
 |---|---|
 | **Target Agent** | 第 3 步创建的 Agent |
-| **Adapter** | Slack、Teams、飞书 / Lark 或钉钉 |
+| **Adapter** | Slack、Teams、飞书 / Lark、钉钉或企业微信 |
 | **规则名称** | 起一个固定的名称，例如 `slack-main` 或 `lark-main` |
 | **Group message mode** | 第一次测试选择 `addressed_only` |
 | **Confidential memory** | 第一次测试先关闭 |

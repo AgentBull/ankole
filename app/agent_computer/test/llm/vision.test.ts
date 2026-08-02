@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { ImageContent, ModelConfig } from '../../src/core/llm'
 import {
   modelImageAdaptation,

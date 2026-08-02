@@ -1,6 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { parse, stringify } from 'smol-toml'
+import { TOML } from 'bun'
 import type { CodexRuntimeConfig } from '../../tools/codex/runtime-config'
 
 type TomlTable = Record<string, unknown>
@@ -24,7 +24,8 @@ export function materializeCodexJobProjectConfig(input: {
   applyRuntimeConfig(config, input.runtimeConfig)
   delete config.mcp_servers
   applyRunnerSafety(config, input.pluginsEnabled)
-  atomicWrite(path, stringify(config))
+  // The published Bun types lag the canary runtime's documented stringify API.
+  atomicWrite(path, (TOML as typeof TOML & { stringify(value: object): string }).stringify(config))
 
   return { path }
 }
@@ -68,7 +69,7 @@ function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
 
 function readToml(path: string): TomlTable {
   try {
-    const parsed = parse(readFileSync(path, 'utf8'))
+    const parsed = TOML.parse(readFileSync(path, 'utf8'))
     if (!isTable(parsed)) throw new Error('TOML root must be a table')
     return parsed
   } catch (error) {

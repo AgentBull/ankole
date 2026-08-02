@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.Bindings do
   alias Ankole.Repo
   alias Ankole.AppConfigure
   alias Ankole.Principals
+  alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.Adapters
   alias Ankole.SignalsGateway.Adapters.Definition
   alias Ankole.SignalsGateway.OutboxEntry
@@ -64,7 +65,8 @@ defmodule Ankole.SignalsGateway.Bindings do
              confidential_memory
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
-         :ok <- Outbox.wake_blocked_for_binding(principal.uid, binding_name) do
+         :ok <- Outbox.wake_blocked_for_binding(principal.uid, binding_name),
+         :ok <- Actors.wake_blocked_reply_previews(principal.uid, binding_name) do
       {:ok, %{binding: binding, config_key: config_key}}
     else
       {:error, :not_found} -> {:error, :agent_not_found}
@@ -104,7 +106,8 @@ defmodule Ankole.SignalsGateway.Bindings do
              confidential_memory
            ),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
-         :ok <- Outbox.wake_blocked_for_binding(target_principal.uid, binding_name) do
+         :ok <- Outbox.wake_blocked_for_binding(target_principal.uid, binding_name),
+         :ok <- Actors.wake_blocked_reply_previews(target_principal.uid, binding_name) do
       {:ok, %{binding: binding, config_key: config_key}}
     else
       nil -> {:error, :binding_not_found}

@@ -94,6 +94,17 @@ defmodule Ankole.SignalsGateway.ActorRuntime.InboundDispatcher do
   end
 
   defp dispatch_envelope(
+         {:ok, route, %FabricProto.Envelope{body: {:control_shutdown, control_shutdown}}},
+         authenticated_route
+       ) do
+    WorkerAdmission.handle_control_shutdown(
+      control_shutdown,
+      route_auth(route, authenticated_route)
+    )
+    |> log_result("control_shutdown", route)
+  end
+
+  defp dispatch_envelope(
          {:ok, route, %FabricProto.Envelope{body: {type, _payload}} = envelope},
          _authenticated_route
        ) do

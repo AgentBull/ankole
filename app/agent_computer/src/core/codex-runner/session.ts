@@ -1,4 +1,4 @@
-import { jsonObject, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { jsonObject, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { errorMessage } from '../../common/errors'

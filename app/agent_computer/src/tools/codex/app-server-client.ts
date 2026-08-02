@@ -1,4 +1,4 @@
-import { err, isRecord, ok, Result, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { isRecord, Result, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../../common/errors'
 
 export type JSONRPCMessage = JSONObject & {
@@ -84,7 +84,11 @@ export class CodexAppServerRPCError extends Error {
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
 const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
 const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
-const parseJSONLine = Result.fromThrowable((line: string) => JSON.parse(line) as unknown)
+const parseJSONLine = (line: string): Result<unknown, unknown> =>
+  Result.try({
+    try: () => JSON.parse(line) as unknown,
+    catch: error => error
+  })
 
 export const CODEX_OPT_OUT_NOTIFICATION_METHODS = [
   'item/agentMessage/delta',
@@ -338,13 +342,13 @@ function defaultRequestTimeoutMs(method: string): number {
 }
 
 function parseJSONRPCLine(line: string): Result<JSONRPCMessage | undefined, JSONRPCLineError> {
-  const parsed = parseJSONLine(line).mapErr(error => ({ line, message: errorText(error) }))
+  const parsed = parseJSONLine(line).mapError(error => ({ line, message: errorText(error) }))
   if (parsed.isErr()) {
-    return err(parsed.error)
+    return Result.err(parsed.error)
   }
 
   const message = parsed.value
-  return ok(isRecord(message) ? (message as JSONRPCMessage) : undefined)
+  return Result.ok(isRecord(message) ? (message as JSONRPCMessage) : undefined)
 }
 
 async function readJSONLines(stream: ReadableStream<Uint8Array> | null, onLine: (line: string) => void): Promise<void> {

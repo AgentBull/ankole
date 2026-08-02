@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AgentTool, AgentToolResult } from '../src/core'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { zodToJSONSchema } from '../src/core/llm/tool-schema'

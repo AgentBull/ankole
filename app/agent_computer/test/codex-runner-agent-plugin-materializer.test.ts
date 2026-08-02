@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
+import { TOML } from 'bun'
 import { jsonBytes } from '../src/fabric/envelope_proto'
 import {
   AgentPluginCatalogEntrySchema,
@@ -9,7 +10,6 @@ import {
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parse } from 'smol-toml'
 import {
   installAndTrustAgentPlugins,
   materializeAgentPluginSkillOverlays,
@@ -50,7 +50,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         expect.objectContaining({ name: 'alpha', source: { source: 'local', path: './plugins/alpha' } }),
         expect.objectContaining({ name: 'beta', source: { source: 'local', path: './plugins/beta' } })
       ])
-      expect(parse(readFileSync(join(projectRoot, '.codex', 'config.toml'), 'utf8'))).toEqual({
+      expect(TOML.parse(readFileSync(join(projectRoot, '.codex', 'config.toml'), 'utf8'))).toEqual({
         features: { plugins: true }
       })
       expect(existsSync(join(projectRoot, 'temp'))).toBeTrue()
@@ -92,7 +92,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       })
       expect(prepared.agentPlugins.map(plugin => plugin.id)).toEqual(['alpha', 'config-conflict', 'file-conflict'])
       expect(readFileSync(join(root, 'project', 'AGENTS.md'), 'utf8')).toBe('alpha\n\njob guidance\n')
-      expect(parse(readFileSync(join(root, 'project', '.codex', 'config.toml'), 'utf8'))).toEqual({
+      expect(TOML.parse(readFileSync(join(root, 'project', '.codex', 'config.toml'), 'utf8'))).toEqual({
         features: { plugins: true }
       })
 

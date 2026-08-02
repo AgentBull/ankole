@@ -1,4 +1,4 @@
-import { recordValue, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { TextContent, UserMessage } from '../llm'
 

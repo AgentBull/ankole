@@ -22,9 +22,73 @@ defmodule Ankole.E2E.ChaosE2ETest do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.E2E.DockerWorker
+  alias Ankole.E2E.FakeOpenAIState
   alias Ankole.E2E.FakeFeishu
   alias Ankole.Repo
   alias Ankole.SignalsGateway.OutboxEntry
+
+  @tag timeout: 600_000
+  @tag ownership_timeout: 600_000
+  test "SIGTERM drains an active turn through completion acknowledgement without replay" do
+    ctx = start_worker_e2e_stack!()
+
+    assert :ok =
+             FakeFeishu.State.user_sends_message(ctx.fake_feishu.state,
+               event_id: "evt_chaos_drain_1",
+               message_id: "om_chaos_drain_1",
+               chat_id: "oc_chaos_drain",
+               chat_type: "p2p",
+               text:
+                 "@_user_1 Trigger CHAOS_FOLLOWUP_SLOW and reply exactly CHAOS_FOLLOWUP_FIRST_OK.",
+               mentions: [lark_bot_mention()]
+             )
+
+    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_chaos_drain_1")
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: input.agent_uid, session_id: input.session_id},
+               now: DateTime.add(input.available_at, 1, :second),
+               lease_seconds: 120
+             )
+
+    assert_receive {:fake_llm_request, :followup_slow, 1, _request}, 15_000
+    assert :ok = DockerWorker.signal_docker_worker!(ctx.container, "TERM")
+
+    assert {:ok, %ActorEvent{completed_at: %DateTime{}, final_response_id: "resp_" <> _}} =
+             wait_until(deadline(120_000), fn ->
+               case Repo.get(ActorEvent, input.id) do
+                 %ActorEvent{completed_at: %DateTime{}} = event -> event
+                 _event -> nil
+               end
+             end)
+
+    assert_receive {port, {:exit_status, 0}} when port == ctx.container.port, 30_000
+
+    replacement_worker_id = "chaos-drain-replacement-#{System.unique_integer([:positive])}"
+
+    replacement =
+      start_additional_worker!(ctx.endpoint, replacement_worker_id, ctx.worker_auth_key)
+
+    assert {:ok, %{status: :idle}} =
+             ReadyEventProcessor.process_ready_event_for_actor(
+               %{agent_uid: input.agent_uid, session_id: input.session_id},
+               now: DateTime.utc_now(:microsecond)
+             )
+
+    assert {:ok, reply, _message} =
+             wait_for_completed_final_reply(replacement, input.id, deadline(120_000))
+
+    assert FakeOpenAIState.counters()[:followup_slow] == 1
+
+    assert_lark_final_reply(
+      ctx.fake_feishu,
+      reply,
+      "CHAOS_FOLLOWUP_FIRST_OK",
+      :reply,
+      "om_chaos_drain_1"
+    )
+  end
 
   @tag timeout: 600_000
   @tag ownership_timeout: 600_000

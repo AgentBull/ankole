@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer'
-import { safeJsonParse as safeJSONParse, type JsonObject as JSONObject } from '@pleisto/active-support'
+import { safeJsonParse as safeJSONParse, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { z } from 'zod'
 import { errorMessage } from '../../common/errors'
 
@@ -77,10 +77,9 @@ function validatedToolArguments(
 }
 
 function parseJSON(input: string): { ok: true; value: unknown } | { ok: false; error: unknown } {
-  return safeJSONParse(input).match(
-    value => ({ ok: true as const, value }),
-    error => ({ ok: false as const, error })
-  )
+  const parsed = safeJSONParse(input)
+  if (parsed.isErr()) return { ok: false, error: parsed.error }
+  return { ok: true, value: parsed.value }
 }
 
 function stripJSONCodeFence(input: string): string | undefined {

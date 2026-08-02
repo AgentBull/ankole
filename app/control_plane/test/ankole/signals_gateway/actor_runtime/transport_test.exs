@@ -442,14 +442,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
                wait_for_delivery_state(input.id, "accepted")
     end
 
-    test "broker ignores obsolete worker final proposals" do
+    test "worker shutdown marks its route draining without releasing the active turn" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
 
       :ok = Broker.register_local_worker(route, self())
       on_exit(fn -> Broker.unregister_local_worker(route) end)
-      assert {:ok, _worker} = admit_worker(route)
+      assert {:ok, worker} = admit_worker(route)
 
       assert {:ok, %{actor_event: input}} =
                emit_entry(
@@ -469,25 +469,24 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
       assert %FabricProto.ActorTurnRef{} = turn_start_payload!(envelope).turn
       assert %ActorEventDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
-      # A body type the control-plane actor lane does not handle is ignored
-      # without committing anything; undecodable bytes are already rejected by
-      # the kernel before they reach this broker.
-      proposal_envelope =
+      shutdown_envelope =
         encode_fabric_envelope(%FabricProto.Envelope{
           protocol_version: Ankole.Kernel.RuntimeFabric.protocol_version(),
-          message_id: "obsolete-worker-proposal",
+          message_id: "worker-shutdown",
           correlation_id: envelope.message_id,
           lane: :LANE_CONTROL,
           durability: :CONTROL_EPHEMERAL,
-          body: {:control_shutdown, %FabricProto.ControlShutdown{reason: "obsolete"}}
+          body: {:control_shutdown, %FabricProto.ControlShutdown{reason: "sigterm"}}
         })
 
       send(
         Broker,
-        {:runtime_fabric_router_received, route, nil, proposal_envelope}
+        {:runtime_fabric_router_received, route, nil, shutdown_envelope}
       )
 
+      :sys.get_state(Broker)
       :sys.get_state(Ankole.SignalsGateway.ActorRuntime.InboundDispatcher)
+      assert Repo.get!(AgentComputerWorker, worker.id).status == "draining"
       assert is_nil(Repo.get!(ActorEvent, input.id).completed_at)
 
       assert %ActorEventDelivery{state: "sent"} =

@@ -292,7 +292,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   This is only for runtime decisions that consume an actor event without
   provider-visible output, such as ambient silence. Normal text turns complete
-  through an explicit `turn_completed` carrying the adopted Response id.
+  through an explicit completion RPC carrying the adopted Response ID.
   """
   @spec handle_turn_noop_completed(FabricProto.TurnNoopCompleted.t()) ::
           {:ok, map()} | {:error, term()}
@@ -1343,23 +1343,105 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> repo.update()
   end
 
+  defp fail_worker_activation(
+         repo,
+         %ActorSessionActivation{current_actor_event_id: nil} = activation,
+         now,
+         reason
+       ) do
+    mark_activation_failed(repo, activation, reason, now)
+  end
+
   defp fail_worker_activation(repo, %ActorSessionActivation{} = activation, now, reason) do
+    actor_key = activation_actor_key(activation)
+    actor_event_id = activation.current_actor_event_id
+
+    case prepare_worker_loss_retry(repo, actor_key, actor_event_id, now) do
+      {:ok, :retry} ->
+        fail_replayable_worker_turn(repo, activation, actor_key, actor_event_id, now, reason)
+
+      {:ok, :dead_letter} ->
+        dead_letter_unacknowledged_worker_turn(
+          repo,
+          activation,
+          actor_key,
+          actor_event_id,
+          now,
+          reason
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp prepare_worker_loss_retry(repo, actor_key, actor_event_id, now) do
+    if AIGatewayLink.turn_replay_safe_in_tx(repo, actor_key, actor_event_id) do
+      case AIGatewayLink.retract_visible_turn_suffix_in_tx(
+             repo,
+             actor_key.agent_uid,
+             actor_key.session_id,
+             actor_event_id,
+             now,
+             reason: "worker_lost_before_turn_completion"
+           ) do
+        {:ok, %{status: :retracted}} -> {:ok, :retry}
+        {:ok, %{status: :noop, reason: reason}} when reason != :not_visible_tail -> {:ok, :retry}
+        {:ok, %{status: :noop}} -> {:ok, :dead_letter}
+        {:error, _reason} = error -> error
+      end
+    else
+      {:ok, :dead_letter}
+    end
+  end
+
+  defp fail_replayable_worker_turn(
+         repo,
+         activation,
+         actor_key,
+         actor_event_id,
+         now,
+         reason
+       ) do
     with {:ok, _failed_message} <-
            AIGatewayLink.fail_generating_turn_in_tx(
              repo,
-             activation_actor_key(activation),
-             activation.current_actor_event_id,
+             actor_key,
+             actor_event_id,
              now,
              reason
            ),
          {_count, _rows} <-
-           supersede_turn_deliveries_by_actor_event_id(
-             activation.current_actor_event_id,
+           supersede_turn_deliveries_by_actor_event_id(actor_event_id, repo, now, reason) do
+      mark_activation_failed(repo, activation, reason, now)
+    end
+  end
+
+  defp dead_letter_unacknowledged_worker_turn(
+         repo,
+         activation,
+         actor_key,
+         actor_event_id,
+         now,
+         reason
+       ) do
+    with %ActorEvent{} = event <- Actors.lock_actor_event_in_tx(repo, actor_event_id),
+         {:ok, _failed_message} <-
+           AIGatewayLink.fail_generating_turn_in_tx(
              repo,
+             actor_key,
+             actor_event_id,
              now,
              reason
-           ) do
+           ),
+         {_count, _rows} <-
+           supersede_turn_deliveries_by_actor_event_id(actor_event_id, repo, now, reason),
+         {:ok, event} <- Actors.mark_event_dead_letter_in_tx(repo, event, now),
+         {:ok, _notice} <- maybe_commit_dead_letter_notice(repo, event, true) do
       mark_activation_failed(repo, activation, reason, now)
+    else
+      nil -> {:error, :actor_runtime_fence_not_found}
+      {:error, _reason} = error -> error
     end
   end
 

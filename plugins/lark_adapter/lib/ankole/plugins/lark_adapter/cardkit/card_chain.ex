@@ -11,12 +11,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.CardChain do
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
 
   @page_source_bytes 12 * 1_024
+  # Feishu renders at most four Markdown tables in one rich-text element, so
+  # one page carries at most four answer tables.
+  @page_tables 4
 
   @spec pages(map() | String.t()) :: [MarkdownSegmenter.page()]
   def pages(%{} = presentation), do: pages(presentation["answer"] || "")
 
   def pages(answer) when is_binary(answer),
-    do: MarkdownSegmenter.pages(answer, max_bytes: @page_source_bytes)
+    do: MarkdownSegmenter.pages(answer, max_bytes: @page_source_bytes, max_tables: @page_tables)
 
   @spec cards(map()) :: [map()]
   def cards(%{"cards" => cards}) when is_list(cards) and cards != [] do

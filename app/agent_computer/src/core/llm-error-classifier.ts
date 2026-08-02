@@ -7,9 +7,9 @@
 // message-only overflow check, because an overflow phrase ("too many tokens") can co-occur with a 429
 // or 413 and we want the transport-level class to win there.
 
-import { match, P } from '@pleisto/active-support'
-import { isRecord } from '@pleisto/active-support'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import { match, P } from '@agentbull/active-support'
+import { isRecord } from '@agentbull/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 /** Backend-independent failure class derived from a raw LLM error. */
 export type LLMErrorKind = 'auth' | 'content_filter' | 'overflow' | 'rate_limit' | 'server' | 'timeout' | 'unknown'

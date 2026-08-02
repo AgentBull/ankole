@@ -6,10 +6,17 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
   input byte-for-byte. `content` is the independently renderable Markdown for
   one card, so an oversized fenced block may receive display-only closing and
   reopening fences without changing `source`.
+
+  Page boundaries are a pure function of the answer prefix: text appended to
+  the answer never moves an earlier boundary. Sealed cards rely on this
+  invariant while an answer streams.
   """
 
   @default_max_bytes 12 * 1_024
   @minimum_max_bytes 512
+  # Feishu renders at most four Markdown tables in one rich-text element, so
+  # one page never packs more than four tables.
+  @default_max_tables 4
 
   @type page :: %{
           source: String.t(),
@@ -21,12 +28,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
   @spec pages(String.t(), keyword()) :: [page()]
   def pages(text, opts \\ []) when is_binary(text) do
     max_bytes = max(Keyword.get(opts, :max_bytes, @default_max_bytes), @minimum_max_bytes)
+    max_tables = max(Keyword.get(opts, :max_tables, @default_max_tables), 1)
 
     segments =
       text
       |> markdown_blocks()
       |> Enum.flat_map(&split_oversized_block(&1, max_bytes))
-      |> pack_segments(max_bytes)
+      |> pack_segments(max_bytes, max_tables)
 
     segments = if segments == [], do: [%{source: "", content: " "}], else: segments
 
@@ -43,6 +51,43 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
       end)
 
     pages
+  end
+
+  @doc """
+  Counts Markdown pipe tables in `text`.
+
+  A table is one delimiter row (for example `| --- | --- |`) that directly
+  follows a line that contains `|`. Lines inside fenced code never count.
+  Pathological adjacent tables can count higher than a Markdown parser
+  reports; that direction is safe because it splits pages earlier and trips
+  the renderer budget instead of the provider.
+  """
+  @spec count_tables(String.t()) :: non_neg_integer()
+  def count_tables(text) when is_binary(text) do
+    text
+    |> lines_with_endings()
+    |> Enum.reduce({0, nil, false}, fn line, {count, fence, header?} ->
+      next_fence = fence_transition(line, fence)
+
+      cond do
+        not is_nil(fence) or not is_nil(next_fence) ->
+          {count, next_fence, false}
+
+        header? and delimiter_row?(line) ->
+          {count + 1, next_fence, false}
+
+        true ->
+          {count, next_fence, String.contains?(line, "|")}
+      end
+    end)
+    |> elem(0)
+  end
+
+  defp delimiter_row?(line) do
+    trimmed = String.trim(line)
+
+    trimmed != "" and String.contains?(trimmed, "|") and String.contains?(trimmed, "-") and
+      Regex.match?(~r/^[|:\-\s]+$/u, trimmed)
   end
 
   defp markdown_blocks(""), do: []
@@ -232,18 +277,24 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter do
     end
   end
 
-  defp pack_segments(segments, max_bytes) do
+  # A table never spans a blank line, so it never spans two blocks, and the
+  # byte budget keeps split chunks of one oversized block on separate pages.
+  # Summing per-segment table counts therefore equals counting the packed page.
+  defp pack_segments(segments, max_bytes, max_tables) do
     segments
+    |> Enum.map(&Map.put(&1, :tables, count_tables(&1.content)))
     |> Enum.reduce({[], nil}, fn segment, {pages, current} ->
       cond do
         is_nil(current) ->
           {pages, segment}
 
-        byte_size(current.content) + byte_size(segment.content) <= max_bytes ->
+        byte_size(current.content) + byte_size(segment.content) <= max_bytes and
+            current.tables + segment.tables <= max_tables ->
           {pages,
            %{
              source: current.source <> segment.source,
-             content: current.content <> segment.content
+             content: current.content <> segment.content,
+             tables: current.tables + segment.tables
            }}
 
         true ->

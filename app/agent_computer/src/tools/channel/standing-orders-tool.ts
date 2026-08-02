@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { currentReplyRoute } from '../../core/turns/reply_route'

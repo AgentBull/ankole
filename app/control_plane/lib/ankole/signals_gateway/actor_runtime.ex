@@ -95,7 +95,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime do
   defdelegate handle_turn_noop_completed(payload), to: TurnLifecycle
 
   @doc """
-  Commits a response-backed Agent turn completion through SignalsGateway.
+  Commits the legacy response-backed completion envelope through SignalsGateway.
   """
   @spec handle_turn_completed(FabricProto.TurnCompleted.t()) :: {:ok, map()} | {:error, term()}
   defdelegate handle_turn_completed(payload), to: ActorTurnCompletion, as: :handle

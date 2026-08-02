@@ -110,6 +110,6 @@ It is not a workflow language. There is no YAML step list, platform DAG, hidden 
 ## Next steps
 
 - For the schedule surface, read [Schedules](../schedules/).
-- For deterministic script consumers, read [Worker CLI capabilities](../cli-capabilities/).
+- For deterministic script consumers, read [Automation Jobs](../automation-jobs/).
 - For background execution and collaboration choices, read [Background Agent Jobs](../background-jobs/).
 - For an external event capability, read [Webhook delegations](../webhook-delegations/).

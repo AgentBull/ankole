@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { runCodexJob } from '../src/core/codex-runner'
 import { create } from '@bufbuild/protobuf'
 import { xxh3String128Hex } from '@ankole/kernel'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import {
   AgentConversationContextResponseSchema,

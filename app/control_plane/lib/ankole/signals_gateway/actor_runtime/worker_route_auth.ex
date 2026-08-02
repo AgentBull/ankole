@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
+  alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
 
   @type effect :: :read | :write
@@ -23,6 +24,21 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
   end
 
   def authorize_turn_route(_turn, _route, _effect), do: {:error, :invalid_turn_ref}
+
+  @spec authorize_turn_completion_route(TurnRef.t(), String.t()) :: :ok | {:error, atom()}
+  def authorize_turn_completion_route(%TurnRef{} = turn_ref, route) when is_binary(route) do
+    case Repo.transact(fn repo ->
+           case authorize_turn_route_in_tx(repo, turn_ref, route, :write) do
+             {:ok, :authorized} = authorized -> authorized
+             {:error, _reason} -> authorize_completed_turn_retry_in_tx(repo, turn_ref, route)
+           end
+         end) do
+      {:ok, :authorized} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def authorize_turn_completion_route(_turn, _route), do: {:error, :invalid_turn_ref}
 
   @doc false
   @spec authorize_turn_route_in_tx(module(), TurnRef.t(), String.t(), effect(), keyword()) ::
@@ -81,6 +97,37 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
     |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
     |> where([activation], activation.status in ["starting", "active", "draining"])
     |> maybe_lock(lock?)
+    |> repo.one()
+  end
+
+  defp authorize_completed_turn_retry_in_tx(repo, turn_ref, route) do
+    with %AgentComputerWorker{} = worker <- worker_by_route(repo, route, false),
+         %ActorSessionActivation{} <- completed_turn_activation(repo, turn_ref, worker),
+         %ActorEvent{} <- completed_actor_event(repo, turn_ref) do
+      {:ok, :authorized}
+    else
+      nil -> {:error, :worker_not_assigned_to_turn}
+    end
+  end
+
+  defp completed_turn_activation(repo, turn_ref, worker) do
+    ActorSessionActivation
+    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
+    |> where([activation], activation.session_id == ^turn_ref.session_id)
+    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
+    |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
+    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
+    |> where([activation], activation.revision >= ^turn_ref.revision)
+    |> where([activation], activation.status in ["active", "draining"])
+    |> repo.one()
+  end
+
+  defp completed_actor_event(repo, turn_ref) do
+    ActorEvent
+    |> where([event], event.id == ^turn_ref.actor_event_id)
+    |> where([event], event.agent_uid == ^turn_ref.agent_uid)
+    |> where([event], event.session_id == ^turn_ref.session_id)
+    |> where([event], not is_nil(event.completed_at))
     |> repo.one()
   end
 

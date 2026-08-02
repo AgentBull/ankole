@@ -79,58 +79,53 @@ Runtime は 5 つの technical bets に基づきます。
 
 ## アーキテクチャ
 
+この図は ownership と durability boundary を示します。すべての内部 call を並べたものではありません。
+
 ```mermaid
 flowchart TB
-  subgraph Entry["第一級の入口"]
-    direction LR
-    Work["共同作業<br/>chat · webhook · schedule"]
-    Clients["AI API クライアント<br/>application · enterprise system · SDK"]
-    Ops["運用者<br/>Console · API"]
+  External["外部 system と運用者<br/>業務 channel · webhook · AI API client<br/>Console · API · SSO · directory"]
+
+  subgraph Control["Control Plane · 単一の logical state / coordination boundary"]
+    direction TB
+    Platform["Principal / AuthZ / 設定<br/>Control Plane Plugins"]
+    SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
+    Schedule["Schedule<br/>Checkback · Cron"]
+    Runtime["Actor Runtime<br/>session lifecycle · admission · recovery"]
+    Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
+    Brain["Brain<br/>long-term memory · recall · Dreaming"]
+    AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
-  SG["SignalsGateway<br/>共同作業の入口 / delivery<br/>Control Plane"]
-  Platform["Principal / AuthZ<br/>設定 / Control Plane Plugins<br/>Control Plane"]
-  Runtime["Actor Runtime<br/>長時間 session / recovery<br/>Control Plane"]
-  Main["メイン agent<br/>model loop · tools · skills<br/>Agent Computer"]
-  Brain["Brain<br/>長期記憶<br/>curated knowledge · recall<br/>dreaming · human oversight"]
-  Delegate["Background Agent Job<br/>durable · resumable work<br/>Control Plane"]
-  AI["AIGateway<br/>外部 + agent 向け統一 AI API<br/>stateless request · stateful conversation"]
-  Task["BackgroundAgentJob · CodexRunner<br/>Agent Plugins · standalone Skills<br/>Agent Computer"]
-  Providers["AI providers<br/>LLM · embedding · rerank · web"]
+  Fabric["RuntimeFabric<br/>live actor traffic · bounded RPC · worker file<br/>durable state は保存しない"]
+  Workers["Agent Computer Worker pool · 1…N<br/>Main Agent turn · Background Job / Codex · Automation script<br/>tools · Skills · MCP · browser · terminal"]
+  Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
-  subgraph Storage["Durability boundary"]
-    direction LR
-    PG[("PostgreSQL<br/>durable semantic truth のすべて")]
-    Workspace[("Shared workspace<br/>artifact · resumable file")]
-  end
+  PG[("PostgreSQL · durability boundary<br/>durable semantic truth")]
+  Home[("Shared Agent Home · durability boundary<br/>workspace · artifact · resumable file")]
 
-  Work --> SG --> Runtime
-  Ops --> Platform --> Runtime
-  Runtime -->|"RuntimeFabric · live execution"| Main
-  Clients -->|"OpenResponses-compatible<br/>HTTP · SSE · WebSocket"| AI
-  Main -->|"agent AI call"| AI
-  Main -->|"長期 context"| Brain
-  Brain -->|"model capability"| AI
-  Main -->|"Job 作成"| Delegate
-  Delegate -->|"isolated execution"| Task
-  AI --> Providers
-
-  Runtime -.-> PG
-  AI -.-> PG
-  Brain -.-> PG
-  Delegate -.-> PG
-  Main -.-> Workspace
-  Task -.-> Workspace
+  External -->|"input と administration"| Control
+  SG -->|"ActorEvent"| Runtime
+  Schedule -->|"ActorEvent"| Runtime
+  SG -->|"bound webhook"| Jobs
+  Schedule -->|"bound trigger"| Jobs
+  Platform --> Runtime
+  Control -->|"live execution"| Fabric
+  Fabric <--> Workers
+  Workers -->|"AIGateway API"| Control
+  Control -->|"AIGateway provider call"| Providers
+  Control -.-> PG
+  Workers -.-> Home
 ```
 
 全体像：
 
-- **3 つの first-class entry surface。** Shared work は SignalsGateway から入り、application と enterprise system は AIGateway を直接呼び出し、operator は Console と API を使います。AIGateway は worker 専用の内部 proxy ではありません。
+- **1 つの Control Plane が state と coordination を所有します。** Principal/AuthZ、SignalsGateway、Schedule、Actor Runtime、Job lifecycle、Brain、AIGateway は Elixir/OTP で durable decision を行い、semantic fact を PostgreSQL に保存します。
+- **Trigger owner は分かれています。** SignalsGateway は channel と webhook admission を所有し、Schedule は Checkback と Cron を所有します。Trigger は標準で Actor session を wake し、Automation Job と bind した場合は durable な Automation Job run を作成します。
+- **Worker は replaceable な execution resource を提供します。** 1 台以上の Agent Computer Worker が Main Agent turn、Background Job/Codex turn、Automation script を実行します。RuntimeFabric は live actor traffic、bounded RPC、worker-file operation を運びますが、durable queue ではありません。
 - **AIGateway は統一された AI boundary。** OpenResponses-compatible な HTTP、SSE、WebSocket API が stateless request と Principal-scoped stateful conversation の両方を支えます。LLM、embedding、rerank、web search、web fetch は同じ provider routing surface で解決され、upstream credential は control plane の外に出ません。
-- **Actor は durable work と execution resource を分離します。** Actor Runtime が long-running session と recovery semantics を所有し、replaceable な Agent Computer worker が model loop、tools、skills、sandbox を実行します。
 - **Brain は long-term memory。** Curated current knowledge、source-chat recall、dreaming、human oversight を統合します。PostgreSQL row が truth であり、Markdown と injected context は projection です。
-- **Background Agent Job は child process ではなく durable work。** Job は worker loss を越えて recover し、resume または user input 待ちができ、state transition で owner session を wake します。Job は optional な Workspace Template を 1 つだけ保持します。CodexRunner は実行ごとに Agent で現在 enabled なすべての Agent Plugin と、Background Agent Job を許可する enabled Skill を読み込み、意図的に狭い platform-tool projection を公開します。
-- **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared workspace がその state から参照される artifact と resumable file を保持します。RuntimeFabric は live transport のみで、shared Rust kernel が process 内 transport と AI data-plane primitives を提供します。
+- **2 種類の Job は異なる保証を持ちます。** Background Agent Job は resume と user input 待ちができる interactive な model work です。Automation Job は Agent が所有する deterministic script です。Trigger を消費するたびに durable run を作り、owner session に event を送信できます。
+- **Durability には 2 つの形があります。** PostgreSQL が semantic truth を所有し、shared Agent Home が workspace、artifact、resumable file を保持します。RuntimeFabric と Worker process state は再構築できます。
 
 ## 現状
 

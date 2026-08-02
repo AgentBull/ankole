@@ -9,6 +9,78 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   end
 
   describe "turn_completed" do
+    test "completion RPC commits once and acknowledges a retry after live fences are cleared" do
+      %{agent: agent, event: event, turn_ref: turn_ref, route: route} =
+        start_accepted_turn("completion-rpc")
+
+      final = complete_response(agent.uid, event, "done")
+
+      payload = %FabricProto.ActorTurnCompleteRequest{
+        final_response_id: "resp_#{final.id}",
+        outcome: "loop_finished"
+      }
+
+      assert {:ok, first_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("complete-rpc-1", "actor_turn.complete", payload, turn: turn_ref),
+                 route
+               )
+
+      first =
+        rpc_response_payload!(first_envelope, FabricProto.ActorTurnCompleteResponse)
+
+      assert first.status == "turn_completed"
+      assert first.final_response_id == "resp_#{final.id}"
+      assert first.outcome == "loop_finished"
+
+      assert {:ok, retry_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("complete-rpc-2", "actor_turn.complete", payload, turn: turn_ref),
+                 route
+               )
+
+      retry =
+        rpc_response_payload!(retry_envelope, FabricProto.ActorTurnCompleteResponse)
+
+      assert retry.status == "already_completed"
+      assert retry.final_response_id == first.final_response_id
+      assert retry.outcome == first.outcome
+
+      assert Repo.aggregate(
+               from(entry in OutboxEntry,
+                 where: entry.source_actor_event_id == ^event.id
+               ),
+               :count
+             ) == 1
+    end
+
+    test "completion RPC subsumes turn acceptance when its task runs first" do
+      %{agent: agent, event: event, turn_ref: turn_ref, route: route} =
+        start_sent_turn("completion-before-acceptance")
+
+      final = complete_response(agent.uid, event, "done")
+
+      assert {:ok, envelope} =
+               RPCLane.handle_request(
+                 rpc_request(
+                   "complete-before-acceptance",
+                   "actor_turn.complete",
+                   %FabricProto.ActorTurnCompleteRequest{
+                     final_response_id: "resp_#{final.id}",
+                     outcome: "loop_finished"
+                   },
+                   turn: turn_ref
+                 ),
+                 route
+               )
+
+      response =
+        rpc_response_payload!(envelope, FabricProto.ActorTurnCompleteResponse)
+
+      assert response.status == "turn_completed"
+      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+    end
+
     test "atomically commits a final reply and is idempotent after the Response disappears" do
       %{agent: agent, event: event, turn_ref: turn_ref} = start_accepted_turn("completion")
       final = complete_response(agent.uid, event, "done")
@@ -508,6 +580,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
   end
 
   defp start_accepted_turn(suffix) do
+    result = start_sent_turn(suffix)
+
+    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(result.turn_ref))
+
+    result
+  end
+
+  defp start_sent_turn(suffix) do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "mock-provider")
     route = unique_route()
@@ -539,10 +620,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
     assert_receive {:actor_lane, envelope}, 2_000
     turn_ref = turn_start_payload!(envelope).turn
 
-    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
-             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
-
-    %{agent: agent, event: event, turn_ref: turn_ref}
+    %{agent: agent, event: event, turn_ref: turn_ref, route: route}
   end
 
   defp complete_response(subject_uid, event, text, opts \\ []) do

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { TurnStart } from '../src/lanes/actor_lane'
 import { createBrainSourceLearningReader, createSourceLearningTurnTools } from '../src/tools/brain/source-learning-turn'
 

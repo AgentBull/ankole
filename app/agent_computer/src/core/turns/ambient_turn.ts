@@ -8,7 +8,7 @@
 
 import type { TurnStart } from '../../lanes/actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
-import { arrayPath } from '@pleisto/active-support'
+import { arrayPath } from '@agentbull/active-support'
 import { recognizeAmbientIntervention, type AmbientRecognizerDecision } from './ambient_recognizer'
 import { acquireTurnAIGatewayAccess } from './turn_ai_gateway_access'
 import { runTextTurnLoop } from './text_turn'

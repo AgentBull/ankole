@@ -23,7 +23,8 @@ export function buildAgentComputerTestDockerArgs(
     throw new Error('Agent Computer package tests require a container bootstrap contract')
   }
 
-  const packageRoot = path.join(path.resolve(repoRoot), 'app', 'agent_computer')
+  const resolvedRepoRoot = path.resolve(repoRoot)
+  const packageRoot = path.join(resolvedRepoRoot, 'app', 'agent_computer')
 
   return buildDockerRunArgs(spec, {
     additionalMounts: [
@@ -45,15 +46,35 @@ export function buildAgentComputerTestDockerArgs(
       // Agent Computer executes system skills from the shared library. Mount
       // the current source so package tests do not exercise a stale image copy.
       {
-        source: path.join(path.resolve(repoRoot), 'app', 'library'),
+        source: path.join(resolvedRepoRoot, 'app', 'library'),
         target: '/repo/app/library',
         readonly: true
       },
-      // The RPC contract parity test reads the committed cross-language
-      // rpc_methods.json, which lives with the RuntimeFabric protobuf contract.
+      // RuntimeFabric contract tests read the current protobuf and protocol
+      // version owners instead of stale or intentionally absent image sources.
       {
-        source: path.join(path.resolve(repoRoot), 'app', 'kernel', 'proto'),
+        source: path.join(resolvedRepoRoot, 'app', 'kernel', 'proto'),
         target: '/repo/app/kernel/proto',
+        readonly: true
+      },
+      {
+        source: path.join(resolvedRepoRoot, 'app', 'kernel', 'src'),
+        target: '/repo/app/kernel/src',
+        readonly: true
+      },
+      {
+        source: path.join(resolvedRepoRoot, 'app', 'kernel', 'lib'),
+        target: '/repo/app/kernel/lib',
+        readonly: true
+      },
+      {
+        source: path.join(packageRoot, 'Dockerfile'),
+        target: `${agentComputerRoot}/Dockerfile`,
+        readonly: true
+      },
+      {
+        source: path.join(resolvedRepoRoot, 'app', 'control_plane', 'Dockerfile'),
+        target: '/repo/app/control_plane/Dockerfile',
         readonly: true
       }
     ],

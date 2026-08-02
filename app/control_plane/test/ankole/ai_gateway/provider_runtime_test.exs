@@ -969,7 +969,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, %{skills: 18}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 19}} = Library.sync_agent_skills(agent.uid)
 
     assert {:ok, documents} = Library.list_agent_documents(agent.uid)
 
@@ -1129,7 +1129,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, %{skills: 18}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 19}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn.activation_uid

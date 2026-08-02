@@ -8,16 +8,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.Plugins.LarkAdapter.CardKit.I18n, as: CardI18n
+  alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
 
   @soft_bytes 24 * 1_024
   @soft_elements 160
 
-  # Feishu rejects a CardKit card with more than five table components
-  # (`11310: card table number over limit`). Keep the first five tables native
-  # and render later table results as Markdown, so create, update, and recovery
-  # payloads preserve their data. The final budget check counts table tags again
-  # so a future renderer path cannot bypass this provider limit.
+  # Feishu rejects a card whose tables exceed the provider limits
+  # (`230099` with `ErrCode: 11310, card table number over limit`): at most
+  # five table components on one card, at most four Markdown tables in one
+  # rich-text element, and Markdown tables count toward the card total. Typed
+  # table results and answer Markdown tables therefore share the five-table
+  # card budget; overflow typed tables render as Markdown lists so create,
+  # update, and recovery payloads keep their data. `CardChain` packs at most
+  # four answer tables on one page, and the final budget check counts native
+  # and Markdown tables again so no renderer path can pass the provider limit.
   @max_tables 5
+  @markdown_element_tables 4
   @action_value_version "ankole.interactive_output.action.v1"
   @metadata_element_ids ~w(state receipts plan thought activity meta)
   @separator_id "separator"
@@ -300,13 +306,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
   defp interaction_answer_element(_presentation), do: nil
 
-  defp result_elements(%{"results" => results}) when is_list(results) do
+  defp result_elements(%{"results" => results} = presentation) when is_list(results) do
+    native_budget = max(@max_tables - answer_table_count(presentation), 0)
+
     {rendered, _table_count} =
       results
       |> Enum.with_index(1)
       |> Enum.map_reduce(0, fn
         {%{"kind" => "table"} = result, index}, table_count
-        when table_count >= @max_tables ->
+        when table_count >= native_budget ->
           {render_table_fallback(result, index), table_count}
 
         {%{"kind" => "table"} = result, index}, table_count ->
@@ -320,6 +328,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp result_elements(_presentation), do: []
+
+  defp answer_table_count(presentation),
+    do: MarkdownSegmenter.count_tables(presentation["answer"] || "")
 
   defp render_result(%{"kind" => "table"} = result, index) do
     columns =
@@ -955,10 +966,28 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp within_budget?(card) do
+    markdown_tables = markdown_table_counts(card)
+
     byte_size(Ankole.JSON.encode!(card)) <= @soft_bytes and
       count_elements(card) <= @soft_elements and
-      count_tag(card, "table") <= @max_tables
+      count_tag(card, "table") + Enum.sum(markdown_tables) <= @max_tables and
+      Enum.all?(markdown_tables, &(&1 <= @markdown_element_tables))
   end
+
+  defp markdown_table_counts(value) when is_list(value),
+    do: Enum.flat_map(value, &markdown_table_counts/1)
+
+  defp markdown_table_counts(%{} = value) do
+    nested = Enum.flat_map(Map.values(value), &markdown_table_counts/1)
+
+    if value["tag"] == "markdown" and is_binary(value["content"]) do
+      [MarkdownSegmenter.count_tables(value["content"]) | nested]
+    else
+      nested
+    end
+  end
+
+  defp markdown_table_counts(_value), do: []
 
   defp drop_optional_elements(card, group) do
     elements = get_in(card, ["body", "elements"])

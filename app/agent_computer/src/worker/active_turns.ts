@@ -1,6 +1,6 @@
 import { classifyLLMError } from '../core/llm-error-classifier'
 import { workerProgressEnvelope } from '../fabric/envelopes'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { ActorTurnRef, TurnStart, TurnSteerUpdate } from '../lanes/actor_lane'
 import type { WorkerConfig } from './config'

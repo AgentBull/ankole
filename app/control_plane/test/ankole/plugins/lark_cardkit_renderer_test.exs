@@ -862,6 +862,44 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
            }
   end
 
+  test "answer Markdown tables and typed table results share one card budget" do
+    answer =
+      Enum.map_join(1..4, "\n\n", fn index ->
+        "| 指标#{index} | 值 |\n| --- | --- |\n| a | #{index} |"
+      end)
+
+    terminal =
+      Enum.reduce(1..3, ReplyPresentation.new(), fn index, presentation ->
+        ReplyPresentation.apply_event(presentation, "result.table", %{
+          "operation_id" => "table-#{index}",
+          "revision" => index,
+          "columns" => [%{"key" => "value", "label" => "Value"}],
+          "rows" => [%{"value" => index}]
+        })
+      end)
+      |> ReplyPresentation.terminal("completed", answer)
+
+    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+
+    assert Enum.count(elements, &(&1["tag"] == "table")) == 1
+    assert Enum.find(elements, &(&1["element_id"] == "result1"))["tag"] == "table"
+    assert Enum.find(elements, &(&1["element_id"] == "result2"))["tag"] == "markdown"
+    assert Enum.find(elements, &(&1["element_id"] == "result3"))["tag"] == "markdown"
+  end
+
+  test "an unpaginated answer over the Markdown table budget fails loudly" do
+    answer =
+      Enum.map_join(1..6, "\n\n", fn index ->
+        "| 指标#{index} | 值 |\n| --- | --- |\n| a | #{index} |"
+      end)
+
+    presentation = ReplyPresentation.terminal(ReplyPresentation.new(), "completed", answer)
+
+    assert {:error, :cardkit_soft_budget_exceeded} =
+             Renderer.render(presentation, mode: :terminal)
+  end
+
   test "an incremental sixth table uses Markdown instead of adding a provider table" do
     previous =
       Enum.reduce(1..5, ReplyPresentation.new(), fn index, presentation ->

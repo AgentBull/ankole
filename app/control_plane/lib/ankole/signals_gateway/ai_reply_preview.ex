@@ -162,6 +162,9 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
 
   defp recover_without_owner(actor_event_id) do
     case Repo.get(ActorEvent, actor_event_id) do
+      %ActorEvent{reply_preview_checkpoint: %{"recovery_state" => %{"state" => "blocked"}}} ->
+        {:error, :reply_preview_not_recoverable}
+
       %ActorEvent{reply_preview_checkpoint: %{"refresh_pending" => true} = checkpoint} = event ->
         if match?(%DateTime{}, event.completed_at) and provider_checkpoint_open?(checkpoint) do
           recover_completed_preview(event)
@@ -436,10 +439,79 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
         mode: if(ReplyPresentation.terminal_state?(presentation), do: :terminal, else: :working)
       })
       |> case do
-        {:ok, _result} -> :ok
-        {:error, _reason} = error -> error
+        {:ok, _result} ->
+          :ok
+
+        {:error, reason} = error ->
+          unless rich_retryable?(reason), do: block_recovery(event, reason)
+          error
       end
     end
+  end
+
+  # A refresh that a not-retryable provider error rejected would repeat on
+  # every recovery sweep. Mirror the outbox blocked shape on the checkpoint so
+  # the sweep skips the event until an operator updates the binding, which
+  # wakes blocked previews for a new attempt.
+  defp block_recovery(%ActorEvent{} = event, reason) do
+    recovery_state = blocked_recovery_state(reason)
+
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, event.id) do
+        %ActorEvent{reply_preview_checkpoint: checkpoint} = locked when is_map(checkpoint) ->
+          checkpoint =
+            checkpoint
+            |> Map.delete("refresh_pending")
+            |> Map.delete("refresh_reason")
+            |> Map.put("recovery_state", recovery_state)
+
+          Actors.put_reply_preview_checkpoint_in_tx(repo, locked, checkpoint)
+
+        %ActorEvent{} ->
+          {:error, :reply_preview_checkpoint_missing}
+
+        nil ->
+          {:error, :actor_event_not_found}
+      end
+    end)
+    |> case do
+      {:ok, _event} ->
+        Logging.warning(
+          "signals_gateway.ai_reply_preview.recovery_blocked",
+          "AI reply preview recovery blocked until operator action",
+          actor_event_fields(event, %{reason: inspect(reason, limit: 20)})
+        )
+
+      {:error, block_error} ->
+        Logging.warning(
+          "signals_gateway.ai_reply_preview.recovery_block_failed",
+          "AI reply preview recovery could not persist its blocked state",
+          actor_event_fields(event, %{
+            reason: inspect(reason, limit: 20),
+            block_error: inspect(block_error, limit: 20)
+          })
+        )
+    end
+
+    :ok
+  end
+
+  defp blocked_recovery_state(reason) do
+    {class, detail} =
+      case reason do
+        {:reply_delivery, :operator_action_required, detail} ->
+          {"operator_action_required", detail}
+
+        {:cardkit_plain_text_fallback, detail} ->
+          {"plain_text_fallback", detail}
+      end
+
+    %{
+      "state" => "blocked",
+      "reason" => class,
+      "detail" => detail,
+      "blocked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+    }
   end
 
   # ─────────────────────────────────────────────────────────────────

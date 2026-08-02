@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { compact } from '@pleisto/active-support'
+import { compact } from '@agentbull/active-support'
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from './combobox'
 
 export type CreatableComboboxOption = {

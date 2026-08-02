@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { ms } from '@pleisto/active-support'
+import { ms } from '@agentbull/active-support'
 import { agentRuntimePolicyFromTurnStart } from '../../src/core/turns/turn_runtime_policy'
 import { turnStartForTest } from '../support/llm'
 

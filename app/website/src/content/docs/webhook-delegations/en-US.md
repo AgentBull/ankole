@@ -66,7 +66,7 @@ A standing delivery can create more than one consumer record. The consumer uses 
 
 The Agent can pass `--automation-job-id <id>` when it creates an endpoint. The accepted `webhook.received` envelope then becomes `context().event` for a durable automation job run instead of waking the conversation directly. A script can discard an irrelevant receipt silently or call `emitEvent` after it completes a deterministic check.
 
-The receipt remains untrusted input. The script must verify consequential facts at an authoritative source and must make repeated delivery harmless. Use a direct Agent wake when the delivery needs memory, judgment, or conversation. Read [Worker CLI capabilities](../cli-capabilities/) for the SDK and failure contract.
+The receipt remains untrusted input. The script must verify consequential facts at an authoritative source and must make repeated delivery harmless. Use a direct Agent wake when the delivery needs memory, judgment, or conversation. Read [Automation Jobs](../automation-jobs/) for the introduction and [Worker CLI capabilities](../cli-capabilities/) for the SDK and failure contract.
 
 ## Console
 

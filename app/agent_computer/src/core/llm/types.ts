@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { z } from 'zod'
 import type { CustomToolInputFormat } from 'openai/resources/shared'
 import type {

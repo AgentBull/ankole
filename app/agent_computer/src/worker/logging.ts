@@ -1,5 +1,5 @@
 import pino, { type DestinationStream, type Logger as PinoLogger, type LoggerOptions } from 'pino'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
 export type LogSeverity = 'DEBUG' | 'INFO' | 'NOTICE' | 'WARNING' | 'ERROR' | 'CRITICAL' | 'ALERT' | 'EMERGENCY'
 

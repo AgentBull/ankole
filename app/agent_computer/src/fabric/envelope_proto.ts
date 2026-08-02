@@ -10,7 +10,7 @@ import {
   type Envelope,
   type TurnModelRef as TurnModelRefMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { Buffer } from 'node:buffer'
 
 type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
@@ -25,6 +25,7 @@ type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
  * themselves, accessed through the `rpc_lane` registry without a DTO layer.
  */
 export {
+  ControlShutdownSchema,
   DurabilityClass,
   EnvelopeSchema,
   Lane,
@@ -53,6 +54,7 @@ export type {
   AgentComputerWorkerCapacity as AgentComputerWorkerCapacityMessage,
   AgentComputerWorkerHeartbeat as AgentComputerWorkerHeartbeatMessage,
   AgentComputerWorkerReady as AgentComputerWorkerReadyMessage,
+  ControlShutdown as ControlShutdownMessage,
   MailboxUpdated as MailboxUpdatedMessage,
   RPCError as RPCErrorMessage,
   RPCRequest as RPCRequestMessage,

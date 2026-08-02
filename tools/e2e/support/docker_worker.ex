@@ -93,6 +93,14 @@ defmodule Ankole.E2E.DockerWorker do
     :ok
   end
 
+  @doc "Sends one process signal to a running worker container without closing its watched port."
+  def signal_docker_worker!(%{name: name}, signal) when is_binary(signal) do
+    {_output, 0} =
+      System.cmd(docker_path(), ["kill", "--signal", signal, name], stderr_to_stdout: true)
+
+    :ok
+  end
+
   @doc "Converts the host-bound RuntimeFabric endpoint into a container URL."
   def docker_host_endpoint(endpoint) do
     case URI.parse(endpoint) do

@@ -1,9 +1,9 @@
 import { create } from '@bufbuild/protobuf'
+import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parse } from 'smol-toml'
 import { materializeCodexJobProjectConfig } from '../src/core/codex-runner/project-config'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { CodexRuntimeConfig } from '../src/tools/codex/runtime-config'
@@ -51,7 +51,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         pluginsEnabled: true,
         runtimeConfig: aigatewayRuntime()
       })
-      const config = parse(readFileSync(configPath, 'utf8')) as Record<string, any>
+      const config = TOML.parse(readFileSync(configPath, 'utf8')) as Record<string, any>
 
       expect(materialized).toEqual({ path: configPath })
       expect(config.model).toBe('gpt-5.6-sol')
@@ -101,7 +101,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         pluginsEnabled: false,
         runtimeConfig: aigatewayRuntime()
       })
-      const config = parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
+      const config = TOML.parse(readFileSync(join(root, '.codex', 'config.toml'), 'utf8')) as Record<string, any>
       expect(config.features.plugins).toBe(false)
       expect(config.model).toBe('gpt-5.6-sol')
       expect(config.model_provider).toBeUndefined()

@@ -2,7 +2,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
-import { parse as parseToml } from 'smol-toml'
 import { defineConfig, type Plugin, type UserConfig, type ViteDevServer } from 'vite'
 
 const filename = fileURLToPath(import.meta.url)
@@ -117,7 +116,7 @@ function tomlPlugin(): Plugin {
       if (!id.endsWith('.toml')) return
 
       return {
-        code: `export default ${JSON.stringify(parseToml(code))}`,
+        code: `export default ${JSON.stringify(Bun.TOML.parse(code))}`,
         map: null
       }
     }

@@ -1,10 +1,10 @@
 ---
 name: pdf
-description: "Create, check, and edit PDF files. Use when a deliverable must ship as a PDF, when a generated PDF needs verification, or when an existing PDF needs a text correction."
+description: "Create, check, edit, and read PDF files. Use when a deliverable must ship as a PDF, when a generated PDF needs verification, when an existing PDF needs a text correction, or when an inbound PDF needs its text extracted or its scanned pages triaged for OCR."
 default_enabled: true
 category: productivity
 tags: [PDF, Documents, Publishing, Productivity]
-version: 2.0.0
+version: 2.1.0
 ankole-runtime: background_job
 license: MIT
 platforms: [linux]
@@ -12,10 +12,33 @@ platforms: [linux]
 
 # PDF
 
-The Agent Computer image installs Pandoc, two PDF engines, Poppler, QPDF, and
-`nano-pdf`. This Skill owns how a PDF is made, checked, and corrected.
+The Agent Computer image installs Pandoc, two PDF engines, Poppler, QPDF,
+pdf-inspector (`detect-pdf`, `pdf2md`), and `nano-pdf`. This Skill owns how a
+PDF is read, made, checked, and corrected.
 
 > **Important:** If the human has already provided a brand palette or template, match that first. Otherwise, use `design-md` skills and use it as the design reference.
+
+## Read
+
+Classify before extracting. `detect-pdf` samples content streams in
+milliseconds and reports whether a text layer exists at all:
+
+```bash
+detect-pdf in.pdf --json   # pdf_type, confidence, ocr_recommended, pages_needing_ocr
+```
+
+- `text_based`: extract locally with `pdf2md in.pdf`. It returns structured
+  Markdown with headings, lists, tables, and multi-column reading order.
+  It owns PDF reading; do not read PDFs through `pdftotext` or `markitdown`.
+- `scanned` or `image_based`: no text layer exists, and `pdf2md` fails with
+  a clear error. Route the file to the `ocr` Skill.
+- `mixed`: extract the text pages with `pdf2md in.pdf --select-pages 1,3-5`,
+  then hand only the `pages_needing_ocr` list to the `ocr` Skill. OCR costs
+  seconds per page; never send pages that extraction already covered.
+
+When `ocr_recommended` is true, trust it over the type label. Treat low
+`confidence` as scan-suspect even for `text_based`: extract one page and
+check the output before trusting the whole file.
 
 ## Create
 

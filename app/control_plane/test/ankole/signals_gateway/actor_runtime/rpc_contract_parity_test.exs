@@ -56,6 +56,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCContractParityTest do
   defp contract_projection(:turn_write, request_mod),
     do: {"turn", "write", proto_type_name(request_mod)}
 
+  defp contract_projection(:turn_complete, request_mod),
+    do: {"turn", "complete", proto_type_name(request_mod)}
+
   defp proto_type_name(request_mod) do
     ["Ankole", "RuntimeFabric", "V1", message] = Module.split(request_mod)
     "ankole.runtime_fabric.v1.#{message}"

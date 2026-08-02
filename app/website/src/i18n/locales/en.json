@@ -95,7 +95,7 @@
   "capabilities.multi.title": "Business function first",
   "capabilities.multi.body": "One Agent can own a narrow function, or several can share its execution. Authority, tools, memory, and outbound identity stay explicit. Multi-agent execution is optional.",
   "capabilities.enterprise.title": "Fits your identity and your IM",
-  "capabilities.enterprise.body": "Lark, Slack, DingTalk, Teams, and Google Workspace are first-class. Identity comes from the IdP you already run, so outbound identity, permissions, and audit follow the company directory.",
+  "capabilities.enterprise.body": "Lark, Slack, DingTalk, Teams, WeCom, and Google Workspace are first-class. Identity comes from the IdP you already run, so outbound identity, permissions, and audit follow the company directory.",
   "usecases.title": "Every business function has an outcome measure",
   "usecases.subtitle": "The work can be done digitally, produces an inspectable deliverable, and has a declared business result. Six examples, not a catalogue.",
   "usecases.col.function": "Business function",

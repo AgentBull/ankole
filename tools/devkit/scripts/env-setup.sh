@@ -8,7 +8,7 @@ INSTALL_ELIXIR=1
 INSTALL_BUN=1
 DRY_RUN=0
 
-BUN_VERSION="${ANKOLE_BUN_VERSION:-1.3.14}"
+BUN_VERSION="${ANKOLE_BUN_VERSION:-canary}"
 RUST_TOOLCHAIN="${ANKOLE_RUST_TOOLCHAIN:-stable}"
 ELIXIR_VERSION="${ANKOLE_ELIXIR_VERSION:-1.20.1-otp-29}"
 OTP_MAJOR="${ANKOLE_OTP_MAJOR:-29}"
@@ -389,13 +389,22 @@ install_docker() {
 install_bun() {
   [[ "$INSTALL_BUN" -eq 1 ]] || return 0
 
-  if have bun && [[ "$(bun --version 2>/dev/null)" == "$BUN_VERSION" ]]; then
+  if have bun && [[ "$BUN_VERSION" == "canary" ]] && [[ "$(bun --revision 2>/dev/null)" == *-canary* ]]; then
+    log "Bun canary is already installed."
+    return
+  fi
+
+  if have bun && [[ "$BUN_VERSION" != "canary" ]] && [[ "$(bun --version 2>/dev/null)" == "$BUN_VERSION" ]]; then
     log "Bun $BUN_VERSION is already installed."
     return
   fi
 
   log "Installing Bun $BUN_VERSION."
-  run_shell "BUN_INSTALL=\"$HOME/.bun\" curl -fsSL https://bun.sh/install | bash -s \"bun-v$BUN_VERSION\""
+  if [[ "$BUN_VERSION" == "canary" ]]; then
+    run_shell "BUN_INSTALL=\"$HOME/.bun\" curl -fsSL https://bun.sh/install | bash -s canary"
+  else
+    run_shell "BUN_INSTALL=\"$HOME/.bun\" curl -fsSL https://bun.sh/install | bash -s \"bun-v$BUN_VERSION\""
+  fi
 }
 
 install_rust() {

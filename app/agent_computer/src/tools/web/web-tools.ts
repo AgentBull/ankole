@@ -5,8 +5,8 @@ import {
   isRecord,
   safeJsonParse as safeJSONParse,
   safeJsonStringify as safeJSONStringify
-} from '@pleisto/active-support'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+} from '@agentbull/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AgentTool, AgentToolResult } from '../../core'
 import type { AIGatewayHTTPClient } from '../../core/ai_gateway_transport'
 import { errorMessage } from '../../common/errors'
@@ -400,10 +400,10 @@ function formatFetchResults(body: unknown): string {
  */
 function parseJSON(text: string): unknown {
   if (!text) return {}
-  return safeJSONParse(text).match(
-    value => value,
-    () => ({ raw: text })
-  )
+  return safeJSONParse(text).match({
+    ok: value => value,
+    err: () => ({ raw: text })
+  })
 }
 
 /**

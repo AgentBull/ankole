@@ -8,7 +8,7 @@ Ankole is a complete, self-hostable AgentOS in production. Its public APIs do no
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.x     | :white_check_mark: |
+| >=0.50    | :white_check_mark: |
 
 
 ### How severity is determined
@@ -25,7 +25,7 @@ Ankole reserves the right to make a final decision regarding the severity of a r
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them to `sre@agentbull.cn`. If possible, encrypt your message with our PGP key:
+Instead, please report them to `sre@agentbull.com`. If possible, encrypt your message with our PGP key:
 
 ```base64
 -----BEGIN PGP PUBLIC KEY BLOCK-----

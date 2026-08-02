@@ -118,7 +118,7 @@ const proc = Bun.spawn(
   ["mcporter", "call", "fixture-data.stdio_echo", "--json", "-", "--output", "json", "--timeout", "10000"],
   { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
 )
-proc.stdin.write(JSON.stringify({ text: "复杂参数 with \\\"quotes\\\"" }))
+proc.stdin.write(JSON.stringify({ text: "复杂参数 with \\"quotes\\"" }))
 proc.stdin.end()
 const [exitCode, stdout, stderr] = await Promise.all([
   proc.exited,

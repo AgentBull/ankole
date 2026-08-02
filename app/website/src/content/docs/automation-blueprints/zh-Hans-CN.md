@@ -110,6 +110,6 @@ Agent 必须检查外部对象当前状态并判断事件时，使用默认的�
 ## 下一步
 
 - 调度界面，读[调度](../schedules/)。
-- 确定性脚本消费者，读 [Worker CLI 能力](../cli-capabilities/)。
+- 确定性脚本消费者，读 [Automation Job](../automation-jobs/)。
 - 后台执行与协作方式，读[后台 Agent 任务](../background-jobs/)。
 - 外部事件 capability，读 [Webhook 委托](../webhook-delegations/)。

@@ -1,7 +1,7 @@
 'use client'
 
 import { RiAddLine, RiCloseLine } from '@remixicon/react'
-import { compact } from '@pleisto/active-support'
+import { compact } from '@agentbull/active-support'
 import * as React from 'react'
 import { Button } from './button'
 import {

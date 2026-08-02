@@ -6,7 +6,7 @@ import {
   type MessageInitShape,
   type MessageShape
 } from '@bufbuild/protobuf'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { EnvelopeSender } from '../fabric/fabric'
 import type { ActorTurnRef } from './actor_lane'
 import { actorTurnRefToProto } from './actor_lane'
@@ -31,6 +31,8 @@ import {
   AgentPluginListResponseSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
+  ActorTurnCompleteRequestSchema,
+  ActorTurnCompleteResponseSchema,
   AutomationJobCreateRequestSchema,
   AutomationJobEmitRequestSchema,
   AutomationJobEmitResponseSchema,
@@ -103,6 +105,7 @@ import {
 export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
+  actorTurnComplete: 'actor_turn.complete',
   appConfigureResolve: 'app_configure.resolve',
   agentPluginList: 'agent_plugin.list',
   automationJobCreate: 'automation_job.create',
@@ -164,12 +167,13 @@ export type RPCMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
  */
 export type RPCOperationMeta =
   | { scope: 'worker_agent' }
-  | { scope: 'turn'; effect: 'read' | 'write' }
+  | { scope: 'turn'; effect: 'read' | 'write' | 'complete' }
   | { owner: 'worker' }
 
 export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
   [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobCreate]: { scope: 'turn', effect: 'write' },
@@ -230,6 +234,10 @@ export const rpcSchemas = {
   [rpcMethods.agentConversationContextResolve]: {
     request: AgentConversationContextRequestSchema,
     response: AgentConversationContextResponseSchema
+  },
+  [rpcMethods.actorTurnComplete]: {
+    request: ActorTurnCompleteRequestSchema,
+    response: ActorTurnCompleteResponseSchema
   },
   [rpcMethods.appConfigureResolve]: {
     request: AppConfigureResolveRequestSchema,
@@ -522,6 +530,13 @@ export class RPCRejectedError extends Error {
   }
 }
 
+export class RPCTimeoutError extends Error {
+  constructor(readonly method: RPCMethod) {
+    super(`RPC request timed out: ${method}`)
+    this.name = 'RPCTimeoutError'
+  }
+}
+
 const defaultRPCTimeoutMs = 300_000
 
 type RPCWaiter = {
@@ -568,7 +583,8 @@ export class RuntimeRPCClient {
   async request<M extends ControlPlaneOwnedRPCMethod>(
     method: M,
     payload: RPCRequestInit<M>,
-    frame: RPCFrame<M>
+    frame: RPCFrame<M>,
+    options: { timeoutMs?: number } = {}
   ): Promise<RPCResponseOf<M> | RPCRejection> {
     const requestID = rpcRequestID(method)
     const schema = rpcSchemas[method]
@@ -579,8 +595,8 @@ export class RuntimeRPCClient {
     const promise = new Promise<RPCResponseMessage | RPCErrorMessage>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.waiters.delete(requestID)
-        reject(new Error(`RPC request timed out: ${method}`))
-      }, this.timeoutMs)
+        reject(new RPCTimeoutError(method))
+      }, options.timeoutMs ?? this.timeoutMs)
       this.waiters.set(requestID, { resolve, reject, timeout })
     })
 

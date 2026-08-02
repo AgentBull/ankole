@@ -23,9 +23,13 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
 
     @recipient_key {__MODULE__, :recipient}
+    @refresh_result_key {__MODULE__, :refresh_result}
 
     def put_recipient(pid), do: :persistent_term.put(@recipient_key, pid)
     def delete_recipient, do: :persistent_term.erase(@recipient_key)
+
+    def put_refresh_result(result), do: :persistent_term.put(@refresh_result_key, result)
+    def delete_refresh_result, do: :persistent_term.erase(@refresh_result_key)
 
     @impl true
     def open(_request), do: {:ok, %{}}
@@ -39,7 +43,7 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     @impl true
     def refresh(request) do
       send(:persistent_term.get(@recipient_key), {:recovery_refresh, request})
-      {:ok, %{}}
+      :persistent_term.get(@refresh_result_key, {:ok, %{}})
     end
   end
 
@@ -718,6 +722,117 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert request.presentation["state"] == "completed"
     assert request.presentation["answer"] == "durable final answer"
     assert request.checkpoint["refresh_reason"] == "terminal_recovery"
+  end
+
+  test "a not-retryable refresh blocks recovery until an operator wakes the binding" do
+    original_state = :sys.get_state(Ankole.Plugins.Registry)
+    {:ok, spec} = Spec.from_module(RecoverySignalProviderPlugin)
+
+    :sys.replace_state(Ankole.Plugins.Registry, fn _state ->
+      %{
+        discovered: %{spec.id => spec},
+        active: %{spec.id => spec},
+        enabled_ids: MapSet.new([spec.id])
+      }
+    end)
+
+    RecoveryReplyPreview.put_recipient(self())
+
+    RecoveryReplyPreview.put_refresh_result(
+      {:error,
+       {:reply_delivery, :operator_action_required,
+        %{"code" => 230_099, "message" => "card table number over limit"}}}
+    )
+
+    on_exit(fn ->
+      RecoveryReplyPreview.delete_recipient()
+      RecoveryReplyPreview.delete_refresh_result()
+      :sys.replace_state(Ankole.Plugins.Registry, fn _state -> original_state end)
+    end)
+
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("blocked-recover")
+
+    {:ok, conversation} =
+      StatefulResponses.ensure_conversation(subject.uid, actor_event.session_id)
+
+    terminal =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.terminal("completed", "六张表的最终结论")
+      |> ReplyPresentation.checkpoint()
+
+    checkpoint = %{
+      "subject_uid" => subject.uid,
+      "conversation_id" => conversation.id,
+      "card_id" => "card-blocked",
+      "message_id" => "message-blocked",
+      "streaming_state" => "open",
+      "presentation" => terminal,
+      "cards" => [
+        %{
+          "index" => 0,
+          "card_id" => "card-blocked",
+          "message_id" => "message-blocked",
+          "streaming_state" => "open"
+        }
+      ],
+      "active_card_index" => 0
+    }
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        completed_at: DateTime.utc_now(:microsecond),
+        reply_preview_checkpoint: checkpoint,
+        reply_preview_source_entry_id: "message-blocked"
+      })
+      |> Repo.update!()
+
+    Repo.insert!(%OutboxEntry{
+      agent_uid: actor_event.agent_uid,
+      binding_name: actor_event.binding_name,
+      outbound_key: "blocked-recover:#{actor_event.id}",
+      delivery_class: :durable_ai_reply,
+      operation: :edit,
+      status: :failed,
+      signal_channel_id: actor_event.signal_channel_id,
+      target_source_entry_id: "message-blocked",
+      source_actor_event_id: actor_event.id,
+      payload: %{"reply_presentation" => terminal},
+      fallback_visible_text: "六张表的最终结论",
+      idempotency_key: "blocked-recover:#{actor_event.id}",
+      attempt_count: 1,
+      max_attempts: 10,
+      last_error: %{},
+      recovery_state: %{}
+    })
+
+    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    assert {:error, {:reply_delivery, :operator_action_required, _detail}} =
+             AIReplyPreview.recover(actor_event.id)
+
+    assert_receive {:recovery_refresh, _request}
+
+    blocked = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert blocked["recovery_state"]["state"] == "blocked"
+    assert blocked["recovery_state"]["reason"] == "operator_action_required"
+    assert blocked["recovery_state"]["detail"]["code"] == 230_099
+    refute Map.has_key?(blocked, "refresh_pending")
+
+    refute Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    assert {:error, :reply_preview_not_recoverable} = AIReplyPreview.recover(actor_event.id)
+    refute_receive {:recovery_refresh, _request}
+
+    assert :ok =
+             Actors.wake_blocked_reply_previews(
+               actor_event.agent_uid,
+               actor_event.binding_name
+             )
+
+    woken = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    refute Map.has_key?(woken, "recovery_state")
+    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
   end
 
   test "stop drains an in-flight rich mutation before terminal outbox takes over" do

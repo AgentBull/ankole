@@ -5,6 +5,89 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
   alias Ankole.BackgroundAgentJobs
 
   describe "exact runtime deadlines" do
+    test "worker loss retracts a replay-safe completed response before the event retries" do
+      %{worker: worker, event: event, response: response} =
+        start_stale_response_turn("safe-complete", nil)
+
+      assert {:ok, %AgentComputerWorker{status: "stale"}} =
+               ActorRuntime.mark_worker_stale_if_due(worker.worker_id,
+                 now: DateTime.add(@base_time, 120, :second),
+                 stale_after_seconds: 60
+               )
+
+      assert Repo.get!(ActorEvent, event.id).input_state == "open"
+
+      retracted = Repo.get!(Message, response.id)
+      assert retracted.status == "retracted"
+
+      assert retracted.metadata["retraction"]["reason"] ==
+               "worker_lost_before_turn_completion"
+
+      assert Ankole.AIGateway.StatefulResponses.expand_history(response.conversation_id) == []
+
+      live_route = unique_route()
+      :ok = Broker.register_local_worker(live_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      assert {:ok, _live_worker} = admit_worker(live_route)
+
+      assert {:ok, %{turn_ref: retry_turn_ref}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 121, :second))
+
+      assert retry_turn_ref.actor_event_id == event.id
+      assert_receive {:actor_lane, retry_envelope}
+      assert turn_start_payload!(retry_envelope).turn.actor_event_id == event.id
+    end
+
+    test "worker loss dead-letters a completed response with tool effects instead of replaying it" do
+      output_items = [
+        %{
+          "type" => "function_call",
+          "call_id" => "call-worker-loss",
+          "name" => "external_side_effect",
+          "arguments" => "{}"
+        },
+        %{
+          "type" => "function_call_output",
+          "call_id" => "call-worker-loss",
+          "output" => %{"ok" => true}
+        },
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [%{"type" => "output_text", "text" => "effect completed"}]
+        }
+      ]
+
+      %{worker: worker, event: event, response: response} =
+        start_stale_response_turn("unsafe-complete", output_items)
+
+      assert {:ok, %AgentComputerWorker{status: "stale"}} =
+               ActorRuntime.mark_worker_stale_if_due(worker.worker_id,
+                 now: DateTime.add(@base_time, 120, :second),
+                 stale_after_seconds: 60
+               )
+
+      terminal = Repo.get!(ActorEvent, event.id)
+      assert terminal.input_state == "dead_letter"
+      assert %DateTime{} = terminal.dead_letter_at
+      assert Repo.get!(Message, response.id).status == "complete"
+
+      assert Enum.map(
+               Ankole.AIGateway.StatefulResponses.expand_history(response.conversation_id),
+               & &1.id
+             ) == [response.id]
+
+      assert %OutboxEntry{} =
+               Repo.get_by!(OutboxEntry, outbound_key: "ai-dead-letter:#{event.id}")
+
+      refute Repo.exists?(
+               from(delivery in ActorEventDelivery,
+                 where: delivery.actor_event_id_fence == ^event.id,
+                 where: delivery.state in ^ActorEventDelivery.live_states()
+               )
+             )
+    end
+
     test "a new incarnation of the same worker releases accepted work immediately" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -342,5 +425,50 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeDeadlineTest do
 
       refute Repo.get(AgentComputerWorker, worker.id)
     end
+  end
+
+  defp start_stale_response_turn(suffix, output_items) do
+    %{principal: agent} = agent_fixture()
+    binding_fixture(agent.uid, "bot", :ignore)
+    route = unique_route()
+
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, worker} = admit_worker(route)
+
+    Repo.update_all(
+      from(stored in AgentComputerWorker, where: stored.worker_id == ^worker.worker_id),
+      set: [last_worker_heartbeat_at: @base_time]
+    )
+
+    assert {:ok, %{actor_event: event}} =
+             emit_entry(
+               agent.uid,
+               "bot",
+               group_entry(%{
+                 source_event_id: "worker-loss-#{suffix}",
+                 signal_channel_id: "bot:worker-loss-#{suffix}",
+                 source_entry_id: "human-worker-loss-#{suffix}",
+                 text: "finish this",
+                 explicit: true
+               }),
+               now: @base_time
+             )
+
+    assert {:ok, %{turn_ref: turn_ref}} =
+             process_ready_events_once(
+               now: DateTime.add(@base_time, 1, :second),
+               lease_seconds: 300
+             )
+
+    assert_receive {:actor_lane, _turn_start}
+
+    assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+             ActorRuntime.handle_turn_accepted(turn_accepted_payload(turn_ref))
+
+    opts = if is_list(output_items), do: [output_items: output_items], else: []
+    response = complete_aigateway_turn!(turn_ref, "done", opts)
+
+    %{worker: worker, event: event, turn_ref: turn_ref, response: response}
   end
 end

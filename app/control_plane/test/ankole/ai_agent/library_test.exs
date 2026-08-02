@@ -13,7 +13,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   alias Ankole.Repo
 
   setup do
-    assert {:ok, %{skills: 18, changed: _changed}} = Library.sync_builtin_skills(force: true)
+    assert {:ok, %{skills: 19, changed: _changed}} = Library.sync_builtin_skills(force: true)
     :ok
   end
 
@@ -22,7 +22,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
 
     assert Enum.map(skills, & &1["skill_name"]) ==
-             ~w(brain-review browser create-deep-research design-md docx jupyter-live-kernel pdf pptx xlsx)
+             ~w(brain-review browser create-deep-research design-md docx jupyter-live-kernel ocr pdf pptx xlsx)
 
     assert Enum.all?(skills, & &1["default_enabled"])
 
@@ -216,7 +216,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "agent-installed skills are recorded from worker file observations" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 19}} =
+    assert {:ok, %{skills: 20}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  skill_name: "agent-notes",
@@ -237,7 +237,7 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
-    assert {:ok, %{skills: 18}} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:ok, %{skills: 19}} = Library.replace_installed_skill_observations(agent.uid, [])
     assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
   end
 
@@ -253,7 +253,7 @@ defmodule Ankole.AIAgent.LibraryTest do
   test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, %{skills: 19}} =
+    assert {:ok, %{skills: 20}} =
              Library.replace_installed_skill_observations(agent.uid, [
                %{
                  "skill_name" => "agent-notes",
@@ -268,7 +268,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
 
-    assert {:ok, %{skills: 18}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, %{skills: 19}} = Library.sync_agent_skills(agent.uid)
 
     assert %AgentSkill{source_kind: "installed"} =
              Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")

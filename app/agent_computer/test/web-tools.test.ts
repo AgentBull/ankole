@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { JsonObject as JSONObject } from '@pleisto/active-support'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import type { AIGatewayHTTPClient } from '../src/core/ai_gateway_transport'
 import { createWebTools } from '../src/tools/web/web-tools'
 
