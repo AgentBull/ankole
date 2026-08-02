@@ -406,12 +406,16 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       request =
         base_request(
           [%{"type" => "tool_search", "execution" => "client"}],
-          [@codex_tool_search_call, output_item]
+          [
+            %{"type" => "message", "role" => "user", "content" => "查行情"},
+            @codex_tool_search_call,
+            output_item
+          ]
         )
 
       assert {:ok, provider_request, plan} = ToolSearch.plan(request)
 
-      [_call, output] = provider_request["input"]
+      [_message, _call, output] = provider_request["input"]
       assert output["type"] == "function_call_output"
       assert output["call_id"] == "search-1"
       assert output["output"] =~ "bx_market_data"
@@ -522,7 +526,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
       end
     end
 
-    test "replays a complete client search pair without repeating its declaration" do
+    test "replays a complete client search pair without re-exposing its loaded tool" do
       loaded = %{
         "type" => "function",
         "name" => "calendar",
@@ -543,14 +547,225 @@ defmodule Ankole.AIGateway.ToolSearchTest do
 
       assert plan.execution == nil
       assert plan.tool_name == nil
-      assert plan.loaded_names == MapSet.new(["calendar"])
+      assert plan.loaded_names == MapSet.new()
 
       assert Enum.map(provider_request["input"], & &1["type"]) == [
                "function_call",
                "function_call_output"
              ]
 
-      assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar"]
+      assert provider_request["tools"] == []
+    end
+
+    test "does not re-expose a prior-turn client-loaded tool when Tool Search remains declared" do
+      loaded = %{
+        "type" => "function",
+        "name" => "retired_calendar",
+        "description" => "Read a removed calendar.",
+        "parameters" => %{"type" => "object"}
+      }
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request(
+                   [%{"type" => "tool_search", "execution" => "client"}],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [loaded]),
+                     %{"role" => "user", "content" => "Start a new turn"}
+                   ]
+                 )
+               )
+
+      assert plan.execution == :client
+      assert plan.loaded_names == MapSet.new()
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
+
+      refute Enum.any?(provider_request["tools"], fn tool ->
+               tool["name"] == "retired_calendar"
+             end)
+    end
+
+    test "accepts the same client tool when Codex reloads it in a later user turn" do
+      loaded = %{
+        "type" => "function",
+        "name" => "calendar",
+        "description" => "Read the calendar.",
+        "parameters" => %{
+          "type" => "object",
+          "properties" => %{
+            "limit" => %{"type" => "integer", "minimum" => 1, "maximum" => 20}
+          }
+        }
+      }
+
+      second_search_call =
+        @codex_tool_search_call
+        |> Map.put("call_id", "search-2")
+        |> put_in(["arguments", "query"], "calendar again")
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request(
+                   [%{"type" => "tool_search", "execution" => "client"}],
+                   [
+                     %{"type" => "message", "role" => "user", "content" => "First turn"},
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [loaded]),
+                     %{"role" => "user", "content" => "Second turn"},
+                     second_search_call,
+                     client_search_output("search-2", [loaded])
+                   ]
+                 )
+               )
+
+      assert plan.loaded_names == MapSet.new(["calendar"])
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["calendar", "tool_search"]
+
+      [calendar] = Enum.filter(provider_request["tools"], &(&1["name"] == "calendar"))
+
+      assert calendar["parameters"]["properties"]["limit"] == %{
+               "type" => "integer",
+               "minimum" => 1,
+               "maximum" => 20
+             }
+    end
+
+    test "does not let client-loaded history bypass current server Tool Search" do
+      loaded = deferred_tool("calendar", "Read the calendar")
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request(
+                   [loaded],
+                   [
+                     @codex_tool_search_call,
+                     client_search_output("search-1", [loaded]),
+                     %{"role" => "user", "content" => "Start a server-owned turn"}
+                   ]
+                 )
+               )
+
+      assert plan.execution == :server
+      assert plan.loaded_names == MapSet.new()
+      assert Enum.map(provider_request["tools"], & &1["name"]) == ["tool_search"]
+
+      [search_tool] = provider_request["tools"]
+      assert search_tool["description"] =~ "calendar"
+    end
+
+    test "replays a complete server search pair after its tool leaves the current catalog" do
+      loaded_namespace = %{
+        "type" => "namespace",
+        "name" => "mcp__retired_server",
+        "description" => "A removed server's historical tools.",
+        "tools" => [
+          %{
+            "type" => "function",
+            "name" => "render_report",
+            "description" => "Render a historical report.",
+            "defer_loading" => true,
+            "parameters" => %{
+              "type" => "object",
+              "properties" => %{
+                "width" => %{"type" => "integer", "minimum" => 1, "maximum" => 4_096}
+              }
+            }
+          }
+        ]
+      }
+
+      search_call = %{
+        "type" => "tool_search_call",
+        "call_id" => nil,
+        "status" => "completed",
+        "execution" => "server",
+        "arguments" => %{"paths" => ["mcp__retired_server"]}
+      }
+
+      search_output = %{
+        "type" => "tool_search_output",
+        "call_id" => nil,
+        "status" => "completed",
+        "execution" => "server",
+        "tools" => [loaded_namespace]
+      }
+
+      historical_call = %{
+        "type" => "function_call",
+        "call_id" => "retired-call",
+        "namespace" => "mcp__retired_server",
+        "name" => "render_report",
+        "arguments" => ~s({"width":640})
+      }
+
+      assert {:ok, provider_request, plan} =
+               ToolSearch.plan(
+                 base_request([], [
+                   search_call,
+                   search_output,
+                   historical_call,
+                   %{
+                     "type" => "function_call_output",
+                     "call_id" => "retired-call",
+                     "output" => "historical result"
+                   }
+                 ])
+               )
+
+      assert plan.execution == nil
+      assert plan.tool_name == nil
+      assert plan.loaded_names == MapSet.new()
+
+      assert [provider_search_call, provider_search_output, provider_call, _provider_output] =
+               provider_request["input"]
+
+      assert provider_search_call["name"] == "tool_search"
+      assert provider_search_output["call_id"] == provider_search_call["call_id"]
+      assert provider_call["name"] == "mcp__retired_server__render_report"
+      refute Map.has_key?(provider_call, "namespace")
+
+      assert provider_request["tools"] == []
+
+      historical_contract =
+        Enum.find(plan.contracts, &(&1.provider_name == "mcp__retired_server__render_report"))
+
+      assert historical_contract.parameters["properties"]["width"] == %{
+               "type" => "integer",
+               "minimum" => 1,
+               "maximum" => 4_096
+             }
+
+      public_call = ToolSearch.public_function_call(plan, provider_call)
+      assert public_call["namespace"] == "mcp__retired_server"
+      assert public_call["name"] == "render_report"
+
+      current_namespace = %{
+        "type" => "namespace",
+        "name" => "mcp__current_server",
+        "tools" => [deferred_tool("lookup", "Look up current data")]
+      }
+
+      assert {:ok, current_provider_request, current_plan} =
+               ToolSearch.plan(
+                 base_request([current_namespace], [
+                   search_call,
+                   search_output,
+                   historical_call,
+                   %{
+                     "type" => "function_call_output",
+                     "call_id" => "retired-call",
+                     "output" => "historical result"
+                   }
+                 ])
+               )
+
+      assert current_plan.execution == :server
+      assert Enum.map(current_provider_request["tools"], & &1["name"]) == ["tool_search"]
+
+      refute Enum.any?(current_provider_request["tools"], fn tool ->
+               tool["name"] == "mcp__retired_server__render_report"
+             end)
     end
 
     test "rejects malformed or conflicting client-loaded contracts atomically" do

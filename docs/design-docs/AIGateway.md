@@ -445,6 +445,19 @@ executes the search in AIGateway. Client mode returns the search call to the
 caller. Both modes preserve one public response lifecycle across later provider
 rounds.
 
+A settled Tool Search call and output remain readable provider history when a
+later request no longer declares Tool Search or the loaded tool. The stored
+output carries the historical tool descriptor, so AIGateway can replay the pair
+and its completed calls without adding the removed tool to the current provider
+tool set or searchable catalog. An unsettled server search still requires the
+current declaration. A client-loaded tool stays callable only in the user turn
+that contains its search output. A later user turn must load it again from the
+client's current catalog. A server-loaded tool stays callable only while its
+provider identity remains in AIGateway's current deferred catalog. Equal
+client-loaded contracts can recur in later settled outputs and coalesce to one
+provider tool. Client and server outputs never establish each other's current
+loading state. A conflicting contract for the same public identity is invalid.
+
 A nonempty provider terminal output remains authoritative. If the terminal
 omits output after complete output-item events, the loop uses the raw items from
 that provider round to decide local execution. It clears these temporary items

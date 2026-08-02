@@ -87,7 +87,7 @@ defmodule Ankole.AIGateway.ToolSearch do
       history = ResponseItems.analyze_history(Map.get(request, "input"))
 
       search_managed? =
-        declared_search? or client_search_history?(history)
+        declared_search? or settled_search_history?(history) or client_search_history?(history)
 
       projection_required? =
         settled_program_history?(history) or
@@ -281,25 +281,60 @@ defmodule Ankole.AIGateway.ToolSearch do
 
     with :ok <- validate_search_execution_contract(declaration, execution),
          :ok <- validate_search_history(history),
-         {:ok, input_items, loaded_specs} <- rewrite_input_items(history, tool_name),
+         {:ok, input_items, loaded_spec_groups, current_client_loaded_spec_groups,
+          server_loaded_spec_groups} <-
+           rewrite_input_items(history, tool_name),
          {:ok, loaded_tools} <-
-           ToolContract.validate_loaded(loaded_specs,
-             known: contracts,
-             reserved_names: [PTC.tool_name(), tool_name]
+           validate_loaded_history(
+             loaded_spec_groups,
+             contracts,
+             [PTC.tool_name(), tool_name]
+           ),
+         {:ok, current_client_loaded_tools} <-
+           validate_loaded_history(
+             current_client_loaded_spec_groups,
+             contracts,
+             [PTC.tool_name(), tool_name]
+           ),
+         {:ok, server_loaded_tools} <-
+           validate_loaded_history(
+             server_loaded_spec_groups,
+             contracts,
+             [PTC.tool_name(), tool_name]
            ) do
+      search_declared? = not is_nil(declaration) or deferred != []
+
+      callable_loaded_tools =
+        case {search_declared?, execution} do
+          {true, :client} ->
+            current_client_loaded_tools
+
+          {true, :server} ->
+            deferred_names = MapSet.new(deferred, & &1.provider_name)
+            Enum.filter(server_loaded_tools, &MapSet.member?(deferred_names, &1.provider_name))
+
+          {false, _execution} ->
+            []
+        end
+
       {direct_tools, program_bindings} =
-        PTC.partition_tools(remaining_tools ++ loaded_tools, ptc)
+        PTC.partition_tools(remaining_tools ++ callable_loaded_tools, ptc)
 
       with {:ok, ptc} <- PTC.build_plan(ptc, program_bindings, history),
            :ok <- ensure_no_tool_name_collision(direct_tools, passthrough_tools, tool_name),
            :ok <- PTC.ensure_no_collision(direct_tools, passthrough_tools, ptc),
            :ok <- validate_search_surface_paths(deferred, execution) do
-        search_declared? = not is_nil(declaration) or deferred != []
         catalog = Enum.map(deferred, &expanded_spec/1)
-        loaded_specs = Enum.map(loaded_tools, &expanded_spec/1)
+        callable_loaded_specs = Enum.map(callable_loaded_tools, &expanded_spec/1)
 
         synthesized =
-          synthesized_search_tool(tool_name, declaration, execution, catalog, loaded_specs)
+          synthesized_search_tool(
+            tool_name,
+            declaration,
+            execution,
+            catalog,
+            callable_loaded_specs
+          )
 
         plan = %Plan{
           execution: if(search_declared?, do: execution),
@@ -308,7 +343,7 @@ defmodule Ankole.AIGateway.ToolSearch do
           catalog: catalog,
           search_context: search_context(Map.get(request, "input")),
           contracts: merge_contracts(contracts, loaded_tools),
-          loaded_names: MapSet.new(Enum.map(loaded_tools, & &1.provider_name)),
+          loaded_names: MapSet.new(Enum.map(callable_loaded_tools, & &1.provider_name)),
           provider_tool_paths: provider_tool_paths(remaining_tools ++ deferred ++ loaded_tools),
           ptc: ptc
         }
@@ -507,6 +542,13 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp settled_program_history?(_history), do: false
 
+  defp settled_search_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
+    pairs = ResponseItems.search_pairs(ledger)
+    pairs != [] and Enum.all?(pairs, & &1.output)
+  end
+
+  defp settled_search_history?(_history), do: false
+
   defp client_search_history?(%ResponseItems.History{entries: entries}) do
     search_items =
       Enum.flat_map(entries, fn
@@ -669,32 +711,99 @@ defmodule Ankole.AIGateway.ToolSearch do
 
   defp rewrite_input_items(%ResponseItems.History{input: input}, _tool_name)
        when not is_list(input),
-       do: {:ok, input, []}
+       do: {:ok, input, [], [], []}
 
   defp rewrite_input_items(%ResponseItems.History{entries: entries}, tool_name) do
-    Enum.reduce_while(entries, {:ok, [], []}, fn entry, {:ok, items_rev, loaded_rev} ->
+    user_boundary = latest_user_message_index(entries)
+
+    Enum.reduce_while(entries, {:ok, [], [], [], []}, fn entry,
+                                                         {:ok, items_rev, loaded_groups_rev,
+                                                          current_client_loaded_groups_rev,
+                                                          server_loaded_groups_rev} ->
       case rewrite_input_entry(entry, tool_name) do
         {:item, item} ->
-          {:cont, {:ok, [item | items_rev], loaded_rev}}
+          {:cont,
+           {:ok, [item | items_rev], loaded_groups_rev, current_client_loaded_groups_rev,
+            server_loaded_groups_rev}}
 
         {:search_output, output, loaded} ->
-          {:cont, {:ok, [output | items_rev], Enum.reverse(loaded, loaded_rev)}}
+          current_client_loaded_groups_rev =
+            if current_client_search_output?(entry, user_boundary) do
+              [loaded | current_client_loaded_groups_rev]
+            else
+              current_client_loaded_groups_rev
+            end
+
+          server_loaded_groups_rev =
+            if server_search_output?(entry) do
+              [loaded | server_loaded_groups_rev]
+            else
+              server_loaded_groups_rev
+            end
+
+          {:cont,
+           {:ok, [output | items_rev], [loaded | loaded_groups_rev],
+            current_client_loaded_groups_rev, server_loaded_groups_rev}}
 
         :omit ->
-          {:cont, {:ok, items_rev, loaded_rev}}
+          {:cont,
+           {:ok, items_rev, loaded_groups_rev, current_client_loaded_groups_rev,
+            server_loaded_groups_rev}}
 
         {:error, reason} ->
           {:halt, {:error, {:invalid_tool_search_history, reason}}}
       end
     end)
     |> case do
-      {:ok, items_rev, loaded_rev} ->
-        {:ok, Enum.reverse(items_rev), Enum.reverse(loaded_rev)}
+      {:ok, items_rev, loaded_groups_rev, current_client_loaded_groups_rev,
+       server_loaded_groups_rev} ->
+        {:ok, Enum.reverse(items_rev), Enum.reverse(loaded_groups_rev),
+         Enum.reverse(current_client_loaded_groups_rev), Enum.reverse(server_loaded_groups_rev)}
 
       {:error, _reason} = error ->
         error
     end
   end
+
+  defp latest_user_message_index(entries) do
+    Enum.reduce(entries, -1, fn
+      %{item: %{"role" => "user"} = item, index: index}, latest ->
+        if Map.get(item, "type") in [nil, "message"], do: index, else: latest
+
+      _entry, latest ->
+        latest
+    end)
+  end
+
+  defp validate_loaded_history(spec_groups, known, reserved_names) do
+    Enum.reduce_while(spec_groups, {:ok, []}, fn specs, {:ok, loaded} ->
+      case ToolContract.validate_loaded(specs,
+             known: known ++ loaded,
+             reserved_names: reserved_names
+           ) do
+        {:ok, batch} -> {:cont, {:ok, merge_contracts(loaded, batch)}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp current_client_search_output?(
+         %{
+           item: %{"type" => "tool_search_output", "execution" => "client"},
+           index: index
+         },
+         user_boundary
+       ),
+       do: index > user_boundary
+
+  defp current_client_search_output?(_entry, _user_boundary), do: false
+
+  defp server_search_output?(%{
+         item: %{"type" => "tool_search_output", "execution" => "server"}
+       }),
+       do: true
+
+  defp server_search_output?(_entry), do: false
 
   defp rewrite_input_entry(
          %{item: %{"type" => "tool_search_call"} = item, pair_key: pair_key},

@@ -16,7 +16,9 @@ import type { TurnStartResponse } from '../../src/tools/codex/generated/protocol
 const searchCallID = 'analysis-search'
 const analysisCallID = 'analysis-inspect-call'
 const nativeMCPSearchCallID = 'native-mcp-search'
+const nativeMCPSecondSearchCallID = 'native-mcp-search-again'
 const nativeMCPToolCallID = 'native-mcp-stdio-echo'
+const nativeMCPSecondToolCallID = 'native-mcp-stdio-echo-again'
 const AnalysisArguments = z.object({ metric: z.string(), confidence: z.number().min(0).max(1) })
 const analysisInputSchema = {
   type: 'object',
@@ -163,6 +165,16 @@ describe('Codex dynamic namespace integration', () => {
       expect(manifestRequests.length).toBeGreaterThan(0)
       expect(requests).toHaveLength(3)
       expect(toolTypes(requests[0]!)).toContain('tool_search')
+      const searchContinuationInput = arrayValue(requests[1]!.input).filter(isRecord)
+      const latestUserIndex = searchContinuationInput.reduce(
+        (latest, item, index) => (item.type === 'message' && item.role === 'user' ? index : latest),
+        -1
+      )
+      const searchOutputIndex = searchContinuationInput.findIndex(
+        item => item.type === 'tool_search_output' && item.call_id === nativeMCPSearchCallID
+      )
+      expect(latestUserIndex).toBeGreaterThanOrEqual(0)
+      expect(searchOutputIndex).toBeGreaterThan(latestUserIndex)
       expect(namespaceSurfaceFromSearch(requests[1]!, nativeMCPSearchCallID)).toMatchObject([
         {
           name: 'mcp__native_fixture',
@@ -177,6 +189,34 @@ describe('Codex dynamic namespace integration', () => {
         }
       ])
       expect(functionCallOutputText(requests[2]!, nativeMCPToolCallID)).toContain('stdio response')
+
+      const secondTurn = (await client.request('turn/start', {
+        threadId: started.thread.id,
+        input: [{ type: 'text', text: 'Echo through the same native MCP server again.', text_elements: [] }],
+        cwd: workspace,
+        approvalPolicy: 'never',
+        sandboxPolicy: { type: 'dangerFullAccess' }
+      } satisfies TurnStartParams)) as TurnStartResponse
+      await waitFor(() => turnCompleted(notifications, secondTurn.turn.id, 'completed'))
+
+      expect(requests).toHaveLength(6)
+      const secondTurnInput = arrayValue(requests[3]!.input).filter(isRecord)
+      const secondTurnUserIndex = secondTurnInput.reduce(
+        (latest, item, index) => (item.type === 'message' && item.role === 'user' ? index : latest),
+        -1
+      )
+      const retainedSearchOutputIndex = secondTurnInput.findIndex(
+        item => item.type === 'tool_search_output' && item.call_id === nativeMCPSearchCallID
+      )
+      expect(retainedSearchOutputIndex).toBeGreaterThanOrEqual(0)
+      expect(secondTurnUserIndex).toBeGreaterThan(retainedSearchOutputIndex)
+      expect(namespaceSurfaceFromSearch(requests[4]!, nativeMCPSecondSearchCallID)).toMatchObject([
+        {
+          name: 'mcp__native_fixture',
+          tools: [{ name: 'stdio_echo' }]
+        }
+      ])
+      expect(functionCallOutputText(requests[5]!, nativeMCPSecondToolCallID)).toContain('stdio response')
     } catch (error) {
       const stderr = notifications
         .filter(notification => notification.method === '$stderr')
@@ -308,6 +348,31 @@ function createNativeMCPResponsesCapture(requests: JSONObject[], manifestRequest
               namespace: 'mcp__native_fixture',
               name: 'stdio_echo',
               arguments: JSON.stringify({ text: 'native MCP' })
+            }
+          ])
+        )
+      }
+      if (requests.length === 4) {
+        return sseResponse(
+          responseEvents('resp-native-mcp-search-again', model, [
+            {
+              type: 'tool_search_call',
+              call_id: nativeMCPSecondSearchCallID,
+              execution: 'client',
+              arguments: { query: 'stdio echo again', limit: 8 }
+            }
+          ])
+        )
+      }
+      if (requests.length === 5) {
+        return sseResponse(
+          responseEvents('resp-native-mcp-call-again', model, [
+            {
+              type: 'function_call',
+              call_id: nativeMCPSecondToolCallID,
+              namespace: 'mcp__native_fixture',
+              name: 'stdio_echo',
+              arguments: JSON.stringify({ text: 'native MCP again' })
             }
           ])
         )

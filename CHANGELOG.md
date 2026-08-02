@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.56.1 (2026-08-03)
+
+- Keep settled Tool Search history readable after a release, Skill change, or MCP removal deletes its current declaration. Reconstruct only the historical loaded tool contract from the stored search output, preserve its exact schema and namespace while replaying completed calls, and do not add the removed tool to the current provider tool set or searchable catalog. Keep a client-loaded tool callable only during the user turn that contains its search output, accept an equal contract when Codex loads the same tool again in a later turn, and keep a server-loaded tool callable only while its provider identity remains in the current deferred catalog. Do not let client and server history establish each other's current loading state. Continue to reject an unsettled server search without its current declaration, and pin the real Codex 0.146 two-turn lifecycle that distinguishes a current search result from historical replay.
+
 ## Version 0.56.0 (2026-08-02)
 
 - Refine the Deep Research prompt so planning is a worthwhile research stage in which the Agent sharpens the question, scope, definitions, and boundaries from available context before systematic collection. Add a lightweight, domain-neutral plausibility check for evidence interpretation, and keep explicit validation of market-data identity, timing, units, rules, magnitude, and financial-model inputs inside the stock, A-share trading, and financial-model Playbooks that own those risks.
