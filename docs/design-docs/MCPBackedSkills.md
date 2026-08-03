@@ -115,9 +115,11 @@ The generated file always contains `imports: []`. The explicit
 `MCPORTER_CONFIG` path and this empty import list prevent mcporter from reading
 an Agent Home, project, Codex, editor, or host MCP config.
 
-An HTTP entry becomes `baseUrl` plus `bearerTokenEnv`. A stdio entry becomes
-`command: /bin/sh` plus `args: [-lc, <declared command>]`. Credential values are
-not read while the file is generated and cannot enter the file.
+An HTTP entry becomes `baseUrl` plus a `bearerToken` `${VARIABLE}` placeholder.
+A stdio entry becomes `command: /bin/sh` plus
+`args: [-lc, <declared command>]`. Credential values are not read while the
+file is generated and cannot enter the file. mcporter resolves the placeholder
+at execution time and adds the standard `Bearer` authorization scheme.
 
 Each execution receives a fresh view:
 
@@ -198,8 +200,8 @@ only while a mcporter list or call process uses it.
 
 WorkerEnv provides credentials to the same trusted sandbox that runs the model
 command or Automation script. The generated file stores only environment
-variable names. A missing variable diagnostic must name the variable and must
-not print a credential value.
+variable placeholders. A missing variable diagnostic must name the variable
+and must not print a credential value.
 
 The server output is untrusted input. Removing the native MCP client also
 removes these client-side guarantees:

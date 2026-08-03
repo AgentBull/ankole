@@ -16,7 +16,7 @@ export type MaterializedMCPorterConfig = {
 type MCPorterServer = {
   description?: string
   baseUrl?: string
-  bearerTokenEnv?: string
+  bearerToken?: string
   command?: string
   args?: string[]
   cwd?: string
@@ -41,7 +41,7 @@ export function renderMCPorterConfig(servers: readonly MCPorterConfiguredServer[
         ? {
             ...(server.description ? { description: server.description } : {}),
             baseUrl: server.url,
-            ...(server.bearerTokenEnvVar ? { bearerTokenEnv: server.bearerTokenEnvVar } : {}),
+            ...(server.bearerTokenEnvVar ? { bearerToken: `\${${server.bearerTokenEnvVar}}` } : {}),
             ...filters
           }
         : {

@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.57.1 (2026-08-04)
+
+- Fix Skill-backed HTTP MCP authentication after the mcporter migration. Keep each raw bearer token in WorkerEnv, write only its `${VARIABLE}` placeholder into the invocation config, and let mcporter add the required `Bearer` authorization scheme. Add Worker-image integration coverage for the real mcporter HTTP request, keep secrets out of generated files, and correct the MCP-backed Skill contract and proposal.
+
 ## Version 0.57.0 (2026-08-03)
 
 - Declare the Automation Job SDK preload as a Worker entry point for unused-file analysis. The Worker loads this file through `bun --preload`, so it has no static TypeScript import and Knip cannot infer the runtime edge.

@@ -128,8 +128,8 @@ Skill 路由优于 Tool Search。因此，本提案把路由中心合一视为�
   上游明确推荐“一台 MCP server 或一个 workflow 对应一个小 Skill”，由 Skill 调用相关工具，反对
   一个通用 mcporter Skill 重新制造大目录问题。
 - [mcporter 0.13.0 配置规则](https://github.com/openclaw/mcporter/blob/v0.13.0/docs/config.md)：
-  `MCPORTER_CONFIG` 选择唯一配置文件，`imports: []` 关闭宿主配置导入，`bearerTokenEnv` 只保存环境
-  变量名，`allowedTools` 和 `blockedTools` 可以限制发现和调用。
+  `MCPORTER_CONFIG` 选择唯一配置文件，`imports: []` 关闭宿主配置导入，`bearerToken` 接受环境变量
+  placeholder，`allowedTools` 和 `blockedTools` 可以限制发现和调用。
 - mcporter 0.13.0 源码和 `docs/call-syntax.md`：`mcporter call` 支持 `--json -` 从 stdin 读取 JSON
   object，`--output json` 把成功和失败结果写成机器可读 JSON。
 
@@ -234,7 +234,7 @@ BullX 的生成结果等价于：
     "bullx-financial-data": {
       "description": "BullX Financial Data MCP server",
       "baseUrl": "https://ai-terminal.yuma.host/api/v1/financial-data/mcp",
-      "bearerTokenEnv": "BULLX_FINANCIAL_DATA_MCP_API_KEY"
+      "bearerToken": "${BULLX_FINANCIAL_DATA_MCP_API_KEY}"
     }
   }
 }
@@ -245,8 +245,9 @@ BullX 的生成结果等价于：
 - 必须设置 `imports: []`，避免 mcporter 自动导入 Agent Home、Codex、Claude、Cursor 或 VS Code 的
   配置。
 - 必须设置 `MCPORTER_CONFIG`，禁止依赖 cwd 或 `~/.mcporter/mcporter.json` 的偶然内容。
-- 文件只保存 WorkerEnv 变量名，不保存解析后的 secret。
-- `streamable_http` 映射为 `baseUrl` 和 `bearerTokenEnv`。
+- 文件只保存 WorkerEnv 变量 placeholder，不保存解析后的 secret。
+- `streamable_http` 映射为 `baseUrl` 和 `bearerToken` placeholder。mcporter 在执行时解析变量并添加
+  `Bearer` authorization scheme。
 - `stdio` 如仍保留支持，使用 `command: "/bin/sh"` 和 `args: ["-lc", <声明命令>]` 保持当前语义。
 - 只有 `enabled_tools` 时生成 `allowedTools`；只有 `disabled_tools` 时生成 `blockedTools`；两者同时存在
   时生成 `enabled_tools - disabled_tools` 的最终 `allowedTools`，因为 mcporter 不允许两种字段同时存在。
@@ -491,6 +492,7 @@ compatibility branch。
 - 同一 Skill 声明生成 byte-stable mcporter JSON。
 - 配置总是包含 `imports: []`。
 - bearer token value 从不进入配置、错误或日志。
+- 镜像固定的 mcporter 从 placeholder 读取 token，并发送 `Authorization: Bearer <token>`。
 - allowlist、denylist 和两者同时存在时的最终过滤结果正确。
 - 重名相同声明合并，不同声明大声失败。
 - 临时配置使用 `0600`、唯一文件名并在 success、failure、timeout 和 cancellation 后删除。
