@@ -53,7 +53,7 @@ describe('@ankole/agent-computer Skill MCPorter config', () => {
           'a-remote': {
             description: 'Remote data',
             baseUrl: 'https://mcp.example.test/rpc',
-            bearerTokenEnv: 'REMOTE_MCP_TOKEN',
+            bearerToken: '${REMOTE_MCP_TOKEN}',
             allowedTools: ['quote']
           },
           'z-local': {
