@@ -5,9 +5,9 @@ import type { WorkerBootstrapSpec } from '../worker-bootstrap'
 import { ChildProcessExitError, exitCodeForError, runChild } from '../utils'
 
 const containerSpec: WorkerBootstrapSpec = {
-  contract_version: 2,
+  contract_version: 3,
   kind: 'container',
-  image: 'ankole-agent-computer:0.1.0',
+  image: 'ankole-agent-computer:test',
   docker: {
     cap_add: ['SYS_ADMIN'],
     security_opts: ['seccomp=unconfined', 'systempaths=unconfined'],

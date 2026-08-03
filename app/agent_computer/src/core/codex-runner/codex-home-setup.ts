@@ -1,5 +1,7 @@
 const setupTails = new Map<string, Promise<void>>()
 
+export type TryCodexHomeSetupResult<T> = { acquired: true; value: T } | { acquired: false }
+
 /**
  * Serializes setup that changes one Agent Codex Home. Worker placement keeps
  * all live work for an Agent in this process, so a process-local queue is the
@@ -33,6 +35,25 @@ export async function withCodexHomeSetup<T>(
     return await setup()
   } finally {
     release()
+  }
+}
+
+/**
+ * Runs setup only when this Agent Codex Home has no queued or active setup.
+ * The check and queue insertion stay in one JavaScript event-loop turn.
+ */
+export async function tryWithCodexHomeSetup<T>(
+  codexHome: string,
+  setup: () => Promise<T>,
+  abortSignal?: AbortSignal
+): Promise<TryCodexHomeSetupResult<T>> {
+  if (!codexHome) throw new Error('Codex Home is required for shared setup')
+  abortSignal?.throwIfAborted()
+  if (setupTails.has(codexHome)) return { acquired: false }
+
+  return {
+    acquired: true,
+    value: await withCodexHomeSetup(codexHome, setup, abortSignal)
   }
 }
 

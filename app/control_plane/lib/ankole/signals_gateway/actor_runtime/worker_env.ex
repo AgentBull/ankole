@@ -44,7 +44,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   # Variables the sandbox bootstrap or worker identity owns. Overriding them
   # from operator rows would not restrict the model (it can re-export inside
   # the shell); it would only break the sandbox contract in confusing ways.
-  @reserved_names ~w(PATH HOME SHELL TERM LANG BASH_ENV ENV WORKER_ID RUNTIME_FABRIC_URL DATABASE_URL CODEX_UNSAFE_ALLOW_NO_SANDBOX)
+  @reserved_names ~w(PATH HOME SHELL TERM LANG BASH_ENV ENV WORKER_ID DATABASE_URL CODEX_UNSAFE_ALLOW_NO_SANDBOX)
   @reserved_prefix "ANKOLE_"
 
   @type console_item :: map()

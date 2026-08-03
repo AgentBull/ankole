@@ -81,14 +81,56 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   """
   @spec file_worker_route() :: {:ok, String.t()} | {:error, :no_worker_available}
   def file_worker_route do
+    file_worker_route_in_tx(Repo)
+  end
+
+  defp file_worker_route_in_tx(repo) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
     |> order_by([worker], asc: worker.inserted_at)
-    |> Repo.all()
+    |> repo.all()
     |> Enum.find_value(&worker_route/1)
     |> case do
       route when is_binary(route) and route != "" -> {:ok, route}
       _missing -> {:error, :no_worker_available}
+    end
+  end
+
+  @doc """
+  Runs a short Agent Home operation against its single ready Worker.
+
+  The Agent placement advisory lock stays held through the callback, so a new
+  turn cannot move the Agent to another Worker between route selection and the
+  operation. The callback must return a tagged result for `Repo.transact/1`.
+  """
+  @spec with_agent_file_worker_route(
+          String.t(),
+          (String.t() -> {:ok, term()} | {:error, term()})
+        ) :: {:ok, term()} | {:error, term()}
+  def with_agent_file_worker_route(agent_uid, operation)
+      when is_binary(agent_uid) and is_function(operation, 1) do
+    agent_uid = normalize_uid(agent_uid)
+
+    Repo.transact(fn repo ->
+      with :ok <- lock_agent_worker_in_tx(repo, agent_uid),
+           {:ok, route} <- agent_file_worker_route_in_tx(repo, agent_uid) do
+        operation.(route)
+      end
+    end)
+  end
+
+  defp agent_file_worker_route_in_tx(repo, agent_uid) do
+    worker_ids =
+      repo
+      |> live_agent_worker_ids(agent_uid)
+      |> Kernel.++(assigned_agent_worker_ids(repo, agent_uid))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    case worker_ids do
+      [] -> file_worker_route_in_tx(repo)
+      [worker_id] -> worker_file_route_in_tx(repo, worker_id)
+      _worker_ids -> {:error, :agent_worker_overlap}
     end
   end
 
@@ -103,7 +145,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @spec worker_file_route(String.t()) ::
           {:ok, String.t()} | {:error, :worker_not_found | :worker_not_ready}
   def worker_file_route(worker_id) when is_binary(worker_id) do
-    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+    worker_file_route_in_tx(Repo, worker_id)
+  end
+
+  defp worker_file_route_in_tx(repo, worker_id) do
+    case repo.get_by(AgentComputerWorker, worker_id: worker_id) do
       nil ->
         {:error, :worker_not_found}
 
@@ -221,6 +267,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
     |> distinct(true)
     |> repo.all()
     |> Enum.sort()
+  end
+
+  defp assigned_agent_worker_ids(repo, agent_uid) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.agent_uid == ^agent_uid)
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> select([assignment], assignment.worker_id)
+    |> distinct(true)
+    |> repo.all()
   end
 
   defp reuse_or_replace_assignment(repo, actor_key, assignment, now, job_limit) do
@@ -391,11 +446,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerPool do
   @spec lock_actor_assignment_in_tx(module(), actor_key() | map()) :: :ok | {:error, term()}
   def lock_actor_assignment_in_tx(repo, actor_key) do
     actor_key = normalize_actor_key(actor_key)
+    lock_agent_worker_in_tx(repo, actor_key.agent_uid)
+  end
 
+  defp lock_agent_worker_in_tx(repo, agent_uid) do
     case SQL.query(
            repo,
            "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
-           [actor_key.agent_uid, "agent-worker"]
+           [agent_uid, "agent-worker"]
          ) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}

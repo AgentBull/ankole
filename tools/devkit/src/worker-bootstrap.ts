@@ -7,7 +7,7 @@ export type WorkerBootstrapMount = {
 }
 
 export type WorkerBootstrapSpec = {
-  contract_version: 2
+  contract_version: 3
   kind: 'container' | 'worker'
   image: string
   docker: {
@@ -66,7 +66,7 @@ export function parseWorkerBootstrapSpec(output: string): WorkerBootstrapSpec {
   if (!jsonLine) throw new Error('worker bootstrap output did not contain a JSON object')
 
   const parsed: unknown = JSON.parse(jsonLine)
-  if (!isRecord(parsed) || parsed.contract_version !== 2) {
+  if (!isRecord(parsed) || parsed.contract_version !== 3) {
     throw new Error('unsupported worker bootstrap contract version')
   }
   if (!isWorkerBootstrapSpec(parsed)) throw new Error('worker bootstrap contract is invalid')

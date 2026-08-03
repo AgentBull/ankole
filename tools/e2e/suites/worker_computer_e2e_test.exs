@@ -102,7 +102,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     assert status != 0
     assert output =~ ~s("event":"worker.error")
-    assert output =~ "RUNTIME_FABRIC_URL is required"
+    assert output =~ "ANKOLE_RUNTIME_FABRIC_ENDPOINT is required"
   end
 
   test "Docker image worker rejects actor-specific startup env" do
@@ -110,7 +110,8 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     assert {output, status} =
              docker_run_worker_once([
-               {"RUNTIME_FABRIC_URL", "tcp://:unused-test-secret@host.docker.internal:1"},
+               {"ANKOLE_RUNTIME_FABRIC_ENDPOINT", "tcp://host.docker.internal:1"},
+               {"ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY", "unused-test-secret"},
                {"WORKER_ID", "worker-actor-env"},
                {"ANKOLE_AGENT_UID", "agent-1"}
              ])

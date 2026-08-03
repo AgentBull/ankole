@@ -21,9 +21,14 @@ Worker environment variable. RuntimeFabric authentication uses:
 
 ```text
 WORKER_ID=worker-a
-RUNTIME_FABRIC_URL=tcp://:worker_auth_key@host:port
+ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host:port
+ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=worker_auth_key
 ANKOLE_AGENTS_ROOT=/agents
 ```
+
+The Worker validates the endpoint, copies the auth key into its in-memory
+configuration, and removes the key from the environment that child processes
+inherit.
 
 `DATABASE_URL`, `ANKOLE_AGENT_UID`, `ANKOLE_SESSION_ID`, and
 `ANKOLE_ACTOR_EPOCH` are not Worker inputs.
@@ -141,10 +146,12 @@ optional Skill root. Operator-managed WorkerEnv values are resolved per Agent
 and injected below explicit tool inputs; reserved runtime variables cannot be
 overridden.
 
-Build the Worker image from the repository root:
+Devkit resolves the immutable GHCR image for the current Git inputs when one is
+published. If the Worker inputs changed, it builds a content-addressed local
+image. For an explicit manual build, use a disposable name:
 
 ```shell
 docker build \
   --build-arg "BASE_IMAGE=$(tr -d '\n' < app/agent_computer/base-image.lock)" \
-  -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
+  -f app/agent_computer/Dockerfile -t ankole-agent-computer:manual .
 ```

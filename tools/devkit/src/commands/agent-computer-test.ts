@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { Crust } from '@crustjs/core'
 
+import { resolveLocalWorkerImage } from '../local-worker-image'
 import { buildDockerRunArgs, renderContainerBootstrapSpec, type WorkerBootstrapSpec } from '../worker-bootstrap'
 import { repoRootPath, runChild } from '../utils'
 
-const defaultWorkerImage = 'ankole-agent-computer:0.1.0'
 const agentComputerRoot = '/repo/app/agent_computer'
 
 export type AgentComputerTestSuite = 'unit' | 'integration'
@@ -82,8 +82,9 @@ export function buildAgentComputerTestDockerArgs(
   })
 }
 
-async function runAgentComputerTests(suite: AgentComputerTestSuite, image: string): Promise<void> {
-  const spec = await renderContainerBootstrapSpec(image)
+async function runAgentComputerTests(suite: AgentComputerTestSuite, image?: string): Promise<void> {
+  const workerImage = image ?? (await resolveLocalWorkerImage({ scope: 'source-mounted', allowBuild: true }))
+  const spec = await renderContainerBootstrapSpec(workerImage)
   await runChild('docker', buildAgentComputerTestDockerArgs(spec, suite, repoRootPath), {
     cwd: repoRootPath
   })
@@ -109,8 +110,7 @@ export function agentComputerTestCommand(): Crust {
       },
       image: {
         type: 'string',
-        description: 'Prebuilt Agent Computer Docker image.',
-        default: defaultWorkerImage
+        description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
       }
     })
     .run(({ flags }) => runAgentComputerTests(parseAgentComputerTestSuite(flags.suite), flags.image))

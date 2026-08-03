@@ -41,6 +41,7 @@ import {
 } from './recovery-policy'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
+import { installCodexLogs2LowLevelFilter } from '../../tools/codex/fix-codex-logs2-sqlite-bug'
 
 const steerPollIntervalMs = 250
 const maxMCPStartupErrorBytes = 2_048
@@ -173,36 +174,71 @@ class CodexJobSession {
     if (abortSignal?.aborted) this.onAbort()
     if (await this.finishClaimedFinalization()) return
 
-    this.client = new CodexAppServerClient({
-      cwd: sandbox.cwd,
-      env: sandbox.env,
-      commandArgv: sandbox.commandArgv,
-      onNotification: this.handleNotification,
-      onServerRequest: this.handleServerRequest,
-      onExit: error => {
-        if (!this.closing && !this.finalizing) this.rejectDone(error)
-      }
-    })
-    const client = this.client
-
-    const initializeResponse = await client.initialize()
-    if (await this.finishClaimedFinalization()) return
     const expectedSkillNames = [
       ...this.input.runtimeFiles.expectedSkillNames,
       ...this.input.preparedAgentPlugins.expectedSkillNames
     ].sort(compareCodePoints)
-    await withCodexHomeSetup(
+    const initializeResponse = await withCodexHomeSetup(
       this.input.materialized.codexHome,
       async () => {
-        await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
-        abortSignal?.throwIfAborted()
-        await configureCodexSkills(
-          client,
-          sandbox.codexCwd,
-          this.input.runtimeFiles.skillsRoot,
-          this.input.runtimeFiles.expectedSkillNames,
-          this.input.preparedAgentPlugins
-        )
+        this.client = new CodexAppServerClient({
+          cwd: sandbox.cwd,
+          env: sandbox.env,
+          commandArgv: sandbox.commandArgv,
+          onNotification: this.handleNotification,
+          onServerRequest: this.handleServerRequest,
+          onExit: error => {
+            if (!this.closing && !this.finalizing) this.rejectDone(error)
+          }
+        })
+        const client = this.client
+        try {
+          const initializeStartedAt = Date.now()
+          let response: JSONObject
+          try {
+            response = await client.initialize()
+            this.input.opts.logger?.info('worker.codex_app_server_initialized', 'Codex app-server initialized', {
+              duration_ms: Date.now() - initializeStartedAt
+            })
+          } catch (error) {
+            this.input.opts.logger?.warning(
+              'worker.codex_app_server_initialize_failed',
+              'Codex app-server initialization failed',
+              {
+                duration_ms: Date.now() - initializeStartedAt,
+                error: errorMessage(error)
+              }
+            )
+            throw error
+          }
+          try {
+            const status = installCodexLogs2LowLevelFilter(this.input.materialized.codexHome)
+            this.input.opts.logger?.info('worker.codex_logs2_filter_ready', 'Codex logs filter is ready', { status })
+          } catch (error) {
+            this.input.opts.logger?.warning(
+              'worker.codex_logs2_filter_failed',
+              'Codex logs filter could not be installed',
+              { error: errorMessage(error) }
+            )
+          }
+          if (await this.finishClaimedFinalization()) {
+            await client.closeAndWait()
+            return response
+          }
+          await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
+          abortSignal?.throwIfAborted()
+          await configureCodexSkills(
+            client,
+            sandbox.codexCwd,
+            this.input.runtimeFiles.skillsRoot,
+            this.input.runtimeFiles.expectedSkillNames,
+            this.input.preparedAgentPlugins
+          )
+          return response
+        } catch (error) {
+          await client.closeAndWait()
+          throw error
+        }
       },
       abortSignal
     )

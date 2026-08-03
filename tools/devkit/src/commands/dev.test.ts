@@ -6,7 +6,6 @@ import {
   buildControlPlaneEnv,
   buildManagedWorkerPsArgs,
   buildManagedWorkerRmArgs,
-  buildWorkerImageBuildArgs,
   buildWorkerDockerArgs,
   parseDockerContainerIDs,
   signalChild
@@ -16,9 +15,9 @@ import type { WorkerBootstrapSpec } from '../worker-bootstrap'
 import { mixCommand } from '../utils'
 
 const spec: WorkerBootstrapSpec = {
-  contract_version: 2,
+  contract_version: 3,
   kind: 'worker',
-  image: 'ankole-agent-computer:0.1.0',
+  image: 'ankole-agent-computer:test',
   docker: {
     cap_add: ['SYS_ADMIN'],
     security_opts: ['seccomp=unconfined', 'systempaths=unconfined'],
@@ -26,8 +25,9 @@ const spec: WorkerBootstrapSpec = {
   },
   env: {
     ANKOLE_AGENTS_ROOT: '/agents',
-    WORKER_ID: 'local-dev-worker',
-    RUNTIME_FABRIC_URL: 'tcp://:secret@host.docker.internal:6010'
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://host.docker.internal:6010',
+    ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'secret',
+    WORKER_ID: 'local-dev-worker'
   },
   host_setup_dirs: ['/repo/var/ankole-dev/agents'],
   mounts: [
@@ -111,16 +111,6 @@ describe('managed child shutdown', () => {
   })
 })
 
-describe('worker image build args', () => {
-  test('requires an explicit digest-pinned development base image', () => {
-    const baseImage = `ghcr.io/agentbull/ankole-agent-os-base@sha256:${'a'.repeat(64)}`
-    const args = buildWorkerImageBuildArgs('ankole-agent-computer:test', 'source-hash', baseImage)
-
-    expect(args).toContain(`BASE_IMAGE=${baseImage}`)
-    expect(args).not.toContain('main-latest')
-  })
-})
-
 describe('buildWorkerDockerArgs', () => {
   test('mounts workspace plus local worker source and runs Bun watch mode', () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'ankole-dev-'))
@@ -142,14 +132,15 @@ describe('buildWorkerDockerArgs', () => {
       expect(args).toContain('host.docker.internal=host-gateway')
       expect(args).toContain('WORKER_ID=local-dev-worker')
       expect(args).toContain('ANKOLE_AGENTS_ROOT=/agents')
-      expect(args).toContain('RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010')
+      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host.docker.internal:6010')
+      expect(args).toContain('ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret')
       expect(args).not.toContain('ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills')
       expect(args).toContain('type=bind,src=/repo/var/ankole-dev/agents,dst=/agents')
       expect(args).toContain(
         `type=bind,src=${path.join(repoRoot, 'app', 'agent_computer', 'src')},dst=/repo/app/agent_computer/src,readonly`
       )
       expect(args.slice(-4)).toEqual([
-        'ankole-agent-computer:0.1.0',
+        'ankole-agent-computer:test',
         '/bin/sh',
         '-lc',
         'cd /repo/app/agent_computer && exec bun --watch src/main.ts'

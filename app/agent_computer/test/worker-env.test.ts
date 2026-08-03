@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { parseWorkerEnv } from '../src/worker/config'
+import { loadWorkerConfig, parseWorkerEnv } from '../src/worker/config'
 import { commandEnv, injectableWorkerEnv } from '../src/tools/computer/env'
 import { resolveWorkerEnv } from '../src/core/turns/worker_env'
 import { rpcMethods, type RPCRequester } from '../src/lanes/rpc_lane'
@@ -13,9 +13,24 @@ const turnStart = {
 
 describe('parseWorkerEnv Skill roots', () => {
   const requiredEnv = {
-    RUNTIME_FABRIC_URL: 'tcp://:secret@127.0.0.1:6010',
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
+    ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: ' secret with / symbols ',
     WORKER_ID: 'worker-a'
   }
+
+  it('keeps endpoint and auth as separate bootstrap facts', () => {
+    expect(parseWorkerEnv(requiredEnv)).toMatchObject({
+      endpoint: 'tcp://127.0.0.1:6010',
+      workerAuthKey: ' secret with / symbols '
+    })
+  })
+
+  it('removes the auth key before child processes start', () => {
+    const env = { ...requiredEnv }
+
+    expect(loadWorkerConfig(env).workerAuthKey).toBe(' secret with / symbols ')
+    expect(env.ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY).toBeUndefined()
+  })
 
   it('does not require an internal Skill root from the base image', () => {
     expect(parseWorkerEnv(requiredEnv).internalSkillsRoot).toBeUndefined()

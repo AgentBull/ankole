@@ -15,7 +15,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
-    "//test": "Docker-only: Devkit consumes the control-plane container bootstrap contract, then adds the package source/test mounts and Bun command. Requires the prebuilt ankole-agent-computer image; for full runtime coverage use the control-plane Docker worker e2e.",
+    "//test": "Docker-only: Devkit resolves the published or content-addressed Worker image, consumes the control-plane container bootstrap contract, then adds the package source/test mounts and Bun command. For full runtime coverage use the control-plane Docker worker e2e.",
     "test": "cd ../.. && bun run kit agent-computer-test --suite unit",
     "test:integration": "cd ../.. && bun run kit agent-computer-test --suite integration"
   },

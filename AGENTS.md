@@ -24,7 +24,7 @@ For a `main` push that runs the runtime-image workflow, the newest changelog ver
 
 Treat omissions, contradictions, and ambiguities that change behavior as real issues. A local preference or disagreement with a settled tradeoff is not an architecture finding; evaluate whether the implementation is consistent inside the chosen direction instead of relitigating it. Do not argue for theoretical completeness unless the user asks for it.
 
-Prefer the smallest correct change that follows the chosen direction, preserves contracts the system can keep, and remains understandable, explainable, and deletable after six months of patches. A little duplication, a manual recovery path, or a deliberately weaker guarantee may be better than an abstraction or automation that compounds complexity; use purity only when it protects a boundary.
+Optimize for the simplest correct system after the change. Do not optimize for the smallest diff, the fewest touched files, or the fastest removal of the current symptom. A root repair can require an atomic replacement across multiple owners and the deletion of every superseded path. When alternatives leave equally simple and correct systems, prefer the one that changes less. A small evidenced duplication, a manual recovery path, or a deliberately weaker guarantee can be better than an abstraction or automation that compounds complexity, but it must not duplicate the normative owner or preserve a superseded path.
 
 Working drafts may think out loud, but shareable documents must remove scaffolding, TODO theater, abandoned alternatives, and meta-writing.
 
@@ -93,7 +93,7 @@ Before the first repository edit, state a concise cleanup plan in tool-call comm
 
 ### New features
 
-- Implement the requested real path through the abstraction that owns the domain. Do not replace a required SDK, upstream implementation, native boundary, user flow, provider protocol, or end-to-end path with a handwritten shortcut or parallel flexibility layer. When adapting a complex dependency, inspect the real upstream and make the smallest intentional adaptation.
+- Implement the requested real path through the abstraction that owns the domain. Do not replace a required SDK, upstream implementation, native boundary, user flow, provider protocol, or end-to-end path with a handwritten shortcut or parallel flexibility layer. When adapting a complex dependency, inspect the real upstream and make the simplest intentional adaptation in the resulting system.
 - Keep permission chains, validation, configuration, and audit machinery proportional to the feature's actual guarantee. Repair a wrong lower boundary when it is within the authorized scope; otherwise report it and request the necessary expansion.
 
 ### Refactors and cleanup

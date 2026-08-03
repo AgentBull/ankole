@@ -1171,9 +1171,6 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert first == same
     assert first =~ ~r/\A[0-9a-f]{64}\z/
 
-    assert {:ok, "tcp://:" <> rest} = WorkerAuthKey.runtime_fabric_url("tcp://control-plane:6010")
-    assert rest == URI.encode_www_form(first) <> "@control-plane:6010"
-
     assert {:error, {:global_scope_only, _key}} =
              AppConfigure.put_for_agent("agent-a", definition, "agent-specific")
   end

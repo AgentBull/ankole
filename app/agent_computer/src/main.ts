@@ -14,7 +14,7 @@ import {
   handleWorkerRPCRequest,
   webhookRPCRequester
 } from './lanes/rpc_lane'
-import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
+import { loadWorkerConfig, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './worker/config'
 import type { WorkerConfig } from './worker/config'
 import { connectRuntimeFabric, isRuntimeFabricTransportError, type EnvelopeSender } from './fabric/fabric'
 import type { Envelope } from './fabric/envelope_proto'
@@ -44,6 +44,8 @@ import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-jo
 import { runAutomationJob } from './automation-jobs/run'
 import { WorkerDrainState } from './worker/drain'
 import { completeTurnWithAck, TurnCompletionRejectedError } from './worker/turn_completion'
+import { tryWithCodexHomeSetup } from './core/codex-runner/codex-home-setup'
+import { deleteCodexLogs2AtDailyReset } from './tools/codex/fix-codex-logs2-sqlite-bug'
 
 const heartbeatIntervalMs = 15_000
 
@@ -62,7 +64,7 @@ try {
  * and PostgreSQL responsibilities.
  */
 async function runWorker(): Promise<void> {
-  const config = parseWorkerEnv()
+  const config = loadWorkerConfig()
   verifyWorkerFilesystem(config)
   logBubblewrapSupport(config.agentsRoot)
 
@@ -241,7 +243,37 @@ async function handleEnvelope(
             runAutomationJob(request, {
               config,
               rpc: throwingRPCRequester(rpcClient)
+            }),
+          maintainCodexLogs2: async request => {
+            const codexHome = agentHomePaths(config.agentsRoot, request.agentUid).codexHome
+            const maintenance = await tryWithCodexHomeSetup(codexHome, async () =>
+              deleteCodexLogs2AtDailyReset(codexHome)
+            )
+            if (!maintenance.acquired) {
+              workerLogger.info('worker.codex_logs2_daily_maintenance', 'Codex logs daily maintenance skipped', {
+                agent_uid: request.agentUid,
+                status: 'skipped_setup_busy'
+              })
+              return {
+                status: 'skipped_setup_busy',
+                deletedFiles: [],
+                activeCodexProcesses: 0
+              }
+            }
+
+            const result = maintenance.value
+            workerLogger.info('worker.codex_logs2_daily_maintenance', 'Codex logs daily maintenance completed', {
+              agent_uid: request.agentUid,
+              status: result.status,
+              deleted_files: result.deletedFiles,
+              active_codex_processes: result.status === 'skipped_codex_running' ? result.activeCodexProcesses : 0
             })
+            return {
+              status: result.status,
+              deletedFiles: result.deletedFiles,
+              activeCodexProcesses: result.status === 'skipped_codex_running' ? result.activeCodexProcesses : 0
+            }
+          }
         }).catch(error => {
           workerLogger.error('worker.rpc_reply_failed', 'worker RPC reply failed', {
             method: value.method,

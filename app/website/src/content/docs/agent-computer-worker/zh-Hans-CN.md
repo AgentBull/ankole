@@ -13,7 +13,7 @@ Agent Computer Worker 是 Agent 的执行节点。一个会话被唤醒时，Act
 
 worker 自己的契约里把这条划分写得清清楚楚。Agent Computer Worker 拥有实时执行和可重建的 worker 本地状态。Elixir 控制面拥有 PostgreSQL 状态、actor 与 delivery 隔离栏、最终提交权、provider 出箱、运行时凭证和恢复事实。worker 不得擅自创造持久的控制面状态。
 
-实际排除了什么：`DATABASE_URL`、`ANKOLE_AGENT_UID`、`ANKOLE_SESSION_ID` 和 `ANKOLE_ACTOR_EPOCH` 不是 worker 的输入。actor 身份通过 `turn_start` 到达，不在环境变量里。worker 用一个 `WORKER_ID`、一个带着 worker 认证 key 的 `RUNTIME_FABRIC_URL`，以及 `ANKOLE_AGENTS_ROOT` 向 RuntimeFabric 鉴权。它不持有数据库连接，也不决定自己在替谁做事。
+实际排除了什么：`DATABASE_URL`、`ANKOLE_AGENT_UID`、`ANKOLE_SESSION_ID` 和 `ANKOLE_ACTOR_EPOCH` 不是 worker 的输入。actor 身份通过 `turn_start` 到达，不在环境变量里。worker 用 `WORKER_ID`、`ANKOLE_RUNTIME_FABRIC_ENDPOINT` 和单独的 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` secret 向 RuntimeFabric 鉴权；`ANKOLE_AGENTS_ROOT` 指向共享工作空间。它不持有数据库连接，也不决定自己在替谁做事。
 
 ## 回合隔离栏
 

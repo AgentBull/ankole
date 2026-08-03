@@ -407,4 +407,4 @@ RUN set -eux; \
 
 RUN rm -f /usr/local/bin/node /usr/local/bun-node-fallback-bin/node \
   && ! command -v node \
-  && bun --version >/dev/null
+  && bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'

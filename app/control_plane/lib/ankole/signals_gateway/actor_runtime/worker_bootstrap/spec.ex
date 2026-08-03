@@ -21,7 +21,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Spec do
         }
 
   @type t :: %__MODULE__{
-          contract_version: 2,
+          contract_version: 3,
           kind: :container | :worker,
           image: String.t(),
           docker: docker(),

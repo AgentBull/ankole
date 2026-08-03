@@ -165,11 +165,14 @@ Worker startup requires these values:
 
 ```text
 WORKER_ID=worker-a
-RUNTIME_FABRIC_URL=tcp://:<worker-auth-key>@control-plane:port
+ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://control-plane:port
+ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=<worker-auth-key>
 ```
 
-The URL contains the endpoint and shared password. `WORKER_ID` supplies the
-PLAIN username.
+The endpoint and shared password are separate bootstrap facts. `WORKER_ID`
+supplies the PLAIN username. The Worker validates the endpoint, copies the key
+into memory, and removes the key from the environment that child processes
+inherit.
 
 All workers can use the same key. Ankole does not store a different key for
 each worker.
@@ -482,6 +485,7 @@ The registry currently contains these method families:
 - AIGateway API key resolution.
 - AppConfigure and WorkerEnv resolution.
 - Automation job management, execution, and event emission.
+- Best-effort Codex diagnostic log maintenance.
 - Background Agent Job lifecycle and trajectory.
 - Brain memory operations.
 - Schedule operations.
@@ -497,8 +501,11 @@ AIGateway owns both concerns.
 
 Worker-originated RPC calls use the normal 300-second timeout. An automation
 job execution is a control-plane-originated RPC. Its timeout is ten minutes
-plus a short transport margin. Neither runtime timeout is a PostgreSQL
-transaction budget.
+plus a short transport margin. `codex_logs2.daily_maintenance` is also a
+control-plane-originated RPC. The control plane holds the transaction-scoped
+Agent placement lock during its ten-second RPC budget. The Worker does not wait
+behind Codex Home setup; it returns `skipped_setup_busy` and lets the next daily
+reset try again.
 
 ## Read and Change Worker Files
 

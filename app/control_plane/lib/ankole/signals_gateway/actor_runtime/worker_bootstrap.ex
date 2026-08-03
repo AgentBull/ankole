@@ -26,7 +26,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
     with {:ok, image} <- non_empty(image, :image) do
       {:ok,
        %Spec{
-         contract_version: 2,
+         contract_version: 3,
          kind: :container,
          image: image,
          docker: %{
@@ -54,7 +54,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
          {:ok, endpoint} <- fetch_required(opts, :endpoint),
          {:ok, worker_id} <- fetch_required(opts, :worker_id),
          {:ok, agents_root} <- fetch_required(opts, :agents_root),
-         {:ok, runtime_fabric_url} <- runtime_fabric_url(endpoint, opts) do
+         {:ok, worker_auth_key} <- worker_auth_key(opts) do
       {:ok,
        %{
          spec
@@ -66,9 +66,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
                ]
            },
            env: %{
-             "WORKER_ID" => worker_id,
-             "RUNTIME_FABRIC_URL" => runtime_fabric_url,
-             "ANKOLE_AGENTS_ROOT" => "/agents"
+             "ANKOLE_AGENTS_ROOT" => "/agents",
+             "ANKOLE_RUNTIME_FABRIC_ENDPOINT" => endpoint,
+             "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY" => worker_auth_key,
+             "WORKER_ID" => worker_id
            },
            host_setup_dirs: [agents_root],
            mounts: [%{source: agents_root, target: "/agents", readonly: false}]
@@ -76,10 +77,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap do
     end
   end
 
-  defp runtime_fabric_url(endpoint, opts) do
+  defp worker_auth_key(opts) do
     case Keyword.fetch(opts, :auth_key) do
-      :error -> WorkerAuthKey.runtime_fabric_url(endpoint)
-      {:ok, auth_key} -> WorkerAuthKey.runtime_fabric_url(endpoint, auth_key)
+      :error -> WorkerAuthKey.ensure()
+      {:ok, auth_key} -> non_empty(auth_key, :auth_key)
     end
   end
 

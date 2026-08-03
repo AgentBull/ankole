@@ -2,9 +2,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
   @moduledoc """
   Global RuntimeFabric worker authentication key.
 
-  The control plane persists the key in AppConfigure. Workers receive it through
-  `RUNTIME_FABRIC_URL`; Rust only sees the resolved in-memory value needed for
-  ZAP/PLAIN verification.
+  The control plane persists the key in AppConfigure. Workers receive it as a
+  separate bootstrap secret. Rust only sees the resolved in-memory value needed
+  for ZAP/PLAIN verification.
   """
 
   alias Ankole.AppConfigure
@@ -79,28 +79,4 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey do
         raise ArgumentError, "failed to resolve worker auth key: #{inspect(reason)}"
     end
   end
-
-  @doc """
-  Builds the worker-facing RuntimeFabric URL for a TCP endpoint.
-  """
-  @spec runtime_fabric_url(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def runtime_fabric_url("tcp://" <> rest) do
-    case ensure() do
-      {:ok, key} -> runtime_fabric_url("tcp://" <> rest, key)
-      {:error, _reason} = error -> error
-    end
-  end
-
-  def runtime_fabric_url(_endpoint), do: {:error, :invalid_runtime_fabric_endpoint}
-
-  @doc """
-  Builds the worker-facing RuntimeFabric URL from an explicit auth key.
-  """
-  @spec runtime_fabric_url(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def runtime_fabric_url("tcp://" <> rest, key) when is_binary(key) and key != "" do
-    {:ok, "tcp://:#{URI.encode_www_form(key)}@#{rest}"}
-  end
-
-  def runtime_fabric_url("tcp://" <> _rest, _key), do: {:error, {:invalid, :auth_key}}
-  def runtime_fabric_url(_endpoint, _key), do: {:error, :invalid_runtime_fabric_endpoint}
 end

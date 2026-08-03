@@ -59,6 +59,8 @@ import {
   BackgroundAgentJobStatusUpdateRequestSchema,
   BackgroundAgentJobTurnUpsertRequestSchema,
   BackgroundAgentJobTurnUpsertResponseSchema,
+  CodexLogs2DailyMaintenanceRequestSchema,
+  CodexLogs2DailyMaintenanceResponseSchema,
   InstalledSkillReplaceRequestSchema,
   InstalledSkillReplaceResponseSchema,
   JSONPassthroughResponseSchema,
@@ -114,6 +116,7 @@ export const rpcMethods = {
   automationJobCancel: 'automation_job.cancel',
   automationJobEmit: 'automation_job.emit',
   automationJobRun: 'automation_job.run',
+  codexLogs2DailyMaintenance: 'codex_logs2.daily_maintenance',
   backgroundAgentJobCreate: 'background_agent_job.create',
   backgroundAgentJobGet: 'background_agent_job.get',
   backgroundAgentJobList: 'background_agent_job.list',
@@ -182,6 +185,7 @@ export const rpcOperationMeta = {
   [rpcMethods.automationJobCancel]: { scope: 'turn', effect: 'write' },
   [rpcMethods.automationJobEmit]: { scope: 'worker_agent' },
   [rpcMethods.automationJobRun]: { owner: 'worker' },
+  [rpcMethods.codexLogs2DailyMaintenance]: { owner: 'worker' },
   [rpcMethods.backgroundAgentJobCreate]: { scope: 'turn', effect: 'write' },
   [rpcMethods.backgroundAgentJobGet]: { scope: 'turn', effect: 'read' },
   [rpcMethods.backgroundAgentJobList]: { scope: 'turn', effect: 'read' },
@@ -270,6 +274,10 @@ export const rpcSchemas = {
   [rpcMethods.automationJobRun]: {
     request: AutomationJobRunRequestSchema,
     response: AutomationJobRunResponseSchema
+  },
+  [rpcMethods.codexLogs2DailyMaintenance]: {
+    request: CodexLogs2DailyMaintenanceRequestSchema,
+    response: CodexLogs2DailyMaintenanceResponseSchema
   },
   [rpcMethods.backgroundAgentJobCreate]: {
     request: BackgroundAgentJobCreateRequestSchema,
@@ -650,9 +658,12 @@ export class RuntimeRPCClient {
 }
 
 export type WorkerRPCHandlers = {
-  runAutomationJob: (
+  runAutomationJob?: (
     request: MessageShape<typeof AutomationJobRunRequestSchema>
   ) => Promise<MessageInitShape<typeof AutomationJobRunResponseSchema>>
+  maintainCodexLogs2?: (
+    request: MessageShape<typeof CodexLogs2DailyMaintenanceRequestSchema>
+  ) => Promise<MessageInitShape<typeof CodexLogs2DailyMaintenanceResponseSchema>>
 }
 
 /**
@@ -664,7 +675,7 @@ export async function handleWorkerRPCRequest(
   request: RPCRequestMessage,
   handlers?: WorkerRPCHandlers
 ): Promise<void> {
-  if (request.method === rpcMethods.automationJobRun && handlers) {
+  if (request.method === rpcMethods.automationJobRun && handlers?.runAutomationJob) {
     try {
       const payload = fromBinary(AutomationJobRunRequestSchema, request.payload)
       const result = await handlers.runAutomationJob(payload)
@@ -672,6 +683,23 @@ export async function handleWorkerRPCRequest(
         sendEnvelope,
         request,
         toBinary(AutomationJobRunResponseSchema, create(AutomationJobRunResponseSchema, result))
+      )
+    } catch (error) {
+      await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {
+        method: request.method
+      })
+    }
+    return
+  }
+
+  if (request.method === rpcMethods.codexLogs2DailyMaintenance && handlers?.maintainCodexLogs2) {
+    try {
+      const payload = fromBinary(CodexLogs2DailyMaintenanceRequestSchema, request.payload)
+      const result = await handlers.maintainCodexLogs2(payload)
+      await sendWorkerRPCResponse(
+        sendEnvelope,
+        request,
+        toBinary(CodexLogs2DailyMaintenanceResponseSchema, create(CodexLogs2DailyMaintenanceResponseSchema, result))
       )
     } catch (error) {
       await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), {

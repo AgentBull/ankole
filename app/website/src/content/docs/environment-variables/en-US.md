@@ -50,7 +50,8 @@ The worker reads a small, fixed set of environment variables. Actor identity is 
 | Variable | Meaning |
 |---|---|
 | `WORKER_ID` | the worker identity (for example `worker-local-1`) |
-| `RUNTIME_FABRIC_URL` | the RuntimeFabric URL, carrying the worker auth key |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | the RuntimeFabric TCP endpoint |
+| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | the RuntimeFabric worker auth key; it is separate from the endpoint |
 | `ANKOLE_AGENTS_ROOT` | the root of the shared `/agents` workspace mount |
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | the Agent Computer Worker image the worker runs |
 | `ANKOLE_VERSION` | the Ankole version label |

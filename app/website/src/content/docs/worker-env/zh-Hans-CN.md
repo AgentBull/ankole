@@ -26,7 +26,7 @@ Agent 在 Agent Computer Worker 上运行命令、调用 MCP 服务或执行后�
 4. 按需填写备注，说明它供哪个工具或服务使用。备注不会传给 Agent。
 5. 保存变量。它会从 Agent 的下一个回合开始生效。
 
-`PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`WORKER_ID`、`RUNTIME_FABRIC_URL`、`DATABASE_URL`、`CODEX_UNSAFE_ALLOW_NO_SANDBOX` 以及以 `ANKOLE_` 开头的名称由运行环境保留，不能在这里设置。
+`PATH`、`HOME`、`SHELL`、`TERM`、`LANG`、`BASH_ENV`、`ENV`、`WORKER_ID`、`DATABASE_URL`、`CODEX_UNSAFE_ALLOW_NO_SANDBOX` 以及以 `ANKOLE_` 开头的名称由运行环境保留，不能在这里设置。
 
 ## 只为一个 Agent 设置变量
 

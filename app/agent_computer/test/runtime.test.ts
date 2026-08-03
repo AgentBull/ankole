@@ -34,7 +34,7 @@ import {
   type Envelope
 } from '../src/fabric/envelope_proto'
 import {
-  parseRuntimeFabricURL,
+  parseRuntimeFabricEndpoint,
   workerCapacityEnvelope,
   workerHeartbeatEnvelope,
   workerReadyEnvelope
@@ -56,16 +56,11 @@ function validatedBytes(envelope: Envelope): Buffer {
 }
 
 describe('@ankole/agent-computer runtime', () => {
-  it('parses RuntimeFabric URL auth without embedding worker identity', () => {
-    expect(parseRuntimeFabricURL('tcp://:secret@127.0.0.1:6010')).toMatchObject({
-      workerAuthKey: 'secret',
-      endpoint: 'tcp://127.0.0.1:6010'
-    })
-
-    expect(() => parseRuntimeFabricURL('tcp://worker-a:secret@127.0.0.1:6010')).toThrow(/username/)
-    expect(() => parseRuntimeFabricURL('tcp://127.0.0.1:6010')).toThrow(/worker auth key/)
-
-    expect(() => parseRuntimeFabricURL('http://:secret@127.0.0.1:6010')).toThrow(/tcp/)
+  it('parses a credential-free RuntimeFabric endpoint', () => {
+    expect(parseRuntimeFabricEndpoint('tcp://127.0.0.1:6010')).toBe('tcp://127.0.0.1:6010')
+    expect(() => parseRuntimeFabricEndpoint('tcp://:secret@127.0.0.1:6010')).toThrow(/credentials/)
+    expect(() => parseRuntimeFabricEndpoint('tcp://127.0.0.1')).toThrow(/host:port/)
+    expect(() => parseRuntimeFabricEndpoint('http://127.0.0.1:6010')).toThrow(/tcp/)
   })
 
   it('emits worker.ready without actor authority fields', () => {

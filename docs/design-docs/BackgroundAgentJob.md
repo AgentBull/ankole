@@ -221,12 +221,41 @@ HOME=/agents/<agent-key>
 CODEX_HOME=/agents/<agent-key>/.codex
 ```
 
+Each Background Agent Job owns one Codex app-server process and one Codex root
+thread. Agent Computer provides cross-Job concurrency through Worker turn
+capacity; it does not ask one Codex app-server process to run all Jobs. The
+default Worker and Background Agent Job limits both permit nine active turns.
+
 Overlapping Jobs for one Agent share ordinary Codex state. Agent Computer
-serializes Plugin installation, hook trust, and Skill configuration for that
-Agent's Codex Home. Job execution stays concurrent after this setup finishes.
-Different Agents use different Codex Homes. A stopped queued Job completes
-finalization and returns its Worker turn slot without waiting for active setup.
-Its skipped queue position keeps later Jobs behind setup that is still active.
+serializes app-server initialization, Plugin installation, hook trust, and Skill
+configuration for that Agent's Codex Home because Codex initialization maintains
+the shared SQLite state. Job execution stays concurrent after this setup
+finishes, so the setup queue does not reduce active Jobs to one. Different
+Agents use different Codex Homes. A stopped queued Job completes finalization
+and returns its Worker turn slot without waiting for active setup. Its skipped
+queue position keeps later Jobs behind setup that is still active.
+
+Codex 0.146 can spend tens of seconds maintaining `logs_2.sqlite` before it
+answers `initialize`. Agent Computer gives `initialize` the ordinary 60-second
+request budget and records its duration. After initialization, it installs a
+SQLite trigger that drops only `TRACE`, `DEBUG`, and `INFO` diagnostic records.
+The trigger is a temporary compatibility fix for
+[openai/codex#27741](https://github.com/openai/codex/issues/27741), based on the
+filter in
+[codex-logs-trigger-patch](https://github.com/yangtzech/codex-logs-trigger-patch/blob/main/patch_codex_logs.sh).
+It keeps `WARNING` and higher records and does not change the journal mode.
+
+The daily session-reset cron schedules one best-effort diagnostic database
+maintenance call for every active Agent. The control plane holds the Agent
+placement advisory lock while it calls the single ready Worker that retains the
+Agent assignment. If the inactive Agent has no assignment, it selects one ready
+Worker under the same placement lock. The Worker attempts the operation only
+when the Agent's Codex Home setup fence is idle. It deletes only
+`logs_2.sqlite` and its exact SQLite sidecar names. If any Codex process is
+running in that Worker, setup is busy, or multiple Workers claim the Agent,
+maintenance changes nothing. A later daily reset can try again. The cleanup
+never deletes Codex thread, goal, memory, session, configuration, or `.nfs*`
+files.
 
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.

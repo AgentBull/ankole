@@ -28,7 +28,7 @@ When you clear an Agent value, the global value with the same name becomes activ
 4. Add an optional note to identify the tool or service that uses the variable. The Agent does not receive this note.
 5. Save the variable. It becomes available from the Agent's next turn.
 
-The runtime reserves `PATH`, `HOME`, `SHELL`, `TERM`, `LANG`, `BASH_ENV`, `ENV`, `WORKER_ID`, `RUNTIME_FABRIC_URL`, `DATABASE_URL`, `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, and names that start with `ANKOLE_`. You cannot set these names here.
+The runtime reserves `PATH`, `HOME`, `SHELL`, `TERM`, `LANG`, `BASH_ENV`, `ENV`, `WORKER_ID`, `DATABASE_URL`, `CODEX_UNSAFE_ALLOW_NO_SANDBOX`, and names that start with `ANKOLE_`. You cannot set these names here.
 
 ## Set a variable for one Agent
 

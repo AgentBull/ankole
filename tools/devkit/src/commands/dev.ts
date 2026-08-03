@@ -1,11 +1,11 @@
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { Crust } from '@crustjs/core'
 
 import { createLocalAppDatabase, runAppMigrations } from './app-db'
+import { resolveLocalWorkerImage } from '../local-worker-image'
 import { buildDockerRunArgs, renderWorkerBootstrapSpec, type WorkerBootstrapSpec } from '../worker-bootstrap'
 import {
   appRootPath,
@@ -13,7 +13,6 @@ import {
   mixCommand,
   repoRootPath,
   resolveAppDatabaseName,
-  runChild,
   runChildCaptured,
   startComposeServices
 } from '../utils'
@@ -21,12 +20,9 @@ import {
 const defaultFabricPort = 6010
 const defaultPhoenixPort = 4000
 const defaultWorkerID = 'local-dev-worker'
-const defaultWorkerImage = 'ankole-agent-computer:0.1.0'
 const defaultAgentsRoot = 'var/ankole-dev/agents'
 const defaultContainerName = 'ankole-dev-agent-computer'
 const managedLabel = 'ankole.dev.managed'
-const sourceHashLabel = 'ankole.dev.source_hash'
-const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
 const workerSourceMountTarget = '/repo/app/agent_computer/src'
 const workerInternalSkillsMountTarget = '/repo/internals/skills'
 const workerDevCommand = 'cd /repo/app/agent_computer && exec bun --watch src/main.ts'
@@ -108,108 +104,6 @@ export function buildWorkerDockerArgs(spec: WorkerBootstrapSpec, opts: WorkerDoc
     ],
     command: ['/bin/sh', '-lc', workerDevCommand]
   })
-}
-
-export async function workerImageSourceHash(): Promise<string> {
-  const files = await workerImageInputFiles()
-  const hash = createHash('sha256')
-
-  for (const file of files.toSorted()) {
-    hash.update(file)
-    hash.update('\0')
-    hash.update(readFileSync(path.join(repoRootPath, file)))
-    hash.update('\0')
-  }
-
-  return hash.digest('hex')
-}
-
-async function workerImageInputFiles(): Promise<string[]> {
-  const inputs = [
-    'app/agent_computer/Dockerfile',
-    'app/agent_computer/base-image.lock',
-    'app/agent_computer/matplotlibrc',
-    'app/agent_computer/package.json',
-    'app/agent_computer/tsconfig.json',
-    'app/kernel',
-    'app/library',
-    'package.json',
-    'bun.lock',
-    'tsconfig.base.json'
-  ]
-
-  const result = await runChildCaptured('git', ['ls-files', '-co', '--exclude-standard', '-z', '--', ...inputs], {
-    cwd: repoRootPath
-  })
-
-  if (result.status !== 0) {
-    throw new Error(`git ls-files failed while hashing worker image inputs: ${result.stderr || result.stdout}`)
-  }
-
-  return result.stdout
-    .split('\0')
-    .filter(Boolean)
-    .filter(file => !file.startsWith('app/agent_computer/src/'))
-    .filter(file => existsSync(path.join(repoRootPath, file)))
-}
-
-async function ensureWorkerImage(image: string, allowBuild: boolean): Promise<void> {
-  await requireDocker()
-  const sourceHash = await workerImageSourceHash()
-  const currentHash = await dockerImageSourceHash(image)
-
-  if (currentHash === sourceHash) return
-
-  if (!allowBuild) {
-    throw new Error(`Worker image ${image} is missing or stale and --no-build was given.`)
-  }
-
-  await runChild('docker', buildWorkerImageBuildArgs(image, sourceHash, readWorkerBaseImageLock()))
-}
-
-export function buildWorkerImageBuildArgs(image: string, sourceHash: string, baseImage: string): string[] {
-  return [
-    'build',
-    '--build-arg',
-    `BASE_IMAGE=${baseImage}`,
-    '--label',
-    `${sourceHashLabel}=${sourceHash}`,
-    '-f',
-    path.join(repoRootPath, 'app', 'agent_computer', 'Dockerfile'),
-    '-t',
-    image,
-    repoRootPath
-  ]
-}
-
-function readWorkerBaseImageLock(): string {
-  const image = readFileSync(workerBaseImageLock, 'utf8').trim()
-  if (!/^ghcr\.io\/agentbull\/ankole-agent-os-base@sha256:[0-9a-f]{64}$/.test(image)) {
-    throw new Error(`Worker base image lock is invalid: ${workerBaseImageLock}`)
-  }
-  return image
-}
-
-async function requireDocker(): Promise<void> {
-  const result = await runChildCaptured('docker', ['info'])
-  if (result.status !== 0) {
-    throw new Error('Docker daemon is not reachable; local Agent Computer worker development needs Docker.')
-  }
-}
-
-async function dockerImageSourceHash(image: string): Promise<string | null> {
-  const result = await runChildCaptured('docker', [
-    'image',
-    'inspect',
-    '--format',
-    `{{ index .Config.Labels "${sourceHashLabel}" }}`,
-    image
-  ])
-
-  if (result.status !== 0) return null
-
-  const value = result.stdout.trim()
-  return value && value !== '<no value>' ? value : null
 }
 
 async function cleanupManagedWorker(containerName: string): Promise<void> {
@@ -358,12 +252,13 @@ async function runDev(flags: {
   port: number
   'fabric-port': number
   'worker-id': string
-  'worker-image': string
+  'worker-image'?: string
   'agents-root': string
 }): Promise<void> {
   const port = flags.port
   const fabricPort = flags['fabric-port']
-  const workerImage = flags['worker-image']
+  const workerImage =
+    flags['worker-image'] ?? (await resolveLocalWorkerImage({ scope: 'source-mounted', allowBuild: flags.build }))
   const workerID = flags['worker-id']
   const agentsRoot = path.resolve(repoRootPath, flags['agents-root'])
   const databaseName = resolveAppDatabaseName()
@@ -374,7 +269,6 @@ async function runDev(flags: {
 
   await createLocalAppDatabase(databaseName)
   if (flags.migrate) await runAppMigrations()
-  await ensureWorkerImage(workerImage, flags.build)
 
   const workerSpec = await renderWorkerBootstrapSpec({
     endpoint: `tcp://host.docker.internal:${fabricPort}`,
@@ -466,8 +360,7 @@ export function devCommand(): Crust {
       },
       'worker-image': {
         type: 'string',
-        description: 'Agent Computer Docker image.',
-        default: defaultWorkerImage
+        description: 'Use an explicit Agent Computer image instead of resolving the current source image.'
       },
       'agents-root': {
         type: 'string',

@@ -35,7 +35,7 @@ const workerVersion = '0.1.0'
  * A worker is not launched for one actor session. Actor identity must come from
  * each `turn_start` envelope so the same image can serve any actor in the pool.
  */
-export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env): WorkerConfig {
+export function parseWorkerEnv(env: Record<string, string | undefined>): WorkerConfig {
   assertContainerRuntime(defaultContainerMarkerPath)
 
   if (env.DATABASE_URL) {
@@ -49,7 +49,8 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   }
 
   return {
-    ...parseRuntimeFabricURL(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
+    endpoint: parseRuntimeFabricEndpoint(requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT')),
+    workerAuthKey: requiredRawEnv(env, 'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY'),
     workerID: requiredEnv(env, 'WORKER_ID'),
     incarnationID: crypto.randomUUID(),
     agentsRoot: optionalEnv(env, 'ANKOLE_AGENTS_ROOT', AGENTS_ROOT),
@@ -57,6 +58,15 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
     internalSkillsRoot: optionalEnv(env, 'ANKOLE_INTERNAL_SKILLS_ROOT'),
     maxConcurrentTurns: optionalPositiveIntegerEnv(env, 'ANKOLE_MAX_CONCURRENT_TURNS', defaultMaxConcurrentTurns)
   }
+}
+
+/**
+ * Loads process bootstrap config and removes the auth key from child-process inheritance.
+ */
+export function loadWorkerConfig(env: Record<string, string | undefined> = process.env): WorkerConfig {
+  const config = parseWorkerEnv(env)
+  delete env.ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
+  return config
 }
 
 /**
@@ -90,40 +100,30 @@ function optionalEnv(env: Record<string, string | undefined>, key: string, fallb
 }
 
 /**
- * Splits the worker bootstrap URL into the physical endpoint and route secret.
- *
- * The worker id is intentionally not accepted in the URL username: route
- * identity comes from `WORKER_ID`, while the URL password is only the auth key.
+ * Validates and normalizes the physical RuntimeFabric endpoint.
  */
-export function parseRuntimeFabricURL(value: string): Pick<WorkerConfig, 'endpoint' | 'workerAuthKey'> {
+export function parseRuntimeFabricEndpoint(value: string): string {
   let url: URL
 
   try {
     url = new URL(value)
   } catch (_error) {
-    throw new Error('RUNTIME_FABRIC_URL must be tcp://:worker_auth_key@host:port')
+    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
   }
 
   if (url.protocol !== 'tcp:') {
-    throw new Error('RUNTIME_FABRIC_URL must use tcp://')
+    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must use tcp://')
   }
 
-  if (url.username) {
-    throw new Error('RUNTIME_FABRIC_URL must not include a username; use WORKER_ID')
-  }
-
-  if (!url.password) {
-    throw new Error('RUNTIME_FABRIC_URL must include worker auth key as the URL password')
+  if (url.username || url.password) {
+    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must not include credentials')
   }
 
   if (!url.hostname || !url.port || !['', '/'].includes(url.pathname) || url.search || url.hash) {
-    throw new Error('RUNTIME_FABRIC_URL must be tcp://:worker_auth_key@host:port')
+    throw new Error('ANKOLE_RUNTIME_FABRIC_ENDPOINT must be tcp://host:port')
   }
 
-  return {
-    endpoint: `tcp://${url.host}`,
-    workerAuthKey: decodeURIComponent(url.password)
-  }
+  return `tcp://${url.host}`
 }
 
 /**
@@ -216,6 +216,18 @@ export function workerCapacityEnvelope(
 function requiredEnv(env: Record<string, string | undefined>, key: string): string {
   const value = env[key]?.trim()
   if (!value) {
+    throw new Error(`${key} is required`)
+  }
+
+  return value
+}
+
+/**
+ * Reads a required value without changing secret bytes.
+ */
+function requiredRawEnv(env: Record<string, string | undefined>, key: string): string {
+  const value = env[key]
+  if (value === undefined || value.length === 0) {
     throw new Error(`${key} is required`)
   }
 

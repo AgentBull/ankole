@@ -136,6 +136,12 @@
     "response_type": "ankole.runtime_fabric.v1.BackgroundAgentJobTurnUpsertResponse"
   },
   {
+    "method": "codex_logs2.daily_maintenance",
+    "owner": "worker",
+    "request_type": "ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceRequest",
+    "response_type": "ankole.runtime_fabric.v1.CodexLogs2DailyMaintenanceResponse"
+  },
+  {
     "method": "memory_browse",
     "scope": "turn",
     "effect": "read",

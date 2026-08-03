@@ -171,27 +171,13 @@ spec:
       {{- end }}
       containers:
         - name: worker
+          # The image entrypoint owns PID 1 and orphan reaping. The chart supplies bootstrap facts only.
           image: {{ include "ankole-agent.image" (dict "image" .Values.worker.image) | quote }}
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           {{- with .Values.worker.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          command:
-            - /bin/sh
-            - -ec
-          args:
-            - |
-              fabric_key="$(
-                python3 - <<'PY'
-              import os
-              from urllib.parse import quote
-              print(quote(os.environ["ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY"], safe=""))
-              PY
-              )"
-              export RUNTIME_FABRIC_URL="tcp://:${fabric_key}@{{ include "ankole-agent.controlPlaneName" . }}:{{ .Values.runtimeFabric.port }}"
-              unset ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
-              exec bun src/main.ts
           envFrom:
             - configMapRef:
                 name: {{ include "ankole-agent.workerName" . }}
@@ -200,6 +186,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: ANKOLE_RUNTIME_FABRIC_ENDPOINT
+              value: "tcp://{{ include "ankole-agent.controlPlaneName" . }}:{{ .Values.runtimeFabric.port }}"
             - name: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY
               valueFrom:
                 secretKeyRef:

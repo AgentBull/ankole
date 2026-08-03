@@ -26,7 +26,7 @@ Store credentials for Agent tools in **Environment variables** in the Console, w
 
 - **Reveal values sparingly.** Enter a replacement value to rotate a credential. Do not reveal the old value only to check it. See [Environment variables](../worker-env/).
 - **Scope secrets per agent when you can.** A global secret reaches every agent; a per-agent secret reaches one. Prefer the per-agent form unless the secret is genuinely shared.
-- **Do not override reserved names.** You cannot set `PATH`, `HOME`, `WORKER_ID`, `RUNTIME_FABRIC_URL`, `DATABASE_URL`, names that start with `ANKOLE_`, or some sandbox names in the Console. Do not bypass this restriction.
+- **Do not override reserved names.** You cannot set `PATH`, `HOME`, `WORKER_ID`, `DATABASE_URL`, names that start with `ANKOLE_`, or some sandbox names in the Console. Do not bypass this restriction.
 - **Rotate the bootstrap secrets on a cadence.** `ANKOLE_SECRET_BASE` and `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` derive other keys; rotating them is a deployment-restart operation, and the blast radius of a compromised `ANKOLE_SECRET_BASE` is the whole instance.
 
 ## Surface 3: SSRF and model-controlled fetches

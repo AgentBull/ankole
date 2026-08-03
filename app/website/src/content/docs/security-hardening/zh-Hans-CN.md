@@ -26,7 +26,7 @@ Agent 运行工具时需要的凭据应保存在 Console 的“环境变量”�
 
 - **少查看。** 优先直接输入新值完成轮换，不要为了确认而查看旧值。具体操作见[环境变量](../worker-env/)。
 - **能按 agent 限定就按 agent。** 一个全局 secret 触达每个 agent；按 agent 的 secret 触达一个。除非 secret 确实共享，优先按 agent 形态。
-- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`RUNTIME_FABRIC_URL`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及少量沙盒关键名称不能在 Console 中设置。不要绕开这项限制。
+- **不要覆盖保留名。** `PATH`、`HOME`、`WORKER_ID`、`DATABASE_URL`、任何以 `ANKOLE_` 开头的名称，以及少量沙盒关键名称不能在 Console 中设置。不要绕开这项限制。
 - **定期轮换引导 Secret。** `ANKOLE_SECRET_BASE` 和 `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` 会派生其他密钥，轮换时需要重启部署。`ANKOLE_SECRET_BASE` 一旦泄露，会影响整个实例。
 
 ## 面 3：SSRF 与模型控制的抓取

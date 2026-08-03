@@ -12,11 +12,10 @@ defmodule Ankole.E2E.DockerWorker do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap.Docker
 
-  @docker_image "ankole-agent-computer:0.1.0"
-
   @doc "Starts a long-running Agent Computer Docker worker process for e2e tests."
   def start_docker_worker!(opts) do
     name = unique_worker_name()
+    image = docker_image()
     {agents_root, persist_agents?} = agents_root(name)
 
     {:ok, spec} =
@@ -24,7 +23,7 @@ defmodule Ankole.E2E.DockerWorker do
         endpoint: Keyword.fetch!(opts, :endpoint),
         worker_id: Keyword.fetch!(opts, :worker_id),
         auth_key: Keyword.fetch!(opts, :worker_auth_key),
-        image: @docker_image,
+        image: image,
         agents_root: agents_root
       )
 
@@ -57,7 +56,7 @@ defmodule Ankole.E2E.DockerWorker do
 
   @doc "Runs the worker image once with custom env and returns command output."
   def docker_run_worker_once(env) do
-    {:ok, spec} = WorkerBootstrap.container_spec(image: @docker_image)
+    {:ok, spec} = WorkerBootstrap.container_spec(image: docker_image())
 
     args =
       Docker.argv(spec,
@@ -114,12 +113,14 @@ defmodule Ankole.E2E.DockerWorker do
 
   @doc "Asserts the e2e Docker image exists before starting worker tests."
   def assert_docker_image! do
-    case System.cmd(docker_path(), ["image", "inspect", @docker_image], stderr_to_stdout: true) do
+    image = docker_image()
+
+    case System.cmd(docker_path(), ["image", "inspect", image], stderr_to_stdout: true) do
       {_output, 0} ->
         :ok
 
       {output, status} ->
-        flunk("missing Docker image #{@docker_image}, status=#{status}, output=#{output}")
+        flunk("missing Docker image #{image}, status=#{status}, output=#{output}")
     end
   end
 
@@ -140,7 +141,8 @@ defmodule Ankole.E2E.DockerWorker do
     assert "host.docker.internal:host-gateway" in host_config["ExtraHosts"]
 
     assert Enum.any?(env, &String.starts_with?(&1, "WORKER_ID="))
-    assert Enum.any?(env, &String.starts_with?(&1, "RUNTIME_FABRIC_URL="))
+    assert Enum.any?(env, &String.starts_with?(&1, "ANKOLE_RUNTIME_FABRIC_ENDPOINT="))
+    assert Enum.any?(env, &String.starts_with?(&1, "ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY="))
     assert Enum.any?(env, &(&1 == "ANKOLE_AGENTS_ROOT=/agents"))
     assert mounts["/agents"]["Source"] == agents_root
     assert mounts["/agents"]["RW"]
@@ -188,6 +190,8 @@ defmodule Ankole.E2E.DockerWorker do
     suffix = :crypto.strong_rand_bytes(10) |> Base.encode16(case: :lower)
     "ankole-worker-e2e-#{suffix}"
   end
+
+  defp docker_image, do: System.fetch_env!("ANKOLE_E2E_WORKER_IMAGE")
 
   defp close_port(port) when is_port(port) do
     if Port.info(port), do: Port.close(port)

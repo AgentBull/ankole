@@ -613,6 +613,18 @@ message AutomationJobRunResponse {
   bool stderr_truncated = 7;
 }
 
+// Control-plane-originated best-effort maintenance for the Codex diagnostic
+// database owned by one Agent Home.
+message CodexLogs2DailyMaintenanceRequest {
+  string agent_uid = 1;
+}
+
+message CodexLogs2DailyMaintenanceResponse {
+  string status = 1; // deleted | database_missing | skipped_codex_running | skipped_setup_busy
+  repeated string deleted_files = 2;
+  uint32 active_codex_processes = 3;
+}
+
 // ===== skills =====
 
 message SkillOverlayResolveRequest {

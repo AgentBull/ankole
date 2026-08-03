@@ -78,11 +78,10 @@ export class CodexAppServerRPCError extends Error {
   }
 }
 
-// Hermes uses 10s for initialize, 15s for thread/start, and 30s for generic
-// app-server requests. Ankole keeps the same request classes but gives slower
-// cold-start and background Job paths a wider budget.
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
-const INITIALIZE_REQUEST_TIMEOUT_MS = 15_000
+// Codex can maintain shared local state before initialize returns. Keep this
+// budget independent from ordinary requests even while both are 60 seconds.
+const INITIALIZE_REQUEST_TIMEOUT_MS = 60_000
 const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
 const parseJSONLine = (line: string): Result<unknown, unknown> =>
   Result.try({
@@ -206,6 +205,15 @@ export class CodexAppServerClient {
     this.closeReason = new Error('codex app-server client is closed')
     this.rejectPending(this.closeReason)
     this.closeProcess()
+  }
+
+  async closeAndWait(): Promise<void> {
+    await this.close()
+    try {
+      await this.proc.exited
+    } catch {
+      // Process-exit rejection is already reflected by the closed transport.
+    }
   }
 
   private closeProcess(): void {

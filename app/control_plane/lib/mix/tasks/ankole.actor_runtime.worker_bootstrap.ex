@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
   @moduledoc """
-  Prints the v2 Agent Computer Docker launch contract or operator command.
+  Prints the v3 Agent Computer Docker launch contract or operator command.
   """
 
   use Mix.Task

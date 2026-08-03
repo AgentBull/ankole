@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { buildDockerRunArgs, parseWorkerBootstrapSpec, type WorkerBootstrapSpec } from './worker-bootstrap'
+import { repoRootPath } from './utils'
 
 const workerSpec: WorkerBootstrapSpec = {
-  contract_version: 2,
+  contract_version: 3,
   kind: 'worker',
-  image: 'ankole-agent-computer:0.1.0',
+  image: 'ankole-agent-computer:test',
   docker: {
     cap_add: ['SYS_ADMIN'],
     security_opts: ['seccomp=unconfined', 'systempaths=unconfined'],
@@ -12,19 +15,23 @@ const workerSpec: WorkerBootstrapSpec = {
   },
   env: {
     ANKOLE_AGENTS_ROOT: '/agents',
-    WORKER_ID: 'worker-a',
-    RUNTIME_FABRIC_URL: 'tcp://:secret@host.docker.internal:6010'
+    ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://host.docker.internal:6010',
+    ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY: 'secret',
+    WORKER_ID: 'worker-a'
   },
   host_setup_dirs: ['/tmp/ankole worker/agents'],
   mounts: [{ source: '/tmp/ankole worker/agents', target: '/agents', readonly: false }]
 }
 
 describe('parseWorkerBootstrapSpec', () => {
-  test('parses the last complete v2 contract from Mix output', () => {
+  test('parses the last complete v3 contract from Mix output', () => {
     expect(parseWorkerBootstrapSpec(`Compiling...\n${JSON.stringify(workerSpec)}\n`)).toEqual(workerSpec)
   })
 
-  test('rejects the old unversioned or incomplete contract', () => {
+  test('rejects the v2, unversioned, or incomplete contract', () => {
+    expect(() => parseWorkerBootstrapSpec(JSON.stringify({ ...workerSpec, contract_version: 2 }))).toThrow(
+      'unsupported worker bootstrap contract version'
+    )
     expect(() => parseWorkerBootstrapSpec(JSON.stringify({ ...workerSpec, contract_version: undefined }))).toThrow(
       'unsupported worker bootstrap contract version'
     )
@@ -61,17 +68,35 @@ describe('buildDockerRunArgs', () => {
       '-e',
       'ANKOLE_AGENTS_ROOT=/agents',
       '-e',
-      'RUNTIME_FABRIC_URL=tcp://:secret@host.docker.internal:6010',
+      'ANKOLE_RUNTIME_FABRIC_ENDPOINT=tcp://host.docker.internal:6010',
+      '-e',
+      'ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY=secret',
       '-e',
       'WORKER_ID=worker-a',
       '--mount',
       'type=bind,src=/tmp/ankole worker/agents,dst=/agents',
       '--mount',
       'type=bind,src=/repo/src,dst=/repo/app/agent_computer/src,readonly',
-      'ankole-agent-computer:0.1.0',
+      'ankole-agent-computer:test',
       '/bin/sh',
       '-lc',
       'exec bun --watch src/main.ts'
     ])
+  })
+})
+
+describe('production worker process topology', () => {
+  test('keeps the image init as PID 1 instead of replacing it in Helm', () => {
+    const dockerfile = readFileSync(join(repoRootPath, 'app', 'agent_computer', 'Dockerfile'), 'utf8')
+    const deployment = readFileSync(
+      join(repoRootPath, 'tools', 'deploy', 'helm', 'ankole-agent', 'templates', 'deployment.yaml'),
+      'utf8'
+    )
+    const workerContainer = deployment.slice(deployment.indexOf('        - name: worker'))
+
+    expect(dockerfile).toContain('ENTRYPOINT ["tini", "-g", "--"]')
+    expect(workerContainer).not.toMatch(/^ {10}(command|args):/m)
+    expect(workerContainer).toContain('name: ANKOLE_RUNTIME_FABRIC_ENDPOINT')
+    expect(workerContainer).toContain('name: ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY')
   })
 })

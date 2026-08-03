@@ -13,7 +13,7 @@ The decisive property, stated up front: the worker owns live execution and rebui
 
 The split is explicit in the worker's own contract. Agent Computer Worker owns live execution and rebuildable worker-local state. The Elixir control plane owns PostgreSQL state, actor and delivery fences, final commit authority, provider outboxes, runtime credentials, and recovery facts. The worker must not invent durable control-plane state.
 
-What this rules out in practice: `DATABASE_URL`, `ANKOLE_AGENT_UID`, `ANKOLE_SESSION_ID`, and `ANKOLE_ACTOR_EPOCH` are not worker inputs. Actor identity arrives in `turn_start`, not in the environment. The worker authenticates to RuntimeFabric with a `WORKER_ID`, a `RUNTIME_FABRIC_URL` carrying the worker auth key, and `ANKOLE_AGENTS_ROOT`. It does not hold a database connection and it does not decide who it is acting for.
+What this rules out in practice: `DATABASE_URL`, `ANKOLE_AGENT_UID`, `ANKOLE_SESSION_ID`, and `ANKOLE_ACTOR_EPOCH` are not worker inputs. Actor identity arrives in `turn_start`, not in the environment. The worker authenticates to RuntimeFabric with `WORKER_ID`, `ANKOLE_RUNTIME_FABRIC_ENDPOINT`, and the separate `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` secret. `ANKOLE_AGENTS_ROOT` locates its shared workspace. The worker does not hold a database connection and it does not decide who it is acting for.
 
 ## The turn fence
 

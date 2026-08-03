@@ -50,7 +50,8 @@ worker 读取一个固定的小集合。actor 身份**不在**其中——它通
 | 变量 | 含义 |
 |---|---|
 | `WORKER_ID` | worker 身份（如 `worker-local-1`） |
-| `RUNTIME_FABRIC_URL` | RuntimeFabric URL，带着 worker 认证 key |
+| `ANKOLE_RUNTIME_FABRIC_ENDPOINT` | RuntimeFabric TCP 端点 |
+| `ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY` | RuntimeFabric worker 认证 key；它与端点分开传入 |
 | `ANKOLE_AGENTS_ROOT` | 共享 `/agents` 工作空间挂载的根 |
 | `ANKOLE_AGENT_COMPUTER_IMAGE` | worker 所跑的 Agent Computer Worker 镜像 |
 | `ANKOLE_VERSION` | Ankole 版本标签 |
