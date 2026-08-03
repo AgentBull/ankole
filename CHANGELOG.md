@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 0.56.3 (2026-08-03)
+
+- Run Codex diagnostic-log cleanup only on the cron tick that matches the daily session-reset boundary. The fast Oban pruner can remove a completed maintenance row before its uniqueness period expires, so uniqueness remains a retry and concurrency guard instead of making the every-minute scheduler the daily clock.
+
 ## Version 0.56.2 (2026-08-03)
 
 - Prevent Background Agent Jobs from entering an `initialize` timeout loop while Codex 0.146 synchronously maintains the Agent's shared SQLite state. Put initialization inside the per-Codex-Home setup queue, give it the ordinary 60-second app-server request budget instead of the copied 15-second handshake assumption, wait for a failed startup process to exit before releasing that queue, and record initialization duration or failure in Worker logs. Install a low-level diagnostic-log filter after initialization without changing SQLite journal mode. At each daily session reset, schedule every active Agent, hold its placement fence through a short call to the single owning Worker, and delete only the exact disposable `logs_2.sqlite` files when Codex is not running and Home setup is idle; otherwise leave them unchanged for a later reset. Keep actual Job execution concurrent after shared setup completes.

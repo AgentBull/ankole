@@ -18,15 +18,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets do
     metadata = job_metadata(job)
 
     :telemetry.span([:ankole, :oban, :job], metadata, fn ->
-      result = do_perform()
+      result = do_perform(job)
       {result, Map.put(metadata, :result, result_status(result))}
     end)
   end
 
-  defp do_perform do
+  defp do_perform(job) do
     case ActorRuntime.enqueue_daily_session_resets() do
       {:ok, result} ->
-        enqueue_codex_logs2_maintenance(result)
+        enqueue_codex_logs2_maintenance(job, result)
         :ok
 
       {:error, reason} ->
@@ -34,7 +34,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets do
     end
   end
 
-  defp enqueue_codex_logs2_maintenance(%{boundary_at: boundary_at}) do
+  defp enqueue_codex_logs2_maintenance(
+         %Oban.Job{scheduled_at: scheduled_at},
+         %{boundary_at: boundary_at}
+       ) do
+    if DateTime.diff(scheduled_at, boundary_at, :second) in 0..59 do
+      enqueue_codex_logs2_maintenance(boundary_at)
+    end
+  end
+
+  defp enqueue_codex_logs2_maintenance(boundary_at) do
     boundary_at = DateTime.to_iso8601(boundary_at)
 
     Principals.list_active_agents()
