@@ -10,7 +10,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AuthZ
   alias Ankole.Brain.Scope
   alias Ankole.Brain.Sources
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -752,12 +751,5 @@ defmodule AnkoleWeb.BrainControllerTest do
                provider_id: provider_id,
                model: "brain-controller-test"
              })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

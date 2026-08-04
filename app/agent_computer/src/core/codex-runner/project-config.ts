@@ -1,7 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { TOML } from 'bun'
-import type { CodexRuntimeConfig } from '../../tools/codex/runtime-config'
 
 type TomlTable = Record<string, unknown>
 
@@ -9,40 +8,36 @@ export type MaterializedCodexJobProjectConfig = {
   path: string
 }
 
+export function readCodexJobProjectConfig(projectRoot: string): Record<string, unknown> {
+  return readToml(join(projectRoot, '.codex', 'config.toml'))
+}
+
 /**
  * Applies Job execution settings and runner safety invariants over the
  * project initialized from selected Agent Plugin workspace templates.
  */
-export function materializeCodexJobProjectConfig(input: {
-  projectRoot: string
-  pluginsEnabled: boolean
-  runtimeConfig: CodexRuntimeConfig
-}): MaterializedCodexJobProjectConfig {
+export function materializeCodexJobProjectConfig(input: { projectRoot: string }): MaterializedCodexJobProjectConfig {
   const path = join(input.projectRoot, '.codex', 'config.toml')
   const config = readToml(path)
 
-  applyRuntimeConfig(config, input.runtimeConfig)
+  removeThreadRuntimeConfig(config)
   delete config.mcp_servers
-  applyRunnerSafety(config, input.pluginsEnabled)
+  applyRunnerSafety(config)
   // The published Bun types lag the canary runtime's documented stringify API.
   atomicWrite(path, (TOML as typeof TOML & { stringify(value: object): string }).stringify(config))
 
   return { path }
 }
 
-function applyRuntimeConfig(config: TomlTable, runtime: CodexRuntimeConfig): void {
-  const profile = runtime.modelProfile
-
-  config.model = profile.model
+function removeThreadRuntimeConfig(config: TomlTable): void {
+  delete config.model
   delete config.model_catalog_json
-  if (profile.modelReasoningEffort) config.model_reasoning_effort = profile.modelReasoningEffort
-  else delete config.model_reasoning_effort
-
+  delete config.model_reasoning_effort
   delete config.model_provider
   delete config.service_tier
 }
 
-function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
+function applyRunnerSafety(config: TomlTable): void {
   config.approval_policy = 'never'
   config.sandbox_mode = 'danger-full-access'
   config.cli_auth_credentials_store = 'file'
@@ -56,7 +51,7 @@ function applyRunnerSafety(config: TomlTable, pluginsEnabled: boolean): void {
   features.apps = false
   features.enable_mcp_apps = false
   features.tool_suggest = false
-  features.plugins = pluginsEnabled
+  features.plugins = false
   features.remote_plugin = false
 
   const codeMode = tableAt(features, 'code_mode')

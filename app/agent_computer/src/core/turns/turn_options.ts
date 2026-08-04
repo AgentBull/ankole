@@ -45,6 +45,8 @@ type SharedTurnOptions = {
   logger?: AgentLoopLogger
   agentConversationContext?: AgentConversationContextResponse
   pollSteering?: () => TurnSteerUpdate[]
+  pollDisabledSkills?: () => string[]
+  pollChangedSkills?: () => string[]
   abortSignal?: AbortSignal
   browserRuntime?: BrowserRuntime
 }

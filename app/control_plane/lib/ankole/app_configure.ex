@@ -83,6 +83,28 @@ defmodule Ankole.AppConfigure do
     end
   end
 
+  @doc false
+  @spec resolve_in_tx(module(), Definition.t(), keyword()) ::
+          {:ok, Resolution.t()} | :error | {:error, term()}
+  def resolve_in_tx(repo, %Definition{} = definition, opts \\ []) when is_atom(repo) do
+    with {:ok, registered} <- Registry.require_definition(definition) do
+      key = definition_key(registered)
+
+      registered
+      |> resolution_scopes(opts)
+      |> resolve_scopes_in_tx(repo, registered, key)
+    end
+  end
+
+  @doc false
+  @spec get_in_tx(module(), Definition.t(), keyword()) ::
+          {:ok, term()} | :error | {:error, term()}
+  def get_in_tx(repo, %Definition{} = definition, opts \\ []) when is_atom(repo) do
+    repo
+    |> resolve_in_tx(definition, opts)
+    |> value_result()
+  end
+
   @doc """
   Resolves a concrete key that may be backed by an exact or pattern definition.
 
@@ -437,6 +459,35 @@ defmodule Ankole.AppConfigure do
       case resolve_scope(scope, key, definition) do
         :missing -> {:cont, :error}
         result -> {:halt, result}
+      end
+    end)
+    |> case do
+      :error -> resolve_default(definition)
+      result -> result
+    end
+  end
+
+  defp resolve_scopes_in_tx({:error, reason}, _repo, _definition, _key),
+    do: {:error, reason}
+
+  defp resolve_scopes_in_tx(scopes, repo, definition, key) do
+    scopes
+    |> Enum.reduce_while(:error, fn scope, :error ->
+      case repo.get_by(AppConfig, scope: scope, key: key) do
+        %AppConfig{value: envelope} ->
+          result =
+            case Codec.load(definition, scope, key, envelope) do
+              {:ok, value} ->
+                {:ok, %Resolution{value: value, source: source_for_scope(scope), scope: scope}}
+
+              {:error, reason} ->
+                {:error, {:storage_error, scope, key, reason}}
+            end
+
+          {:halt, result}
+
+        nil ->
+          {:cont, :error}
       end
     end)
     |> case do

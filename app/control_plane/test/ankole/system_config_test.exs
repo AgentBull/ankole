@@ -46,11 +46,4 @@ defmodule Ankole.SystemConfigTest do
 
   defp restore_tz(nil), do: System.delete_env("TZ")
   defp restore_tz(timezone), do: System.put_env("TZ", timezone)
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
 end

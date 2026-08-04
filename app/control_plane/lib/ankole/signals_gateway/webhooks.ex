@@ -72,22 +72,21 @@ defmodule Ankole.SignalsGateway.Webhooks do
   def create_endpoint(_attrs, _token, _opts), do: {:error, :invalid_webhook_endpoint}
 
   @doc """
-  Lists webhook endpoints for one Agent session.
+  Lists webhook endpoints for one Agent session, or for every session of the
+  Agent when `session_id` is `nil`.
 
   Active-only lists exclude endpoints whose expiry time has already passed,
   even if the periodic sweep has not updated their stored status yet.
   """
-  @spec list_endpoints(String.t(), String.t(), keyword()) :: [WebhookEndpoint.t()]
+  @spec list_endpoints(String.t(), String.t() | nil, keyword()) :: [WebhookEndpoint.t()]
   def list_endpoints(agent_uid, session_id, opts \\ [])
-      when is_binary(agent_uid) and is_binary(session_id) do
+      when is_binary(agent_uid) and (is_binary(session_id) or is_nil(session_id)) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = opts |> Keyword.get(:limit, 100) |> bounded_limit()
 
     WebhookEndpoint
-    |> where(
-      [endpoint],
-      endpoint.agent_uid == ^String.downcase(agent_uid) and endpoint.session_id == ^session_id
-    )
+    |> where([endpoint], endpoint.agent_uid == ^String.downcase(agent_uid))
+    |> maybe_where_session(session_id)
     |> maybe_active_only(Keyword.get(opts, :active_only, false), now)
     |> order_by([endpoint], desc: endpoint.inserted_at, desc: endpoint.id)
     |> limit(^limit)
@@ -116,8 +115,10 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
   @doc """
   Cancels an active endpoint. Repeating the operation keeps the terminal state.
+
+  A `nil` `session_id` accepts any session of the Agent.
   """
-  @spec cancel_endpoint(String.t(), String.t(), Ecto.UUID.t(), keyword()) ::
+  @spec cancel_endpoint(String.t(), String.t() | nil, Ecto.UUID.t(), keyword()) ::
           {:ok,
            %{
              status: :cancelled | :already_terminal,
@@ -127,7 +128,8 @@ defmodule Ankole.SignalsGateway.Webhooks do
   def cancel_endpoint(agent_uid, session_id, endpoint_id, opts \\ [])
 
   def cancel_endpoint(agent_uid, session_id, endpoint_id, opts)
-      when is_binary(agent_uid) and is_binary(session_id) and is_binary(endpoint_id) do
+      when is_binary(agent_uid) and (is_binary(session_id) or is_nil(session_id)) and
+             is_binary(endpoint_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -489,11 +491,8 @@ defmodule Ankole.SignalsGateway.Webhooks do
 
   defp lock_endpoint(repo, endpoint_id, agent_uid, session_id) do
     WebhookEndpoint
-    |> where(
-      [endpoint],
-      endpoint.id == ^endpoint_id and endpoint.agent_uid == ^agent_uid and
-        endpoint.session_id == ^session_id
-    )
+    |> where([endpoint], endpoint.id == ^endpoint_id and endpoint.agent_uid == ^agent_uid)
+    |> maybe_where_session(session_id)
     |> lock("FOR UPDATE")
     |> repo.one()
   end
@@ -506,6 +505,11 @@ defmodule Ankole.SignalsGateway.Webhooks do
     |> lock("FOR UPDATE")
     |> repo.one()
   end
+
+  defp maybe_where_session(query, nil), do: query
+
+  defp maybe_where_session(query, session_id),
+    do: where(query, [endpoint], endpoint.session_id == ^session_id)
 
   defp maybe_active_only(query, false, _now), do: query
 

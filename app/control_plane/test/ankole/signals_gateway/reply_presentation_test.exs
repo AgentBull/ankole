@@ -282,4 +282,26 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
 
     assert ordinary["trigger_context"] == presentation["trigger_context"]
   end
+
+  test "projects only automatic cron wakes as scheduled task context" do
+    automatic =
+      ReplyPresentation.project_trigger(ReplyPresentation.new(), "cron.fire", %{
+        "data" => %{"wake_payload" => %{"trigger" => "scheduled"}}
+      })
+
+    assert automatic["trigger_context"] == %{"kind" => "scheduled_task"}
+
+    assert ReplyPresentation.checkpoint(automatic)["trigger_context"] ==
+             automatic["trigger_context"]
+
+    terminal = ReplyPresentation.terminal(automatic, "completed", "今日摘要已生成。")
+    assert terminal["trigger_context"] == automatic["trigger_context"]
+
+    manual =
+      ReplyPresentation.project_trigger(ReplyPresentation.new(), "cron.fire", %{
+        "data" => %{"wake_payload" => %{"trigger" => "manual"}}
+      })
+
+    refute Map.has_key?(manual, "trigger_context")
+  end
 end

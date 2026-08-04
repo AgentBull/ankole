@@ -186,6 +186,33 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
            )
   end
 
+  test "renders an automatic scheduled task wake as a small quoted prefix" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.project_trigger("cron.fire", %{
+        "data" => %{"wake_payload" => %{"trigger" => "scheduled"}}
+      })
+      |> ReplyPresentation.append_answer("今日摘要已生成。")
+
+    assert {:ok, card} = Renderer.render(presentation, mode: :working)
+
+    elements = get_in(card, ["body", "elements"])
+    trigger = Enum.find(elements, &(&1["element_id"] == "trigger_context"))
+
+    assert trigger == %{
+             "tag" => "markdown",
+             "element_id" => "trigger_context",
+             "text_size" => "notation",
+             "content" => "> Started by a scheduled task",
+             "i18n_content" => %{
+               "en_us" => "> Started by a scheduled task",
+               "zh_cn" => "> 由定时任务唤醒"
+             }
+           }
+
+    assert element_index(elements, "trigger_context") < element_index(elements, "answer")
+  end
+
   test "completed metadata is collapsed above a divider and the final answer" do
     terminal =
       ReplyPresentation.new()

@@ -459,13 +459,6 @@ defmodule Ankole.AppConfigureTest do
 
   defp key(prefix, name), do: prefix <> "." <> name
 
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
-
   defp get_row!(scope, key) do
     Repo.one!(from(row in AppConfig, where: row.scope == ^scope and row.key == ^key))
   end

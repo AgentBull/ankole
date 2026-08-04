@@ -30,7 +30,7 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
            }
   end
 
-  test "applies the frozen route as defaults and keeps request overrides" do
+  test "applies the frozen Job route over conflicting Codex request values" do
     binding = %{
       "selector" => "openrouter/openai/gpt-5.6-sol",
       "provider_options" => %{
@@ -44,6 +44,7 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
              %{
                "model" => "gpt-5.6-sol",
                "provider_options" => %{"textVerbosity" => "high"},
+               "reasoning" => %{"effort" => "minimal", "summary" => "auto"},
                "parallel_tool_calls" => false
              },
              binding
@@ -52,9 +53,22 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
              "parallel_tool_calls" => true,
              "provider_options" => %{
                "reasoningEffort" => "xhigh",
-               "textVerbosity" => "high"
-             }
+               "textVerbosity" => "low"
+             },
+             "reasoning" => %{"effort" => "xhigh", "summary" => "auto"}
            }
+  end
+
+  test "keeps request reasoning when the Job binding does not choose an effort" do
+    binding = %{
+      "selector" => "openrouter/openai/gpt-5.6-sol",
+      "provider_options" => %{},
+      "supports_parallel_tool_calls" => false
+    }
+
+    request = %{"reasoning" => %{"effort" => "low", "summary" => "auto"}}
+
+    assert CodexModelBinding.apply(request, binding)["reasoning"] == request["reasoning"]
   end
 
   test "keeps Responses Lite serial even when the provider supports parallel calls" do

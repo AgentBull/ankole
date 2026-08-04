@@ -7,13 +7,13 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.Webhooks
   alias AnkoleWeb.Session, as: WebSession
 
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
+  @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"
 
   setup do
     allow_cache_database_access()
@@ -27,57 +27,46 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     :ok
   end
 
-  test "admin lists and cancels one session endpoint without exposing its capability", %{
-    conn: conn
-  } do
+  test "admin lists every session endpoint of one agent and cancels without exposing its capability",
+       %{conn: conn} do
     %{principal: agent} = agent_fixture()
-    source = source_event!(agent.uid)
+    %{principal: other_agent} = agent_fixture()
+    first = source_event!(agent.uid)
+    second = source_event!(agent.uid)
 
-    assert {:ok, %{webhook_endpoint: endpoint}} =
-             Webhooks.create_endpoint(
-               %{
-                 agent_uid: agent.uid,
-                 binding_name: source.binding_name,
-                 session_id: source.session_id,
-                 signal_channel_id: source.signal_channel_id,
-                 provider_thread_id: source.provider_thread_id,
-                 source_actor_event_id: source.id,
-                 source_entry_id: source.source_entry_id,
-                 source_provenance: %{"kind" => "console-test"},
-                 label: "Watch GitHub issues",
-                 mode: "standing",
-                 expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
-               },
-               @token
-             )
+    endpoint = create_endpoint!(agent.uid, first, "Watch GitHub issues", @token)
+    other_session_endpoint = create_endpoint!(agent.uid, second, "Watch releases", @other_token)
 
     api_spec = AnkoleWeb.APISpec.spec()
     conn = bearer_conn(conn)
 
     list =
       conn
-      |> get(~p"/api/v1/agents/#{agent.uid}/sessions/#{source.session_id}/webhook-endpoints")
+      |> get(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints")
       |> json_response(200)
 
     assert_schema(list, "WebhookEndpointListResponse", api_spec)
-    assert %{"webhook_endpoints" => [%{"id" => endpoint_id, "status" => "active"}]} = list
-    assert endpoint_id == endpoint.id
+    assert %{"webhook_endpoints" => endpoints} = list
+
+    assert MapSet.new(endpoints, & &1["id"]) ==
+             MapSet.new([endpoint.id, other_session_endpoint.id])
+
+    assert MapSet.new(endpoints, & &1["session_id"]) ==
+             MapSet.new([first.session_id, second.session_id])
+
+    assert Enum.all?(endpoints, &(&1["status"] == "active"))
     refute inspect(list) =~ @token
     refute inspect(list) =~ Webhooks.token_digest(@token)
 
     assert conn
            |> recycle_bearer()
-           |> delete(
-             ~p"/api/v1/agents/#{agent.uid}/sessions/another-session/webhook-endpoints/#{endpoint.id}"
-           )
+           |> delete(~p"/api/v1/agents/#{other_agent.uid}/webhook-endpoints/#{endpoint.id}")
            |> json_response(404)
 
     cancelled =
       conn
       |> recycle_bearer()
-      |> delete(
-        ~p"/api/v1/agents/#{agent.uid}/sessions/#{source.session_id}/webhook-endpoints/#{endpoint.id}"
-      )
+      |> delete(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints/#{endpoint.id}")
       |> json_response(200)
 
     assert_schema(cancelled, "WebhookEndpointResponse", api_spec)
@@ -88,8 +77,30 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     %{principal: agent} = agent_fixture()
 
     assert conn
-           |> get(~p"/api/v1/agents/#{agent.uid}/sessions/session-1/webhook-endpoints")
+           |> get(~p"/api/v1/agents/#{agent.uid}/webhook-endpoints")
            |> json_response(401)
+  end
+
+  defp create_endpoint!(agent_uid, source, label, token) do
+    assert {:ok, %{webhook_endpoint: endpoint}} =
+             Webhooks.create_endpoint(
+               %{
+                 agent_uid: agent_uid,
+                 binding_name: source.binding_name,
+                 session_id: source.session_id,
+                 signal_channel_id: source.signal_channel_id,
+                 provider_thread_id: source.provider_thread_id,
+                 source_actor_event_id: source.id,
+                 source_entry_id: source.source_entry_id,
+                 source_provenance: %{"kind" => "console-test"},
+                 label: label,
+                 mode: "standing",
+                 expires_at: DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
+               },
+               token
+             )
+
+    endpoint
   end
 
   defp source_event!(agent_uid) do
@@ -156,12 +167,5 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

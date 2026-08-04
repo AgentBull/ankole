@@ -11,10 +11,13 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   behavior that still applies after an ActorEvent has already been formed.
   """
 
-  @live_turn_command_types ~w(command.new command.stop command.retry command.steer command.compress)
+  @live_turn_command_types ~w(
+    command.new command.stop command.retry command.steer command.compress command.llm_help
+  )
   @interaction_preserving_turn_types ~w(
     signal.entry.removed
     session.reset_due
+    command.llm_help
     check_back_later.wakeup
     cron.fire
     webhook.received
@@ -65,6 +68,8 @@ defmodule Ankole.SignalsGateway.ActorEventTypes do
   def command_runtime_policy("command.retry"), do: :control_now
   def command_runtime_policy("command.steer"), do: :checkpoint_nudge
   def command_runtime_policy("command.compress"), do: :control_now
+  def command_runtime_policy("command.llm_help"), do: :control_now
+  def command_runtime_policy("command.llm"), do: :worker_turn
   def command_runtime_policy("command." <> _name), do: :unknown
   def command_runtime_policy(_type), do: :unknown
 end

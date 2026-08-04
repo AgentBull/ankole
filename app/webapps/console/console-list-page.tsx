@@ -19,6 +19,7 @@ import {
   EmptyTitle,
   Input,
   Skeleton,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -358,6 +359,36 @@ export function ResourceSearch({
       </div>
       {filters ? <div className="flex min-w-0 flex-wrap items-center gap-3">{filters}</div> : null}
     </div>
+  )
+}
+
+/**
+ * Scope and filter controls above the list toolbar.
+ *
+ * These stay visible while the list is empty, because they are what the
+ * operator uses to get out of an empty list: the search box over no rows is a
+ * dead control, but "look at another agent" and "include finished rows" are the
+ * two ways the rows come back.
+ */
+export function ScopeBar({ children }: { children: ReactNode }) {
+  return <div className="flex min-w-0 flex-wrap items-center gap-3 border border-border bg-card p-2">{children}</div>
+}
+
+/** Labeled on/off filter, such as widening a list to finished rows. */
+export function FilterSwitch({
+  checked,
+  label,
+  onChange
+}: {
+  checked: boolean
+  label: string
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+      <Switch checked={checked} onCheckedChange={onChange} />
+      {label}
+    </label>
   )
 }
 

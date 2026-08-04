@@ -24,6 +24,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   @terminal_statuses ~w(completed failed interrupted)
   @plan_statuses ~w(pending in_progress completed)
   @max_tools_used 128
+  @max_skills_used 128
   @max_files_changed 1_024
   @max_plan_steps 100
   @status_transitions %{
@@ -176,7 +177,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
            "files_changed" => files_changed
          } = progress
        ) do
-    allowed = ~w(completed_items tool_calls tools_used files_changed plan active_item)
+    allowed = ~w(completed_items tool_calls tools_used files_changed skills_used plan active_item)
 
     Map.keys(progress) -- allowed == [] and
       nonnegative_integer?(completed_items) and
@@ -184,6 +185,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
       valid_tools_used?(tools_used, tool_calls) and
       string_list?(files_changed, @max_files_changed) and
       files_changed == Enum.sort(files_changed) and files_changed == Enum.uniq(files_changed) and
+      valid_optional_skills_used?(Map.get(progress, "skills_used")) and
       valid_optional_plan?(Map.get(progress, "plan")) and
       valid_optional_active_item?(Map.get(progress, "active_item"))
   end
@@ -202,6 +204,13 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
   end
 
   defp valid_tools_used?(_tools_used, _tool_calls), do: false
+
+  defp valid_optional_skills_used?(nil), do: true
+
+  defp valid_optional_skills_used?(skills) do
+    string_list?(skills, @max_skills_used) and skills == Enum.sort(skills) and
+      skills == Enum.uniq(skills)
+  end
 
   defp valid_tool_usage?(%{"name" => name, "calls" => calls} = usage) do
     Map.keys(usage) -- ~w(name calls) == [] and nonempty_string?(name) and

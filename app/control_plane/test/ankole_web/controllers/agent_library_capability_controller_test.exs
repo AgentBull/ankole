@@ -12,6 +12,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
+  alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery
+  alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -221,6 +223,55 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
              |> json_response(404)
   end
 
+  test "a Skill disable sends one scoped control to each active Job turn", %{conn: conn} do
+    %{principal: agent} = background_agent_fixture()
+    route = "agent-library-skill-disable-#{System.unique_integer([:positive])}"
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+    assert {:ok, %{job: job, dispatch_event: event}} = create_job(agent.uid, "skill-disable", nil)
+
+    assert {:ok, _delivery} =
+             %ActorEventDelivery{}
+             |> ActorEventDelivery.changeset(%{
+               actor_event_id: event.id,
+               agent_uid: agent.uid,
+               session_id: BackgroundAgentJobs.job_session_id(job.id),
+               queue_sequence: event.queue_sequence,
+               attempt_no: 1,
+               actor_lane_message_id: "skill-disable-turn",
+               activation_uid: "skill-disable-activation",
+               actor_epoch: 1,
+               actor_event_id_fence: event.id,
+               revision: 0,
+               worker_id: "skill-disable-worker",
+               transport_route: route,
+               state: "accepted",
+               send_outcome: "sent_or_queued",
+               error: %{}
+             })
+             |> Repo.insert()
+
+    assert {:ok, _overlay} = Library.skill_append(agent.uid, "pdf", "Refresh active material.")
+    assert_receive {:actor_lane, %{body: {:turn_control, content_control}}}, 2_000
+    assert content_control.command == "skill_content_changed"
+    assert Torque.decode!(content_control.payload_json) == %{"skill_names" => ["pdf"]}
+
+    response =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{agent.uid}/library-capabilities/skills/pdf", %{
+        "enabled" => false
+      })
+      |> json_response(200)
+
+    assert Enum.find(response["skills"], &(&1["id"] == "pdf"))["effective_enabled"] == false
+    assert_receive {:actor_lane, %{body: {:turn_control, control}}}, 2_000
+    assert control.command == "skill_disabled"
+    assert Torque.decode!(control.payload_json) == %{"skill_names" => ["pdf"]}
+    refute_receive {:actor_lane, _envelope}
+  end
+
   defp plugin(capabilities, id), do: Enum.find(capabilities["agent_plugins"], &(&1["id"] == id))
   defp skill(plugin, name), do: Enum.find(plugin["skills"], &(&1["name"] == name))
 
@@ -271,12 +322,5 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(AppConfigureCache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

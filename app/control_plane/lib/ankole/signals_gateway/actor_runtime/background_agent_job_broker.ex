@@ -328,6 +328,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       "title" => request.title,
       "task" => request.task
     }
+    |> put_present("model_profile", request.model_profile)
     |> put_present("workspace_template_id", request.workspace_template_id)
   end
 
@@ -423,6 +424,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       reply_route_json: encode_optional_json(job.reply_route),
       attempts: job.attempts,
       workspace_template_id: job.workspace_template_id || "",
+      model_profile: job.model_profile,
       continued_from_job_id: optional_job_id(job.continued_from_job_id),
       workspace_owner_job_id: optional_job_id(job.workspace_owner_job_id),
       queued_at: iso8601(job.queued_at),
@@ -430,7 +432,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       completed_at: iso8601(job.completed_at),
       result_json: encode_optional_json(job.result),
       error_json: encode_optional_json(job.error),
-      metadata_json: encode_optional_json(job.metadata)
+      metadata_json: encode_optional_json(job.metadata),
+      runtime_projection_json: encode_optional_json(job.runtime_projection)
     }
   end
 
@@ -453,7 +456,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBroker do
       %FabricProto.BackgroundAgentJobAttemptHistoryEntry{
         attempt: Map.get(entry, :attempt) || 0,
         turn_statuses: Map.get(entry, :turn_statuses) || [],
-        summary: Map.get(entry, :summary) || ""
+        summary: Map.get(entry, :summary) || "",
+        used_skill_names: Map.get(entry, :used_skill_names) || []
       }
     end)
   end

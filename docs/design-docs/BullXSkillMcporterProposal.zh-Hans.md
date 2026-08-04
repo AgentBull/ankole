@@ -1,7 +1,7 @@
 # BullX Financial Data 的 Skill-first MCP 执行方案
 
-状态：**已实现，待 PR 评审和真实 BullX 新路径验收；不是规范性合同**
-日期：2026-08-02
+状态：**已实现；mcporter 0.13.0 已验证，真实 BullX 路径被 legacy transport 互操作问题阻塞；不是规范性合同**
+日期：2026-08-04
 
 范围说明：本文只决定 BullX Financial Data 的 Skill-first 路径。现行平台合同见
 [MCP-Backed Skills](MCPBackedSkills.md)。
@@ -71,7 +71,7 @@ Automation Job 的写操作作为验收目标，也不把 mcporter 配置误称�
 中取得执行时最新的 Agent WorkerEnv，在 Agent Home 内运行 `main.ts`，并通过 stdout、stderr、
 run status 和 `emitEvent` 观测结果。
 
-当前镜像已经固定安装 mcporter 0.12.3，Automation Job 的 CLI 帮助也告诉模型：MCP 数据可以经
+当前镜像已经固定安装 mcporter 0.13.0，Automation Job 的 CLI 帮助也告诉模型：MCP 数据可以经
 mcporter 访问。但仓库没有任何代码生成帮助文本声称存在的 `~/.mcporter/mcporter.json`。与此同时，
 现行 MCP 规范又明确禁止 MCP CLI 和第二份声明文件。
 
@@ -115,20 +115,22 @@ Skill 路由优于 Tool Search。因此，本提案把路由中心合一视为�
 
 本提案核对了以下上游契约和当前锁定版本，而不是只根据 README 推断：
 
-- [MCP Tools 规范](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)：MCP 定义
+- [MCP Tools 规范](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)：MCP 定义
   `tools/list`、`tools/call`、输入输出 schema 和 annotations；它不要求客户端把每个 tool 直接注册
   给模型。
+- [MCP 2025-11-25 Streamable HTTP 规范](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)：
+  client 可选打开独立 SSE GET；不提供 receive stream 的 server 必须返回 HTTP 405。
 - [Agent Skills 规范](https://agentskills.io/specification)：模型先看到 name 和 description，激活后
   才读取完整 `SKILL.md`，scripts 和 references 再按需加载。
 - [OpenAI Build Skills](https://learn.chatgpt.com/docs/build-skills)：Skill 可以携带 scripts、references
   和 `agents/openai.yaml` 依赖声明。
-- [mcporter 0.12.3 的 Agent Skill 模式](https://github.com/openclaw/mcporter/blob/v0.12.3/docs/agent-skills.md)：
+- [mcporter 0.13.0 的 Agent Skill 模式](https://github.com/openclaw/mcporter/blob/v0.13.0/docs/agent-skills.md)：
   上游明确推荐“一台 MCP server 或一个 workflow 对应一个小 Skill”，由 Skill 调用相关工具，反对
   一个通用 mcporter Skill 重新制造大目录问题。
-- [mcporter 0.12.3 配置规则](https://github.com/openclaw/mcporter/blob/v0.12.3/docs/config.md)：
+- [mcporter 0.13.0 配置规则](https://github.com/openclaw/mcporter/blob/v0.13.0/docs/config.md)：
   `MCPORTER_CONFIG` 选择唯一配置文件，`imports: []` 关闭宿主配置导入，`bearerTokenEnv` 只保存环境
   变量名，`allowedTools` 和 `blockedTools` 可以限制发现和调用。
-- mcporter 0.12.3 源码和 `docs/call-syntax.md`：`mcporter call` 支持 `--json -` 从 stdin 读取 JSON
+- mcporter 0.13.0 源码和 `docs/call-syntax.md`：`mcporter call` 支持 `--json -` 从 stdin 读取 JSON
   object，`--output json` 把成功和失败结果写成机器可读 JSON。
 
 ## 5. 方案比较
@@ -548,7 +550,7 @@ Automation 还要验证真实 trigger → run → BullX → `emitEvent` 或静�
 
 ### 11.6 当前实现验证结果
 
-截至 2026-08-02，本地实现已通过以下检查：
+截至 2026-08-02，原始本地实现已通过以下检查：
 
 - Agent Computer TypeScript type-check 和生成 protobuf 一致性检查。
 - Agent Computer 容器集成套件：15 passed、5 skipped、0 failed。新增 Automation case 穿过真实
@@ -561,9 +563,22 @@ Automation 还要验证真实 trigger → run → BullX → `emitEvent` 或静�
 - Control Plane 的 `RPCWire` projection test 为 1 passed；Automation Jobs 定向测试为 7 passed。
 - Website Astro check 为 0 errors，只保留两个现有 `document.execCommand` deprecation hints。
 
-新方案尚未完成第 11.5 节三条任务的真实 BullX Main、Background 和 Automation 对照。本机没有
-`BULLX_FINANCIAL_DATA_MCP_API_KEY`，所以本实现没有把 fixture 成功冒充真实服务验收。该项是合并或部署
-验收门，而不是继续保留原生投影的理由。
+2026-08-04 的 mcporter 0.13.0 升级验证得到以下结果：
+
+- 官方 release 包的 SHA-256 与发布清单一致，Bun 全局安装后 `mcporter --version` 返回 `0.13.0`。
+- Twelve Data 固定的 `mcp-server-twelve-data` 0.2.5 和 `mcp` 1.9.4 能读取单工具 schema，并用
+  `TWELVE_DATA_API_KEY=demo` 完成 `GetPrice` 只读调用。去掉 `mcp` 钉子后，当前解析到的 1.29.0 仍因
+  四个非 object 顶层 `outputSchema` 在 `tools/list` 失败，所以不能随 mcporter 升级删除该钉子。
+- 当前 BullX 凭证能直接完成 HTTP `initialize`、50-tool `tools/list` 和交易日历只读调用。服务端协商到
+  `2025-11-25`；mcporter 0.12.3 和 0.13.0 的当前对照环境都在 legacy 初始化后打开独立 SSE GET。BullX 端点返回
+  405 `SSE stream is not supported`；该返回符合 2025-11-25 对可选 receive stream 的规定，但 mcporter
+  的 SDK v2 legacy path 把它作为致命 SSE 错误，因此两版都无法读取工具 schema。0.13.0 没有造成
+  版本特有回归，也没有修复这个 legacy transport 互操作问题。
+
+第 11.5 节三条真实 BullX Main、Background 和 Automation 对照仍未完成。当前阻塞不是凭证或 Skill
+声明，而是 BullX 的同步 POST-only 2025-era 实现与 mcporter SDK v2 legacy path 不能互操作。可行修复是 BullX
+实现 `2026-07-28`、BullX 提供 legacy receive stream，或 mcporter/SDK 容忍规范允许的 405 后继续 POST。不要把 raw
+HTTP 成功或 fixture 结果冒充真实 mcporter 验收。
 
 ## 12. 风险和改变决定的条件
 

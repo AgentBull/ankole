@@ -60,6 +60,12 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ReadyEventProcessor do
       %ActorEvent{type: "command.steer"} = event ->
         RuntimeCommand.process_steer_command(actor_key, event, opts)
 
+      %ActorEvent{type: "command.llm_help"} = event ->
+        RuntimeCommand.process_llm_help_command(event, opts)
+
+      %ActorEvent{type: "command.llm"} = event ->
+        RuntimeCommand.process_llm_command(actor_key, event, opts)
+
       %ActorEvent{type: type} = event
       when type in ["check_back_later.wakeup", "cron.fire"] ->
         TurnLifecycle.start_worker_turn(actor_key, event, ScheduledTurn.opts(event, opts))

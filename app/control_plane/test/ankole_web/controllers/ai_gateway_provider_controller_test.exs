@@ -12,7 +12,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -183,6 +182,89 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       })
 
     assert %{"error" => %{"code" => "provider_id_mismatch"}} = json_response(conn, 422)
+  end
+
+  test "admin creates, edits, lists, and deletes an Agent custom model profile", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-custom-console",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    conn =
+      conn
+      |> bearer_conn()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/kimi", %{
+        "description" => "Long-context coding",
+        "provider_id" => "openrouter-custom-console",
+        "model" => "moonshotai/kimi-k2.7-code",
+        "context_length" => 262_144,
+        "provider_options" => %{"reasoningEffort" => "high"}
+      })
+
+    assert %{
+             "model_profile" => %{
+               "profile" => "kimi",
+               "configured" => true,
+               "description" => "Long-context coding",
+               "provider_id" => "openrouter-custom-console",
+               "model" => "moonshotai/kimi-k2.7-code"
+             }
+           } = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> get(~p"/api/v1/agents/#{agent.uid}/model-profiles")
+
+    assert %{"model_profiles" => %{"kimi" => %{"description" => "Long-context coding"}}} =
+             json_response(conn, 200)
+
+    missing_description =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/deepseek", %{
+        "provider_id" => "openrouter-custom-console",
+        "model" => "deepseek/deepseek-v3"
+      })
+
+    assert %{"error" => %{"code" => "validation_failed"}} =
+             json_response(missing_description, 422)
+
+    reserved_name =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/primary", %{
+        "description" => "Reserved",
+        "provider_id" => "openrouter-custom-console",
+        "model" => "openai/gpt-5.4"
+      })
+
+    assert %{"error" => %{"code" => "invalid_agent"}} = json_response(reserved_name, 422)
+
+    invalid_name =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent.uid}/model-profiles/Kimi", %{
+        "description" => "Invalid uppercase name",
+        "provider_id" => "openrouter-custom-console",
+        "model" => "moonshotai/kimi-k2.7-code"
+      })
+
+    assert %{"error" => %{"code" => "invalid_agent"}} = json_response(invalid_name, 422)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> delete(~p"/api/v1/agents/#{agent.uid}/model-profiles/kimi")
+
+    assert %{"model_profile" => %{"profile" => "kimi", "configured" => false}} =
+             json_response(conn, 200)
   end
 
   test "admin disables an active provider and deletes it on the next request", %{conn: conn} do
@@ -780,13 +862,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 
   defp jwt(claims) do

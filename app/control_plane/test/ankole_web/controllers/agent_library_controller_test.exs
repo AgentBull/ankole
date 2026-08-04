@@ -6,7 +6,6 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -183,12 +182,5 @@ defmodule AnkoleWeb.AgentLibraryControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

@@ -82,6 +82,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert detail["title"] == middle.title
     assert detail["workspace_template_id"] == nil
+    assert detail["model_profile"] == "coding"
     refute Map.has_key?(detail, "runtime")
     refute Map.has_key?(detail, "mode")
     assert [stored_turn] = detail["turns"]
@@ -180,6 +181,7 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
       |> Map.fetch!("job")
 
     assert detail["workspace_template_id"] == "deep-research"
+    assert detail["model_profile"] == "coding"
     refute Map.has_key?(detail, "plugin_options")
 
     refute Map.has_key?(detail, "runtime")
@@ -317,12 +319,5 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

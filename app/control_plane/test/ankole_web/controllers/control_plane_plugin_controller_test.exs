@@ -7,7 +7,6 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.AuthZ
   alias Ankole.Plugins.Config, as: PluginConfig
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
@@ -112,12 +111,5 @@ defmodule AnkoleWeb.ControlPlanePluginControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(AppConfigureCache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

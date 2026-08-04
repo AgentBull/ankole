@@ -200,6 +200,55 @@ describe('@ankole/agent-computer addressed empty-text input', () => {
   })
 })
 
+describe('@ankole/agent-computer one-shot model profile input', () => {
+  it('shows only the command body to the model and keeps attachments and reply context', () => {
+    const text = actorEventText(
+      {
+        data: {
+          command: { name: 'llm', modelProfile: 'kimi', argsText: '测试' },
+          entry: {
+            text: '@Agent /llm kimi 测试',
+            attachments: [
+              {
+                name: 'spec.pdf',
+                resource_type: 'file',
+                agent_computer_path: '/agents/agent-1/user-files/inbox/10000/spec.pdf'
+              }
+            ],
+            reply_to: {
+              source_entry_id: 'msg-acceptance-criteria',
+              resolution: 'resolved',
+              role: 'human',
+              text: 'Use the attached acceptance criteria.'
+            }
+          }
+        }
+      },
+      'command.llm'
+    )
+
+    expect(text).toContain('Current message:\n测试')
+    expect(text).toContain('Use the attached acceptance criteria.')
+    expect(text).toContain('/agents/agent-1/user-files/inbox/10000/spec.pdf')
+    expect(text).not.toContain('@Agent /llm kimi 测试')
+  })
+
+  it('starts an empty-body profile command without treating the command text as the prompt', () => {
+    const text = actorEventText(
+      {
+        data: {
+          command: { name: 'llm', modelProfile: 'kimi', argsText: '' },
+          entry: { text: '/llm kimi' }
+        }
+      },
+      'command.llm'
+    )
+
+    expect(text).toContain('selected a custom model profile')
+    expect(text).not.toContain('/llm kimi')
+  })
+})
+
 describe('@ankole/agent-computer background agent job failure input', () => {
   it('offers direct correction or a new durable background agent job without terminal continuation', () => {
     const text = actorEventText(

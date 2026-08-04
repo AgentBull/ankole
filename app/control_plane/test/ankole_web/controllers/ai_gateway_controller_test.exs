@@ -142,13 +142,19 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
       |> put_req_header("x-ankole-aigateway-model-binding", binding)
       |> post(~p"/api/v1/ai-gateway/responses", %{
         "model" => "gpt-5.6-sol",
-        "input" => "hello"
+        "input" => "hello",
+        "provider_options" => %{
+          "reasoningEffort" => "minimal",
+          "textVerbosity" => "high"
+        },
+        "reasoning" => %{"effort" => "minimal"}
       })
 
     assert json_response(conn, 200)["status"] == "completed"
     assert_receive {:gateway_request, upstream_request}
     assert upstream_request.body["model"] == "openai/gpt-5.6-sol"
     assert upstream_request.body["reasoning"] == %{"effort" => "xhigh"}
+    assert upstream_request.body["textVerbosity"] == "low"
     assert upstream_request.body["parallel_tool_calls"] == true
   end
 
@@ -488,6 +494,61 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert get_in(primary, ["top_provider", "max_completion_tokens"]) == 16_384
     assert Map.has_key?(primary, "pricing")
     assert Map.has_key?(primary, "top_provider")
+  end
+
+  test "models endpoint exposes custom aliases only to their Agent", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openai-custom-alias",
+               provider_kind: "openai",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-openai"}]
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "AGENT_LOCAL_ALIAS_MARKER",
+               provider_id: "openai-custom-alias",
+               model: "gpt-4o-mini"
+             })
+
+    assert {:ok, api_key} = AIGatewayTokens.mint_for_agent(agent.uid)
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer #{api_key.api_key}")
+      |> get(~p"/api/v1/ai-gateway/models", %{"q" => "AGENT_LOCAL_ALIAS_MARKER"})
+
+    assert %{"data" => agent_models} = json_response(conn, 200)
+
+    assert %{
+             "id" => "kimi",
+             "name" => "kimi",
+             "description" => "AGENT_LOCAL_ALIAS_MARKER",
+             "canonical_slug" => "openai-custom-alias/gpt-4o-mini"
+           } = Enum.find(agent_models, &(&1["id"] == "kimi"))
+
+    assert {:ok, other_api_key} = AIGatewayTokens.mint_for_agent(other_agent.uid)
+
+    other_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{other_api_key.api_key}")
+      |> get(~p"/api/v1/ai-gateway/models", %{"q" => "AGENT_LOCAL_ALIAS_MARKER"})
+
+    assert %{"data" => other_models} = json_response(other_conn, 200)
+    refute Enum.any?(other_models, &(&1["id"] == "kimi"))
+
+    admin_conn =
+      build_conn()
+      |> put_req_header("authorization", "Bearer #{admin_access_token()}")
+      |> get(~p"/api/v1/ai-gateway/models", %{"q" => "AGENT_LOCAL_ALIAS_MARKER"})
+
+    assert %{"data" => admin_models} = json_response(admin_conn, 200)
+    refute Enum.any?(admin_models, &(&1["id"] == "kimi"))
   end
 
   test "Codex models manifest includes the runtime slug and its responses-lite switch", %{

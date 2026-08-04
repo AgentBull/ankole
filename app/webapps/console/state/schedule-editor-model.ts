@@ -13,6 +13,7 @@ export type CronStatus = 'active' | 'paused'
 export type ScheduleKind = 'cron' | 'every'
 
 export type ScheduleEditorDraft = {
+  sessionId: string
   bindingName: string
   name: string
   status: CronStatus | ''
@@ -28,6 +29,7 @@ export type ScheduleEditorDraft = {
 }
 
 export type CronCreateBody = {
+  session_id: string
   binding_name: string
   name: string
   status?: CronStatus
@@ -48,6 +50,7 @@ export type CronUpdateBody = {
 
 export const ScheduleEditorModel = createModel(() => {
   const sourceKey = signal<string>()
+  const sessionId = signal('')
   const bindingName = signal('')
   const name = signal('')
   const status = signal<CronStatus | ''>('')
@@ -65,6 +68,7 @@ export const ScheduleEditorModel = createModel(() => {
 
   const apply = (draft: ScheduleEditorDraft) => {
     batch(() => {
+      sessionId.value = draft.sessionId
       bindingName.value = draft.bindingName
       name.value = draft.name
       status.value = draft.status
@@ -126,6 +130,7 @@ export const ScheduleEditorModel = createModel(() => {
 
   return {
     sourceKey,
+    sessionId,
     bindingName,
     name,
     status,
@@ -152,11 +157,15 @@ export const ScheduleEditorModel = createModel(() => {
       const schedule = buildSchedule()
       const delivery = buildDelivery()
       const nextPayload = buildPayload()
+      const session = sessionId.value.trim()
       const binding = bindingName.value.trim()
       const trimmedName = name.value.trim()
       const idempotency = idempotencyKey.value.trim()
-      if (!binding || !trimmedName || !schedule || !delivery || !idempotency || nextPayload === null) return null
+      if (!session || !binding || !trimmedName || !schedule || !delivery || !idempotency || nextPayload === null) {
+        return null
+      }
       const body: CronCreateBody = {
+        session_id: session,
         binding_name: binding,
         name: trimmedName,
         schedule,

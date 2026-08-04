@@ -6,12 +6,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   alias Ankole.AIGateway.OpaqueContent
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.BackgroundAgentJobs.Attrs
-  alias Ankole.BackgroundAgentJobs.Lifecycle
-  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.TrajectoryGroup
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
@@ -61,27 +57,16 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   @internal_uuid_pattern ~r/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/i
   @cursor_version 1
 
-  @spec upsert_from_worker(pos_integer(), String.t(), map(), TurnRef.t(), String.t()) ::
+  @doc false
+  @spec upsert_from_worker_in_tx(module(), Job.t(), map()) ::
           {:ok, Turn.t()} | {:error, term()}
-  def upsert_from_worker(job_id, agent_uid, attrs, %TurnRef{} = turn_ref, route)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
-             is_binary(route) do
-    Repo.transact(fn repo ->
-      with {:ok, :authorized} <-
-             WorkerRouteAuth.authorize_turn_route_in_tx(repo, turn_ref, route, :write, lock: true),
-           :ok <- Lifecycle.lock_agent_slots_in_tx(repo, agent_uid),
-           %Job{} = job <-
-             Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-           {:ok, attrs} <- normalize_worker_attrs(attrs, job),
-           {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
-           :ok <- validate_attempt(job, attrs),
-           {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups) do
-        {:ok, turn}
-      else
-        nil -> {:error, :job_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+  def upsert_from_worker_in_tx(repo, %Job{} = job, attrs) when is_map(attrs) do
+    with {:ok, attrs} <- normalize_worker_attrs(attrs, job),
+         {trajectory_groups, attrs} <- Map.pop(attrs, "trajectory_groups", []),
+         :ok <- validate_attempt(job, attrs),
+         {:ok, turn} <- upsert_in_tx(repo, job, attrs, trajectory_groups) do
+      {:ok, turn}
+    end
   end
 
   @spec list_for_job(pos_integer(), keyword()) :: [Turn.t()]
@@ -454,7 +439,12 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       %{
         attempt: attempt,
         turn_statuses: ordered |> Enum.map(& &1.status) |> Enum.uniq(),
-        summary: attempt_summary(lead) || attempt_summary(ordered)
+        summary: attempt_summary(lead) || attempt_summary(ordered),
+        used_skill_names:
+          case attempt_used_skill_names(ordered) do
+            [] -> nil
+            names -> names
+          end
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -745,29 +735,47 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   defp aggregate_progress(turns, %Job{} = job) do
     totals =
-      Enum.reduce(turns, %{completed_items: 0, tool_calls: 0, tools: %{}, files: MapSet.new()}, fn
-        %Turn{progress: progress}, acc when is_map(progress) ->
-          %{
-            completed_items: acc.completed_items + nonnegative(progress["completed_items"]),
-            tool_calls: acc.tool_calls + nonnegative(progress["tool_calls"]),
-            tools: merge_tool_usage(acc.tools, progress["tools_used"]),
-            files: merge_files(acc.files, progress["files_changed"])
-          }
+      Enum.reduce(
+        turns,
+        %{
+          completed_items: 0,
+          tool_calls: 0,
+          tools: %{},
+          files: MapSet.new(),
+          skills: MapSet.new()
+        },
+        fn
+          %Turn{progress: progress}, acc when is_map(progress) ->
+            %{
+              completed_items: acc.completed_items + nonnegative(progress["completed_items"]),
+              tool_calls: acc.tool_calls + nonnegative(progress["tool_calls"]),
+              tools: merge_tool_usage(acc.tools, progress["tools_used"]),
+              files: merge_files(acc.files, progress["files_changed"]),
+              skills: merge_files(acc.skills, progress["skills_used"])
+            }
 
-        _turn, acc ->
-          acc
+          _turn, acc ->
+            acc
+        end
+      )
+
+    progress =
+      %{
+        completed_items: totals.completed_items,
+        tool_calls: totals.tool_calls,
+        tools_used:
+          totals.tools
+          |> Enum.sort_by(fn {name, _calls} -> name end)
+          |> Enum.map(fn {name, calls} -> %{name: name, calls: calls} end),
+        files_changed: totals.files |> MapSet.to_list() |> Enum.sort(),
+        active_items: active_items(turns, job)
+      }
+      |> then(fn progress ->
+        case totals.skills |> MapSet.to_list() |> Enum.sort() do
+          [] -> progress
+          skills -> Map.put(progress, :skills_used, skills)
+        end
       end)
-
-    progress = %{
-      completed_items: totals.completed_items,
-      tool_calls: totals.tool_calls,
-      tools_used:
-        totals.tools
-        |> Enum.sort_by(fn {name, _calls} -> name end)
-        |> Enum.map(fn {name, calls} -> %{name: name, calls: calls} end),
-      files_changed: totals.files |> MapSet.to_list() |> Enum.sort(),
-      active_items: active_items(turns, job)
-    }
 
     maybe_put(progress, :plan, latest_lead_plan(turns, job.runtime_thread_id))
   end
@@ -1163,6 +1171,17 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       end)
 
     error_summary || last_turn_summary(turns)
+  end
+
+  defp attempt_used_skill_names(turns) do
+    turns
+    |> Enum.flat_map(fn
+      %Turn{progress: %{"skills_used" => skills}} when is_list(skills) -> skills
+      _turn -> []
+    end)
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   defp remove_internal_uuid_tokens(text) when is_binary(text),

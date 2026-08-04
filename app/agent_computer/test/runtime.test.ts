@@ -189,6 +189,8 @@ describe('@ankole/agent-computer runtime', () => {
       turnStart: { turn: actorTurnRef() } as TurnStart,
       correlationID: 'turn-start-1',
       steeringUpdates: [],
+      disabledSkillNames: [],
+      changedSkillNames: [],
       abortController: new AbortController(),
       controlledStopRequested: false
     } satisfies ActiveTurn

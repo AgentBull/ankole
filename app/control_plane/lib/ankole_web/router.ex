@@ -322,63 +322,37 @@ defmodule AnkoleWeb.Router do
 
     get "/agents/:agent_uid/sessions", AgentSessionController, :index
 
-    get "/agents/:agent_uid/sessions/:session_id/cron-schedules",
-        ScheduleController,
-        :index_cron
+    get "/agents/:agent_uid/cron-schedules", ScheduleController, :index_cron
+    post "/agents/:agent_uid/cron-schedules", ScheduleController, :create_cron
+    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :show_cron
+    patch "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :update_cron
 
-    post "/agents/:agent_uid/sessions/:session_id/cron-schedules",
-         ScheduleController,
-         :create_cron
-
-    get "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
-        ScheduleController,
-        :show_cron
-
-    patch "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
-          ScheduleController,
-          :update_cron
-
-    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/pause",
+    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/pause",
          ScheduleController,
          :pause_cron
 
-    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/resume",
+    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/resume",
          ScheduleController,
          :resume_cron
 
-    delete "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
-           ScheduleController,
-           :remove_cron
+    delete "/agents/:agent_uid/cron-schedules/:cron_schedule_id", ScheduleController, :remove_cron
+    post "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :run_cron
+    get "/agents/:agent_uid/cron-schedules/:cron_schedule_id/runs", ScheduleController, :cron_runs
+    get "/agents/:agent_uid/checkbacks", ScheduleController, :index_checkbacks
 
-    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/runs",
-         ScheduleController,
-         :run_cron
-
-    get "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/runs",
-        ScheduleController,
-        :cron_runs
-
-    get "/agents/:agent_uid/sessions/:session_id/checkbacks",
-        ScheduleController,
-        :index_checkbacks
-
-    delete "/agents/:agent_uid/sessions/:session_id/checkbacks/:scheduled_event_id",
+    delete "/agents/:agent_uid/checkbacks/:scheduled_event_id",
            ScheduleController,
            :cancel_checkback
 
-    get "/agents/:agent_uid/sessions/:session_id/webhook-endpoints",
-        WebhookEndpointController,
-        :index
+    get "/agents/:agent_uid/webhook-endpoints", WebhookEndpointController, :index
 
-    delete "/agents/:agent_uid/sessions/:session_id/webhook-endpoints/:webhook_endpoint_id",
+    delete "/agents/:agent_uid/webhook-endpoints/:webhook_endpoint_id",
            WebhookEndpointController,
            :delete
 
-    get "/agents/:agent_uid/sessions/:session_id/automation-jobs",
-        AutomationJobController,
-        :index
+    get "/agents/:agent_uid/automation-jobs", AutomationJobController, :index
 
-    get "/agents/:agent_uid/sessions/:session_id/automation-jobs/:automation_job_id",
+    get "/agents/:agent_uid/automation-jobs/:automation_job_id",
         AutomationJobController,
         :show
   end

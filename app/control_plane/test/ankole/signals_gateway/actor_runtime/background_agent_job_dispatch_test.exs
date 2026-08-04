@@ -68,6 +68,95 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
     assert persisted.attempts == 1
   end
 
+  test "a custom Job profile freezes its resolved model across retry admission" do
+    %{principal: agent} = agent_fixture()
+    route = unique_route()
+    :ok = Broker.register_local_worker(route, self())
+    on_exit(fn -> Broker.unregister_local_worker(route) end)
+    assert {:ok, _worker} = admit_worker(route)
+    assert {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: heavy["provider_id"],
+               model: "moonshotai/kimi-k2.7-code",
+               provider_options: %{"reasoningEffort" => "high"}
+             })
+
+    assert {:ok, %{job: job}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "owner-session-custom-profile-retry",
+               "source_tool_call_id" => "tool-custom-profile-retry",
+               "title" => "Custom model retry",
+               "task" => "Preserve the selected runtime across retries.",
+               "model_profile" => "kimi",
+               "reply_route" => %{"binding_name" => "bot"}
+             })
+
+    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    ready_at = DateTime.add(job.queued_at, 1, :second)
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: ready_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, first_envelope}, 200
+    first_start = turn_start_payload!(first_envelope)
+    assert first_start.model_ref.profile == "kimi"
+    assert first_start.model_ref.model == "moonshotai/kimi-k2.7-code"
+
+    assert first_start.model_ref.provider_options_json ==
+             Ankole.JSON.encode!(%{"reasoningEffort" => "high"})
+
+    failure_time = DateTime.add(ready_at, 1, :second)
+    retry_at = DateTime.add(failure_time, 300, :second)
+
+    assert {:ok, %{status: :background_agent_job_requeued, retry_available_at: ^retry_at}} =
+             ActorRuntime.handle_turn_error(
+               turn_error_payload(
+                 first_start.turn,
+                 "worker_turn_failed",
+                 "AIGateway credential pool exhausted.",
+                 %{
+                   "error_code" => "credential_pool_exhausted",
+                   "retryable" => true,
+                   "retry_at" => DateTime.to_iso8601(retry_at)
+                 }
+               ),
+               now: failure_time
+             )
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: heavy["provider_id"],
+               model: "moonshotai/kimi-k3-code",
+               provider_options: %{"reasoningEffort" => "max"}
+             })
+
+    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+             ReadyEventProcessor.process_ready_event_for_actor(actor_key,
+               now: retry_at,
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert_receive {:actor_lane, retry_envelope}, 200
+    retry_start = turn_start_payload!(retry_envelope)
+    assert retry_start.model_ref.profile == "kimi"
+    assert retry_start.model_ref.model == "moonshotai/kimi-k2.7-code"
+
+    assert retry_start.model_ref.provider_options_json ==
+             Ankole.JSON.encode!(%{"reasoningEffort" => "high"})
+
+    persisted = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
+    assert persisted.model_profile == "kimi"
+    assert persisted.runtime_projection["model_ref"]["model"] == "moonshotai/kimi-k2.7-code"
+  end
+
   test "a message cannot resume a settled job" do
     %{principal: agent} = agent_fixture()
     route = unique_route()

@@ -801,6 +801,7 @@
           "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
           "inserted_at": { "type": "string" },
           "metadata": { "additionalProperties": true, "type": "object" },
+          "model_profile": { "type": "string" },
           "owner_session_id": { "type": "string" },
           "queued_at": { "nullable": true, "type": "string" },
           "reply_route": { "additionalProperties": true, "type": "object" },
@@ -829,6 +830,7 @@
           "status",
           "attempts",
           "workspace_template_id",
+          "model_profile",
           "reply_route",
           "result",
           "error",
@@ -1381,6 +1383,7 @@
         "additionalProperties": false,
         "properties": {
           "context_length": { "minimum": 1, "type": "integer" },
+          "description": { "maxLength": 200, "type": "string" },
           "model": { "type": "string" },
           "provider_id": { "type": "string" },
           "provider_options": { "additionalProperties": true, "type": "object" }
@@ -1426,10 +1429,11 @@
           "name": { "minLength": 1, "type": "string" },
           "payload": { "$ref": "#/components/schemas/JSONValue" },
           "schedule": { "$ref": "#/components/schemas/JSONValue" },
+          "session_id": { "minLength": 1, "type": "string" },
           "status": { "enum": ["active", "paused"], "nullable": true, "type": "string" },
           "timezone": { "nullable": true, "type": "string" }
         },
-        "required": ["binding_name", "name", "schedule", "delivery", "idempotency_key"],
+        "required": ["session_id", "binding_name", "name", "schedule", "delivery", "idempotency_key"],
         "title": "ScheduleCronWriteRequest",
         "type": "object"
       },
@@ -2443,6 +2447,33 @@
         "tags": ["Workers"]
       }
     },
+    "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/pause": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.pause_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Pause one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
     "/api/v1/brain/dreaming-fitness": {
       "get": {
         "callbacks": {},
@@ -2595,31 +2626,66 @@
         "tags": ["Control Plane Plugins"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
+    "/api/v1/agents/{agent_uid}/cron-schedules": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleListResponse" } }
+            },
+            "description": "Cron schedules"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List recurring schedules for one Agent",
+        "tags": ["Schedule"]
+      },
       "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.pause_cron",
+        "operationId": "AnkoleWeb.ScheduleController.create_cron",
         "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
         ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronWriteRequest" } } },
+          "description": "Cron schedule",
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
             },
             "description": "Cron schedule"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid schedule"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Pause one recurring schedule",
+        "summary": "Create one recurring schedule",
         "tags": ["Schedule"]
       }
     },
@@ -2857,6 +2923,31 @@
         "tags": ["AppConfigure"]
       }
     },
+    "/api/v1/agents/{agent_uid}/checkbacks/{scheduled_event_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "scheduled_event_id",
+            "required": true,
+            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventResponse" } } },
+            "description": "Scheduled event"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Cancel one pending checkback wakeup",
+        "tags": ["Schedule"]
+      }
+    },
     "/api/v1/principal-groups": {
       "get": {
         "callbacks": {},
@@ -2914,35 +3005,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create one operator Principal group",
         "tags": ["AuthZ"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.WebhookEndpointController.index",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointListResponse" } }
-            },
-            "description": "Webhook endpoints"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List webhook endpoints for one agent session",
-        "tags": ["Webhooks"]
       }
     },
     "/api/v1/principal-groups/computed-member-previews": {
@@ -3139,71 +3201,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Add one credential-pool member",
         "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleListResponse" } }
-            },
-            "description": "Cron schedules"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List recurring schedules for one agent session",
-        "tags": ["Schedule"]
-      },
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.create_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } }
-        ],
-        "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronWriteRequest" } } },
-          "description": "Cron schedule",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
-            },
-            "description": "Cron schedule"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid schedule"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Create one recurring schedule",
-        "tags": ["Schedule"]
       }
     },
     "/api/v1/agents/{agent_uid}/library-capabilities/agent-plugins/{id}": {
@@ -3626,34 +3623,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "List AIGateway provider kinds",
         "tags": ["AIGateway"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.resume_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
-            },
-            "description": "Cron schedule"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Resume one recurring schedule",
-        "tags": ["Schedule"]
       }
     },
     "/api/v1/agents/{agent_uid}/library-capabilities": {
@@ -4957,6 +4926,50 @@
         "tags": ["Identity Providers"]
       }
     },
+    "/api/v1/agents/{agent_uid}/automation-jobs/{automation_job_id}": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AutomationJobController.show",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "automation_job_id",
+            "required": true,
+            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "runs",
+            "required": false,
+            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobResponse" } } },
+            "description": "Automation job"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one automation job and its recent run history",
+        "tags": ["Automation Jobs"]
+      }
+    },
     "/api/v1/principals/{uid}/grants": {
       "get": {
         "callbacks": {},
@@ -5108,25 +5121,19 @@
         "tags": ["AIGateway"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}": {
-      "delete": {
+    "/api/v1/agents/{agent_uid}/webhook-endpoints": {
+      "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.WebhookEndpointController.delete",
+        "operationId": "AnkoleWeb.WebhookEndpointController.index",
         "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "webhook_endpoint_id",
-            "required": true,
-            "schema": { "format": "uuid", "type": "string" }
-          }
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointResponse" } } },
-            "description": "Webhook endpoint"
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointListResponse" } }
+            },
+            "description": "Webhook endpoints"
           },
           "401": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
@@ -5135,35 +5142,37 @@
           "403": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
             "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Cancel one webhook endpoint",
+        "summary": "List webhook endpoints for one Agent",
         "tags": ["Webhooks"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
-      "get": {
+    "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume": {
+      "post": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
+        "operationId": "AnkoleWeb.ScheduleController.resume_cron",
         "parameters": [
           { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } }
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventListResponse" } }
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
             },
-            "description": "Scheduled events"
+            "description": "Cron schedule"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "List checkback wakeups for one agent session",
+        "summary": "Resume one recurring schedule",
         "tags": ["Schedule"]
       }
     },
@@ -5243,119 +5252,6 @@
         "tags": ["Principals"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.remove_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
-            },
-            "description": "Cron schedule"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Remove one recurring schedule",
-        "tags": ["Schedule"]
-      },
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.show_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
-            },
-            "description": "Cron schedule"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Read one recurring schedule",
-        "tags": ["Schedule"]
-      },
-      "patch": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.update_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "requestBody": {
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronUpdateRequest" } } },
-          "description": "Cron schedule update",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
-            },
-            "description": "Cron schedule"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Not found"
-          },
-          "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Invalid schedule"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Update one recurring schedule",
-        "tags": ["Schedule"]
-      }
-    },
     "/api/v1/permission-grants": {
       "post": {
         "callbacks": {},
@@ -5393,64 +5289,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create one permission grant for a Principal or a group",
         "tags": ["AuthZ"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.cron_runs",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          { "description": "", "in": "query", "name": "limit", "required": false, "schema": { "type": "integer" } }
-        ],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleRunListResponse" } } },
-            "description": "Schedule runs"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List recent concrete fires for one recurring schedule",
-        "tags": ["Schedule"]
-      },
-      "post": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.run_cron",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "cron_schedule_id",
-            "required": true,
-            "schema": { "type": "string" }
-          },
-          {
-            "description": "",
-            "in": "header",
-            "name": "Idempotency-Key",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventResponse" } } },
-            "description": "Scheduled event"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "Manually run one recurring schedule",
-        "tags": ["Schedule"]
       }
     },
     "/api/v1/agents/{agent_uid}/signal-bindings/{binding_name}": {
@@ -5648,29 +5486,23 @@
         "tags": ["Brain"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
-      "delete": {
+    "/api/v1/agents/{agent_uid}/checkbacks": {
+      "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
+        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
         "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "path",
-            "name": "scheduled_event_id",
-            "required": true,
-            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
-          }
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } }
         ],
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventResponse" } } },
-            "description": "Scheduled event"
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventListResponse" } }
+            },
+            "description": "Scheduled events"
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Cancel one pending checkback wakeup",
+        "summary": "List checkback wakeups for one Agent",
         "tags": ["Schedule"]
       }
     },
@@ -5766,6 +5598,116 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Create or update one signal binding for an agent",
         "tags": ["Signal Bindings"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.remove_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Remove one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.show_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
+            },
+            "description": "Cron schedule"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.update_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronUpdateRequest" } } },
+          "description": "Cron schedule update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCronScheduleResponse" } }
+            },
+            "description": "Cron schedule"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid schedule"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Update one recurring schedule",
+        "tags": ["Schedule"]
       }
     },
     "/api/v1/ai-gateway/conversations": {
@@ -5883,32 +5825,24 @@
         "tags": ["Principals"]
       }
     },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}": {
-      "get": {
+    "/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}": {
+      "delete": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.AutomationJobController.show",
+        "operationId": "AnkoleWeb.WebhookEndpointController.delete",
         "parameters": [
           { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
           {
             "description": "",
             "in": "path",
-            "name": "automation_job_id",
+            "name": "webhook_endpoint_id",
             "required": true,
-            "schema": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" }
-          },
-          {
-            "description": "",
-            "in": "query",
-            "name": "runs",
-            "required": false,
-            "schema": { "maximum": 100, "minimum": 1, "type": "integer" }
+            "schema": { "format": "uuid", "type": "string" }
           }
         ],
         "responses": {
           "200": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobResponse" } } },
-            "description": "Automation job"
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookEndpointResponse" } } },
+            "description": "Webhook endpoint"
           },
           "401": {
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
@@ -5924,8 +5858,8 @@
           }
         },
         "security": [{ "consoleBearer": [] }],
-        "summary": "Read one automation job and its recent run history",
-        "tags": ["Automation Jobs"]
+        "summary": "Cancel one webhook endpoint",
+        "tags": ["Webhooks"]
       }
     },
     "/api/v1/brain/entries": {
@@ -6234,6 +6168,41 @@
         "tags": ["WorkerEnv"]
       }
     },
+    "/api/v1/agents/{agent_uid}/automation-jobs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AutomationJobController.index",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobListResponse" } }
+            },
+            "description": "Automation jobs"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List automation jobs for one Agent",
+        "tags": ["Automation Jobs"]
+      }
+    },
     "/api/v1/background-agent-jobs/{job_id}/cancel": {
       "post": {
         "callbacks": {},
@@ -6306,42 +6275,6 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Reveal one encrypted AppConfigure value on demand",
         "tags": ["AppConfigure"]
-      }
-    },
-    "/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.AutomationJobController.index",
-        "parameters": [
-          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
-          { "description": "", "in": "path", "name": "session_id", "required": true, "schema": { "type": "string" } },
-          {
-            "description": "",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": { "maximum": 500, "minimum": 1, "type": "integer" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AutomationJobListResponse" } }
-            },
-            "description": "Automation jobs"
-          },
-          "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
-            "description": "Forbidden"
-          }
-        },
-        "security": [{ "consoleBearer": [] }],
-        "summary": "List automation jobs for one agent session",
-        "tags": ["Automation Jobs"]
       }
     },
     "/api/v1/ai-gateway/embeddings": {
@@ -7080,6 +7013,62 @@
         "security": [{ "consoleBearer": [] }],
         "summary": "Apply structured human Brain entry operations",
         "tags": ["Brain"]
+      }
+    },
+    "/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.cron_runs",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          { "description": "", "in": "query", "name": "limit", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleRunListResponse" } } },
+            "description": "Schedule runs"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List recent concrete fires for one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.run_cron",
+        "parameters": [
+          { "description": "", "in": "path", "name": "agent_uid", "required": true, "schema": { "type": "string" } },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "description": "",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleEventResponse" } } },
+            "description": "Scheduled event"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Manually run one recurring schedule",
+        "tags": ["Schedule"]
       }
     },
     "/api/v1/agent-library/agent-plugins/{id}": {

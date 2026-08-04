@@ -34,6 +34,19 @@ describe('Codex app-server client transport', () => {
     expect(transport.killCount()).toBe(1)
   })
 
+  it('lets closeAndWait reap a clean EOF exit before it sends a kill', async () => {
+    const transport = fakeTransport()
+    const client = new CodexAppServerClient(clientOptions(), transport.spawn)
+
+    const closing = client.closeAndWait()
+    await Promise.resolve()
+    transport.exit(0)
+    await closing
+
+    expect(transport.endCount()).toBe(1)
+    expect(transport.killCount()).toBe(0)
+  })
+
   it('reassembles one JSON-RPC response split across arbitrary byte chunks', async () => {
     const transport = fakeTransport()
     const client = new CodexAppServerClient(clientOptions(), transport.spawn)
@@ -101,7 +114,7 @@ describe('Codex app-server client transport', () => {
       else if (mode === 'eof') transport.closeStdout()
       else transport.errorStdout(new Error('stdout pipe broke'))
 
-      const error = await settlesWithin(pending, 100)
+      const error = await settlesWithin(pending, 250)
       expect(error).toBeInstanceOf(Error)
       const expectedMessage =
         mode === 'process_exit' ? 'exited with code 9' : mode === 'eof' ? 'stdout closed' : 'stdout pipe broke'
@@ -121,6 +134,7 @@ function clientOptions() {
 
 function fakeTransport(overrides: { write?: (chunk: string | Uint8Array) => unknown } = {}) {
   let kills = 0
+  let ends = 0
   let resolveExited: ((code: number | null) => void) | undefined
   let stdoutController: ReadableStreamDefaultController<Uint8Array> | undefined
   const stdout = new ReadableStream<Uint8Array>({
@@ -132,7 +146,9 @@ function fakeTransport(overrides: { write?: (chunk: string | Uint8Array) => unkn
   const proc = {
     stdin: {
       write: overrides.write ?? (() => undefined),
-      end: () => undefined
+      end: () => {
+        ends += 1
+      }
     },
     stdout,
     stderr,
@@ -147,6 +163,7 @@ function fakeTransport(overrides: { write?: (chunk: string | Uint8Array) => unkn
   return {
     spawn: () => proc,
     killCount: () => kills,
+    endCount: () => ends,
     stdout: (chunk: string | Uint8Array) =>
       stdoutController?.enqueue(typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk),
     closeStdout: () => stdoutController?.close(),

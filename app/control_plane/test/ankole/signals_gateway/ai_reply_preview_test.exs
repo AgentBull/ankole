@@ -141,6 +141,26 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
            }
   end
 
+  test "preview identifies an automatic cron wake" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("scheduled-task")
+
+    actor_event =
+      actor_event
+      |> ActorEvent.changeset(%{
+        type: "cron.fire",
+        payload: %{
+          "data" => %{"wake_payload" => %{"trigger" => "scheduled"}}
+        }
+      })
+      |> Repo.update!()
+
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+
+    assert :sys.get_state(pid).presentation["trigger_context"] == %{
+             "kind" => "scheduled_task"
+           }
+  end
+
   test "preview ignores another opaque actor_event_id in the same conversation" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("metadata-filter")
 

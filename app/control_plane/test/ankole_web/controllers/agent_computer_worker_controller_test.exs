@@ -117,11 +117,4 @@ defmodule AnkoleWeb.AgentComputerWorkerControllerTest do
 
     %{worker_id: worker.worker_id, transport_route: route, row: worker}
   end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
 end

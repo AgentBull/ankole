@@ -53,6 +53,7 @@ describe('ModelProfilesModel', () => {
 
     model.clear('light')
     expect(model.snapshot('light')).toEqual({
+      description: '',
       providerID: '',
       model: '',
       contextLength: '',

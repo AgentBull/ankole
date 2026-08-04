@@ -43,6 +43,23 @@ Agent model profiles include `primary`, `light`, `heavy`, `coding`,
 directly. Every profile and direct selector points to one provider row. Neither
 form selects a member of its credential pool.
 
+An Agent can also store custom LLM profiles in the same
+`agents.options["ai_agent"]["models"]` map. A custom name matches
+`[a-z][a-z0-9_-]{0,63}`, does not use a fixed profile name, and has a required
+description. Custom profiles cannot represent embedding, rerank, search,
+fetch, or image generation. The name is immutable after creation. There is no
+separate custom-profile entity.
+
+The Agent Console has sibling `Model profiles` and `Custom model profiles`
+sections. Both use the same provider, model, context-length, and request-option
+form. The custom section also requires the immutable name and description. The
+`coding` label identifies the Background Agent Job default model.
+
+For an Agent token, `GET /models` exposes each configured custom name as an
+alias and uses its description in the catalog. Another Agent and an admin
+human do not see or resolve that alias. Explicit `provider_id/raw-model-id`
+selectors remain visible to the subjects that can use AIGateway.
+
 The `coding` profile is an ordinary AIGateway profile. It contains
 `provider_id`, `model`, and request-level `provider_options`. A ChatGPT
 subscription is an ordinary provider kind. There is no second Codex runtime
@@ -53,19 +70,26 @@ neither profile is configured.
 
 ## Bind a Codex Job to Its Model Snapshot
 
-The control plane resolves the effective `coding` profile when it creates a
-Job. The Job stores the real Codex model, the exact
+When the first execution attempt is admitted, the control plane resolves the
+Job's logical model profile and stores it in the Job runtime projection in the
+same transaction. An omitted selection uses `coding`; an explicit selection
+can use only one custom profile configured for that Agent. The Job stores the
+logical profile name separately from the real Codex model, the exact
 `provider_id/raw-model-id` selector, all provider options, the optional context
 length, and the provider parallel-tool-call capability. A retry uses this
-snapshot. A new or respawned Job resolves the current profile again.
+snapshot. A new or respawned Job resolves the current profile at its own first
+execution admission.
 
 Agent Computer puts the real model in the Job project configuration and selects
 the `ankole_aigateway` Codex provider. It sends the frozen binding in the
 `x-ankole-aigateway-model-binding` header. AIGateway applies this binding before
-provider resolution. The runner removes `model_catalog_json` from the Job
-project configuration, so a workspace template cannot replace the
-AIGateway-owned model cards. The `coding` profile name never enters Codex as a
-model.
+provider resolution. The binding replaces a conflicting Codex model, provider
+option, reasoning effort, or parallel-tool-call choice. Responses Lite stays
+serial. Thus Codex receives the real model and effort that it needs for local
+execution, but AIGateway remains the authority for the upstream request. The
+runner removes `model_catalog_json` from the Job project configuration, so a
+workspace template cannot replace the AIGateway-owned model cards. The
+logical profile name never enters Codex as a model.
 
 The same path handles API-key providers and `chatgpt_subscription`. Agent
 Computer does not resolve, store, refresh, or write back provider

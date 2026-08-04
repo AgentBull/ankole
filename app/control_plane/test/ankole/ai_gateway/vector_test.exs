@@ -462,9 +462,17 @@ defmodule Ankole.AIGateway.VectorTest do
                }
              })
 
-    assert {:error, {:unknown_model_selector, "llm", "missing-alias"}} =
+    # An Agent can own custom model profiles, so a plain lowercase name is a
+    # profile candidate rather than an unknown selector. It still fails closed.
+    assert {:error, :model_profile_not_configured} =
              AIGateway.create_response(agent.uid, %{
                "model" => "missing-alias",
+               "input" => "hello"
+             })
+
+    assert {:error, {:unknown_model_selector, "llm", "Missing Alias"}} =
+             AIGateway.create_response(agent.uid, %{
+               "model" => "Missing Alias",
                "input" => "hello"
              })
 

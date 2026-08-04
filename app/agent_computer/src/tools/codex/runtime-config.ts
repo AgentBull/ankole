@@ -3,7 +3,16 @@ import type { AIGatewayAPIKeyRequester } from '../../core/turns/turn_options'
 import type { TurnStart } from '../../lanes/actor_lane'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 
-export const CODEX_MODEL_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
+export const CODEX_MODEL_REASONING_EFFORTS = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra'
+] as const
 
 export type CodexModelReasoningEffort = (typeof CODEX_MODEL_REASONING_EFFORTS)[number]
 
@@ -34,10 +43,7 @@ export async function resolveCodexRuntimeConfig(input: {
 
 function modelProfile(turnStart: TurnStart): CodexAIGatewayModelProfile {
   const modelRef = turnStart.model_ref
-  if (!modelRef) throw new Error('Background Agent Job turn is missing its coding model_ref')
-  if (modelRef.profile !== 'coding') {
-    throw new Error('Background Agent Job turn did not resolve the coding model profile')
-  }
+  if (!modelRef) throw new Error('Background Agent Job turn is missing its model_ref')
 
   const providerID = requiredText(modelRef.provider_id, 'provider_id')
   const upstreamModel = requiredText(modelRef.model, 'model')
@@ -57,7 +63,7 @@ function modelProfile(turnStart: TurnStart): CodexAIGatewayModelProfile {
 
 function requiredText(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`Background Agent Job coding model_ref.${field} must be a non-empty string`)
+    throw new Error(`Background Agent Job model_ref.${field} must be a non-empty string`)
   }
   return value.trim()
 }

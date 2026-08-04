@@ -6,6 +6,7 @@ defmodule Ankole.Brain.EmbeddingsTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache
   alias Ankole.Brain
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embedding
@@ -15,9 +16,20 @@ defmodule Ankole.Brain.EmbeddingsTest do
   alias Ankole.Repo
 
   setup do
+    # The AppConfigure cache is a process, so it outlives the sandbox
+    # transaction. Without this reset the installation vector space set by an
+    # earlier test leaks into this one, and blocks embedded in the leaked
+    # dimensions drop out of vector recall.
+    allow_cache_database_access()
+    Cache.clear_for_test()
     :ok = Brain.ensure_registered()
     :ok = AppConfigure.delete_global(Config.embedding_definition())
-    on_exit(fn -> AppConfigure.delete_global(Config.embedding_definition()) end)
+
+    on_exit(fn ->
+      AppConfigure.delete_global(Config.embedding_definition())
+      Cache.clear_for_test()
+    end)
+
     :ok
   end
 

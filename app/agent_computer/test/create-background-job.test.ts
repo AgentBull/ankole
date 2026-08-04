@@ -64,6 +64,7 @@ describe('@ankole/agent-computer create_background_job tool', () => {
         sourceToolCallId: 'call-1',
         title: 'Research',
         task: '  Preserve this task verbatim.  ',
+        modelProfile: '',
         workspaceTemplateId: 'deep-research'
       }
     ])
@@ -76,6 +77,50 @@ describe('@ankole/agent-computer create_background_job tool', () => {
     expect(
       tool.schema.safeParse({ title: 'Research', task: 'Write the report.', workspace_template_id: 'missing' }).success
     ).toBe(false)
+  })
+
+  it('offers only projected custom model profiles and sends the selected logical name', async () => {
+    const requests: Array<Record<string, unknown>> = []
+    const tool = createCreateBackgroundJobTool(
+      toolOptions({
+        turnStart: {
+          ...turnStartForTest(),
+          request_context: {
+            ai_agent: { max_iterations: 90 },
+            custom_model_profiles: [
+              { name: 'deepseek', description: 'Low-cost code review.' },
+              { name: 'kimi', description: 'Long-context coding.' }
+            ]
+          }
+        },
+        rpc: (async (_method: unknown, payload: unknown) => {
+          requests.push(payload as Record<string, unknown>)
+          return response()
+        }) as RPCRequester
+      })
+    )
+    const jsonSchema = zodToJSONSchema(tool.schema) as Record<string, any>
+
+    expect(jsonSchema.properties.model_profile.enum).toEqual(['deepseek', 'kimi'])
+    expect(jsonSchema.required).not.toContain('model_profile')
+    expect(tool.description).toContain('kimi (Long-context coding.)')
+    expect(tool.schema.safeParse({ title: 'Research', task: 'Do it.', model_profile: 'coding' }).success).toBe(false)
+
+    await tool.execute(
+      'call-custom',
+      { title: 'Research', task: 'Do it.', model_profile: 'kimi' },
+      new AbortController().signal
+    )
+
+    expect(requests).toEqual([
+      {
+        sourceToolCallId: 'call-custom',
+        title: 'Research',
+        task: 'Do it.',
+        modelProfile: 'kimi',
+        workspaceTemplateId: ''
+      }
+    ])
   })
 })
 

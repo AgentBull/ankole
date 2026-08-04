@@ -18,6 +18,7 @@ defmodule Ankole.BackgroundAgentJobs do
   @job_session_prefix_size byte_size(@job_session_prefix)
   @minimum_job_id 1000
   @maximum_job_id 9_007_199_254_740_991
+  @turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
 
   @doc """
   Builds the durable actor-session id for one BackgroundAgentJob.
@@ -69,6 +70,21 @@ defmodule Ankole.BackgroundAgentJobs do
   @spec job_session_prefix() :: String.t()
   def job_session_prefix, do: @job_session_prefix
 
+  @doc false
+  @spec turn_error_retry_at(map(), pos_integer(), DateTime.t()) :: DateTime.t()
+  def turn_error_retry_at(reason, delivery_attempt_no, %DateTime{} = now)
+      when is_map(reason) and is_integer(delivery_attempt_no) and delivery_attempt_no > 0 do
+    credential_pool_retry_at(reason, now) ||
+      DateTime.add(
+        now,
+        Enum.at(
+          @turn_error_retry_seconds,
+          min(delivery_attempt_no, length(@turn_error_retry_seconds)) - 1
+        ),
+        :second
+      )
+  end
+
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
 
@@ -76,12 +92,18 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
 
   @doc false
-  defdelegate claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt),
+  defdelegate claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec),
     to: Lifecycle
 
   @doc false
-  defdelegate claim_continuation_in_tx(repo, job_id, agent_uid, expected_attempt),
-    to: Lifecycle
+  defdelegate claim_continuation_in_tx(
+                repo,
+                job_id,
+                agent_uid,
+                expected_attempt,
+                turn_start_spec
+              ),
+              to: Lifecycle
 
   @doc false
   defdelegate requeue_unstarted_attempt(job_id, agent_uid, expected_attempt),
@@ -90,6 +112,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
     to: Lifecycle
+
+  @doc false
+  defdelegate finalize_worker_turn_in_tx(repo, turn_ref, now), to: Lifecycle
 
   @doc "Delays one still-open job actor event without consuming it."
   defdelegate defer_actor_event(actor_event, available_at), to: Dispatch
@@ -145,11 +170,11 @@ defmodule Ankole.BackgroundAgentJobs do
           input_state: "open"
         },
         %{
-          "details_json" => %{"error_code" => "credential_pool_exhausted"} = details
-        },
-        %DateTime{}
+          "details_json" => %{"error_code" => "credential_pool_exhausted"}
+        } = reason,
+        %DateTime{} = now
       ) do
-    with true <- valid_credential_pool_retry_at?(details),
+    with %DateTime{} <- credential_pool_retry_at(reason, now) || :invalid_retry_at,
          {:ok, job_id} <- parse_job_session_id(session_id),
          {:ok, job} <-
            Lifecycle.requeue_credential_pool_exhausted_attempt_in_tx(
@@ -159,7 +184,7 @@ defmodule Ankole.BackgroundAgentJobs do
            ) do
       {:ok, %{kind: :credential_pool_requeued, job: job}}
     else
-      false -> {:ok, nil}
+      :invalid_retry_at -> {:ok, nil}
       :error -> {:ok, nil}
       {:error, _reason} = error -> error
     end
@@ -218,12 +243,37 @@ defmodule Ankole.BackgroundAgentJobs do
   def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
-  defp valid_credential_pool_retry_at?(%{"retry_at" => retry_at})
-       when is_binary(retry_at) do
-    match?({:ok, %DateTime{}, _offset}, DateTime.from_iso8601(retry_at))
+  defp credential_pool_retry_at(%{"details_json" => details}, now) when is_map(details) do
+    if credential_pool_exhausted_details?(details) do
+      details
+      |> pool_retry_at_value()
+      |> parse_pool_retry_at(now)
+    end
   end
 
-  defp valid_credential_pool_retry_at?(_details), do: false
+  defp credential_pool_retry_at(_reason, _now), do: nil
+
+  defp credential_pool_exhausted_details?(details) do
+    details["error_code"] == "credential_pool_exhausted" or
+      get_in(details, ["aigateway", "code"]) == "credential_pool_exhausted"
+  end
+
+  defp pool_retry_at_value(details) do
+    details["retry_at"] ||
+      get_in(details, ["aigateway", "details_json", "retry_at"])
+  end
+
+  defp parse_pool_retry_at(retry_at, now) when is_binary(retry_at) do
+    case DateTime.from_iso8601(retry_at) do
+      {:ok, parsed, _offset} ->
+        if DateTime.compare(parsed, now) == :lt, do: now, else: parsed
+
+      _error ->
+        nil
+    end
+  end
+
+  defp parse_pool_retry_at(_retry_at, _now), do: nil
 
   @doc false
   def finalize_turn_error(
@@ -279,8 +329,7 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc false
   defdelegate upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, route),
-    to: Turns,
-    as: :upsert_from_worker
+    to: Lifecycle
 
   @doc "Lists normalized runtime turns for one job."
   defdelegate list_turns(job_id, opts \\ []), to: Turns, as: :list_for_job

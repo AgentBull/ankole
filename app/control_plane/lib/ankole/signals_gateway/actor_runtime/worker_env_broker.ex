@@ -22,8 +22,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvBroker do
       with {:ok, agent_uid} <- frame_agent_uid(agent_uid),
            {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
            :active <- principal.status,
-           {:ok, vars} <- WorkerEnv.effective_env(principal.uid) do
-        {:ok, %FabricProto.WorkerEnvResolveResponse{vars: vars}}
+           {:ok, %{operator: operator, binding: binding}} <-
+             WorkerEnv.effective_env_parts(principal.uid) do
+        {:ok,
+         %FabricProto.WorkerEnvResolveResponse{
+           vars: Map.merge(operator, binding),
+           operator_vars: operator,
+           binding_vars: binding
+         }}
       end
 
     case result do

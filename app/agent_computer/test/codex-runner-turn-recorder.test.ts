@@ -142,6 +142,17 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
     expect(upserts).toHaveLength(checkpointCount)
   })
 
+  it('checkpoints the bounded set of Skills with runtime usage evidence', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted('thread-1', startedTurn(), 'Use $pdf.', 'event-1')
+    recorder.recordSkillUsed('turn-1', 'pdf')
+    recorder.recordSkillUsed('turn-1', 'pdf')
+    recorder.recordSkillUsed('turn-1', 'docx')
+    await recorder.flush()
+
+    expect(upserts.at(-1)?.progress.skills_used).toEqual(['docx', 'pdf'])
+  })
+
   it('coalesces plan, usage, and diff snapshots and flushes them on a terminal Turn', async () => {
     const { recorder, upserts } = fixture(60_000)
     recorder.recordTurnStarted('thread-1', startedTurn(), '实现并验证', 'event-1')

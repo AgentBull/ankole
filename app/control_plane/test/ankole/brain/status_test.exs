@@ -1,4 +1,4 @@
-defmodule Ankole.Brain.HealthCheckTest do
+defmodule Ankole.Brain.StatusTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
@@ -6,7 +6,6 @@ defmodule Ankole.Brain.HealthCheckTest do
 
   alias Ankole.Brain
   alias Ankole.Brain.Config
-  alias Ankole.Brain.HealthCheck
   alias Ankole.Brain.Jobs.CuratePrincipal
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Scope
@@ -18,9 +17,23 @@ defmodule Ankole.Brain.HealthCheckTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache
   alias Ankole.AuthZ.Group
   alias Ankole.Repo
   alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel}
+
+  setup do
+    # The AppConfigure cache is a process, so it outlives the sandbox transaction
+    # that rolls its rows back. Without this reset the global knowledge and
+    # embedding configuration leaks in both directions between this file and its
+    # neighbors.
+    allow_cache_database_access()
+    Cache.clear_for_test()
+
+    on_exit(fn -> Cache.clear_for_test() end)
+
+    :ok
+  end
 
   test "orphan detection ignores self-mentions and accepts mentions from another entry" do
     %{principal: agent} = agent_fixture()
@@ -28,7 +41,7 @@ defmodule Ankole.Brain.HealthCheckTest do
 
     alpha = create_entry(scope, agent.uid, "Alpha Subject", "Alpha Subject describes itself")
 
-    assert {:ok, first_health} = HealthCheck.diagnostics(scope)
+    assert {:ok, first_health} = diagnostics(scope)
 
     assert Enum.any?(
              first_health["orphan_entries"],
@@ -37,7 +50,7 @@ defmodule Ankole.Brain.HealthCheckTest do
 
     beta = create_entry(scope, agent.uid, "Beta Notes", "Evidence points to Alpha Subject")
 
-    assert {:ok, second_health} = HealthCheck.diagnostics(scope)
+    assert {:ok, second_health} = diagnostics(scope)
 
     refute Enum.any?(
              second_health["orphan_entries"],
@@ -100,7 +113,7 @@ defmodule Ankole.Brain.HealthCheckTest do
     |> Channel.changeset(%{principal_group_id: group.id})
     |> Repo.update!()
 
-    assert {:ok, health} = HealthCheck.diagnostics(scope)
+    assert {:ok, health} = diagnostics(scope)
 
     assert Enum.any?(health["stale_entries"], fn item ->
              item["entry_id"] == entry.id and item["lag_days"] >= 90 and
@@ -175,7 +188,7 @@ defmodule Ankole.Brain.HealthCheckTest do
 
     weak_entry = create_entry(scope, agent.uid, "Uncited generated claim", "A generated claim")
 
-    assert {:ok, first_health} = HealthCheck.diagnostics(scope)
+    assert {:ok, first_health} = diagnostics(scope)
 
     assert Enum.any?(
              first_health["unintegrated_sources"],
@@ -210,7 +223,7 @@ defmodule Ankole.Brain.HealthCheckTest do
       }
     ])
 
-    assert {:ok, second_health} = HealthCheck.diagnostics(scope)
+    assert {:ok, second_health} = diagnostics(scope)
 
     refute Enum.any?(
              second_health["unintegrated_sources"],
@@ -464,6 +477,13 @@ defmodule Ankole.Brain.HealthCheckTest do
 
     assert "embedding_space_stale" in status["alerts"]
     refute "embedding_unavailable" in status["alerts"]
+  end
+
+  defp diagnostics(scope) do
+    case Brain.health_check(scope) do
+      {:ok, status} -> {:ok, status["diagnostics"]}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp create_entry(scope, actor_uid, name, body) do

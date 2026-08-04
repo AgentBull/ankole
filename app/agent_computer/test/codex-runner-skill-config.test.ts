@@ -1,134 +1,73 @@
 import { describe, expect, it } from 'bun:test'
-import { create } from '@bufbuild/protobuf'
-import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { configureCodexSkills } from '../src/core/codex-runner'
-import type { PreparedAgentPlugins } from '../src/core/codex-runner/agent-plugin-materializer'
+import { verifiedCodexSkills } from '../src/core/codex-runner'
 
-describe('@ankole/agent-computer Codex Agent Plugin Skill configuration', () => {
-  it('writes every member by absolute path and verifies the final state on every prepare', async () => {
+describe('@ankole/agent-computer Codex project Skill discovery', () => {
+  it('uses native project discovery without mutating process-global Skill configuration', async () => {
     const cwd = '/agents/agent-1/jobs/job-1'
-    const skillsRoot = `${cwd}/.ankole/skills`
-    const states = new Map([
-      ['coding', true],
-      ['office:docx', false],
-      ['office:xlsx', true]
-    ])
-    const writes: Array<{ path: string; enabled: boolean }> = []
-    const requests: string[] = []
-    const paths = new Map([
-      ['coding', `${skillsRoot}/coding/SKILL.md`],
-      ['office:docx', `${cwd}/.codex/plugins/office/skills/docx/SKILL.md`],
-      ['office:xlsx', `${cwd}/.codex/plugins/office/skills/xlsx/SKILL.md`]
-    ])
+    const requests: Array<{ method: string; params: unknown }> = []
     const client = {
       async request(method: string, params: unknown) {
-        requests.push(method)
-        if (method === 'skills/extraRoots/set') return {}
-        if (method === 'skills/list') {
-          return {
-            data: [
-              {
-                cwd,
-                errors: [],
-                skills: [...states].map(([name, enabled]) => ({ name, enabled, path: paths.get(name) }))
-              }
-            ]
-          }
+        requests.push({ method, params })
+        if (method !== 'skills/list') throw new Error(`unexpected method ${method}`)
+        return {
+          data: [
+            {
+              cwd,
+              errors: [],
+              skills: [
+                { name: 'coding', enabled: true, path: `${cwd}/.agents/skills/coding/SKILL.md` },
+                { name: 'docx', enabled: true, path: `${cwd}/.agents/skills/docx/SKILL.md` },
+                { name: 'disabled', enabled: false, path: `${cwd}/.agents/skills/disabled/SKILL.md` }
+              ]
+            }
+          ]
         }
-        if (method === 'skills/config/write') {
-          const write = params as { path: string; enabled: boolean }
-          writes.push(write)
-          const name = [...paths].find(([, path]) => path === write.path)?.[0]
-          if (!name) throw new Error(`unknown Skill path ${write.path}`)
-          states.set(name, write.enabled)
-          return { effectiveEnabled: write.enabled }
-        }
-        throw new Error(`unexpected method ${method}`)
       }
     }
 
-    const first = await configureCodexSkills(client, cwd, skillsRoot, ['coding'], preparedOfficePlugin())
-    const second = await configureCodexSkills(client, cwd, skillsRoot, ['coding'], preparedOfficePlugin())
-
-    expect(first).toEqual(['coding', 'office:docx'])
-    expect(second).toEqual(first)
-    expect(writes).toEqual([
-      { path: paths.get('office:docx')!, enabled: true },
-      { path: paths.get('office:xlsx')!, enabled: false },
-      { path: paths.get('office:docx')!, enabled: true },
-      { path: paths.get('office:xlsx')!, enabled: false }
+    await expect(verifiedCodexSkills(client, cwd, ['coding', 'docx'])).resolves.toEqual([
+      { name: 'coding', enabled: true, path: `${cwd}/.agents/skills/coding/SKILL.md` },
+      { name: 'docx', enabled: true, path: `${cwd}/.agents/skills/docx/SKILL.md` },
+      { name: 'disabled', enabled: false, path: `${cwd}/.agents/skills/disabled/SKILL.md` }
     ])
-    expect(requests).toEqual([
-      'skills/extraRoots/set',
-      'skills/list',
-      'skills/config/write',
-      'skills/config/write',
-      'skills/list',
-      'skills/extraRoots/set',
-      'skills/list',
-      'skills/config/write',
-      'skills/config/write',
-      'skills/list'
-    ])
+    expect(requests).toEqual([{ method: 'skills/list', params: { cwds: [cwd], forceReload: true } }])
   })
 
-  it('rejects a non-absolute Skill path before writing configuration', async () => {
-    const client = {
-      async request(method: string) {
-        if (method === 'skills/extraRoots/set') return {}
-        if (method === 'skills/list') {
-          return {
-            data: [
-              {
-                cwd: '/agents/agent-1/jobs/job-1',
-                errors: [],
-                skills: [
-                  { name: 'coding', path: '/skills/coding/SKILL.md', enabled: true },
-                  { name: 'office:docx', path: 'relative/SKILL.md', enabled: true },
-                  { name: 'office:xlsx', path: '/skills/xlsx/SKILL.md', enabled: true }
-                ]
-              }
-            ]
-          }
+  it('rejects missing, disabled, and malformed native discovery results', async () => {
+    const cwd = '/agents/agent-1/jobs/job-1'
+    const disabledClient = {
+      async request() {
+        return {
+          data: [
+            {
+              cwd,
+              errors: [],
+              skills: [{ name: 'coding', enabled: false, path: `${cwd}/.agents/skills/coding/SKILL.md` }]
+            }
+          ]
         }
-        throw new Error(`unexpected method ${method}`)
       }
     }
+    await expect(verifiedCodexSkills(disabledClient, cwd, ['coding', 'docx'])).rejects.toThrow(
+      'Codex did not discover enabled project Skills: coding, docx'
+    )
 
-    await expect(
-      configureCodexSkills(
-        client,
-        '/agents/agent-1/jobs/job-1',
-        '/agents/agent-1/jobs/job-1/.ankole/skills',
-        ['coding'],
-        preparedOfficePlugin()
-      )
-    ).rejects.toThrow('non-absolute path')
+    const errorClient = {
+      async request() {
+        return { data: [{ cwd, errors: [{ path: `${cwd}/.agents/skills/bad`, message: 'invalid frontmatter' }] }] }
+      }
+    }
+    await expect(verifiedCodexSkills(errorClient, cwd, [])).rejects.toThrow(
+      'Codex skill discovery failed: /agents/agent-1/jobs/job-1/.agents/skills/bad: invalid frontmatter'
+    )
+
+    const malformedClient = {
+      async request() {
+        return { data: [{ cwd, errors: [], skills: [{ name: 'coding', enabled: true }] }] }
+      }
+    }
+    await expect(verifiedCodexSkills(malformedClient, cwd, ['coding'])).rejects.toThrow(
+      'Codex skills/list returned an invalid Skill at index 0'
+    )
   })
 })
-
-function preparedOfficePlugin(): PreparedAgentPlugins {
-  return {
-    marketplaceHostPath: '/agents/agent-1/jobs/job-1/.agents/plugins/marketplace.json',
-    marketplacePath: '/agents/agent-1/jobs/job-1/.agents/plugins/marketplace.json',
-    marketplaceName: 'ankole-background-agent-job',
-    pluginsRoot: '/agents/agent-1/jobs/job-1/plugins',
-    agentPlugins: [
-      {
-        ...create(AgentPluginCatalogEntrySchema, {
-          id: 'office',
-          description: 'Office plugin',
-          skills: [{ catalogName: 'docx' }]
-        }),
-        manifestName: 'office',
-        skillsRelativePath: 'skills',
-        sourceRoot: '/repo/app/library/agent-plugins/office',
-        materializedRoot: '/agents/agent-1/jobs/job-1/plugins/office',
-        memberSkillNames: ['docx', 'xlsx'],
-        enabledSkillNames: ['docx'],
-        enabledCodexSkillNames: ['office:docx']
-      }
-    ],
-    expectedSkillNames: ['office:docx']
-  }
-}

@@ -10,6 +10,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.AgentPlugins
+  alias Ankole.AIAgent.Library.RuntimeCapabilityChanges
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentLibraryCapabilitiesResponse
@@ -97,7 +98,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, id} <- path_text(params, :id),
          {:ok, enabled} <- body_enabled(conn.body_params, false),
          {:ok, _value} <- AgentPlugins.set_global_default(id, enabled),
-         {:ok, capabilities} <- Library.global_capabilities() do
+         {:ok, capabilities} <- Library.global_capabilities(),
+         :ok <- RuntimeCapabilityChanges.notify_global({:agent_plugin, id}) do
       json(conn, capabilities)
     else
       {:error, reason} -> error(conn, reason)
@@ -109,7 +111,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, id} <- path_text(params, :id),
          {:ok, enabled} <- body_enabled(conn.body_params, false),
          {:ok, _value} <- Library.set_global_skill_default(id, enabled),
-         {:ok, capabilities} <- Library.global_capabilities() do
+         {:ok, capabilities} <- Library.global_capabilities(),
+         :ok <- RuntimeCapabilityChanges.notify_global({:skill, id}) do
       json(conn, capabilities)
     else
       {:error, reason} -> error(conn, reason)
@@ -132,7 +135,11 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, id} <- path_text(params, :id),
          {:ok, enabled} <- body_enabled(conn.body_params, true),
          {:ok, _override} <- AgentPlugins.set_agent_override(agent_uid, id, enabled),
-         {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid) do
+         {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid),
+         :ok <-
+           RuntimeCapabilityChanges.notify_agent(agent_uid, {:agent_plugin, id},
+             capabilities: capabilities
+           ) do
       json(conn, capabilities)
     else
       {:error, reason} -> error(conn, reason)
@@ -145,7 +152,11 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, id} <- path_text(params, :id),
          {:ok, enabled} <- body_enabled(conn.body_params, true),
          {:ok, _skill} <- Library.set_agent_skill_override(agent_uid, id, enabled),
-         {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid) do
+         {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid),
+         :ok <-
+           RuntimeCapabilityChanges.notify_agent(agent_uid, {:skill, id},
+             capabilities: capabilities
+           ) do
       json(conn, capabilities)
     else
       {:error, reason} -> error(conn, reason)

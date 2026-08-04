@@ -66,6 +66,7 @@ defmodule Ankole.AIGateway.Models do
               selector_entries(
                 capability,
                 ModelSelectors.public_selector(capability, profile),
+                profile,
                 attrs
               )
 
@@ -79,7 +80,7 @@ defmodule Ankole.AIGateway.Models do
     end
   end
 
-  defp selector_entries(capability, alias_selector, attrs) when is_map(attrs) do
+  defp selector_entries(capability, alias_selector, profile, attrs) when is_map(attrs) do
     with %{"provider_id" => provider_id, "model" => model} when is_binary(model) <- attrs,
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
          {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
@@ -87,13 +88,24 @@ defmodule Ankole.AIGateway.Models do
          {:ok, metadata} <- ModelMetadata.model_metadata(provider, model, capability: capability) do
       explicit_selector = "#{provider.provider_id}/#{model}"
 
+      metadata = custom_profile_metadata(metadata, profile, attrs)
       [ModelMetadata.openrouter_entry(metadata, alias_selector, explicit_selector)]
     else
       _reason -> []
     end
   end
 
-  defp selector_entries(_capability, _alias_selector, _attrs), do: []
+  defp selector_entries(_capability, _alias_selector, _profile, _attrs), do: []
+
+  defp custom_profile_metadata(metadata, profile, attrs) do
+    if ModelProfiles.custom_profile_name?(profile) do
+      metadata
+      |> Map.put("name", profile)
+      |> Map.put("description", Map.get(attrs, "description", ""))
+    else
+      metadata
+    end
+  end
 
   # The filters mirror OpenRouter query parameters but operate on the local
   # configured catalog. Unknown upstream-specific details stay at safe defaults.

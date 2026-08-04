@@ -1419,6 +1419,59 @@ defmodule Ankole.SignalsGatewayIngressTest do
       refute Map.has_key?(command, "status")
     end
 
+    test "/llm separates help from one-shot profile turns and permits an empty command body" do
+      assert {:ok, help} = Commands.classify("/llm")
+      assert help == %{"name" => "llm", "raw" => "/llm", "argsText" => ""}
+
+      assert {:ok, empty_body} = Commands.classify("/llm kimi")
+      assert empty_body["modelProfile"] == "kimi"
+      assert empty_body["argsText"] == ""
+
+      assert {:ok, with_body} =
+               Commands.classify("@Agent /llm KIMI   测试",
+                 strip_leading_structured_mention: true,
+                 structured_mention_prefixes: ["@Agent"]
+               )
+
+      assert with_body["modelProfile"] == "kimi"
+      assert with_body["argsText"] == "测试"
+
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{actor_event: help_event}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{explicit: true, text: "/llm"}),
+                 now: @base_time
+               )
+
+      assert help_event.type == "command.llm_help"
+      refute Map.has_key?(help_event.payload["data"]["command"], "modelProfile")
+      assert ActorEventTypes.command_runtime_policy(help_event.type) == :control_now
+      refute ActorEventTypes.supersedes_pending_interaction?(help_event.type)
+
+      assert {:ok, %{actor_event: turn_event}} =
+               Ingress.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   source_event_id: "evt-llm-empty-body",
+                   source_entry_id: "msg-llm-empty-body",
+                   text: "/llm kimi"
+                 }),
+                 now: DateTime.add(@base_time, 1, :second)
+               )
+
+      assert turn_event.type == "command.llm"
+      assert get_in(turn_event.payload, ["data", "command", "modelProfile"]) == "kimi"
+      assert get_in(turn_event.payload, ["data", "command", "argsText"]) == ""
+      assert ActorEventTypes.command_runtime_policy(turn_event.type) == :worker_turn
+      assert ActorEventTypes.supersedes_pending_interaction?(turn_event.type)
+    end
+
     test "addressed IM entries close as sender-scoped actor event batches" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

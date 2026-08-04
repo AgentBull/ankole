@@ -162,6 +162,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert job.task == attrs["task"]
     assert job.reply_route == attrs["reply_route"]
     assert job.workspace_template_id == nil
+    assert job.model_profile == "coding"
 
     assert event.agent_uid == agent.uid
     assert event.binding_name == "lark"
@@ -176,6 +177,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert get_in(event.payload, ["data", "owner_session_id"]) == "parent-session"
     refute Map.has_key?(event.payload["data"], "workspace_template_id")
     refute Map.has_key?(event.payload["data"], "workspace_mounts")
+    assert get_in(event.payload, ["data", "model_profile"]) == "coding"
     assert get_in(event.payload, ["data", "attempts"]) == 0
     refute inspect(event.payload) =~ attrs["task"]
 
@@ -252,6 +254,47 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "task" => "This Job cannot execute.",
                "reply_route" => %{"binding_name" => "lark"}
              })
+  end
+
+  test "Job creation accepts only configured custom profile overrides and persists the logical name" do
+    %{principal: agent} = background_agent_fixture()
+    assert {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: coding["provider_id"],
+               model: "moonshotai/kimi-k2.7-code",
+               provider_options: %{"reasoningEffort" => "high"}
+             })
+
+    attrs = %{
+      "agent_uid" => agent.uid,
+      "owner_session_id" => "parent-session-custom-model",
+      "source_tool_call_id" => "tool-custom-model",
+      "title" => "Use the custom model",
+      "task" => "Complete this work with the selected profile.",
+      "model_profile" => "kimi",
+      "reply_route" => %{"binding_name" => "lark"}
+    }
+
+    assert {:ok, %{job: job, dispatch_event: event}} =
+             BackgroundAgentJobs.create_with_dispatch(attrs)
+
+    assert job.model_profile == "kimi"
+    assert get_in(event.payload, ["data", "model_profile"]) == "kimi"
+
+    assert {:error, :invalid_custom_model_profile} =
+             attrs
+             |> Map.put("source_tool_call_id", "tool-fixed-model-override")
+             |> Map.put("model_profile", "coding")
+             |> BackgroundAgentJobs.create_with_dispatch()
+
+    assert {:error, :model_profile_not_configured} =
+             attrs
+             |> Map.put("source_tool_call_id", "tool-missing-model-override")
+             |> Map.put("model_profile", "missing")
+             |> BackgroundAgentJobs.create_with_dispatch()
   end
 
   test "start replay returns the original dispatch after attempts and lifecycle state change" do
@@ -1154,10 +1197,49 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Repo.update!()
 
     assert {:ok, resumed} =
-             BackgroundAgentJobs.claim_continuation_in_tx(Repo, waiting.id, agent.uid, 1)
+             BackgroundAgentJobs.claim_continuation_in_tx(
+               Repo,
+               waiting.id,
+               agent.uid,
+               1,
+               runtime_turn_start_spec()
+             )
 
     assert resumed.status == "running"
     assert resumed.metadata == %{"worker_route" => "worker-a"}
+  end
+
+  test "the first attempt captures one immutable runtime projection" do
+    %{principal: agent} = background_agent_fixture()
+    job = create_job!(agent.uid, "stable-runtime-projection")
+    first_spec = runtime_turn_start_spec("openai/gpt-5.6-sol")
+
+    assert {:ok, first_attempt} =
+             BackgroundAgentJobs.claim_attempt_in_tx(Repo, job.id, agent.uid, 1, first_spec)
+
+    assert first_attempt.runtime_projection["version"] == 1
+    assert first_attempt.runtime_projection["model_ref"] == first_spec.model_ref
+
+    assert first_attempt.runtime_projection["runtime_policy"] ==
+             first_spec.request_context["ai_agent"]
+
+    assert first_attempt.runtime_projection["browser"] == %{"mode" => "persistent"}
+    refute Map.has_key?(first_attempt.runtime_projection, "api_key")
+
+    changed_spec = runtime_turn_start_spec("openai/gpt-5.6-terra")
+
+    assert {:ok, second_attempt} =
+             BackgroundAgentJobs.claim_continuation_in_tx(
+               Repo,
+               job.id,
+               agent.uid,
+               2,
+               changed_spec
+             )
+
+    assert second_attempt.attempts == 2
+    assert second_attempt.runtime_projection == first_attempt.runtime_projection
+    assert second_attempt.runtime_projection["model_ref"]["model"] == "openai/gpt-5.6-sol"
   end
 
   test "claiming a continuation stops when the lead thread only fails" do
@@ -1181,7 +1263,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
 
     assert {:error, {:background_agent_job_turn_failures_exhausted, error}} =
-             BackgroundAgentJobs.claim_continuation_in_tx(Repo, running.id, agent.uid, 1)
+             BackgroundAgentJobs.claim_continuation_in_tx(
+               Repo,
+               running.id,
+               agent.uid,
+               1,
+               runtime_turn_start_spec()
+             )
 
     assert error["summary"] == "upstream returned HTTP status 502"
   end
@@ -1202,7 +1290,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
     insert_turn!(running, 1, "thread-lead", "turn-recovered", "completed")
 
     assert {:ok, resumed} =
-             BackgroundAgentJobs.claim_continuation_in_tx(Repo, running.id, agent.uid, 1)
+             BackgroundAgentJobs.claim_continuation_in_tx(
+               Repo,
+               running.id,
+               agent.uid,
+               1,
+               runtime_turn_start_spec()
+             )
 
     assert resumed.status == "running"
   end
@@ -1843,7 +1937,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
         runtime_turn_id: "turn-lead-#{attempt}",
         started_at: started_at,
         status: "failed",
-        trajectory_groups: [[assistant_message(summary)]]
+        trajectory_groups: [[assistant_message(summary)]],
+        progress:
+          progress_snapshot(1, "shell", [])
+          |> then(fn progress ->
+            if attempt == 2, do: Map.put(progress, "skills_used", ["pdf"]), else: progress
+          end)
       })
 
       insert_custom_turn!(job, %{
@@ -1871,6 +1970,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
            ]
 
     assert Enum.at(history, 1).turn_statuses == ["failed"]
+    assert Enum.at(history, 1).used_skill_names == ["pdf"]
   end
 
   test "attempt history keeps the lead report when one attempt has more than one hundred child Turns" do
@@ -2121,6 +2221,29 @@ defmodule Ankole.BackgroundAgentJobsTest do
     job
     |> Ecto.Changeset.change(attempts: attempts)
     |> Repo.update!()
+  end
+
+  defp runtime_turn_start_spec(model \\ "openai/gpt-5.6-sol") do
+    model_ref = %{
+      "profile" => "coding",
+      "provider_id" => "openrouter-main",
+      "provider_kind" => "openrouter",
+      "model" => model,
+      "input_modalities" => ["text"]
+    }
+
+    %{
+      model_ref: model_ref,
+      hosted_tools: [%{"type" => "image_generation"}],
+      request_context: %{
+        "model_ref" => model_ref,
+        "ai_agent" => %{
+          "runtime" => "codex",
+          "max_iterations" => 90,
+          "inactivity_timeout_ms" => 1_800_000
+        }
+      }
+    }
   end
 
   defp create_job!(agent_uid, suffix) do

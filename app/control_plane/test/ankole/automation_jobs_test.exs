@@ -182,6 +182,28 @@ defmodule Ankole.AutomationJobsTest do
              AutomationJobs.validate_bindable_in_tx(Repo, job.id, agent.uid, @now)
   end
 
+  test "a nil owner session lists and reads jobs across every session of one agent" do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+    first = source_event!(agent.uid)
+    second = source_event!(agent.uid)
+    one = job!(first)
+    two = job!(second)
+
+    listed = AutomationJobs.list_jobs(agent.uid, nil)
+
+    assert MapSet.new(listed, & &1.id) == MapSet.new([one.id, two.id])
+
+    assert MapSet.new(listed, & &1.owner_session_id) ==
+             MapSet.new([first.session_id, second.session_id])
+
+    assert {:ok, %{automation_job: found}} = AutomationJobs.show_job(agent.uid, nil, one.id)
+    assert found.id == one.id
+
+    assert AutomationJobs.show_job(other_agent.uid, nil, one.id) ==
+             {:error, :automation_job_not_found}
+  end
+
   test "deleting an Agent removes its automation jobs and run ledger" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)

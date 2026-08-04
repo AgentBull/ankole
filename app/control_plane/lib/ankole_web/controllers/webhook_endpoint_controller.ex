@@ -15,10 +15,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
   alias AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointResponse
 
-  @actor_parameters [
-    agent_uid: [in: :path, type: :string, required: true],
-    session_id: [in: :path, type: :string, required: true]
-  ]
+  @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
 
   tags(["Webhooks"])
   security([%{"consoleBearer" => []}])
@@ -27,8 +24,8 @@ defmodule AnkoleWeb.WebhookEndpointController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List webhook endpoints for one agent session",
-    parameters: @actor_parameters,
+    summary: "List webhook endpoints for one Agent",
+    parameters: @agent_parameters,
     responses: [
       ok: {"Webhook endpoints", "application/json", WebhookEndpointListResponse},
       unauthorized: {"Unauthorized", "application/json", ErrorEnvelope},
@@ -39,7 +36,7 @@ defmodule AnkoleWeb.WebhookEndpointController do
   operation(:delete,
     summary: "Cancel one webhook endpoint",
     parameters:
-      @actor_parameters ++
+      @agent_parameters ++
         [
           webhook_endpoint_id: [
             in: :path,
@@ -56,11 +53,11 @@ defmodule AnkoleWeb.WebhookEndpointController do
   )
 
   def index(conn, params) do
-    with {:ok, actor} <- actor_params(params),
-         :ok <- ConsolePolicy.authorize(conn, webhook_resource(actor.agent_uid), "read") do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, webhook_resource(agent_uid), "read") do
       endpoints =
-        actor.agent_uid
-        |> Webhooks.list_endpoints(actor.session_id, active_only: false)
+        agent_uid
+        |> Webhooks.list_endpoints(nil, active_only: false)
         |> Enum.map(&Webhooks.console_projection/1)
 
       json(conn, %{webhook_endpoints: endpoints})
@@ -70,21 +67,20 @@ defmodule AnkoleWeb.WebhookEndpointController do
   end
 
   def delete(conn, params) do
-    with {:ok, actor} <- actor_params(params),
-         :ok <- ConsolePolicy.authorize(conn, webhook_resource(actor.agent_uid), "delete"),
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, webhook_resource(agent_uid), "delete"),
          {:ok, endpoint_id} <- uuid_param(params, "webhook_endpoint_id"),
          {:ok, %{webhook_endpoint: endpoint}} <-
-           Webhooks.cancel_endpoint(actor.agent_uid, actor.session_id, endpoint_id) do
+           Webhooks.cancel_endpoint(agent_uid, nil, endpoint_id) do
       json(conn, %{webhook_endpoint: Webhooks.console_projection(endpoint)})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  defp actor_params(params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, session_id} <- text_param(params, "session_id") do
-      {:ok, %{agent_uid: String.downcase(agent_uid), session_id: session_id}}
+  defp agent_uid_param(params) do
+    with {:ok, agent_uid} <- text_param(params, "agent_uid") do
+      {:ok, String.downcase(agent_uid)}
     end
   end
 
@@ -113,7 +109,6 @@ defmodule AnkoleWeb.WebhookEndpointController do
   end
 
   defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("session_id"), do: :session_id
   defp param_atom("webhook_endpoint_id"), do: :webhook_endpoint_id
 
   defp webhook_resource(agent_uid), do: "agent:#{agent_uid}:webhooks"

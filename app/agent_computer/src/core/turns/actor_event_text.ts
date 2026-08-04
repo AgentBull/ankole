@@ -52,9 +52,11 @@ export function actorEventText(payload: JSONObject | undefined, fallbackType: st
   }
 
   const text = fallbackType.startsWith('command.')
-    ? deepString(payload, ['data', 'command', 'argsText']) ||
-      deepString(payload, ['data', 'entry', 'text']) ||
-      deepString(payload, ['data', 'internal', 'text'])
+    ? fallbackType === 'command.llm'
+      ? commandArgsText(payload)
+      : deepString(payload, ['data', 'command', 'argsText']) ||
+        deepString(payload, ['data', 'entry', 'text']) ||
+        deepString(payload, ['data', 'internal', 'text'])
     : deepString(payload, ['data', 'entry', 'text']) ||
       deepString(payload, ['data', 'command', 'argsText']) ||
       deepString(payload, ['data', 'internal', 'text'])
@@ -134,6 +136,9 @@ function emptyTextFallback(
   attachmentCount: number,
   hasReplyReference: boolean
 ): string {
+  if (fallbackType === 'command.llm') {
+    return 'The user selected a custom model profile for this turn without adding message text.'
+  }
   if (fallbackType !== 'im.message.addressed') return `Handle actor event of type ${fallbackType}.`
 
   const speaker = entrySpeaker(payload)
@@ -145,6 +150,11 @@ function emptyTextFallback(
     `${speaker} addressed you (for example a bare @mention) without any message text.`,
     'Treat it as a summons: infer what they need from the quoted recent conversation in this channel and respond to that directly. Only when nothing concrete is inferable, briefly ask what they need.'
   ].join('\n')
+}
+
+function commandArgsText(payload: JSONObject | undefined): string {
+  const command = objectPath(payload, ['data', 'command'])
+  return typeof command?.argsText === 'string' ? command.argsText : ''
 }
 
 /**

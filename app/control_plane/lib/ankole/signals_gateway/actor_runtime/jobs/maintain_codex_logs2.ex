@@ -18,7 +18,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
   alias Ankole.SignalsGateway.ActorRuntime.WorkerPool
 
   @rpc_timeout_ms 10_000
-  @response_statuses ~w(deleted database_missing skipped_codex_running skipped_setup_busy)
+  @response_statuses ~w(deleted database_missing skipped_runtime_active)
 
   @impl Oban.Worker
   @spec perform(Oban.Job.t()) :: :ok
@@ -73,8 +73,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Jobs.MaintainCodexLogs2 do
         agent_uid: agent_uid,
         boundary_at: boundary_at,
         status: response.status,
-        deleted_files: response.deleted_files,
-        active_codex_processes: response.active_codex_processes
+        deleted_files: response.deleted_files
       }
     )
   end

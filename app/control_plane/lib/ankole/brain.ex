@@ -12,7 +12,6 @@ defmodule Ankole.Brain do
   alias Ankole.Brain.Dreaming.Embeddings
   alias Ankole.Brain.Dreaming.StageA
   alias Ankole.Brain.Dreaming.StageB
-  alias Ankole.Brain.HealthCheck
   alias Ankole.Brain.Knowledge
   alias Ankole.Brain.Recall.Chat
   alias Ankole.Brain.Recall.Search
@@ -89,7 +88,7 @@ defmodule Ankole.Brain do
   defdelegate dreaming_fitness(owner_uid, opts \\ []), to: Supervision
 
   @spec health_check(Scope.t()) :: {:ok, map()} | {:error, term()}
-  defdelegate health_check(scope), to: HealthCheck, as: :run
+  defdelegate health_check(scope), to: Status, as: :run
 
   @spec enqueue_episode_summary_jobs(non_neg_integer()) ::
           {:ok, non_neg_integer()} | {:unavailable, String.t()}

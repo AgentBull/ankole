@@ -14,7 +14,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AppConfigure.Schema
   alias Ankole.Repo
@@ -355,12 +354,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnvTest do
 
     assert envelope_body_type(envelope) == :rpc_error
     assert envelope_body!(envelope, :rpc_error).code == "missing_agent_uid"
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

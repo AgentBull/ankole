@@ -9,7 +9,6 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
   alias Ankole.AppConfigure.Schema
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Config, as: IdentityProvidersConfig
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
   alias AnkoleWeb.Session, as: WebSession
@@ -389,12 +388,5 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

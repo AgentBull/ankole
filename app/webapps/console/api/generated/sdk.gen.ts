@@ -544,6 +544,24 @@ export const ankoleWebWorkerFileControllerDownload = <ThrowOnError extends boole
   })
 
 /**
+ * Pause one recurring schedule
+ */
+export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/pause',
+    ...options
+  })
+
+/**
  * Read dreaming output survival as a selection-pressure signal
  *
  * Reads the audit log for the share of dreaming block writes that survived human review (no human edit or delete within the horizon), overall and per run. Writes younger than the horizon are reported as pending, not survivors.
@@ -654,12 +672,20 @@ export const ankoleWebControlPlanePluginControllerUpdate = <ThrowOnError extends
   })
 
 /**
- * Pause one recurring schedule
+ * List recurring schedules for one Agent
  */
-export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
+export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerIndexCronResponses,
+  AnkoleWebScheduleControllerIndexCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebScheduleControllerIndexCronResponses,
+    AnkoleWebScheduleControllerIndexCronErrors,
+    ThrowOnError
+  >({
     security: [
       {
         key: 'consoleBearer',
@@ -667,8 +693,38 @@ export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolea
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
+    url: '/api/v1/agents/{agent_uid}/cron-schedules',
     ...options
+  })
+
+/**
+ * Create one recurring schedule
+ */
+export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerCreateCronResponses,
+  AnkoleWebScheduleControllerCreateCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebScheduleControllerCreateCronResponses,
+    AnkoleWebScheduleControllerCreateCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**
@@ -826,6 +882,24 @@ export const ankoleWebAppConfigurationControllerIndex = <ThrowOnError extends bo
   })
 
 /**
+ * Cancel one pending checkback wakeup
+ */
+export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/checkbacks/{scheduled_event_id}',
+    ...options
+  })
+
+/**
  * List Principal groups
  */
 export const ankoleWebAuthZGroupControllerIndex = <ThrowOnError extends boolean = false>(
@@ -875,32 +949,6 @@ export const ankoleWebAuthZGroupControllerCreate = <ThrowOnError extends boolean
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List webhook endpoints for one agent session
- */
-export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebWebhookEndpointControllerIndexResponses,
-  AnkoleWebWebhookEndpointControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebWebhookEndpointControllerIndexResponses,
-    AnkoleWebWebhookEndpointControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints',
-    ...options
   })
 
 /**
@@ -1038,62 +1086,6 @@ export const ankoleWebAiGatewayProviderControllerAddCredential = <ThrowOnError e
       }
     ],
     url: '/api/v1/ai-gateway/providers/{provider_id}/credentials',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
- * List recurring schedules for one agent session
- */
-export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerIndexCronResponses,
-  AnkoleWebScheduleControllerIndexCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebScheduleControllerIndexCronResponses,
-    AnkoleWebScheduleControllerIndexCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
-    ...options
-  })
-
-/**
- * Create one recurring schedule
- */
-export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerCreateCronResponses,
-  AnkoleWebScheduleControllerCreateCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).post<
-    AnkoleWebScheduleControllerCreateCronResponses,
-    AnkoleWebScheduleControllerCreateCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -1370,24 +1362,6 @@ export const ankoleWebAiGatewayProviderControllerProviderKinds = <ThrowOnError e
       }
     ],
     url: '/api/v1/ai-gateway/provider-kinds',
-    ...options
-  })
-
-/**
- * Resume one recurring schedule
- */
-export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume',
     ...options
   })
 
@@ -2336,6 +2310,32 @@ export const ankoleWebIdentityProviderControllerRunSync = <ThrowOnError extends 
   })
 
 /**
+ * Read one automation job and its recent run history
+ */
+export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAutomationJobControllerShowData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAutomationJobControllerShowResponses,
+  AnkoleWebAutomationJobControllerShowErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAutomationJobControllerShowResponses,
+    AnkoleWebAutomationJobControllerShowErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/automation-jobs/{automation_job_id}',
+    ...options
+  })
+
+/**
  * List permission grants owned directly by one Principal
  */
 export const ankoleWebPrincipalControllerGrants = <ThrowOnError extends boolean = false>(
@@ -2458,18 +2458,18 @@ export const ankoleWebAiGatewayProviderControllerIndex = <ThrowOnError extends b
   })
 
 /**
- * Cancel one webhook endpoint
+ * List webhook endpoints for one Agent
  */
-export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebWebhookEndpointControllerDeleteData, ThrowOnError>
+export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebWebhookEndpointControllerDeleteResponses,
-  AnkoleWebWebhookEndpointControllerDeleteErrors,
+  AnkoleWebWebhookEndpointControllerIndexResponses,
+  AnkoleWebWebhookEndpointControllerIndexErrors,
   ThrowOnError
 > =>
-  (options.client ?? client).delete<
-    AnkoleWebWebhookEndpointControllerDeleteResponses,
-    AnkoleWebWebhookEndpointControllerDeleteErrors,
+  (options.client ?? client).get<
+    AnkoleWebWebhookEndpointControllerIndexResponses,
+    AnkoleWebWebhookEndpointControllerIndexErrors,
     ThrowOnError
   >({
     security: [
@@ -2479,17 +2479,17 @@ export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends bo
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}',
+    url: '/api/v1/agents/{agent_uid}/webhook-endpoints',
     ...options
   })
 
 /**
- * List checkback wakeups for one agent session
+ * Resume one recurring schedule
  */
-export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
+export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
     security: [
       {
         key: 'consoleBearer',
@@ -2497,7 +2497,7 @@ export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends 
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks',
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume',
     ...options
   })
 
@@ -2576,80 +2576,6 @@ export const ankoleWebPrincipalControllerIndex = <ThrowOnError extends boolean =
   })
 
 /**
- * Remove one recurring schedule
- */
-export const ankoleWebScheduleControllerRemoveCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerRemoveCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).delete<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
-    ...options
-  })
-
-/**
- * Read one recurring schedule
- */
-export const ankoleWebScheduleControllerShowCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerShowCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerShowCronResponses,
-  AnkoleWebScheduleControllerShowCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebScheduleControllerShowCronResponses,
-    AnkoleWebScheduleControllerShowCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
-    ...options
-  })
-
-/**
- * Update one recurring schedule
- */
-export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerUpdateCronData, ThrowOnError>
-): RequestResult<
-  AnkoleWebScheduleControllerUpdateCronResponses,
-  AnkoleWebScheduleControllerUpdateCronErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).patch<
-    AnkoleWebScheduleControllerUpdateCronResponses,
-    AnkoleWebScheduleControllerUpdateCronErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
-  })
-
-/**
  * Create one permission grant for a Principal or a group
  */
 export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends boolean = false>(
@@ -2677,42 +2603,6 @@ export const ankoleWebPermissionGrantControllerCreate = <ThrowOnError extends bo
       'Content-Type': 'application/json',
       ...options.headers
     }
-  })
-
-/**
- * List recent concrete fires for one recurring schedule
- */
-export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCronRunsData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).get<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs',
-    ...options
-  })
-
-/**
- * Manually run one recurring schedule
- */
-export const ankoleWebScheduleControllerRunCron = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerRunCronData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).post<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError>({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs',
-    ...options
   })
 
 /**
@@ -2852,12 +2742,12 @@ export const ankoleWebBrainControllerSource = <ThrowOnError extends boolean = fa
   })
 
 /**
- * Cancel one pending checkback wakeup
+ * List checkback wakeups for one Agent
  */
-export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
-): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
-  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
+export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
     security: [
       {
         key: 'consoleBearer',
@@ -2865,7 +2755,7 @@ export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends 
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}',
+    url: '/api/v1/agents/{agent_uid}/checkbacks',
     ...options
   })
 
@@ -2966,6 +2856,80 @@ export const ankoleWebSignalBindingControllerPutBinding = <ThrowOnError extends 
   })
 
 /**
+ * Remove one recurring schedule
+ */
+export const ankoleWebScheduleControllerRemoveCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerRemoveCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
+    ...options
+  })
+
+/**
+ * Read one recurring schedule
+ */
+export const ankoleWebScheduleControllerShowCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerShowCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerShowCronResponses,
+  AnkoleWebScheduleControllerShowCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebScheduleControllerShowCronResponses,
+    AnkoleWebScheduleControllerShowCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
+    ...options
+  })
+
+/**
+ * Update one recurring schedule
+ */
+export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerUpdateCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerUpdateCronResponses,
+  AnkoleWebScheduleControllerUpdateCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebScheduleControllerUpdateCronResponses,
+    AnkoleWebScheduleControllerUpdateCronErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List AIGateway conversations
  */
 export const ankoleWebAiGatewayConversationControllerIndex = <ThrowOnError extends boolean = false>(
@@ -3040,18 +3004,18 @@ export const ankoleWebPrincipalControllerShow = <ThrowOnError extends boolean = 
   })
 
 /**
- * Read one automation job and its recent run history
+ * Cancel one webhook endpoint
  */
-export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAutomationJobControllerShowData, ThrowOnError>
+export const ankoleWebWebhookEndpointControllerDelete = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerDeleteData, ThrowOnError>
 ): RequestResult<
-  AnkoleWebAutomationJobControllerShowResponses,
-  AnkoleWebAutomationJobControllerShowErrors,
+  AnkoleWebWebhookEndpointControllerDeleteResponses,
+  AnkoleWebWebhookEndpointControllerDeleteErrors,
   ThrowOnError
 > =>
-  (options.client ?? client).get<
-    AnkoleWebAutomationJobControllerShowResponses,
-    AnkoleWebAutomationJobControllerShowErrors,
+  (options.client ?? client).delete<
+    AnkoleWebWebhookEndpointControllerDeleteResponses,
+    AnkoleWebWebhookEndpointControllerDeleteErrors,
     ThrowOnError
   >({
     security: [
@@ -3061,7 +3025,7 @@ export const ankoleWebAutomationJobControllerShow = <ThrowOnError extends boolea
         type: 'http'
       }
     ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}',
+    url: '/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}',
     ...options
   })
 
@@ -3284,6 +3248,32 @@ export const ankoleWebWorkerEnvControllerIndex = <ThrowOnError extends boolean =
   })
 
 /**
+ * List automation jobs for one Agent
+ */
+export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebAutomationJobControllerIndexResponses,
+  AnkoleWebAutomationJobControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebAutomationJobControllerIndexResponses,
+    AnkoleWebAutomationJobControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/automation-jobs',
+    ...options
+  })
+
+/**
  * Cancel one queued or active background Agent Job
  */
 export const ankoleWebBackgroundAgentJobControllerCancel = <ThrowOnError extends boolean = false>(
@@ -3332,32 +3322,6 @@ export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends 
       }
     ],
     url: '/api/v1/app-configurations/{key}/decryptions',
-    ...options
-  })
-
-/**
- * List automation jobs for one agent session
- */
-export const ankoleWebAutomationJobControllerIndex = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebAutomationJobControllerIndexData, ThrowOnError>
-): RequestResult<
-  AnkoleWebAutomationJobControllerIndexResponses,
-  AnkoleWebAutomationJobControllerIndexErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebAutomationJobControllerIndexResponses,
-    AnkoleWebAutomationJobControllerIndexErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        key: 'consoleBearer',
-        scheme: 'bearer',
-        type: 'http'
-      }
-    ],
-    url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs',
     ...options
   })
 
@@ -3884,6 +3848,42 @@ export const ankoleWebBrainControllerApplyOperations = <ThrowOnError extends boo
       'Content-Type': 'application/json',
       ...options.headers
     }
+  })
+
+/**
+ * List recent concrete fires for one recurring schedule
+ */
+export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCronRunsData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
+
+/**
+ * Manually run one recurring schedule
+ */
+export const ankoleWebScheduleControllerRunCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerRunCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError>({
+    security: [
+      {
+        key: 'consoleBearer',
+        scheme: 'bearer',
+        type: 'http'
+      }
+    ],
+    url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
   })
 
 /**

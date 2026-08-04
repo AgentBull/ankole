@@ -174,7 +174,7 @@ describe('persistent Codex browser materialization', () => {
     await Promise.all([first.cleanup(), second.cleanup()])
   })
 
-  test('projects only final reserved env and explicit read-only binds', async () => {
+  test('projects only the final per-Job browser environment', async () => {
     const root = await temporaryRoot()
     const scopeRoot = join(root, 'job')
     const runtime = await new BrowserRouteMaterializer({
@@ -192,20 +192,20 @@ describe('persistent Codex browser materialization', () => {
 
     expect(sandbox.env).toMatchObject({
       ANKOLE_BROWSER_ROUTE: runtime.route,
-      ANKOLE_BROWSER_SOCKET: '/run/ankole-browser/socket/browser.sock',
-      ANKOLE_BROWSER_MATERIAL: '/run/ankole-browser/material/session.json',
+      ANKOLE_BROWSER_SOCKET: join(root, 'socket', 'browser.sock'),
+      ANKOLE_BROWSER_MATERIAL: runtime.materialPath,
       ANKOLE_BROWSER_ARTIFACT_ROOT: join(scopeRoot, 'browser')
     })
     expect(sandbox.env.BROWSER_BACKEND_JSON).toBeUndefined()
     expect(sandbox.binds).toEqual([
       {
         source: join(root, 'socket'),
-        target: '/run/ankole-browser/socket',
+        target: join(root, 'socket'),
         readonly: true
       },
       {
         source: runtime.materialPath,
-        target: '/run/ankole-browser/material/session.json',
+        target: runtime.materialPath,
         readonly: true
       }
     ])

@@ -30,11 +30,12 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
     end)
   end
 
-  @spec defaults() :: {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
-  def defaults do
+  @spec defaults(keyword()) ::
+          {:ok, %{agent_plugins: map(), skills: map()}} | {:error, term()}
+  def defaults(opts \\ []) do
     with :ok <- ensure_registered(),
-         {:ok, agent_plugins} <- AppConfigure.get(agent_plugin_defaults_definition()),
-         {:ok, skills} <- AppConfigure.get(skill_defaults_definition()) do
+         {:ok, agent_plugins} <- get(agent_plugin_defaults_definition(), opts),
+         {:ok, skills} <- get(skill_defaults_definition(), opts) do
       {:ok, %{agent_plugins: agent_plugins, skills: skills}}
     end
   end
@@ -59,6 +60,13 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.Config do
       AppConfigure.update_global(definition, fn values ->
         {:ok, Map.put(values, id, enabled)}
       end)
+    end
+  end
+
+  defp get(definition, opts) do
+    case Keyword.fetch(opts, :repo) do
+      {:ok, repo} -> AppConfigure.get_in_tx(repo, definition)
+      :error -> AppConfigure.get(definition)
     end
   end
 

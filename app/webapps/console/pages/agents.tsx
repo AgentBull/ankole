@@ -24,6 +24,7 @@ import { ResourceListPage, ResourceSearch, RowActions } from '../console-list-pa
 import { AgentEditorModel, type AgentEditorDraft } from '../state/agent-editor-model'
 import { matchesResourceSearch } from '../state/resource-search'
 import { AgentLibraryEditor } from './agent-library-editor'
+import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 
@@ -175,6 +176,16 @@ export function AgentEditorPage() {
             <AgentLibraryEditor agentUID={selectedAgent.uid} />
             <ModelProfilesEditor
               agent={selectedAgent}
+              error={modelProfiles.error}
+              loading={modelProfiles.isLoading}
+              profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}
+              providers={providers.data?.ai_gateway_providers ?? []}
+              providerKinds={providerKinds.data?.provider_kinds ?? []}
+              modelCatalog={modelCatalog.data}
+              onChanged={refresh}
+            />
+            <CustomModelProfilesEditor
+              agentUID={selectedAgent.uid}
               error={modelProfiles.error}
               loading={modelProfiles.isLoading}
               profiles={recordValue(modelProfiles.data?.model_profiles) ?? {}}

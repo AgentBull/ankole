@@ -29,9 +29,10 @@ member Skills read, such as the `office` Playbook library below.
 The control plane reads each manifest and its member Skill metadata to build the
 catalog. Agent Computer resolves that catalog against the same-release package
 in its own image. It reads the local manifest and member paths needed for
-materialization, rejects unsafe copy entries, and installs the package through
-the Codex app-server. RuntimeFabric does not carry a second package version or
-content hash contract.
+materialization and rejects unsafe copy entries. `AgentCodexRuntime` is the sole
+owner of official `plugin/install` calls, Hook trust, the Plugin cache, and
+Codex user-config changes. A Job does not perform any of these operations.
+RuntimeFabric does not carry a second package version or content hash contract.
 
 ### Workspace Template
 
@@ -41,11 +42,11 @@ manifest.
 Job creation can set one `workspace_template_id`. Agent Computer copies that
 Plugin's template when it first creates the Job Workspace. It does not copy a
 template when the field is absent. A resumed Job keeps the existing files.
-Each preparation refreshes only the Plugin packages.
+Runtime package refresh does not copy the template again.
 
-The template selection does not select runtime Plugins. Every Plugin enabled
-for the Agent loads automatically. Ankole does not interpret template content
-as a separate Plugin activation contract.
+The template selection does not select runtime Plugins. A Job loads only the
+Plugins in its persisted runtime projection. Ankole does not interpret template
+content as a separate Plugin activation contract.
 
 ### Built-in Packages
 
@@ -116,30 +117,48 @@ disabled Plugins. This keeps saved choices and the Console catalog intact.
 
 ### What a Job Saves and Loads
 
-The Job stores one optional `workspace_template_id`. It does not store an Agent
-Plugin or Skill selection.
+The Job stores one optional `workspace_template_id`. At first execution
+admission, it also stores the logical Plugin and Skill selection in its typed
+runtime projection. Retry, resume, and Worker migration use that projection.
+They intersect it with the current effective capability set, so a later disable
+still removes the capability. The projection does not store package bytes,
+overlays, credentials, or Hook state.
 
-Before each run, Agent Computer gets all Agent Plugins and Skills currently
-enabled for the Agent. It installs every Plugin package. It exposes each Skill
-only when its `ankole-runtime` value permits Background Agent Jobs. A Job-level
-request cannot add to or remove from this set.
+Before the first Job thread starts, `AgentCodexRuntime` performs these actions
+in one per-Agent serialized owner:
 
-Agent Computer performs these steps for each enabled Agent Plugin:
+1. Resolve every trusted same-release package and refresh its stable material
+   under the Agent Home.
+2. Install every package through the official Codex `plugin/install` method.
+3. Verify the official installed state and trust package Hooks through Codex.
+4. Set every Agent Plugin entry in Codex user config to `enabled = false`.
 
-1. Resolve the catalog ID against the same-release local package and read its
-   manifest and member Skill paths.
-2. Copy the current package into the Job Workspace.
-3. Apply current database-backed Skill overlays to the copy.
-4. Install the package through Codex.
-5. Trust hooks from the package.
-6. Discover every member Skill through `skills/list`.
-7. Write each current member state through `skills/config/write`. A member with
-   `ankole-runtime: main` stays disabled in the Job.
-8. List Skills again and verify every effective state.
+Installing all same-release packages before any thread avoids later global
+cache and config mutation while sibling threads are active. The global disabled
+state is deliberate: installation owns package lifecycle, but it does not grant
+every Job the capability.
+
+Each Job then performs only thread-owned selection:
+
+1. Resolve its projected Plugin IDs and Background-eligible members against the
+   current catalog.
+2. Atomically rebuild a stable Job package view that contains only those
+   members and their current database-backed overlays.
+3. Pass the Job package roots through
+   `thread/start.selectedCapabilityRoots` with environment ID `local`.
+
+`thread/resume` restores the selected roots stored in the existing Codex
+thread; that method does not accept a new root list. The Job rebuilds the same
+view path before resume, so current disables still remove members from the
+stored root. Codex 0.146 does not apply `skills.config` to Plugin members, so
+Ankole does not use that setting as a member-selection guarantee. Standalone
+Skills use project discovery under `.agents/skills`. Plugin member Skills stay
+inside the native Plugin package and are not projected as standalone project
+Skills.
 
 Only enabled members that permit Background Agent Jobs add MCP settings. The
-optional workspace template is copied once and does not change which Plugin
-packages load.
+optional workspace template is copied once and does not change runtime Plugin
+selection.
 
 RuntimeFabric exposes the catalog through `agent_plugin.list`.
 See [Background Agent Job](BackgroundAgentJob.md) for the complete Job contract.
@@ -241,7 +260,9 @@ adapter and a related Agent Plugin can have different enabled states.
 - Never use `Agent Plugin` and `Control Plane Plugin` as interchangeable names.
 - Treat Agent Plugins as trusted Codex packages with optional Job Workspace content.
 - Store parent state and member Skill state independently.
-- Load all Agent Plugins currently enabled for the Agent on every prepare.
+- Let `AgentCodexRuntime` install and trust same-release Agent Plugins before the
+  first Job thread, then keep the global entries disabled.
+- Let each Job select only its projected Plugin roots at `thread/start`.
 - Use `workspace_template_id` only to copy one initial Job Workspace template.
 - Keep every compiled Control Plane Plugin active until first-run setup
   completes.

@@ -21,6 +21,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @supported_create_fields ~w(
     agent_uid
     metadata
+    model_profile
     owner_session_id
     reply_route
     source_actor_event_id
@@ -81,9 +82,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_new_job(attrs, agent_uid, now) do
     with :ok <- reject_caller_local_task_paths(Attrs.text(attrs, "task")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, _coding_runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding") do
+         {:ok, model_profile} <- requested_model_profile(agent_uid, attrs) do
       attrs
       |> Map.put("reply_route", reply_route)
+      |> Map.put("model_profile", model_profile)
       |> create_new_job(agent_uid, now)
     end
   end
@@ -119,14 +121,40 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_respawn(source_job_id, attrs, agent_uid, now) do
     with :ok <- reject_caller_local_task_paths(Map.get(attrs, "message")),
          {:ok, reply_route} <- reply_route(attrs),
-         {:ok, _coding_runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, "coding"),
+         %Job{} = source_job <- BackgroundAgentJobs.get_job_for_agent(source_job_id, agent_uid),
+         {:ok, model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
          {:ok, metadata} <- job_metadata(attrs, false) do
       attrs =
         attrs
         |> Map.put("reply_route", reply_route)
+        |> Map.put("model_profile", model_profile)
         |> Map.put("metadata", metadata)
 
       persist_respawn(source_job_id, attrs, now)
+    else
+      nil -> {:error, :job_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp requested_model_profile(agent_uid, attrs) do
+    case Attrs.text(attrs, "model_profile") do
+      nil -> available_model_profile(agent_uid, "coding")
+      profile -> available_custom_model_profile(agent_uid, profile)
+    end
+  end
+
+  defp available_custom_model_profile(agent_uid, profile) do
+    with {:ok, custom_profile} <- ModelProfiles.get_custom_model_profile(agent_uid, profile),
+         normalized_profile <- Map.fetch!(custom_profile, "profile"),
+         {:ok, _runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, normalized_profile) do
+      {:ok, normalized_profile}
+    end
+  end
+
+  defp available_model_profile(agent_uid, profile) do
+    with {:ok, runtime} <- ModelProfiles.resolve_runtime_profile(agent_uid, profile) do
+      {:ok, Map.fetch!(runtime, "profile")}
     end
   end
 
@@ -219,6 +247,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     |> Map.put("continued_from_job_id", source_job.id)
     |> Map.put("workspace_owner_job_id", source_job.workspace_owner_job_id)
     |> Map.put("workspace_template_id", nil)
+    |> Map.put("model_profile", source_job.model_profile)
     |> Map.put("status", "queued")
     |> Map.put("attempts", 0)
     |> Map.put("queued_at", now)
@@ -419,6 +448,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
             "owner_session_id" => job.owner_session_id,
             "workspace_owner_job_id" => job.workspace_owner_job_id,
             "workspace_template_id" => job.workspace_template_id,
+            "model_profile" => job.model_profile,
             "attempts" => job.attempts
           })
       }

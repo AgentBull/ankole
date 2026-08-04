@@ -1,22 +1,7 @@
 import { recordValue, type JsonObject as JSONObject } from '@agentbull/active-support'
-import {
-  Badge,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-  CreatableCombobox,
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  toast
-} from '@ankole/uikit'
+import { toast } from '@ankole/uikit'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { RiArrowDownSLine, RiSave3Line } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 import type { TFunction } from 'i18next'
@@ -32,7 +17,6 @@ import type {
   ModelProfileWriteRequest
 } from '../api/generated/types.gen'
 import { ErrorBlock } from '../console-primitives'
-import { LabeledField } from '../console-form'
 import {
   ModelProfilesModel,
   PROFILE_NAMES,
@@ -40,19 +24,8 @@ import {
   type ProfileDraft,
   type ProfileName
 } from '../state/model-profiles-model'
-import {
-  modelOptionsForProfile,
-  modelProfileRequestFields,
-  profileUsesConfigurableModel,
-  providersForProfile
-} from './model-profile-options'
-import { ProviderSettingField } from './provider-setting-field'
-import {
-  buildSettingOptions,
-  requestSettings,
-  type ProviderSetting,
-  type SettingValidationError
-} from './provider-settings'
+import { ModelProfileEditorCard, buildModelProfileWriteRequest } from './model-profile-editor-card'
+import { profileUsesConfigurableModel } from './model-profile-options'
 
 const REQUIRED_PROFILES = new Set<string>(['primary', 'light', 'heavy'])
 
@@ -97,8 +70,8 @@ export function ModelProfilesEditor({
     if (currentAgentUID.current === savedAgentUID) {
       const result = model.markSaved(profile, draftFromProfile(recordValue(persistedProfile) ?? {}), submission)
       const messageKey = result.hasUnsavedChanges ? `${action}_with_unsaved_changes` : action
-
       const label = profileLabel(t, profile)
+
       if (result.hasUnsavedChanges) toast.info(t(`console.models.${messageKey}`, { profile: label }))
       else toast.success(t(`console.models.${messageKey}`, { profile: label }))
     }
@@ -164,28 +137,20 @@ export function ModelProfilesEditor({
   }
 
   const submit = (profile: ProfileName) => {
-    const draft = model.snapshot(profile)
-    const selectedProvider = providers.find(provider => provider.provider_id === draft.providerID)
-    const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
-    if (!selectedProvider || !selectedKind) {
-      updateDraft(profile, { error: t('console.models.provider_definition_unavailable') })
+    const built = buildModelProfileWriteRequest({
+      profile,
+      draft: model.snapshot(profile),
+      providers,
+      providerKinds,
+      t
+    })
+    if (!built.ok) {
+      updateDraft(profile, { error: built.error })
       return
     }
 
-    const builtOptions = buildSettingOptions(requestSettings(selectedKind), draft.providerOptions, (field, reason) =>
-      settingValidationMessage(t, field, reason)
-    )
-    if (!builtOptions.ok) {
-      updateDraft(profile, { error: builtOptions.error })
-      return
-    }
     updateDraft(profile, { error: undefined })
-    const submission = model.submission(profile)
-    persistProfile(profile, submission, {
-      provider_id: submission.draft.providerID,
-      ...modelProfileRequestFields(profile, submission.draft),
-      provider_options: builtOptions.value
-    })
+    persistProfile(profile, model.submission(profile), built.body)
   }
 
   const persistencePending = saveProfile.isPending || clearProfile.isPending
@@ -200,156 +165,30 @@ export function ModelProfilesEditor({
       {loading ? <span className="text-xs text-muted-foreground">{t('common.loading')}</span> : null}
       <div className="grid gap-4">
         {PROFILE_NAMES.map(profile => {
-          const draft = model.profiles[profile]
-          const label = profileLabel(t, profile)
-          const providerID = draft.providerID.value
-          const selectedProvider = providers.find(provider => provider.provider_id === providerID)
-          const selectedKind = providerKinds.find(kind => kind.provider_kind === selectedProvider?.provider_kind)
-          const profileProviders = providersForProfile(providers, providerKinds, profile)
-          const optionSettings = requestSettings(selectedKind)
-          const basicOptionSettings = optionSettings.filter(setting => !setting.advanced)
-          const advancedOptionSettings = optionSettings.filter(setting => setting.advanced)
+          const signals = model.profiles[profile]
+          const draft = model.snapshot(profile)
           const configurableModel = profileUsesConfigurableModel(profile)
-          const modelOptions = configurableModel ? modelOptionsForProfile(modelCatalog, providerID, profile) : []
-          const configured = Boolean(draft.providerID.value && (!configurableModel || draft.model.value))
-          const renderOptionSetting = (setting: ProviderSetting) => (
-            <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
-              <ProviderSettingField
-                setting={setting}
-                value={draft.providerOptions.value[setting.key]}
-                onChange={value =>
-                  updateDraft(profile, {
-                    providerOptions: {
-                      ...draft.providerOptions.value,
-                      [setting.key]: value
-                    },
-                    error: undefined
-                  })
-                }
-              />
-            </div>
-          )
+          const configured = Boolean(draft.providerID && (!configurableModel || draft.model))
+
           return (
-            <div key={profile} className="grid gap-4 border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant={REQUIRED_PROFILES.has(profile) ? 'default' : 'outline'}>{label}</Badge>
-                  {REQUIRED_PROFILES.has(profile) ? (
-                    <span className="text-xs text-muted-foreground">{t('console.models.required')}</span>
-                  ) : null}
-                  {draft.dirty.value ? (
-                    <span className="text-xs text-muted-foreground">{t('console.models.unsaved')}</span>
-                  ) : null}
-                </div>
-                <div className="flex gap-2">
-                  <Button disabled={persistencePending} size="xs" type="button" onClick={() => submit(profile)}>
-                    <RiSave3Line data-icon="inline-start" />
-                    {t('common.save')}
-                  </Button>
-                  <Button
-                    disabled={REQUIRED_PROFILES.has(profile) || !configured || persistencePending}
-                    size="xs"
-                    type="button"
-                    variant="ghost"
-                    onClick={() => clear(profile)}>
-                    {t('console.models.clear')}
-                  </Button>
-                </div>
-              </div>
-              {profile === 'vision_fallback' ? (
-                <p className="text-xs leading-5 text-muted-foreground">{t('console.models.vision_fallback_hint')}</p>
-              ) : null}
-              {draft.error.value ? <ErrorBlock error={draft.error.value} /> : null}
-              <>
-                <div
-                  className={
-                    configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_128px]' : 'grid gap-4'
-                  }>
-                  <LabeledField label={t('console.models.provider')}>
-                    <Select
-                      value={draft.providerID.value}
-                      onValueChange={value => {
-                        const nextProviderID = String(value)
-                        updateDraft(
-                          profile,
-                          nextProviderID === draft.providerID.value
-                            ? { providerID: nextProviderID }
-                            : {
-                                providerID: nextProviderID,
-                                ...(configurableModel ? { model: '', contextLength: '' } : {}),
-                                providerOptions: {},
-                                error: undefined
-                              }
-                        )
-                      }}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder={t('console.models.provider_placeholder')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {profileProviders.map(provider => (
-                          <SelectItem key={provider.provider_id} value={provider.provider_id}>
-                            {provider.provider_id}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </LabeledField>
-                  {configurableModel ? (
-                    <>
-                      <LabeledField label={t('console.models.model')}>
-                        <CreatableCombobox
-                          options={modelOptions}
-                          placeholder={t('console.models.model_placeholder')}
-                          emptyLabel={t('console.models.model_empty')}
-                          createLabel={value => t('console.models.model_use', { model: value })}
-                          value={draft.model.value}
-                          onValueChange={value => updateDraft(profile, { model: value, error: undefined })}
-                        />
-                      </LabeledField>
-                      <LabeledField label={t('console.models.context')}>
-                        <Input
-                          inputMode="numeric"
-                          value={draft.contextLength.value}
-                          onChange={event => updateDraft(profile, { contextLength: event.target.value })}
-                        />
-                      </LabeledField>
-                    </>
-                  ) : null}
-                </div>
-                <div className="grid gap-3">
-                  <h4 className="text-sm font-medium">{t('console.models.provider_options')}</h4>
-                  {!providerID ? (
-                    <p className="text-xs text-muted-foreground">{t('console.models.provider_options_select')}</p>
-                  ) : !selectedKind ? (
-                    <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-                  ) : optionSettings.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">{t('console.models.provider_options_empty')}</p>
-                  ) : (
-                    <>
-                      {basicOptionSettings.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                          {basicOptionSettings.map(renderOptionSetting)}
-                        </div>
-                      ) : null}
-                      {advancedOptionSettings.length > 0 ? (
-                        <Collapsible className="grid gap-4" defaultOpen={false}>
-                          <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 border border-border bg-muted/40 px-4 py-3 text-left text-sm font-medium">
-                            <span>{t('common.advanced_settings')}</span>
-                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                              {advancedOptionSettings.length}
-                              <RiArrowDownSLine className="size-4" aria-hidden />
-                            </span>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            {advancedOptionSettings.map(renderOptionSetting)}
-                          </CollapsibleContent>
-                        </Collapsible>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              </>
-            </div>
+            <ModelProfileEditorCard
+              key={profile}
+              profile={profile}
+              label={profileLabel(t, profile)}
+              draft={draft}
+              dirty={signals.dirty.value}
+              required={REQUIRED_PROFILES.has(profile)}
+              hint={profile === 'vision_fallback' ? t('console.models.vision_fallback_hint') : undefined}
+              persistencePending={persistencePending}
+              deleteDisabled={REQUIRED_PROFILES.has(profile) || !configured}
+              deleteLabel={t('console.models.clear')}
+              providers={providers}
+              providerKinds={providerKinds}
+              modelCatalog={modelCatalog}
+              onUpdate={patch => updateDraft(profile, patch)}
+              onSave={() => submit(profile)}
+              onDelete={() => clear(profile)}
+            />
           )
         })}
       </div>
@@ -357,8 +196,9 @@ export function ModelProfilesEditor({
   )
 }
 
-function draftFromProfile(profile: JSONObject): ProfileDraft {
+export function draftFromProfile(profile: JSONObject): ProfileDraft {
   return {
+    description: asString(profile.description),
     providerID: asString(profile.provider_id),
     model: asString(profile.model),
     contextLength: profile.context_length ? String(profile.context_length) : '',
@@ -368,21 +208,6 @@ function draftFromProfile(profile: JSONObject): ProfileDraft {
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
-}
-
-function settingValidationMessage(t: TFunction, field: string, error: SettingValidationError): string {
-  switch (error) {
-    case 'required':
-      return t('common.field_required', { field })
-    case 'json_object':
-      return t('common.must_be_json_object', { field })
-    case 'integer':
-      return t('common.must_be_integer', { field })
-    case 'number':
-      return t('common.must_be_number', { field })
-    case 'selection':
-      return t('common.must_be_valid_selection', { field })
-  }
 }
 
 function profileSubmissionKey(agentUID: string, profile: ProfileName): string {

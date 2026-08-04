@@ -11,8 +11,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.Cache
-  alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorRuntime.RPCLane
   alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
 
@@ -81,12 +79,5 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfigTest do
              )
 
     assert envelope_body_type(rejected) == :rpc_error
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

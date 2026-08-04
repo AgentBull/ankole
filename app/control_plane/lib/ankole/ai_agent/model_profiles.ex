@@ -22,6 +22,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
     primary light heavy coding vision_fallback embedding rerank web_search web_fetch image_generate
   )
   @required_profiles ~w(primary light heavy)
+  @custom_profile_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
+  @custom_profile_description_max_length 200
   @type profile :: String.t()
 
   @doc """
@@ -31,14 +33,23 @@ defmodule Ankole.AIAgent.ModelProfiles do
   def profiles, do: @profiles
 
   @doc """
+  Returns whether a name can identify an Agent custom model profile.
+  """
+  @spec custom_profile_name?(term()) :: boolean()
+  def custom_profile_name?(profile) when is_binary(profile),
+    do: profile not in @profiles and Regex.match?(@custom_profile_name, profile)
+
+  def custom_profile_name?(_profile), do: false
+
+  @doc """
   Returns the capability served by a profile slot.
   """
   @spec profile_capability(profile()) :: {:ok, String.t()} | {:error, :invalid_model_profile}
-  def profile_capability(profile) when profile in @profiles do
-    {:ok, capability_for_profile(profile)}
+  def profile_capability(profile) do
+    with {:ok, profile} <- normalize_profile(profile) do
+      {:ok, capability_for_profile(profile)}
+    end
   end
-
-  def profile_capability(_profile), do: {:error, :invalid_model_profile}
 
   @doc """
   Reads all model profiles for an agent.
@@ -47,6 +58,40 @@ defmodule Ankole.AIAgent.ModelProfiles do
   def get_model_profiles(agent_uid) do
     with {:ok, agent} <- fetch_agent(agent_uid) do
       {:ok, profiles_from_agent(agent)}
+    end
+  end
+
+  @doc """
+  Lists the configured custom LLM profile names and descriptions for an Agent.
+  """
+  @spec list_custom_model_profiles(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_custom_model_profiles(agent_uid) do
+    with {:ok, profiles} <- get_model_profiles(agent_uid) do
+      custom_profiles =
+        profiles
+        |> Enum.flat_map(fn
+          {name, %{"description" => description}}
+          when is_binary(description) and description != "" ->
+            if custom_profile_name?(name),
+              do: [%{"name" => name, "description" => description}],
+              else: []
+
+          {_name, _attrs} ->
+            []
+        end)
+        |> Enum.sort_by(& &1["name"])
+
+      {:ok, custom_profiles}
+    end
+  end
+
+  @doc """
+  Reads one configured custom LLM profile.
+  """
+  @spec get_custom_model_profile(String.t(), profile()) :: {:ok, map()} | {:error, term()}
+  def get_custom_model_profile(agent_uid, profile) do
+    with {:ok, profile} <- normalize_custom_profile(profile) do
+      get_model_profile(agent_uid, profile)
     end
   end
 
@@ -148,15 +193,26 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp maybe_mark_fallback(value, _fallback_profile), do: value
 
   defp normalize_profile(profile) when is_binary(profile) do
-    profile = profile |> String.trim() |> String.downcase()
+    profile = String.trim(profile)
+    fixed_profile = String.downcase(profile)
 
-    case profile in @profiles do
-      true -> {:ok, profile}
-      false -> {:error, :invalid_model_profile}
+    cond do
+      fixed_profile in @profiles -> {:ok, fixed_profile}
+      custom_profile_name?(profile) -> {:ok, profile}
+      true -> {:error, :invalid_model_profile}
     end
   end
 
   defp normalize_profile(_profile), do: {:error, :invalid_model_profile}
+
+  defp normalize_custom_profile(profile) do
+    with {:ok, profile} <- normalize_profile(profile),
+         true <- custom_profile_name?(profile) do
+      {:ok, profile}
+    else
+      _invalid -> {:error, :invalid_custom_model_profile}
+    end
+  end
 
   defp normalize_profile_attrs(profile, nil) when profile in @required_profiles,
     do: {:error, :model_profile_required}
@@ -165,7 +221,12 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp normalize_profile_attrs(_profile, %{} = attrs) when map_size(attrs) == 0, do: {:ok, nil}
 
   defp normalize_profile_attrs(profile, attrs) when is_map(attrs) do
-    normalize_aigateway_profile(profile, normalize_external_attrs(attrs))
+    attrs = normalize_external_attrs(attrs)
+
+    with {:ok, description} <- normalize_profile_description(profile, attrs),
+         {:ok, normalized_profile} <- normalize_aigateway_profile(profile, attrs) do
+      {:ok, maybe_put_description(normalized_profile, description)}
+    end
   end
 
   defp normalize_profile_attrs(_profile, _attrs), do: {:error, :invalid_model_profile}
@@ -225,6 +286,32 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp maybe_put_context_length(profile, context_length),
     do: Map.put(profile, "context_length", context_length)
+
+  defp normalize_profile_description(profile, attrs) do
+    if custom_profile_name?(profile) do
+      with {:ok, description} <- required_text(attrs, "description"),
+           true <- String.length(description) <= @custom_profile_description_max_length do
+        {:ok, description}
+      else
+        false ->
+          {:error,
+           {:custom_model_profile_description_too_long, @custom_profile_description_max_length}}
+
+        {:error, _reason} = error ->
+          error
+      end
+    else
+      case Map.has_key?(attrs, "description") do
+        true -> {:error, :fixed_model_profile_description_not_allowed}
+        false -> {:ok, nil}
+      end
+    end
+  end
+
+  defp maybe_put_description(profile, nil), do: profile
+
+  defp maybe_put_description(profile, description),
+    do: Map.put(profile, "description", description)
 
   defp validate_provider_options(%Provider{provider_kind: provider_kind}, options)
        when is_map(options),

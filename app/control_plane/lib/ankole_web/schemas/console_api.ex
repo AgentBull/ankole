@@ -1811,6 +1811,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "ScheduleCronWriteRequest",
         type: :object,
         properties: %{
+          session_id: %Schema{type: :string, minLength: 1},
           binding_name: %Schema{type: :string},
           name: %Schema{type: :string, minLength: 1},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
@@ -1820,7 +1821,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           delivery: JSONValue,
           idempotency_key: %Schema{type: :string}
         },
-        required: [:binding_name, :name, :schedule, :delivery, :idempotency_key],
+        required: [
+          :session_id,
+          :binding_name,
+          :name,
+          :schedule,
+          :delivery,
+          :idempotency_key
+        ],
         additionalProperties: false
       },
       struct?: false
@@ -2636,6 +2644,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           provider_id: %Schema{type: :string},
           model: %Schema{type: :string},
+          description: %Schema{type: :string, maxLength: 200},
           context_length: %Schema{type: :integer, minimum: 1},
           provider_options: %Schema{type: :object, additionalProperties: true}
         },
@@ -3239,6 +3248,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           },
           attempts: %Schema{type: :integer},
           workspace_template_id: %Schema{type: :string, nullable: true},
+          model_profile: %Schema{type: :string},
           reply_route: %Schema{type: :object, additionalProperties: true},
           result: %Schema{type: :object, additionalProperties: true},
           error: %Schema{type: :object, additionalProperties: true},
@@ -3261,6 +3271,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :status,
           :attempts,
           :workspace_template_id,
+          :model_profile,
           :reply_route,
           :result,
           :error,

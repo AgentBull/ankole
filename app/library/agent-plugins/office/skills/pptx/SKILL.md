@@ -84,7 +84,6 @@ Title must be **≥ 2× body size** (36pt over 20pt works; 28pt over 20pt looks 
 
 **Avoid slide placeholder shorthand for deliverables.** Do not use slide-level `--prop title=...` / `--prop text=...` shorthand for delivered decks. That shorthand creates PowerPoint placeholder shapes (`<p:ph>`), and target viewers such as Keynote can import them as layout placeholders instead of visible slide text. For visible content, use `layout=blank` plus ordinary `shape` or `textbox` elements with explicit `x`, `y`, `width`, `height`, `font`, `size`, and `color`.
 
-**Keep delivered decks free of speaker notes.** Current OfficeCLI releases emit an incomplete notes package that Keynote rejects as invalid ([upstream issue #255](https://github.com/iOfficeAI/OfficeCLI/issues/255)). Do not add `--type notes`; provide presenter guidance as a separate text or Markdown file when the user needs it. Restore embedded notes only after the OfficeCLI fix ships in the Agent Computer image and a notes-bearing deck opens successfully in Keynote.
 
 **Copy reads human, not AI.** Titles orient on content, not punchline. No "It's not X. It's Y.", no manufactured tension, no faux-insight ("The magic moment"), no one-word drama ("Momentum."). Cut hype adjectives (seamless, robust, game-changing) — let the number carry it.
 
@@ -134,26 +133,6 @@ Pair by document register, not by novelty. "Best For" is a prompt, not a decree;
 
 Set both fonts explicitly on every shape (`--prop font=Georgia` on titles, `--prop font=Calibri` on body), not via theme inheritance.
 
-### Color and contrast
-
-The columns: **Primary** (dominant — 60–70% of weight, the color you see first), **Secondary** (supporting tone), **Accent** (sparing, one-hit emphasis), **Text** (body on light fills), **Muted** (captions / axis labels / footer).
-
-| Theme | Primary | Secondary | Accent | Text | Muted |
-|---|---|---|---|---|---|
-| Coral Energy | `F96167` | `F9E795` | `2F3C7E` | `333333` | `8B7E6A` |
-| Midnight Executive | `1E2761` | `CADCFC` | `FFFFFF` | `333333` | `8899BB` |
-| Forest & Moss | `2C5F2D` | `97BC62` | `F5F5F5` | `2D2D2D` | `6B8E6B` |
-| Charcoal Minimal | `36454F` | `F2F2F2` | `212121` | `333333` | `7A8A94` |
-| Warm Terracotta | `B85042` | `E7E8D1` | `A7BEAE` | `3D2B2B` | `8C7B75` |
-| Berry & Cream | `6D2E46` | `A26769` | `ECE2D0` | `3D2233` | `8C6B7A` |
-| Ocean Gradient | `065A82` | `1C7293` | `21295C` | `2B3A4E` | `6B8FAA` |
-| Teal Trust | `028090` | `00A896` | `02C39A` | `2D3B3B` | `5E8C8C` |
-| Sage Calm | `84B59F` | `69A297` | `50808E` | `2D3D35` | `7A9488` |
-| Cherry Bold | `990011` | `FCF6F5` | `2F3C7E` | `333333` | `8B6B6B` |
-
-Pick by topic, not by default — finance reads Midnight Executive, a product launch reads Coral Energy, safety / LOTO reads Cherry Bold. If the closest named theme is not quite right, blend (e.g. Forest primary + gold `D4A843` accent). Use **Text** on light fills, **Muted** for captions / axis / footer, `FFFFFF` or Secondary for body on dark fills.
-
-On dark backgrounds, text and chart series follow the Hard rules contrast floor above.
 
 ### Chart-choice decision table
 

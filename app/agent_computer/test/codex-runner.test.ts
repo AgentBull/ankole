@@ -52,6 +52,7 @@ type RecordedTurnUpsert = RPCRequestInit<'background_agent_job.turn.upsert'> & {
 type FakeCodexBehavior = {
   resumeError?: string | Record<string, unknown>
   turnError?: string | Record<string, unknown>
+  exitOnThreadStart?: boolean
   artifactPath?: string
   diffPathCount?: number
   usageBurstThreadID?: string
@@ -62,6 +63,7 @@ type FakeCodexBehavior = {
   steerCompletionRace?: boolean
   interruptCompletionRace?: boolean
   mcpStartupFailure?: { name: string; error: string }
+  cleanupError?: boolean
 }
 
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
@@ -136,12 +138,14 @@ describe('@ankole/agent-computer Codex job runner', () => {
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>
       expect(browserEnv).toMatchObject({
-        ANKOLE_BROWSER_SOCKET: '/run/ankole-browser/socket/browser.sock',
         ANKOLE_BROWSER_SESSION: 'default',
-        ANKOLE_BROWSER_MATERIAL: '/run/ankole-browser/material/session.json',
         ANKOLE_BROWSER_ARTIFACT_ROOT: join(jobProjectFor(fixture.root), 'browser'),
         SAFE_VALUE: 'kept'
       })
+      expect(browserEnv.ANKOLE_BROWSER_SOCKET).toBe(join(fixture.root, 'browser-socket', 'browser.sock'))
+      expect(browserEnv.ANKOLE_BROWSER_MATERIAL).toStartWith(
+        join(fixture.root, 'browser-runtime', 'browser', 'materials', 'br_')
+      )
       expect(browserEnv.ANKOLE_BROWSER_ROUTE).toMatch(/^br_[A-Za-z0-9_-]{16,128}$/)
       expect(browserEnv).not.toHaveProperty('BROWSER_BACKEND_JSON')
       const routeRecord = JSON.parse(
@@ -156,6 +160,21 @@ describe('@ankole/agent-computer Codex job runner', () => {
         'version'
       ])
       expect(readdirSync(join(fixture.root, 'browser-runtime', 'browser', 'materials'))).toEqual([])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('keeps a committed terminal Job successful when app-server cleanup fails', async () => {
+    const fixture = prepareFixture('done before cleanup failure', { cleanupError: true })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      const result = await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
+
+      expect(result).toEqual({ kind: 'noop_completed', reason: 'background_agent_job_committed' })
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('done before cleanup failure')
     } finally {
       fixture.cleanup()
     }
@@ -270,12 +289,12 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       expect(parsedJSON(statusUpdates[0]?.metadataJson)?.mcp_server_names).toEqual(['job-data'])
-      expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'job-any'))).toBe(true)
-      expect(existsSync(join(jobProjectFor(fixture.root), '.ankole', 'skills', 'main-only'))).toBe(false)
+      expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills', 'job-any'))).toBe(true)
+      expect(existsSync(join(jobProjectFor(fixture.root), '.agents', 'skills', 'main-only'))).toBe(false)
       const runtimeEnv = JSON.parse(
         readFileSync(join(jobProjectFor(fixture.root), 'browser-env.json'), 'utf8')
       ) as Record<string, string>
-      expect(runtimeEnv.MCPORTER_CONFIG).toStartWith('/var/share/ankole-mcporter-')
+      expect(runtimeEnv.MCPORTER_CONFIG).toStartWith(`${join(jobProjectFor(fixture.root), 'temp')}/ankole-mcporter-`)
       expect(JSON.parse(runtimeEnv.MCPORTER_CONFIG_CONTENT)).toMatchObject({
         imports: [],
         mcpServers: { 'job-data': { baseUrl: 'https://mcp.example.test/rpc' } }
@@ -418,6 +437,19 @@ describe('@ankole/agent-computer Codex job runner', () => {
 
       await expect(runCodexJob(turnStart(), opts)).rejects.toMatchObject({
         code: 'codex_job_transient',
+        retryable: true
+      })
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('hands the same retryable runtime loss when the app-server exits before root-thread registration', async () => {
+    const fixture = prepareFixture('never delivered', { exitOnThreadStart: true })
+
+    try {
+      await expect(runCodexJob(turnStart(), options(fixture.root, [], []))).rejects.toMatchObject({
+        code: 'runtime_lost',
         retryable: true
       })
     } finally {
@@ -646,6 +678,72 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  it('notifies an active Job once when a Skill becomes disabled after explicit use', async () => {
+    const fixture = prepareFixture('done after Skill disable', {
+      discoveredSkills: ['pdf'],
+      successfulSteer: true
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+    const pdf = create(RuntimeSkillSummarySchema, {
+      skillName: 'pdf',
+      sourceKind: 'builtin',
+      relativePath: 'pdf',
+      metadataJson: jsonBytes({ 'ankole-runtime': 'any' })
+    })
+    const skillRoot = join(fixture.root, 'builtin-skills', 'pdf')
+    mkdirSync(skillRoot, { recursive: true })
+    writeFileSync(join(skillRoot, 'SKILL.md'), '---\nname: pdf\ndescription: Test PDF Skill.\n---\n')
+    let overlay = 'Overlay v1.'
+    const opts = options(
+      fixture.root,
+      statusUpdates,
+      turnUpserts,
+      () => create(BackgroundAgentJobResponseSchema, { ...response([pdf]), task: 'Use $pdf for this Job.' }),
+      undefined,
+      undefined,
+      [pdf],
+      () => overlay
+    )
+    let polled = false
+    opts.pollDisabledSkills = () => {
+      if (polled) return []
+      polled = true
+      return ['pdf']
+    }
+    let contentPolled = false
+    opts.pollChangedSkills = () => {
+      if (contentPolled) return []
+      contentPolled = true
+      overlay = 'Overlay v2.'
+      return ['pdf']
+    }
+
+    try {
+      await runCodexJob(turnStart(), opts)
+
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toBe(
+        'Skill `pdf` has been disabled for this Agent. Do not use it again in this Job. Continue with the remaining capabilities. If no valid alternative exists, explain the blocker.'
+      )
+      expect(
+        turnUpserts.some(update => {
+          const skillsUsed = parsedJSON(update.progressJson)?.skills_used
+          return Array.isArray(skillsUsed) && skillsUsed.includes('pdf')
+        })
+      ).toBe(true)
+      const skillDisableItems = turnUpserts.filter(update =>
+        new TextDecoder().decode(update.trajectoryGroupsJson).includes('skill-disabled:pdf')
+      )
+      expect(skillDisableItems).toHaveLength(1)
+      expect(
+        readFileSync(join(fixture.root, 'agents', 'agent-1', 'runtime-materials', 'skills', 'pdf', 'SKILL.md'), 'utf8')
+      ).toContain('Overlay v2.')
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('keeps a requested stop terminal when completion races a rejected interrupt', async () => {
     const fixture = prepareFixture('late completion after stop', { interruptCompletionRace: true })
     const statusUpdates: RecordedStatusUpdate[] = []
@@ -732,13 +830,16 @@ function options(
   jobOverride?: () => BackgroundAgentJobResponse,
   onStatusUpdate?: (update: RecordedStatusUpdate) => void,
   onRPC?: (method: unknown) => void,
-  contextSkills: RuntimeSkillSummary[] = []
+  contextSkills: RuntimeSkillSummary[] = [],
+  overlayText?: () => string
 ): CodexJobOptions {
-  const job = response()
+  const job = response(contextSkills)
   const currentJob = () => jobOverride?.() ?? job
   const agentsRoot = join(root, 'agents')
   const agentHome = join(agentsRoot, 'agent-1')
   const userFilesRoot = join(agentHome, 'user-files')
+  const builtinSkillsRoot = join(root, 'builtin-skills')
+  mkdirSync(join(builtinSkillsRoot, 'agent-plugins'), { recursive: true })
   const browserRuntime = new BrowserRuntime({
     runtimeRoot: join(root, 'browser-runtime'),
     socketPath: join(root, 'browser-socket', 'browser.sock'),
@@ -750,7 +851,7 @@ function options(
     agentHome,
     workspaceRoot: join(agentHome, 'jobs', jobID),
     userFilesRoot,
-    builtinSkillsRoot: join(root, 'builtin-skills'),
+    builtinSkillsRoot,
     agentInstalledSkillsRoot: join(agentHome, 'installed-skills'),
     browserRuntime,
     requestAIGatewayAPIKey: async agentUid =>
@@ -809,7 +910,12 @@ function options(
         case rpcMethods.agentPluginList:
           return create(AgentPluginListResponseSchema, { agentPlugins: [] })
         case rpcMethods.skillsOverlayResolve:
-          return create(SkillOverlayResponseSchema, { skillName: (payload as { skillName: string }).skillName })
+          return create(SkillOverlayResponseSchema, {
+            skillName: (payload as { skillName: string }).skillName,
+            ...(overlayText
+              ? { hasOverlay: true, overlayJson: jsonBytes({ text: overlayText() }), contentHash: 'overlay-hash' }
+              : {})
+          })
         default:
           throw new Error(`unexpected RPC method: ${String(method)}`)
       }
@@ -817,7 +923,7 @@ function options(
   }
 }
 
-function response(): BackgroundAgentJobResponse {
+function response(skills: RuntimeSkillSummary[] = []): BackgroundAgentJobResponse {
   return create(BackgroundAgentJobResponseSchema, {
     jobId: jobID,
     agentUid: 'agent-1',
@@ -829,7 +935,31 @@ function response(): BackgroundAgentJobResponse {
     attempts: 1,
     workspaceTemplateId: '',
     workspaceOwnerJobId: jobID,
-    metadataJson: jsonBytes({})
+    metadataJson: jsonBytes({}),
+    runtimeProjectionJson: jsonBytes({
+      version: 1,
+      model_ref: turnStart().model_ref,
+      runtime_policy: {},
+      skills: skills.map(skill => ({
+        id: skill.agentPluginId ? `${skill.agentPluginId}:${skill.skillName}` : skill.skillName,
+        name: skill.skillName,
+        ...(skill.agentPluginId ? { agent_plugin_id: skill.agentPluginId } : {})
+      })),
+      agent_plugins: [],
+      native_mcp_servers: [],
+      worker_env: {
+        names: ['BROWSER_BACKEND_JSON', 'SAFE_VALUE'],
+        plain_values: {
+          BROWSER_BACKEND_JSON: JSON.stringify({
+            kind: 'local_chromium',
+            executable: '/bin/true',
+            args: ['--from-final-material']
+          }),
+          SAFE_VALUE: 'kept'
+        }
+      },
+      browser: { mode: 'persistent' }
+    })
   })
 }
 
@@ -925,12 +1055,28 @@ function prepareFixture(firstResponse: string, behavior: FakeCodexBehavior = {})
   const root = mkdtempSync(join(tmpdir(), 'ankole-codex-job-runner-'))
   const fakeCodex = join(root, 'fake-codex')
   const fakeBwrap = join(root, 'fake-bwrap')
+  const fakeFlock = join(root, 'fake-flock')
+  const previousFlockBinary = process.env.ANKOLE_FLOCK_BINARY
   mkdirSync(jobProjectFor(root), { recursive: true })
   writeFakeBwrap(fakeBwrap)
+  writeFakeFlock(fakeFlock)
   writeFakeCodex(fakeCodex, firstResponse, behavior)
   process.env.ANKOLE_CODEX_BINARY = fakeCodex
   process.env.ANKOLE_BWRAP_PATH = fakeBwrap
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) }
+  process.env.ANKOLE_FLOCK_BINARY = fakeFlock
+  return {
+    root,
+    cleanup: () => {
+      if (previousFlockBinary === undefined) delete process.env.ANKOLE_FLOCK_BINARY
+      else process.env.ANKOLE_FLOCK_BINARY = previousFlockBinary
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+}
+
+function writeFakeFlock(path: string): void {
+  writeFileSync(path, '#!/bin/sh\nset -eu\nshift 5\nexec "$@"\n')
+  chmodSync(path, 0o755)
 }
 
 function writeFakeCodex(path: string, firstResponse: string, behavior: FakeCodexBehavior): void {
@@ -942,22 +1088,13 @@ if (process.argv.includes('--version')) {
   console.log('codex-cli 0.146.0')
   process.exit(0)
 }
-writeFileSync('browser-env.json', JSON.stringify({
-  ANKOLE_BROWSER_SOCKET: process.env.ANKOLE_BROWSER_SOCKET,
-  ANKOLE_BROWSER_ROUTE: process.env.ANKOLE_BROWSER_ROUTE,
-  ANKOLE_BROWSER_SESSION: process.env.ANKOLE_BROWSER_SESSION,
-  ANKOLE_BROWSER_MATERIAL: process.env.ANKOLE_BROWSER_MATERIAL,
-  ANKOLE_BROWSER_ARTIFACT_ROOT: process.env.ANKOLE_BROWSER_ARTIFACT_ROOT,
-  BROWSER_BACKEND_JSON: process.env.BROWSER_BACKEND_JSON,
-  SAFE_VALUE: process.env.SAFE_VALUE,
-  MCPORTER_CONFIG: process.env.MCPORTER_CONFIG,
-  MCPORTER_CONFIG_CONTENT: process.env.MCPORTER_CONFIG ? readFileSync(process.env.MCPORTER_CONFIG, 'utf8') : undefined
-}))
 let buffer = ''
 let turnCount = 0
+let threadCwd = ''
 const firstResponse = ${JSON.stringify(firstResponse)}
 const resumeError = ${JSON.stringify(behavior.resumeError)}
 const turnError = ${JSON.stringify(behavior.turnError)}
+const exitOnThreadStart = ${JSON.stringify(behavior.exitOnThreadStart)}
 const artifactPath = ${JSON.stringify(behavior.artifactPath)}
 const diffPathCount = ${JSON.stringify(behavior.diffPathCount)}
 const usageBurstThreadID = ${JSON.stringify(behavior.usageBurstThreadID)}
@@ -968,6 +1105,7 @@ const successfulSteer = ${JSON.stringify(behavior.successfulSteer)}
 const steerCompletionRace = ${JSON.stringify(behavior.steerCompletionRace)}
 const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRace)}
 const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
+const cleanupError = ${JSON.stringify(behavior.cleanupError)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
   if (message.id === 101 && Object.hasOwn(message, 'result')) {
@@ -987,6 +1125,20 @@ function handle(message) {
     return write({ id: message.id, result: { data: [{ cwd: message.params.cwds[0], skills: discoveredSkills.map(name => ({ name, path: '/skills/' + name, enabled: true })), errors: [] }] } })
   }
   if (message.method === 'thread/start') {
+    if (exitOnThreadStart) return process.exit(51)
+    threadCwd = message.params.cwd
+    const threadEnv = message.params.config?.shell_environment_policy?.set ?? {}
+    writeFileSync(message.params.cwd + '/browser-env.json', JSON.stringify({
+      ANKOLE_BROWSER_SOCKET: threadEnv.ANKOLE_BROWSER_SOCKET,
+      ANKOLE_BROWSER_ROUTE: threadEnv.ANKOLE_BROWSER_ROUTE,
+      ANKOLE_BROWSER_SESSION: threadEnv.ANKOLE_BROWSER_SESSION,
+      ANKOLE_BROWSER_MATERIAL: threadEnv.ANKOLE_BROWSER_MATERIAL,
+      ANKOLE_BROWSER_ARTIFACT_ROOT: threadEnv.ANKOLE_BROWSER_ARTIFACT_ROOT,
+      BROWSER_BACKEND_JSON: threadEnv.BROWSER_BACKEND_JSON,
+      SAFE_VALUE: threadEnv.SAFE_VALUE,
+      MCPORTER_CONFIG: threadEnv.MCPORTER_CONFIG,
+      MCPORTER_CONFIG_CONTENT: threadEnv.MCPORTER_CONFIG ? readFileSync(threadEnv.MCPORTER_CONFIG, 'utf8') : undefined
+    }))
     write({ id: message.id, result: { thread: { id: 'thread-1' } } })
     if (mcpStartupFailure) {
       write({ method: 'mcpServer/startupStatus/updated', params: { threadId: 'thread-1', name: mcpStartupFailure.name, status: 'starting', error: null, failureReason: null } })
@@ -1001,6 +1153,7 @@ function handle(message) {
         error: typeof resumeError === 'string' ? { code: -32000, message: resumeError } : resumeError
       })
     }
+    threadCwd = message.params.cwd
     return write({ id: message.id, result: { thread: { id: message.params.threadId } } })
   }
   if (message.method === 'turn/start') {
@@ -1063,7 +1216,8 @@ function handle(message) {
     const text = turnCount === 1 ? firstResponse : 'final response after retry'
     setTimeout(() => {
       if (artifactPath) {
-        writeFileSync(artifactPath, 'artifact')
+        const artifactTarget = artifactPath.startsWith('/') ? artifactPath : threadCwd + '/' + artifactPath
+        writeFileSync(artifactTarget, 'artifact')
         write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff: '--- /dev/null\\n+++ b/' + artifactPath + '\\n' } })
       }
       if (diffPathCount) {
@@ -1087,6 +1241,8 @@ function handle(message) {
     return
   }
   if (message.method === 'turn/steer' && successfulSteer) {
+    const input = Array.isArray(message.params.input) ? message.params.input[0]?.text : ''
+    writeFileSync(process.env.CODEX_HOME + '/steer-input.txt', input || '')
     write({ id: message.id, result: { turn: { id: 'turn-1', status: 'in_progress' } } })
     setTimeout(() => {
       write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'agentMessage', id: 'message-steered', text: firstResponse } } })
@@ -1101,6 +1257,9 @@ function handle(message) {
     return
   }
   if (message.method === 'turn/interrupt') return write({ id: message.id, result: {} })
+  if (message.method === 'thread/unsubscribe' && cleanupError) {
+    return write({ id: message.id, error: { code: -32000, message: 'cleanup failed after completion' } })
+  }
   if (message.id !== undefined) write({ id: message.id, result: {} })
 }
 process.stdin.setEncoding('utf8')

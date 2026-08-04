@@ -90,15 +90,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
 
     event
     |> BackgroundAgentJobTurn.opts(claimed, opts)
-    |> Keyword.put(:admit_in_tx, fn repo ->
+    |> Keyword.put(:admit_in_tx, fn repo, turn_start_spec ->
       case BackgroundAgentJobs.claim_attempt_in_tx(
              repo,
              job.id,
              job.agent_uid,
-             expected_attempt
+             expected_attempt,
+             turn_start_spec
            ) do
-        {:ok, %Job{}} -> :ok
-        {:error, _reason} = error -> error
+        {:ok, %Job{runtime_projection: projection}} ->
+          Ankole.BackgroundAgentJobs.RuntimeProjection.turn_start_overrides(projection)
+
+        {:error, _reason} = error ->
+          error
       end
     end)
   end
@@ -109,15 +113,19 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatch do
 
     event
     |> BackgroundAgentJobTurn.opts(claimed, opts)
-    |> Keyword.put(:admit_in_tx, fn repo ->
+    |> Keyword.put(:admit_in_tx, fn repo, turn_start_spec ->
       case BackgroundAgentJobs.claim_continuation_in_tx(
              repo,
              job.id,
              job.agent_uid,
-             expected_attempt
+             expected_attempt,
+             turn_start_spec
            ) do
-        {:ok, %Job{}} -> :ok
-        {:error, _reason} = error -> error
+        {:ok, %Job{runtime_projection: projection}} ->
+          Ankole.BackgroundAgentJobs.RuntimeProjection.turn_start_overrides(projection)
+
+        {:error, _reason} = error ->
+          error
       end
     end)
   end

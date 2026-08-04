@@ -2,8 +2,9 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @moduledoc """
   Durable BackgroundAgentJob work item.
 
-  Jobs retain one optional workspace template. Each execution uses the Agent's
-  current enabled Agent Plugins and compatible Skills.
+  Jobs retain one optional workspace template and one runtime projection. The
+  first executable admission records the projection, and later attempts use it
+  to keep the same logical execution choices.
   """
 
   use Ecto.Schema
@@ -21,6 +22,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
   @statuses ~w(queued running waiting_on_user succeeded failed stopped)
   @terminal_statuses ~w(succeeded failed stopped)
   @running_statuses ~w(running)
+  @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @status_transitions %{
     "queued" => ~w(queued running failed stopped),
     "running" => ~w(running waiting_on_user succeeded failed stopped),
@@ -67,6 +69,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     field(:attempts, :integer, default: 0)
 
     field(:workspace_template_id, :string)
+    field(:model_profile, :string, default: "coding")
+    field(:runtime_projection, :map)
 
     field(:status, :string)
     field(:queued_at, :utc_datetime_usec)
@@ -97,6 +101,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :reply_route,
       :attempts,
       :workspace_template_id,
+      :model_profile,
+      :runtime_projection,
       :status,
       :queued_at,
       :started_at,
@@ -114,6 +120,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :runtime_thread_id,
       :title,
       :workspace_template_id,
+      :model_profile,
       :status
     ])
     |> validate_required([
@@ -122,6 +129,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :workspace_owner_job_id,
       :reply_route,
       :attempts,
+      :model_profile,
       :status,
       :result,
       :error,
@@ -132,8 +140,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       if is_binary(task) and String.trim(task) != "", do: [], else: [task: "can't be blank"]
     end)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
+    |> validate_format(:model_profile, @model_profile)
     |> validate_workspace_template_id()
     |> JSONPayload.validate_map(:reply_route)
+    |> validate_optional_map(:runtime_projection)
     |> JSONPayload.validate_map(:result, allow_datetime: true)
     |> JSONPayload.validate_map(:error, allow_datetime: true)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
@@ -156,6 +166,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     |> check_constraint(:workspace_template_id,
       name: :background_agent_jobs_workspace_template_id_valid
     )
+    |> check_constraint(:model_profile, name: :background_agent_jobs_model_profile_valid)
+    |> check_constraint(:runtime_projection,
+      name: :background_agent_jobs_runtime_projection_object
+    )
     |> check_constraint(:status, name: :background_agent_jobs_status_check)
     |> check_constraint(:result, name: :background_agent_jobs_result_object)
     |> check_constraint(:error, name: :background_agent_jobs_error_object)
@@ -167,6 +181,12 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       if Contract.validate_identifier(id) == :ok,
         do: [],
         else: [workspace_template_id: "must be an Agent Plugin identifier"]
+    end)
+  end
+
+  defp validate_optional_map(changeset, field) do
+    validate_change(changeset, field, fn ^field, value ->
+      if is_map(value), do: [], else: [{field, "must be an object"}]
     end)
   end
 

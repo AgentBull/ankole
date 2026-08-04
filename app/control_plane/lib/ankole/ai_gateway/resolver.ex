@@ -14,8 +14,6 @@ defmodule Ankole.AIGateway.Resolver do
   alias Ankole.AIGateway.Providers
   alias Ankole.Principals
 
-  @llm_aliases ~w(primary light heavy coding vision_fallback)
-
   @doc """
   Resolves the request `model` field for one Principal subject and capability.
 
@@ -30,8 +28,14 @@ defmodule Ankole.AIGateway.Resolver do
     end
   end
 
-  defp resolve_model(subject_uid, "llm", selector, request) when selector in @llm_aliases do
-    resolve_profile_model(subject_uid, "llm", selector, selector, request)
+  defp resolve_model(subject_uid, "llm", selector, request) do
+    case ModelProfiles.profile_capability(selector) do
+      {:ok, "llm"} ->
+        resolve_profile_model(subject_uid, "llm", selector, selector, request)
+
+      _not_llm_profile ->
+        resolve_explicit_model(subject_uid, "llm", selector, request)
+    end
   end
 
   defp resolve_model(subject_uid, capability, selector, request)
@@ -48,6 +52,10 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp resolve_model(subject_uid, capability, selector, request) do
+    resolve_explicit_model(subject_uid, capability, selector, request)
+  end
+
+  defp resolve_explicit_model(subject_uid, capability, selector, request) do
     case explicit_provider_selector(selector) do
       {:ok, provider_id, model} ->
         resolve_provider_model(subject_uid, capability, selector, provider_id, model, request)

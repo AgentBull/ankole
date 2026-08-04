@@ -296,7 +296,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins do
         {:ok, %{agent_plugins: agent_plugins, skills: skills}}
 
       _value ->
-        Config.defaults()
+        Config.defaults(opts)
     end
   end
 

@@ -232,6 +232,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp thought_element(_presentation, _mode), do: nil
 
   defp trigger_context_element(
+         %{"trigger_context" => %{"kind" => "scheduled_task"}} = presentation
+       ) do
+    if first_cardkit_page?(presentation) do
+      %{
+        "tag" => "markdown",
+        "element_id" => "trigger_context",
+        "text_size" => "notation"
+      }
+      |> Map.merge(CardI18n.text("scheduled_task_context"))
+    end
+  end
+
+  defp trigger_context_element(
          %{
            "trigger_context" =>
              %{

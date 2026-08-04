@@ -75,6 +75,8 @@ message WorkerEnvResolveRequest {}
 
 message WorkerEnvResolveResponse {
   map<string, string> vars = 1;
+  map<string, string> operator_vars = 2;
+  map<string, string> binding_vars = 3;
 }
 
 // ===== agent conversation context =====
@@ -170,6 +172,7 @@ message BackgroundAgentJobCreateRequest {
   string title = 2;
   string task = 3;
   string workspace_template_id = 6;
+  string model_profile = 11;
   reserved 4, 5, 7 to 10;
 }
 
@@ -261,6 +264,7 @@ message BackgroundAgentJobAttemptHistoryEntry {
   uint32 attempt = 1;
   repeated string turn_statuses = 2;
   string summary = 3;
+  repeated string used_skill_names = 4;
 }
 
 message BackgroundAgentJobResultRef {
@@ -296,6 +300,8 @@ message BackgroundAgentJobResponse {
   bytes execution_json = 26;
   repeated BackgroundAgentJobAttemptHistoryEntry attempt_history = 27;
   BackgroundAgentJobResultRef result_ref = 28;
+  bytes runtime_projection_json = 29;
+  string model_profile = 30;
 }
 
 message BackgroundAgentJobSummary {
@@ -620,9 +626,10 @@ message CodexLogs2DailyMaintenanceRequest {
 }
 
 message CodexLogs2DailyMaintenanceResponse {
-  string status = 1; // deleted | database_missing | skipped_codex_running | skipped_setup_busy
+  string status = 1; // deleted | database_missing | skipped_runtime_active
   repeated string deleted_files = 2;
-  uint32 active_codex_processes = 3;
+  reserved 3;
+  reserved "active_codex_processes";
 }
 
 // ===== skills =====

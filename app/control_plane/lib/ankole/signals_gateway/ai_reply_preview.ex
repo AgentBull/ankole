@@ -48,7 +48,7 @@ defmodule Ankole.SignalsGateway.AIReplyPreview do
   @cardkit_creation_debounce_ms 350
   @cardkit_retry_max_ms 30_000
 
-  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer check_back_later.wakeup cron.fire webhook.received automation_job.emitted automation_job.run_failed background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
+  @im_visible_event_types ~w(im.message.addressed im.message.may_intervene signal.action.invoked command.new command.steer command.llm check_back_later.wakeup cron.fire webhook.received automation_job.emitted automation_job.run_failed background_agent_job.completed background_agent_job.failed background_agent_job.waiting)
 
   # ─────────────────────────────────────────────────────────────────
   # Public API

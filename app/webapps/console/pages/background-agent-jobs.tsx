@@ -379,6 +379,7 @@ function JobFacts({ job }: { job: BackgroundAgentJobItem }) {
       className="grid grid-cols-1 min-w-0 content-start gap-px self-start border border-border bg-border sm:grid-cols-2 lg:grid-cols-3 xl:sticky xl:top-0 xl:grid-cols-1">
       <Fact label={t('console.background_agent_jobs.status')} value={<StatusBadge status={job.status} />} />
       <Fact label={t('console.background_agent_jobs.agent')} value={job.agent_uid} mono />
+      <Fact label={t('console.background_agent_jobs.model_profile')} value={job.model_profile} mono />
       <Fact
         label={t('console.background_agent_jobs.workspace_template')}
         value={job.workspace_template_id ?? '—'}

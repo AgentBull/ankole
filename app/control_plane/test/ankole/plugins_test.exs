@@ -301,11 +301,4 @@ defmodule Ankole.PluginsTest do
     assert log =~ contract_id
     assert log =~ adapter_id
   end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
 end

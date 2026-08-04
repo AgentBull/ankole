@@ -18,7 +18,9 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Queries
+  alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Text
   alias Ankole.BackgroundAgentJobs.Turns
 
@@ -39,14 +41,36 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @running_statuses Job.running_statuses()
 
   @doc false
-  @spec claim_attempt_in_tx(module(), pos_integer(), String.t(), pos_integer()) ::
+  @spec upsert_turn_from_worker(pos_integer(), String.t(), map(), TurnRef.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  def upsert_turn_from_worker(job_id, agent_uid, attrs, %TurnRef{} = turn_ref, route)
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
+             is_binary(route) do
+    Repo.transact(fn repo ->
+      with {:ok, :authorized} <-
+             WorkerRouteAuth.authorize_turn_route_in_tx(repo, turn_ref, route, :write, lock: true),
+           :ok <- lock_agent_slots(repo, agent_uid),
+           %Job{} = job <-
+             Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+           {:ok, turn} <- Turns.upsert_from_worker_in_tx(repo, job, attrs) do
+        {:ok, turn}
+      else
+        nil -> {:error, :job_not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  @doc false
+  @spec claim_attempt_in_tx(module(), pos_integer(), String.t(), pos_integer(), map()) ::
           {:ok, Job.t()} | {:error, term()}
-  def claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
+  def claim_attempt_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec)
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
+             is_map(turn_start_spec) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      claim_attempt(repo, job, expected_attempt)
+      claim_attempt(repo, job, expected_attempt, turn_start_spec)
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -54,14 +78,15 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @doc false
-  @spec claim_continuation_in_tx(module(), pos_integer(), String.t(), pos_integer()) ::
+  @spec claim_continuation_in_tx(module(), pos_integer(), String.t(), pos_integer(), map()) ::
           {:ok, Job.t()} | {:error, term()}
-  def claim_continuation_in_tx(repo, job_id, agent_uid, expected_attempt)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 do
+  def claim_continuation_in_tx(repo, job_id, agent_uid, expected_attempt, turn_start_spec)
+      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
+             is_map(turn_start_spec) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{} = job <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
-      claim_continuation(repo, job, expected_attempt)
+      claim_continuation(repo, job, expected_attempt, turn_start_spec)
     else
       nil -> {:error, :job_not_found}
       {:error, _reason} = error -> error
@@ -502,26 +527,31 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     |> repo.exists?()
   end
 
-  defp claim_attempt(_repo, %Job{status: status} = job, _expected_attempt)
+  defp claim_attempt(_repo, %Job{status: status} = job, _expected_attempt, _turn_start_spec)
        when status in @terminal_statuses,
        do: {:error, {:background_agent_job_terminal, job}}
 
-  defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt)
+  defp claim_attempt(_repo, %Job{attempts: attempts}, _expected_attempt, _turn_start_spec)
        when attempts >= @max_execution_attempts,
        do: {:error, :background_agent_job_attempts_exhausted}
 
-  defp claim_attempt(_repo, %Job{attempts: attempts}, expected_attempt)
+  defp claim_attempt(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
        when attempts + 1 != expected_attempt,
        do: {:error, :background_agent_job_attempt_changed}
 
-  defp claim_attempt(repo, %Job{} = job, expected_attempt) do
-    start_attempt(repo, job, expected_attempt)
+  defp claim_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec) do
+    start_attempt(repo, job, expected_attempt, turn_start_spec)
   end
 
-  defp claim_continuation(_repo, %Job{status: "stopped"} = job, _expected_attempt),
-    do: {:error, {:background_agent_job_terminal, job}}
+  defp claim_continuation(
+         _repo,
+         %Job{status: "stopped"} = job,
+         _expected_attempt,
+         _turn_start_spec
+       ),
+       do: {:error, {:background_agent_job_terminal, job}}
 
-  defp claim_continuation(_repo, %Job{attempts: attempts}, expected_attempt)
+  defp claim_continuation(_repo, %Job{attempts: attempts}, expected_attempt, _turn_start_spec)
        when attempts + 1 != expected_attempt,
        do: {:error, :background_agent_job_attempt_changed}
 
@@ -530,36 +560,45 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   # progress: when the lead thread only produces failures, each redelivered
   # steer event starts another attempt against the same broken dependency, so
   # the Job burns tokens for hours and the real cause never reaches the user.
-  defp claim_continuation(repo, %Job{} = job, expected_attempt) do
+  defp claim_continuation(repo, %Job{} = job, expected_attempt, turn_start_spec) do
     case Turns.consecutive_lead_failures_in_tx(repo, job, @max_consecutive_turn_failures) do
       {count, error} when count >= @max_consecutive_turn_failures ->
         {:error, {:background_agent_job_turn_failures_exhausted, error}}
 
       _below_limit ->
-        start_attempt(repo, job, expected_attempt)
+        start_attempt(repo, job, expected_attempt, turn_start_spec)
     end
   end
 
-  defp start_attempt(repo, %Job{} = job, expected_attempt) do
+  defp start_attempt(repo, %Job{} = job, expected_attempt, turn_start_spec) do
     if job.status not in @running_statuses and
          running_count(repo, job.agent_uid, job.id) >= @max_running_per_agent do
       {:error, :background_agent_job_agent_at_capacity}
     else
       now = now()
 
-      with :ok <- Turns.interrupt_before_attempt_in_tx(repo, job, expected_attempt, now) do
+      with :ok <- Turns.interrupt_before_attempt_in_tx(repo, job, expected_attempt, now),
+           {:ok, runtime_projection} <-
+             ensure_runtime_projection(repo, job, turn_start_spec) do
         job
         |> Job.changeset(%{
           status: "running",
           attempts: expected_attempt,
           started_at: job.started_at || now,
           completed_at: nil,
-          metadata: Map.delete(job.metadata || %{}, "pending_user_input")
+          metadata: Map.delete(job.metadata || %{}, "pending_user_input"),
+          runtime_projection: runtime_projection
         })
         |> repo.update()
       end
     end
   end
+
+  defp ensure_runtime_projection(_repo, %Job{runtime_projection: %{} = projection}, _spec),
+    do: {:ok, projection}
+
+  defp ensure_runtime_projection(repo, %Job{} = job, %{} = turn_start_spec),
+    do: RuntimeProjection.capture(repo, job.agent_uid, turn_start_spec)
 
   defp append_wakeup_event(repo, %Job{} = job, now) do
     case wakeup_event_type(job.status) do
@@ -781,9 +820,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
     end
   end
 
-  @doc false
-  @spec lock_agent_slots_in_tx(module(), String.t()) :: :ok | {:error, term()}
-  def lock_agent_slots_in_tx(repo, agent_uid) do
+  defp lock_agent_slots(repo, agent_uid) do
     lock_key = "background_agent_jobs:running_slots:#{agent_uid}"
 
     case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
@@ -791,8 +828,6 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp lock_agent_slots(repo, agent_uid), do: lock_agent_slots_in_tx(repo, agent_uid)
 
   defp enforce_running_limit(repo, %Job{} = job, attrs) do
     status = Map.get(attrs, "status")

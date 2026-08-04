@@ -28,6 +28,7 @@ defmodule AnkoleWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import AnkoleWeb.ConnCase
+      import Ankole.DataCase, only: [allow_cache_database_access: 0]
     end
   end
 

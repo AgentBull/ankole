@@ -1,10 +1,4 @@
 import {
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Sheet,
   SheetContent,
   SheetDescription,
@@ -19,73 +13,51 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import {
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAgentSessionControllerIndexOptions,
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebAutomationJobControllerShowOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { AutomationJobItem, AutomationJobRunItem } from '../api/generated/types.gen'
-import { LabeledField, StatusIndicator } from '../console-form'
+import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { StatusIndicator } from '../console-form'
 import { ErrorBlock, formatConsoleDate, formatJSON } from '../console-primitives'
-import { ResourceListPage } from '../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
 
 export function AutomationJobsPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
-
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
-  const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
-
-  const sessions = useQuery({
-    ...ankoleWebAgentSessionControllerIndexOptions({ path: { agent_uid: agentUID } }),
-    enabled: Boolean(agentUID)
-  })
-  const sessionList = sessions.data?.sessions ?? []
-  const sessionID = searchParams.get('session') ?? sessionList[0]?.session_id ?? ''
-  const scopeReady = Boolean(agentUID && sessionID)
+  const [includeFinished, setIncludeFinished] = useState(false)
+  const scope = useAgentScope()
   const selectedID = automationJobID(searchParams.get('job'))
 
   const jobs = useQuery({
     ...ankoleWebAutomationJobControllerIndexOptions({
-      path: { agent_uid: agentUID, session_id: sessionID },
+      path: { agent_uid: scope.agentUID },
       query: { limit: 100 }
     }),
-    enabled: scopeReady,
-    refetchInterval: scopeReady ? 5_000 : false
+    enabled: Boolean(scope.agentUID),
+    refetchInterval: scope.agentUID ? 5_000 : false
   })
 
   const detail = useQuery({
     ...ankoleWebAutomationJobControllerShowOptions({
       path: {
-        agent_uid: agentUID,
-        session_id: sessionID,
+        agent_uid: scope.agentUID,
         automation_job_id: selectedID ?? 1000
       },
       query: { runs: 20 }
     }),
-    enabled: scopeReady && selectedID !== undefined,
+    enabled: Boolean(scope.agentUID) && selectedID !== undefined,
     refetchInterval: selectedID !== undefined ? 5_000 : false,
     retry: false
   })
 
-  const rows = (jobs.data?.automation_jobs ?? []).filter(job =>
-    matchesResourceSearch(query, job.label, job.status, job.directory_path, String(job.id))
-  )
-
-  const selectAgent = (uid: string) => {
-    setSearchParams(uid ? new URLSearchParams({ agent: uid }) : new URLSearchParams())
-  }
-
-  const selectSession = (session: string) => {
-    const next = new URLSearchParams(searchParams)
-    if (session) next.set('session', session)
-    else next.delete('session')
-    next.delete('job')
-    setSearchParams(next)
-  }
+  const rows = (jobs.data?.automation_jobs ?? [])
+    .filter(job => includeFinished || job.status === 'active')
+    .filter(job =>
+      matchesResourceSearch(query, job.label, job.status, job.directory_path, job.owner_session_id, String(job.id))
+    )
 
   const openJob = (id: number) => {
     const next = new URLSearchParams(searchParams)
@@ -106,6 +78,7 @@ export function AutomationJobsPage() {
         description={t('console.automation_jobs.description')}
         columns={[
           t('console.automation_jobs.label'),
+          t('console.session'),
           t('console.automation_jobs.directory'),
           t('console.automation_jobs.failure_wake'),
           t('console.automation_jobs.status'),
@@ -113,35 +86,29 @@ export function AutomationJobsPage() {
         ]}
         count={rows.length}
         emptyTitle={
-          scopeReady ? t('console.automation_jobs.empty_title') : t('console.automation_jobs.select_scope_title')
+          scope.agentUID ? t('console.automation_jobs.empty_title') : t('console.automation_jobs.select_scope_title')
         }
         emptyDescription={
-          scopeReady
+          scope.agentUID
             ? t('console.automation_jobs.empty_description')
             : t('console.automation_jobs.select_scope_description')
         }
-        error={jobs.error}
+        error={scope.error ?? jobs.error}
         isEmpty={rows.length === 0}
         isFiltered={Boolean(query.trim())}
-        isLoading={scopeReady && jobs.isLoading}
+        isLoading={Boolean(scope.agentUID) && jobs.isLoading}
         subNav={
-          <AutomationJobScope
-            agentUID={agentUID}
-            agents={agentList}
-            sessionID={sessionID}
-            sessions={sessionList}
-            onSelectAgent={selectAgent}
-            onSelectSession={selectSession}
-          />
+          <ScopeBar>
+            <AgentFilter scope={scope} />
+            <FilterSwitch
+              checked={includeFinished}
+              label={t('console.include_finished')}
+              onChange={setIncludeFinished}
+            />
+          </ScopeBar>
         }
         toolbar={
-          <Input
-            aria-label={t('console.automation_jobs.search_placeholder')}
-            className="max-w-sm"
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-            placeholder={t('console.automation_jobs.search_placeholder')}
-          />
+          <ResourceSearch label={t('console.automation_jobs.search_placeholder')} value={query} onChange={setQuery} />
         }>
         {rows.map(job => (
           <AutomationJobRow key={job.id} job={job} onOpen={() => openJob(job.id)} />
@@ -175,67 +142,6 @@ export function AutomationJobsPage() {
   )
 }
 
-function AutomationJobScope({
-  agentUID,
-  agents,
-  sessionID,
-  sessions,
-  onSelectAgent,
-  onSelectSession
-}: {
-  agentUID: string
-  agents: { uid: string }[]
-  sessionID: string
-  sessions: { session_id: string; title?: string | null }[]
-  onSelectAgent: (uid: string) => void
-  onSelectSession: (sessionID: string) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <div className="grid grid-cols-1 gap-3 border-b-0 md:grid-cols-2">
-      <div className="border border-border bg-card p-3">
-        <LabeledField label={t('console.automation_jobs.agent')}>
-          <Select value={agentUID} onValueChange={value => onSelectAgent(String(value))}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t('console.automation_jobs.select_agent')} />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map(agent => (
-                <SelectItem key={agent.uid} value={agent.uid}>
-                  {agent.uid}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </LabeledField>
-      </div>
-      <div className="border border-border bg-card p-3">
-        <LabeledField label={t('console.automation_jobs.session')}>
-          <Select
-            value={sessionID}
-            onValueChange={value => onSelectSession(String(value))}
-            disabled={!agentUID || sessions.length === 0}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t('console.automation_jobs.select_session')} />
-            </SelectTrigger>
-            <SelectContent>
-              {sessions.map(session => (
-                <SelectItem key={session.session_id} value={session.session_id}>
-                  <span className="font-mono text-xs">{session.session_id}</span>
-                  {session.title ? (
-                    <span className="ml-2 truncate text-muted-foreground">— {session.title}</span>
-                  ) : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </LabeledField>
-      </div>
-    </div>
-  )
-}
-
 function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () => void }) {
   const { t } = useTranslation()
 
@@ -246,6 +152,11 @@ function AutomationJobRow({ job, onOpen }: { job: AutomationJobItem; onOpen: () 
           <span className="font-medium">{job.label}</span>
           <span className="font-mono text-xs text-muted-foreground">#{job.id}</span>
         </button>
+      </TableCell>
+      <TableCell>
+        <span className="block max-w-56 truncate font-mono text-xs" title={job.owner_session_id}>
+          {job.owner_session_id}
+        </span>
       </TableCell>
       <TableCell>
         <span className="block max-w-80 truncate font-mono text-xs" title={job.directory_path}>

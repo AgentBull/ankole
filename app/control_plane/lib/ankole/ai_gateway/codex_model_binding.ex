@@ -50,6 +50,7 @@ defmodule Ankole.AIGateway.CodexModelBinding do
     request
     |> Map.put("model", Map.fetch!(binding, "selector"))
     |> put_provider_options(defaults)
+    |> put_reasoning_effort(defaults)
     |> Map.put(
       "parallel_tool_calls",
       Map.fetch!(binding, "supports_parallel_tool_calls") and not responses_lite?
@@ -72,9 +73,25 @@ defmodule Ankole.AIGateway.CodexModelBinding do
         Map.put(request, "provider_options", defaults)
 
       overrides when is_map(overrides) ->
-        Map.put(request, "provider_options", Map.merge(defaults, overrides))
+        Map.put(request, "provider_options", Map.merge(overrides, defaults))
 
       _invalid ->
+        request
+    end
+  end
+
+  defp put_reasoning_effort(request, defaults) do
+    case Map.get(defaults, "reasoningEffort") do
+      effort when is_binary(effort) and effort != "" ->
+        reasoning =
+          case Map.get(request, "reasoning") do
+            %{} = current -> Map.put(current, "effort", effort)
+            _value -> %{"effort" => effort}
+          end
+
+        Map.put(request, "reasoning", reasoning)
+
+      _value ->
         request
     end
   end

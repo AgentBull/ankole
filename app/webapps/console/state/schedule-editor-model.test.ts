@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { ScheduleEditorModel, type ScheduleEditorDraft } from './schedule-editor-model'
 
 const draft: ScheduleEditorDraft = {
+  sessionId: 'lark:chat:market',
   bindingName: 'lark-agent',
   name: 'market-open',
   status: 'active',
@@ -17,7 +18,7 @@ const draft: ScheduleEditorDraft = {
 }
 
 describe('ScheduleEditorModel', () => {
-  test('requires a name when it creates a recurring schedule', () => {
+  test('requires a name and an owning session when it creates a recurring schedule', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
 
@@ -28,7 +29,12 @@ describe('ScheduleEditorModel', () => {
     expect(model.toCreateBody()).toBeNull()
     model.payload.value = draft.payload
 
+    model.sessionId.value = ''
+    expect(model.toCreateBody()).toBeNull()
+    model.sessionId.value = draft.sessionId
+
     expect(model.toCreateBody()).toEqual({
+      session_id: 'lark:chat:market',
       binding_name: 'lark-agent',
       name: 'market-open',
       status: 'active',

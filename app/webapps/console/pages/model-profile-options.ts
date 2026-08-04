@@ -4,11 +4,11 @@ import type {
   AiGatewayProviderItem as AIGatewayProviderItem,
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
-import type { ProfileDraft, ProfileName } from '../state/model-profiles-model'
+import type { ProfileDraft } from '../state/model-profiles-model'
 
 export type ModelProfileCapability = 'llm' | 'embedding' | 'rerank' | 'web_search' | 'web_fetch' | 'image_generate'
 
-export function profileCapability(profile: ProfileName): ModelProfileCapability {
+export function profileCapability(profile: string): ModelProfileCapability {
   if (profile === 'embedding') return 'embedding'
   if (profile === 'rerank') return 'rerank'
   if (profile === 'web_search') return 'web_search'
@@ -17,14 +17,14 @@ export function profileCapability(profile: ProfileName): ModelProfileCapability 
   return 'llm'
 }
 
-export function profileUsesConfigurableModel(profile: ProfileName): boolean {
+export function profileUsesConfigurableModel(profile: string): boolean {
   const capability = profileCapability(profile)
   return capability !== 'web_search' && capability !== 'web_fetch'
 }
 
 /** Adapts provider-only profiles to the backend's existing model-profile write shape. */
 export function modelProfileRequestFields(
-  profile: ProfileName,
+  profile: string,
   draft: Pick<ProfileDraft, 'model' | 'contextLength'>
 ): { model: string; context_length?: number } {
   if (!profileUsesConfigurableModel(profile)) return { model: 'default' }
@@ -40,7 +40,7 @@ export function modelProfileRequestFields(
 export function providersForProfile(
   providers: AIGatewayProviderItem[],
   kinds: AIGatewayProviderKindItem[],
-  profile: ProfileName
+  profile: string
 ): AIGatewayProviderItem[] {
   const capability = profileCapability(profile)
   const capabilitiesByKind = new Map(kinds.map(kind => [kind.provider_kind, kind.capabilities]))
@@ -55,7 +55,7 @@ export function providersForProfile(
 export function modelOptionsForProfile(
   catalog: unknown,
   providerID: string,
-  profile: ProfileName
+  profile: string
 ): CreatableComboboxOption[] {
   if (!providerID) return []
 

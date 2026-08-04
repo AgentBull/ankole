@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSy
 import { dirname, join } from 'node:path'
 import { agentHomePaths } from '../../core/agent-home-paths'
 import type { CodexRuntimeConfig } from './runtime-config'
+import { CODEX_RUNTIME_CONFIG_TOML_ENV, CODEX_RUNTIME_TOKEN_ENV } from './codex-home-lock'
 
 export type MaterializedCodexConfig = {
   agentHome: string
@@ -10,19 +11,13 @@ export type MaterializedCodexConfig = {
   env: Record<string, string>
 }
 
-const AIGATEWAY_MODEL_BINDING_ENV = 'ANKOLE_AIGATEWAY_MODEL_BINDING'
+const AIGATEWAY_TOKEN_FILE_NAME = 'ankole-aigateway.token'
+const AIGATEWAY_AUTH_REFRESH_INTERVAL_MS = 5 * 60 * 1_000
 
-export function materializeCodexConfig(input: {
-  agentsRoot: string
-  agentUID: string
-  runtime: CodexRuntimeConfig
-}): MaterializedCodexConfig {
+export function materializeCodexConfig(input: { agentsRoot: string; agentUID: string }): MaterializedCodexConfig {
   const paths = agentHomePaths(input.agentsRoot, input.agentUID)
   mkdirSync(paths.codexHome, { recursive: true, mode: 0o700 })
   chmodSync(paths.codexHome, 0o700)
-
-  const configPath = join(paths.codexHome, 'config.toml')
-  atomicWriteIfChanged(configPath, codexConfigToml(input.runtime.aiGatewayKey.baseUrl))
 
   const env: Record<string, string> = {
     PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
@@ -33,25 +28,63 @@ export function materializeCodexConfig(input: {
     TERM: process.env.TERM || 'xterm-256color'
   }
 
-  env.ANKOLE_AIGATEWAY_API_KEY = input.runtime.aiGatewayKey.apiKey
-  env[AIGATEWAY_MODEL_BINDING_ENV] = encodeAIGatewayModelBinding(input.runtime)
   return { agentHome: paths.home, codexHome: paths.codexHome, env }
 }
 
-export function codexConfigCLIOverrides(projectRoot: string): string[] {
+/**
+ * Writes the config.toml that production passes through the locked runtime
+ * startup script. Only tests call this to launch Codex without that script.
+ */
+export function resetCodexAgentRuntimeConfig(codexHome: string, baseURL: string): void {
+  atomicWriteIfChanged(join(codexHome, 'config.toml'), codexConfigToml(codexHome, baseURL))
+}
+
+export function codexAgentRuntimeBootstrapEnv(
+  codexHome: string,
+  baseURL: string,
+  apiKey: string
+): Record<string, string> {
+  if (!apiKey) throw new Error('AIGateway API key is required for the Agent Codex runtime')
+  return {
+    [CODEX_RUNTIME_CONFIG_TOML_ENV]: codexConfigToml(codexHome, baseURL),
+    [CODEX_RUNTIME_TOKEN_ENV]: `${apiKey}\n`
+  }
+}
+
+export function codexAgentRuntimeConfigPath(codexHome: string): string {
+  return join(codexHome, 'config.toml')
+}
+
+/** AgentCodexRuntime serializes updates to this Agent-scoped credential. */
+export function refreshCodexAgentRuntimeCredential(codexHome: string, apiKey: string): void {
+  if (!apiKey) throw new Error('AIGateway API key is required for the Agent Codex runtime')
+  atomicWriteIfChanged(codexAIGatewayTokenPath(codexHome), `${apiKey}\n`)
+}
+
+export function codexAIGatewayTokenPath(codexHome: string): string {
+  return join(codexHome, AIGATEWAY_TOKEN_FILE_NAME)
+}
+
+export function codexAIGatewayAuthConfig(codexHome: string): Record<string, unknown> {
+  return {
+    command: '/bin/cat',
+    args: [codexAIGatewayTokenPath(codexHome)],
+    refresh_interval_ms: AIGATEWAY_AUTH_REFRESH_INTERVAL_MS
+  }
+}
+
+export function codexConfigCLIOverrides(): string[] {
   return [
     '-c',
     'approval_policy="never"',
     '-c',
     'sandbox_mode="danger-full-access"',
     '-c',
-    'cli_auth_credentials_store="file"',
-    '-c',
-    `projects={ ${JSON.stringify(projectRoot)} = { trust_level = "trusted" } }`
+    'cli_auth_credentials_store="file"'
   ]
 }
 
-function codexConfigToml(baseURL: string): string {
+function codexConfigToml(codexHome: string, baseURL: string): string {
   const common = `approval_policy = "never"
 sandbox_mode = "danger-full-access"
 cli_auth_credentials_store = "file"
@@ -96,22 +129,21 @@ ${common}
 [model_providers.ankole_aigateway]
 name = "Ankole AIGateway"
 base_url = ${JSON.stringify(normalizedBaseURL)}
-env_http_headers = { "x-ankole-aigateway-model-binding" = "${AIGATEWAY_MODEL_BINDING_ENV}" }
 wire_api = "responses"
 supports_websockets = true
 
 # Command auth replaces env_key so Codex refreshes the AIGateway models
-# manifest (has_command_auth gates should_refresh_models). The command reads
-# the same sandbox env variable; refresh_interval_ms=0 keeps the token cached
-# because the env value is fixed for the sandbox lifetime.
+# manifest (has_command_auth gates should_refresh_models). AgentCodexRuntime
+# atomically refreshes the private token file. Codex rereads it every five
+# minutes and after a 401 response.
 [model_providers.ankole_aigateway.auth]
-command = "/bin/sh"
-args = ["-c", "printf %s \\"$ANKOLE_AIGATEWAY_API_KEY\\""]
-refresh_interval_ms = 0
+command = "/bin/cat"
+args = [${JSON.stringify(codexAIGatewayTokenPath(codexHome))}]
+refresh_interval_ms = ${AIGATEWAY_AUTH_REFRESH_INTERVAL_MS}
 `
 }
 
-function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string {
+export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string {
   return Buffer.from(
     JSON.stringify({
       selector: runtime.modelProfile.selector,

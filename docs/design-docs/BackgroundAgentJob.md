@@ -40,8 +40,14 @@ correlation to turn-local `call_N` aliases, and contains no cursor.
 
 - `title`: required management and display text; Codex does not receive it
 - `task`: required text sent verbatim as the first Codex user prompt
+- `model_profile`: an optional custom model profile from the current Agent's
+  TurnStart catalog; omission uses `coding`
 - `workspace_template_id`: an optional enabled workspace template applied only
   when Agent Computer first creates the Job Workspace
+
+The tool schema contains an enum of the Agent's configured custom profiles. It
+omits `model_profile` when the catalog is empty. It never accepts a fixed
+profile, raw model ID, provider ID, or reasoning effort.
 
 The tool returns only the new `job_id` and its initial `queued` status.
 
@@ -115,7 +121,8 @@ The Elixir control plane:
 - changes Job state and counts attempts
 - dispatches, steers, stops, and completes Jobs
 - checks the optional workspace template
-- resolves the Agent's current `coding` Model Profile for each worker Turn
+- validates the requested custom Model Profile or selects `coding`
+- resolves the logical profile at first execution admission
 - selects workers and checks turn fences
 - notifies the originating conversation
 
@@ -123,9 +130,11 @@ Agent Computer:
 
 - creates and uses the real Job workspace
 - creates temporary runtime files
-- prepares all current enabled Agent Plugins and Skills that permit Background
-  Agent Jobs
-- starts or resumes the Codex app server
+- materializes the Job's persisted runtime projection with current non-secret
+  materials and credentials
+- acquires the shared per-Agent `AgentCodexRuntime`
+- selects the Job's projected Plugin roots and Background-eligible Skills
+- starts or resumes the Job's own Codex root thread
 - reports semantic events for each Turn trajectory
 - returns the final Codex result
 
@@ -154,27 +163,31 @@ It stores these request fields:
 
 - `title`
 - `task`
+- `model_profile`, which is always `coding` or a custom logical profile name
 
 It stores `runtime_thread_id` as its execution identity.
 
 It stores one optional `workspace_template_id`.
-It also stores status, attempts, timestamps, result, error, and metadata.
+It stores one typed `runtime_projection` at first execution admission. The same
+PostgreSQL transaction that admits the first attempt writes the projection when
+it is absent. It also stores status, attempts, timestamps, result, error, and
+metadata.
 
-A Job does not store a second copy of its Model Profile or provider
-credentials. A new or respawned Job verifies that the effective `coding` Model
-Profile exists before it stores the request. The existing `heavy` fallback
-applies when `coding` is absent. Each worker Turn then resolves the current
-profile and sends its model, provider selector, provider options, context
-length, and parallel-tool-call capability in `model_ref`. This lets an
-operator repair a queued or retried Job by changing the Agent profile.
+A Job does not store provider credentials. Its runtime projection stores the
+resolved provider, model, effort, options, Plugin and Skill selection, MCP
+selection, and non-secret Worker and browser parameters. Retry, continuation,
+and Worker migration use those values instead of silently reading a new Agent
+configuration. A respawn inherits `model_profile` but captures a new projection
+from its current binding. Credentials and mutable Skill content still come from
+their current owners.
 
-Each execution and resume reads the Agent's current enabled Skills. Skills with
-an absent `ankole-runtime` value, `any`, or `background_job` are available.
-Skills with `ankole-runtime: main` are not available to a Job. A Job does not
-store or accept a per-Job Skill selection.
+Each execution intersects the projected Skills with the Agent's current
+effective set. Skills with an absent `ankole-runtime` value, `any`, or
+`background_job` are available. Skills with `ankole-runtime: main` are not
+available to a Job. A caller cannot supply a per-Job capability override.
 
-The Job stores no Agent Plugin selection, package hash, or member Skill state.
-Each run loads all Agent Plugins currently enabled for the Agent.
+The projection stores logical Agent Plugin and member Skill IDs. It stores no
+package hash, package bytes, overlay bytes, Hook state, or Plugin cache state.
 
 `background_agent_job_turns` stores one runtime Turn trajectory. A trajectory is
 the semantic `ankole_chatml` history selected from Codex events, not a copy of
@@ -197,7 +210,8 @@ The first Job owns a Workspace at this path:
 ```text
 /agents/<agent-key>/jobs/<workspace-owner-job-id>/
 ├── .codex/config.toml
-├── .ankole/skills/
+├── .agents/skills/
+├── .ankole/agent-plugins/ # Filtered package views selected by this Job
 ├── temp/
 └── ...
 ```
@@ -221,23 +235,40 @@ HOME=/agents/<agent-key>
 CODEX_HOME=/agents/<agent-key>/.codex
 ```
 
-Each Background Agent Job owns one Codex app-server process and one Codex root
-thread. Agent Computer provides cross-Job concurrency through Worker turn
-capacity; it does not ask one Codex app-server process to run all Jobs. The
-default Worker and Background Agent Job limits both permit nine active turns.
+Each Agent owns one active Codex app-server process through
+`AgentCodexRuntime`. Each Background Agent Job owns one root thread in that
+process. Child threads inherit the owning Job from their parent. Different
+Agents use different Codex Homes and different app-server processes.
 
-Overlapping Jobs for one Agent share ordinary Codex state. Agent Computer
-serializes app-server initialization, Plugin installation, hook trust, and Skill
-configuration for that Agent's Codex Home because Codex initialization maintains
-the shared SQLite state. Job execution stays concurrent after this setup
-finishes, so the setup queue does not reduce active Jobs to one. Different
-Agents use different Codex Homes. A stopped queued Job completes finalization
-and returns its Worker turn slot without waiting for active setup. Its skipped
-queue position keeps later Jobs behind setup that is still active.
+When a Job tree is removed, the runtime keeps retired thread IDs until the
+app-server exits. If Codex reports a late child whose parent is retired, the
+runtime interrupts and unsubscribes that child. A late child cannot become an
+unowned thread while another Job keeps the shared app-server alive.
+
+`AgentCodexRuntime` serializes app-server initialization, official Plugin
+installation, Hook trust, Plugin cache changes, and Codex user-config changes.
+It installs and trusts all same-release packages before it starts the first Job
+thread, then leaves every global Plugin entry disabled. A Job never mutates
+that Agent-wide state. It selects its persisted Plugin roots through
+`thread/start.selectedCapabilityRoots`. Job turns run concurrently after this
+owner finishes setup.
+
+Each Job atomically rebuilds one stable package view from its persisted
+projection and the current effective member set. This view is not an install,
+cache, Hook trust, or user-config mutation. Codex 0.146 does not apply
+`skills.config` entries to Plugin members, so the view contains only the member
+`SKILL.md` files that the Job can use. A resume rebuilds the same path before it
+restores the stored root.
+
+The last Job lease closes app-server input, gives the process a bounded clean
+exit period, and reaps it before the runtime owner is removed. It sends a kill
+only when the clean exit does not finish. There is no idle TTL. A stopped queued
+Job completes finalization and returns its Worker turn slot without waiting for
+a Job-local Plugin setup because no such setup exists.
 
 Codex 0.146 can spend tens of seconds maintaining `logs_2.sqlite` before it
-answers `initialize`. Agent Computer gives `initialize` the ordinary 60-second
-request budget and records its duration. After initialization, it installs a
+answers `initialize`. Agent Computer records a slow-start diagnostic at 60
+seconds and uses a 300-second hard timeout. After initialization, it installs a
 SQLite trigger that drops only `TRACE`, `DEBUG`, and `INFO` diagnostic records.
 The trigger is a temporary compatibility fix for
 [openai/codex#27741](https://github.com/openai/codex/issues/27741), based on the
@@ -246,24 +277,30 @@ filter in
 It keeps `WARNING` and higher records and does not change the journal mode.
 
 The daily session-reset cron schedules one best-effort diagnostic database
-maintenance call for every active Agent. The control plane holds the Agent
-placement advisory lock while it calls the single ready Worker that retains the
-Agent assignment. If the inactive Agent has no assignment, it selects one ready
-Worker under the same placement lock. The Worker attempts the operation only
-when the Agent's Codex Home setup fence is idle. It deletes only
-`logs_2.sqlite` and its exact SQLite sidecar names. If any Codex process is
-running in that Worker, setup is busy, or multiple Workers claim the Agent,
-maintenance changes nothing. A later daily reset can try again. The cleanup
-never deletes Codex thread, goal, memory, session, configuration, or `.nfs*`
-files.
+maintenance call for each Agent and date boundary. The selected Worker makes
+one non-blocking attempt to acquire the same per-Agent physical lock as the
+app-server. A held lock means that the Agent runtime is active, so maintenance
+changes nothing. If the lock is free, the Worker deletes only `logs_2.sqlite`
+and its exact `-wal`, `-shm`, and `-journal` sidecars. A later cold start also
+deletes those exact files while it holds the lock. The cleanup never deletes
+Codex thread, goal, memory, session, configuration, or `.nfs*` files.
+
+The cold-start lock owner atomically replaces the shared Codex runtime config
+and AIGateway token before it starts app-server. A Worker that loses the lock
+does not change those files. The lock command does not fork a separate holder;
+it executes the sandbox process while it owns the lock, so process reaping and
+lock release have one owner.
 
 The Job's `.codex/config.toml` contains project settings, not shared Codex state.
 The runner marks the exact Job path as trusted for that process.
 
-Agent-level configuration contains stable worker and provider defaults. Job
-configuration contains model, reasoning, Plugin, and safety choices. Agent
-Computer supplies MCP-backed Skill dependencies through an invocation-scoped
-`MCPORTER_CONFIG`, not through Codex project configuration.
+Agent-level configuration owns worker and provider defaults, Plugin and Skill
+availability, and safety choices. The Job runtime projection records the
+effective non-secret snapshot at first execution admission; callers cannot set
+per-Job capability overrides. The frozen model and reasoning values are the
+Job's execution binding. Agent Computer supplies MCP-backed Skill dependencies
+through an invocation-scoped `MCPORTER_CONFIG`, not through Codex project
+configuration.
 
 Job preparation removes `mcp_servers` from workspace project configuration.
 No bundled native MCP server is currently installed. If a concrete capability
@@ -280,17 +317,20 @@ programmatic calling path for eligible local tools. It is not the Responses API
 
 For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 The Job configuration contains the real Codex model name and its supported
-reasoning effort. The runner never sends `coding` to Codex. It attaches the
+reasoning effort. The runner never sends a logical profile name to Codex. It attaches the
 Job's exact provider and model selector, all stored provider options, and the
 stored parallel-tool-call capability to each AIGateway request. AIGateway
-applies that binding before it resolves the provider. It sets
-`parallel_tool_calls` from the provider capability unless Codex marks the
+applies that binding before it resolves the provider. The frozen binding wins
+over conflicting Codex model, provider-option, and reasoning-effort values. It
+sets `parallel_tool_calls` from the provider capability unless Codex marks the
 request as Responses Lite.
 
-NFS makes the same files visible to several workers. It does not lock an Agent
-or coordinate SQLite. Worker placement keeps one Agent's live work on one ready
-worker. The Codex Home setup queue is process-local and uses that placement
-contract.
+Worker placement selects the normal owner, and the per-Agent `flock` on the
+shared Codex Home is the final cross-process exclusion boundary. An app-server
+holds that lock until it exits. A second Worker that cannot acquire it reports a
+retryable busy result instead of starting another process. Production storage
+must provide reliable cross-host `flock`; deployment acceptance must verify
+that property with two Worker Pods.
 
 ## Compose the Project AGENTS.md
 
@@ -327,28 +367,36 @@ Agent-installed Skill source uses this path:
 /agents/<agent-key>/installed-skills/<skill-name>/
 ```
 
-Before each run, Agent Computer rebuilds `.ankole/skills`. A Skill without a
-database note becomes a symlink to its source directory.
-
-A Skill with a database note becomes a Job-local copy. Its `SKILL.md` combines
-the source instructions with that note.
-
-Agent Computer gives Codex the real directory through `skills/extraRoots/set`.
+Before each run, Agent Computer refreshes the selected Skill under the stable
+Agent material root. Its `SKILL.md` combines the source instructions with the
+current database note. The Job projects standalone Skills into
+`.agents/skills`, and Codex discovers them through native project discovery.
+The runner does not use the process-global `skills/extraRoots/set` method.
 
 ## Prepare Agent Plugins for Each Run
 
 Agent Plugins use the standard `.codex-plugin/plugin.json` manifest.
 The optional `workspace-template` initializes the Job Workspace once.
 
-Each preparation performs these actions:
+`AgentCodexRuntime` performs Agent-wide setup before the first Job thread:
 
-1. Resolve the current enabled Plugin IDs against the catalog.
-2. Read each same-release local manifest and its member Skill paths.
-3. Refresh the rebuildable package copies.
-4. Apply current Skill overlays.
-5. Install and enable selected packages through Codex.
-6. Configure each member Skill by absolute path. Keep `main` members disabled.
-7. Verify the final Skill states.
+1. Refresh stable Agent package material for every trusted same-release Plugin.
+2. Install every package through official Codex `plugin/install`.
+3. Verify installation and trust package Hooks through Codex.
+4. Set every global installed Plugin entry to disabled.
+
+Each Job preparation performs only thread-owned selection:
+
+1. Intersect the persisted Plugin and member selection with the current
+   effective catalog.
+2. Atomically rebuild the Job's stable package views with only those members
+   and their current Skill overlays.
+3. Pass those package roots to `thread/start.selectedCapabilityRoots`.
+
+`thread/resume` restores the selected roots stored with the existing Codex
+thread. The Job rebuilds those paths before resume, so a later disable removes
+the member without a global config write. A Job does not call `plugin/install`,
+trust Hooks, or mutate Plugin cache and user config.
 
 Enabling a Plugin does not create another Skill path or Job runner. See
 [Plugins](Plugins.md) for package and enabled-state rules.
@@ -384,6 +432,11 @@ events keep a short exponential backoff, because a user waits on them.
 One control-plane transaction stores the final state and the notification.
 If a worker disappears, the control plane dispatches the Job again.
 
+For a terminal result, Agent Computer commits the Job status before it cleans
+the Job thread, materialized files, and runtime lease. A cleanup failure after
+that durable commit is an operational warning. It does not reopen or retry a
+model Turn that can already have external effects.
+
 An old worker process can briefly overlap the replacement. The turn fence
 rejects later writes from the old process.
 
@@ -399,10 +452,12 @@ Start uses this idempotency key:
 {agent_uid, owner_session_id, source_tool_call_id}
 ```
 
-A new request resolves the effective `coding` Model Profile, selects the Codex
-runtime, and checks the requested capabilities. It fails before insertion when
-neither `coding` nor its `heavy` fallback is configured. One transaction inserts
-both the Job and its dispatch event.
+A new request validates the selected logical Model Profile. Omission validates
+`coding` and its `heavy` fallback. An explicit value must name a configured
+custom LLM profile; it cannot name `coding`, another fixed profile, or a raw
+model. An unavailable custom profile fails without fallback. One transaction
+inserts both the Job and its dispatch event. The first real execution admission
+captures the resolved runtime projection and model binding in the Job row.
 
 The dispatch event targets this actor session:
 
@@ -413,9 +468,9 @@ The dispatch event targets this actor session:
 Every stored Job Session ID uses the `job:` prefix. Repeating the same start
 request returns the original Job and event.
 
-Each Job Turn uses the Agent's current AIGateway provider binding. Jobs for one
-Agent can use different provider rows without changing the shared Codex Home
-or adding a filesystem lock.
+Each Job Turn uses its persisted AIGateway provider binding. Jobs for one Agent
+can use different provider rows without changing the shared Codex Home or
+adding a filesystem lock.
 
 ## Respawn a Terminal Job Once
 
@@ -429,7 +484,10 @@ The control plane locks the source Job and accepts only `succeeded`, `failed`,
 or `stopped`. The source must have a Codex thread and a Workspace owner. One
 transaction inserts the new queued Job and its dispatch event. The new Job
 stores the source ID in `continued_from_job_id`, the inherited root ID in
-`workspace_owner_job_id`, and the new message in `task`.
+`workspace_owner_job_id`, the inherited logical profile name in
+`model_profile`, and the new message in `task`. It does not inherit the source
+runtime projection. It resolves the current profile binding at its own first
+execution admission.
 
 `continued_from_job_id` is unique. One terminal Job can have only one direct
 successor, so two live Jobs cannot write to the same Codex thread and Workspace.

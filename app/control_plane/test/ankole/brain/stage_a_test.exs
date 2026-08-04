@@ -7,6 +7,7 @@ defmodule Ankole.Brain.StageATest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache
   alias Ankole.Brain
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming.StageA
@@ -22,6 +23,12 @@ defmodule Ankole.Brain.StageATest do
   @base_time ~U[2026-07-01 10:00:00.000000Z]
 
   setup do
+    # The AppConfigure cache is a process, so it outlives the sandbox transaction
+    # that rolls its rows back. Without this reset the global dreaming and
+    # embedding configuration leaks in both directions between this file and its
+    # neighbors.
+    allow_cache_database_access()
+    Cache.clear_for_test()
     :ok = Brain.ensure_registered()
     :ok = AppConfigure.delete_global(Config.dreaming_definition())
     :ok = AppConfigure.delete_global(Config.embedding_definition())
@@ -29,6 +36,7 @@ defmodule Ankole.Brain.StageATest do
     on_exit(fn ->
       AppConfigure.delete_global(Config.dreaming_definition())
       AppConfigure.delete_global(Config.embedding_definition())
+      Cache.clear_for_test()
     end)
 
     :ok

@@ -38,6 +38,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert job.metadata["worker_route"] == route
     assert is_binary(job.metadata["brain_owner_conversation_id"])
     assert job.workspace_owner_job_id == job.id
+    assert job.model_profile == "coding"
+    assert payload.model_profile == "coding"
   end
 
   test "parent turn respawns one terminal job into one linear successor" do
@@ -45,6 +47,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     binding_fixture(agent.uid, "bot", :ignore)
     route = unique_route()
     turn_ref = start_parent_turn!(agent.uid, route)
+    assert {:ok, heavy} = ModelProfiles.get_model_profile(agent.uid, "heavy")
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: heavy["provider_id"],
+               model: "moonshotai/kimi-k2.7-code",
+               provider_options: %{"reasoningEffort" => "high"}
+             })
 
     assert {:ok, created} =
              RPCLane.handle_request(
@@ -54,7 +65,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
                  %FabricProto.BackgroundAgentJobCreateRequest{
                    source_tool_call_id: "tool-create-for-respawn",
                    title: "Prepare launch brief",
-                   task: "Write and verify the launch brief."
+                   task: "Write and verify the launch brief.",
+                   model_profile: "kimi"
                  },
                  turn: turn_ref
                ),
@@ -63,6 +75,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
 
     source_job_id = job_payload(created).job_id
     source_job = BackgroundAgentJobs.get_job_for_agent(domain_job_id!(source_job_id), agent.uid)
+    assert source_job.model_profile == "kimi"
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: heavy["provider_id"],
+               model: "moonshotai/kimi-k3-code",
+               provider_options: %{"reasoningEffort" => "max"}
+             })
 
     source_job =
       source_job
@@ -103,6 +124,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobBrokerTest do
     assert successor_job.workspace_owner_job_id == source_job.workspace_owner_job_id
     assert successor_job.owner_session_id == turn_ref.actor.session_id
     assert successor_job.workspace_template_id == nil
+    assert successor_job.model_profile == "kimi"
+    assert successor_job.runtime_projection == nil
     assert successor_job.metadata["managed_background_agent_job_root"] == false
 
     assert BackgroundAgentJobs.get_job_for_agent(source_job.id, agent.uid).status == "failed"

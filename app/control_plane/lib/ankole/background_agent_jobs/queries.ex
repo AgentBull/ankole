@@ -159,6 +159,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       status: job.status,
       attempts: job.attempts,
       workspace_template_id: job.workspace_template_id,
+      model_profile: job.model_profile,
       reply_route: job.reply_route || %{},
       result: job.result || %{},
       error: job.error || %{},

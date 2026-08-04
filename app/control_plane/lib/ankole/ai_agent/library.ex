@@ -12,6 +12,7 @@ defmodule Ankole.AIAgent.Library do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.Library.AgentPlugins.Config, as: AgentPluginConfig
+  alias Ankole.AIAgent.Library.RuntimeCapabilityChanges
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
   alias Ankole.AIAgent.Library.Schemas.AgentSkill
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
@@ -357,6 +358,7 @@ defmodule Ankole.AIAgent.Library do
           replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
         end
       end)
+      |> notify_skill_content_change(agent_uid, repo)
     end
   end
 
@@ -405,6 +407,7 @@ defmodule Ankole.AIAgent.Library do
           replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
         end
       end)
+      |> notify_skill_content_change(agent_uid, repo)
     end
   end
 
@@ -444,6 +447,7 @@ defmodule Ankole.AIAgent.Library do
           })
         end
       end)
+      |> notify_skill_content_change(agent_uid, repo)
     end
   end
 
@@ -519,6 +523,7 @@ defmodule Ankole.AIAgent.Library do
           delete_skill_overlay_in_tx(repo, active_skill_overlay(repo, agent_uid, skill_name))
         end
       end)
+      |> notify_skill_content_change(agent_uid, repo)
     end
   end
 
@@ -1317,6 +1322,17 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
+  defp notify_skill_content_change(
+         {:ok, %AgentSkillOverlay{skill_name: skill_name}} = result,
+         agent_uid,
+         repo
+       ) do
+    RuntimeCapabilityChanges.notify_skill_content(agent_uid, skill_name, repo: repo)
+    result
+  end
+
+  defp notify_skill_content_change(result, _agent_uid, _repo), do: result
+
   defp overlay_json(%AgentSkillOverlay{overlay_json: overlay_json}) when is_map(overlay_json),
     do: overlay_json
 
@@ -1403,7 +1419,7 @@ defmodule Ankole.AIAgent.Library do
         {:ok, %{agent_plugins: agent_plugins, skills: skills}}
 
       _value ->
-        AgentPluginConfig.defaults()
+        AgentPluginConfig.defaults(opts)
     end
   end
 

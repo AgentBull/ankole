@@ -4,7 +4,6 @@ defmodule AnkoleWeb.AuthControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
@@ -203,13 +202,6 @@ defmodule AnkoleWeb.AuthControllerTest do
     assert json_response(conn, 409)["error"] == "setup already completed"
     assert get_session(conn, :admin_session) == nil
     assert get_session(conn, :admin_oidc_state) == nil
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 
   defp active_admin_conn(conn) do

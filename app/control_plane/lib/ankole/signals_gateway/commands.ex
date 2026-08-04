@@ -10,7 +10,7 @@ defmodule Ankole.SignalsGateway.Commands do
   text.
   """
 
-  @commands MapSet.new(["new", "compress", "retry", "steer", "stop"])
+  @commands MapSet.new(["new", "compress", "retry", "steer", "stop", "llm"])
 
   @doc """
   Classifies recognized visible slash commands.
@@ -87,12 +87,7 @@ defmodule Ankole.SignalsGateway.Commands do
 
     case MapSet.member?(@commands, name) do
       true ->
-        {:ok,
-         %{
-           "name" => name,
-           "raw" => raw,
-           "argsText" => args_text
-         }}
+        {:ok, command_payload(name, args_text, raw)}
 
       false ->
         :not_command
@@ -105,4 +100,23 @@ defmodule Ankole.SignalsGateway.Commands do
 
   defp command_parts([name, args_text]),
     do: {String.downcase(name), String.trim_leading(args_text)}
+
+  defp command_payload("llm", "", raw) do
+    %{"name" => "llm", "raw" => raw, "argsText" => ""}
+  end
+
+  defp command_payload("llm", args_text, raw) do
+    [profile | prompt_parts] = String.split(args_text, [" ", "\n", "\t"], parts: 2)
+
+    %{
+      "name" => "llm",
+      "raw" => raw,
+      "modelProfile" => String.downcase(profile),
+      "argsText" => String.trim_leading(List.first(prompt_parts) || "")
+    }
+  end
+
+  defp command_payload(name, args_text, raw) do
+    %{"name" => name, "raw" => raw, "argsText" => args_text}
+  end
 end

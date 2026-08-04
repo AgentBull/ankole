@@ -13,6 +13,7 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
 
   @now ~U[2026-07-30 01:00:00.000000Z]
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
+  @other_token "wh_ABCDEFGhijklmnopqrstuvwxyz0123456789abcdefg"
 
   test "one-shot callback appends one durable receipt and then ignores replay" do
     %{principal: agent} = agent_fixture()
@@ -279,6 +280,37 @@ defmodule Ankole.SignalsGateway.WebhooksTest do
     refute Map.has_key?(model_projection, "token_digest")
     refute Map.has_key?(console_projection, :token)
     refute Map.has_key?(console_projection, :token_digest)
+  end
+
+  test "a nil session lists and cancels endpoints across every session of one agent" do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+    first = source_event!(agent.uid)
+    second = source_event!(agent.uid)
+    expires_at = DateTime.add(@now, 1, :day)
+
+    assert {:ok, %{webhook_endpoint: one}} =
+             Webhooks.create_endpoint(endpoint_attrs(first, expires_at), @token, now: @now)
+
+    assert {:ok, %{webhook_endpoint: two}} =
+             Webhooks.create_endpoint(endpoint_attrs(second, expires_at), @other_token, now: @now)
+
+    listed = Webhooks.list_endpoints(agent.uid, nil, active_only: true, now: @now)
+
+    assert MapSet.new(listed, & &1.id) == MapSet.new([one.id, two.id])
+
+    assert MapSet.new(listed, & &1.session_id) ==
+             MapSet.new([first.session_id, second.session_id])
+
+    assert Webhooks.cancel_endpoint(other_agent.uid, nil, one.id) ==
+             {:error, :webhook_endpoint_not_found}
+
+    assert {:ok, %{status: :cancelled, webhook_endpoint: cancelled}} =
+             Webhooks.cancel_endpoint(agent.uid, nil, one.id, now: @now)
+
+    assert cancelled.status == "cancelled"
+    assert [remaining] = Webhooks.list_endpoints(agent.uid, nil, active_only: true, now: @now)
+    assert remaining.id == two.id
   end
 
   test "expiry sweep marks due credentials and active lists hide unswept expiry" do

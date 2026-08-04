@@ -162,7 +162,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
     request =
       Ankole.JSON.encode!(%{
         "type" => "response.create",
-        "model" => "missing-model",
+        "model" => "Missing Model",
         "input" => [text_message("user", "hello")],
         "store" => false
       })
@@ -178,7 +178,34 @@ defmodule AnkoleWeb.AIGatewayWebSocketBindingTest do
              "status" => 422,
              "error" => %{
                "code" => "unknown_model_selector",
-               "message" => "Unknown model selector: missing-model.",
+               "message" => "Unknown model selector: Missing Model.",
+               "param" => "model"
+             }
+           } = Ankole.JSON.decode!(pushed)
+  end
+
+  test "an unconfigured profile name fails as a caller error, not a server error" do
+    %{principal: agent} = agent_fixture()
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "missing-alias",
+        "input" => [text_message("user", "hello")],
+        "store" => false
+      })
+
+    assert {:push, {:text, pushed}, _state} =
+             AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    assert %{
+             "type" => "error",
+             "status" => 422,
+             "error" => %{
+               "code" => "model_profile_not_configured",
                "param" => "model"
              }
            } = Ankole.JSON.decode!(pushed)

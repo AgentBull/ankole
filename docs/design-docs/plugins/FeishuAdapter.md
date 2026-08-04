@@ -175,6 +175,10 @@ page as inline. It does not send terminal element batches against provider
 topology that can have changed. A card created from an already terminal reply
 stays CardKit because its complete content was sent once.
 
+The first card for an automatic cron wake starts with a small quoted note that
+identifies the scheduled task as the source. A manual cron run does not show
+this note.
+
 When a user submits a clarification answer, the adapter rebuilds the active card
 from the durable reply-interaction checkpoint. An answered card removes all
 buttons and forms and shows the accepted choice or custom answer as plain text.

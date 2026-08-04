@@ -70,18 +70,41 @@ describe('@ankole/agent-computer Codex runtime config', () => {
     })
   })
 
-  it('fails when the turn does not resolve the coding profile', async () => {
-    expect(
-      resolveCodexRuntimeConfig({
-        turnStart: turnStart({
-          profile: 'primary',
-          provider_id: 'openrouter',
-          model: 'openai/gpt-5.6-sol',
-          supports_parallel_tool_calls: true
-        }),
-        agentUID: 'agent-1',
-        requestAIGatewayAPIKey: async () => create(AIGatewayAPIKeyResponseSchema, {})
-      })
-    ).rejects.toThrow('did not resolve the coding model profile')
+  it('keeps a no-reasoning Job binding visible to Codex', async () => {
+    const runtime = await resolveCodexRuntimeConfig({
+      turnStart: turnStart({
+        profile: 'coding',
+        provider_id: 'openai',
+        provider_kind: 'openai',
+        model: 'gpt-5.4',
+        provider_options: { reasoningEffort: 'none' },
+        supports_parallel_tool_calls: true
+      }),
+      agentUID: 'agent-1',
+      requestAIGatewayAPIKey: async () => create(AIGatewayAPIKeyResponseSchema, {})
+    })
+
+    expect(runtime.modelProfile.modelReasoningEffort).toBe('none')
+  })
+
+  it('accepts a resolved custom profile for one Job thread', async () => {
+    const runtime = await resolveCodexRuntimeConfig({
+      turnStart: turnStart({
+        profile: 'kimi',
+        provider_id: 'openrouter',
+        provider_kind: 'openrouter',
+        model: 'moonshotai/kimi-k2.7-code',
+        provider_options: { reasoningEffort: 'high' },
+        supports_parallel_tool_calls: true
+      }),
+      agentUID: 'agent-1',
+      requestAIGatewayAPIKey: async () => create(AIGatewayAPIKeyResponseSchema, {})
+    })
+
+    expect(runtime.modelProfile).toMatchObject({
+      model: 'kimi-k2.7-code',
+      selector: 'openrouter/moonshotai/kimi-k2.7-code',
+      modelReasoningEffort: 'high'
+    })
   })
 })

@@ -9,18 +9,35 @@ import type { TurnStart } from '../../lanes/actor_lane'
  * with secrets already decrypted and keeps it in memory for the turn.
  */
 export async function resolveWorkerEnv(turnStart: TurnStart, rpc: RPCRequester): Promise<Record<string, string>> {
-  return resolveAgentWorkerEnv(turnStart.turn.actor.agent_uid, rpc)
+  return (await resolveAgentWorkerEnvParts(turnStart.turn.actor.agent_uid, rpc)).vars
+}
+
+export type ResolvedAgentWorkerEnv = {
+  vars: Record<string, string>
+  operatorVars: Record<string, string>
+  bindingVars: Record<string, string>
 }
 
 /**
  * Resolves the current Agent-level WorkerEnv without requiring a turn.
  */
 export async function resolveAgentWorkerEnv(agentUID: string, rpc: RPCRequester): Promise<Record<string, string>> {
-  const response = await rpc(rpcMethods.workerEnvResolve, {}, { agentUid: agentUID })
+  return (await resolveAgentWorkerEnvParts(agentUID, rpc)).vars
+}
 
-  const vars: Record<string, string> = {}
-  for (const [name, value] of Object.entries(response.vars ?? {})) {
-    if (typeof value === 'string') vars[name] = value
+export async function resolveAgentWorkerEnvParts(agentUID: string, rpc: RPCRequester): Promise<ResolvedAgentWorkerEnv> {
+  const response = await rpc(rpcMethods.workerEnvResolve, {}, { agentUid: agentUID })
+  return {
+    vars: stringMap(response.vars),
+    operatorVars: stringMap(response.operatorVars),
+    bindingVars: stringMap(response.bindingVars)
   }
-  return vars
+}
+
+function stringMap(value: Record<string, string> | undefined): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [name, item] of Object.entries(value ?? {})) {
+    if (typeof item === 'string') result[name] = item
+  }
+  return result
 }

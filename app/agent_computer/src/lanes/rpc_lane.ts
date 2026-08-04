@@ -922,6 +922,7 @@ export type BackgroundAgentJobTurnProgress = JSONObject & {
   tool_calls: number
   tools_used: BackgroundAgentJobTurnToolUsage[]
   files_changed: string[]
+  skills_used?: string[]
   plan?: BackgroundAgentJobTurnPlan
   active_item?: BackgroundAgentJobTurnActiveItem
 }

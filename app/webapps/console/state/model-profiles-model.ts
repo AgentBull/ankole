@@ -15,6 +15,7 @@ export const PROFILE_NAMES = [
 export type ProfileName = (typeof PROFILE_NAMES)[number]
 
 export type ProfileDraft = {
+  description: string
   providerID: string
   model: string
   contextLength: string
@@ -35,6 +36,7 @@ export type ModelProfilePersistenceResult = {
 
 export function emptyProfileDraft(): ProfileDraft {
   return {
+    description: '',
     providerID: '',
     model: '',
     contextLength: '',
@@ -62,6 +64,7 @@ export const ModelProfilesModel = createModel(() => {
   function read(name: ProfileName): ProfileDraft {
     const profile = profiles[name]
     return {
+      description: profile.description.value,
       providerID: profile.providerID.value,
       model: profile.model.value,
       contextLength: profile.contextLength.value,
@@ -136,6 +139,7 @@ function createProfileSignals() {
   const initial = emptyProfileDraft()
   return {
     source: signal(initial),
+    description: signal(initial.description),
     providerID: signal(initial.providerID),
     model: signal(initial.model),
     contextLength: signal(initial.contextLength),
@@ -151,6 +155,7 @@ function normalizedProfileDraft(input: ProfileDraftInput): ProfileDraft {
 }
 
 function writeProfileDraft(profile: ReturnType<typeof createProfileSignals>, draft: ProfileDraft) {
+  profile.description.value = draft.description
   profile.providerID.value = draft.providerID
   profile.model.value = draft.model
   profile.contextLength.value = draft.contextLength
@@ -160,6 +165,7 @@ function writeProfileDraft(profile: ReturnType<typeof createProfileSignals>, dra
 
 function sameProfileValues(left: ProfileDraft, right: ProfileDraft): boolean {
   return (
+    left.description === right.description &&
     left.providerID === right.providerID &&
     left.model === right.model &&
     left.contextLength === right.contextLength &&

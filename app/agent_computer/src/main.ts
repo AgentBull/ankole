@@ -44,7 +44,6 @@ import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-jo
 import { runAutomationJob } from './automation-jobs/run'
 import { WorkerDrainState } from './worker/drain'
 import { completeTurnWithAck, TurnCompletionRejectedError } from './worker/turn_completion'
-import { tryWithCodexHomeSetup } from './core/codex-runner/codex-home-setup'
 import { deleteCodexLogs2AtDailyReset } from './tools/codex/fix-codex-logs2-sqlite-bug'
 
 const heartbeatIntervalMs = 15_000
@@ -246,32 +245,15 @@ async function handleEnvelope(
             }),
           maintainCodexLogs2: async request => {
             const codexHome = agentHomePaths(config.agentsRoot, request.agentUid).codexHome
-            const maintenance = await tryWithCodexHomeSetup(codexHome, async () =>
-              deleteCodexLogs2AtDailyReset(codexHome)
-            )
-            if (!maintenance.acquired) {
-              workerLogger.info('worker.codex_logs2_daily_maintenance', 'Codex logs daily maintenance skipped', {
-                agent_uid: request.agentUid,
-                status: 'skipped_setup_busy'
-              })
-              return {
-                status: 'skipped_setup_busy',
-                deletedFiles: [],
-                activeCodexProcesses: 0
-              }
-            }
-
-            const result = maintenance.value
+            const result = await deleteCodexLogs2AtDailyReset(codexHome)
             workerLogger.info('worker.codex_logs2_daily_maintenance', 'Codex logs daily maintenance completed', {
               agent_uid: request.agentUid,
               status: result.status,
-              deleted_files: result.deletedFiles,
-              active_codex_processes: result.status === 'skipped_codex_running' ? result.activeCodexProcesses : 0
+              deleted_files: result.deletedFiles
             })
             return {
               status: result.status,
-              deletedFiles: result.deletedFiles,
-              activeCodexProcesses: result.status === 'skipped_codex_running' ? result.activeCodexProcesses : 0
+              deletedFiles: result.deletedFiles
             }
           }
         }).catch(error => {
@@ -352,6 +334,8 @@ async function startTurn(
     turnStart,
     correlationID,
     steeringUpdates: [],
+    disabledSkillNames: [],
+    changedSkillNames: [],
     abortController: new AbortController(),
     controlledStopRequested: false
   }
@@ -505,6 +489,8 @@ async function runActiveTurn(
       requestAIGatewayAPIKey: (agentUid, options) => requestAIGatewayAPIKey(rpcClient, agentUid, options),
       logger: workerLogger,
       pollSteering: () => active.steeringUpdates.splice(0),
+      pollDisabledSkills: () => active.disabledSkillNames.splice(0),
+      pollChangedSkills: () => active.changedSkillNames.splice(0),
       onSteeringApplied: update =>
         sendEnvelope(turnAcceptedEnvelope(update.turn, update.correlationID ?? active.correlationID)),
       onTurnActivity,
@@ -604,18 +590,31 @@ async function handleMailboxUpdated(
   }
 }
 
-/**
- * Handles active `/retry` and `/stop` controls by aborting the in-flight turn.
- *
- * The control is recorded as a controlled stop so the normal abort exception
- * does not become a durable worker failure.
- */
+/** Handles runtime controls for one active turn. */
 async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: Envelope): Promise<void> {
   const control = turnControlFromEnvelope(envelope)
-  if (!control.turn || (control.command !== 'retry' && control.command !== 'stop')) return
+  if (!control.turn) return
 
   const active = activeTurns.get(turnKey(control.turn))
   if (!active) return
+
+  if (control.command === 'skill_disabled') {
+    const skillNames = Array.isArray(control.payload_json?.skill_names) ? control.payload_json.skill_names : []
+    for (const name of skillNames) {
+      if (typeof name === 'string' && name.trim()) active.disabledSkillNames.push(name.trim())
+    }
+    return
+  }
+
+  if (control.command === 'skill_content_changed') {
+    const skillNames = Array.isArray(control.payload_json?.skill_names) ? control.payload_json.skill_names : []
+    for (const name of skillNames) {
+      if (typeof name === 'string' && name.trim()) active.changedSkillNames.push(name.trim())
+    }
+    return
+  }
+
+  if (control.command !== 'retry' && control.command !== 'stop') return
 
   const reason = stringFromDetails(control.payload_json, 'reason') ?? control.command
   active.controlledStopRequested = true

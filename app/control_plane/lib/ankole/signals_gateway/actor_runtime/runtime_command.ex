@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   import Ecto.Query, warn: false
   import Ankole.SignalsGateway.ActorRuntime.Common, only: [reason_text: 1]
 
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Compaction
   alias Ankole.I18n
   alias Ankole.SignalsGateway.Actors
@@ -71,6 +72,35 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
               other
           end
         end
+    end
+  end
+
+  def process_llm_help_command(%ActorEvent{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, profiles} <- ModelProfiles.list_custom_model_profiles(input.agent_uid) do
+      process_command_feedback(input, llm_help_text(profiles), now)
+    end
+  end
+
+  def process_llm_command(actor_key, %ActorEvent{} = input, opts) do
+    case command_model_profile(input) do
+      profile when is_binary(profile) ->
+        case ModelProfiles.get_custom_model_profile(input.agent_uid, profile) do
+          {:ok, %{"profile" => normalized_profile}} ->
+            TurnLifecycle.start_worker_turn(
+              actor_key,
+              input,
+              Keyword.put(opts, :profile, normalized_profile)
+            )
+
+          {:error, _reason} ->
+            now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+            process_command_feedback(input, llm_profile_unavailable_text(profile), now)
+        end
+
+      nil ->
+        process_llm_help_command(input, opts)
     end
   end
 
@@ -555,6 +585,41 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
+  defp process_command_feedback(%ActorEvent{} = input, text, now) do
+    Repo.transact(fn repo ->
+      case Actors.lock_actor_event_in_tx(repo, input.id) do
+        %ActorEvent{} = input -> consume_command_feedback(repo, input, text, now)
+        nil -> {:ok, %{status: :idle}}
+      end
+    end)
+  end
+
+  defp llm_help_text([]) do
+    I18n.t("signals_gateway.reply.llm_help_empty", %{
+      "usage" => I18n.t("signals_gateway.reply.llm_usage")
+    })
+  end
+
+  defp llm_help_text(profiles) do
+    profile_lines =
+      profiles
+      |> Enum.map_join("\n", fn profile ->
+        "- #{profile["name"]}: #{profile["description"]}"
+      end)
+
+    I18n.t("signals_gateway.reply.llm_help", %{
+      "usage" => I18n.t("signals_gateway.reply.llm_usage"),
+      "profiles" => profile_lines
+    })
+  end
+
+  defp llm_profile_unavailable_text(profile) do
+    I18n.t("signals_gateway.reply.llm_profile_unavailable", %{
+      "profile" => profile,
+      "usage" => I18n.t("signals_gateway.reply.llm_usage")
+    })
+  end
+
   defp consume_command_without_feedback(repo, %ActorEvent{} = input, now) do
     consume_command_without_feedback(repo, input, now, [])
   end
@@ -1020,4 +1085,15 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   end
 
   defp command_args(_input), do: ""
+
+  defp command_model_profile(%ActorEvent{payload: payload}) when is_map(payload) do
+    payload
+    |> get_in(["data", "command", "modelProfile"])
+    |> case do
+      value when is_binary(value) and value != "" -> value
+      _value -> nil
+    end
+  end
+
+  defp command_model_profile(_input), do: nil
 end

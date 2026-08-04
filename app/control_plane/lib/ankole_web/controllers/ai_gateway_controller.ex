@@ -442,6 +442,12 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple({:model_binding_not_configured, capability, name}),
     do: {422, "model_binding_not_configured", "#{capability}.#{name} is not configured"}
 
+  # A model name that is neither provider/model nor a configured profile reaches
+  # here, because any valid profile name is a candidate once an Agent can own
+  # custom profiles. That is a caller or configuration fault, not a server fault.
+  defp error_tuple(:model_profile_not_configured),
+    do: {422, "model_profile_not_configured", "model profile is not configured for this Agent"}
+
   defp error_tuple({:unsupported_capability, capability}),
     do: {422, "unsupported_capability", "provider does not support #{capability}"}
 

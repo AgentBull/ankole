@@ -36,12 +36,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   @worker_turn_error_dead_letter_attempts 5
   @worker_turn_error_retry_base_seconds 5
   @worker_turn_error_retry_max_seconds 120
-  # One wait per Job execution attempt, indexed by delivery attempt. The ladder
-  # spreads the five-attempt budget across roughly 3.7 hours so a durable Job
-  # rides out an upstream outage instead of failing while a retry could still
-  # succeed. Ordinary actor events keep the short exponential backoff because
-  # a user waits on them.
-  @background_agent_job_turn_error_retry_seconds [60, 600, 1_800, 3_600, 7_200]
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -53,8 +47,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
   BackgroundAgentJob passes `conversation: :none` and still receives the same
   activation, lease, delivery, and revision fences.
 
-  A caller may provide `admit_in_tx: (repo -> :ok | {:error, term()})` when its
-  own durable admission must commit with worker assignment and turn fences. The
+  A caller may provide `admit_in_tx: (repo, turn_start_spec -> result)` when its
+  own durable admission must commit with worker assignment and turn fences. A
+  successful callback returns `:ok` or `{:ok, turn_start_overrides}`. The
   callback must not perform external side effects.
   """
   @spec start_worker_turn(actor_key(), ActorEvent.t(), keyword()) ::
@@ -66,8 +61,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
     Repo.transact(fn repo ->
       with {:ok, assignment} <- WorkerPool.assign_worker_in_tx(repo, actor_key, now),
-           :ok <- run_admission_in_tx(repo, opts),
            {:ok, turn_start_spec} <- turn_start_spec_result,
+           {:ok, turn_start_overrides} <- run_admission_in_tx(repo, turn_start_spec, opts),
+           turn_start_spec <- merge_turn_start_spec(turn_start_spec, turn_start_overrides),
            {:ok, workspace} <-
              SessionWorkspaces.ensure_in_tx(repo, actor_key.agent_uid, actor_key.session_id),
            turn_start_spec = Map.put(turn_start_spec, :workspace_id, workspace.id),
@@ -108,26 +104,38 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
     |> TurnStartFailure.finalize(actor_event, now)
   end
 
-  defp run_admission_in_tx(repo, opts) do
+  defp run_admission_in_tx(repo, turn_start_spec, opts) do
     case Keyword.get(opts, :admit_in_tx) do
+      callback when is_function(callback, 2) ->
+        normalize_admission_result(callback.(repo, turn_start_spec))
+
       callback when is_function(callback, 1) ->
-        case callback.(repo) do
-          :ok ->
-            :ok
-
-          {:error, _reason} = error ->
-            error
-
-          other ->
-            {:error, {:invalid_turn_admission_result, other}}
-        end
+        normalize_admission_result(callback.(repo))
 
       nil ->
-        :ok
+        {:ok, %{}}
 
       other ->
         {:error, {:invalid_turn_admission_callback, other}}
     end
+  end
+
+  defp normalize_admission_result(:ok), do: {:ok, %{}}
+  defp normalize_admission_result({:ok, %{} = overrides}), do: {:ok, overrides}
+  defp normalize_admission_result({:error, _reason} = error), do: error
+
+  defp normalize_admission_result(other),
+    do: {:error, {:invalid_turn_admission_result, other}}
+
+  defp merge_turn_start_spec(turn_start_spec, overrides) do
+    request_context =
+      turn_start_spec
+      |> Map.get(:request_context, %{})
+      |> Map.merge(Map.get(overrides, :request_context, %{}))
+
+    turn_start_spec
+    |> Map.merge(Map.delete(overrides, :request_context))
+    |> Map.put(:request_context, request_context)
   end
 
   defp prepare_turn_start_spec(actor_key, actor_event, opts) do
@@ -326,11 +334,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
                  {deleted_count, superseded_count} <-
                    cleanup_noop_deliveries(repo, turn_ref.actor_event_id, now, reason),
                  :ok <-
-                   Ankole.BackgroundAgentJobs.Lifecycle.finalize_worker_turn_in_tx(
-                     repo,
-                     turn_ref,
-                     now
-                   ),
+                   BackgroundAgentJobs.finalize_worker_turn_in_tx(repo, turn_ref, now),
                  {:ok, activation} <- mark_activation_idle_in_tx(repo, activation, now) do
               {:ok,
                %{
@@ -1087,9 +1091,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
          false
        ) do
     if retryable_turn_error?(reason) do
-      retry_available_at =
-        credential_pool_retry_at(event, reason, now) ||
-          DateTime.add(now, retry_backoff_seconds(event, deliveries), :second)
+      retry_available_at = turn_error_retry_at(event, deliveries, reason, now)
 
       event
       |> ActorEvent.changeset(%{available_at: retry_available_at})
@@ -1112,17 +1114,16 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
 
   defp retryable_turn_error?(_reason), do: false
 
-  defp retry_backoff_seconds(%ActorEvent{session_id: session_id}, deliveries)
+  defp turn_error_retry_at(%ActorEvent{session_id: session_id}, deliveries, reason, now)
        when BackgroundAgentJobs.is_job_session_id(session_id) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
-    ladder = @background_agent_job_turn_error_retry_seconds
-    Enum.at(ladder, min(attempt_no, length(ladder)) - 1)
+    BackgroundAgentJobs.turn_error_retry_at(reason, attempt_no, now)
   end
 
-  defp retry_backoff_seconds(%ActorEvent{}, deliveries) do
+  defp turn_error_retry_at(%ActorEvent{}, deliveries, _reason, now) do
     attempt_no = max(max_delivery_attempt_no(deliveries), 1)
     exponential = round(@worker_turn_error_retry_base_seconds * :math.pow(2, attempt_no - 1))
-    min(exponential, @worker_turn_error_retry_max_seconds)
+    DateTime.add(now, min(exponential, @worker_turn_error_retry_max_seconds), :second)
   end
 
   defp max_delivery_attempt_no(deliveries) do
@@ -1131,45 +1132,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnLifecycle do
       attempt_numbers -> Enum.max(attempt_numbers)
     end
   end
-
-  defp credential_pool_retry_at(
-         %ActorEvent{session_id: session_id},
-         %{"details_json" => details},
-         now
-       )
-       when BackgroundAgentJobs.is_job_session_id(session_id) and is_map(details) do
-    if credential_pool_exhausted_details?(details) do
-      details
-      |> pool_retry_at_value()
-      |> parse_pool_retry_at(now)
-    else
-      nil
-    end
-  end
-
-  defp credential_pool_retry_at(%ActorEvent{}, _reason, _now), do: nil
-
-  defp credential_pool_exhausted_details?(details) do
-    details["error_code"] == "credential_pool_exhausted" or
-      get_in(details, ["aigateway", "code"]) == "credential_pool_exhausted"
-  end
-
-  defp pool_retry_at_value(details) do
-    details["retry_at"] ||
-      get_in(details, ["aigateway", "details_json", "retry_at"])
-  end
-
-  defp parse_pool_retry_at(retry_at, now) when is_binary(retry_at) do
-    case DateTime.from_iso8601(retry_at) do
-      {:ok, parsed, _offset} ->
-        if DateTime.compare(parsed, now) == :lt, do: now, else: parsed
-
-      _error ->
-        nil
-    end
-  end
-
-  defp parse_pool_retry_at(_retry_at, _now), do: nil
 
   defp turn_error_reason(%FabricProto.TurnError{} = payload) do
     %{

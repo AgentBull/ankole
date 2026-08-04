@@ -311,6 +311,8 @@ Common ActorEvent types include:
 - `signal.entry.removed`
 - `command.new`
 - `command.steer`
+- `command.llm_help`
+- `command.llm`
 - `check_back_later.wakeup`
 - `cron.fire`
 - `webhook.received`
@@ -326,6 +328,17 @@ delivery row records one worker attempt and its turn fence.
 
 A worker `turn_error` leaves the ActorEvent open. ActorRuntime tries again and
 invalidates the old turn fence.
+
+`/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
+the current Agent's custom model names and descriptions. This command does not
+start a worker Turn, interrupt live work, or supersede a pending interaction.
+
+`/llm <profile> [message]` creates `command.llm`. The profile and stripped
+message body are separate ActorEvent fields. A profile with no message is a
+valid worker Turn. The event queues as normal input when another Turn is live;
+it does not steer or cancel that Turn. ActorRuntime resolves the custom profile
+for this Turn only. The next normal input uses `primary`. `/retry` copies the
+logical profile from the original ActorEvent and resolves its current binding.
 
 After five `turn_error` results, ActorRuntime moves the event to `dead_letter`.
 For a visible chat message, the same transaction records a localized failure

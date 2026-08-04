@@ -139,13 +139,6 @@ defmodule Ankole.I18nTest do
     end
   end
 
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
-  end
-
   defp put_test_catalogs do
     Resolver.put_catalog(
       "en-US",

@@ -2,7 +2,6 @@ defmodule AnkoleWeb.SpaControllerTest do
   use AnkoleWeb.ConnCase
 
   alias Ankole.AppConfigure.Cache
-  alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
   setup do
@@ -55,12 +54,5 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn = get(conn, ~p"/console/settings")
 
     assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fconsole%2Fsettings"
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

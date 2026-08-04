@@ -660,6 +660,7 @@ export type BackgroundAgentJobItem = {
   metadata: {
     [key: string]: unknown
   }
+  model_profile: string
   owner_session_id: string
   queued_at?: string | null
   reply_route: {
@@ -1110,6 +1111,7 @@ export type ScheduleCronScheduleListResponse = {
  */
 export type ModelProfileWriteRequest = {
   context_length?: number
+  description?: string
   model?: string
   provider_id?: string
   provider_options?: {
@@ -1145,6 +1147,7 @@ export type ScheduleCronWriteRequest = {
   name: string
   payload?: JsonValue
   schedule: JsonValue
+  session_id: string
   status?: 'active' | 'paused'
   timezone?: string | null
 }
@@ -2026,6 +2029,26 @@ export type AnkoleWebWorkerFileControllerDownloadResponses = {
 export type AnkoleWebWorkerFileControllerDownloadResponse =
   AnkoleWebWorkerFileControllerDownloadResponses[keyof AnkoleWebWorkerFileControllerDownloadResponses]
 
+export type AnkoleWebScheduleControllerPauseCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/pause'
+}
+
+export type AnkoleWebScheduleControllerPauseCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerPauseCronResponse =
+  AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
+
 export type AnkoleWebBrainControllerDreamingFitnessData = {
   body?: never
   path?: never
@@ -2186,26 +2209,78 @@ export type AnkoleWebControlPlanePluginControllerUpdateResponses = {
 export type AnkoleWebControlPlanePluginControllerUpdateResponse =
   AnkoleWebControlPlanePluginControllerUpdateResponses[keyof AnkoleWebControlPlanePluginControllerUpdateResponses]
 
-export type AnkoleWebScheduleControllerPauseCronData = {
+export type AnkoleWebScheduleControllerIndexCronData = {
   body?: never
   path: {
     agent_uid: string
-    session_id: string
-    cron_schedule_id: string
   }
   query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause'
+  url: '/api/v1/agents/{agent_uid}/cron-schedules'
 }
 
-export type AnkoleWebScheduleControllerPauseCronResponses = {
+export type AnkoleWebScheduleControllerIndexCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerIndexCronError =
+  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
+
+export type AnkoleWebScheduleControllerIndexCronResponses = {
+  /**
+   * Cron schedules
+   */
+  200: ScheduleCronScheduleListResponse
+}
+
+export type AnkoleWebScheduleControllerIndexCronResponse =
+  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
+
+export type AnkoleWebScheduleControllerCreateCronData = {
+  /**
+   * Cron schedule
+   */
+  body: ScheduleCronWriteRequest
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules'
+}
+
+export type AnkoleWebScheduleControllerCreateCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid schedule
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerCreateCronError =
+  AnkoleWebScheduleControllerCreateCronErrors[keyof AnkoleWebScheduleControllerCreateCronErrors]
+
+export type AnkoleWebScheduleControllerCreateCronResponses = {
   /**
    * Cron schedule
    */
   200: ScheduleCronScheduleResponse
 }
 
-export type AnkoleWebScheduleControllerPauseCronResponse =
-  AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
+export type AnkoleWebScheduleControllerCreateCronResponse =
+  AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
 
 export type AnkoleWebPrincipalControllerGroupsData = {
   body?: never
@@ -2444,6 +2519,26 @@ export type AnkoleWebAppConfigurationControllerIndexResponses = {
 export type AnkoleWebAppConfigurationControllerIndexResponse =
   AnkoleWebAppConfigurationControllerIndexResponses[keyof AnkoleWebAppConfigurationControllerIndexResponses]
 
+export type AnkoleWebScheduleControllerCancelCheckbackData = {
+  body?: never
+  path: {
+    agent_uid: string
+    scheduled_event_id: number
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/checkbacks/{scheduled_event_id}'
+}
+
+export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
+  /**
+   * Scheduled event
+   */
+  200: ScheduleEventResponse
+}
+
+export type AnkoleWebScheduleControllerCancelCheckbackResponse =
+  AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
+
 export type AnkoleWebAuthZGroupControllerIndexData = {
   body?: never
   path?: never
@@ -2512,40 +2607,6 @@ export type AnkoleWebAuthZGroupControllerCreateResponses = {
 
 export type AnkoleWebAuthZGroupControllerCreateResponse =
   AnkoleWebAuthZGroupControllerCreateResponses[keyof AnkoleWebAuthZGroupControllerCreateResponses]
-
-export type AnkoleWebWebhookEndpointControllerIndexData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints'
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexError =
-  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
-
-export type AnkoleWebWebhookEndpointControllerIndexResponses = {
-  /**
-   * Webhook endpoints
-   */
-  200: WebhookEndpointListResponse
-}
-
-export type AnkoleWebWebhookEndpointControllerIndexResponse =
-  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
 
 export type AnkoleWebAuthZGroupControllerPreviewComputedMembersData = {
   /**
@@ -2755,81 +2816,6 @@ export type AnkoleWebAiGatewayProviderControllerAddCredentialResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerAddCredentialResponse =
   AnkoleWebAiGatewayProviderControllerAddCredentialResponses[keyof AnkoleWebAiGatewayProviderControllerAddCredentialResponses]
-
-export type AnkoleWebScheduleControllerIndexCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules'
-}
-
-export type AnkoleWebScheduleControllerIndexCronErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerIndexCronError =
-  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
-
-export type AnkoleWebScheduleControllerIndexCronResponses = {
-  /**
-   * Cron schedules
-   */
-  200: ScheduleCronScheduleListResponse
-}
-
-export type AnkoleWebScheduleControllerIndexCronResponse =
-  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
-
-export type AnkoleWebScheduleControllerCreateCronData = {
-  /**
-   * Cron schedule
-   */
-  body: ScheduleCronWriteRequest
-  path: {
-    agent_uid: string
-    session_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules'
-}
-
-export type AnkoleWebScheduleControllerCreateCronErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Invalid schedule
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerCreateCronError =
-  AnkoleWebScheduleControllerCreateCronErrors[keyof AnkoleWebScheduleControllerCreateCronErrors]
-
-export type AnkoleWebScheduleControllerCreateCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerCreateCronResponse =
-  AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutAgentPluginOverrideData = {
   /**
@@ -3283,27 +3269,6 @@ export type AnkoleWebAiGatewayProviderControllerProviderKindsResponses = {
 
 export type AnkoleWebAiGatewayProviderControllerProviderKindsResponse =
   AnkoleWebAiGatewayProviderControllerProviderKindsResponses[keyof AnkoleWebAiGatewayProviderControllerProviderKindsResponses]
-
-export type AnkoleWebScheduleControllerResumeCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume'
-}
-
-export type AnkoleWebScheduleControllerResumeCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerResumeCronResponse =
-  AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerAgentIndexData = {
   body?: never
@@ -4718,6 +4683,46 @@ export type AnkoleWebIdentityProviderControllerRunSyncResponses = {
 export type AnkoleWebIdentityProviderControllerRunSyncResponse =
   AnkoleWebIdentityProviderControllerRunSyncResponses[keyof AnkoleWebIdentityProviderControllerRunSyncResponses]
 
+export type AnkoleWebAutomationJobControllerShowData = {
+  body?: never
+  path: {
+    agent_uid: string
+    automation_job_id: number
+  }
+  query?: {
+    runs?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/automation-jobs/{automation_job_id}'
+}
+
+export type AnkoleWebAutomationJobControllerShowErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAutomationJobControllerShowError =
+  AnkoleWebAutomationJobControllerShowErrors[keyof AnkoleWebAutomationJobControllerShowErrors]
+
+export type AnkoleWebAutomationJobControllerShowResponses = {
+  /**
+   * Automation job
+   */
+  200: AutomationJobResponse
+}
+
+export type AnkoleWebAutomationJobControllerShowResponse =
+  AnkoleWebAutomationJobControllerShowResponses[keyof AnkoleWebAutomationJobControllerShowResponses]
+
 export type AnkoleWebPrincipalControllerGrantsData = {
   body?: never
   path: {
@@ -4892,18 +4897,16 @@ export type AnkoleWebAiGatewayProviderControllerIndexResponses = {
 export type AnkoleWebAiGatewayProviderControllerIndexResponse =
   AnkoleWebAiGatewayProviderControllerIndexResponses[keyof AnkoleWebAiGatewayProviderControllerIndexResponses]
 
-export type AnkoleWebWebhookEndpointControllerDeleteData = {
+export type AnkoleWebWebhookEndpointControllerIndexData = {
   body?: never
   path: {
     agent_uid: string
-    session_id: string
-    webhook_endpoint_id: string
   }
   query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/webhook-endpoints/{webhook_endpoint_id}'
+  url: '/api/v1/agents/{agent_uid}/webhook-endpoints'
 }
 
-export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
+export type AnkoleWebWebhookEndpointControllerIndexErrors = {
   /**
    * Unauthorized
    */
@@ -4912,44 +4915,40 @@ export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
    * Forbidden
    */
   403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebWebhookEndpointControllerDeleteError =
-  AnkoleWebWebhookEndpointControllerDeleteErrors[keyof AnkoleWebWebhookEndpointControllerDeleteErrors]
+export type AnkoleWebWebhookEndpointControllerIndexError =
+  AnkoleWebWebhookEndpointControllerIndexErrors[keyof AnkoleWebWebhookEndpointControllerIndexErrors]
 
-export type AnkoleWebWebhookEndpointControllerDeleteResponses = {
+export type AnkoleWebWebhookEndpointControllerIndexResponses = {
   /**
-   * Webhook endpoint
+   * Webhook endpoints
    */
-  200: WebhookEndpointResponse
+  200: WebhookEndpointListResponse
 }
 
-export type AnkoleWebWebhookEndpointControllerDeleteResponse =
-  AnkoleWebWebhookEndpointControllerDeleteResponses[keyof AnkoleWebWebhookEndpointControllerDeleteResponses]
+export type AnkoleWebWebhookEndpointControllerIndexResponse =
+  AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
 
-export type AnkoleWebScheduleControllerIndexCheckbacksData = {
+export type AnkoleWebScheduleControllerResumeCronData = {
   body?: never
   path: {
     agent_uid: string
-    session_id: string
+    cron_schedule_id: string
   }
   query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks'
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/resume'
 }
 
-export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
+export type AnkoleWebScheduleControllerResumeCronResponses = {
   /**
-   * Scheduled events
+   * Cron schedule
    */
-  200: ScheduleEventListResponse
+  200: ScheduleCronScheduleResponse
 }
 
-export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
-  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
+export type AnkoleWebScheduleControllerResumeCronResponse =
+  AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
 
 export type AnkoleWebAgentControllerIndexModelProfilesData = {
   body?: never
@@ -5046,112 +5045,6 @@ export type AnkoleWebPrincipalControllerIndexResponses = {
 export type AnkoleWebPrincipalControllerIndexResponse =
   AnkoleWebPrincipalControllerIndexResponses[keyof AnkoleWebPrincipalControllerIndexResponses]
 
-export type AnkoleWebScheduleControllerRemoveCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerRemoveCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerRemoveCronResponse =
-  AnkoleWebScheduleControllerRemoveCronResponses[keyof AnkoleWebScheduleControllerRemoveCronResponses]
-
-export type AnkoleWebScheduleControllerShowCronData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerShowCronErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerShowCronError =
-  AnkoleWebScheduleControllerShowCronErrors[keyof AnkoleWebScheduleControllerShowCronErrors]
-
-export type AnkoleWebScheduleControllerShowCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerShowCronResponse =
-  AnkoleWebScheduleControllerShowCronResponses[keyof AnkoleWebScheduleControllerShowCronResponses]
-
-export type AnkoleWebScheduleControllerUpdateCronData = {
-  /**
-   * Cron schedule update
-   */
-  body: ScheduleCronUpdateRequest
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
-}
-
-export type AnkoleWebScheduleControllerUpdateCronErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-  /**
-   * Not found
-   */
-  404: ConsoleApiErrorEnvelope
-  /**
-   * Invalid schedule
-   */
-  422: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebScheduleControllerUpdateCronError =
-  AnkoleWebScheduleControllerUpdateCronErrors[keyof AnkoleWebScheduleControllerUpdateCronErrors]
-
-export type AnkoleWebScheduleControllerUpdateCronResponses = {
-  /**
-   * Cron schedule
-   */
-  200: ScheduleCronScheduleResponse
-}
-
-export type AnkoleWebScheduleControllerUpdateCronResponse =
-  AnkoleWebScheduleControllerUpdateCronResponses[keyof AnkoleWebScheduleControllerUpdateCronResponses]
-
 export type AnkoleWebPermissionGrantControllerCreateData = {
   /**
    * Permission grant
@@ -5193,53 +5086,6 @@ export type AnkoleWebPermissionGrantControllerCreateResponses = {
 
 export type AnkoleWebPermissionGrantControllerCreateResponse =
   AnkoleWebPermissionGrantControllerCreateResponses[keyof AnkoleWebPermissionGrantControllerCreateResponses]
-
-export type AnkoleWebScheduleControllerCronRunsData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: {
-    limit?: number
-  }
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs'
-}
-
-export type AnkoleWebScheduleControllerCronRunsResponses = {
-  /**
-   * Schedule runs
-   */
-  200: ScheduleRunListResponse
-}
-
-export type AnkoleWebScheduleControllerCronRunsResponse =
-  AnkoleWebScheduleControllerCronRunsResponses[keyof AnkoleWebScheduleControllerCronRunsResponses]
-
-export type AnkoleWebScheduleControllerRunCronData = {
-  body?: never
-  headers: {
-    'Idempotency-Key': string
-  }
-  path: {
-    agent_uid: string
-    session_id: string
-    cron_schedule_id: string
-  }
-  query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs'
-}
-
-export type AnkoleWebScheduleControllerRunCronResponses = {
-  /**
-   * Scheduled event
-   */
-  200: ScheduleEventResponse
-}
-
-export type AnkoleWebScheduleControllerRunCronResponse =
-  AnkoleWebScheduleControllerRunCronResponses[keyof AnkoleWebScheduleControllerRunCronResponses]
 
 export type AnkoleWebSignalBindingControllerDeleteData = {
   body?: never
@@ -5456,26 +5302,24 @@ export type AnkoleWebBrainControllerSourceResponses = {
 export type AnkoleWebBrainControllerSourceResponse =
   AnkoleWebBrainControllerSourceResponses[keyof AnkoleWebBrainControllerSourceResponses]
 
-export type AnkoleWebScheduleControllerCancelCheckbackData = {
+export type AnkoleWebScheduleControllerIndexCheckbacksData = {
   body?: never
   path: {
     agent_uid: string
-    session_id: string
-    scheduled_event_id: number
   }
   query?: never
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}'
+  url: '/api/v1/agents/{agent_uid}/checkbacks'
 }
 
-export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
+export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
   /**
-   * Scheduled event
+   * Scheduled events
    */
-  200: ScheduleEventResponse
+  200: ScheduleEventListResponse
 }
 
-export type AnkoleWebScheduleControllerCancelCheckbackResponse =
-  AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
+export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
+  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
 
 export type AnkoleWebAiGatewayControllerWebSearchData = {
   /**
@@ -5600,6 +5444,109 @@ export type AnkoleWebSignalBindingControllerPutBindingResponses = {
 export type AnkoleWebSignalBindingControllerPutBindingResponse =
   AnkoleWebSignalBindingControllerPutBindingResponses[keyof AnkoleWebSignalBindingControllerPutBindingResponses]
 
+export type AnkoleWebScheduleControllerRemoveCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerRemoveCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerRemoveCronResponse =
+  AnkoleWebScheduleControllerRemoveCronResponses[keyof AnkoleWebScheduleControllerRemoveCronResponses]
+
+export type AnkoleWebScheduleControllerShowCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerShowCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerShowCronError =
+  AnkoleWebScheduleControllerShowCronErrors[keyof AnkoleWebScheduleControllerShowCronErrors]
+
+export type AnkoleWebScheduleControllerShowCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerShowCronResponse =
+  AnkoleWebScheduleControllerShowCronResponses[keyof AnkoleWebScheduleControllerShowCronResponses]
+
+export type AnkoleWebScheduleControllerUpdateCronData = {
+  /**
+   * Cron schedule update
+   */
+  body: ScheduleCronUpdateRequest
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerUpdateCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid schedule
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerUpdateCronError =
+  AnkoleWebScheduleControllerUpdateCronErrors[keyof AnkoleWebScheduleControllerUpdateCronErrors]
+
+export type AnkoleWebScheduleControllerUpdateCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerUpdateCronResponse =
+  AnkoleWebScheduleControllerUpdateCronResponses[keyof AnkoleWebScheduleControllerUpdateCronResponses]
+
 export type AnkoleWebAiGatewayConversationControllerIndexData = {
   body?: never
   path?: never
@@ -5720,20 +5667,17 @@ export type AnkoleWebPrincipalControllerShowResponses = {
 export type AnkoleWebPrincipalControllerShowResponse =
   AnkoleWebPrincipalControllerShowResponses[keyof AnkoleWebPrincipalControllerShowResponses]
 
-export type AnkoleWebAutomationJobControllerShowData = {
+export type AnkoleWebWebhookEndpointControllerDeleteData = {
   body?: never
   path: {
     agent_uid: string
-    session_id: string
-    automation_job_id: number
+    webhook_endpoint_id: string
   }
-  query?: {
-    runs?: number
-  }
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs/{automation_job_id}'
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/webhook-endpoints/{webhook_endpoint_id}'
 }
 
-export type AnkoleWebAutomationJobControllerShowErrors = {
+export type AnkoleWebWebhookEndpointControllerDeleteErrors = {
   /**
    * Unauthorized
    */
@@ -5748,18 +5692,18 @@ export type AnkoleWebAutomationJobControllerShowErrors = {
   404: ConsoleApiErrorEnvelope
 }
 
-export type AnkoleWebAutomationJobControllerShowError =
-  AnkoleWebAutomationJobControllerShowErrors[keyof AnkoleWebAutomationJobControllerShowErrors]
+export type AnkoleWebWebhookEndpointControllerDeleteError =
+  AnkoleWebWebhookEndpointControllerDeleteErrors[keyof AnkoleWebWebhookEndpointControllerDeleteErrors]
 
-export type AnkoleWebAutomationJobControllerShowResponses = {
+export type AnkoleWebWebhookEndpointControllerDeleteResponses = {
   /**
-   * Automation job
+   * Webhook endpoint
    */
-  200: AutomationJobResponse
+  200: WebhookEndpointResponse
 }
 
-export type AnkoleWebAutomationJobControllerShowResponse =
-  AnkoleWebAutomationJobControllerShowResponses[keyof AnkoleWebAutomationJobControllerShowResponses]
+export type AnkoleWebWebhookEndpointControllerDeleteResponse =
+  AnkoleWebWebhookEndpointControllerDeleteResponses[keyof AnkoleWebWebhookEndpointControllerDeleteResponses]
 
 export type AnkoleWebBrainControllerIndexData = {
   body?: never
@@ -6100,6 +6044,41 @@ export type AnkoleWebWorkerEnvControllerIndexResponses = {
 export type AnkoleWebWorkerEnvControllerIndexResponse =
   AnkoleWebWorkerEnvControllerIndexResponses[keyof AnkoleWebWorkerEnvControllerIndexResponses]
 
+export type AnkoleWebAutomationJobControllerIndexData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/automation-jobs'
+}
+
+export type AnkoleWebAutomationJobControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebAutomationJobControllerIndexError =
+  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
+
+export type AnkoleWebAutomationJobControllerIndexResponses = {
+  /**
+   * Automation jobs
+   */
+  200: AutomationJobListResponse
+}
+
+export type AnkoleWebAutomationJobControllerIndexResponse =
+  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
+
 export type AnkoleWebBackgroundAgentJobControllerCancelData = {
   body?: never
   path: {
@@ -6177,42 +6156,6 @@ export type AnkoleWebAppConfigurationControllerDecryptResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptResponse =
   AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
-
-export type AnkoleWebAutomationJobControllerIndexData = {
-  body?: never
-  path: {
-    agent_uid: string
-    session_id: string
-  }
-  query?: {
-    limit?: number
-  }
-  url: '/api/v1/agents/{agent_uid}/sessions/{session_id}/automation-jobs'
-}
-
-export type AnkoleWebAutomationJobControllerIndexErrors = {
-  /**
-   * Unauthorized
-   */
-  401: ConsoleApiErrorEnvelope
-  /**
-   * Forbidden
-   */
-  403: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebAutomationJobControllerIndexError =
-  AnkoleWebAutomationJobControllerIndexErrors[keyof AnkoleWebAutomationJobControllerIndexErrors]
-
-export type AnkoleWebAutomationJobControllerIndexResponses = {
-  /**
-   * Automation jobs
-   */
-  200: AutomationJobListResponse
-}
-
-export type AnkoleWebAutomationJobControllerIndexResponse =
-  AnkoleWebAutomationJobControllerIndexResponses[keyof AnkoleWebAutomationJobControllerIndexResponses]
 
 export type AnkoleWebAiGatewayControllerEmbeddingsData = {
   /**
@@ -6994,6 +6937,51 @@ export type AnkoleWebBrainControllerApplyOperationsResponses = {
 
 export type AnkoleWebBrainControllerApplyOperationsResponse =
   AnkoleWebBrainControllerApplyOperationsResponses[keyof AnkoleWebBrainControllerApplyOperationsResponses]
+
+export type AnkoleWebScheduleControllerCronRunsData = {
+  body?: never
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type AnkoleWebScheduleControllerCronRunsResponses = {
+  /**
+   * Schedule runs
+   */
+  200: ScheduleRunListResponse
+}
+
+export type AnkoleWebScheduleControllerCronRunsResponse =
+  AnkoleWebScheduleControllerCronRunsResponses[keyof AnkoleWebScheduleControllerCronRunsResponses]
+
+export type AnkoleWebScheduleControllerRunCronData = {
+  body?: never
+  headers: {
+    'Idempotency-Key': string
+  }
+  path: {
+    agent_uid: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/v1/agents/{agent_uid}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type AnkoleWebScheduleControllerRunCronResponses = {
+  /**
+   * Scheduled event
+   */
+  200: ScheduleEventResponse
+}
+
+export type AnkoleWebScheduleControllerRunCronResponse =
+  AnkoleWebScheduleControllerRunCronResponses[keyof AnkoleWebScheduleControllerRunCronResponses]
 
 export type AnkoleWebAgentLibraryCapabilityControllerPutGlobalAgentPluginData = {
   /**

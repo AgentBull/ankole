@@ -44,6 +44,7 @@ type RuntimeTurn = {
   anchoredItemKeys: Set<string>
   completedItemIDs: Set<string>
   toolItemNames: Map<string, string>
+  usedSkillNames: Set<string>
   filesChanged: Set<string>
   initialItemKey?: string
   usage?: BackgroundAgentJobTurnUsage
@@ -155,6 +156,14 @@ export class BackgroundAgentJobTurnRecorder {
     if (inserted) this.markDirty(turn, true)
   }
 
+  recordSkillUsed(turnID: string | undefined, skillName: string): void {
+    if (!turnID || !skillName) return
+    const turn = this.turns.get(turnID)
+    if (!turn || turn.usedSkillNames.has(skillName)) return
+    turn.usedSkillNames.add(skillName)
+    this.markDirty(turn, true)
+  }
+
   interruptTurn(turnID: string | undefined, error: JSONObject): void {
     const turn = turnID ? this.turns.get(turnID) : undefined
     if (!turn || (terminal(turn.status) && turn.status !== 'interrupted')) return
@@ -214,6 +223,7 @@ export class BackgroundAgentJobTurnRecorder {
         anchoredItemKeys: new Set(),
         completedItemIDs: new Set(),
         toolItemNames: new Map(),
+        usedSkillNames: new Set(),
         filesChanged: new Set(),
         error: {},
         startedAt,
@@ -551,6 +561,7 @@ function progress(turn: RuntimeTurn): BackgroundAgentJobTurnProgress {
     tool_calls: turn.toolItemNames.size,
     tools_used: toolsUsed,
     files_changed: [...turn.filesChanged].sort(),
+    ...(turn.usedSkillNames.size > 0 ? { skills_used: [...turn.usedSkillNames].sort() } : {}),
     ...(turn.plan ? { plan: turn.plan } : {}),
     ...(turn.activeItem ? { active_item: turn.activeItem } : {})
   }

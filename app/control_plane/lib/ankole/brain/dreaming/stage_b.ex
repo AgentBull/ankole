@@ -287,7 +287,7 @@ defmodule Ankole.Brain.Dreaming.StageB do
       {:ok, plan} ->
         with :ok <-
                enforce_mutation_budget(
-                 plan.batches,
+                 plan.operations,
                  plan.skill_updates,
                  config["mutation_limit"]
                ) do
@@ -353,11 +353,11 @@ defmodule Ankole.Brain.Dreaming.StageB do
   defp store_order("self"), do: {1, "self"}
   defp store_order(store_key), do: {2, store_key}
 
-  defp empty_plan, do: %{batches: [], skill_updates: [], source_versions: %{}}
+  defp empty_plan, do: %{operations: [], skill_updates: [], source_versions: %{}}
 
   defp merge_plans(left, right) do
     %{
-      batches: left.batches ++ right.batches,
+      operations: left.operations ++ right.operations,
       skill_updates: left.skill_updates ++ right.skill_updates,
       source_versions: Map.merge(left.source_versions, right.source_versions)
     }
@@ -482,8 +482,7 @@ defmodule Ankole.Brain.Dreaming.StageB do
   defp validate_store_skill_updates(_plan, false), do: {:error, :private_skill_updates_forbidden}
 
   defp validate_store_operations(plan, source_store_key, writable_store_keys) do
-    plan.batches
-    |> Enum.flat_map(& &1.operations)
+    plan.operations
     |> Enum.with_index()
     |> Enum.find(fn {operation, _index} ->
       operation["_brain_store_key"] not in writable_store_keys
@@ -515,15 +514,10 @@ defmodule Ankole.Brain.Dreaming.StageB do
       |> Enum.flat_map(&Map.get(&1, "blocks", []))
       |> Map.new(&{&1["id"], &1["lock_version"]})
 
-    batches =
-      Enum.map(plan.batches, fn batch ->
-        operations =
-          Enum.map(batch.operations, &attach_operation_fence(&1, entry_versions, block_versions))
+    operations =
+      Enum.map(plan.operations, &attach_operation_fence(&1, entry_versions, block_versions))
 
-        %{batch | operations: operations}
-      end)
-
-    %{plan | batches: batches}
+    %{plan | operations: operations}
   end
 
   defp attach_operation_fence(operation, entry_versions, block_versions) do
@@ -1509,10 +1503,9 @@ defmodule Ankole.Brain.Dreaming.StageB do
          {:ok, operations} <- normalize_planned_operations(store_key, operations, knowledge),
          :ok <- validate_relation_links(store_key, operations, knowledge),
          {:ok, skill_updates} <- validate_skill_updates(store_key, skill_updates),
-         batches =
-           if(operations == [], do: [], else: [%{store_key: store_key, operations: operations}]),
-         :ok <- enforce_mutation_budget(batches, skill_updates, config["mutation_limit"]) do
-      {:ok, %{batches: batches, skill_updates: skill_updates, source_versions: source_versions}}
+         :ok <- enforce_mutation_budget(operations, skill_updates, config["mutation_limit"]) do
+      {:ok,
+       %{operations: operations, skill_updates: skill_updates, source_versions: source_versions}}
     else
       false -> {:error, :invalid_dreaming_plan}
       nil -> {:error, :invalid_dreaming_plan}
@@ -2163,24 +2156,21 @@ defmodule Ankole.Brain.Dreaming.StageB do
     end
   end
 
-  defp enforce_mutation_budget(_batches, _skills, limit) when limit in [nil, 0], do: :ok
+  defp enforce_mutation_budget(_operations, _skills, limit) when limit in [nil, 0], do: :ok
 
-  defp enforce_mutation_budget(batches, skills, limit) do
-    count = Enum.sum(Enum.map(batches, &length(&1.operations))) + length(skills)
+  defp enforce_mutation_budget(operations, skills, limit) do
+    count = length(operations) + length(skills)
     if count <= limit, do: :ok, else: {:error, :dreaming_mutation_budget_exceeded}
   end
 
   defp revalidate_plan_sources(repo, plan) do
     referenced_ids =
-      plan.batches
-      |> Enum.flat_map(fn batch ->
-        Enum.flat_map(batch.operations, fn
-          %{"body" => body} when is_binary(body) ->
-            Regex.scan(@source_ref, body, capture: :all_but_first) |> List.flatten()
+      Enum.flat_map(plan.operations, fn
+        %{"body" => body} when is_binary(body) ->
+          Regex.scan(@source_ref, body, capture: :all_but_first) |> List.flatten()
 
-          _operation ->
-            []
-        end)
+        _operation ->
+          []
       end)
       |> Enum.uniq()
 
@@ -2197,17 +2187,12 @@ defmodule Ankole.Brain.Dreaming.StageB do
           |> Map.new()
       end
 
-    batches =
-      Enum.map(plan.batches, fn batch ->
-        operations =
-          Enum.map(batch.operations, fn operation ->
-            revalidate_operation_sources(operation, plan.source_versions, current_versions)
-          end)
-
-        %{batch | operations: operations}
+    operations =
+      Enum.map(plan.operations, fn operation ->
+        revalidate_operation_sources(operation, plan.source_versions, current_versions)
       end)
 
-    {:ok, %{plan | batches: batches}}
+    {:ok, %{plan | operations: operations}}
   end
 
   defp revalidate_operation_sources(
@@ -2237,10 +2222,10 @@ defmodule Ankole.Brain.Dreaming.StageB do
       with {:ok, cursor} <- claimed_cursor_for_update(repo, owner_uid, run_id),
            {:ok, plan} <- revalidate_plan_sources(repo, plan),
            {:ok, touched_ids, operation_count} <-
-             apply_batches(
+             apply_plan_operations(
                repo,
                owner_uid,
-               plan.batches,
+               plan.operations,
                run_id,
                Map.keys(plan.source_versions)
              ),
@@ -2257,44 +2242,12 @@ defmodule Ankole.Brain.Dreaming.StageB do
     end)
   end
 
-  defp apply_batches(repo, owner_uid, batches, run_id, evidence_document_ids) do
+  defp apply_plan_operations(repo, owner_uid, operations, run_id, evidence_document_ids) do
     initial = %{refs: %{}, versions: %{}, touched_entry_ids: []}
 
-    Enum.reduce_while(batches, {:ok, initial, 0}, fn batch, {:ok, state, count} ->
-      case apply_batch(
-             repo,
-             owner_uid,
-             batch.store_key,
-             batch.operations,
-             run_id,
-             evidence_document_ids,
-             state
-           ) do
-        {:ok, state} -> {:cont, {:ok, state, count + length(batch.operations)}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, state, count} ->
-        {:ok, Enum.uniq(state.touched_entry_ids), count}
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp apply_batch(
-         repo,
-         owner_uid,
-         default_store_key,
-         operations,
-         run_id,
-         evidence_document_ids,
-         initial
-       ) do
     Enum.reduce_while(operations, {:ok, initial}, fn operation, {:ok, state} ->
       with {:ok, operation, client_ref, store_key} <-
-             prepare_planned_operation(operation, state, default_store_key),
+             prepare_planned_operation(operation, state),
            {:ok, scope} <- Scope.for_store(owner_uid, store_key),
            {:ok, %{results: [result]} = applied} <-
              Knowledge.apply_operations(
@@ -2311,14 +2264,18 @@ defmodule Ankole.Brain.Dreaming.StageB do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      {:ok, state} -> {:ok, Enum.uniq(state.touched_entry_ids), length(operations)}
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp prepare_planned_operation(operation, state, default_store_key) do
+  defp prepare_planned_operation(operation, state) do
     entry_ref = Map.get(operation, "entry_ref")
 
     store_key =
       Map.get(operation, "_brain_store_key") ||
-        get_in(state.refs, [entry_ref, :store_key]) || default_store_key
+        get_in(state.refs, [entry_ref, :store_key])
 
     with {:ok, operation} <- resolve_planned_ref(operation, "entry_ref", "entry_id", state.refs),
          {:ok, operation} <-

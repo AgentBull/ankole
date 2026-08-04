@@ -303,7 +303,7 @@ defmodule Ankole.SignalsGateway.Ingress do
         {:ok, :record_only}
 
       command = command_payload(fact) ->
-        {:ok, {:actor_event, "command.#{command["name"]}", command}}
+        {:ok, {:actor_event, command_event_type(command), command}}
 
       fact.actor_event_type ->
         {:ok, {:actor_event, fact.actor_event_type, nil}}
@@ -349,6 +349,12 @@ defmodule Ankole.SignalsGateway.Ingress do
         nil
     end
   end
+
+  defp command_event_type(%{"name" => "llm"} = command) do
+    if Map.get(command, "modelProfile"), do: "command.llm", else: "command.llm_help"
+  end
+
+  defp command_event_type(command), do: "command.#{command["name"]}"
 
   defp apply_entry_policy(repo, binding, fact, :ignore, now)
        when fact.channel_kind == :im_group do

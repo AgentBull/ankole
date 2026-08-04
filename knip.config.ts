@@ -17,7 +17,7 @@ const config: KnipConfig = {
       project: ['src/**/*.ts', 'test/**/*.ts']
     },
     'app/agent_computer': {
-      entry: ['src/main.ts', 'test/**/*.ts'],
+      entry: ['src/main.ts', 'src/automation-jobs/sdk.ts', 'test/**/*.ts'],
       project: ['src/**/*.ts', 'test/**/*.ts'],
       // The vendored AI SDK is intentionally excluded from current unused-file
       // gates. Its slimming is tracked separately and should not mask app-owned

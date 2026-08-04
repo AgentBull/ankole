@@ -22,7 +22,8 @@ ARG POSTGRESQL_MAJOR=18
 ARG POSTGRESQL_PACKAGE_VERSION=18.4-1.pgdg13+1
 ARG RUST_TOOLCHAIN=1.97.1
 ARG CODEX_VERSION=0.146.0
-ARG MCPORTER_VERSION=0.12.3
+ARG MCPORTER_VERSION=0.13.0
+ARG MCPORTER_SHA256=e9d081aee5528ca6ac228fa0e385e768df7e52c756b6c0b6e17ef2b747de1ce9
 ARG OFFICECLI_VERSION=v1.0.143
 ARG PDF_INSPECTOR_VERSION=0.1.7
 ARG TYPST_VERSION=v0.15.1
@@ -105,9 +106,14 @@ RUN cargo install pdf-inspector --version "${PDF_INSPECTOR_VERSION}" --locked --
   && rm -f /tmp/pdf-inspector-check.pdf
 
 RUN set -eux; \
+  mcporter_package="/tmp/mcporter-${MCPORTER_VERSION}.tgz"; \
+  curl -fsSL --retry 3 --retry-delay 2 \
+    "https://github.com/openclaw/mcporter/releases/download/v${MCPORTER_VERSION}/mcporter-${MCPORTER_VERSION}.tgz" \
+    -o "$mcporter_package"; \
+  printf '%s  %s\n' "$MCPORTER_SHA256" "$mcporter_package" | sha256sum -c -; \
   installed=0; \
   for attempt in 1 2 3; do \
-    if bun add -g "@openai/codex@${CODEX_VERSION}" "mcporter@${MCPORTER_VERSION}"; then installed=1; break; fi; \
+    if bun add -g "@openai/codex@${CODEX_VERSION}" "$mcporter_package"; then installed=1; break; fi; \
     rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
     sleep $((attempt * 5)); \
   done; \
@@ -117,7 +123,8 @@ RUN set -eux; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/mcporter/dist/cli.js "$@"' > /usr/local/bin/mcporter; \
   chmod +x /usr/local/bin/codex /usr/local/bin/mcporter; \
   test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"; \
-  test "$(mcporter --version)" = "${MCPORTER_VERSION}"
+  test "$(mcporter --version)" = "${MCPORTER_VERSION}"; \
+  rm -f "$mcporter_package"
 
 RUN apt-get -o Acquire::Retries=5 update \
   && apt-get -o Acquire::Retries=5 install -y --no-install-recommends libicu-dev \

@@ -17,7 +17,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   @action_types ~w(button form)
   @interaction_statuses ~w(pending answered superseded)
   @result_kinds ~w(table chart image artifact metrics)
-  @trigger_context_kinds ~w(background_agent_job_failure)
+  @trigger_context_kinds ~w(background_agent_job_failure scheduled_task)
 
   @max_thought_chars 4_000
   @max_plan_items 24
@@ -154,6 +154,17 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
       })
 
     maybe_put(presentation, "trigger_context", trigger_context)
+  end
+
+  def project_trigger(presentation, "cron.fire", payload) when is_map(payload) do
+    presentation = normalize(presentation)
+    wake_payload = payload |> value("data") |> value("wake_payload")
+
+    if value(wake_payload, "trigger") in [nil, "scheduled"] do
+      Map.put(presentation, "trigger_context", %{"kind" => "scheduled_task"})
+    else
+      presentation
+    end
   end
 
   def project_trigger(presentation, _event_type, _payload), do: normalize(presentation)
@@ -777,17 +788,27 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
 
   defp normalize_trigger_context(context) when is_map(context) do
     kind = normalize_in(value(context, "kind"), @trigger_context_kinds, nil)
-    title = bounded_single_line_text(value(context, "title"), @max_trigger_title_chars)
 
-    if kind && title do
-      %{
-        "kind" => kind,
-        "title" => title
-      }
-      |> maybe_put(
-        "summary",
-        bounded_single_line_text(value(context, "summary"), @max_trigger_summary_chars)
-      )
+    case kind do
+      "scheduled_task" ->
+        %{"kind" => "scheduled_task"}
+
+      "background_agent_job_failure" ->
+        title = bounded_single_line_text(value(context, "title"), @max_trigger_title_chars)
+
+        if title do
+          %{
+            "kind" => kind,
+            "title" => title
+          }
+          |> maybe_put(
+            "summary",
+            bounded_single_line_text(value(context, "summary"), @max_trigger_summary_chars)
+          )
+        end
+
+      _unknown ->
+        nil
     end
   end
 

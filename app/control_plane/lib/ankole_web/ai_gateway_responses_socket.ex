@@ -194,6 +194,17 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
         {:push, {:text, Ankole.JSON.encode!(event)}, state}
 
+      {:error, :model_profile_not_configured} ->
+        event =
+          error_event(
+            422,
+            "model_profile_not_configured",
+            "Model profile is not configured for this Agent.",
+            "model"
+          )
+
+        {:push, {:text, Ankole.JSON.encode!(event)}, state}
+
       {:error, {:credential_pool_exhausted, details}} when is_map(details) ->
         event = credential_pool_exhausted_event(details)
         {:push, {:text, Ankole.JSON.encode!(event)}, state}

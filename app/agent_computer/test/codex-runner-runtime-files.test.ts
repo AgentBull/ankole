@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { jsonBytes } from '../src/fabric/envelope_proto'
@@ -59,7 +59,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     }
   })
 
-  it('projects selected Skills into the real Job .ankole directory', async () => {
+  it('projects selected Skills through one stable Agent material path and refreshes overlays in place', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-job-skills-'))
     const jobRoot = join(root, 'agents', 'agent-1', 'jobs', 'job-1')
     const builtin = join(root, 'builtin')
@@ -67,6 +67,9 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     mkdirSync(source, { recursive: true })
     mkdirSync(jobRoot, { recursive: true })
     writeFileSync(join(source, 'SKILL.md'), '---\nname: plain-skill\ndescription: Plain.\n---\n\n# Base\n')
+    writeFileSync(join(source, 'reference.md'), 'reference-v1\n')
+    let overlay = 'Overlay v1.'
+    const agentSkillsRoot = join(root, 'agents', 'agent-1', 'runtime-materials', 'skills')
 
     const runtime = await materializeCodexJobRuntimeFiles({
       turn: {
@@ -77,6 +80,7 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
         revision: 0
       },
       jobRoot,
+      agentSkillsRoot,
       enabledSkills: [
         create(RuntimeSkillSummarySchema, {
           skillName: 'plain-skill',
@@ -90,15 +94,30 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
         return create(SkillOverlayResponseSchema, {
           skillName: 'plain-skill',
           hasOverlay: true,
-          overlayJson: jsonBytes({ text: 'Overlay.' })
+          overlayJson: jsonBytes({ text: overlay })
         })
       }) as RPCRequester
     })
 
     try {
-      expect(runtime.skillsRoot).toBe(join(jobRoot, '.ankole', 'skills'))
+      expect(runtime.skillsRoot).toBe(join(jobRoot, '.agents', 'skills'))
       expect(runtime.skills[0]?.sourcePath).toBe(join(runtime.skillsRoot, 'plain-skill'))
-      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'SKILL.md'), 'utf8')).toContain('Overlay.')
+      expect(lstatSync(join(runtime.skillsRoot, 'plain-skill')).isSymbolicLink()).toBe(true)
+      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'SKILL.md'), 'utf8')).toContain('Overlay v1.')
+      expect(lstatSync(join(agentSkillsRoot, 'plain-skill', 'reference.md')).isSymbolicLink()).toBe(true)
+
+      overlay = 'Overlay v2.'
+      expect(await runtime.refreshSkill('plain-skill')).toBe(true)
+      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'SKILL.md'), 'utf8')).toContain('Overlay v2.')
+      writeFileSync(join(source, 'reference.md'), 'reference-v2\n')
+      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'reference.md'), 'utf8')).toBe('reference-v2\n')
+
+      overlay = ''
+      expect(await runtime.refreshSkill('plain-skill')).toBe(true)
+      expect(lstatSync(join(agentSkillsRoot, 'plain-skill', 'SKILL.md')).isSymbolicLink()).toBe(false)
+      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'SKILL.md'), 'utf8')).toContain('# Base')
+      expect(readFileSync(join(runtime.skillsRoot, 'plain-skill', 'SKILL.md'), 'utf8')).not.toContain('Overlay v2.')
+      expect(await runtime.refreshSkill('missing')).toBe(false)
       runtime.cleanup()
       expect(existsSync(runtime.skillsRoot)).toBeTrue()
     } finally {

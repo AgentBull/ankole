@@ -9,7 +9,7 @@ import {
 } from '../../lanes/rpc_lane'
 import { materializeCodexConfig } from '../../tools/codex/config'
 import { resolveCodexRuntimeConfig } from '../../tools/codex/runtime-config'
-import { codexAppServerSandboxSpec } from '../../tools/codex/sandbox'
+import { codexAgentRuntimeSandboxSpec, codexJobThreadEnv } from '../../tools/codex/sandbox'
 import { createMemoryTools } from '../../tools/memory/memory-tools'
 import {
   browserSandboxRuntime,
@@ -19,17 +19,28 @@ import {
 import { httpClientFromAIGatewayAPIKey } from '../ai_gateway_transport'
 import { resolveAgentConversationContext } from '../turns/turn_context'
 import { createTurnWebTools, resolveRenderedFetchRuntimeConfig } from '../turns/rendered_fetch_runtime_config'
-import { resolveWorkerEnv } from '../turns/worker_env'
+import { resolveAgentWorkerEnvParts } from '../turns/worker_env'
 import type { CodexJobOptions } from '../turns/turn_options'
 import { join } from 'node:path'
-import { materializeAgentPluginSkillOverlays, prepareAgentPlugins } from './agent-plugin-materializer'
+import {
+  createJobAgentPluginMaterials,
+  prepareAgentPlugins,
+  selectAgentPluginCapabilities
+} from './agent-plugin-materializer'
 import { assertCodexJobProjectResumeState, codexJobProjectLocation, prepareCodexJobProject } from './job-project'
 import { parentInputToolSpec } from './parent-input'
-import { materializeCodexJobProjectConfig } from './project-config'
+import { materializeCodexJobProjectConfig, readCodexJobProjectConfig } from './project-config'
 import { buildCodexJobProjection } from './projection'
 import { materializeCodexJobRuntimeFiles, readCodexJobGuidance, renderCodexJobAgents } from './runtime-files'
 import { skillAvailableInRuntime } from '../../skills/effective-skill'
 import { loadEnabledSkillMCPServers, materializeMCPorterConfig } from '../../tools/mcp'
+import {
+  decodeCodexJobRuntimeProjection,
+  projectWorkerEnv,
+  selectProjectedAgentPlugins,
+  selectProjectedStandaloneSkills
+} from './runtime-projection'
+import { codexJobThreadConfig } from './thread-config'
 
 export type CodexJobSetupInput = {
   turnStart: TurnStart
@@ -41,14 +52,22 @@ export type CodexJobSetupInput = {
 export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   const { turnStart, opts, jobID, job } = input
   opts.abortSignal?.throwIfAborted()
+  const runtimeProjection = decodeCodexJobRuntimeProjection(job)
   const agentContext = await resolveAgentConversationContext(turnStart, opts)
   opts.abortSignal?.throwIfAborted()
   const availableSkills = agentContext.skills ?? []
-  const enabledSkills = selectCurrentStandaloneSkills(availableSkills)
+  const enabledSkills = selectCurrentStandaloneSkills(
+    selectProjectedStandaloneSkills(runtimeProjection, availableSkills)
+  )
   const agentPluginCatalogResponse = await opts.rpc(rpcMethods.agentPluginList, {}, { turn: turnStart.turn })
   opts.abortSignal?.throwIfAborted()
-  const enabledAgentPlugins = agentPluginCatalogResponse.agentPlugins
-  const agentPluginSkills = selectCurrentAgentPluginSkills(enabledAgentPlugins, availableSkills)
+  const projectedAgentPlugins = selectProjectedAgentPlugins(
+    runtimeProjection,
+    agentPluginCatalogResponse.agentPlugins,
+    availableSkills
+  )
+  const enabledAgentPlugins = projectedAgentPlugins.agentPlugins
+  const agentPluginSkills = selectCurrentAgentPluginSkills(enabledAgentPlugins, projectedAgentPlugins.skills)
   const backgroundAgentPlugins = projectBackgroundJobAgentPlugins(enabledAgentPlugins, agentPluginSkills)
   const skillRoots = {
     builtinSkillsRoot: opts.builtinSkillsRoot,
@@ -73,18 +92,13 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     : undefined
   const preparedAgentPlugins = prepareAgentPlugins({
     projectRoot: projectLocation.hostPath,
-    agentPlugins: backgroundAgentPlugins,
+    agentPlugins: agentPluginCatalogResponse.agentPlugins,
+    agentHome: opts.agentHome,
+    libraryRoot: join(opts.builtinSkillsRoot, 'agent-plugins'),
     initializeProject,
     ...(initializeProject && job.workspaceTemplateId ? { workspaceTemplateId: job.workspaceTemplateId } : {}),
     ...(agentsContent ? { agentsContent } : {})
   })
-  await materializeAgentPluginSkillOverlays({
-    prepared: preparedAgentPlugins,
-    enabledSkills: agentPluginSkills,
-    turn: turnStart.turn,
-    rpc: opts.rpc
-  })
-  opts.abortSignal?.throwIfAborted()
   const skillMCPServers = await loadEnabledSkillMCPServers({
     enabledSkills: [...enabledSkills, ...agentPluginSkills],
     skillRoots,
@@ -99,13 +113,10 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   opts.abortSignal?.throwIfAborted()
   const materialized = materializeCodexConfig({
     agentsRoot: opts.agentsRoot,
-    agentUID: job.agentUid,
-    runtime: runtimeConfig
+    agentUID: job.agentUid
   })
   materializeCodexJobProjectConfig({
-    projectRoot: jobProject.root,
-    pluginsEnabled: backgroundAgentPlugins.length > 0,
-    runtimeConfig
+    projectRoot: jobProject.root
   })
   const projectionAPIKey = runtimeConfig.aiGatewayKey
   opts.abortSignal?.throwIfAborted()
@@ -114,7 +125,8 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   )
   const renderedFetchRuntimeConfig = await resolveRenderedFetchRuntimeConfig(turnStart, opts.rpc)
   opts.abortSignal?.throwIfAborted()
-  const workerEnv = await resolveWorkerEnv(turnStart, opts.rpc)
+  const currentWorkerEnv = await resolveAgentWorkerEnvParts(job.agentUid, opts.rpc)
+  const workerEnv = projectWorkerEnv(runtimeProjection, currentWorkerEnv)
   opts.abortSignal?.throwIfAborted()
   const codexWorkerEnv = withoutBrowserMaterialSourceEnv(workerEnv)
   const baseWebTools = await createTurnWebTools({
@@ -139,13 +151,34 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
   const runtimeFiles = await materializeCodexJobRuntimeFiles({
     turn: turnStart.turn,
     jobRoot: jobProject.root,
-    enabledSkills,
+    agentSkillsRoot: join(opts.agentHome, 'runtime-materials', 'skills'),
+    enabledSkills: [...enabledSkills, ...agentPluginSkills],
+    projectSkillNames: enabledSkills.map(skill => skill.skillName),
     skillRoots,
     rpc: opts.rpc
   })
-  const mcporterConfig = materializeMCPorterConfig(skillMCPServers)
+  const agentPluginMaterials = createJobAgentPluginMaterials({
+    prepared: preparedAgentPlugins,
+    selected: backgroundAgentPlugins,
+    materializedRoot: join(jobProject.root, '.ankole', 'agent-plugins'),
+    skillMaterialsRoot: join(opts.agentHome, 'runtime-materials', 'skills')
+  })
+  let selectedAgentPluginPackages
+  try {
+    selectedAgentPluginPackages = agentPluginMaterials.materialize()
+  } catch (error) {
+    runtimeFiles.cleanup()
+    throw error
+  }
+  const agentPluginCapabilities = selectAgentPluginCapabilities(
+    selectedAgentPluginPackages,
+    backgroundAgentPlugins,
+    runtimeProjection.agentPluginSelections
+  )
+  const mcporterConfig = materializeMCPorterConfig(skillMCPServers, { directory: join(jobProject.root, 'temp') })
   let browserRuntimeMaterial: MaterializedBrowserRuntime | undefined
-  let sandbox: ReturnType<typeof codexAppServerSandboxSpec>
+  let agentRuntimeSandbox: ReturnType<typeof codexAgentRuntimeSandboxSpec>
+  let threadEnv: Record<string, string>
   try {
     opts.abortSignal?.throwIfAborted()
     browserRuntimeMaterial = await opts.browserRuntime?.materializePersistent({
@@ -157,13 +190,23 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
       }
     })
     opts.abortSignal?.throwIfAborted()
-    sandbox = codexAppServerSandboxSpec({
-      project: jobProject,
+    const browserSandbox = browserRuntimeMaterial ? browserSandboxRuntime(browserRuntimeMaterial) : undefined
+    agentRuntimeSandbox = codexAgentRuntimeSandboxSpec({
       materialized,
-      runtimeFiles,
+      ...(opts.browserRuntime
+        ? {
+            browserRuntime: {
+              root: opts.browserRuntime.materializer.root,
+              socketPath: opts.browserRuntime.materializer.socketPath
+            }
+          }
+        : {})
+    })
+    threadEnv = codexJobThreadEnv({
+      materialized,
       workerEnv: { ...codexWorkerEnv, ...mcporterConfig.env },
       runtimeEnv: opts.runtimeEnv,
-      ...(browserRuntimeMaterial ? { browserRuntime: browserSandboxRuntime(browserRuntimeMaterial) } : {})
+      ...(browserSandbox ? { browserEnv: browserSandbox.env } : {})
     })
   } catch (error) {
     await browserRuntimeMaterial?.cleanup().catch(() => undefined)
@@ -200,14 +243,25 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput) {
     opts,
     jobID,
     job,
+    runtimeProjection,
     jobProject,
     mcpServers: skillMCPServers,
     runtimeConfig,
     materialized,
     projection,
     runtimeFiles,
-    sandbox,
+    agentRuntimeSandbox,
+    threadEnv,
+    threadConfig: codexJobThreadConfig({
+      cwd: jobProject.codexCwd,
+      codexHome: materialized.codexHome,
+      env: threadEnv,
+      runtime: runtimeConfig,
+      projectConfig: readCodexJobProjectConfig(jobProject.root)
+    }),
     preparedAgentPlugins,
+    agentPluginCapabilities,
+    agentPluginMaterials,
     cleanup
   }
 }

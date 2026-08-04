@@ -1,26 +1,21 @@
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { TOML } from 'bun'
-import { jsonBytes } from '../src/fabric/envelope_proto'
-import {
-  AgentPluginCatalogEntrySchema,
-  RuntimeSkillSummarySchema,
-  SkillOverlayResponseSchema
-} from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { AgentPluginCatalogEntrySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  installAndTrustAgentPlugins,
-  materializeAgentPluginSkillOverlays,
-  prepareAgentPlugins
+  materializeAgentPluginPackages,
+  materializeSelectedAgentPlugins,
+  prepareAgentPlugins,
+  selectAgentPluginCapabilities
 } from '../src/core/codex-runner/agent-plugin-materializer'
 import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job-project'
-import type { ActorTurnRef } from '../src/lanes/actor_lane'
-import { rpcMethods, type AgentPluginCatalogEntry, type RPCRequester } from '../src/lanes/rpc_lane'
+import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
-  it('installs the complete catalog, copies one workspace template, and never recopies it on resume', () => {
+  it('selects Plugin Skills, copies one workspace template, and never recopies it on resume', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-codex-agent-plugin-materializer-'))
     const libraryRoot = join(root, 'library')
     const projectRoot = join(root, 'project')
@@ -37,19 +32,15 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const first = prepareAgentPlugins({
         projectRoot,
         agentPlugins: catalog,
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
         agentsContent: '# Job guidance'
       })
       expect(first.agentPlugins.map(plugin => plugin.id)).toEqual(['alpha', 'beta'])
-      expect(first.expectedSkillNames).toEqual(['alpha:alpha-skill', 'beta:beta-skill'])
-      expect(first.marketplacePath).toBe(join(projectRoot, '.agents', 'plugins', 'marketplace.json'))
-      expect(first.marketplaceHostPath).toBe(join(projectRoot, '.agents', 'plugins', 'marketplace.json'))
-      expect(JSON.parse(readFileSync(first.marketplaceHostPath, 'utf8')).plugins).toEqual([
-        expect.objectContaining({ name: 'alpha', source: { source: 'local', path: './plugins/alpha' } }),
-        expect.objectContaining({ name: 'beta', source: { source: 'local', path: './plugins/beta' } })
-      ])
+      expect(existsSync(join(projectRoot, 'plugins'))).toBe(false)
+      expect(existsSync(join(projectRoot, '.agents', 'plugins', 'marketplace.json'))).toBe(false)
       expect(TOML.parse(readFileSync(join(projectRoot, '.codex', 'config.toml'), 'utf8'))).toEqual({
         features: { plugins: true }
       })
@@ -61,6 +52,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const second = prepareAgentPlugins({
         projectRoot,
         agentPlugins: catalog,
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: false
       })
@@ -85,6 +77,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot: join(root, 'project'),
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha', 'file-conflict', 'config-conflict']),
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -103,6 +96,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
         prepareAgentPlugins({
           projectRoot: join(root, 'symlink-project'),
           agentPlugins: agentPluginCatalog(libraryRoot, ['symlinked']),
+          agentHome: join(root, 'agent-home'),
           libraryRoot,
           initializeProject: true,
           agentsContent: 'job guidance'
@@ -128,6 +122,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -135,7 +130,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       })
       expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('complete\n\njob guidance\n')
       expect(
-        readFileSync(join(prepared.agentPlugins[0]!.materializedRoot, '.codex-plugin', 'plugin.json'), 'utf8')
+        readFileSync(join(prepared.agentPlugins[0]!.sourceRoot, '.codex-plugin', 'plugin.json'), 'utf8')
       ).toContain('"version":"1.0.0"')
       expect(readFileSync(external, 'utf8')).toBe('caller-owned\n')
     } finally {
@@ -143,7 +138,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
     }
   })
 
-  it('refreshes the current package on resume without reapplying its workspace template', () => {
+  it('resolves the current package on resume without reapplying its workspace template', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-current-resume-'))
     const libraryRoot = join(root, 'library')
     const projectRoot = join(root, 'project')
@@ -154,6 +149,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       prepareAgentPlugins({
         projectRoot,
         agentPlugins: initialCatalog,
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         workspaceTemplateId: 'alpha',
@@ -167,15 +163,16 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const resumed = prepareAgentPlugins({
         projectRoot,
         agentPlugins: currentCatalog,
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: false
       })
       expect(resumed.agentPlugins[0]).toMatchObject({
         id: 'alpha'
       })
-      expect(
-        readFileSync(join(resumed.agentPlugins[0]!.materializedRoot, 'workspace-template', 'v2.txt'), 'utf8')
-      ).toBe('new image bytes\n')
+      expect(readFileSync(join(resumed.agentPlugins[0]!.sourceRoot, 'workspace-template', 'v2.txt'), 'utf8')).toBe(
+        'new image bytes\n'
+      )
       expect(readFileSync(join(projectRoot, 'AGENTS.md'), 'utf8')).toBe('preserved project guidance\n')
       expect(existsSync(join(projectRoot, 'v2.txt'))).toBe(false)
     } finally {
@@ -192,6 +189,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         agentsContent: 'job guidance'
@@ -216,6 +214,7 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
       const prepared = prepareAgentPlugins({
         projectRoot,
         agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        agentHome: join(root, 'agent-home'),
         libraryRoot,
         initializeProject: true,
         agentsContent: 'job guidance'
@@ -223,119 +222,86 @@ describe('@ankole/agent-computer Agent Plugin materializer', () => {
 
       expect(prepared.agentPlugins[0]).toMatchObject({
         skillsRelativePath: 'capabilities/skills',
-        memberSkillNames: ['alpha-skill'],
-        enabledCodexSkillNames: ['alpha:alpha-skill']
+        memberSkillNames: ['alpha-skill']
       })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('applies a Plugin member Skill overlay only to the Job-local package copy', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-member-overlay-'))
+  it('keeps the installed package stable and rebuilds a filtered Job Plugin view from current Skill material', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-live-skill-'))
     const libraryRoot = join(root, 'library')
-    const projectRoot = join(root, 'project')
+    const agentHome = join(root, 'agent-home')
+    const skillMaterialsRoot = join(agentHome, 'runtime-materials', 'skills')
+    createPlugin(libraryRoot, 'alpha', {})
+    mkdirSync(join(skillMaterialsRoot, 'alpha-skill'), { recursive: true })
+    writeFileSync(join(skillMaterialsRoot, 'alpha-skill', 'SKILL.md'), 'overlay-v1\n')
+
+    try {
+      const prepared = prepareAgentPlugins({
+        projectRoot: join(agentHome, 'jobs', '1000'),
+        agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        agentHome,
+        libraryRoot,
+        initializeProject: false
+      })
+      const installedSkill = join(prepared.agentPlugins[0]!.materializedRoot, 'skills', 'alpha-skill', 'SKILL.md')
+      const selectionRoot = join(agentHome, 'jobs', '1000', '.ankole', 'agent-plugins')
+
+      materializeAgentPluginPackages(prepared, { rebuild: true })
+      expect(readFileSync(installedSkill, 'utf8')).toContain('alpha skill')
+      const selected = materializeSelectedAgentPlugins(prepared, agentPluginCatalog(libraryRoot, ['alpha']), {
+        materializedRoot: selectionRoot,
+        skillMaterialsRoot
+      })
+      const selectedSkill = join(selected.agentPlugins[0]!.materializedRoot, 'skills', 'alpha-skill', 'SKILL.md')
+      expect(readFileSync(selectedSkill, 'utf8')).toBe('overlay-v1\n')
+
+      const stalePlugin = join(prepared.materializedRoot, 'plugins', 'removed-plugin')
+      mkdirSync(stalePlugin)
+      writeFileSync(join(stalePlugin, 'stale'), 'old release\n')
+      materializeAgentPluginPackages(prepared, { rebuild: true })
+      expect(existsSync(stalePlugin)).toBe(false)
+
+      writeFileSync(join(skillMaterialsRoot, 'alpha-skill', 'SKILL.md'), 'overlay-v2\n')
+      materializeSelectedAgentPlugins(prepared, agentPluginCatalog(libraryRoot, ['alpha']), {
+        materializedRoot: selectionRoot,
+        skillMaterialsRoot
+      })
+      expect(readFileSync(selectedSkill, 'utf8')).toBe('overlay-v2\n')
+
+      materializeSelectedAgentPlugins(prepared, [], { materializedRoot: selectionRoot, skillMaterialsRoot })
+      expect(existsSync(selectedSkill)).toBe(false)
+      expect(readFileSync(installedSkill, 'utf8')).toContain('alpha skill')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps projected Plugin members disabled when current Agent settings remove them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-current-disable-'))
+    const libraryRoot = join(root, 'library')
+    const agentHome = join(root, 'agent-home')
     createPlugin(libraryRoot, 'alpha', {})
 
     try {
       const prepared = prepareAgentPlugins({
-        projectRoot,
-        agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
+        projectRoot: join(agentHome, 'jobs', '1000'),
+        agentPlugins: [],
+        agentHome,
         libraryRoot,
-        initializeProject: true,
-        agentsContent: 'job guidance'
+        initializeProject: false
       })
-      const sourceSkillPath = join(libraryRoot, 'alpha', 'skills', 'alpha-skill', 'SKILL.md')
-      const sourceContent = readFileSync(sourceSkillPath, 'utf8')
-      const memberSkill = create(RuntimeSkillSummarySchema, {
-        skillName: 'alpha-skill',
-        sourceKind: 'builtin',
-        relativePath: 'agent-plugins/alpha/skills/alpha-skill',
-        agentPluginId: 'alpha'
+      const selected = materializeSelectedAgentPlugins(prepared, [], {
+        materializedRoot: join(agentHome, 'jobs', '1000', '.ankole', 'agent-plugins'),
+        skillMaterialsRoot: join(agentHome, 'runtime-materials', 'skills')
       })
+      const capabilities = selectAgentPluginCapabilities(selected, [], [{ id: 'alpha', skills: ['alpha-skill'] }])
 
-      await materializeAgentPluginSkillOverlays({
-        prepared,
-        enabledSkills: [memberSkill],
-        turn: turn(),
-        rpc: (async (method: unknown, payload: unknown) => {
-          expect(method).toBe(rpcMethods.skillsOverlayResolve)
-          expect(payload).toEqual({ skillName: 'alpha-skill' })
-          return create(SkillOverlayResponseSchema, {
-            skillName: 'alpha-skill',
-            hasOverlay: true,
-            overlayJson: jsonBytes({ text: 'PLUGIN_OVERLAY_MARKER' }),
-            contentHash: 'overlay-hash'
-          })
-        }) as RPCRequester
-      })
-
-      const materializedSkillPath = join(
-        prepared.agentPlugins[0]!.materializedRoot,
-        'skills',
-        'alpha-skill',
-        'SKILL.md'
-      )
-      const materializedContent = readFileSync(materializedSkillPath, 'utf8')
-      expect(materializedContent).toContain('Agent-specific additions:')
-      expect(materializedContent).toContain('PLUGIN_OVERLAY_MARKER')
-      expect(readFileSync(sourceSkillPath, 'utf8')).toBe(sourceContent)
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('installs every catalog package and trusts returned hooks idempotently', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-agent-plugin-install-'))
-    const libraryRoot = join(root, 'library')
-    const projectRoot = join(root, 'project')
-    createPlugin(libraryRoot, 'alpha', {})
-    const prepared = prepareAgentPlugins({
-      projectRoot,
-      agentPlugins: agentPluginCatalog(libraryRoot, ['alpha']),
-      libraryRoot,
-      initializeProject: true,
-      agentsContent: 'job guidance'
-    })
-    const calls: Array<{ method: string; params: unknown }> = []
-    let trusted = false
-    const client = {
-      request: async (method: string, params: unknown) => {
-        calls.push({ method, params })
-        if (method === 'plugin/installed') {
-          return { marketplaces: [{ plugins: [{ name: 'alpha', installed: true, enabled: false }] }] }
-        }
-        if (method === 'hooks/list') {
-          return {
-            data: [
-              {
-                cwd: '/agents/agent-1/jobs/job-1',
-                hooks: [
-                  {
-                    key: 'alpha-hook',
-                    pluginId: 'alpha@ankole-background-agent-job',
-                    currentHash: 'hook-hash',
-                    trustStatus: trusted ? 'trusted' : 'untrusted'
-                  }
-                ]
-              }
-            ]
-          }
-        }
-        if (method === 'config/batchWrite') trusted = true
-        return {}
-      }
-    }
-
-    try {
-      await installAndTrustAgentPlugins(client as any, '/agents/agent-1/jobs/job-1', prepared)
-      await installAndTrustAgentPlugins(client as any, '/agents/agent-1/jobs/job-1', prepared)
-      expect(calls.filter(call => call.method === 'plugin/install')).toHaveLength(2)
-      expect(calls.filter(call => call.method === 'config/batchWrite')).toHaveLength(2)
-      expect(calls.filter(call => call.method === 'plugin/install')[0]?.params).toEqual({
-        marketplacePath: prepared.marketplacePath,
-        pluginName: 'alpha'
-      })
+      expect(selected.agentPlugins).toEqual([])
+      expect(capabilities.selectedCapabilityRoots).toEqual([])
+      expect(capabilities.availableSkillNames).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -379,14 +345,4 @@ function agentPluginCatalog(libraryRoot: string, ids: string[]): AgentPluginCata
       skills: [{ catalogName: `${id}-skill` }]
     })
   )
-}
-
-function turn(): ActorTurnRef {
-  return {
-    actor: { agent_uid: 'agent-1', session_id: 'job:job-1' },
-    activation_uid: 'activation-1',
-    actor_epoch: 1,
-    actor_event_id: '00000000-0000-0000-0000-000000000001',
-    revision: 0
-  }
 }

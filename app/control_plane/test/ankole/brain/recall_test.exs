@@ -12,6 +12,7 @@ defmodule Ankole.Brain.RecallTest do
   alias Ankole.Brain.Schemas.{Entry, EntryBlock, Episode}
   alias Ankole.Brain.Scope
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache
   alias Ankole.AuthZ.Group
   alias Ankole.Repo
   alias Ankole.SignalsGateway
@@ -19,6 +20,18 @@ defmodule Ankole.Brain.RecallTest do
   alias Ankole.SignalsGateway.BindingMembership
   alias Ankole.SignalsGateway.Channel
   alias Ankole.SignalsGateway.Ingress
+
+  setup do
+    # The AppConfigure cache is a process, so it outlives the sandbox transaction
+    # that rolls its rows back. Without this reset the installation vector space
+    # leaks in both directions between this file and its neighbors.
+    allow_cache_database_access()
+    Cache.clear_for_test()
+
+    on_exit(fn -> Cache.clear_for_test() end)
+
+    :ok
+  end
 
   test "pg_search provides Jieba and every Brain BM25 index uses it" do
     assert %{rows: [[tokens]]} =

@@ -7,7 +7,7 @@ import { runCodexJobSession } from './session'
 
 const terminalStatuses = new Set<BackgroundAgentJobStatus>(['succeeded', 'failed', 'stopped'])
 
-export { configureCodexSkills } from './session'
+export { verifiedCodexSkills } from './session'
 
 export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): Promise<TurnHandlerResult> {
   opts.abortSignal?.throwIfAborted()

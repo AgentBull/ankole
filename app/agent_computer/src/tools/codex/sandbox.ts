@@ -1,8 +1,5 @@
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import type { PreparedCodexJobProject } from '../../core/codex-runner/job-project'
-import type { MaterializedCodexJobRuntimeFiles } from '../../core/codex-runner/runtime-files'
-import type { BrowserSandboxRuntime } from '../../browser-runtime'
+import { dirname, resolve } from 'node:path'
 import { bubblewrapArgv } from '../computer/bubblewrap'
 import { commandEnv } from '../computer/env'
 import { codexConfigCLIOverrides, type MaterializedCodexConfig } from './config'
@@ -16,37 +13,47 @@ export type CodexAppServerSandboxSpec = {
 
 const SANDBOX_KERNEL_ROOT = '/repo/app/kernel'
 
-export function codexAppServerSandboxSpec(input: {
-  project: PreparedCodexJobProject
+export function codexAgentRuntimeSandboxSpec(input: {
   materialized: MaterializedCodexConfig
-  runtimeFiles?: MaterializedCodexJobRuntimeFiles
+  browserRuntime?: { root: string; socketPath: string }
+}): CodexAppServerSandboxSpec {
+  const env = codexSandboxEnv(input.materialized)
+  const appServerArgv = bubblewrapArgv({
+    workspaceRoot: input.materialized.agentHome,
+    cwd: input.materialized.agentHome,
+    env,
+    extraBinds: [
+      ...(existsSync(SANDBOX_KERNEL_ROOT)
+        ? [{ source: SANDBOX_KERNEL_ROOT, target: SANDBOX_KERNEL_ROOT, readonly: true }]
+        : []),
+      ...(input.browserRuntime
+        ? [
+            { source: input.browserRuntime.root, target: input.browserRuntime.root, readonly: true },
+            {
+              source: dirname(input.browserRuntime.socketPath),
+              target: dirname(input.browserRuntime.socketPath),
+              readonly: true
+            }
+          ]
+        : [])
+    ],
+    commandArgv: [...codexCommandForSandbox(), 'app-server', '--stdio', ...codexConfigCLIOverrides()]
+  })
+  return {
+    cwd: input.materialized.agentHome,
+    env,
+    codexCwd: input.materialized.agentHome,
+    commandArgv: appServerArgv
+  }
+}
+
+export function codexJobThreadEnv(input: {
+  materialized: MaterializedCodexConfig
   workerEnv?: Record<string, string>
   runtimeEnv?: Record<string, string>
-  browserRuntime?: BrowserSandboxRuntime
-}): CodexAppServerSandboxSpec {
-  const env = codexSandboxEnv(input.materialized, input.workerEnv, input.runtimeEnv, input.browserRuntime?.env)
-  return {
-    cwd: input.project.root,
-    env,
-    codexCwd: input.project.codexCwd,
-    commandArgv: bubblewrapArgv({
-      workspaceRoot: input.materialized.agentHome,
-      cwd: input.project.root,
-      env,
-      extraBinds: [
-        ...(existsSync(SANDBOX_KERNEL_ROOT)
-          ? [{ source: SANDBOX_KERNEL_ROOT, target: SANDBOX_KERNEL_ROOT, readonly: true }]
-          : []),
-        ...(input.browserRuntime?.binds ?? [])
-      ],
-      commandArgv: [
-        ...codexCommandForSandbox(),
-        'app-server',
-        '--stdio',
-        ...codexConfigCLIOverrides(input.project.root)
-      ]
-    })
-  }
+  browserEnv?: Record<string, string>
+}): Record<string, string> {
+  return codexSandboxEnv(input.materialized, input.workerEnv, input.runtimeEnv, input.browserEnv)
 }
 
 function codexSandboxEnv(

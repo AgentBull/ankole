@@ -25,10 +25,12 @@ type JSONRPCLineError = {
 
 type WritableFileSink = {
   write: (chunk: string | Uint8Array) => unknown
+  flush?: () => unknown
   end?: () => unknown
 }
 
 type CodexAppServerProcess = {
+  pid?: number
   stdin?: WritableFileSink | null
   stdout?: ReadableStream<Uint8Array> | null
   stderr?: ReadableStream<Uint8Array> | null
@@ -79,10 +81,12 @@ export class CodexAppServerRPCError extends Error {
 }
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
-// Codex can maintain shared local state before initialize returns. Keep this
-// budget independent from ordinary requests even while both are 60 seconds.
-const INITIALIZE_REQUEST_TIMEOUT_MS = 60_000
-const THREAD_START_REQUEST_TIMEOUT_MS = 30_000
+// Codex can maintain large shared state before initialize returns. Give this
+// operation its own budget instead of consuming the ordinary RPC budget.
+const INITIALIZE_REQUEST_TIMEOUT_MS = 300_000
+const THREAD_REQUEST_TIMEOUT_MS = 120_000
+const STDOUT_EXIT_GRACE_MS = 50
+const PROCESS_GRACEFUL_CLOSE_MS = 1_000
 const parseJSONLine = (line: string): Result<unknown, unknown> =>
   Result.try({
     try: () => JSON.parse(line) as unknown,
@@ -134,7 +138,7 @@ export class CodexAppServerClient {
     void this.proc.exited.then(
       code => {
         if (!this.closed) {
-          const error = new Error(`codex app-server exited with code ${code ?? 'unknown'}`)
+          const error = new CodexAppServerExitError(code)
           this.failTransport(error)
         }
       },
@@ -144,6 +148,10 @@ export class CodexAppServerClient {
         }
       }
     )
+  }
+
+  get processID(): number | undefined {
+    return this.proc.pid
   }
 
   async initialize(): Promise<JSONObject> {
@@ -173,8 +181,13 @@ export class CodexAppServerClient {
     const message = { method, id, params }
     const promise = new Promise<unknown>((resolve, reject) => {
       const timeout = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error(`codex app-server request timed out: ${method}`))
+        const error = new CodexAppServerRequestTimeoutError(method)
+        if (uncertainResultMethod(method)) {
+          this.failTransport(error)
+        } else {
+          this.pending.delete(id)
+          reject(error)
+        }
       }, timeoutMs)
       this.pending.set(id, { resolve, reject, timeout })
     })
@@ -208,7 +221,13 @@ export class CodexAppServerClient {
   }
 
   async closeAndWait(): Promise<void> {
-    await this.close()
+    if (!this.closed) {
+      this.closed = true
+      this.closeReason = new Error('codex app-server client is closed')
+      this.rejectPending(this.closeReason)
+      this.closeInput()
+      if (!(await this.processExitedWithin(PROCESS_GRACEFUL_CLOSE_MS))) this.killProcess()
+    }
     try {
       await this.proc.exited
     } catch {
@@ -217,12 +236,19 @@ export class CodexAppServerClient {
   }
 
   private closeProcess(): void {
+    this.closeInput()
+    this.killProcess()
+  }
+
+  private closeInput(): void {
     try {
       this.stdin?.end?.()
     } catch {
       // ignore close races; the process may already have exited.
     }
+  }
 
+  private killProcess(): void {
     try {
       this.proc.kill()
     } catch {
@@ -230,10 +256,21 @@ export class CodexAppServerClient {
     }
   }
 
+  private async processExitedWithin(timeoutMs: number): Promise<boolean> {
+    return Promise.race([
+      this.proc.exited.then(
+        () => true,
+        () => true
+      ),
+      delay(timeoutMs).then(() => false)
+    ])
+  }
+
   private async write(message: JSONRPCMessage) {
     if (this.closeReason) throw this.closeReason
     try {
       await Promise.resolve(this.stdin?.write(this.encoder.encode(`${JSON.stringify(message)}\n`)))
+      await Promise.resolve(this.stdin?.flush?.())
     } catch (error) {
       this.failTransport(toError(error))
       throw this.closeReason
@@ -243,10 +280,21 @@ export class CodexAppServerClient {
   private async readStdout(): Promise<void> {
     try {
       await readJSONLines(this.proc.stdout ?? null, line => this.handleLine(line))
-      if (!this.closed) this.failTransport(new Error('codex app-server stdout closed'))
+      if (!this.closed) await this.failAfterStdoutClosed()
     } catch (error) {
       this.failTransport(toError(error))
     }
+  }
+
+  private async failAfterStdoutClosed(): Promise<void> {
+    await Promise.race([
+      this.proc.exited.then(
+        () => undefined,
+        () => undefined
+      ),
+      delay(STDOUT_EXIT_GRACE_MS)
+    ])
+    if (!this.closed) this.failTransport(new Error('codex app-server stdout closed'))
   }
 
   private async readStderr(): Promise<void> {
@@ -340,13 +388,56 @@ export class CodexAppServerClient {
     this.closeReason = error
     this.rejectPending(error)
     this.closeProcess()
+    void this.notifyExitAfterReap(error)
+  }
+
+  private async notifyExitAfterReap(error: Error): Promise<void> {
+    try {
+      await this.proc.exited
+    } catch {
+      // Rejected exit promises still mean that the child can no longer run.
+    }
     this.opts.onExit?.(error)
   }
 }
 
 function defaultRequestTimeoutMs(method: string): number {
-  if (method === 'thread/start') return THREAD_START_REQUEST_TIMEOUT_MS
+  if (method === 'thread/start' || method === 'thread/resume') return THREAD_REQUEST_TIMEOUT_MS
   return DEFAULT_REQUEST_TIMEOUT_MS
+}
+
+export class CodexAppServerRequestTimeoutError extends Error {
+  readonly code = 'codex_app_server_request_timeout'
+
+  constructor(readonly method: string) {
+    super(`codex app-server request timed out: ${method}`)
+    this.name = 'CodexAppServerRequestTimeoutError'
+  }
+}
+
+export class CodexAppServerExitError extends Error {
+  constructor(readonly exitCode: number | null) {
+    super(`codex app-server exited with code ${exitCode ?? 'unknown'}`)
+    this.name = 'CodexAppServerExitError'
+  }
+}
+
+function uncertainResultMethod(method: string): boolean {
+  return (
+    method === 'initialize' ||
+    method === 'thread/start' ||
+    method === 'thread/resume' ||
+    method === 'thread/fork' ||
+    method === 'turn/start' ||
+    method === 'turn/steer' ||
+    method === 'turn/interrupt' ||
+    method === 'thread/unsubscribe' ||
+    method === 'thread/backgroundTerminals/terminate' ||
+    method === 'thread/backgroundTerminals/clean' ||
+    method.startsWith('plugin/') ||
+    method.startsWith('skills/config/') ||
+    method.startsWith('config/')
+  )
 }
 
 function parseJSONRPCLine(line: string): Result<JSONRPCMessage | undefined, JSONRPCLineError> {
@@ -411,4 +502,11 @@ function jsonErrorMessage(error: unknown): string {
 
 function errorText(error: unknown): string {
   return errorMessage(error)
+}
+
+function delay(durationMs: number): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, durationMs)
+    timer.unref?.()
+  })
 }

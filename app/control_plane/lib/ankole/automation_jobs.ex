@@ -35,37 +35,37 @@ defmodule Ankole.AutomationJobs do
   end
 
   @doc """
-  Lists recent automation jobs owned by one Agent session.
+  Lists recent automation jobs owned by one Agent session, or by every session
+  of the Agent when `owner_session_id` is `nil`.
   """
-  @spec list_jobs(String.t(), String.t(), keyword()) :: [Job.t()]
+  @spec list_jobs(String.t(), String.t() | nil, keyword()) :: [Job.t()]
   def list_jobs(agent_uid, owner_session_id, opts \\ [])
-      when is_binary(agent_uid) and is_binary(owner_session_id) do
+      when is_binary(agent_uid) and (is_binary(owner_session_id) or is_nil(owner_session_id)) do
     limit = opts |> Keyword.get(:limit, 100) |> bounded_limit(500, 100)
 
     Job
-    |> where(
-      [job],
-      job.agent_uid == ^String.downcase(agent_uid) and
-        job.owner_session_id == ^owner_session_id
-    )
+    |> where([job], job.agent_uid == ^String.downcase(agent_uid))
+    |> maybe_where_owner_session(owner_session_id)
     |> order_by([job], desc: job.inserted_at, desc: job.id)
     |> limit(^limit)
     |> Repo.all()
   end
 
   @doc """
-  Gets one automation job only when the Agent session owns it.
+  Gets one automation job only when the Agent session owns it. A `nil`
+  `owner_session_id` accepts any session of the Agent.
   """
-  @spec get_job(String.t(), String.t(), pos_integer()) ::
+  @spec get_job(String.t(), String.t() | nil, pos_integer()) ::
           {:ok, Job.t()} | {:error, :automation_job_not_found}
   def get_job(agent_uid, owner_session_id, job_id)
-      when is_binary(agent_uid) and is_binary(owner_session_id) and is_integer(job_id) and
-             job_id > 0 do
-    case Repo.get_by(Job,
-           id: job_id,
-           agent_uid: String.downcase(agent_uid),
-           owner_session_id: owner_session_id
-         ) do
+      when is_binary(agent_uid) and (is_binary(owner_session_id) or is_nil(owner_session_id)) and
+             is_integer(job_id) and job_id > 0 do
+    query =
+      Job
+      |> where([job], job.id == ^job_id and job.agent_uid == ^String.downcase(agent_uid))
+      |> maybe_where_owner_session(owner_session_id)
+
+    case Repo.one(query) do
       %Job{} = job -> {:ok, job}
       nil -> {:error, :automation_job_not_found}
     end
@@ -302,9 +302,10 @@ defmodule Ankole.AutomationJobs do
     do: {:error, :invalid_automation_job_emit}
 
   @doc """
-  Returns one job and its recent run history for the owning Agent session.
+  Returns one job and its recent run history for the owning Agent session, or
+  for any session of the Agent when `owner_session_id` is `nil`.
   """
-  @spec show_job(String.t(), String.t(), pos_integer(), keyword()) ::
+  @spec show_job(String.t(), String.t() | nil, pos_integer(), keyword()) ::
           {:ok, %{automation_job: Job.t(), runs: [Run.t()]}} | {:error, term()}
   def show_job(agent_uid, owner_session_id, job_id, opts \\ []) do
     with {:ok, %Job{} = job} <- get_job(agent_uid, owner_session_id, job_id) do
@@ -665,6 +666,11 @@ defmodule Ankole.AutomationJobs do
     do: min(value, max)
 
   defp bounded_limit(_value, _max, default), do: default
+
+  defp maybe_where_owner_session(query, nil), do: query
+
+  defp maybe_where_owner_session(query, owner_session_id),
+    do: where(query, [job], job.owner_session_id == ^owner_session_id)
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

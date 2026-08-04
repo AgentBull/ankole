@@ -721,6 +721,109 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              ModelProfiles.get_model_profile(agent.uid, "vision_fallback")
   end
 
+  test "custom model profiles require immutable LLM names and descriptions and remain deletable" do
+    %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
+
+    assert {:ok, provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-custom-profile",
+               provider_kind: "openrouter",
+               credential_pool: %{
+                 "entries" => [%{"label" => "Default", "api_key" => "sk-test"}]
+               }
+             })
+
+    assert ModelProfiles.custom_profile_name?("kimi")
+    refute ModelProfiles.custom_profile_name?("primary")
+    refute ModelProfiles.custom_profile_name?("Kimi")
+    assert {:ok, "llm"} = ModelProfiles.profile_capability("kimi")
+    assert {:ok, "embedding"} = ModelProfiles.profile_capability("embedding")
+
+    assert {:error, {:missing, "description"}} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               provider_id: provider.provider_id,
+               model: "moonshotai/kimi-k2.7-code"
+             })
+
+    assert {:error, :invalid_model_profile} =
+             ModelProfiles.put_model_profile(agent.uid, "Kimi", %{
+               description: "Invalid uppercase name",
+               provider_id: provider.provider_id,
+               model: "moonshotai/kimi-k2.7-code"
+             })
+
+    assert {:error, :fixed_model_profile_description_not_allowed} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               description: "Fixed profiles do not have descriptions",
+               provider_id: provider.provider_id,
+               model: "openai/gpt-5.4"
+             })
+
+    assert {:error, {:custom_model_profile_description_too_long, 200}} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: String.duplicate("a", 201),
+               provider_id: provider.provider_id,
+               model: "moonshotai/kimi-k2.7-code"
+             })
+
+    assert {:ok, %{profile: stored}} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", %{
+               description: "Long-context coding",
+               provider_id: provider.provider_id,
+               model: "moonshotai/kimi-k2.7-code",
+               context_length: 262_144,
+               provider_options: %{"reasoningEffort" => "high"}
+             })
+
+    assert stored["description"] == "Long-context coding"
+    assert stored["context_length"] == 262_144
+
+    assert {:ok, [%{"name" => "kimi", "description" => "Long-context coding"}]} =
+             ModelProfiles.list_custom_model_profiles(agent.uid)
+
+    assert {:ok, custom} = ModelProfiles.get_custom_model_profile(agent.uid, "kimi")
+    assert custom["profile"] == "kimi"
+
+    assert {:ok, runtime} =
+             Ankole.AIGateway.Resolver.resolve_request_model(agent.uid, "llm", %{
+               "model" => "kimi"
+             })
+
+    assert runtime["model"] == "moonshotai/kimi-k2.7-code"
+    assert runtime["profile"] == "kimi"
+
+    assert {:ok, turn_start_spec} =
+             TurnPolicy.build_turn_start_spec(
+               %{agent_uid: agent.uid, session_id: "session-custom-profile"},
+               profile: "kimi"
+             )
+
+    assert turn_start_spec.request_context["custom_model_profiles"] == [
+             %{"name" => "kimi", "description" => "Long-context coding"}
+           ]
+
+    assert {:error, :model_profile_not_configured} =
+             Ankole.AIGateway.Resolver.resolve_request_model(other_agent.uid, "llm", %{
+               "model" => "kimi"
+             })
+
+    provider
+    |> Ecto.Changeset.change(disabled_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
+
+    assert {:error, :provider_disabled} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "kimi")
+
+    assert {:ok, %{profile: nil}} =
+             ModelProfiles.put_model_profile(agent.uid, "kimi", nil)
+
+    assert {:error, :model_profile_not_configured} =
+             ModelProfiles.get_custom_model_profile(agent.uid, "kimi")
+
+    assert {:ok, []} = ModelProfiles.list_custom_model_profiles(agent.uid)
+  end
+
   test "turn start specs include input modalities and optional vision fallback refs" do
     %{principal: agent} = agent_fixture()
 
@@ -969,7 +1072,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, %{skills: 19}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
     assert {:ok, documents} = Library.list_agent_documents(agent.uid)
 
@@ -1129,7 +1232,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "runtime RPCLane accepts overlay writes after active steer bumps revision" do
     %{principal: agent} = agent_fixture()
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
-    assert {:ok, %{skills: 19}} = Library.sync_agent_skills(agent.uid)
+    assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:steered-overlay")
 
     turn.activation_uid

@@ -700,6 +700,33 @@ export const ankoleWebWorkerFileControllerDownloadOptions = (
     queryKey: ankoleWebWorkerFileControllerDownloadQueryKey(options)
   })
 
+/**
+ * Pause one recurring schedule
+ */
+export const ankoleWebScheduleControllerPauseCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerPauseCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerPauseCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerPauseCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerPauseCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerPauseCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerPauseCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebBrainControllerDreamingFitnessQueryKey = (
   options: Options<AnkoleWebBrainControllerDreamingFitnessData>
 ) => createQueryKey('ankoleWebBrainControllerDreamingFitness', options)
@@ -813,23 +840,51 @@ export const ankoleWebControlPlanePluginControllerUpdateMutation = (
   return mutationOptions
 }
 
+export const ankoleWebScheduleControllerIndexCronQueryKey = (
+  options: Options<AnkoleWebScheduleControllerIndexCronData>
+) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
+
 /**
- * Pause one recurring schedule
+ * List recurring schedules for one Agent
  */
-export const ankoleWebScheduleControllerPauseCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerPauseCronData>>
+export const ankoleWebScheduleControllerIndexCronOptions = (
+  options: Options<AnkoleWebScheduleControllerIndexCronData>
+) =>
+  queryOptions<
+    AnkoleWebScheduleControllerIndexCronResponse,
+    AnkoleWebScheduleControllerIndexCronError,
+    AnkoleWebScheduleControllerIndexCronResponse,
+    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerIndexCron({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
+  })
+
+/**
+ * Create one recurring schedule
+ */
+export const ankoleWebScheduleControllerCreateCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerCreateCronData>>
 ): UseMutationOptions<
-  AnkoleWebScheduleControllerPauseCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerPauseCronData>
+  AnkoleWebScheduleControllerCreateCronResponse,
+  AnkoleWebScheduleControllerCreateCronError,
+  Options<AnkoleWebScheduleControllerCreateCronData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerPauseCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerPauseCronData>
+    AnkoleWebScheduleControllerCreateCronResponse,
+    AnkoleWebScheduleControllerCreateCronError,
+    Options<AnkoleWebScheduleControllerCreateCronData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerPauseCron({
+      const { data } = await ankoleWebScheduleControllerCreateCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1078,6 +1133,33 @@ export const ankoleWebAppConfigurationControllerIndexOptions = (
     queryKey: ankoleWebAppConfigurationControllerIndexQueryKey(options)
   })
 
+/**
+ * Cancel one pending checkback wakeup
+ */
+export const ankoleWebScheduleControllerCancelCheckbackMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerCancelCheckbackData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerCancelCheckbackResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerCancelCheckbackData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerCancelCheckbackResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerCancelCheckbackData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerCancelCheckback({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAuthZGroupControllerIndexQueryKey = (options?: Options<AnkoleWebAuthZGroupControllerIndexData>) =>
   createQueryKey('ankoleWebAuthZGroupControllerIndex', options)
 
@@ -1129,34 +1211,6 @@ export const ankoleWebAuthZGroupControllerCreateMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebWebhookEndpointControllerIndexQueryKey = (
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
-) => createQueryKey('ankoleWebWebhookEndpointControllerIndex', options)
-
-/**
- * List webhook endpoints for one agent session
- */
-export const ankoleWebWebhookEndpointControllerIndexOptions = (
-  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebWebhookEndpointControllerIndexResponse,
-    AnkoleWebWebhookEndpointControllerIndexError,
-    AnkoleWebWebhookEndpointControllerIndexResponse,
-    ReturnType<typeof ankoleWebWebhookEndpointControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebWebhookEndpointControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebWebhookEndpointControllerIndexQueryKey(options)
-  })
 
 /**
  * Preview active Principals matching a computed group condition
@@ -1284,61 +1338,6 @@ export const ankoleWebAiGatewayProviderControllerAddCredentialMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAiGatewayProviderControllerAddCredential({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebScheduleControllerIndexCronQueryKey = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
-) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
-
-/**
- * List recurring schedules for one agent session
- */
-export const ankoleWebScheduleControllerIndexCronOptions = (
-  options: Options<AnkoleWebScheduleControllerIndexCronData>
-) =>
-  queryOptions<
-    AnkoleWebScheduleControllerIndexCronResponse,
-    AnkoleWebScheduleControllerIndexCronError,
-    AnkoleWebScheduleControllerIndexCronResponse,
-    ReturnType<typeof ankoleWebScheduleControllerIndexCronQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerIndexCron({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerIndexCronQueryKey(options)
-  })
-
-/**
- * Create one recurring schedule
- */
-export const ankoleWebScheduleControllerCreateCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerCreateCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerCreateCronResponse,
-  AnkoleWebScheduleControllerCreateCronError,
-  Options<AnkoleWebScheduleControllerCreateCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerCreateCronResponse,
-    AnkoleWebScheduleControllerCreateCronError,
-    Options<AnkoleWebScheduleControllerCreateCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerCreateCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -1615,33 +1614,6 @@ export const ankoleWebAiGatewayProviderControllerProviderKindsOptions = (
     },
     queryKey: ankoleWebAiGatewayProviderControllerProviderKindsQueryKey(options)
   })
-
-/**
- * Resume one recurring schedule
- */
-export const ankoleWebScheduleControllerResumeCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerResumeCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerResumeCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerResumeCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerResumeCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerResumeCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerResumeCron({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
 
 export const ankoleWebAgentLibraryCapabilityControllerAgentIndexQueryKey = (
   options: Options<AnkoleWebAgentLibraryCapabilityControllerAgentIndexData>
@@ -2660,6 +2632,34 @@ export const ankoleWebIdentityProviderControllerRunSyncMutation = (
   return mutationOptions
 }
 
+export const ankoleWebAutomationJobControllerShowQueryKey = (
+  options: Options<AnkoleWebAutomationJobControllerShowData>
+) => createQueryKey('ankoleWebAutomationJobControllerShow', options)
+
+/**
+ * Read one automation job and its recent run history
+ */
+export const ankoleWebAutomationJobControllerShowOptions = (
+  options: Options<AnkoleWebAutomationJobControllerShowData>
+) =>
+  queryOptions<
+    AnkoleWebAutomationJobControllerShowResponse,
+    AnkoleWebAutomationJobControllerShowError,
+    AnkoleWebAutomationJobControllerShowResponse,
+    ReturnType<typeof ankoleWebAutomationJobControllerShowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAutomationJobControllerShow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAutomationJobControllerShowQueryKey(options)
+  })
+
 export const ankoleWebPrincipalControllerGrantsQueryKey = (options: Options<AnkoleWebPrincipalControllerGrantsData>) =>
   createQueryKey('ankoleWebPrincipalControllerGrants', options)
 
@@ -2793,23 +2793,51 @@ export const ankoleWebAiGatewayProviderControllerIndexOptions = (
     queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
   })
 
+export const ankoleWebWebhookEndpointControllerIndexQueryKey = (
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) => createQueryKey('ankoleWebWebhookEndpointControllerIndex', options)
+
 /**
- * Cancel one webhook endpoint
+ * List webhook endpoints for one Agent
  */
-export const ankoleWebWebhookEndpointControllerDeleteMutation = (
-  options?: Partial<Options<AnkoleWebWebhookEndpointControllerDeleteData>>
+export const ankoleWebWebhookEndpointControllerIndexOptions = (
+  options: Options<AnkoleWebWebhookEndpointControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    AnkoleWebWebhookEndpointControllerIndexError,
+    AnkoleWebWebhookEndpointControllerIndexResponse,
+    ReturnType<typeof ankoleWebWebhookEndpointControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebWebhookEndpointControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebWebhookEndpointControllerIndexQueryKey(options)
+  })
+
+/**
+ * Resume one recurring schedule
+ */
+export const ankoleWebScheduleControllerResumeCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerResumeCronData>>
 ): UseMutationOptions<
-  AnkoleWebWebhookEndpointControllerDeleteResponse,
-  AnkoleWebWebhookEndpointControllerDeleteError,
-  Options<AnkoleWebWebhookEndpointControllerDeleteData>
+  AnkoleWebScheduleControllerResumeCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerResumeCronData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebWebhookEndpointControllerDeleteResponse,
-    AnkoleWebWebhookEndpointControllerDeleteError,
-    Options<AnkoleWebWebhookEndpointControllerDeleteData>
+    AnkoleWebScheduleControllerResumeCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerResumeCronData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebWebhookEndpointControllerDelete({
+      const { data } = await ankoleWebScheduleControllerResumeCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -2819,34 +2847,6 @@ export const ankoleWebWebhookEndpointControllerDeleteMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
-) => createQueryKey('ankoleWebScheduleControllerIndexCheckbacks', options)
-
-/**
- * List checkback wakeups for one agent session
- */
-export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
-  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
-) =>
-  queryOptions<
-    AnkoleWebScheduleControllerIndexCheckbacksResponse,
-    DefaultError,
-    AnkoleWebScheduleControllerIndexCheckbacksResponse,
-    ReturnType<typeof ankoleWebScheduleControllerIndexCheckbacksQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerIndexCheckbacks({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
-  })
 
 export const ankoleWebAgentControllerIndexModelProfilesQueryKey = (
   options: Options<AnkoleWebAgentControllerIndexModelProfilesData>
@@ -2930,86 +2930,6 @@ export const ankoleWebPrincipalControllerIndexOptions = (options?: Options<Ankol
   })
 
 /**
- * Remove one recurring schedule
- */
-export const ankoleWebScheduleControllerRemoveCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerRemoveCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerRemoveCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerRemoveCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerRemoveCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerRemoveCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerRemoveCron({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebScheduleControllerShowCronQueryKey = (
-  options: Options<AnkoleWebScheduleControllerShowCronData>
-) => createQueryKey('ankoleWebScheduleControllerShowCron', options)
-
-/**
- * Read one recurring schedule
- */
-export const ankoleWebScheduleControllerShowCronOptions = (options: Options<AnkoleWebScheduleControllerShowCronData>) =>
-  queryOptions<
-    AnkoleWebScheduleControllerShowCronResponse,
-    AnkoleWebScheduleControllerShowCronError,
-    AnkoleWebScheduleControllerShowCronResponse,
-    ReturnType<typeof ankoleWebScheduleControllerShowCronQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerShowCron({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerShowCronQueryKey(options)
-  })
-
-/**
- * Update one recurring schedule
- */
-export const ankoleWebScheduleControllerUpdateCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerUpdateCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerUpdateCronResponse,
-  AnkoleWebScheduleControllerUpdateCronError,
-  Options<AnkoleWebScheduleControllerUpdateCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerUpdateCronResponse,
-    AnkoleWebScheduleControllerUpdateCronError,
-    Options<AnkoleWebScheduleControllerUpdateCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerUpdateCron({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
  * Create one permission grant for a Principal or a group
  */
 export const ankoleWebPermissionGrantControllerCreateMutation = (
@@ -3026,59 +2946,6 @@ export const ankoleWebPermissionGrantControllerCreateMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebPermissionGrantControllerCreate({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebScheduleControllerCronRunsQueryKey = (
-  options: Options<AnkoleWebScheduleControllerCronRunsData>
-) => createQueryKey('ankoleWebScheduleControllerCronRuns', options)
-
-/**
- * List recent concrete fires for one recurring schedule
- */
-export const ankoleWebScheduleControllerCronRunsOptions = (options: Options<AnkoleWebScheduleControllerCronRunsData>) =>
-  queryOptions<
-    AnkoleWebScheduleControllerCronRunsResponse,
-    DefaultError,
-    AnkoleWebScheduleControllerCronRunsResponse,
-    ReturnType<typeof ankoleWebScheduleControllerCronRunsQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebScheduleControllerCronRuns({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebScheduleControllerCronRunsQueryKey(options)
-  })
-
-/**
- * Manually run one recurring schedule
- */
-export const ankoleWebScheduleControllerRunCronMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerRunCronData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerRunCronResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerRunCronData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerRunCronResponse,
-    DefaultError,
-    Options<AnkoleWebScheduleControllerRunCronData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerRunCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -3225,32 +3092,33 @@ export const ankoleWebBrainControllerSourceOptions = (options: Options<AnkoleWeb
     queryKey: ankoleWebBrainControllerSourceQueryKey(options)
   })
 
+export const ankoleWebScheduleControllerIndexCheckbacksQueryKey = (
+  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
+) => createQueryKey('ankoleWebScheduleControllerIndexCheckbacks', options)
+
 /**
- * Cancel one pending checkback wakeup
+ * List checkback wakeups for one Agent
  */
-export const ankoleWebScheduleControllerCancelCheckbackMutation = (
-  options?: Partial<Options<AnkoleWebScheduleControllerCancelCheckbackData>>
-): UseMutationOptions<
-  AnkoleWebScheduleControllerCancelCheckbackResponse,
-  DefaultError,
-  Options<AnkoleWebScheduleControllerCancelCheckbackData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebScheduleControllerCancelCheckbackResponse,
+export const ankoleWebScheduleControllerIndexCheckbacksOptions = (
+  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData>
+) =>
+  queryOptions<
+    AnkoleWebScheduleControllerIndexCheckbacksResponse,
     DefaultError,
-    Options<AnkoleWebScheduleControllerCancelCheckbackData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebScheduleControllerCancelCheckback({
+    AnkoleWebScheduleControllerIndexCheckbacksResponse,
+    ReturnType<typeof ankoleWebScheduleControllerIndexCheckbacksQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerIndexCheckbacks({
         ...options,
-        ...fnOptions,
+        ...queryKey[0],
+        signal,
         throwOnError: true
       })
       return data
-    }
-  }
-  return mutationOptions
-}
+    },
+    queryKey: ankoleWebScheduleControllerIndexCheckbacksQueryKey(options)
+  })
 
 /**
  * Search the web through AIGateway
@@ -3324,6 +3192,86 @@ export const ankoleWebSignalBindingControllerPutBindingMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebSignalBindingControllerPutBinding({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Remove one recurring schedule
+ */
+export const ankoleWebScheduleControllerRemoveCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerRemoveCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerRemoveCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerRemoveCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerRemoveCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerRemoveCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerRemoveCron({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebScheduleControllerShowCronQueryKey = (
+  options: Options<AnkoleWebScheduleControllerShowCronData>
+) => createQueryKey('ankoleWebScheduleControllerShowCron', options)
+
+/**
+ * Read one recurring schedule
+ */
+export const ankoleWebScheduleControllerShowCronOptions = (options: Options<AnkoleWebScheduleControllerShowCronData>) =>
+  queryOptions<
+    AnkoleWebScheduleControllerShowCronResponse,
+    AnkoleWebScheduleControllerShowCronError,
+    AnkoleWebScheduleControllerShowCronResponse,
+    ReturnType<typeof ankoleWebScheduleControllerShowCronQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerShowCron({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerShowCronQueryKey(options)
+  })
+
+/**
+ * Update one recurring schedule
+ */
+export const ankoleWebScheduleControllerUpdateCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerUpdateCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerUpdateCronResponse,
+  AnkoleWebScheduleControllerUpdateCronError,
+  Options<AnkoleWebScheduleControllerUpdateCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerUpdateCronResponse,
+    AnkoleWebScheduleControllerUpdateCronError,
+    Options<AnkoleWebScheduleControllerUpdateCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerUpdateCron({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -3467,33 +3415,32 @@ export const ankoleWebPrincipalControllerShowOptions = (options: Options<AnkoleW
     queryKey: ankoleWebPrincipalControllerShowQueryKey(options)
   })
 
-export const ankoleWebAutomationJobControllerShowQueryKey = (
-  options: Options<AnkoleWebAutomationJobControllerShowData>
-) => createQueryKey('ankoleWebAutomationJobControllerShow', options)
-
 /**
- * Read one automation job and its recent run history
+ * Cancel one webhook endpoint
  */
-export const ankoleWebAutomationJobControllerShowOptions = (
-  options: Options<AnkoleWebAutomationJobControllerShowData>
-) =>
-  queryOptions<
-    AnkoleWebAutomationJobControllerShowResponse,
-    AnkoleWebAutomationJobControllerShowError,
-    AnkoleWebAutomationJobControllerShowResponse,
-    ReturnType<typeof ankoleWebAutomationJobControllerShowQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAutomationJobControllerShow({
+export const ankoleWebWebhookEndpointControllerDeleteMutation = (
+  options?: Partial<Options<AnkoleWebWebhookEndpointControllerDeleteData>>
+): UseMutationOptions<
+  AnkoleWebWebhookEndpointControllerDeleteResponse,
+  AnkoleWebWebhookEndpointControllerDeleteError,
+  Options<AnkoleWebWebhookEndpointControllerDeleteData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebWebhookEndpointControllerDeleteResponse,
+    AnkoleWebWebhookEndpointControllerDeleteError,
+    Options<AnkoleWebWebhookEndpointControllerDeleteData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebWebhookEndpointControllerDelete({
         ...options,
-        ...queryKey[0],
-        signal,
+        ...fnOptions,
         throwOnError: true
       })
       return data
-    },
-    queryKey: ankoleWebAutomationJobControllerShowQueryKey(options)
-  })
+    }
+  }
+  return mutationOptions
+}
 
 export const ankoleWebBrainControllerIndexQueryKey = (options: Options<AnkoleWebBrainControllerIndexData>) =>
   createQueryKey('ankoleWebBrainControllerIndex', options)
@@ -3778,6 +3725,34 @@ export const ankoleWebWorkerEnvControllerIndexOptions = (options?: Options<Ankol
     queryKey: ankoleWebWorkerEnvControllerIndexQueryKey(options)
   })
 
+export const ankoleWebAutomationJobControllerIndexQueryKey = (
+  options: Options<AnkoleWebAutomationJobControllerIndexData>
+) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
+
+/**
+ * List automation jobs for one Agent
+ */
+export const ankoleWebAutomationJobControllerIndexOptions = (
+  options: Options<AnkoleWebAutomationJobControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAutomationJobControllerIndexResponse,
+    AnkoleWebAutomationJobControllerIndexError,
+    AnkoleWebAutomationJobControllerIndexResponse,
+    ReturnType<typeof ankoleWebAutomationJobControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAutomationJobControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
+  })
+
 /**
  * Cancel one queued or active background Agent Job
  */
@@ -3831,34 +3806,6 @@ export const ankoleWebAppConfigurationControllerDecryptMutation = (
   }
   return mutationOptions
 }
-
-export const ankoleWebAutomationJobControllerIndexQueryKey = (
-  options: Options<AnkoleWebAutomationJobControllerIndexData>
-) => createQueryKey('ankoleWebAutomationJobControllerIndex', options)
-
-/**
- * List automation jobs for one agent session
- */
-export const ankoleWebAutomationJobControllerIndexOptions = (
-  options: Options<AnkoleWebAutomationJobControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebAutomationJobControllerIndexResponse,
-    AnkoleWebAutomationJobControllerIndexError,
-    AnkoleWebAutomationJobControllerIndexResponse,
-    ReturnType<typeof ankoleWebAutomationJobControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebAutomationJobControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebAutomationJobControllerIndexQueryKey(options)
-  })
 
 /**
  * Create embeddings through AIGateway
@@ -4470,6 +4417,59 @@ export const ankoleWebBrainControllerApplyOperationsMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebBrainControllerApplyOperations({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebScheduleControllerCronRunsQueryKey = (
+  options: Options<AnkoleWebScheduleControllerCronRunsData>
+) => createQueryKey('ankoleWebScheduleControllerCronRuns', options)
+
+/**
+ * List recent concrete fires for one recurring schedule
+ */
+export const ankoleWebScheduleControllerCronRunsOptions = (options: Options<AnkoleWebScheduleControllerCronRunsData>) =>
+  queryOptions<
+    AnkoleWebScheduleControllerCronRunsResponse,
+    DefaultError,
+    AnkoleWebScheduleControllerCronRunsResponse,
+    ReturnType<typeof ankoleWebScheduleControllerCronRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebScheduleControllerCronRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebScheduleControllerCronRunsQueryKey(options)
+  })
+
+/**
+ * Manually run one recurring schedule
+ */
+export const ankoleWebScheduleControllerRunCronMutation = (
+  options?: Partial<Options<AnkoleWebScheduleControllerRunCronData>>
+): UseMutationOptions<
+  AnkoleWebScheduleControllerRunCronResponse,
+  DefaultError,
+  Options<AnkoleWebScheduleControllerRunCronData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebScheduleControllerRunCronResponse,
+    DefaultError,
+    Options<AnkoleWebScheduleControllerRunCronData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebScheduleControllerRunCron({
         ...options,
         ...fnOptions,
         throwOnError: true

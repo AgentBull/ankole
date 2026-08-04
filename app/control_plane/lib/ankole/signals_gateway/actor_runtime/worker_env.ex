@@ -59,16 +59,45 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   """
   @spec effective_env(String.t()) :: {:ok, %{String.t() => String.t()}} | {:error, term()}
   def effective_env(agent_uid) do
+    with {:ok, %{operator: operator, binding: binding}} <- effective_env_parts(agent_uid) do
+      {:ok, Map.merge(operator, binding)}
+    end
+  end
+
+  @doc "Returns operator and binding variables without losing their ownership boundary."
+  @spec effective_env_parts(String.t()) ::
+          {:ok, %{operator: %{String.t() => String.t()}, binding: %{String.t() => String.t()}}}
+          | {:error, term()}
+  def effective_env_parts(agent_uid) do
     with {:ok, scope} <- agent_scope(agent_uid),
          {:ok, declared} <- declared_env(agent_uid),
          {:ok, global_custom} <- custom_env(@global_scope),
          {:ok, agent_custom} <- custom_env(scope),
          {:ok, binding_derived} <- BindingWorkerEnv.resolve(agent_uid) do
       {:ok,
-       declared
-       |> Map.merge(global_custom)
-       |> Map.merge(agent_custom)
-       |> Map.merge(binding_derived)}
+       %{
+         operator: declared |> Map.merge(global_custom) |> Map.merge(agent_custom),
+         binding: binding_derived
+       }}
+    end
+  end
+
+  @doc "Builds the non-secret WorkerEnv part of a BackgroundAgentJob runtime projection."
+  @spec runtime_projection(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def runtime_projection(agent_uid, opts \\ []) do
+    with {:ok, items} <- console_list_for_agent(agent_uid, opts) do
+      present = Enum.filter(items, &(&1.present == true))
+
+      plain_values =
+        present
+        |> Enum.reject(& &1.secret)
+        |> Map.new(fn item -> {item.name, Map.fetch!(item, :value)} end)
+
+      {:ok,
+       %{
+         "names" => present |> Enum.map(& &1.name) |> Enum.sort(),
+         "plain_values" => plain_values
+       }}
     end
   end
 
@@ -100,8 +129,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
   global rows, mirroring `effective_env/1` so the console never shows a value
   the shell would not see.
   """
-  @spec console_list_for_agent(String.t()) :: {:ok, [console_item()]} | {:error, term()}
-  def console_list_for_agent(agent_uid) do
+  @spec console_list_for_agent(String.t(), keyword()) ::
+          {:ok, [console_item()]} | {:error, term()}
+  def console_list_for_agent(agent_uid, opts \\ []) do
     with {:ok, scope} <- agent_scope(agent_uid),
          :ok <- ensure_agent(agent_uid) do
       agent_rows = rows_by_name(scope)
@@ -118,7 +148,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
       declared_items =
         declared_definitions()
         |> Enum.reject(&MapSet.member?(custom_names, &1.worker_env_name))
-        |> Enum.map(&declared_item(&1, agent_uid))
+        |> Enum.map(&declared_item(&1, agent_uid, opts))
 
       {:ok, Enum.sort_by(custom_items ++ declared_items, & &1.name)}
     end
@@ -436,8 +466,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
     end
   end
 
-  defp declared_item(%Definition{} = definition, agent_uid) do
-    opts = if agent_uid, do: [agent_id: agent_uid], else: []
+  defp declared_item(%Definition{} = definition, agent_uid, opts \\ []) do
+    resolve_opts = if agent_uid, do: [agent_id: agent_uid], else: []
 
     base = %{
       name: definition.worker_env_name,
@@ -448,7 +478,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerEnv do
       editable: true
     }
 
-    case AppConfigure.resolve(definition, opts) do
+    result =
+      case Keyword.fetch(opts, :repo) do
+        {:ok, repo} -> AppConfigure.resolve_in_tx(repo, definition, resolve_opts)
+        :error -> AppConfigure.resolve(definition, resolve_opts)
+      end
+
+    case result do
       {:ok, %Resolution{value: nil, source: source}} ->
         Map.merge(base, %{present: false, source: Atom.to_string(source)})
 

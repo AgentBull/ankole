@@ -1,66 +1,49 @@
-import {
-  Input,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-  TableCell,
-  TableRow,
-  toast
-} from '@ankole/uikit'
+import { TableCell, TableRow, toast } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebAgentControllerIndexOptions,
-  ankoleWebAgentSessionControllerIndexOptions,
   ankoleWebWebhookEndpointControllerDeleteMutation,
   ankoleWebWebhookEndpointControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { WebhookEndpointItem } from '../api/generated/types.gen'
-import { ConfirmDeleteButton, LabeledField, StatusIndicator } from '../console-form'
+import { AgentFilter, useAgentScope } from '../console-agent-scope'
+import { ConfirmDeleteButton, StatusIndicator } from '../console-form'
 import { formatConsoleDate } from '../console-primitives'
-import { ResourceListPage } from '../console-list-page'
+import { FilterSwitch, ResourceListPage, ResourceSearch, ScopeBar } from '../console-list-page'
 import { matchesResourceSearch } from '../state/resource-search'
+
+/** A live endpoint can still receive a callback; the rest are history. */
+function live(endpoint: WebhookEndpointItem): boolean {
+  return endpoint.status === 'armed' || endpoint.status === 'active'
+}
 
 export function WebhooksPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [query, setQuery] = useState('')
-
-  const agents = useQuery(ankoleWebAgentControllerIndexOptions())
-  const agentList = agents.data?.agents ?? []
-  const agentUID = searchParams.get('agent') ?? agentList[0]?.uid ?? ''
-
-  const sessions = useQuery({
-    ...ankoleWebAgentSessionControllerIndexOptions({ path: { agent_uid: agentUID } }),
-    enabled: Boolean(agentUID)
-  })
-  const sessionList = sessions.data?.sessions ?? []
-  const sessionID = searchParams.get('session') ?? sessionList[0]?.session_id ?? ''
-  const scopeReady = Boolean(agentUID && sessionID)
+  const [includeFinished, setIncludeFinished] = useState(false)
+  const scope = useAgentScope()
 
   const endpoints = useQuery({
-    ...ankoleWebWebhookEndpointControllerIndexOptions({
-      path: { agent_uid: agentUID, session_id: sessionID }
-    }),
-    enabled: scopeReady
+    ...ankoleWebWebhookEndpointControllerIndexOptions({ path: { agent_uid: scope.agentUID } }),
+    enabled: Boolean(scope.agentUID)
   })
 
-  const rows = (endpoints.data?.webhook_endpoints ?? []).filter(endpoint =>
-    matchesResourceSearch(
-      query,
-      endpoint.label,
-      endpoint.mode,
-      endpoint.status,
-      endpoint.binding_name,
-      endpoint.signal_channel_id
+  const rows = (endpoints.data?.webhook_endpoints ?? [])
+    .filter(endpoint => includeFinished || live(endpoint))
+    .filter(endpoint =>
+      matchesResourceSearch(
+        query,
+        endpoint.label,
+        endpoint.mode,
+        endpoint.status,
+        endpoint.binding_name,
+        endpoint.session_id,
+        endpoint.signal_channel_id
+      )
     )
-  )
 
   const cancel = useMutation({
     ...ankoleWebWebhookEndpointControllerDeleteMutation(),
@@ -71,56 +54,34 @@ export function WebhooksPage() {
     onError: error => toast.error(requestErrorMessage(error))
   })
 
-  const selectAgent = (uid: string) => {
-    setSearchParams(uid ? new URLSearchParams({ agent: uid }) : new URLSearchParams())
-  }
-
-  const selectSession = (session: string) => {
-    const next = new URLSearchParams(searchParams)
-    if (session) next.set('session', session)
-    else next.delete('session')
-    setSearchParams(next)
-  }
-
   return (
     <ResourceListPage
       title={t('console.webhooks.title')}
       description={t('console.webhooks.description')}
       columns={[
         t('console.webhooks.label'),
+        t('console.session'),
         t('console.webhooks.route'),
         t('console.webhooks.mode'),
         t('console.webhooks.status'),
         t('console.webhooks.expires_at')
       ]}
       count={rows.length}
-      emptyTitle={scopeReady ? t('console.webhooks.empty_title') : t('console.webhooks.select_scope_title')}
+      emptyTitle={scope.agentUID ? t('console.webhooks.empty_title') : t('console.webhooks.select_scope_title')}
       emptyDescription={
-        scopeReady ? t('console.webhooks.empty_description') : t('console.webhooks.select_scope_description')
+        scope.agentUID ? t('console.webhooks.empty_description') : t('console.webhooks.select_scope_description')
       }
-      error={endpoints.error}
+      error={scope.error ?? endpoints.error}
       isEmpty={rows.length === 0}
       isFiltered={Boolean(query.trim())}
-      isLoading={scopeReady && endpoints.isLoading}
+      isLoading={Boolean(scope.agentUID) && endpoints.isLoading}
       subNav={
-        <WebhookScope
-          agentUID={agentUID}
-          agents={agentList}
-          sessionID={sessionID}
-          sessions={sessionList}
-          onSelectAgent={selectAgent}
-          onSelectSession={selectSession}
-        />
+        <ScopeBar>
+          <AgentFilter scope={scope} />
+          <FilterSwitch checked={includeFinished} label={t('console.include_finished')} onChange={setIncludeFinished} />
+        </ScopeBar>
       }
-      toolbar={
-        <Input
-          aria-label={t('console.webhooks.search_placeholder')}
-          className="max-w-sm"
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-          placeholder={t('console.webhooks.search_placeholder')}
-        />
-      }>
+      toolbar={<ResourceSearch label={t('console.webhooks.search_placeholder')} value={query} onChange={setQuery} />}>
       {rows.map(endpoint => (
         <WebhookEndpointRow
           key={endpoint.id}
@@ -128,77 +89,12 @@ export function WebhooksPage() {
           cancelling={cancel.isPending}
           onCancel={() =>
             cancel.mutate({
-              path: {
-                agent_uid: agentUID,
-                session_id: sessionID,
-                webhook_endpoint_id: endpoint.id
-              }
+              path: { agent_uid: scope.agentUID, webhook_endpoint_id: endpoint.id }
             })
           }
         />
       ))}
     </ResourceListPage>
-  )
-}
-
-function WebhookScope({
-  agentUID,
-  agents,
-  sessionID,
-  sessions,
-  onSelectAgent,
-  onSelectSession
-}: {
-  agentUID: string
-  agents: { uid: string }[]
-  sessionID: string
-  sessions: { session_id: string; title?: string | null }[]
-  onSelectAgent: (uid: string) => void
-  onSelectSession: (sessionID: string) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <div className="grid grid-cols-1 gap-3 border-b-0 md:grid-cols-2">
-      <div className="border border-border bg-card p-3">
-        <LabeledField label={t('console.webhooks.agent')}>
-          <Select value={agentUID} onValueChange={value => onSelectAgent(String(value))}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t('console.webhooks.select_agent')} />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map(agent => (
-                <SelectItem key={agent.uid} value={agent.uid}>
-                  {agent.uid}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </LabeledField>
-      </div>
-      <div className="border border-border bg-card p-3">
-        <LabeledField label={t('console.webhooks.session')}>
-          <Select
-            value={sessionID}
-            onValueChange={value => onSelectSession(String(value))}
-            disabled={!agentUID || sessions.length === 0}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder={t('console.webhooks.select_session')} />
-            </SelectTrigger>
-            <SelectContent>
-              {sessions.map(session => (
-                <SelectItem key={session.session_id} value={session.session_id}>
-                  <span className="font-mono text-xs">{session.session_id}</span>
-                  {session.title ? (
-                    <span className="ml-2 truncate text-muted-foreground">— {session.title}</span>
-                  ) : null}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </LabeledField>
-      </div>
-    </div>
   )
 }
 
@@ -212,7 +108,6 @@ function WebhookEndpointRow({
   onCancel: () => void
 }) {
   const { t } = useTranslation()
-  const active = endpoint.status === 'armed' || endpoint.status === 'active'
 
   return (
     <TableRow>
@@ -221,6 +116,11 @@ function WebhookEndpointRow({
           <span className="font-medium">{endpoint.label}</span>
           <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
         </div>
+      </TableCell>
+      <TableCell>
+        <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id}>
+          {endpoint.session_id}
+        </span>
       </TableCell>
       <TableCell>
         <div className="grid gap-1 font-mono text-xs">
@@ -236,7 +136,7 @@ function WebhookEndpointRow({
       </TableCell>
       <TableCell>{formatConsoleDate(endpoint.expires_at)}</TableCell>
       <TableCell className="text-right">
-        {active ? (
+        {live(endpoint) ? (
           <ConfirmDeleteButton
             pending={cancelling}
             confirm={{

@@ -12,6 +12,8 @@ export type ActiveTurn = {
   turnStart: TurnStart
   correlationID: string
   steeringUpdates: TurnSteerUpdate[]
+  disabledSkillNames: string[]
+  changedSkillNames: string[]
   abortController: AbortController
   controlledStopRequested: boolean
   controlledStopCommand?: string

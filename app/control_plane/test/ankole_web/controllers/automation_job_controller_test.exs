@@ -25,25 +25,14 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     :ok
   end
 
-  test "admin reads one session's jobs and bounded run history", %{conn: conn} do
+  test "admin reads every session's jobs of one agent and bounded run history", %{conn: conn} do
     %{principal: agent} = agent_fixture()
+    %{principal: other_agent} = agent_fixture()
     source = source_event!(agent.uid)
+    other_source = source_event!(agent.uid)
 
-    assert {:ok, job} =
-             AutomationJobs.create_job(%{
-               agent_uid: agent.uid,
-               owner_session_id: source.session_id,
-               source_actor_event_id: source.id,
-               source_entry_id: source.source_entry_id,
-               source_provenance: %{"kind" => "console-test"},
-               reply_route: %{
-                 "binding_name" => source.binding_name,
-                 "signal_channel_id" => source.signal_channel_id
-               },
-               directory_path: "/agents/#{agent.uid}/automation/console-test",
-               label: "Console test consumer",
-               wake_on_failure: true
-             })
+    job = create_job!(agent.uid, source, "Console test consumer")
+    other_session_job = create_job!(agent.uid, other_source, "Second session consumer")
 
     assert {:ok, %{automation_job_run: run}} =
              Repo.transact(fn repo ->
@@ -76,29 +65,22 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     list =
       conn
-      |> get(~p"/api/v1/agents/#{agent.uid}/sessions/#{source.session_id}/automation-jobs")
+      |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs")
       |> json_response(200)
 
     assert_schema(list, "AutomationJobListResponse", api_spec)
+    assert %{"automation_jobs" => jobs} = list
+    assert MapSet.new(jobs, & &1["id"]) == MapSet.new([job.id, other_session_job.id])
 
-    assert %{
-             "automation_jobs" => [
-               %{
-                 "id" => job_id,
-                 "label" => "Console test consumer",
-                 "runs" => []
-               }
-             ]
-           } = list
+    assert MapSet.new(jobs, & &1["owner_session_id"]) ==
+             MapSet.new([source.session_id, other_source.session_id])
 
-    assert job_id == job.id
+    assert Enum.all?(jobs, &(&1["runs"] == []))
 
     detail =
       conn
       |> recycle_bearer()
-      |> get(
-        ~p"/api/v1/agents/#{agent.uid}/sessions/#{source.session_id}/automation-jobs/#{job.id}?runs=20"
-      )
+      |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/#{job.id}?runs=20")
       |> json_response(200)
 
     assert_schema(detail, "AutomationJobResponse", api_spec)
@@ -107,7 +89,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
 
     assert conn
            |> recycle_bearer()
-           |> get(~p"/api/v1/agents/#{agent.uid}/sessions/another/automation-jobs/#{job.id}")
+           |> get(~p"/api/v1/agents/#{other_agent.uid}/automation-jobs/#{job.id}")
            |> json_response(404)
   end
 
@@ -115,8 +97,28 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
     %{principal: agent} = agent_fixture()
 
     assert conn
-           |> get(~p"/api/v1/agents/#{agent.uid}/sessions/session-1/automation-jobs")
+           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs")
            |> json_response(401)
+  end
+
+  defp create_job!(agent_uid, source, label) do
+    assert {:ok, job} =
+             AutomationJobs.create_job(%{
+               agent_uid: agent_uid,
+               owner_session_id: source.session_id,
+               source_actor_event_id: source.id,
+               source_entry_id: source.source_entry_id,
+               source_provenance: %{"kind" => "console-test"},
+               reply_route: %{
+                 "binding_name" => source.binding_name,
+                 "signal_channel_id" => source.signal_channel_id
+               },
+               directory_path: "/agents/#{agent_uid}/automation/console-test",
+               label: label,
+               wake_on_failure: true
+             })
+
+    job
   end
 
   defp source_event!(agent_uid) do
@@ -183,12 +185,5 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
       provider_id: "lark-main",
       external_id: "external-1"
     })
-  end
-
-  defp allow_cache_database_access do
-    case GenServer.whereis(Cache) do
-      nil -> :ok
-      pid -> Ecto.Adapters.SQL.Sandbox.allow(Repo, self(), pid)
-    end
   end
 end

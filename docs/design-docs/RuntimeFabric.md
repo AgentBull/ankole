@@ -326,6 +326,17 @@ The message contains these main values:
 Request context contains current request details, not conversation history.
 AIGateway builds model history for each Response.
 
+TurnStart also projects the current Agent's custom model profile names and
+descriptions. Agent Computer uses this bounded catalog to build the optional
+`create_background_job.model_profile` enum. The control plane validates the
+selected name again when it handles `background_agent_job.create`.
+
+`BackgroundAgentJobCreateRequest.model_profile` carries only that logical
+custom name. An empty value selects `coding`. `BackgroundAgentJobResponse`
+returns the persisted logical name. The Job Turn's model reference carries the
+resolved provider, model, options, and reasoning effort instead of a caller
+supplied raw model.
+
 The Session workspace ID names `/agents/<agent-key>/sessions/<workspace-id>`.
 It starts at 10000 and stays stable for one `{agent_uid, session_id}` pair.
 Protocol version 4 requires this field so a mixed-version worker cannot create
@@ -456,9 +467,12 @@ The RPC lane uses `rpc_request`, `rpc_response`, and `rpc_error` envelopes.
 Both control plane and worker clients correlate calls by request ID.
 
 `app/kernel/proto/ankole/runtime_fabric/v1/rpc.proto` declares business messages.
-`rpc_methods.json` is the method registry SSOT.
+The Bun operation tables own the method names, authorization facts, effects, and
+message-type pairs. `gen-rpc-contract.ts` projects these facts into the committed
+`rpc_methods.json` file. This file is the cross-language parity artifact. It is
+not a third runtime registry.
 
-Each registry row defines:
+Each contract row defines:
 
 - the method name
 - its authorization scope
@@ -466,8 +480,10 @@ Each registry row defines:
 - the request message type
 - the response message type
 
-Elixir and Bun tests check the same registry. The control plane encodes and
-decodes all business payloads in one place.
+Elixir keeps an explicit dispatch table because broker functions and request
+modules are control-plane implementation facts. Package-local tests compare the
+Bun projection and the Elixir table with the committed contract. The control
+plane encodes and decodes all business payloads in one place.
 
 Turn-scoped frames carry `ActorTurnRef` outside the payload.
 Worker-agent frames carry a trusted `agent_uid` outside the payload.

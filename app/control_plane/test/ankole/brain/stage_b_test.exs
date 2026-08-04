@@ -13,6 +13,7 @@ defmodule Ankole.Brain.StageBTest do
   alias Ankole.AIGateway.Schemas.Conversation, as: AIGatewayConversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache
   alias Ankole.AuthZ.Group
   alias Ankole.Brain
   alias Ankole.Brain.Citations
@@ -34,7 +35,16 @@ defmodule Ankole.Brain.StageBTest do
   @base_time ~U[2026-07-13 00:00:00.000000Z]
 
   setup do
+    # The AppConfigure cache is a process, so it outlives the sandbox transaction
+    # that rolls its rows back. Without this reset the global timezone and
+    # knowledge configuration leaks in both directions between this file and its
+    # neighbors.
+    allow_cache_database_access()
+    Cache.clear_for_test()
     :ok = Brain.ensure_registered()
+
+    on_exit(fn -> Cache.clear_for_test() end)
+
     :ok
   end
 

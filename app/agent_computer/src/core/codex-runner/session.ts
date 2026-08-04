@@ -11,7 +11,12 @@ import {
   type BackgroundAgentJobStatus,
   type BackgroundAgentJobTurnUsage
 } from '../../lanes/rpc_lane'
-import { CodexAppServerClient, CodexAppServerRPCError, type JSONRPCMessage } from '../../tools/codex/app-server-client'
+import {
+  CodexAppServerClient,
+  CodexAppServerExitError,
+  CodexAppServerRPCError,
+  type JSONRPCMessage
+} from '../../tools/codex/app-server-client'
 import type { DynamicToolCallParams } from '../../tools/codex/generated/protocol/v2/DynamicToolCallParams'
 import {
   boundedBackgroundAgentJobPaths,
@@ -28,8 +33,6 @@ import {
   textInput
 } from '../../tools/codex/protocol'
 import type { TurnHandlerResult } from '../turns/turn_options'
-import { installAndTrustAgentPlugins, type PreparedAgentPlugins } from './agent-plugin-materializer'
-import { withCodexHomeSetup } from './codex-home-setup'
 import { pendingParentInputFromDynamicTool, PARENT_INPUT_TOOL_NAME } from './parent-input'
 import {
   classifyCodexRecoveryFailure,
@@ -41,7 +44,13 @@ import {
 } from './recovery-policy'
 import type { PreparedCodexJobExecution } from './setup'
 import { BackgroundAgentJobTurnRecorder } from './turn-recorder'
-import { installCodexLogs2LowLevelFilter } from '../../tools/codex/fix-codex-logs2-sqlite-bug'
+import {
+  agentCodexRuntimeManager,
+  AgentCodexRuntimeLostError,
+  type AgentCodexRuntimeLease,
+  type AgentCodexRuntimeSession
+} from './agent-runtime-manager'
+import { CodexSkillUsageTracker, skillDisabledNotice, type DiscoveredCodexSkill } from './skill-usage'
 
 const steerPollIntervalMs = 250
 const maxMCPStartupErrorBytes = 2_048
@@ -50,14 +59,16 @@ export async function runCodexJobSession(input: PreparedCodexJobExecution): Prom
   return new CodexJobSession(input).run()
 }
 
-class CodexJobSession {
+class CodexJobSession implements AgentCodexRuntimeSession {
   private readonly turnRecorder: BackgroundAgentJobTurnRecorder
   private readonly threadModel: string | undefined
+  private readonly skillUsage: CodexSkillUsageTracker
   private readonly done: Promise<void>
   private resolveDone!: () => void
   private rejectDone!: (error: Error) => void
 
   private client: CodexAppServerClient | undefined
+  private runtimeLease: AgentCodexRuntimeLease | undefined
   private runtimeThreadID: string | undefined
   private codexTurnID: string | undefined
   private outputText = ''
@@ -72,6 +83,11 @@ class CodexJobSession {
   private recreatedThreadOnResume = false
   private finalizing = false
   private closing = false
+  private acceptingServerRequests = true
+  private runtimeCleaned = false
+  private materialsCleaned = false
+  private durableJobStatusCommitted = false
+  private readonly toolAbortController = new AbortController()
   private turnResult: TurnHandlerResult | undefined
   private steerTimer: ReturnType<typeof setInterval> | undefined
   private steerInFlight = false
@@ -84,6 +100,11 @@ class CodexJobSession {
   constructor(private readonly input: PreparedCodexJobExecution) {
     this.runtimeThreadID = input.job.runtimeThreadId || undefined
     this.threadModel = input.runtimeConfig.modelProfile.model
+    this.skillUsage = new CodexSkillUsageTracker({
+      availableSkillNames: expectedSkillNames(input),
+      mcpServers: input.mcpServers,
+      attemptHistory: input.job.attemptHistory
+    })
     this.turnRecorder = new BackgroundAgentJobTurnRecorder({
       jobID: input.jobID,
       attempt: input.job.attempts,
@@ -121,7 +142,12 @@ class CodexJobSession {
         }
       } else {
         this.finalizing = true
-        let error = caughtError
+        // A shared app-server exit seen by this Job is the same retryable
+        // runtime loss that registered threads receive from the fan-out.
+        let error =
+          caughtError instanceof CodexAppServerExitError
+            ? new AgentCodexRuntimeLostError(this.input.job.agentUid, caughtError)
+            : caughtError
         this.turnRecorder.finishTurn(this.codexTurnID, 'failed', {
           code: 'background_agent_job_runtime_exception',
           summary: errorMessage(error)
@@ -140,26 +166,43 @@ class CodexJobSession {
     this.input.opts.abortSignal?.removeEventListener('abort', this.onAbort)
     this.closing = true
 
-    const captureCleanupError = (error: unknown): void => {
+    const captureCleanupError = (stage: string, error: unknown): void => {
+      if (this.durableJobStatusCommitted) {
+        this.input.opts.logger?.warning(
+          'worker.codex_job_post_commit_cleanup_failed',
+          'Background Agent Job cleanup failed after its durable status commit',
+          { job_id: this.input.jobID, stage, error: error instanceof Error ? error : new Error(String(error)) }
+        )
+        return
+      }
       if (hasThrownError) return
       thrownError = error
       hasThrownError = true
     }
 
-    try {
-      await this.client?.close()
-    } catch (error) {
-      captureCleanupError(error)
+    if (this.runtimeLease && !this.runtimeCleaned) {
+      try {
+        await this.runtimeLease.runtime.cleanupSession(this)
+        this.runtimeCleaned = true
+      } catch (error) {
+        captureCleanupError('runtime', error)
+      }
     }
     try {
       await this.input.cleanup()
+      this.materialsCleaned = true
     } catch (error) {
-      captureCleanupError(error)
+      captureCleanupError('materials', error)
     }
     try {
       await this.turnRecorder.flush()
     } catch (error) {
-      captureCleanupError(error)
+      captureCleanupError('trajectory', error)
+    }
+    try {
+      await this.runtimeLease?.release()
+    } catch (error) {
+      captureCleanupError('lease', error)
     }
 
     if (hasThrownError) throw thrownError
@@ -168,111 +211,78 @@ class CodexJobSession {
   }
 
   private async execute(): Promise<void> {
-    const { sandbox } = this.input
     const abortSignal = this.input.opts.abortSignal
     abortSignal?.addEventListener('abort', this.onAbort, { once: true })
     if (abortSignal?.aborted) this.onAbort()
     if (await this.finishClaimedFinalization()) return
 
-    const expectedSkillNames = [
-      ...this.input.runtimeFiles.expectedSkillNames,
-      ...this.input.preparedAgentPlugins.expectedSkillNames
-    ].sort(compareCodePoints)
-    const initializeResponse = await withCodexHomeSetup(
-      this.input.materialized.codexHome,
-      async () => {
-        this.client = new CodexAppServerClient({
-          cwd: sandbox.cwd,
-          env: sandbox.env,
-          commandArgv: sandbox.commandArgv,
-          onNotification: this.handleNotification,
-          onServerRequest: this.handleServerRequest,
-          onExit: error => {
-            if (!this.closing && !this.finalizing) this.rejectDone(error)
-          }
-        })
-        const client = this.client
-        try {
-          const initializeStartedAt = Date.now()
-          let response: JSONObject
-          try {
-            response = await client.initialize()
-            this.input.opts.logger?.info('worker.codex_app_server_initialized', 'Codex app-server initialized', {
-              duration_ms: Date.now() - initializeStartedAt
-            })
-          } catch (error) {
-            this.input.opts.logger?.warning(
-              'worker.codex_app_server_initialize_failed',
-              'Codex app-server initialization failed',
-              {
-                duration_ms: Date.now() - initializeStartedAt,
-                error: errorMessage(error)
-              }
-            )
-            throw error
-          }
-          try {
-            const status = installCodexLogs2LowLevelFilter(this.input.materialized.codexHome)
-            this.input.opts.logger?.info('worker.codex_logs2_filter_ready', 'Codex logs filter is ready', { status })
-          } catch (error) {
-            this.input.opts.logger?.warning(
-              'worker.codex_logs2_filter_failed',
-              'Codex logs filter could not be installed',
-              { error: errorMessage(error) }
-            )
-          }
-          if (await this.finishClaimedFinalization()) {
-            await client.closeAndWait()
-            return response
-          }
-          await installAndTrustAgentPlugins(client, sandbox.codexCwd, this.input.preparedAgentPlugins)
-          abortSignal?.throwIfAborted()
-          await configureCodexSkills(
-            client,
-            sandbox.codexCwd,
-            this.input.runtimeFiles.skillsRoot,
-            this.input.runtimeFiles.expectedSkillNames,
-            this.input.preparedAgentPlugins
-          )
-          return response
-        } catch (error) {
-          await client.closeAndWait()
-          throw error
-        }
-      },
-      abortSignal
-    )
+    const expectedSkills = expectedSkillNames(this.input)
+    this.runtimeLease = await agentCodexRuntimeManager.acquire({
+      agentUID: this.input.job.agentUid,
+      codexHome: this.input.materialized.codexHome,
+      aiGatewayBaseURL: this.input.runtimeConfig.aiGatewayKey.baseUrl,
+      aiGatewayAPIKey: this.input.runtimeConfig.aiGatewayKey.apiKey,
+      sandbox: this.input.agentRuntimeSandbox,
+      logger: this.input.opts.logger,
+      ...(abortSignal ? { abortSignal } : {})
+    })
+    this.client = this.runtimeLease.runtime.client
+    const initializeResponse = jsonObject(this.runtimeLease.runtime.initializeResponse)
+    if (await this.finishClaimedFinalization()) return
+
+    await this.runtimeLease.runtime.ensureAgentPlugins({
+      cwd: this.input.materialized.agentHome,
+      prepared: this.input.preparedAgentPlugins
+    })
     if (await this.finishClaimedFinalization()) return
 
     this.recreatedThreadOnResume = await this.resumeExistingThread()
     if (await this.finishClaimedFinalization()) return
     if (!this.runtimeThreadID) await this.startNewThread()
     if (await this.finishClaimedFinalization()) return
-    await this.publishRunningStatus(initializeResponse, expectedSkillNames)
+    const discoveredSkills = await verifiedCodexSkills(
+      this.client,
+      this.input.jobProject.codexCwd,
+      this.input.runtimeFiles.expectedSkillNames
+    )
+    this.skillUsage.setDiscoveredSkills(this.input.jobProject.codexCwd, [
+      ...discoveredSkills,
+      ...this.input.agentPluginCapabilities.discoveredSkills
+    ])
+    abortSignal?.throwIfAborted()
+    await this.publishRunningStatus(initializeResponse, expectedSkills)
     if (await this.finishClaimedFinalization()) return
 
     const initialTurnInput = turnInput(this.input.turnStart, this.input.job)
-    await this.startCodexTurn(
-      this.recreatedThreadOnResume ? recreatedThreadInput(this.input.job, initialTurnInput) : initialTurnInput
-    )
+    const effectiveTurnInput = this.recreatedThreadOnResume
+      ? recreatedThreadInput(this.input.job, initialTurnInput)
+      : initialTurnInput
+    await this.startCodexTurn(effectiveTurnInput)
+    this.recordUsedSkills(this.skillUsage.observeInput(effectiveTurnInput))
     if (await this.finishClaimedFinalization()) return
     this.startSteeringPoll()
     await this.done
   }
 
   private async resumeExistingThread(): Promise<boolean> {
-    if (!this.runtimeThreadID || !this.client) return false
+    if (!this.runtimeThreadID || !this.client || !this.runtimeLease) return false
+    const resumedThreadID = this.runtimeThreadID
+    this.runtimeLease.runtime.registerRoot(resumedThreadID, this)
     try {
       await this.client.request('thread/resume', {
-        ['threadId']: this.runtimeThreadID,
-        cwd: this.input.sandbox.codexCwd,
+        ['threadId']: resumedThreadID,
+        cwd: this.input.jobProject.codexCwd,
+        runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
+        modelProvider: 'ankole_aigateway',
+        config: this.input.threadConfig,
         ...(this.threadModel ? { model: this.threadModel } : {})
       })
       this.input.opts.onTurnActivity?.('codex:thread_resumed')
       return false
     } catch (error) {
+      this.runtimeLease.runtime.unregisterThread(resumedThreadID, this)
       const decision = transitionCodexRecovery({
         stage: 'resume',
         failure: classifyCodexRecoveryFailure(
@@ -293,7 +303,7 @@ class CodexJobSession {
 
   private async publishRunningStatus(initializeResponse: JSONObject, expectedSkillNames: string[]): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available')
-    const { opts, turnStart, jobID, sandbox, jobProject, mcpServers, projection } = this.input
+    const { opts, turnStart, jobID, jobProject, mcpServers, projection } = this.input
     await opts.rpc(
       rpcMethods.backgroundAgentJobStatusUpdate,
       {
@@ -302,8 +312,9 @@ class CodexJobSession {
         runtimeThreadId: this.runtimeThreadID,
         metadataJson: jsonBytes({
           codex_user_agent: stringValue(initializeResponse.userAgent),
-          job_project_cwd: sandbox.codexCwd,
+          job_project_cwd: jobProject.codexCwd,
           job_workspace: jobProject.root,
+          codex_app_server_pid: this.client?.processID,
           mcp_server_names: mcpServers.map(server => server.name).sort(compareCodePoints),
           ...(this.recreatedThreadOnResume
             ? {
@@ -368,6 +379,7 @@ class CodexJobSession {
         },
         { turn: this.input.turnStart.turn }
       )
+      this.durableJobStatusCommitted = true
       this.resolveDone()
     } catch (error) {
       const failure = /background_agent_job_pending_steer/.test(errorMessage(error))
@@ -393,19 +405,26 @@ class CodexJobSession {
   }
 
   private async startNewThread(): Promise<void> {
-    if (!this.client) throw new Error('codex app-server is not available')
+    if (!this.client || !this.runtimeLease) throw new Error('codex app-server is not available')
     const started = jsonObject(
       await this.client.request('thread/start', {
-        cwd: this.input.sandbox.codexCwd,
+        cwd: this.input.jobProject.codexCwd,
+        runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
         approvalPolicy: 'never',
         sandbox: 'danger-full-access',
+        modelProvider: 'ankole_aigateway',
+        config: this.input.threadConfig,
         threadSource: 'ankole',
         dynamicTools: this.input.projection.dynamicTools,
+        ...(this.input.agentPluginCapabilities.selectedCapabilityRoots.length > 0
+          ? { selectedCapabilityRoots: this.input.agentPluginCapabilities.selectedCapabilityRoots }
+          : {}),
         ...(this.threadModel ? { model: this.threadModel } : {})
       })
     )
     this.runtimeThreadID = stringValue(jsonObject(started.thread).id)
     if (!this.runtimeThreadID) throw new Error('codex app-server did not return a thread id')
+    this.runtimeLease.runtime.registerRoot(this.runtimeThreadID, this)
     this.input.opts.onTurnActivity?.('codex:thread_started')
   }
 
@@ -417,10 +436,14 @@ class CodexJobSession {
         ['threadId']: this.runtimeThreadID,
         ...(clientUserMessageID ? { ['clientUserMessageId']: clientUserMessageID } : {}),
         input: textInput(input),
-        cwd: this.input.sandbox.codexCwd,
+        cwd: this.input.jobProject.codexCwd,
+        runtimeWorkspaceRoots: [this.input.jobProject.codexCwd],
         approvalPolicy: 'never',
         sandboxPolicy: { type: 'dangerFullAccess' },
-        ...(this.threadModel ? { model: this.threadModel } : {})
+        ...(this.threadModel ? { model: this.threadModel } : {}),
+        ...(this.input.runtimeConfig.modelProfile.modelReasoningEffort
+          ? { effort: this.input.runtimeConfig.modelProfile.modelReasoningEffort }
+          : {})
       })
     )
     this.codexTurnID = stringValue(jsonObject(startedTurn.turn).id)
@@ -573,7 +596,7 @@ class CodexJobSession {
     }
   }
 
-  private readonly handleNotification = (message: JSONRPCMessage): void => {
+  handleRuntimeNotification(message: JSONRPCMessage): void {
     if (this.finalizing) return
     this.turnRecorder.handleNotification(message)
     const params = jsonObject(message.params)
@@ -582,6 +605,10 @@ class CodexJobSession {
     const projection = projectCodexNotification(message)
     if (projection.type !== 'ignored') {
       this.input.opts.onTurnActivity?.(`codex:${isLeadNotification ? '' : 'child:'}${projection.type}`)
+    }
+
+    if (message.method === 'item/started') {
+      this.recordUsedSkills(this.skillUsage.observeItem(params.item), stringValue(params.turnId))
     }
 
     if (
@@ -652,11 +679,13 @@ class CodexJobSession {
     }
   }
 
-  private readonly handleServerRequest = async (
-    message: JSONRPCMessage,
-    appServer: CodexAppServerClient
-  ): Promise<void> => {
-    if (this.finalizing) return
+  async handleRuntimeServerRequest(message: JSONRPCMessage, appServer: CodexAppServerClient): Promise<void> {
+    if (!this.acceptingServerRequests || this.finalizing) {
+      if (message.id !== undefined) {
+        await appServer.respondError(message.id, -32001, 'Background agent Job is cleaning up')
+      }
+      return
+    }
     const method = typeof message.method === 'string' ? message.method : ''
     if (message.id === undefined) return
     const params = jsonObject(message.params)
@@ -683,6 +712,10 @@ class CodexJobSession {
       const requestTurnID = stringValue(pending.turnId) ?? this.codexTurnID
       this.turnRecorder.recordRequestUserInput(requestTurnID, pending, message.id)
       this.waitingOnUserInput = true
+      if (!this.claimFinalization()) {
+        await appServer.respondError(message.id, -32001, 'Background agent Job is already finalizing')
+        return
+      }
       try {
         if (requestThreadID && requestTurnID) {
           await this.interruptCodexTurn(requestThreadID, requestTurnID).catch(() => undefined)
@@ -693,9 +726,8 @@ class CodexJobSession {
         } else {
           await this.interrupt()
         }
-        await this.commit('waiting_on_user', {
-          metadata: { pending_user_input: pending }
-        })
+        await appServer.respondError(message.id, -32002, 'Background agent Job is waiting for parent input')
+        this.scheduleClaimedCommit('waiting_on_user', { metadata: { pending_user_input: pending } })
       } catch (error) {
         this.waitingOnUserInput = false
         this.rejectDone(error instanceof Error ? error : new Error(String(error)))
@@ -704,11 +736,21 @@ class CodexJobSession {
     }
 
     if (method === 'item/tool/call') {
-      const response = await this.input.projection.handleToolCall(
-        message.params as DynamicToolCallParams,
-        this.input.opts.abortSignal ?? new AbortController().signal
-      )
-      await appServer.respond(message.id, response)
+      try {
+        const response = await this.input.projection.handleToolCall(
+          message.params as DynamicToolCallParams,
+          this.toolAbortController.signal
+        )
+        await appServer.respond(message.id, response)
+      } catch (error) {
+        await appServer.respondError(
+          message.id,
+          this.toolAbortController.signal.aborted ? -32001 : -32603,
+          this.toolAbortController.signal.aborted
+            ? 'Background agent Job cancelled the tool call during cleanup'
+            : errorMessage(error)
+        )
+      }
       return
     }
     if (approvalRequestMethod(method)) {
@@ -719,21 +761,29 @@ class CodexJobSession {
     await appServer.respondError(message.id, -32601, `Ankole does not implement Codex server request ${method}`)
     if (!isLeadRequest) return
     await this.interrupt().catch(() => undefined)
-    await this.commit('failed', {
-      error: {
-        code: 'unsupported_server_request',
-        summary: `Unsupported Codex server request: ${method}`
-      }
-    })
+    if (this.claimFinalization()) {
+      this.scheduleClaimedCommit('failed', {
+        error: {
+          code: 'unsupported_server_request',
+          summary: `Unsupported Codex server request: ${method}`
+        }
+      })
+    }
   }
 
   private readonly onAbort = (): void => {
     if (!this.claimFinalization()) return
     void this.interrupt().catch(() => undefined)
-    void this.client?.close().catch(() => undefined)
     void this.commitClaimed('stopped', {
       metadata: { stop_reason: abortReason(this.input.opts.abortSignal) }
     })
+  }
+
+  private scheduleClaimedCommit(
+    status: BackgroundAgentJobStatus,
+    details: { result?: JSONObject; error?: JSONObject; metadata?: JSONObject }
+  ): void {
+    setTimeout(() => void this.commitClaimed(status, details), 0)
   }
 
   private async finishClaimedFinalization(): Promise<boolean> {
@@ -742,8 +792,33 @@ class CodexJobSession {
     return true
   }
 
+  prepareForRuntimeCleanup(): void {
+    this.acceptingServerRequests = false
+    if (!this.toolAbortController.signal.aborted) {
+      this.toolAbortController.abort(new DOMException('Background agent Job is cleaning up', 'AbortError'))
+    }
+  }
+
+  handleRuntimeLost(error: AgentCodexRuntimeLostError): void {
+    if (this.closing) return
+    this.prepareForRuntimeCleanup()
+    this.rejectDone(error)
+  }
+
   private startSteeringPoll(): void {
     this.steerTimer = setInterval(() => {
+      const disabledSkills = this.input.opts.pollDisabledSkills?.() ?? []
+      let pluginMaterialsChanged = false
+      try {
+        pluginMaterialsChanged = this.input.agentPluginMaterials.disableSkills(disabledSkills)
+      } catch (error) {
+        if (!this.finalizing) {
+          this.finalizing = true
+          this.rejectDone(error instanceof Error ? error : new Error(String(error)))
+        }
+        return
+      }
+      this.skillUsage.disable(disabledSkills)
       if (
         this.steerInFlight ||
         this.finalizing ||
@@ -754,21 +829,48 @@ class CodexJobSession {
       ) {
         return
       }
+      const changedSkills = [...new Set(this.input.opts.pollChangedSkills?.() ?? [])]
       const updates = this.input.opts.pollSteering?.() ?? []
-      if (updates.length === 0) return
+      const disabledNotices = this.skillUsage.pendingDisabledNotices()
+      if (
+        updates.length === 0 &&
+        disabledNotices.length === 0 &&
+        changedSkills.length === 0 &&
+        !pluginMaterialsChanged
+      ) {
+        return
+      }
       this.steerInFlight = true
-      void steerActiveTurn(
-        this.client,
-        this.runtimeThreadID,
-        this.codexTurnID,
-        updates,
-        () => !this.finalizing,
-        async (eventID, text) => {
-          this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
-          await this.turnRecorder.flush()
-        },
-        this.input.opts.onSteeringApplied
-      )
+      void this.refreshChangedSkills(changedSkills)
+        .then(() =>
+          steerDisabledSkills(
+            this.client!,
+            this.runtimeThreadID!,
+            this.codexTurnID!,
+            disabledNotices,
+            () => !this.finalizing,
+            async (name, eventID, text) => {
+              this.skillUsage.markNotified(name)
+              this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
+              await this.turnRecorder.flush()
+            }
+          )
+        )
+        .then(() =>
+          steerActiveTurn(
+            this.client!,
+            this.runtimeThreadID!,
+            this.codexTurnID!,
+            updates,
+            () => !this.finalizing,
+            async (eventID, text) => {
+              this.recordUsedSkills(this.skillUsage.observeInput(text))
+              this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
+              await this.turnRecorder.flush()
+            },
+            this.input.opts.onSteeringApplied
+          )
+        )
         .catch(error => {
           if (this.finalizing) return
           this.finalizing = true
@@ -780,6 +882,40 @@ class CodexJobSession {
     }, steerPollIntervalMs)
     this.steerTimer.unref?.()
   }
+
+  private recordUsedSkills(skillNames: string[], turnID = this.codexTurnID): void {
+    for (const name of skillNames) this.turnRecorder.recordSkillUsed(turnID, name)
+  }
+
+  private async refreshChangedSkills(skillNames: string[]): Promise<void> {
+    let refreshed = false
+    for (const name of skillNames) {
+      try {
+        if (await this.input.runtimeFiles.refreshSkill(name)) {
+          refreshed = true
+          this.input.opts.onTurnActivity?.(`codex:skill_refreshed:${name}`)
+        }
+      } catch (error) {
+        this.input.opts.logger?.warning('worker.codex_skill_refresh_failed', 'active Job Skill refresh failed', {
+          skill_name: name,
+          error: error instanceof Error ? error : new Error(String(error))
+        })
+      }
+    }
+    if (!refreshed) return
+    try {
+      this.input.agentPluginMaterials.materialize()
+    } catch (error) {
+      this.input.opts.logger?.warning(
+        'worker.codex_agent_plugin_skill_refresh_failed',
+        'active Agent Plugin Skill refresh failed',
+        {
+          skill_names: skillNames,
+          error: error instanceof Error ? error : new Error(String(error))
+        }
+      )
+    }
+  }
 }
 
 function boundedMCPStartupError(value: string): string {
@@ -789,62 +925,18 @@ function boundedMCPStartupError(value: string): string {
   return `${truncateUTF8Safe(sanitized, maxMCPStartupErrorBytes - utf8ByteLength(suffix))}${suffix}`
 }
 
-export async function configureCodexSkills(
+export async function verifiedCodexSkills(
   client: Pick<CodexAppServerClient, 'request'>,
   cwd: string,
-  skillsRoot: string,
-  expectedStandaloneSkillNames: string[],
-  preparedAgentPlugins: PreparedAgentPlugins
-): Promise<string[]> {
-  await client.request('skills/extraRoots/set', {
-    extraRoots: [skillsRoot]
-  })
-  const before = await listCodexSkills(client, cwd)
-  const beforeByName = new Map(before.map(skill => [skill.name, skill]))
-
-  for (const agentPlugin of preparedAgentPlugins.agentPlugins) {
-    const enabledNames = new Set(agentPlugin.enabledSkillNames)
-    for (const memberName of agentPlugin.memberSkillNames) {
-      const codexName = `${agentPlugin.manifestName}:${memberName}`
-      const skill = beforeByName.get(codexName)
-      if (!skill) throw new Error(`Codex did not discover Agent Plugin Skill ${codexName}`)
-      if (!skill.path.startsWith('/')) {
-        throw new Error(`Codex returned a non-absolute path for Agent Plugin Skill ${codexName}: ${skill.path}`)
-      }
-      const enabled = enabledNames.has(memberName)
-      const response = jsonObject(
-        await client.request('skills/config/write', {
-          path: skill.path,
-          enabled
-        })
-      )
-      if (response.effectiveEnabled !== enabled) {
-        throw new Error(`Codex did not persist Agent Plugin Skill state for ${codexName}`)
-      }
-    }
-  }
-
+  expectedSkillNames: string[]
+): Promise<DiscoveredCodexSkill[]> {
   const discovered = await listCodexSkills(client, cwd)
   const discoveredByName = new Map(discovered.map(skill => [skill.name, skill]))
-  const missingStandalone = expectedStandaloneSkillNames.filter(name => discoveredByName.get(name)?.enabled !== true)
-  if (missingStandalone.length > 0) {
-    throw new Error(`Codex did not discover enabled standalone Skills: ${missingStandalone.join(', ')}`)
-  }
-  for (const agentPlugin of preparedAgentPlugins.agentPlugins) {
-    const enabledNames = new Set(agentPlugin.enabledSkillNames)
-    for (const memberName of agentPlugin.memberSkillNames) {
-      const codexName = `${agentPlugin.manifestName}:${memberName}`
-      const expected = enabledNames.has(memberName)
-      const actual = discoveredByName.get(codexName)?.enabled
-      if (actual !== expected) {
-        throw new Error(`Codex Agent Plugin Skill state mismatch for ${codexName}: expected ${expected}`)
-      }
-    }
+  const missing = expectedSkillNames.filter(name => discoveredByName.get(name)?.enabled !== true)
+  if (missing.length > 0) {
+    throw new Error(`Codex did not discover enabled project Skills: ${missing.join(', ')}`)
   }
   return discovered
-    .filter(skill => skill.enabled)
-    .map(skill => skill.name)
-    .sort(compareCodePoints)
 }
 
 async function listCodexSkills(
@@ -981,6 +1073,38 @@ async function steerActiveTurn(
       if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobMessageDeliveryError(error)
     }
   }
+}
+
+async function steerDisabledSkills(
+  client: CodexAppServerClient,
+  threadID: string,
+  turnID: string,
+  skillNames: string[],
+  acceptsOutcome: () => boolean,
+  onApplied: (name: string, eventID: string, text: string) => Promise<void>
+): Promise<void> {
+  for (const name of skillNames) {
+    const eventID = `skill-disabled:${name}`
+    const text = skillDisabledNotice(name)
+    try {
+      await client.request('turn/steer', {
+        ['threadId']: threadID,
+        ['expectedTurnId']: turnID,
+        ['clientUserMessageId']: eventID,
+        input: textInput(text)
+      })
+      if (acceptsOutcome()) await onApplied(name, eventID, text)
+    } catch (error) {
+      if (!acceptsOutcome()) continue
+      if (!isSteerCompletionRace(error)) throw new BackgroundAgentJobMessageDeliveryError(error)
+    }
+  }
+}
+
+function expectedSkillNames(input: PreparedCodexJobExecution): string[] {
+  return [...input.runtimeFiles.expectedSkillNames, ...input.agentPluginCapabilities.availableSkillNames].sort(
+    compareCodePoints
+  )
 }
 
 function isSteerCompletionRace(error: unknown): boolean {

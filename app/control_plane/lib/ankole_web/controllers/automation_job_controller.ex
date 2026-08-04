@@ -15,10 +15,7 @@ defmodule AnkoleWeb.AutomationJobController do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.Schema
 
-  @actor_parameters [
-    agent_uid: [in: :path, type: :string, required: true],
-    session_id: [in: :path, type: :string, required: true]
-  ]
+  @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
 
   tags(["Automation Jobs"])
   security([%{"consoleBearer" => []}])
@@ -27,9 +24,9 @@ defmodule AnkoleWeb.AutomationJobController do
     render_error: AnkoleWeb.OpenAPIValidationErrorRenderer
 
   operation(:index,
-    summary: "List automation jobs for one agent session",
+    summary: "List automation jobs for one Agent",
     parameters:
-      @actor_parameters ++
+      @agent_parameters ++
         [
           limit: [
             in: :query,
@@ -47,7 +44,7 @@ defmodule AnkoleWeb.AutomationJobController do
   operation(:show,
     summary: "Read one automation job and its recent run history",
     parameters:
-      @actor_parameters ++
+      @agent_parameters ++
         [
           automation_job_id: [
             in: :path,
@@ -73,11 +70,11 @@ defmodule AnkoleWeb.AutomationJobController do
   )
 
   def index(conn, params) do
-    with {:ok, actor} <- actor_params(params),
-         :ok <- ConsolePolicy.authorize(conn, resource(actor.agent_uid), "read") do
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, resource(agent_uid), "read") do
       jobs =
-        actor.agent_uid
-        |> AutomationJobs.list_jobs(actor.session_id, limit: integer_param(params, "limit", 100))
+        agent_uid
+        |> AutomationJobs.list_jobs(nil, limit: integer_param(params, "limit", 100))
         |> Enum.map(&AutomationJobs.console_projection/1)
 
       json(conn, %{automation_jobs: jobs})
@@ -87,11 +84,11 @@ defmodule AnkoleWeb.AutomationJobController do
   end
 
   def show(conn, params) do
-    with {:ok, actor} <- actor_params(params),
-         :ok <- ConsolePolicy.authorize(conn, resource(actor.agent_uid), "read"),
+    with {:ok, agent_uid} <- agent_uid_param(params),
+         :ok <- ConsolePolicy.authorize(conn, resource(agent_uid), "read"),
          {:ok, job_id} <- positive_integer_param(params, "automation_job_id"),
          {:ok, %{automation_job: job, runs: runs}} <-
-           AutomationJobs.show_job(actor.agent_uid, actor.session_id, job_id,
+           AutomationJobs.show_job(agent_uid, nil, job_id,
              runs: integer_param(params, "runs", 20)
            ) do
       json(conn, %{automation_job: AutomationJobs.console_projection(job, runs)})
@@ -100,10 +97,9 @@ defmodule AnkoleWeb.AutomationJobController do
     end
   end
 
-  defp actor_params(params) do
-    with {:ok, agent_uid} <- text_param(params, "agent_uid"),
-         {:ok, session_id} <- text_param(params, "session_id") do
-      {:ok, %{agent_uid: String.downcase(agent_uid), session_id: session_id}}
+  defp agent_uid_param(params) do
+    with {:ok, agent_uid} <- text_param(params, "agent_uid") do
+      {:ok, String.downcase(agent_uid)}
     end
   end
 
@@ -146,7 +142,6 @@ defmodule AnkoleWeb.AutomationJobController do
   defp param(params, key), do: Map.get(params, key) || Map.get(params, param_atom(key))
 
   defp param_atom("agent_uid"), do: :agent_uid
-  defp param_atom("session_id"), do: :session_id
   defp param_atom("automation_job_id"), do: :automation_job_id
   defp param_atom("limit"), do: :limit
   defp param_atom("runs"), do: :runs
