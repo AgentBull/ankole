@@ -640,7 +640,7 @@ export type IdentityProviderResponse = {
  * BackgroundAgentJobListResponse
  */
 export type BackgroundAgentJobListResponse = {
-  jobs: Array<BackgroundAgentJobItem>
+  jobs: Array<BackgroundAgentJobListItem>
   next_cursor: string | null
 }
 
@@ -737,6 +737,20 @@ export type SignalChannelStandingOrdersWriteRequest = {
    * Full replacement standing-orders text; empty clears them.
    */
   orders: string
+}
+
+/**
+ * BackgroundAgentJobListItem
+ */
+export type BackgroundAgentJobListItem = {
+  agent_uid: string
+  attempts: number
+  duration_seconds: number
+  id: number
+  inserted_at: string
+  status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
+  title: string
+  workspace_template_id: string | null
 }
 
 /**

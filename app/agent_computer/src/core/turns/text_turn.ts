@@ -27,7 +27,7 @@ import {
   prependEnvironmentInfoLinesToUserMessage,
   turnRequestEnvironmentInfoLines
 } from './message_context'
-import { steeringMessages } from './turn_control'
+import { steeringMessagesWithAcknowledgement } from './turn_control'
 import { createTurnActivity } from './turn_activity'
 import { resolveAgentConversationContext } from './turn_context'
 import { agentRuntimePolicyFromTurnStart } from './turn_runtime_policy'
@@ -214,7 +214,8 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       logger: opts.logger,
       onPresentationEvent: opts.onPresentationEvent,
       withActivitySuspended: turnActivity.withSuspended,
-      getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? [])
+      getSteeringMessages: async () =>
+        steeringMessagesWithAcknowledgement(turnStart, opts.pollSteering?.() ?? [], opts.onSteeringApplied)
     })
     if (latest.message.stopReason === 'error' || latest.message.stopReason === 'aborted') {
       throw new Error(

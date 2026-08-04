@@ -156,6 +156,20 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     assert [%{"sealed" => true}] = checkpoint["pages"]
   end
 
+  test "a continued turn seals the old stream with the handoff status" do
+    event = setup_stream_binding(fresh_anchor_metadata())
+
+    continued = working("旧卡片答案") |> ReplyPresentation.continued()
+
+    assert {:ok, result} = AIStream.finalize(request(event, continued, :terminal))
+
+    assert_receive {:bot_frame, "aibot_respond_msg", "req-stream-1", body}
+    assert body["stream"]["finish"] == true
+    assert body["stream"]["content"] =~ "已暂停，后续处理续接于下一张卡片"
+    assert body["stream"]["content"] =~ "旧卡片答案"
+    assert result.reply_preview_checkpoint["presentation"]["state"] == "continued"
+  end
+
   test "an answer beyond the page budget seals earlier pages and continues on new stream ids" do
     event = setup_stream_binding(fresh_anchor_metadata())
 

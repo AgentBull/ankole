@@ -293,6 +293,42 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert get_in(terminal_body, ["cardData", "cardParamMap", "flowStatus"]) == "5"
   end
 
+  test "a continued turn seals the old card without erasing its activity" do
+    event =
+      setup_binding(%{
+        "clientId" => "cli_aicard",
+        "clientSecret" => "secret",
+        "cardTemplateId" => "tpl-1"
+      })
+
+    record_requests(self())
+
+    continued =
+      working("旧卡片答案")
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "lookup",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => "查询资料"
+      })
+      |> ReplyPresentation.continued()
+
+    assert {:ok, _result} =
+             AICard.finalize(%Request{
+               actor_event: event,
+               presentation: continued,
+               mode: :terminal
+             })
+
+    assert_receive {:card_call, "PUT", "/v1.0/card/instances", terminal_body}
+    params = get_in(terminal_body, ["cardData", "cardParamMap"])
+    assert params["state"] == "已暂停，后续处理续接于下一张卡片"
+    assert params["answer"] == "旧卡片答案"
+    assert params["activity"] =~ "查询资料"
+    assert params["thought"] == ""
+    assert params["flowStatus"] == "3"
+  end
+
   test "awaiting_input finalizes without sealing and renders protocol-carrying actions" do
     event =
       setup_binding(%{

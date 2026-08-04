@@ -24,6 +24,17 @@ describe('@ankole/agent-computer send_message_to_background_job tool', () => {
     expect(tool.schema.safeParse({ job_id: jobID, message: '' }).success).toBe(false)
     expect(tool.schema.safeParse({ job_id: 999, message: 'x' }).success).toBe(false)
     expect(tool.schema.safeParse({ job_id: '019f0000-0000-7000-8000-000000000001', message: 'x' }).success).toBe(false)
+
+    expect(tool.describeActivity(parsed)).toBe('向后台 Agent 任务发送消息并等待回应中...')
+    expect(tool.describeCompletedActivity?.(parsed, {} as never)).toBe('已收到后台 Agent 任务回应')
+
+    const synchronous = tool.schema.parse({ job_id: jobID, message: 'Use plain language.', wait_reply: true })
+    expect(tool.describeActivity(synchronous)).toBe('向后台 Agent 任务发送消息并等待回应中...')
+    expect(tool.describeCompletedActivity?.(synchronous, {} as never)).toBe('已收到后台 Agent 任务回应')
+
+    const asynchronous = tool.schema.parse({ job_id: jobID, message: 'Use plain language.', wait_reply: false })
+    expect(tool.describeActivity(asynchronous)).toBe('向后台 Agent 任务发送消息')
+    expect(tool.describeCompletedActivity?.(asynchronous, {} as never)).toBe('已向后台 Agent 任务发送消息')
   })
 
   it('returns immediately after send when wait_reply is false', async () => {

@@ -34,7 +34,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert turn_start_payload!(envelope).turn.actor_event_id == steer_event.id
     end
 
-    test "active steer is attached to the live turn and completed when mailbox update is sent" do
+    test "active steer switches the card owner before its mailbox update" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
       route = unique_route()
@@ -75,11 +75,31 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
-               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+      test_process = self()
 
-      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      assert {:ok,
+              %{
+                status: :active_steer_nudged,
+                send_outcome: "sent_or_queued",
+                reply_preview_handoff: :continued
+              }} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 3, :second),
+                 continue_reply_preview_fun: fn stream_actor_event_id, new_owner ->
+                   send(
+                     test_process,
+                     {:reply_preview_handoff, stream_actor_event_id, new_owner.id}
+                   )
 
+                   :ok
+                 end
+               )
+
+      refute Repo.get!(ActorEvent, steer_event.id).completed_at
+
+      assert_receive {:reply_preview_handoff, input_id, steer_event_id}
+      assert input_id == input.id
+      assert steer_event_id == steer_event.id
       assert_receive {:actor_lane, mailbox_envelope}
       assert envelope_body_type(mailbox_envelope) == :mailbox_updated
       mailbox = envelope_body!(mailbox_envelope, :mailbox_updated)
@@ -175,7 +195,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.SteerStopCommandTest do
       assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
-      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      refute Repo.get!(ActorEvent, steer_event.id).completed_at
 
       assert_receive {:actor_lane, mailbox_envelope}
       assert envelope_body_type(mailbox_envelope) == :mailbox_updated

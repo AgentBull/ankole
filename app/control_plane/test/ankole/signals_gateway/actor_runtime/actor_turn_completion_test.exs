@@ -54,6 +54,96 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
              ) == 1
     end
 
+    test "noop RPC commits once and acknowledges a retry" do
+      %{event: event, turn_ref: turn_ref, route: route} = start_accepted_turn("noop-rpc")
+      payload = %FabricProto.ActorTurnNoopRequest{reason: "ambient_silent"}
+
+      assert {:ok, first_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("noop-rpc-1", "actor_turn.noop", payload, turn: turn_ref),
+                 route
+               )
+
+      first = rpc_response_payload!(first_envelope, FabricProto.ActorTurnNoopResponse)
+      assert first.status == "noop_completed"
+      assert first.reason == "ambient_silent"
+      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+
+      assert {:ok, retry_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("noop-rpc-2", "actor_turn.noop", payload, turn: turn_ref),
+                 route
+               )
+
+      retry = rpc_response_payload!(retry_envelope, FabricProto.ActorTurnNoopResponse)
+      assert retry.status == "already_completed"
+      assert retry.reason == first.reason
+    end
+
+    test "abort RPC preserves input and acknowledges a retry" do
+      %{event: event, turn_ref: turn_ref, route: route} = start_accepted_turn("abort-rpc")
+
+      payload = %FabricProto.ActorTurnAbortRequest{
+        code: "worker_loop_failed",
+        message: "worker loop failed",
+        details_json: Torque.encode!(%{"retryable" => true})
+      }
+
+      assert {:ok, first_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("abort-rpc-1", "actor_turn.abort", payload, turn: turn_ref),
+                 route
+               )
+
+      first = rpc_response_payload!(first_envelope, FabricProto.ActorTurnAbortResponse)
+      assert first.status == "turn_failed"
+      refute first.dead_lettered
+      assert first.retry_available_at != ""
+
+      stored = Repo.get!(ActorEvent, event.id)
+      assert stored.input_state == "open"
+      assert is_nil(stored.completed_at)
+
+      assert {:ok, retry_envelope} =
+               RPCLane.handle_request(
+                 rpc_request("abort-rpc-2", "actor_turn.abort", payload, turn: turn_ref),
+                 route
+               )
+
+      retry = rpc_response_payload!(retry_envelope, FabricProto.ActorTurnAbortResponse)
+      assert retry.status == "already_aborted"
+      refute retry.dead_lettered
+    end
+
+    test "abort RPC accepts the matching attempt after its lease expires" do
+      %{event: event, turn_ref: turn_ref, route: route} =
+        start_accepted_turn("abort-expired-lease")
+
+      ActorSessionActivation
+      |> Repo.get_by!(activation_uid: turn_ref.activation_uid)
+      |> ActorSessionActivation.changeset(%{
+        lease_expires_at: DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
+      })
+      |> Repo.update!()
+
+      payload = %FabricProto.ActorTurnAbortRequest{
+        code: "worker_loop_failed",
+        message: "worker reported the failed attempt after its lease expired",
+        details_json: Torque.encode!(%{"retryable" => true})
+      }
+
+      assert {:ok, envelope} =
+               RPCLane.handle_request(
+                 rpc_request("abort-expired-lease", "actor_turn.abort", payload, turn: turn_ref),
+                 route
+               )
+
+      response = rpc_response_payload!(envelope, FabricProto.ActorTurnAbortResponse)
+      assert response.status == "turn_failed"
+      assert Repo.get!(ActorEvent, event.id).input_state == "open"
+      assert is_nil(Repo.get!(ActorEvent, event.id).completed_at)
+    end
+
     test "completion RPC subsumes turn acceptance when its task runs first" do
       %{agent: agent, event: event, turn_ref: turn_ref, route: route} =
         start_sent_turn("completion-before-acceptance")
@@ -217,15 +307,83 @@ defmodule Ankole.SignalsGateway.ActorRuntime.ActorTurnCompletionTest do
       })
       |> Repo.insert!()
 
+      event
+      |> ActorEvent.changeset(%{reply_preview_source_entry_id: "preview-before-steer"})
+      |> Repo.update!()
+
+      steer_event =
+        steer_event
+        |> ActorEvent.changeset(%{reply_preview_source_entry_id: "preview-after-steer"})
+        |> Repo.update!()
+
       completion_turn_ref = %{initial_turn_ref | revision: activation.revision}
 
       final = complete_response(agent.uid, event, "steered done")
 
-      assert {:ok, %{status: :turn_completed, deleted_deliveries: 2}} =
+      assert {:ok,
+              %{
+                status: :turn_completed,
+                deleted_deliveries: 2,
+                reply_actor_event: %ActorEvent{id: reply_actor_event_id}
+              }} =
                complete_turn(completion_turn_ref, final)
+
+      assert reply_actor_event_id == steer_event.id
+
+      outbox = Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{final.id}")
+      assert outbox.source_actor_event_id == steer_event.id
+      assert outbox.operation == :edit
+      assert outbox.target_source_entry_id == "preview-after-steer"
 
       assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
       assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+    end
+
+    test "completes only the applied prefix when a newer steer is still pending" do
+      %{agent: agent, event: event, turn_ref: initial_turn_ref} =
+        start_accepted_turn("pending-steer")
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "mock",
+                 group_entry(%{
+                   source_event_id: "pending-steer-command",
+                   signal_channel_id: event.signal_channel_id,
+                   source_entry_id: "pending-steer-entry",
+                   provider_thread_id: event.provider_thread_id,
+                   text: "/steer use the new direction",
+                   explicit: true
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}, 2_000
+      assert envelope_body_type(mailbox_envelope) == :mailbox_updated
+
+      final = complete_response(agent.uid, event, "done before steer application")
+
+      assert {:ok, %{status: :turn_completed, deleted_deliveries: 1, superseded_deliveries: 1}} =
+               complete_turn(initial_turn_ref, final)
+
+      assert Repo.get_by!(OutboxEntry, outbound_key: "ai-reply:#{final.id}").source_actor_event_id ==
+               event.id
+
+      assert %DateTime{} = Repo.get!(ActorEvent, event.id).completed_at
+      assert is_nil(Repo.get!(ActorEvent, steer_event.id).completed_at)
+
+      assert {:ok, %{turn_ref: next_turn_ref}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 4, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert next_turn_ref.actor_event_id == steer_event.id
+      assert_receive {:actor_lane, next_envelope}, 2_000
+      assert turn_start_payload!(next_envelope).turn.actor_event_id == steer_event.id
     end
 
     test "tombstoned source becomes terminal without provider outbox or redelivery" do

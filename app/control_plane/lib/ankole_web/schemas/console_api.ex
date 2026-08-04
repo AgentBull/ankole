@@ -3286,6 +3286,54 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
+  defmodule BackgroundAgentJobListItem do
+    @moduledoc false
+
+    require OpenAPISpex
+
+    @statuses Ankole.BackgroundAgentJobs.Schemas.Job.statuses()
+
+    # One board row. A list page carries up to 100 of these and reloads on a
+    # timer, so it stays at what the board and the home panel draw. The queued
+    # prompt, the result, the error, and the metadata grow with the work the job
+    # did and belong to the single-job read.
+    OpenAPISpex.schema(
+      %{
+        title: "BackgroundAgentJobListItem",
+        type: :object,
+        properties: %{
+          id: %Schema{
+            type: :integer,
+            minimum: 1000,
+            maximum: 9_007_199_254_740_991
+          },
+          agent_uid: %Schema{type: :string},
+          title: %Schema{type: :string},
+          status: %Schema{
+            type: :string,
+            enum: @statuses
+          },
+          attempts: %Schema{type: :integer},
+          workspace_template_id: %Schema{type: :string, nullable: true},
+          duration_seconds: %Schema{type: :integer},
+          inserted_at: %Schema{type: :string}
+        },
+        required: [
+          :id,
+          :agent_uid,
+          :title,
+          :status,
+          :attempts,
+          :workspace_template_id,
+          :duration_seconds,
+          :inserted_at
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule BackgroundAgentJobListResponse do
     @moduledoc false
 
@@ -3296,7 +3344,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         title: "BackgroundAgentJobListResponse",
         type: :object,
         properties: %{
-          jobs: %Schema{type: :array, items: BackgroundAgentJobItem},
+          jobs: %Schema{type: :array, items: BackgroundAgentJobListItem},
           next_cursor: %Schema{type: :string, nullable: true}
         },
         required: [:jobs, :next_cursor],

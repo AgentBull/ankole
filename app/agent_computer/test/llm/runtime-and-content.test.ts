@@ -15,7 +15,7 @@ import {
 import { modelConfigFromAIGatewayAPIKey } from '../../src/core/ai_gateway_transport'
 import { acquireTurnAIGatewayAccess } from '../../src/core/turns/turn_ai_gateway_access'
 import { textTurnResultFromAssistantReply } from '../../src/core/turns/text_turn'
-import { steeringMessages } from '../../src/core/turns/turn_control'
+import { steeringMessages, steeringMessagesWithAcknowledgement } from '../../src/core/turns/turn_control'
 import { buildAgentSystemPrompt } from '../../src/prompts/system_prompt'
 import type { TurnStart } from '../../src/lanes/actor_lane'
 import { create } from '@bufbuild/protobuf'
@@ -348,6 +348,31 @@ describe('@ankole/agent-computer llm helpers: transport and actor content', () =
     expect(content).toContain('Steering instruction:')
     expect(content).toContain('CHAOS_STEERED_OK')
     expect(turnStart.turn.revision).toBe(1)
+  })
+
+  it('acknowledges active steering only when it enters model input', async () => {
+    const turnStart = turnStartForTest()
+    const acknowledgements: number[] = []
+    const update = {
+      turn: { ...turnStart.turn, revision: 1 },
+      actorEvent: {
+        actor_event_id: '00000000-0000-0000-0000-000000000002',
+        queue_sequence: 2,
+        type: 'command.steer',
+        source_event_id: 'evt-steer-ack',
+        payload_json: { data: { command: { argsText: 'Use the new direction.' } } }
+      }
+    }
+
+    expect(turnStart.turn.revision).toBe(0)
+
+    const messages = await steeringMessagesWithAcknowledgement(turnStart, [update], async applied => {
+      acknowledgements.push(applied.turn.revision)
+    })
+
+    expect(messages).toHaveLength(1)
+    expect(turnStart.turn.revision).toBe(1)
+    expect(acknowledgements).toEqual([1])
   })
 
   it('does not invent /steer text when a mailbox update has no actor event', () => {

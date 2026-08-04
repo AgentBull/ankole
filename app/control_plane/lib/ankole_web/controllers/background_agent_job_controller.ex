@@ -89,7 +89,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
              limit: integer_param(params, "limit", 50)
            ) do
       json(conn, %{
-        jobs: Enum.map(page.jobs, &BackgroundAgentJobs.console_projection/1),
+        jobs: Enum.map(page.jobs, &BackgroundAgentJobs.console_list_projection/1),
         next_cursor: page.next_cursor
       })
     else

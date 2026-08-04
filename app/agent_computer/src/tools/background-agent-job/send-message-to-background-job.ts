@@ -66,7 +66,10 @@ export function createSendMessageToBackgroundJobTool(
     executionMode: 'sequential',
     isReadOnly: false,
     isDestructive: false,
-    describeActivity: () => '向后台 Agent 任务发送消息',
+    describeActivity: params =>
+      params.wait_reply ? '向后台 Agent 任务发送消息并等待回应中...' : '向后台 Agent 任务发送消息',
+    describeCompletedActivity: params =>
+      params.wait_reply ? '已收到后台 Agent 任务回应' : '已向后台 Agent 任务发送消息',
     async execute(toolCallID, params, signal): Promise<AgentToolResult<SendMessageToBackgroundJobResult>> {
       const sendRequest: RPCRequestInit<'background_agent_job.message.send'> = {
         jobId: modelIntegerIDToWire(params.job_id),

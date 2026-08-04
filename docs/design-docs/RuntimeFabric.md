@@ -294,10 +294,13 @@ The actor lane carries these common messages:
 - `turn_noop_completed`
 - `turn_error`
 
-`turn_completed` remains accepted as a rolling-deployment compatibility input.
-Current workers use the `actor_turn.complete` RPC. The compatibility input can
-be removed after all supported deployments have crossed the first paired
-control-plane and worker release that uses this RPC.
+`turn_completed`, `turn_noop_completed`, and `turn_error` remain accepted as
+rolling-deployment compatibility inputs. Current workers use the
+`actor_turn.complete`, `actor_turn.noop`, and `actor_turn.abort` RPCs. These
+compatibility inputs can be removed after all supported Workers use the three
+RPCs. They do not make mixed runtime versions a supported execution mode. A
+late old-Worker terminal input keeps user input durable, but an old Codex Worker
+can leave an applied steer open for one replay by the matching Worker.
 
 Worker capacity has one scheduling representation. `worker_ready`,
 `worker_heartbeat`, and `worker_capacity` carry integer `max_turns` and
@@ -388,24 +391,30 @@ current attempt and contains these values:
 The control plane checks these values before it accepts a worker write. An old
 worker or earlier attempt cannot change a newer turn.
 
-Read RPCs can use a current live revision.
-Write RPCs must match the revision in the current turn fence.
+The activation revision `A` is the highest revision that the control plane has
+issued. The Worker revision `R` is the highest revision that the Worker has
+applied. The control plane requires `0 <= R <= A`.
+
+Read and ordinary write RPCs use the current live fence rules. A
+`turn_accepted` message must match one exact revision. A terminal RPC matches
+the static attempt fence and can use an older applied revision `R` when the
+activation already has a newer pending revision `A`.
 
 ### Add Input to a Running Turn
 
 `mailbox_updated` contains one journaled actor event.
 It injects a steer command into a running turn.
 
-The control plane completes the command event after `sent_or_queued`. This means
-that the worker received or queued it, not that the model read it.
-
-The worker can finish before it reads the update. The delivery record keeps
-that weaker result.
+`sent_or_queued` does not complete the command event. A normal text Turn sends
+`turn_accepted` only after the steer enters model input. A Background Agent Job
+sends it only after Codex accepts `turn/steer`. The accepted revision advances
+`R`. If the Worker finishes first, the newer delivery and its ActorEvent stay
+open for the next Turn.
 
 ### Retry a Turn
 
 `turn_control` with `command = "retry"` stops the named local turn. The worker
-ends its loop, releases capacity, and does not report `turn_error`.
+ends its loop, releases capacity, and does not call `actor_turn.abort`.
 
 An input supersession uses this control only as a best-effort token stop. The
 control plane first retracts the generating Response and invalidates the
@@ -420,8 +429,13 @@ because replay could repeat an external write.
 
 ### Complete a Turn
 
-The worker calls the turn-scoped `actor_turn.complete` RPC with the final
-Response ID and one outcome.
+The Worker ends an attempt with one of three turn-scoped RPCs:
+
+- `actor_turn.complete` commits a final Response.
+- `actor_turn.noop` commits the applied input prefix without a visible reply.
+- `actor_turn.abort` fails the attempt without consuming any input.
+
+`actor_turn.complete` carries the final Response ID and one outcome.
 
 - `loop_finished` means the worker loop ended normally.
 - `iteration_exhausted` means the local iteration budget ended.
@@ -429,9 +443,16 @@ Response ID and one outcome.
 Neither outcome proves the broader user task succeeded.
 
 SignalsGateway checks that the Response chain did not change. It then completes
-the ActorEvent and stores the replies in one transaction. Completion is stronger
-than `turn_accepted`, so it can commit a delivery that is still `sent`. This
-removes a race between the actor-lane acceptance task and the RPC task.
+the main ActorEvent and every input delivery with `revision <= R`, and it stores
+the replies in one transaction. A delivery with `revision > R` stays open.
+Completion is stronger than `turn_accepted`, so it can commit an applied
+delivery that is still `sent`. This removes a race between the actor-lane
+acceptance task and the RPC task.
+
+`actor_turn.noop` consumes the same applied prefix. `actor_turn.abort` validates
+the static attempt fence and `R <= A`, supersedes the attempt deliveries, and
+keeps every ActorEvent open for retry or dead-letter handling. It does not
+depend on the lease still being alive.
 
 The same commit clears the current ActorEvent and briefly keeps the Session on
 the worker for possible follow-up work.
@@ -439,11 +460,10 @@ the worker for possible follow-up work.
 AIGateway completion closes one Response only.
 It does not complete the actor event.
 
-The RPC response acknowledges the durable commit. The worker does not release
-its active turn until it receives this response. If the response is lost after
-commit, the worker repeats the request. The completed ActorEvent stores the
-Response ID and outcome, so the repeated request returns `already_completed`
-after its live delivery fences have been cleared.
+Each RPC response acknowledges its durable terminal operation. The Worker does
+not release its active Turn until it receives this response. If the response is
+lost after commit, the Worker repeats the request. A completion or no-op returns
+`already_completed`, and an abort returns `already_aborted`.
 
 On `SIGTERM` or `SIGINT`, the worker first sends `control_shutdown`, rejects new
 turns, and keeps its RuntimeFabric receive loop open while active tasks wait for
@@ -458,8 +478,10 @@ that contains a tool call, tool result, or another effect-bearing item is not
 replayed. ActorRuntime dead-letters the event and commits a provider-visible
 failure notice for manual recovery.
 
-A turn with no reply uses `turn_noop_completed`. Silence alone never completes
-a turn. A worker failure uses `turn_error` and the normal retry path.
+A Turn with no reply uses `actor_turn.noop`. Silence alone never completes a
+Turn. A Worker failure uses `actor_turn.abort` and the normal retry path. The
+activation lease remains a process-crash fallback. It is not the normal way to
+finish a Worker attempt.
 
 ## Call Functions in Another Process
 
@@ -707,9 +729,11 @@ The Helm chart lives under `internals/helm-chart/ankole-agent`.
 It requires digest-pinned images, the matching release revision, the protocol
 version, and an explicit rollout phase.
 
-Before the `control-plane` phase, the deployment scales the old Worker to zero.
-That phase keeps worker replicas at zero. After it succeeds, the `worker` phase
-starts the matching worker image.
+Before the `control-plane` phase, the deployment scales the old Worker to zero
+and waits until every old Worker Pod has terminated. That phase keeps worker
+replicas at zero. After it succeeds, the `worker` phase starts the matching
+Worker image. The chart sets the phase replica count, but the deployment
+executor owns the pre-apply wait.
 
 This order can briefly leave no workers during an incompatible protocol upgrade.
 Stored ActorEvents and Jobs continue after matching workers connect.

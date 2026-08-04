@@ -31,8 +31,12 @@ import {
   AgentPluginListResponseSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
+  ActorTurnAbortRequestSchema,
+  ActorTurnAbortResponseSchema,
   ActorTurnCompleteRequestSchema,
   ActorTurnCompleteResponseSchema,
+  ActorTurnNoopRequestSchema,
+  ActorTurnNoopResponseSchema,
   AutomationJobCreateRequestSchema,
   AutomationJobEmitRequestSchema,
   AutomationJobEmitResponseSchema,
@@ -107,7 +111,9 @@ import {
 export const rpcMethods = {
   aiGatewayAPIKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
+  actorTurnAbort: 'actor_turn.abort',
   actorTurnComplete: 'actor_turn.complete',
+  actorTurnNoop: 'actor_turn.noop',
   appConfigureResolve: 'app_configure.resolve',
   agentPluginList: 'agent_plugin.list',
   automationJobCreate: 'automation_job.create',
@@ -176,7 +182,9 @@ export type RPCOperationMeta =
 export const rpcOperationMeta = {
   [rpcMethods.aiGatewayAPIKeyForCreateOrFindByAgent]: { scope: 'worker_agent' },
   [rpcMethods.agentConversationContextResolve]: { scope: 'turn', effect: 'read' },
+  [rpcMethods.actorTurnAbort]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.actorTurnComplete]: { scope: 'turn', effect: 'complete' },
+  [rpcMethods.actorTurnNoop]: { scope: 'turn', effect: 'complete' },
   [rpcMethods.appConfigureResolve]: { scope: 'worker_agent' },
   [rpcMethods.agentPluginList]: { scope: 'turn', effect: 'read' },
   [rpcMethods.automationJobCreate]: { scope: 'turn', effect: 'write' },
@@ -239,9 +247,17 @@ export const rpcSchemas = {
     request: AgentConversationContextRequestSchema,
     response: AgentConversationContextResponseSchema
   },
+  [rpcMethods.actorTurnAbort]: {
+    request: ActorTurnAbortRequestSchema,
+    response: ActorTurnAbortResponseSchema
+  },
   [rpcMethods.actorTurnComplete]: {
     request: ActorTurnCompleteRequestSchema,
     response: ActorTurnCompleteResponseSchema
+  },
+  [rpcMethods.actorTurnNoop]: {
+    request: ActorTurnNoopRequestSchema,
+    response: ActorTurnNoopResponseSchema
   },
   [rpcMethods.appConfigureResolve]: {
     request: AppConfigureResolveRequestSchema,

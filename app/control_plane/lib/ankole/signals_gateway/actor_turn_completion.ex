@@ -125,7 +125,9 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          outcome,
          now
        ) do
-    with {:ok, outboxes} <- commit_outboxes(repo, event, completion, outcome, now),
+    with %ActorEvent{} = reply_event <-
+           applied_reply_event(repo, event, deliveries, turn_ref),
+         {:ok, outboxes} <- commit_outboxes(repo, reply_event, completion, outcome, now),
          {:ok, completed_events} <-
            complete_accepted_events(repo, event, deliveries, turn_ref, completion, outcome, now),
          {deleted_count, superseded_count} <-
@@ -136,6 +138,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          status: :turn_completed,
          outcome: outcome,
          actor_event: completed_main_event(completed_events, event),
+         reply_actor_event: reply_event,
          activation: activation,
          completed_actor_events: completed_events,
          outboxes: outboxes,
@@ -143,6 +146,21 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
          superseded_deliveries: superseded_count
        }}
     end
+  end
+
+  defp applied_reply_event(repo, main_event, deliveries, turn_ref) do
+    deliveries
+    |> Enum.filter(&ActorEventDelivery.applied_by_worker?(&1, turn_ref.revision))
+    |> Enum.sort_by(&{&1.revision, &1.queue_sequence}, :desc)
+    |> Enum.find_value(main_event, fn delivery ->
+      case Actors.lock_actor_event_in_tx(repo, delivery.actor_event_id) do
+        %ActorEvent{} = event ->
+          if AIReplyPreview.im_visible_event?(event), do: event
+
+        nil ->
+          nil
+      end
+    end)
   end
 
   defp cancel_tombstoned_source_in_tx(
@@ -291,7 +309,6 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
       delivery.activation_uid != turn_ref.activation_uid -> :stale_activation_uid
       delivery.actor_epoch != turn_ref.actor_epoch -> :stale_actor_epoch
       delivery.actor_event_id_fence != turn_ref.actor_event_id -> :stale_actor_event_id
-      delivery.revision > turn_ref.revision -> :stale_revision
       true -> nil
     end
   end
@@ -408,7 +425,7 @@ defmodule Ankole.SignalsGateway.ActorTurnCompletion do
   defp completion_event_ids(main_event, deliveries, turn_ref) do
     accepted_event_ids =
       deliveries
-      |> Enum.filter(&(&1.state in ["sent", "accepted"] and &1.revision <= turn_ref.revision))
+      |> Enum.filter(&ActorEventDelivery.applied_by_worker?(&1, turn_ref.revision))
       |> Enum.map(& &1.actor_event_id)
       |> Enum.uniq()
 

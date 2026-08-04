@@ -868,7 +868,10 @@ class CodexJobSession implements AgentCodexRuntimeSession {
               this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
               await this.turnRecorder.flush()
             },
-            this.input.opts.onSteeringApplied
+            async update => {
+              this.input.turnStart.turn.revision = Math.max(this.input.turnStart.turn.revision, update.turn.revision)
+              await this.input.opts.onSteeringApplied?.(update)
+            }
           )
         )
         .catch(error => {

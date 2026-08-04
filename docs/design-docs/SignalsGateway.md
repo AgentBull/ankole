@@ -326,8 +326,9 @@ and keeps the row as history.
 ActorRuntime orders open events with `queue_sequence` for each Session. Each
 delivery row records one worker attempt and its turn fence.
 
-A worker `turn_error` leaves the ActorEvent open. ActorRuntime tries again and
-invalidates the old turn fence.
+A Worker `actor_turn.abort` leaves the ActorEvent open. ActorRuntime tries again
+and invalidates the old turn fence. The legacy `turn_error` envelope delegates
+to the same operation during rolling upgrades.
 
 `/llm` creates `command.llm_help`. ActorRuntime returns localized usage plus
 the current Agent's custom model names and descriptions. This command does not
@@ -340,7 +341,7 @@ it does not steer or cancel that Turn. ActorRuntime resolves the custom profile
 for this Turn only. The next normal input uses `primary`. `/retry` copies the
 logical profile from the original ActorEvent and resolves its current binding.
 
-After five `turn_error` results, ActorRuntime moves the event to `dead_letter`.
+After five retryable abort results, ActorRuntime moves the event to `dead_letter`.
 For a visible chat message, the same transaction records a localized failure
 notice for the provider.
 
@@ -422,11 +423,30 @@ outbox records its retries and final result.
 A live preview can show model progress, but Ankole can lose it. It is not the
 final reply record.
 
-The preview follows AIGateway progress for one ActorEvent. An adapter can update
-one provider message as new text arrives.
+The preview follows one immutable AIGateway Turn stream. Its presentation owner
+is one ActorEvent and can change when `/steer` adds a visible reply fragment.
+An adapter updates only the provider message that belongs to the current owner.
 
 After the first successful preview, the ActorEvent stores the provider message
 ID. The final outbox can edit that message instead of sending another one.
+
+After an active `/steer` event is stored, SignalsGateway first freezes the old
+owner with the provider-neutral `continued` state. This state keeps displayed
+answers, plans, results, and activity, removes transient thought, and does not
+mark a live plan as completed or cancelled. After that provider update commits,
+SignalsGateway makes the steer ActorEvent the new owner. If no old provider
+message exists, it switches the owner without creating an empty continued
+message.
+
+If the old provider update fails, SignalsGateway persists the intended
+`continued` checkpoint with `refresh_pending` and switches the owner. The
+existing preview recovery path then finishes the old card. A provider failure
+does not block a durable steer from reaching the Worker.
+
+Every owner checkpoint stores the immutable Turn stream ID and an owner
+generation. A provider task can write a checkpoint only for its generation.
+This fence prevents an old update from replacing a newer card after a handoff.
+Consecutive steer events repeat the same owner change.
 
 If the same sender adds a contiguous attachment while that ActorEvent is still
 running, SignalsGateway can supersede the incomplete input. A reply edge to
@@ -446,6 +466,11 @@ completion wins and the attachment becomes the next turn.
 
 The final reply waits up to 30 seconds for the preview to finish. If preview
 delivery fails, the stored outbox operation still sends the answer.
+
+At Turn completion, the latest visible steer delivery with `revision <= R`
+owns the final reply and outbox. A steer delivery with `revision > R` stays open
+and starts the next Turn. An aborted attempt keeps all ActorEvents and preview
+checkpoints for retry.
 
 ## Which Component Does What
 
@@ -472,6 +497,7 @@ RuntimeFabric carries worker messages and checks their protocol.
 - A provider acknowledgement never depends on model execution.
 - A provider mirror records provider state and never replaces an ActorEvent.
 - A live preview never replaces a stored final reply.
+- One reply-preview generation can update only its presentation owner.
 - A removed source cannot commit a late Agent result while its tombstone is active.
 - A queued `may_intervene` event cannot run after its scene or binding policy changes.
 - An uncertain provider send never causes an automatic duplicate send.

@@ -460,7 +460,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  defp maybe_write_terminal(_client, _out_track_id, _presentation, _display, _card, false), do: :ok
+  defp maybe_write_terminal(_client, _out_track_id, _presentation, _display, _card, false),
+    do: :ok
 
   # The instance write carries only this page's display slice — earlier pages
   # already hold their sealed slices, so writing the full answer here would
@@ -499,10 +500,16 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # A sealed page keeps no transient areas: the thinking draft and the running
   # activity list belong to a turn that is no longer writing into this card.
   defp terminal_param_map(presentation, display_answer, card) do
-    presentation
-    |> card_param_map(display_answer, card)
-    |> Map.put("thought", "")
-    |> Map.put("activity", "")
+    params =
+      presentation
+      |> card_param_map(display_answer, card)
+      |> Map.put("thought", "")
+
+    if presentation["state"] == "continued" do
+      params
+    else
+      Map.put(params, "activity", "")
+    end
   end
 
   # A card the chain rolled past holds a finished slice of a longer answer, so
@@ -519,6 +526,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   end
 
   defp state_text(%{"state" => "completed"}, _card), do: "已完成"
+
+  defp state_text(%{"state" => "continued"}, _card),
+    do: "已暂停，后续处理续接于下一张卡片"
+
   defp state_text(%{"state" => "failed"}, _card), do: "出错"
   defp state_text(%{"state" => "stopped"}, _card), do: "已停止"
   defp state_text(%{"state" => "awaiting_input"}, _card), do: "等待输入"

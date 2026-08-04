@@ -23,12 +23,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
   alias Ankole.SignalsGateway.ActorRuntime.TurnRetry
   alias Ankole.SignalsGateway.ActorRuntime.Transport.Broker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
-  alias Ankole.BackgroundAgentJobs
   alias Ankole.SignalsGateway.Outbox
   alias Ankole.Repo
   alias Ankole.SignalsGateway
-
-  require Ankole.BackgroundAgentJobs
 
   def process_new_command(actor_key, %ActorEvent{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
@@ -376,7 +373,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
             TurnLifecycle.start_worker_turn(actor_key, input, opts)
 
           {:ok, %{status: :active_steer_nudged} = result} ->
-            send_mailbox_updated(result)
+            result
+            |> continue_reply_preview(opts)
+            |> send_mailbox_updated()
 
           other ->
             other
@@ -419,7 +418,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
              activation: activation,
              assignment: assignment,
              delivery: delivery,
-             completed_at: now,
              turn_ref: TurnEnvelope.turn_ref(actor_key, activation)
            }}
         else
@@ -515,7 +513,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
          %{
            assignment: assignment,
            delivery: delivery,
-           completed_at: completed_at,
            actor_event: input,
            turn_ref: turn_ref
          } = result
@@ -525,20 +522,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
 
     case Broker.send_mandatory(route, envelope) do
       {:ok, :sent_or_queued} ->
-        result = Map.put(result, :send_outcome, "sent_or_queued")
-
-        case input.session_id do
-          session_id when BackgroundAgentJobs.is_job_session_id(session_id) ->
-            # A BackgroundAgentJob worker still has to cross Codex turn/steer. Keep the
-            # durable command open until that application is accepted and the
-            # worker turn commits, so a failed attempt can replay it.
-            {:ok, result}
-
-          _session_id ->
-            with {:ok, completed_event} <- complete_active_steer_event(input.id, completed_at) do
-              {:ok, Map.put(result, :actor_event, completed_event)}
-            end
-        end
+        {:ok, Map.put(result, :send_outcome, "sent_or_queued")}
 
       {:error, reason} ->
         TurnLifecycle.mark_delivery_failed(delivery.id, reason, reason)
@@ -547,25 +531,23 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RuntimeCommand do
     end
   end
 
-  defp complete_active_steer_event(actor_event_id, completed_at) do
-    Repo.transact(fn repo ->
-      case Actors.lock_actor_event_in_tx(repo, actor_event_id) do
-        %ActorEvent{completed_at: %DateTime{}} = event ->
-          {:ok, event}
+  defp continue_reply_preview(
+         %{
+           activation: %ActorSessionActivation{current_actor_event_id: stream_actor_event_id},
+           actor_event: %ActorEvent{} = input
+         } = result,
+         opts
+       ) do
+    if AIReplyPreview.im_visible_event?(input) do
+      continue_fun = Keyword.get(opts, :continue_reply_preview_fun, &AIReplyPreview.continue_on/2)
 
-        %ActorEvent{} = event ->
-          with {:ok, _event} <-
-                 Actors.complete_command_event_in_tx(repo, event,
-                   completed_at: completed_at,
-                   outbox_intents: []
-                 ) do
-            {:ok, %{event | completed_at: completed_at}}
-          end
-
-        nil ->
-          {:error, :actor_event_not_found}
+      case continue_fun.(stream_actor_event_id, input) do
+        :ok -> Map.put(result, :reply_preview_handoff, :continued)
+        {:error, reason} -> Map.put(result, :reply_preview_handoff, {:error, reason})
       end
-    end)
+    else
+      Map.put(result, :reply_preview_handoff, :not_visible)
+    end
   end
 
   defp consume_command_feedback(repo, %ActorEvent{} = input, text, now) do

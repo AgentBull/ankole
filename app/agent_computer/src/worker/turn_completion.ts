@@ -1,5 +1,7 @@
 import type { ActorTurnRef } from '../lanes/actor_lane'
 import { isRuntimeFabricTransportError } from '../fabric/fabric'
+import { jsonBytes } from '../fabric/envelope_proto'
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import {
   RPCRejectedError,
   RPCTimeoutError,
@@ -11,15 +13,23 @@ import {
 } from '../lanes/rpc_lane'
 
 const completionMethod = rpcMethods.actorTurnComplete
+const noopMethod = rpcMethods.actorTurnNoop
+const abortMethod = rpcMethods.actorTurnAbort
 
-export type TurnCompletionRequester = {
+type TerminalMethod = typeof completionMethod | typeof noopMethod | typeof abortMethod
+
+type TurnTerminalRequester<M extends TerminalMethod> = {
   request(
-    method: typeof completionMethod,
-    payload: RPCRequestInit<typeof completionMethod>,
-    frame: RPCFrame<typeof completionMethod>,
+    method: M,
+    payload: RPCRequestInit<M>,
+    frame: RPCFrame<M>,
     options?: { timeoutMs?: number }
-  ): Promise<RPCResponseOf<typeof completionMethod> | RPCRejection>
+  ): Promise<RPCResponseOf<M> | RPCRejection>
 }
+
+export type TurnCompletionRequester = TurnTerminalRequester<typeof completionMethod>
+export type TurnNoopRequester = TurnTerminalRequester<typeof noopMethod>
+export type TurnAbortRequester = TurnTerminalRequester<typeof abortMethod>
 
 export type TurnCompletionOutcome = 'loop_finished' | 'iteration_exhausted'
 
@@ -27,6 +37,13 @@ export class TurnCompletionRejectedError extends RPCRejectedError {
   constructor(rejection: RPCRejection) {
     super(completionMethod, rejection)
     this.name = 'TurnCompletionRejectedError'
+  }
+}
+
+export class TurnTerminalRejectedError extends RPCRejectedError {
+  constructor(method: typeof noopMethod | typeof abortMethod, rejection: RPCRejection) {
+    super(method, rejection)
+    this.name = 'TurnTerminalRejectedError'
   }
 }
 
@@ -48,21 +65,74 @@ export async function completeTurnWithAck(
   outcome: TurnCompletionOutcome,
   options: CompletionRetryOptions = {}
 ): Promise<RPCResponseOf<typeof completionMethod>> {
+  return terminalTurnWithAck(
+    rpcClient,
+    completionMethod,
+    turn,
+    { finalResponseId: finalResponseID, outcome },
+    options,
+    rejection => new TurnCompletionRejectedError(rejection)
+  )
+}
+
+export async function noopTurnWithAck(
+  rpcClient: TurnNoopRequester,
+  turn: ActorTurnRef,
+  reason: string,
+  options: CompletionRetryOptions = {}
+): Promise<RPCResponseOf<typeof noopMethod>> {
+  return terminalTurnWithAck(
+    rpcClient,
+    noopMethod,
+    turn,
+    { reason },
+    options,
+    rejection => new TurnTerminalRejectedError(noopMethod, rejection)
+  )
+}
+
+export type TurnAbortFailure = {
+  code: string
+  message: string
+  details: JSONObject
+}
+
+export async function abortTurnWithAck(
+  rpcClient: TurnAbortRequester,
+  turn: ActorTurnRef,
+  failure: TurnAbortFailure,
+  options: CompletionRetryOptions = {}
+): Promise<RPCResponseOf<typeof abortMethod>> {
+  return terminalTurnWithAck(
+    rpcClient,
+    abortMethod,
+    turn,
+    { code: failure.code, message: failure.message, detailsJson: jsonBytes(failure.details) },
+    options,
+    rejection => new TurnTerminalRejectedError(abortMethod, rejection)
+  )
+}
+
+async function terminalTurnWithAck<M extends TerminalMethod>(
+  rpcClient: TurnTerminalRequester<M>,
+  method: M,
+  turn: ActorTurnRef,
+  payload: RPCRequestInit<M>,
+  options: CompletionRetryOptions,
+  rejectedError: (rejection: RPCRejection) => RPCRejectedError
+): Promise<RPCResponseOf<M>> {
   let attempt = 0
 
   for (;;) {
     attempt += 1
 
     try {
-      const response = await rpcClient.request(
-        completionMethod,
-        { finalResponseId: finalResponseID, outcome },
-        { turn },
-        { timeoutMs: options.timeoutMs ?? 2_000 }
-      )
+      const response = await rpcClient.request(method, payload, { turn } as RPCFrame<M>, {
+        timeoutMs: options.timeoutMs ?? 2_000
+      })
 
       if (isRejection(response)) {
-        throw new TurnCompletionRejectedError(response)
+        throw rejectedError(response)
       }
 
       return response
@@ -75,7 +145,7 @@ export async function completeTurnWithAck(
   }
 }
 
-function isRejection(response: RPCResponseOf<typeof completionMethod> | RPCRejection): response is RPCRejection {
+function isRejection<M extends TerminalMethod>(response: RPCResponseOf<M> | RPCRejection): response is RPCRejection {
   return !('$typeName' in response)
 }
 

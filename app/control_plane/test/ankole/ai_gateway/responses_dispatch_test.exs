@@ -3025,7 +3025,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            } = Compaction.threshold_spec(%{"context_length" => 400_000}, %{})
   end
 
-  test "websocket stateful memory pre-compaction nudge does not hijack empty continuations" do
+  test "websocket stateful memory pre-compaction nudge enters an empty continuation" do
     %{principal: agent} = agent_fixture()
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
@@ -3059,8 +3059,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, message} = StatefulResponses.commit_complete(message, [], usage(20))
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => [],
                "store" => true,
@@ -3069,8 +3069,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     provider_input = request.response_context.request["input"]
-    assert provider_input == message.content
-    refute inspect(provider_input) =~ brain_pre_compaction_nudge_marker()
+    assert Enum.take(provider_input, length(message.content)) == message.content
+    assert inspect(List.last(provider_input)) =~ brain_pre_compaction_nudge_marker()
+
+    run = stateful_context.message
+    assert inspect(run.content) =~ brain_pre_compaction_nudge_marker()
+    assert run.metadata["brain_pre_compaction_nudge"]["status"] == "due"
+    assert run.previous_message_id == message.id
   end
 
   test "websocket stateful history auto-compacts through ChatGPT Subscription streaming" do
@@ -3911,7 +3916,17 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     provider_request = request.response_context.request
-    assert provider_request["input"] == call.content ++ tail.content ++ current_input
+    [compaction_item | stable_input] = provider_request["input"]
+
+    assert compaction_item == %{
+             "type" => "compaction",
+             "encrypted_content" =>
+               "Earlier conversation history was omitted because it exceeded the active context budget.",
+             "created_by" => "ankole-aigateway"
+           }
+
+    assert stable_input == call.content ++ tail.content ++ current_input
+    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 1
   end
 
   test "websocket stateful truncation keeps a program call with its output" do
@@ -4127,15 +4142,75 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     provider_request = request.response_context.request
 
-    assert [%{"type" => "compaction", "encrypted_content" => "earlier work compressed"} | _rest] =
-             provider_request["input"]
+    assert [
+             %{
+               "type" => "compaction",
+               "encrypted_content" =>
+                 "Earlier conversation history was omitted because it exceeded the active context budget."
+             },
+             %{"type" => "compaction", "encrypted_content" => "earlier work compressed"}
+             | _rest
+           ] = provider_request["input"]
 
     stable_tail = tail.content ++ current_input
     assert Enum.take(provider_request["input"], -length(stable_tail)) == stable_tail
-    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 1
+    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 2
+
+    first_truncation =
+      Repo.all(Message)
+      |> Enum.find(&(&1.type == "checkpoint" and &1.previous_message_id == tail.id))
+
+    assert %Message{} = first_truncation
+
+    {:ok, next_tail} =
+      start_linked_stateful_message(
+        agent.uid,
+        conversation,
+        first_truncation,
+        "truncation-checkpoint-next-tail",
+        [text_message("assistant", "next response #{brain_pre_compaction_nudge_marker()}")]
+      )
+
+    {:ok, next_tail} = StatefulResponses.commit_complete(next_tail, [], usage(190))
+    next_input = [text_message("user", "one more question")]
+
+    assert {:ok, next_request} =
+             AIGateway.prepare_websocket_request(agent.uid, %{
+               "model" => "primary",
+               "input" => next_input,
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "truncation" => "auto",
+               "metadata" => %{"actor_event_id" => "truncation-checkpoint-next-event"}
+             })
+
+    next_provider_input = next_request.response_context.request["input"]
+
+    assert Enum.count(next_provider_input, fn
+             %{
+               "type" => "compaction",
+               "encrypted_content" =>
+                 "Earlier conversation history was omitted because it exceeded the active context budget."
+             } ->
+               true
+
+             _item ->
+               false
+           end) == 1
+
+    assert Enum.count(
+             next_provider_input,
+             &match?(
+               %{"type" => "compaction", "encrypted_content" => "earlier work compressed"},
+               &1
+             )
+           ) == 1
+
+    assert Enum.take(next_provider_input, -2) == next_tail.content ++ next_input
+    assert Enum.count(Repo.all(Message), &(&1.type == "checkpoint")) == 3
   end
 
-  test "websocket stateful truncation auto drops older non-compactable history without changing durable anchor" do
+  test "websocket stateful truncation checkpoints the safe tail and keeps opaque audit" do
     %{principal: agent} = agent_fixture()
 
     with_compaction_config(threshold: 0.50, max_threshold_tokens: 160, tail_rows: 1)
@@ -4181,8 +4256,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     current_input = [text_message("user", "new request")]
 
-    assert {:ok, request} =
-             AIGateway.prepare_websocket_request(agent.uid, %{
+    assert {:ok, request, stateful_context} =
+             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => current_input,
                "store" => true,
@@ -4192,35 +4267,17 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              })
 
     provider_request = request.response_context.request
-    assert provider_request["input"] == m2.content ++ current_input
+    [compaction_item | retained_input] = provider_request["input"]
+    assert compaction_item["type"] == "compaction"
+
+    assert compaction_item["encrypted_content"] ==
+             "Earlier conversation history was omitted because it exceeded the active context budget."
+
+    assert retained_input == m2.content ++ current_input
     assert provider_request["truncation"] == "auto"
-    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    assert checkpoint.previous_message_id == m2.id
     refute_receive {:gateway_request, _request}
-
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "truncate-auto-durable")
-
-    assert {:error, _reason} =
-             AIGateway.open_websocket_stream(agent.uid, %{
-               "model" => "primary",
-               "input" => current_input,
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => actor_event.id}
-             })
-
-    assert [run] =
-             Message
-             |> Repo.all()
-             |> Enum.filter(
-               &(StatefulResponses.response_metadata(&1)["actor_event_id"] == actor_event.id)
-             )
-
-    assert run.status == "error"
-    assert run.previous_message_id == m2.id
-    assert run.content == current_input
-    assert run.metadata["truncation"] == "auto"
 
     assert %{
              "dropped_message_count" => 1,
@@ -4238,10 +4295,21 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  ]
                }
              ]
-           } = run.metadata["auto_truncation"]
+           } = checkpoint.metadata["auto_truncation"]
 
     assert dropped_message_id == m1.id
     assert dropped_response_id == "resp_#{m1.id}"
+
+    artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+    assert Enum.drop(artifact.content["output"], 1) == m2.content
+
+    run = stateful_context.message
+    assert run.status == "generating"
+    assert run.previous_message_id == checkpoint.id
+    assert run.content == current_input
+    assert run.metadata["truncation"] == "auto"
+    assert run.metadata["auto_truncation"]["response_id"] == "resp_#{checkpoint.id}"
+    assert run.metadata["auto_truncation"]["dropped_message_count"] == 1
   end
 
   test "websocket stateful truncation auto does not start history with orphaned tool output" do
@@ -4412,9 +4480,22 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert_receive {:gateway_request, _summarizer_request}
 
     provider_request = request.response_context.request
+    [compaction_item | _rest] = provider_request["input"]
+
+    assert compaction_item == %{
+             "type" => "compaction",
+             "encrypted_content" =>
+               "Earlier conversation history was omitted because it exceeded the active context budget.",
+             "created_by" => "ankole-aigateway"
+           }
+
     refute Enum.any?(provider_request["input"], &(&1 in m1.content))
     assert Enum.take(provider_request["input"], -2) == m3.content ++ current_input
-    refute Enum.any?(Repo.all(Message), &(&1.type == "checkpoint"))
+
+    [checkpoint] = Enum.filter(Repo.all(Message), &(&1.type == "checkpoint"))
+    assert checkpoint.metadata["strategy"] == "stable_tail"
+    assert checkpoint.metadata["auto_truncation"]["reason"] == "empty_compaction_summary"
+    assert %CompactionArtifact{} = Repo.get!(CompactionArtifact, checkpoint.id)
   end
 
   test "explicit provider selectors can carry request-scoped provider options" do

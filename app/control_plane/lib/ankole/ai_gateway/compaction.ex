@@ -35,6 +35,7 @@ defmodule Ankole.AIGateway.Compaction do
   @summarizer_retry_max_output_tokens 16_384
   @checkpoint_overhead_tokens 1_000
   @brain_pre_compaction_nudge_marker "ankole.brain.pre_compaction_nudge.v1"
+  @stable_tail_summary "Earlier conversation history was omitted because it exceeded the active context budget."
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
   @type result :: %{
@@ -207,8 +208,6 @@ defmodule Ankole.AIGateway.Compaction do
   Adds the one-time Brain pre-compaction nudge to normal model input when due.
   """
   @spec maybe_inject_brain_pre_compaction_nudge([map()], map()) :: [map()]
-  def maybe_inject_brain_pre_compaction_nudge([], _run_metadata), do: []
-
   def maybe_inject_brain_pre_compaction_nudge(current_input, %{
         "brain_pre_compaction_nudge" => %{"status" => "due"}
       })
@@ -219,6 +218,18 @@ defmodule Ankole.AIGateway.Compaction do
   def maybe_inject_brain_pre_compaction_nudge(current_input, _run_metadata)
       when is_list(current_input),
       do: current_input
+
+  @doc false
+  @spec put_checkpoint_response_id(map(), binary() | nil) :: map()
+  def put_checkpoint_response_id(%{"auto_compaction" => %{} = metadata} = run_metadata, id) do
+    Map.put(run_metadata, "auto_compaction", Map.put(metadata, "response_id", id))
+  end
+
+  def put_checkpoint_response_id(%{"auto_truncation" => %{} = metadata} = run_metadata, id) do
+    Map.put(run_metadata, "auto_truncation", Map.put(metadata, "response_id", id))
+  end
+
+  def put_checkpoint_response_id(run_metadata, _id), do: run_metadata
 
   @doc """
   Forces one manual compaction for a conversation's current visible chain.
@@ -347,6 +358,8 @@ defmodule Ankole.AIGateway.Compaction do
     else
       {:error, :no_compaction_candidate} ->
         overflow_fallback(
+          subject_uid,
+          conversation_id,
           history,
           current_input,
           request,
@@ -356,7 +369,16 @@ defmodule Ankole.AIGateway.Compaction do
         )
 
       {:error, reason} ->
-        overflow_fallback(history, current_input, request, total_tokens, reason, threshold)
+        overflow_fallback(
+          subject_uid,
+          conversation_id,
+          history,
+          current_input,
+          request,
+          total_tokens,
+          reason,
+          threshold
+        )
     end
   end
 
@@ -396,11 +418,7 @@ defmodule Ankole.AIGateway.Compaction do
        |> Map.put(:previous_response_id, checkpoint_response_id)
        |> Map.put(:compaction, checkpoint)
        |> Map.update!(:run_metadata, fn run_metadata ->
-         put_in(
-           run_metadata,
-           ["auto_compaction", "response_id"],
-           checkpoint_response_id
-         )
+         put_checkpoint_response_id(run_metadata, checkpoint_response_id)
        end)
        |> Map.delete(:expected_previous_response_id)}
     end
@@ -619,17 +637,45 @@ defmodule Ankole.AIGateway.Compaction do
     }
   end
 
-  defp overflow_fallback(history, current_input, request, total_tokens, reason, threshold) do
+  defp overflow_fallback(
+         subject_uid,
+         conversation_id,
+         history,
+         current_input,
+         request,
+         total_tokens,
+         reason,
+         threshold
+       ) do
     if auto_truncation?(request) do
-      truncate_history(history, current_input, request, total_tokens, reason, threshold)
+      truncate_history(
+        subject_uid,
+        conversation_id,
+        history,
+        current_input,
+        request,
+        total_tokens,
+        reason,
+        threshold
+      )
     else
       {:error, context_overflow(total_tokens, reason, "disabled", threshold)}
     end
   end
 
-  defp truncate_history(history, current_input, request, total_tokens, reason, threshold) do
+  defp truncate_history(
+         subject_uid,
+         conversation_id,
+         history,
+         current_input,
+         request,
+         total_tokens,
+         reason,
+         threshold
+       ) do
     with {:ok, truncated_history} <-
-           truncate_history_to_stable_tail(history, current_input) do
+           truncate_history_to_stable_tail(history, current_input),
+         {:ok, retained_items} <- history_items_for_artifact(subject_uid, truncated_history) do
       previous_response_id = previous_response_id_for(history, request)
 
       auto_truncation =
@@ -646,7 +692,28 @@ defmodule Ankole.AIGateway.Compaction do
          history: truncated_history,
          previous_response_id: previous_response_id,
          expected_previous_response_id: previous_response_id,
-         compaction: nil,
+         compaction: %{
+           artifact_attrs: %{
+             subject_uid: subject_uid,
+             conversation_id: conversation_id,
+             summary_text: @stable_tail_summary,
+             retained_items: retained_items,
+             retained_user_originals: [],
+             retention: %{
+               "strategy" => "stable_tail",
+               "requested" => tail_rows(),
+               "actual" => length(truncated_history),
+               "user_message_count" => 0
+             },
+             usage: %{}
+           },
+           checkpoint_metadata:
+             checkpoint_metadata(request, %{
+               "auto" => true,
+               "strategy" => "stable_tail",
+               "auto_truncation" => auto_truncation
+             })
+         },
          run_metadata: %{
            "truncation" => "auto",
            "auto_truncation" => auto_truncation
@@ -691,6 +758,35 @@ defmodule Ankole.AIGateway.Compaction do
     |> Enum.reject(&MapSet.member?(kept_ids, &1.id))
     |> Enum.flat_map(&opaque_message_audit/1)
   end
+
+  defp history_items_for_artifact(subject_uid, history) do
+    history
+    |> Enum.reduce_while({:ok, []}, fn
+      %Message{type: "checkpoint"} = message, {:ok, chunks} ->
+        case CompactionArtifacts.output_for_checkpoint(subject_uid, message) do
+          {:ok, items} -> {:cont, {:ok, [retained_checkpoint_items(message, items) | chunks]}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+
+      %Message{content: content}, {:ok, chunks} when is_list(content) ->
+        {:cont, {:ok, [content | chunks]}}
+
+      %Message{}, {:ok, chunks} ->
+        {:cont, {:ok, chunks}}
+    end)
+    |> case do
+      {:ok, chunks} -> {:ok, chunks |> Enum.reverse() |> List.flatten()}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp retained_checkpoint_items(
+         %Message{metadata: %{"strategy" => "stable_tail"}},
+         [%{"type" => "compaction", "created_by" => "ankole-aigateway"} | items]
+       ),
+       do: items
+
+  defp retained_checkpoint_items(_message, items), do: items
 
   defp opaque_message_audit(%Message{content: content} = message) when is_list(content) do
     items = opaque_item_audit(content)

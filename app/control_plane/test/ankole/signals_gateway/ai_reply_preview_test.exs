@@ -486,6 +486,174 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
     assert_receive {:rich_sync, "first second"}, 1_500
   end
 
+  test "steer freezes the old card before switching the presentation owner" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("steer-handoff")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    steer_event = steer_actor_event(subject.uid, actor_event, "steer-handoff-next")
+    owner = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn request ->
+        send(owner, {:rich_owner_update, request.actor_event.id, request.presentation})
+        persist_preview_request(request, "open")
+      end,
+      finalize_fun: fn request ->
+        send(owner, {:rich_owner_finalize, request.actor_event.id, request.presentation})
+        persist_preview_request(request, "closed")
+      end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "旧卡片已展示的答案"})
+    send(pid, :flush_edit)
+
+    assert_receive {:rich_owner_update, old_owner_id, old_presentation}
+    assert old_owner_id == actor_event.id
+    assert old_presentation["answer"] == "旧卡片已展示的答案"
+
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, steer_event)
+
+    assert_receive {:rich_owner_finalize, finalized_owner_id, continued}
+    assert finalized_owner_id == actor_event.id
+    assert continued["state"] == "continued"
+    assert continued["answer"] == "旧卡片已展示的答案"
+    refute Map.has_key?(continued, "thought")
+
+    old_checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert old_checkpoint["presentation_owner"] == false
+    assert old_checkpoint["continued_to_actor_event_id"] == steer_event.id
+    assert old_checkpoint["presentation"]["state"] == "continued"
+
+    new_checkpoint = Repo.get!(ActorEvent, steer_event.id).reply_preview_checkpoint
+    assert new_checkpoint["presentation_owner"] == true
+    assert new_checkpoint["stream_actor_event_id"] == actor_event.id
+    assert new_checkpoint["owner_generation"] == 1
+
+    state = :sys.get_state(pid)
+    assert state.stream_actor_event_id == actor_event.id
+    assert state.actor_event.id == steer_event.id
+    assert state.owner_generation == 1
+
+    assert :ok = Events.publish(response, :response_started, %{})
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "新卡片续接"})
+    send(pid, :flush_edit)
+
+    assert_receive {:rich_owner_update, new_owner_id, new_presentation}
+    assert new_owner_id == steer_event.id
+    assert new_presentation["answer"] == "新卡片续接"
+
+    next_steer_event = steer_actor_event(subject.uid, steer_event, "steer-handoff-third")
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, next_steer_event)
+
+    assert_receive {:rich_owner_finalize, second_owner_id, second_continued}
+    assert second_owner_id == steer_event.id
+    assert second_continued["state"] == "continued"
+    assert second_continued["answer"] == "新卡片续接"
+
+    second_checkpoint = Repo.get!(ActorEvent, steer_event.id).reply_preview_checkpoint
+    assert second_checkpoint["presentation_owner"] == false
+    assert second_checkpoint["continued_to_actor_event_id"] == next_steer_event.id
+
+    next_checkpoint = Repo.get!(ActorEvent, next_steer_event.id).reply_preview_checkpoint
+    assert next_checkpoint["presentation_owner"] == true
+    assert next_checkpoint["stream_actor_event_id"] == actor_event.id
+    assert next_checkpoint["owner_generation"] == 2
+
+    assert :ok = Events.publish(response, :response_started, %{})
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "第三张卡片续接"})
+    send(pid, :flush_edit)
+
+    assert_receive {:rich_owner_update, third_owner_id, third_presentation}
+    assert third_owner_id == next_steer_event.id
+    assert third_presentation["answer"] == "第三张卡片续接"
+  end
+
+  test "steer switches ownership without creating an empty paused card" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("steer-no-card")
+    %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    steer_event = steer_actor_event(subject.uid, actor_event, "steer-no-card-next")
+    owner = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn _request -> {:ok, %{}} end,
+      finalize_fun: fn _request ->
+        send(owner, :unexpected_empty_card_finalize)
+        {:ok, %{}}
+      end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false, dirty: false}
+    end)
+
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, steer_event)
+    refute_receive :unexpected_empty_card_finalize, 100
+    assert Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint == nil
+
+    state = :sys.get_state(pid)
+    assert state.actor_event.id == steer_event.id
+    assert state.owner_generation == 1
+
+    monitor = Process.monitor(pid)
+    assert :ok = AIReplyPreview.stop(actor_event.id)
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+
+    next_steer_event = steer_actor_event(subject.uid, steer_event, "steer-no-card-recovered")
+    assert :ok = AIReplyPreview.continue_on(actor_event.id, next_steer_event)
+
+    assert [{recovered_pid, _value}] =
+             Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
+
+    recovered_state = :sys.get_state(recovered_pid)
+    assert recovered_state.actor_event.id == next_steer_event.id
+    assert recovered_state.owner_generation == 2
+  end
+
+  test "a failed old-card finalization keeps a recoverable continued checkpoint" do
+    %{subject: subject, actor_event: actor_event} = addressed_actor_event("steer-handoff-retry")
+    %{response: response, pid: pid} = start_dispatched_preview(subject.uid, actor_event)
+    steer_event = steer_actor_event(subject.uid, actor_event, "steer-handoff-retry-next")
+    owner = self()
+
+    adapter = %ReplyPreviewAdapter{
+      open_fun: fn _request -> {:ok, %{}} end,
+      update_fun: fn request ->
+        result = persist_preview_request(request, "open")
+        send(owner, :old_card_opened)
+        result
+      end,
+      finalize_fun: fn _request -> {:error, :temporary_provider_failure} end
+    }
+
+    :sys.replace_state(pid, fn state ->
+      %{state | reply_preview_adapter: adapter, silent_rich_pending: false}
+    end)
+
+    assert :ok = Events.publish(response, :output_text_delta, %{text: "已展示内容"})
+    send(pid, :flush_edit)
+    assert_receive :old_card_opened
+
+    assert {:error, :temporary_provider_failure} =
+             AIReplyPreview.continue_on(actor_event.id, steer_event)
+
+    old_checkpoint = Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint
+    assert old_checkpoint["presentation_owner"] == false
+    assert old_checkpoint["presentation"]["state"] == "continued"
+    assert old_checkpoint["refresh_pending"] == true
+    assert old_checkpoint["refresh_reason"] == "owner_handoff"
+
+    assert Enum.any?(Actors.recoverable_reply_preview_events(), &(&1.id == actor_event.id))
+
+    state = :sys.get_state(pid)
+    assert state.actor_event.id == steer_event.id
+    assert state.owner_generation == 1
+  end
+
   test "lifecycle stop returns while the preview process is busy" do
     %{subject: subject, actor_event: actor_event} = addressed_actor_event("nonblocking-stop")
     %{pid: pid} = start_dispatched_preview(subject.uid, actor_event)
@@ -1021,6 +1189,46 @@ defmodule Ankole.SignalsGatewayAIReplyPreviewTest do
              Registry.lookup(Ankole.SignalsGateway.PreviewRegistry, actor_event.id)
 
     %{conversation: conversation, response: response, pid: pid}
+  end
+
+  defp steer_actor_event(subject_uid, source_event, suffix) do
+    assert {:ok, %{status: :accepted, actor_event: %ActorEvent{} = steer_event}} =
+             Ankole.SignalsGateway.Ingress.emit_entry(
+               subject_uid,
+               source_event.binding_name,
+               group_entry(%{
+                 source_event_id: "preview-#{suffix}-event",
+                 signal_channel_id: source_event.signal_channel_id,
+                 source_entry_id: "human-message-#{suffix}",
+                 provider_thread_id: source_event.provider_thread_id,
+                 explicit: true,
+                 text: "/steer 继续"
+               }),
+               now: DateTime.add(base_time(), 1, :second)
+             )
+
+    steer_event
+  end
+
+  defp persist_preview_request(request, streaming_state) do
+    event = Repo.get!(ActorEvent, request.actor_event.id)
+
+    checkpoint =
+      (event.reply_preview_checkpoint || %{})
+      |> Map.put("card_id", "card-#{event.id}")
+      |> Map.put("message_id", "message-#{event.id}")
+      |> Map.put("streaming_state", streaming_state)
+      |> Map.put("subject_uid", request.subject_uid)
+      |> Map.put("conversation_id", request.conversation_id)
+      |> Map.put("presentation", ReplyPresentation.checkpoint(request.presentation))
+
+    {:ok, event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+
+    {:ok,
+     %{
+       reply_preview_checkpoint: event.reply_preview_checkpoint,
+       created_source_entry_id: "message-#{event.id}"
+     }}
   end
 
   defp request_metadata(metadata), do: %{"request_metadata" => metadata}

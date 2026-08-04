@@ -104,6 +104,38 @@ defmodule Ankole.SignalsGateway.ReplyPresentationTest do
              "读取文件：core/agent-loop.ts"
   end
 
+  test "continued freezes one visible fragment without completing its live plan" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("已完成的部分")
+      |> ReplyPresentation.apply_event("reasoning.delta", %{
+        "revision" => 1,
+        "text" => "瞬时思考"
+      })
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "revision" => 2,
+        "items" => [
+          %{"id" => "done", "content" => "已完成", "status" => "completed"},
+          %{"id" => "next", "content" => "继续处理", "status" => "in_progress"}
+        ]
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "lookup",
+        "revision" => 3,
+        "phase" => "running",
+        "label" => "查询资料"
+      })
+
+    continued = ReplyPresentation.continued(presentation)
+
+    assert continued["state"] == "continued"
+    assert continued["answer"] == "已完成的部分"
+    assert get_in(continued, ["plan", "items", Access.at(1), "status"]) == "in_progress"
+    assert get_in(continued, ["activities", "lookup", "phase"]) == "running"
+    refute Map.has_key?(continued, "thought")
+    assert ReplyPresentation.terminal_state?(continued)
+  end
+
   test "accepts bounded typed result and interaction projections without provider JSON" do
     presentation =
       ReplyPresentation.new()

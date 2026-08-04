@@ -198,6 +198,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp state_copy(%{"state" => "awaiting_input"}), do: CardI18n.text("awaiting_input")
 
   defp state_copy(%{"state" => "failed"}), do: CardI18n.text("failed")
+  defp state_copy(%{"state" => "continued"}), do: CardI18n.text("turn_continued")
   defp state_copy(%{"state" => "stopped"}), do: CardI18n.text("stopped")
   defp state_copy(%{"state" => "scheduled"}), do: CardI18n.text("scheduled")
   defp state_copy(_presentation), do: CardI18n.text("working")

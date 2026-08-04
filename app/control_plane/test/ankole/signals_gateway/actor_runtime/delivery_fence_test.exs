@@ -478,6 +478,77 @@ defmodule Ankole.SignalsGateway.ActorRuntime.DeliveryFenceTest do
       assert turn_start_payload!(second_envelope).turn.actor_epoch == 2
     end
 
+    test "turn_error accepts an applied steer revision and preserves every input" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_event: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, turn_envelope}, 2_000
+      initial_turn_ref = turn_start_payload!(turn_envelope).turn
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted"}]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(initial_turn_ref))
+
+      assert {:ok, %{actor_event: steer_event}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer use the new direction", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
+               process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, mailbox_envelope}, 2_000
+      mailbox_turn_ref = envelope_body!(mailbox_envelope, :mailbox_updated).turn
+      assert mailbox_turn_ref.revision == initial_turn_ref.revision + 1
+
+      assert {:ok, [%ActorEventDelivery{state: "accepted", actor_event_id: steer_event_id}]} =
+               ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox_turn_ref))
+
+      assert steer_event_id == steer_event.id
+
+      failure_time = DateTime.add(@base_time, 4, :second)
+
+      assert {:ok, %{status: :turn_failed, superseded_deliveries: 2}} =
+               ActorRuntime.handle_turn_error(
+                 turn_error_payload(
+                   mailbox_turn_ref,
+                   "worker_loop_failed",
+                   "worker loop failed after applying steer",
+                   %{"retryable" => true}
+                 ),
+                 now: failure_time
+               )
+
+      for actor_event_id <- [input.id, steer_event.id] do
+        stored = Repo.get!(ActorEvent, actor_event_id)
+        assert stored.input_state == "open"
+        assert is_nil(stored.completed_at)
+      end
+
+      assert Repo.aggregate(OutboxEntry, :count) == 0
+    end
+
     test "non-retryable turn_error dead-letters immediately and releases the session" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

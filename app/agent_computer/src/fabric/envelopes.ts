@@ -9,8 +9,6 @@ import {
   jsonBytes,
   Lane,
   TurnAcceptedSchema,
-  TurnErrorSchema,
-  TurnNoopCompletedSchema,
   WorkerProgressSchema,
   type Envelope
 } from './envelope_proto'
@@ -47,64 +45,6 @@ export function turnAcceptedEnvelope(turn: ActorTurnRef, correlationID?: string)
     body: {
       case: 'turnAccepted',
       value: create(TurnAcceptedSchema, { turn: actorTurnRefToProto(turn) })
-    }
-  })
-}
-
-/**
- * Builds a durable turn-error envelope for failures before or during execution.
- *
- * Details are JSON on purpose: the control plane can persist and inspect the
- * worker's classification without making every error subtype part of protobuf.
- */
-export function turnErrorEnvelope(
-  turn: ActorTurnRef,
-  code: string,
-  message: string,
-  correlationID?: string,
-  details: JSONObject = { runtime: 'bun' }
-): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(
-      `turn-error-${crypto.randomUUID()}`,
-      Lane.TURN,
-      DurabilityClass.CONTROL_REPLAYABLE,
-      correlationID
-    ),
-    body: {
-      case: 'turnError',
-      value: create(TurnErrorSchema, {
-        turn: actorTurnRefToProto(turn),
-        code,
-        message,
-        detailsJson: jsonBytes(details)
-      })
-    }
-  })
-}
-
-/**
- * Builds a durable successful no-op envelope.
- *
- * This is separate from an empty text response because some inputs, such as
- * schedule-origin quiet success, intentionally complete without user-visible
- * assistant text.
- */
-export function turnNoopCompletedEnvelope(
-  turn: ActorTurnRef,
-  reason = 'noop_completed',
-  correlationID?: string
-): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(
-      `turn-noop-completed-${crypto.randomUUID()}`,
-      Lane.TURN,
-      DurabilityClass.CONTROL_REPLAYABLE,
-      correlationID
-    ),
-    body: {
-      case: 'turnNoopCompleted',
-      value: create(TurnNoopCompletedSchema, { turn: actorTurnRefToProto(turn), reason })
     }
   })
 }

@@ -6,6 +6,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.SignalsGateway.ActorRuntime.TurnLifecycle
   alias Ankole.SignalsGateway.ActorRuntime.TurnRef
   alias Ankole.SignalsGateway.ActorEvent
   alias Ankole.Repo
@@ -30,7 +31,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
     case Repo.transact(fn repo ->
            case authorize_turn_route_in_tx(repo, turn_ref, route, :write) do
              {:ok, :authorized} = authorized -> authorized
-             {:error, _reason} -> authorize_completed_turn_retry_in_tx(repo, turn_ref, route)
+             {:error, _reason} -> authorize_terminal_retry_in_tx(repo, turn_ref, route)
            end
          end) do
       {:ok, :authorized} -> :ok
@@ -108,6 +109,39 @@ defmodule Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth do
     else
       nil -> {:error, :worker_not_assigned_to_turn}
     end
+  end
+
+  defp authorize_terminal_retry_in_tx(repo, turn_ref, route) do
+    case authorize_completed_turn_retry_in_tx(repo, turn_ref, route) do
+      {:ok, :authorized} = authorized -> authorized
+      {:error, _reason} -> authorize_aborted_turn_retry_in_tx(repo, turn_ref, route)
+    end
+  end
+
+  defp authorize_aborted_turn_retry_in_tx(repo, turn_ref, route) do
+    with %AgentComputerWorker{} = worker <- worker_by_route(repo, route, false),
+         %ActorSessionActivation{} <- aborted_turn_activation(repo, turn_ref, worker),
+         true <- aborted_turn_delivery?(repo, turn_ref) do
+      {:ok, :authorized}
+    else
+      _missing -> {:error, :worker_not_assigned_to_turn}
+    end
+  end
+
+  defp aborted_turn_activation(repo, turn_ref, worker) do
+    ActorSessionActivation
+    |> where([activation], activation.agent_uid == ^turn_ref.agent_uid)
+    |> where([activation], activation.session_id == ^turn_ref.session_id)
+    |> where([activation], activation.activation_uid == ^turn_ref.activation_uid)
+    |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
+    |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
+    |> where([activation], activation.revision >= ^turn_ref.revision)
+    |> where([activation], activation.status == "failed")
+    |> repo.one()
+  end
+
+  defp aborted_turn_delivery?(repo, turn_ref) do
+    TurnLifecycle.aborted_delivery_exists_in_tx(repo, turn_ref)
   end
 
   defp completed_turn_activation(repo, turn_ref, worker) do

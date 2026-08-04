@@ -561,7 +561,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TransportTest do
           correlation_id: envelope.message_id,
           lane: :LANE_TURN,
           durability: :CONTROL_REPLAYABLE,
-          body: {:turn_noop_completed, turn_noop_completed_payload(turn_ref, "ambient_silent")}
+          body:
+            {:turn_noop_completed, turn_noop_completed_payload(mailbox.turn, "ambient_silent")}
         })
 
       send(

@@ -165,33 +165,87 @@ defmodule Ankole.SignalsGateway.Actors do
           {:ok, ActorEvent.t()} | {:error, term()}
   def put_reply_preview_checkpoint_in_tx(repo, %ActorEvent{} = event, checkpoint)
       when is_map(checkpoint) do
-    checkpoint =
-      event.reply_preview_checkpoint
-      |> ReplyInteractionState.merge_checkpoint(checkpoint)
-      |> then(fn checkpoint ->
-        Map.put(
-          checkpoint,
-          "sequence_high_water",
-          max(
-            event.reply_preview_sequence_high_water || 0,
-            checkpoint_sequence(checkpoint)
+    existing = event.reply_preview_checkpoint || %{}
+    checkpoint = preserve_reply_preview_owner_fence(existing, checkpoint)
+
+    with :ok <- validate_reply_preview_owner_fence(event.id, existing, checkpoint) do
+      checkpoint =
+        existing
+        |> ReplyInteractionState.merge_checkpoint(checkpoint)
+        |> then(fn checkpoint ->
+          Map.put(
+            checkpoint,
+            "sequence_high_water",
+            max(
+              event.reply_preview_sequence_high_water || 0,
+              checkpoint_sequence(checkpoint)
+            )
           )
-        )
-      end)
+        end)
 
-    cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
+      cleanup_at = parse_datetime(Map.get(checkpoint, "cleanup_at"))
 
-    with {:ok, updated} <-
-           event
-           |> ActorEvent.changeset(%{
-             reply_preview_checkpoint: checkpoint,
-             reply_preview_cleanup_at: cleanup_at
-           })
-           |> repo.update(),
-         :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
-      {:ok, updated}
+      with {:ok, updated} <-
+             event
+             |> ActorEvent.changeset(%{
+               reply_preview_checkpoint: checkpoint,
+               reply_preview_cleanup_at: cleanup_at
+             })
+             |> repo.update(),
+           :ok <- RuntimeEvents.notify_reply_preview_checkpoint(repo, updated) do
+        {:ok, updated}
+      end
     end
   end
+
+  defp preserve_reply_preview_owner_fence(existing, incoming) do
+    Enum.reduce(
+      ["stream_actor_event_id", "presentation_owner", "owner_generation"],
+      incoming,
+      fn key, checkpoint ->
+        if Map.has_key?(checkpoint, key) or not Map.has_key?(existing, key) do
+          checkpoint
+        else
+          Map.put(checkpoint, key, existing[key])
+        end
+      end
+    )
+  end
+
+  defp validate_reply_preview_owner_fence(actor_event_id, existing, incoming) do
+    existing_generation = checkpoint_owner_generation(existing)
+    incoming_generation = checkpoint_owner_generation(incoming)
+    existing_owner? = Map.get(existing, "presentation_owner", true)
+    incoming_owner? = Map.get(incoming, "presentation_owner", existing_owner?)
+    incoming_state = get_in(incoming, ["presentation", "state"])
+
+    dispatched_rebase? =
+      existing_owner? == false and incoming_owner? == true and
+        incoming_generation > existing_generation and
+        incoming["stream_actor_event_id"] == actor_event_id and
+        existing["stream_actor_event_id"] != actor_event_id
+
+    cond do
+      incoming_generation < existing_generation ->
+        {:error, :stale_reply_preview_owner_generation}
+
+      existing_owner? == false and incoming_owner? != false and not dispatched_rebase? ->
+        {:error, :stale_reply_preview_owner}
+
+      existing_owner? == false and incoming_generation == existing_generation and
+          incoming_state in ["debouncing", "working"] ->
+        {:error, :stale_reply_preview_owner}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp checkpoint_owner_generation(%{"owner_generation" => generation})
+       when is_integer(generation) and generation >= 0,
+       do: generation
+
+  defp checkpoint_owner_generation(_checkpoint), do: 0
 
   @doc """
   Prepares one durable CardKit mutation without allocating a second sequence on retry.
@@ -306,6 +360,14 @@ defmodule Ankole.SignalsGateway.Actors do
       [event],
       fragment(
         "COALESCE(?->'recovery_state'->>'state', '') <> 'blocked'",
+        event.reply_preview_checkpoint
+      )
+    )
+    |> where(
+      [event],
+      fragment(
+        "COALESCE((?->>'presentation_owner')::boolean, true) OR COALESCE((?->>'refresh_pending')::boolean, false)",
+        event.reply_preview_checkpoint,
         event.reply_preview_checkpoint
       )
     )

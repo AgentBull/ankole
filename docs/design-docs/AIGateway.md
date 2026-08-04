@@ -383,6 +383,11 @@ External Response identifiers use the `resp_` prefix.
 Implicit continuation stays on one line of history. The start transaction locks
 the conversation and checks its last visible Response.
 
+When the pre-compaction Brain reminder is due, AIGateway adds it to the current
+input before the start transaction. This also applies to an empty continuation.
+The stored Response keeps the reminder marker, so later history detects it and
+does not add the reminder again.
+
 The same transaction rejects another Response that is still generating. The
 WebSocket returns `response_in_progress` with status 409.
 
@@ -647,15 +652,24 @@ that Response, not an amount to add to earlier Responses. Automatic decisions
 read the newest snapshot in the visible history.
 
 When the context exceeds its threshold and compaction has no candidate, a
-request with `truncation=auto` keeps the last compaction checkpoint and the
-configured stable tail, then expands the tail backward until the client tool
-calls and outputs in history and the current input form a valid boundary. This
-rule includes `program` and `program_output`; truncation cannot retain a program
-output after it drops the matching program. The checkpoint stays because it is
-the only remaining record of the conversation before it. A suffix size cannot
-be derived from cumulative snapshots, so this path reports no post-truncation
-token estimate and leaves the measurement to the provider. When no valid
-boundary exists, the request returns `context_overflow`.
+request with `truncation=auto` selects the configured stable tail, then expands
+the tail backward until the client tool calls and outputs in history and the
+current input form a valid boundary. This rule includes `program` and
+`program_output`; truncation cannot retain a program output after it drops the
+matching program.
+
+AIGateway stores the selected tail in a normal `CompactionArtifact` and creates
+a checkpoint with a fixed summary that says older history was omitted for the
+active context budget. The new Response points to this checkpoint. Raw earlier
+messages remain in PostgreSQL for audit, and checkpoint metadata records the
+dropped range and opaque references. Later continuations replay the checkpoint
+instead of loading and truncating the same full history again. A later
+stable-tail checkpoint replaces the prior fixed summary instead of stacking
+another copy, but it keeps a real earlier compaction summary.
+
+A suffix size cannot be derived from cumulative snapshots, so this path reports
+no post-truncation token estimate and leaves the measurement to the provider.
+When no valid boundary exists, the request returns `context_overflow`.
 
 ## Store Vision Files and Generated Images
 

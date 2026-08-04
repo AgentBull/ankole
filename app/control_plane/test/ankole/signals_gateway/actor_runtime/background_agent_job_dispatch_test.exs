@@ -526,6 +526,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
             [%Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery{state: "accepted"}]} =
              ActorRuntime.handle_turn_accepted(turn_accepted_payload(mailbox.turn))
 
+    assert {:ok, applied_turn_ref} =
+             Ankole.SignalsGateway.ActorRuntime.TurnRef.from_proto(mailbox.turn)
+
     completed_at = DateTime.utc_now(:microsecond)
 
     assert {:ok, _turn} =
@@ -551,7 +554,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                  "started_at" => completed_at,
                  "completed_at" => completed_at
                },
-               status_turn_ref,
+               applied_turn_ref,
                route
              )
 
@@ -560,11 +563,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
                job.id,
                agent.uid,
                %{"status" => "succeeded", "result" => %{"summary" => "Done"}},
-               turn_ref: status_turn_ref,
+               turn_ref: applied_turn_ref,
                worker_route: route
              )
 
-    assert :ok = WorkerRouteAuth.authorize_turn_route(status_turn_ref, route, :write)
+    assert :ok = WorkerRouteAuth.authorize_turn_route(applied_turn_ref, route, :write)
 
     assert %ActorSessionWorkerAssignment{status: "assigned"} =
              Repo.get_by!(ActorSessionWorkerAssignment,
@@ -576,7 +579,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobDispatchTest do
 
     assert {:ok, %{status: :noop_completed}} =
              ActorRuntime.handle_turn_noop_completed(
-               turn_noop_completed_payload(turn_ref, "background_agent_job_committed")
+               turn_noop_completed_payload(mailbox.turn, "background_agent_job_committed")
              )
 
     assert %ActorSessionWorkerAssignment{status: "released"} =

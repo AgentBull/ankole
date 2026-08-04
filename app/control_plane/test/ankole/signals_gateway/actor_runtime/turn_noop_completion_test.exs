@@ -120,7 +120,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
 
       assert {:ok, %{status: :noop_completed, deleted_deliveries: 2, superseded_deliveries: 0}} =
                ActorRuntime.handle_turn_noop_completed(
-                 turn_noop_completed_payload(turn_ref, "ambient_silent")
+                 turn_noop_completed_payload(mailbox.turn, "ambient_silent")
                )
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
@@ -136,7 +136,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
              )
     end
 
-    test "keeps active steer completed when noop supersedes it before worker acceptance" do
+    test "keeps an unapplied active steer open when noop completes the applied prefix" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -177,7 +177,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
       assert {:ok, %{status: :active_steer_nudged, send_outcome: "sent_or_queued"}} =
                process_ready_events_once(now: DateTime.add(@base_time, 3, :second))
 
-      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      assert is_nil(Repo.get!(ActorEvent, steer_event.id).completed_at)
 
       assert_receive {:actor_lane, mailbox_envelope}, 2_000
       assert envelope_body_type(mailbox_envelope) == :mailbox_updated
@@ -188,10 +188,20 @@ defmodule Ankole.SignalsGateway.ActorRuntime.TurnNoopCompletionTest do
                )
 
       assert %DateTime{} = Repo.get!(ActorEvent, input.id).completed_at
-      assert %DateTime{} = Repo.get!(ActorEvent, steer_event.id).completed_at
+      assert is_nil(Repo.get!(ActorEvent, steer_event.id).completed_at)
 
       assert %ActorEventDelivery{state: "superseded"} =
                Repo.get_by!(ActorEventDelivery, actor_event_id: steer_event.id)
+
+      assert {:ok, %{turn_ref: next_turn_ref}} =
+               process_ready_events_once(
+                 now: DateTime.add(@base_time, 4, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert next_turn_ref.actor_event_id == steer_event.id
+      assert_receive {:actor_lane, next_envelope}, 2_000
+      assert turn_start_payload!(next_envelope).turn.actor_event_id == steer_event.id
     end
   end
 end

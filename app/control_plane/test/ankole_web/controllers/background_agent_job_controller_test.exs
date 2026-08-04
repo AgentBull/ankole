@@ -54,6 +54,24 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
     assert is_binary(first_page["next_cursor"])
     refute Map.has_key?(first_page, "calibration_summary")
 
+    # A board row stays at what the board draws. The queued prompt, the result,
+    # the error, and the metadata grow with the work the job did, and a list page
+    # holds up to 100 rows and reloads on a timer.
+    assert %{"jobs" => [listed | _rest]} = first_page
+
+    assert Map.keys(listed) |> Enum.sort() == [
+             "agent_uid",
+             "attempts",
+             "duration_seconds",
+             "id",
+             "inserted_at",
+             "status",
+             "title",
+             "workspace_template_id"
+           ]
+
+    assert listed["title"] == newest.title
+
     second_page =
       conn
       |> recycle_bearer()

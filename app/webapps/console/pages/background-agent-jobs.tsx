@@ -53,6 +53,7 @@ import {
 } from '../api/generated/@tanstack/react-query.gen'
 import type {
   BackgroundAgentJobItem,
+  BackgroundAgentJobListItem,
   BackgroundAgentJobTurnPlanStep,
   BackgroundAgentJobTurnUsageBreakdown
 } from '../api/generated/types.gen'
@@ -61,9 +62,11 @@ import { MarkdownBody } from '../markdown-body'
 import { StatusIndicator } from '../console-form'
 import { PageHeader, RefreshButton, ResourceSearch } from '../console-list-page'
 
+type JobStatus = BackgroundAgentJobItem['status']
+
 type Column = {
   key: 'todo' | 'active' | 'finished'
-  statuses: BackgroundAgentJobItem['status'][]
+  statuses: JobStatus[]
 }
 
 type BackgroundAgentJobTurn = NonNullable<BackgroundAgentJobItem['turns']>[number]
@@ -134,7 +137,7 @@ export function BackgroundAgentJobsPage() {
     () =>
       Object.fromEntries(
         columns.map(column => [column.key, jobs.filter(job => column.statuses.includes(job.status))])
-      ) as Record<Column['key'], BackgroundAgentJobItem[]>,
+      ) as Record<Column['key'], BackgroundAgentJobListItem[]>,
     [jobs]
   )
 
@@ -307,7 +310,7 @@ function BackgroundAgentJobCard({
   onCancel,
   onOpen
 }: {
-  task: BackgroundAgentJobItem
+  task: BackgroundAgentJobListItem
   cancelling: boolean
   onCancel: () => void
   onOpen: () => void
@@ -321,10 +324,15 @@ function BackgroundAgentJobCard({
         className="grid gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         aria-label={t('console.background_agent_jobs.open_detail', { title: task.title ?? task.id })}
         onClick={onOpen}>
-        <div className="flex items-start justify-between gap-3">
+        {/* A title that is one long unbreakable identifier used to set the
+            minimum width of the whole column: every card in it grew past the
+            column border and the board gained a horizontal scrollbar. `min-w-0`
+            keeps the row shrinkable and `break-words` lets the identifier wrap
+            into the two clamped lines instead of demanding its full width. */}
+        <div className="flex min-w-0 items-start justify-between gap-3">
           {/* Two lines then an ellipsis often cuts the identifier the title ends
               with, and the card is the only place that identifier appears. */}
-          <h4 className="line-clamp-2 font-medium leading-5" title={task.title ?? String(task.id)}>
+          <h4 className="line-clamp-2 min-w-0 font-medium break-words leading-5" title={task.title ?? String(task.id)}>
             {task.title ?? task.id}
           </h4>
           {/* A column that holds one status has already said it. The badge earns
@@ -350,7 +358,7 @@ function BackgroundAgentJobCard({
   )
 }
 
-function StatusBadge({ status }: { status: BackgroundAgentJobItem['status'] }) {
+function StatusBadge({ status }: { status: JobStatus }) {
   const { t } = useTranslation()
   const tone =
     status === 'failed' || status === 'stopped'
@@ -842,12 +850,12 @@ function groupTurnsByAttempt(
     }))
 }
 
-function cancellable(status: BackgroundAgentJobItem['status']): boolean {
+function cancellable(status: JobStatus): boolean {
   return status === 'queued' || status === 'running' || status === 'waiting_on_user'
 }
 
 /** Whether a card's status says more than the column it sits in already did. */
-function distinguishesStatus(status: BackgroundAgentJobItem['status']): boolean {
+function distinguishesStatus(status: JobStatus): boolean {
   const column = columns.find(candidate => candidate.statuses.includes(status))
   return (column?.statuses.length ?? 0) > 1
 }

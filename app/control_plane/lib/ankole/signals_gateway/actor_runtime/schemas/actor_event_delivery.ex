@@ -24,6 +24,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery do
   # still act on the event); `send_failed/superseded` are terminal and ignorable.
   @states ~w(created sent send_failed accepted superseded)
   @live_states ~w(created sent accepted)
+  @worker_applied_states ~w(sent accepted)
   @send_outcomes ~w(sent_or_queued unknown_route backpressure timeout socket_closed)
 
   schema "actor_event_deliveries" do
@@ -40,11 +41,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery do
     field :attempt_no, :integer
     field :actor_lane_message_id, :string
     field :correlation_id, :string
-    # The fence quintet copied from the activation onto each delivery row:
-    # activation_uid + actor_epoch + actor_event_id_fence + revision (+ actor_key).
-    # A worker reply must echo all of these or it is rejected as stale. Storing
-    # them redundantly here lets stale-reply checks run as plain equality against
-    # the DB, with no in-memory session state required.
+    # These fields copy the activation fence onto each delivery row. Static
+    # fields must match the active attempt. A terminal Worker revision is the
+    # highest input revision that it applied, so it can be lower than the
+    # activation revision.
     field :activation_uid, :string
     field :actor_epoch, :integer
     field :actor_event_id_fence, Ecto.UUID
@@ -138,4 +138,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.Schemas.ActorEventDelivery do
   """
   @spec live_states() :: [String.t()]
   def live_states, do: @live_states
+
+  @doc """
+  Returns true when a dispatched delivery belongs to the Worker-applied input
+  prefix for a terminal Turn revision.
+  """
+  @spec applied_by_worker?(struct(), non_neg_integer()) :: boolean()
+  def applied_by_worker?(%__MODULE__{state: state, revision: revision}, worker_revision)
+      when is_integer(worker_revision) and worker_revision >= 0 do
+    state in @worker_applied_states and revision <= worker_revision
+  end
 end

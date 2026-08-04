@@ -59,9 +59,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.RPCLane do
     "agent_conversation.context.resolve" =>
       {AgentConversationContextBroker, :handle_request, :turn_read,
        FabricProto.AgentConversationContextRequest},
+    "actor_turn.abort" =>
+      {ActorTurnCompletionBroker, :handle_abort, :turn_complete,
+       FabricProto.ActorTurnAbortRequest},
     "actor_turn.complete" =>
       {ActorTurnCompletionBroker, :handle_complete, :turn_complete,
        FabricProto.ActorTurnCompleteRequest},
+    "actor_turn.noop" =>
+      {ActorTurnCompletionBroker, :handle_noop, :turn_complete, FabricProto.ActorTurnNoopRequest},
     "app_configure.resolve" =>
       {AppConfigureBroker, :handle_request, :worker_agent, FabricProto.AppConfigureResolveRequest},
     "agent_plugin.list" =>

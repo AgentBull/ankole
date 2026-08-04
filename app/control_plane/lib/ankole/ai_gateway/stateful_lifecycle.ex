@@ -439,9 +439,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         Map.put(context.compaction, :previous_response_id, previous_response_id)
       else
         run_metadata =
-          put_in(
+          Compaction.put_checkpoint_response_id(
             context.compaction.run_metadata,
-            ["auto_compaction", "response_id"],
             previous_response_id
           )
 

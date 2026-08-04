@@ -859,6 +859,7 @@ export type {
   AutomationJobResponse,
   AutomationJobRunItem,
   BackgroundAgentJobItem,
+  BackgroundAgentJobListItem,
   BackgroundAgentJobListResponse,
   BackgroundAgentJobResponse,
   BackgroundAgentJobTurnActiveItem,

@@ -391,6 +391,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
   defp terminal_state_line(presentation) do
     case presentation["state"] do
+      "continued" -> "⏸ 已暂停，后续处理续接于下一张卡片"
       "failed" -> "⚠️ 出错"
       "stopped" -> "⏹ 已停止"
       "awaiting_input" -> "⏸ 等待输入"

@@ -258,6 +258,28 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     refute Enum.any?(elements, &(&1["element_id"] == "separator"))
   end
 
+  test "a continued fragment keeps its visible work and shows the owner handoff" do
+    continued =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("旧卡片答案")
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "lookup",
+        "revision" => 1,
+        "phase" => "running",
+        "label" => "查询资料"
+      })
+      |> ReplyPresentation.continued()
+
+    assert {:ok, card} = Renderer.render(continued, mode: :terminal)
+    elements = get_in(card, ["body", "elements"])
+    state = Enum.find(elements, &(&1["element_id"] == "state"))
+
+    assert state["text"]["content"] == "Paused. Work continues in the next card."
+    assert state["text"]["i18n_content"]["zh_cn"] == "已暂停，后续处理续接于下一张卡片"
+    assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == "旧卡片答案"
+    assert Enum.find(elements, &(&1["element_id"] == "activity"))
+  end
+
   test "todo is expanded while work is running and collapsed after completion" do
     working =
       ReplyPresentation.new()

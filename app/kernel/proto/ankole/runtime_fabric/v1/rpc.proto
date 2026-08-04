@@ -41,6 +41,29 @@ message ActorTurnCompleteResponse {
   string outcome = 3;
 }
 
+// A no-op consumes the applied input prefix without provider-visible output.
+message ActorTurnNoopRequest {
+  string reason = 1;
+}
+
+message ActorTurnNoopResponse {
+  string status = 1; // noop_completed | already_completed
+  string reason = 2;
+}
+
+// An abort ends one worker attempt without consuming any ActorEvent input.
+message ActorTurnAbortRequest {
+  string code = 1;
+  string message = 2;
+  bytes details_json = 3;
+}
+
+message ActorTurnAbortResponse {
+  string status = 1; // turn_failed | turn_dead_lettered | already_aborted
+  bool dead_lettered = 2;
+  string retry_available_at = 3;
+}
+
 // ===== worker_agent scope =====
 
 message AIGatewayAPIKeyRequest {}

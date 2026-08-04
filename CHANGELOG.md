@@ -1,5 +1,17 @@
 # Changelog
 
+## Version 0.57.2 (2026-08-04)
+
+- Read and send only the board fields on the Console Background Agent Jobs list. The list carried the queued prompt, the result, the error, the metadata, and the reply route of every job, so a page of 100 rows that reloads every five seconds moved a payload that grew with the work each job did while the board drew a title, an Agent uid, a status, an attempt count, and a duration. Add the `BackgroundAgentJobListItem` contract and a narrowed `SELECT`; the single-job read and the cancel response keep the complete projection.
+
+- Stop one long unbreakable job title from widening its whole Background Agent Jobs column. Such a title set the minimum width of the card track, so every card in the column grew past the column border and the board gained a horizontal scrollbar. The title row is now shrinkable and the title wraps into its two clamped lines.
+
+- Make Background Agent Job message activity state whether the caller is waiting for a reply, and give synchronous and asynchronous completion distinct text. Keep synchronous waiting as the default and retain the existing bounded poll. Cover omitted, explicit true, and false `wait_reply` projections.
+
+- Replace normal Worker Turn termination with acknowledged `actor_turn.complete`, `actor_turn.noop`, and `actor_turn.abort` operations. Track the Worker-applied revision as a prefix of the control-plane revision, acknowledge steer only after model or Codex admission, consume only that applied prefix on response or no-op, and preserve every input on abort. Keep the old actor-lane terminal envelopes as control-plane rolling-upgrade delegates, and delete the unused Worker encoders. Give `ActorEventDelivery` one applied-prefix predicate and give `TurnLifecycle` one superseded-abort query. Require the deployment executor to wait for old Worker Pods to terminate before it applies the control-plane phase; a late old-Worker frame keeps input durable but can leave one applied steer open for replay. Give `/steer` one provider-neutral `continued` presentation transition: freeze the old card, move later progress to a new ActorEvent-owned card after the steer message, fence late provider updates by owner generation, and anchor the final reply to the newest applied steer across Lark, DingTalk, and WeCom. If old-card finalization fails, persist `refresh_pending`, switch the owner, and let preview recovery finish the old card without blocking the steer.
+
+- Persist an empty-continuation pre-compaction reminder in the Response that receives it. Replace request-local automatic tail truncation with the existing CompactionArtifact and checkpoint contract, keep dropped-history audit metadata and safe tool pairs, replay later Turns from the checkpoint, and collapse repeated stable-tail summaries while preserving real compaction summaries. Keep checkpoint response-ID metadata in `Compaction` instead of duplicating its internal shape in `StatefulLifecycle`.
+
 ## Version 0.57.1 (2026-08-04)
 
 - Fix Skill-backed HTTP MCP authentication after the mcporter migration. Keep each raw bearer token in WorkerEnv, write only its `${VARIABLE}` placeholder into the invocation config, and let mcporter add the required `Bearer` authorization scheme. Add Worker-image integration coverage for the real mcporter HTTP request, keep secrets out of generated files, and correct the MCP-backed Skill contract and proposal.

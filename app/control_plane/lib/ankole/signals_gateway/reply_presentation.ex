@@ -10,7 +10,7 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
   """
 
   @schema_version 1
-  @terminal_states ~w(awaiting_input completed failed stopped scheduled)
+  @terminal_states ~w(awaiting_input completed continued failed stopped scheduled)
   @states ["debouncing", "working" | @terminal_states]
   @plan_statuses ~w(pending in_progress completed cancelled)
   @activity_phases ~w(pending running completed failed)
@@ -195,6 +195,30 @@ defmodule Ankole.SignalsGateway.ReplyPresentation do
     |> Map.delete("thought")
     |> terminalize_plan()
     |> bump_revision()
+  end
+
+  @doc """
+  Freezes one visible reply fragment when a steer moves later work to a new
+  card. The existing answer, plan, activities, results, and receipts remain
+  exact. Transient thought and controls do not cross the presentation owner
+  boundary.
+  """
+  @spec continued(t()) :: t()
+  def continued(presentation) do
+    presentation = normalize(presentation)
+
+    if presentation["state"] == "continued" do
+      presentation
+    else
+      presentation
+      |> Map.put("state", "continued")
+      |> Map.put("actions", [])
+      |> Map.delete("prompt")
+      |> Map.delete("thought")
+      |> Map.delete("interaction_status")
+      |> Map.delete("interaction_answer")
+      |> bump_revision()
+    end
   end
 
   @spec fallback_text(t()) :: String.t()

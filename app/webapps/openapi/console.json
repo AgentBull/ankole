@@ -783,7 +783,7 @@
       "BackgroundAgentJobListResponse": {
         "additionalProperties": false,
         "properties": {
-          "jobs": { "items": { "$ref": "#/components/schemas/BackgroundAgentJobItem" }, "type": "array" },
+          "jobs": { "items": { "$ref": "#/components/schemas/BackgroundAgentJobListItem" }, "type": "array" },
           "next_cursor": { "nullable": true, "type": "string" }
         },
         "required": ["jobs", "next_cursor"],
@@ -923,6 +923,34 @@
         },
         "required": ["orders"],
         "title": "SignalChannelStandingOrdersWriteRequest",
+        "type": "object"
+      },
+      "BackgroundAgentJobListItem": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_uid": { "type": "string" },
+          "attempts": { "type": "integer" },
+          "duration_seconds": { "type": "integer" },
+          "id": { "maximum": 9007199254740991, "minimum": 1000, "type": "integer" },
+          "inserted_at": { "type": "string" },
+          "status": {
+            "enum": ["queued", "running", "waiting_on_user", "succeeded", "failed", "stopped"],
+            "type": "string"
+          },
+          "title": { "type": "string" },
+          "workspace_template_id": { "nullable": true, "type": "string" }
+        },
+        "required": [
+          "id",
+          "agent_uid",
+          "title",
+          "status",
+          "attempts",
+          "workspace_template_id",
+          "duration_seconds",
+          "inserted_at"
+        ],
+        "title": "BackgroundAgentJobListItem",
         "type": "object"
       },
       "WorkerEnvUpdateRequest": {

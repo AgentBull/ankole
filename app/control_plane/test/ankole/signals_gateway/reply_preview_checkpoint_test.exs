@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
   alias Ankole.Repo
   alias Ankole.SignalsGateway.Actors
   alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.SignalsGateway.ReplyPresentation
   alias Ankole.RuntimeEvents
 
   test "persists a bounded card checkpoint and reuses one pending mutation identity" do
@@ -86,5 +87,96 @@ defmodule Ankole.SignalsGateway.ReplyPreviewCheckpointTest do
              Actors.reply_preview_cleanup_runtime_event(stored)
 
     assert cleanup_payload["due_at"] == "2026-07-14T02:40:00.000000Z"
+  end
+
+  test "owner generation rejects a late working update after a card handoff" do
+    %{principal: subject} = agent_fixture()
+    binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: event} =
+      emit_addressed_actor_event(
+        subject.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "owner-fence-event",
+          signal_channel_id: "mock:owner-fence",
+          source_entry_id: "source",
+          explicit: true,
+          text: "ping"
+        })
+      )
+
+    continued = ReplyPresentation.new() |> ReplyPresentation.continued()
+
+    assert {:ok, _event} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "presentation_owner" => false,
+               "owner_generation" => 2,
+               "stream_actor_event_id" => event.id,
+               "presentation" => continued
+             })
+
+    assert {:error, :stale_reply_preview_owner_generation} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "presentation_owner" => true,
+               "owner_generation" => 1,
+               "presentation" => ReplyPresentation.new(state: "working")
+             })
+
+    assert {:error, :stale_reply_preview_owner} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "presentation" => ReplyPresentation.new(state: "working")
+             })
+
+    completed = ReplyPresentation.terminal(continued, "completed", "最终结果")
+
+    assert {:ok, completed_event} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "owner_generation" => 2,
+               "presentation_owner" => false,
+               "presentation" => completed
+             })
+
+    assert completed_event.reply_preview_checkpoint["presentation"]["state"] == "completed"
+  end
+
+  test "dispatch can rebase an old continued owner onto its own new Turn stream" do
+    %{principal: subject} = agent_fixture()
+    binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
+
+    %{actor_event: event} =
+      emit_addressed_actor_event(
+        subject.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "owner-rebase-event",
+          signal_channel_id: "mock:owner-rebase",
+          source_entry_id: "source",
+          explicit: true,
+          text: "ping"
+        })
+      )
+
+    assert {:ok, _event} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "presentation_owner" => false,
+               "owner_generation" => 2,
+               "stream_actor_event_id" => Ecto.UUID.generate(),
+               "presentation" => ReplyPresentation.new() |> ReplyPresentation.continued()
+             })
+
+    assert {:ok, rebased_event} =
+             Actors.put_reply_preview_checkpoint(event.id, %{
+               "presentation_owner" => true,
+               "owner_generation" => 3,
+               "stream_actor_event_id" => event.id,
+               "presentation" => ReplyPresentation.new(state: "working")
+             })
+
+    checkpoint = rebased_event.reply_preview_checkpoint
+    assert checkpoint["presentation_owner"] == true
+    assert checkpoint["owner_generation"] == 3
+    assert checkpoint["stream_actor_event_id"] == event.id
+    assert checkpoint["presentation"]["state"] == "working"
   end
 end

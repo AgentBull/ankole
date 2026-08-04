@@ -1,13 +1,7 @@
 import { match, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { mailboxUpdatedFromEnvelope, turnControlFromEnvelope, turnStartFromEnvelope } from './lanes/actor_lane'
 import { runTurnHandlers, type ReplyPresentationEvent } from './core'
-import {
-  controlShutdownEnvelope,
-  turnAcceptedEnvelope,
-  turnErrorEnvelope,
-  turnNoopCompletedEnvelope,
-  workerProgressEnvelope
-} from './fabric/envelopes'
+import { controlShutdownEnvelope, turnAcceptedEnvelope, workerProgressEnvelope } from './fabric/envelopes'
 import {
   RuntimeRPCClient,
   automationJobRPCRequester,
@@ -43,7 +37,13 @@ import { startWebhookCLIBridge } from './cli/webhooks/webhook-cli-bridge'
 import { startAutomationJobCLIBridge } from './cli/automation-jobs/automation-job-cli-bridge'
 import { runAutomationJob } from './automation-jobs/run'
 import { WorkerDrainState } from './worker/drain'
-import { completeTurnWithAck, TurnCompletionRejectedError } from './worker/turn_completion'
+import {
+  abortTurnWithAck,
+  completeTurnWithAck,
+  noopTurnWithAck,
+  TurnCompletionRejectedError,
+  TurnTerminalRejectedError
+} from './worker/turn_completion'
 import { deleteCodexLogs2AtDailyReset } from './tools/codex/fix-codex-logs2-sqlite-bug'
 
 const heartbeatIntervalMs = 15_000
@@ -267,7 +267,7 @@ async function handleEnvelope(
     .with({ case: 'turnStart' }, () =>
       startTurn(config, browserRuntime, sendEnvelope, rpcClient, activeTurns, drain, envelope)
     )
-    .with({ case: 'mailboxUpdated' }, () => handleMailboxUpdated(sendEnvelope, activeTurns, envelope))
+    .with({ case: 'mailboxUpdated' }, () => handleMailboxUpdated(activeTurns, envelope))
     .with({ case: 'turnControl' }, () => handleTurnControl(activeTurns, envelope))
     .otherwise(() => undefined)
 }
@@ -299,34 +299,34 @@ async function startTurn(
   const activeKey = turnKey(turnStart.turn)
 
   if (!drain.acceptsTurns) {
-    await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_draining', 'worker is draining', correlationID, {
-        runtime: 'bun',
-        retryable: true
-      })
-    )
+    await abortTurnWithAck(rpcClient, turnStart.turn, {
+      code: 'worker_draining',
+      message: 'worker is draining',
+      details: { runtime: 'bun', retryable: true }
+    })
     return
   }
 
   if (activeTurns.has(activeKey)) {
-    await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'conversation already has an active turn', correlationID, {
-        runtime: 'bun',
-        retryable: true
-      })
-    )
+    await abortTurnWithAck(rpcClient, turnStart.turn, {
+      code: 'worker_busy',
+      message: 'conversation already has an active turn',
+      details: { runtime: 'bun', retryable: true }
+    })
     return
   }
 
   if (activeTurns.size >= config.maxConcurrentTurns) {
-    await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker has no available turn slots', correlationID, {
+    await abortTurnWithAck(rpcClient, turnStart.turn, {
+      code: 'worker_busy',
+      message: 'worker has no available turn slots',
+      details: {
         runtime: 'bun',
         retryable: true,
         active_turns: activeTurns.size,
         max_turns: config.maxConcurrentTurns
-      })
-    )
+      }
+    })
     return
   }
 
@@ -358,7 +358,7 @@ async function startTurn(
 /**
  * Owns the lifecycle wrapper around the actual turn execution.
  *
- * It sends progress, converts ordinary failures to turn_error, and always
+ * It sends progress, commits ordinary failures through actor_turn.abort, and always
  * publishes updated capacity after the active turn is removed.
  */
 async function runActiveTurnTask(
@@ -404,7 +404,7 @@ async function runActiveTurnTask(
       return
     }
 
-    if (error instanceof TurnCompletionRejectedError) {
+    if (error instanceof TurnCompletionRejectedError || error instanceof TurnTerminalRejectedError) {
       workerLogger.error('worker.turn_completion_rejected', 'worker turn completion was rejected', {
         actor_event_id: turnStart.turn.actor_event_id,
         error: errorValue(error),
@@ -415,8 +415,23 @@ async function runActiveTurnTask(
 
     const message = error instanceof Error ? error.message : String(error)
 
-    await sendEnvelope(
-      turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationID, turnFailureDetails(error))
+    await abortTurnWithAck(
+      rpcClient,
+      turnStart.turn,
+      {
+        code: 'worker_turn_failed',
+        message,
+        details: turnFailureDetails(error)
+      },
+      {
+        onRetry: (attempt, retryError) => {
+          workerLogger.warning('worker.turn_abort_retry', 'worker turn abort acknowledgement missing', {
+            actor_event_id: turnStart.turn.actor_event_id,
+            attempt,
+            error: errorValue(retryError)
+          })
+        }
+      }
     )
     workerLogger.error('worker.turn_failed', 'worker turn failed', {
       actor_event_id: turnStart.turn.actor_event_id,
@@ -502,7 +517,15 @@ async function runActiveTurn(
     if (active.controlledStopRequested) return
 
     if (result.kind === 'noop_completed') {
-      await sendEnvelope(turnNoopCompletedEnvelope(turnStart.turn, result.reason, active.correlationID))
+      await noopTurnWithAck(rpcClient, turnStart.turn, result.reason, {
+        onRetry: (attempt, error) => {
+          workerLogger.warning('worker.turn_noop_retry', 'worker turn no-op acknowledgement missing', {
+            actor_event_id: turnStart.turn.actor_event_id,
+            attempt,
+            error: errorValue(error)
+          })
+        }
+      })
       return
     }
 
@@ -563,11 +586,7 @@ function turnOperation(actorEventID: string, flags: { first?: boolean; last?: bo
  * The update is accepted only when the mailbox event already contains the
  * journaled actor event; the worker must not synthesize steer text locally.
  */
-async function handleMailboxUpdated(
-  sendEnvelope: EnvelopeSender,
-  activeTurns: Map<string, ActiveTurn>,
-  envelope: Envelope
-): Promise<void> {
+async function handleMailboxUpdated(activeTurns: Map<string, ActiveTurn>, envelope: Envelope): Promise<void> {
   const update = mailboxUpdatedFromEnvelope(envelope)
   if (!update.turn) return
 
@@ -581,13 +600,6 @@ async function handleMailboxUpdated(
     actorEvent: update.actor_event,
     correlationID: envelope.messageId
   })
-
-  // Normal text turns consume steering from the next model-loop boundary, so
-  // queue admission is the application boundary. Background Agent Job turns call Codex
-  // turn/steer and acknowledge only after app-server accepts the instruction.
-  if (!active.turnStart.turn.actor.session_id.startsWith('job:')) {
-    await sendEnvelope(turnAcceptedEnvelope(update.turn, envelope.messageId))
-  }
 }
 
 /** Handles runtime controls for one active turn. */

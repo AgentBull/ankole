@@ -1,10 +1,24 @@
 [
   {
+    "method": "actor_turn.abort",
+    "scope": "turn",
+    "effect": "complete",
+    "request_type": "ankole.runtime_fabric.v1.ActorTurnAbortRequest",
+    "response_type": "ankole.runtime_fabric.v1.ActorTurnAbortResponse"
+  },
+  {
     "method": "actor_turn.complete",
     "scope": "turn",
     "effect": "complete",
     "request_type": "ankole.runtime_fabric.v1.ActorTurnCompleteRequest",
     "response_type": "ankole.runtime_fabric.v1.ActorTurnCompleteResponse"
+  },
+  {
+    "method": "actor_turn.noop",
+    "scope": "turn",
+    "effect": "complete",
+    "request_type": "ankole.runtime_fabric.v1.ActorTurnNoopRequest",
+    "response_type": "ankole.runtime_fabric.v1.ActorTurnNoopResponse"
   },
   {
     "method": "agent_conversation.context.resolve",

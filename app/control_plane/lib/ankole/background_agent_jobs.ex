@@ -315,6 +315,9 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc "Projects a job into the named Console API contract."
   defdelegate console_projection(job), to: Queries
 
+  @doc "Projects one `list_for_console/1` row into the named Console list contract."
+  defdelegate console_list_projection(row), to: Queries
+
   @doc false
   defdelegate worker_turn_projection(turn), to: Turns, as: :worker_projection
 

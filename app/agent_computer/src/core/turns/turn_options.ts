@@ -45,6 +45,7 @@ type SharedTurnOptions = {
   logger?: AgentLoopLogger
   agentConversationContext?: AgentConversationContextResponse
   pollSteering?: () => TurnSteerUpdate[]
+  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   pollDisabledSkills?: () => string[]
   pollChangedSkills?: () => string[]
   abortSignal?: AbortSignal
@@ -57,7 +58,6 @@ export type TextTurnLoopOptions = SharedTurnOptions & {
 }
 
 export type CodexJobOptions = SharedTurnOptions & {
-  onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
   onTurnActivity?: (description?: string) => void
 }
 

@@ -55,8 +55,25 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
+  # A Console list page holds up to 100 jobs and reloads every few seconds, so it
+  # reads only the columns the board and the home panel draw. The queued prompt,
+  # the result, the error, and the metadata are unbounded in the work the job
+  # did, and none of them reach the screen before the operator opens one card.
+  @console_list_columns [
+    :id,
+    :agent_uid,
+    :title,
+    :status,
+    :attempts,
+    :workspace_template_id,
+    :queued_at,
+    :started_at,
+    :completed_at,
+    :inserted_at
+  ]
+
   @spec list_for_console(keyword()) ::
-          {:ok, %{jobs: [Job.t()], next_cursor: String.t() | nil}}
+          {:ok, %{jobs: [map()], next_cursor: String.t() | nil}}
           | {:error, term()}
   def list_for_console(opts \\ []) when is_list(opts) do
     with {:ok, agent_uid} <- console_agent_uid(Keyword.get(opts, :agent_uid)),
@@ -71,6 +88,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
         |> maybe_before_console_cursor(cursor)
         |> order_by([job], desc: job.queued_at, desc: job.id)
         |> limit(^(limit + 1))
+        |> select([job], map(job, ^@console_list_columns))
         |> Repo.all()
 
       page = Enum.take(rows, limit)
@@ -142,6 +160,21 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       inserted_at: iso8601(job.inserted_at),
       updated_at: iso8601(job.updated_at)
     })
+  end
+
+  @doc "Projects one `list_for_console/1` row into the named Console list contract."
+  @spec console_list_projection(map()) :: map()
+  def console_list_projection(row) do
+    %{
+      id: row.id,
+      agent_uid: row.agent_uid,
+      title: row.title,
+      status: row.status,
+      attempts: row.attempts,
+      workspace_template_id: row.workspace_template_id,
+      duration_seconds: duration_seconds(row),
+      inserted_at: iso8601(row.inserted_at)
+    }
   end
 
   # Console field list; the RuntimeFabric RPC view is the generated
@@ -264,8 +297,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
   defp encode_console_cursor(nil), do: nil
 
-  defp encode_console_cursor(%Job{} = job) do
-    "#{DateTime.to_iso8601(job.queued_at)}|#{job.id}"
+  defp encode_console_cursor(%{queued_at: queued_at, id: id}) do
+    "#{DateTime.to_iso8601(queued_at)}|#{id}"
     |> Base.url_encode64(padding: false)
   end
 
@@ -292,7 +325,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     end
   end
 
-  defp duration_seconds(%Job{} = job) do
+  defp duration_seconds(job) do
     case {job.started_at || job.queued_at, job.completed_at} do
       {%DateTime{} = started_at, %DateTime{} = completed_at} ->
         max(DateTime.diff(completed_at, started_at, :second), 0)
